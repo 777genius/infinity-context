@@ -561,6 +561,28 @@ def test_canonical_scope_ids_must_belong_together(tmp_path: Path) -> None:
             },
             headers=auth_headers(),
         )
+        orphan_thread_fact = client.post(
+            "/v1/facts",
+            json={
+                "space_id": space_a["id"],
+                "profile_id": profile_a["id"],
+                "thread_id": "thread_missing_canonical",
+                "text": "CANONICAL_SCOPE_ORPHAN_THREAD must not be written.",
+                "kind": "note",
+                "source_refs": [{"source_type": "manual", "source_id": "orphan-thread"}],
+            },
+            headers=auth_headers(),
+        )
+        orphan_thread_context = client.post(
+            "/v1/context",
+            json={
+                "space_id": space_a["id"],
+                "profile_ids": [profile_a["id"]],
+                "thread_id": "thread_missing_canonical",
+                "query": "CANONICAL_SCOPE_ORPHAN_THREAD",
+            },
+            headers=auth_headers(),
+        )
 
     assert seeded_thread["thread_id"] is not None
     for response in (
@@ -568,10 +590,13 @@ def test_canonical_scope_ids_must_belong_together(tmp_path: Path) -> None:
         cross_thread_fact,
         cross_profile_context,
         cross_thread_context,
+        orphan_thread_fact,
+        orphan_thread_context,
     ):
         assert response.status_code == 400
         assert response.json()["error"]["code"] == "memory.validation"
         assert "CANONICAL_SCOPE_CROSS" not in response.text
+        assert "CANONICAL_SCOPE_ORPHAN_THREAD" not in response.text
 
 
 def test_disabled_policy_blocks_public_writes(tmp_path: Path) -> None:

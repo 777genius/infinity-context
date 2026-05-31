@@ -148,7 +148,7 @@ async def canonical_scope_matches(
             )
         ).one_or_none()
     if thread_row is None:
-        return True
+        return False
     return thread_row.space_id == space_id and thread_row.profile_id in unique_profile_ids
 
 
