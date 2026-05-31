@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 from memory_core.domain.entities import SourceRef
 from memory_core.domain.errors import MemoryInfrastructureError, MemoryInvariantError
@@ -103,26 +105,27 @@ def test_legacy_hackinterview_routes_are_opt_in() -> None:
     assert legacy_context.status_code == 404
 
 
-def test_legacy_hackinterview_route_flag_enables_compatibility_routes() -> None:
+def test_legacy_hackinterview_route_flag_enables_compatibility_routes(tmp_path: Path) -> None:
     app = create_app(
         Settings(
             deploy_profile=DeployProfile.TEST,
+            database_url=f"sqlite+aiosqlite:///{tmp_path / 'legacy-routes.db'}",
+            auto_create_schema=True,
             qdrant_enabled=False,
             graphiti_enabled=False,
             embeddings_enabled=False,
             legacy_hackinterview_enabled=True,
         )
     )
-    client = TestClient(app)
-
-    capabilities = client.get("/v1/capabilities")
-    legacy_context = client.post(
-        "/api/v1/interview-memory/context",
-        json={
-            "session_id": "enabled-legacy",
-            "current_request": {"id": "req-1", "label": "request", "text": "hello"},
-        },
-    )
+    with TestClient(app) as client:
+        capabilities = client.get("/v1/capabilities")
+        legacy_context = client.post(
+            "/api/v1/interview-memory/context",
+            json={
+                "session_id": "enabled-legacy",
+                "current_request": {"id": "req-1", "label": "request", "text": "hello"},
+            },
+        )
 
     assert capabilities.status_code == 200
     assert capabilities.json()["supports_legacy_hackinterview_routes"] is True
