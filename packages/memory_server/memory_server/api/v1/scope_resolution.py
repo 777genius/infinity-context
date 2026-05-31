@@ -9,6 +9,7 @@ from memory_core.domain.entities import ProfileId, SpaceId, ThreadId
 from memory_core.domain.errors import MemoryValidationError
 from memory_core.ports.auth import MemoryScope, ReadScope
 
+from memory_server.auth_scope import canonical_scope_matches
 from memory_server.composition import Container
 
 
@@ -78,6 +79,13 @@ async def resolve_single_scope(
             raise MemoryValidationError("space_id and profile_id are required with canonical scope")
         if thread_required and not thread_id:
             raise MemoryValidationError("thread_id is required for this operation")
+        if not await canonical_scope_matches(
+            container,
+            space_id=space_id,
+            profile_ids=(profile_id,),
+            thread_id=thread_id,
+        ):
+            raise MemoryValidationError("Canonical scope ids do not belong together")
         return SingleResolvedScope(
             space_id=SpaceId(space_id),
             profile_id=ProfileId(profile_id),
@@ -128,9 +136,19 @@ async def resolve_context_scope(
     if using_id_profiles:
         if not space_id:
             raise MemoryValidationError("space_id is required with profile_ids")
+        resolved_profile_ids = tuple(profile_ids or [])
+        if len(set(resolved_profile_ids)) != len(resolved_profile_ids):
+            raise MemoryValidationError("profile_ids cannot contain duplicates")
+        if not await canonical_scope_matches(
+            container,
+            space_id=space_id,
+            profile_ids=resolved_profile_ids,
+            thread_id=thread_id,
+        ):
+            raise MemoryValidationError("Canonical scope ids do not belong together")
         return ContextResolvedScope(
             space_id=SpaceId(space_id),
-            profile_ids=tuple(ProfileId(profile_id) for profile_id in profile_ids or []),
+            profile_ids=tuple(ProfileId(profile_id) for profile_id in resolved_profile_ids),
             thread_id=ThreadId(thread_id) if thread_id else None,
         )
     if space_id or thread_id:

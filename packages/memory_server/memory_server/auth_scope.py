@@ -14,6 +14,7 @@ from memory_adapters.postgres.models import (
     MemoryProfileRow,
     MemorySpaceRow,
     MemorySuggestionRow,
+    MemoryThreadRow,
 )
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -113,6 +114,42 @@ async def profile_matches(
     token_refs = _profile_refs(token_profile, fallback=token_scope)
     requested_refs = _profile_refs(requested, fallback=requested_profile)
     return not token_refs.isdisjoint(requested_refs)
+
+
+async def canonical_scope_matches(
+    container: Container,
+    *,
+    space_id: str,
+    profile_ids: tuple[str, ...],
+    thread_id: str | None,
+) -> bool:
+    if not profile_ids:
+        return False
+    unique_profile_ids = tuple(dict.fromkeys(profile_ids))
+    async with AsyncSession(container.engine) as session:
+        profile_rows = list(
+            (
+                await session.execute(
+                    select(MemoryProfileRow.id, MemoryProfileRow.space_id).where(
+                        MemoryProfileRow.id.in_(unique_profile_ids)
+                    )
+                )
+            ).all()
+        )
+        if any(row.space_id != space_id for row in profile_rows):
+            return False
+        if thread_id is None:
+            return True
+        thread_row = (
+            await session.execute(
+                select(MemoryThreadRow.space_id, MemoryThreadRow.profile_id).where(
+                    MemoryThreadRow.id == thread_id
+                )
+            )
+        ).one_or_none()
+    if thread_row is None:
+        return True
+    return thread_row.space_id == space_id and thread_row.profile_id in unique_profile_ids
 
 
 async def _add_space_from_path_resource(

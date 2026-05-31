@@ -484,6 +484,96 @@ def test_list_facts_filters_current_thread_without_leaking_other_threads(tmp_pat
     assert "THREAD_LIST_OTHER_MARKER belongs to another thread." not in texts
 
 
+def test_canonical_scope_ids_must_belong_together(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        space_a = client.post(
+            "/v1/spaces",
+            json={"slug": "canonical-a", "name": "Canonical A"},
+            headers=auth_headers(),
+        ).json()["data"]
+        profile_a = client.post(
+            "/v1/profiles",
+            json={"space_id": space_a["id"], "external_ref": "alpha", "name": "Alpha"},
+            headers=auth_headers(),
+        ).json()["data"]
+        space_b = client.post(
+            "/v1/spaces",
+            json={"slug": "canonical-b", "name": "Canonical B"},
+            headers=auth_headers(),
+        ).json()["data"]
+        profile_b = client.post(
+            "/v1/profiles",
+            json={"space_id": space_b["id"], "external_ref": "beta", "name": "Beta"},
+            headers=auth_headers(),
+        ).json()["data"]
+        seeded_thread = client.post(
+            "/v1/facts",
+            json={
+                "space_slug": "canonical-b",
+                "profile_external_ref": "beta",
+                "thread_external_ref": "thread-b",
+                "text": "CANONICAL_SCOPE_THREAD_SEED belongs to canonical-b.",
+                "kind": "note",
+                "source_refs": [{"source_type": "manual", "source_id": "thread-seed"}],
+            },
+            headers=auth_headers(),
+        ).json()["data"]
+
+        cross_profile_fact = client.post(
+            "/v1/facts",
+            json={
+                "space_id": space_a["id"],
+                "profile_id": profile_b["id"],
+                "text": "CANONICAL_SCOPE_CROSS_PROFILE must not be written.",
+                "kind": "note",
+                "source_refs": [{"source_type": "manual", "source_id": "cross-profile"}],
+            },
+            headers=auth_headers(),
+        )
+        cross_thread_fact = client.post(
+            "/v1/facts",
+            json={
+                "space_id": space_a["id"],
+                "profile_id": profile_a["id"],
+                "thread_id": seeded_thread["thread_id"],
+                "text": "CANONICAL_SCOPE_CROSS_THREAD must not be written.",
+                "kind": "note",
+                "source_refs": [{"source_type": "manual", "source_id": "cross-thread"}],
+            },
+            headers=auth_headers(),
+        )
+        cross_profile_context = client.post(
+            "/v1/context",
+            json={
+                "space_id": space_a["id"],
+                "profile_ids": [profile_b["id"]],
+                "query": "CANONICAL_SCOPE_CROSS_PROFILE",
+            },
+            headers=auth_headers(),
+        )
+        cross_thread_context = client.post(
+            "/v1/context",
+            json={
+                "space_id": space_a["id"],
+                "profile_ids": [profile_a["id"]],
+                "thread_id": seeded_thread["thread_id"],
+                "query": "CANONICAL_SCOPE_CROSS_THREAD",
+            },
+            headers=auth_headers(),
+        )
+
+    assert seeded_thread["thread_id"] is not None
+    for response in (
+        cross_profile_fact,
+        cross_thread_fact,
+        cross_profile_context,
+        cross_thread_context,
+    ):
+        assert response.status_code == 400
+        assert response.json()["error"]["code"] == "memory.validation"
+        assert "CANONICAL_SCOPE_CROSS" not in response.text
+
+
 def test_disabled_policy_blocks_public_writes(tmp_path: Path) -> None:
     with make_client_with_settings(tmp_path, policy_mode=MemoryPolicyMode.DISABLED) as client:
         response = client.post("/v1/facts", json=fact_payload(), headers=auth_headers())
