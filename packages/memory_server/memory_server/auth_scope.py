@@ -30,6 +30,78 @@ class PathResourceRefs:
     profile_id: str | None = None
 
 
+@dataclass(frozen=True)
+class ExistingScopeRefs:
+    space_id: str
+    profile_id: str
+    thread_id: str | None = None
+
+
+async def resolve_existing_external_scope(
+    container: Container,
+    *,
+    space_slug: str | None,
+    profile_external_ref: str | None,
+    thread_external_ref: str | None,
+) -> ExistingScopeRefs | None:
+    """Resolve external scope refs without creating rows."""
+
+    normalized_space_slug = _scope_ref(
+        space_slug,
+        fallback=container.settings.default_space_slug,
+    )
+    normalized_profile_ref = _scope_ref(
+        profile_external_ref,
+        fallback=container.settings.default_profile_external_ref,
+    )
+    normalized_thread_ref = _optional_scope_ref(thread_external_ref)
+
+    async with AsyncSession(container.engine) as session:
+        space = (
+            await session.execute(
+                select(MemorySpaceRow).where(
+                    MemorySpaceRow.slug == normalized_space_slug,
+                    MemorySpaceRow.status == "active",
+                )
+            )
+        ).scalar_one_or_none()
+        if space is None:
+            return None
+
+        profile = (
+            await session.execute(
+                select(MemoryProfileRow).where(
+                    MemoryProfileRow.space_id == space.id,
+                    MemoryProfileRow.external_ref == normalized_profile_ref,
+                    MemoryProfileRow.status == "active",
+                )
+            )
+        ).scalar_one_or_none()
+        if profile is None:
+            return None
+
+        thread_id = None
+        if normalized_thread_ref is not None:
+            thread_id = (
+                await session.execute(
+                    select(MemoryThreadRow.id).where(
+                        MemoryThreadRow.space_id == space.id,
+                        MemoryThreadRow.profile_id == profile.id,
+                        MemoryThreadRow.external_ref == normalized_thread_ref,
+                        MemoryThreadRow.status == "active",
+                    )
+                )
+            ).scalar_one_or_none()
+            if thread_id is None:
+                return None
+
+    return ExistingScopeRefs(
+        space_id=str(space.id),
+        profile_id=str(profile.id),
+        thread_id=str(thread_id) if thread_id else None,
+    )
+
+
 async def requested_space_refs(
     container: Container,
     *,
@@ -290,3 +362,13 @@ def _profile_refs(row: MemoryProfileRow | None, *, fallback: str) -> set[str]:
 
 def _scope_row_is_active(row: MemorySpaceRow | MemoryProfileRow | None) -> bool:
     return row is None or row.status == "active"
+
+
+def _scope_ref(value: str | None, *, fallback: str) -> str:
+    cleaned = value.strip() if value else ""
+    return cleaned or fallback
+
+
+def _optional_scope_ref(value: str | None) -> str | None:
+    cleaned = value.strip() if value else ""
+    return cleaned or None

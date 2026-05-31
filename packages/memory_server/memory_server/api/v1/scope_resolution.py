@@ -9,7 +9,7 @@ from memory_core.domain.entities import ProfileId, SpaceId, ThreadId
 from memory_core.domain.errors import MemoryValidationError
 from memory_core.ports.auth import MemoryScope, ReadScope
 
-from memory_server.auth_scope import canonical_scope_matches
+from memory_server.auth_scope import canonical_scope_matches, resolve_existing_external_scope
 from memory_server.composition import Container
 
 
@@ -68,6 +68,60 @@ async def resolve_single_scope(
 ) -> SingleResolvedScope:
     """Resolve either canonical IDs or human/external refs into a single scope."""
 
+    scope = await _resolve_single_scope(
+        container,
+        space_id=space_id,
+        profile_id=profile_id,
+        thread_id=thread_id,
+        space_slug=space_slug,
+        profile_external_ref=profile_external_ref,
+        thread_external_ref=thread_external_ref,
+        thread_required=thread_required,
+        create_missing_external_scope=True,
+    )
+    if scope is None:
+        raise MemoryValidationError("External scope refs do not exist")
+    return scope
+
+
+async def resolve_existing_single_scope(
+    container: Container,
+    *,
+    space_id: str | None,
+    profile_id: str | None,
+    thread_id: str | None,
+    space_slug: str | None,
+    profile_external_ref: str | None,
+    thread_external_ref: str | None,
+    thread_required: bool,
+) -> SingleResolvedScope | None:
+    """Resolve scope for read paths without creating missing external refs."""
+
+    return await _resolve_single_scope(
+        container,
+        space_id=space_id,
+        profile_id=profile_id,
+        thread_id=thread_id,
+        space_slug=space_slug,
+        profile_external_ref=profile_external_ref,
+        thread_external_ref=thread_external_ref,
+        thread_required=thread_required,
+        create_missing_external_scope=False,
+    )
+
+
+async def _resolve_single_scope(
+    container: Container,
+    *,
+    space_id: str | None,
+    profile_id: str | None,
+    thread_id: str | None,
+    space_slug: str | None,
+    profile_external_ref: str | None,
+    thread_external_ref: str | None,
+    thread_required: bool,
+    create_missing_external_scope: bool,
+) -> SingleResolvedScope | None:
     using_ids = bool(space_id or profile_id or thread_id)
     using_external_refs = bool(space_slug or profile_external_ref or thread_external_ref)
 
@@ -75,41 +129,73 @@ async def resolve_single_scope(
         raise MemoryValidationError("Use either canonical ids or external scope refs, not both")
 
     if using_ids:
-        if not space_id or not profile_id:
-            raise MemoryValidationError("space_id and profile_id are required with canonical scope")
-        if thread_required and not thread_id:
-            raise MemoryValidationError("thread_id is required for this operation")
-        if not await canonical_scope_matches(
+        return await _resolve_canonical_single_scope(
             container,
             space_id=space_id,
-            profile_ids=(profile_id,),
+            profile_id=profile_id,
             thread_id=thread_id,
-        ):
-            raise MemoryValidationError("Canonical scope ids do not belong together")
-        return SingleResolvedScope(
-            space_id=SpaceId(space_id),
-            profile_id=ProfileId(profile_id),
-            thread_id=ThreadId(thread_id) if thread_id else None,
+            thread_required=thread_required,
         )
 
     if thread_required and not thread_external_ref:
         raise MemoryValidationError("thread_external_ref is required for this operation")
 
-    scope = await container.ensure_scope.execute(
-        EnsureScopeCommand(
-            space_slug=space_slug or container.settings.default_space_slug,
-            profile_external_ref=(
-                profile_external_ref or container.settings.default_profile_external_ref
-            ),
-            thread_external_ref=thread_external_ref,
+    if create_missing_external_scope:
+        scope = await container.ensure_scope.execute(
+            EnsureScopeCommand(
+                space_slug=space_slug or container.settings.default_space_slug,
+                profile_external_ref=(
+                    profile_external_ref or container.settings.default_profile_external_ref
+                ),
+                thread_external_ref=thread_external_ref,
+            )
         )
+        if thread_required and scope.thread_id is None:
+            raise MemoryValidationError("thread scope could not be resolved")
+        return SingleResolvedScope(
+            space_id=scope.space_id,
+            profile_id=scope.profile_id,
+            thread_id=scope.thread_id,
+        )
+
+    existing = await resolve_existing_external_scope(
+        container,
+        space_slug=space_slug,
+        profile_external_ref=profile_external_ref,
+        thread_external_ref=thread_external_ref,
     )
-    if thread_required and scope.thread_id is None:
-        raise MemoryValidationError("thread scope could not be resolved")
+    if existing is None:
+        return None
     return SingleResolvedScope(
-        space_id=scope.space_id,
-        profile_id=scope.profile_id,
-        thread_id=scope.thread_id,
+        space_id=SpaceId(existing.space_id),
+        profile_id=ProfileId(existing.profile_id),
+        thread_id=ThreadId(existing.thread_id) if existing.thread_id else None,
+    )
+
+
+async def _resolve_canonical_single_scope(
+    container: Container,
+    *,
+    space_id: str | None,
+    profile_id: str | None,
+    thread_id: str | None,
+    thread_required: bool,
+) -> SingleResolvedScope:
+    if not space_id or not profile_id:
+        raise MemoryValidationError("space_id and profile_id are required with canonical scope")
+    if thread_required and not thread_id:
+        raise MemoryValidationError("thread_id is required for this operation")
+    if not await canonical_scope_matches(
+        container,
+        space_id=space_id,
+        profile_ids=(profile_id,),
+        thread_id=thread_id,
+    ):
+        raise MemoryValidationError("Canonical scope ids do not belong together")
+    return SingleResolvedScope(
+        space_id=SpaceId(space_id),
+        profile_id=ProfileId(profile_id),
+        thread_id=ThreadId(thread_id) if thread_id else None,
     )
 
 
@@ -126,6 +212,60 @@ async def resolve_context_scope(
 ) -> ContextResolvedScope:
     """Resolve context scope while preserving the existing ID-based contract."""
 
+    scope = await _resolve_context_scope(
+        container,
+        space_id=space_id,
+        profile_ids=profile_ids,
+        thread_id=thread_id,
+        space_slug=space_slug,
+        profile_external_ref=profile_external_ref,
+        profile_external_refs=profile_external_refs,
+        thread_external_ref=thread_external_ref,
+        create_missing_external_scope=True,
+    )
+    if scope is None:
+        raise MemoryValidationError("External scope refs do not exist")
+    return scope
+
+
+async def resolve_existing_context_scope(
+    container: Container,
+    *,
+    space_id: str | None,
+    profile_ids: list[str] | None,
+    thread_id: str | None,
+    space_slug: str | None,
+    profile_external_ref: str | None,
+    profile_external_refs: list[str] | None,
+    thread_external_ref: str | None,
+) -> ContextResolvedScope | None:
+    """Resolve context scope for read paths without creating missing external refs."""
+
+    return await _resolve_context_scope(
+        container,
+        space_id=space_id,
+        profile_ids=profile_ids,
+        thread_id=thread_id,
+        space_slug=space_slug,
+        profile_external_ref=profile_external_ref,
+        profile_external_refs=profile_external_refs,
+        thread_external_ref=thread_external_ref,
+        create_missing_external_scope=False,
+    )
+
+
+async def _resolve_context_scope(
+    container: Container,
+    *,
+    space_id: str | None,
+    profile_ids: list[str] | None,
+    thread_id: str | None,
+    space_slug: str | None,
+    profile_external_ref: str | None,
+    profile_external_refs: list[str] | None,
+    thread_external_ref: str | None,
+    create_missing_external_scope: bool,
+) -> ContextResolvedScope | None:
     using_id_profiles = bool(profile_ids)
     using_external_scope = bool(space_slug or profile_external_ref or profile_external_refs)
 
@@ -134,28 +274,82 @@ async def resolve_context_scope(
             "Use profile_ids/thread_id or external profile refs/thread_external_ref, not both"
         )
     if using_id_profiles:
-        if not space_id:
-            raise MemoryValidationError("space_id is required with profile_ids")
-        resolved_profile_ids = tuple(profile_ids or [])
-        if len(set(resolved_profile_ids)) != len(resolved_profile_ids):
-            raise MemoryValidationError("profile_ids cannot contain duplicates")
-        if not await canonical_scope_matches(
+        return await _resolve_canonical_context_scope(
             container,
             space_id=space_id,
-            profile_ids=resolved_profile_ids,
+            profile_ids=tuple(profile_ids or []),
             thread_id=thread_id,
-        ):
-            raise MemoryValidationError("Canonical scope ids do not belong together")
-        return ContextResolvedScope(
-            space_id=SpaceId(space_id),
-            profile_ids=tuple(ProfileId(profile_id) for profile_id in resolved_profile_ids),
-            thread_id=ThreadId(thread_id) if thread_id else None,
         )
     if space_id or thread_id:
         raise MemoryValidationError(
             "Canonical space_id/thread_id requires profile_ids; external scope uses space_slug"
         )
 
+    refs = _context_profile_refs(
+        container,
+        profile_external_ref=profile_external_ref,
+        profile_external_refs=profile_external_refs,
+        thread_external_ref=thread_external_ref,
+    )
+    resolved: list[SingleResolvedScope] = []
+    for ref in refs:
+        scope = await _resolve_single_scope(
+            container,
+            space_id=None,
+            profile_id=None,
+            thread_id=None,
+            space_slug=space_slug,
+            profile_external_ref=ref,
+            thread_external_ref=thread_external_ref,
+            thread_required=False,
+            create_missing_external_scope=create_missing_external_scope,
+        )
+        if scope is None:
+            return None
+        resolved.append(scope)
+
+    space_ids = {scope.space_id for scope in resolved}
+    if len(space_ids) != 1:
+        raise MemoryValidationError("Resolved profiles must belong to one space")
+    return ContextResolvedScope(
+        space_id=resolved[0].space_id,
+        profile_ids=tuple(scope.profile_id for scope in resolved),
+        thread_id=resolved[0].thread_id,
+    )
+
+
+async def _resolve_canonical_context_scope(
+    container: Container,
+    *,
+    space_id: str | None,
+    profile_ids: tuple[str, ...],
+    thread_id: str | None,
+) -> ContextResolvedScope:
+    if not space_id:
+        raise MemoryValidationError("space_id is required with profile_ids")
+    if len(set(profile_ids)) != len(profile_ids):
+        raise MemoryValidationError("profile_ids cannot contain duplicates")
+    if not await canonical_scope_matches(
+        container,
+        space_id=space_id,
+        profile_ids=profile_ids,
+        thread_id=thread_id,
+    ):
+        raise MemoryValidationError("Canonical scope ids do not belong together")
+    return ContextResolvedScope(
+        space_id=SpaceId(space_id),
+        profile_ids=tuple(ProfileId(profile_id) for profile_id in profile_ids),
+        thread_id=ThreadId(thread_id) if thread_id else None,
+    )
+
+
+def _context_profile_refs(
+    container: Container,
+    *,
+    profile_external_ref: str | None,
+    profile_external_refs: list[str] | None,
+    thread_external_ref: str | None,
+) -> tuple[str, ...]:
     refs = tuple(profile_external_refs or [])
     if profile_external_ref:
         refs = (profile_external_ref, *refs)
@@ -165,25 +359,4 @@ async def resolve_context_scope(
         raise MemoryValidationError("profile_external_refs must be unique")
     if len(refs) > 1 and thread_external_ref:
         raise MemoryValidationError("thread_external_ref supports a single profile for context")
-
-    resolved = [
-        await resolve_single_scope(
-            container,
-            space_id=None,
-            profile_id=None,
-            thread_id=None,
-            space_slug=space_slug,
-            profile_external_ref=ref,
-            thread_external_ref=thread_external_ref,
-            thread_required=False,
-        )
-        for ref in refs
-    ]
-    space_ids = {scope.space_id for scope in resolved}
-    if len(space_ids) != 1:
-        raise MemoryValidationError("Resolved profiles must belong to one space")
-    return ContextResolvedScope(
-        space_id=resolved[0].space_id,
-        profile_ids=tuple(scope.profile_id for scope in resolved),
-        thread_id=resolved[0].thread_id,
-    )
+    return refs

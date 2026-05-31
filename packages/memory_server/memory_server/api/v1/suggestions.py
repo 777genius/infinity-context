@@ -30,7 +30,10 @@ from memory_server.api.v1.facts import (
     map_memory_kind,
     map_source_ref,
 )
-from memory_server.api.v1.scope_resolution import resolve_single_scope
+from memory_server.api.v1.scope_resolution import (
+    resolve_existing_single_scope,
+    resolve_single_scope,
+)
 from memory_server.composition import Container
 
 router = APIRouter(
@@ -133,14 +136,12 @@ async def list_suggestions(
     space_id: Annotated[str | None, Query(min_length=1, max_length=80)] = None,
     profile_id: Annotated[str | None, Query(min_length=1, max_length=80)] = None,
     space_slug: Annotated[str | None, Query(min_length=1, max_length=160)] = None,
-    profile_external_ref: Annotated[
-        str | None, Query(min_length=1, max_length=200)
-    ] = None,
+    profile_external_ref: Annotated[str | None, Query(min_length=1, max_length=200)] = None,
     status_filter: Annotated[str | None, Query(alias="status", max_length=40)] = None,
     limit: Annotated[int, Query(ge=1, le=500)] = 100,
 ) -> dict[str, Any]:
     _validate_suggestion_status(status_filter)
-    scope = await resolve_single_scope(
+    scope = await resolve_existing_single_scope(
         container,
         space_id=space_id,
         profile_id=profile_id,
@@ -150,6 +151,8 @@ async def list_suggestions(
         thread_external_ref=None,
         thread_required=False,
     )
+    if scope is None:
+        return {"data": []}
     suggestions = await container.list_suggestions.execute(
         ListSuggestionsQuery(
             space_id=scope.space_id,

@@ -25,7 +25,10 @@ from pydantic import BaseModel, Field
 from memory_server.api.auth import require_service_token
 from memory_server.api.dependencies import get_container
 from memory_server.api.policy import ensure_server_writes_enabled
-from memory_server.api.v1.scope_resolution import resolve_single_scope
+from memory_server.api.v1.scope_resolution import (
+    resolve_existing_single_scope,
+    resolve_single_scope,
+)
 from memory_server.composition import Container
 from memory_server.pagination import cursor_datetime, cursor_str, decode_cursor, encode_cursor
 
@@ -164,7 +167,7 @@ async def list_facts(
     cursor: Annotated[str | None, Query(max_length=1000)] = None,
 ) -> dict[str, Any]:
     _validate_fact_status(status_filter)
-    scope = await resolve_single_scope(
+    scope = await resolve_existing_single_scope(
         container,
         space_id=space_id,
         profile_id=profile_id,
@@ -174,6 +177,8 @@ async def list_facts(
         thread_external_ref=thread_external_ref,
         thread_required=False,
     )
+    if scope is None:
+        return {"data": [], "next_cursor": None}
     decoded_cursor = decode_cursor(cursor, kind="facts")
     result = await container.list_facts.execute(
         ListFactsQuery(

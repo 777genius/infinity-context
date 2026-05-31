@@ -12,7 +12,9 @@ from pydantic import BaseModel, Field
 from memory_server.api.auth import require_service_token
 from memory_server.api.dependencies import get_container
 from memory_server.api.policy import should_retrieve
-from memory_server.api.v1.scope_resolution import resolve_context_scope
+from memory_server.api.v1.scope_resolution import (
+    resolve_existing_context_scope,
+)
 from memory_server.composition import Container
 
 router = APIRouter(tags=["context"], dependencies=[Depends(require_service_token)])
@@ -76,7 +78,7 @@ async def build_context(
             use_case="build_context",
         )
         return response
-    scope = await resolve_context_scope(
+    scope = await resolve_existing_context_scope(
         container,
         space_id=request.space_id,
         profile_ids=request.profile_ids,
@@ -86,6 +88,19 @@ async def build_context(
         profile_external_refs=request.profile_external_refs,
         thread_external_ref=request.thread_external_ref,
     )
+    if scope is None:
+        response = _empty_context_response(
+            policy_mode=container.settings.policy_mode.value,
+            request_id=request_id,
+            scope_not_found=True,
+        )
+        container.runtime_metrics.record_context(
+            latency_ms=_elapsed_ms(started),
+            diagnostics=response["data"]["diagnostics"],
+            request_id=request_id,
+            use_case="build_context",
+        )
+        return response
     bundle = await container.build_context.execute(
         BuildContextQuery(
             space_id=scope.space_id,
@@ -106,7 +121,7 @@ async def build_context(
             "rendered_text": bundle.rendered_text,
             "items": [context_item_to_response(item) for item in bundle.items],
             "diagnostics": bundle.diagnostics,
-        }
+        },
     }
     container.runtime_metrics.record_context(
         latency_ms=_elapsed_ms(started),
@@ -135,7 +150,7 @@ async def search_memory(
                     "policy_mode": container.settings.policy_mode.value,
                     "retrieval_disabled": True,
                 },
-            }
+            },
         }
         container.runtime_metrics.record_context(
             latency_ms=_elapsed_ms(started),
@@ -144,7 +159,7 @@ async def search_memory(
             use_case="search_memory",
         )
         return response
-    scope = await resolve_context_scope(
+    scope = await resolve_existing_context_scope(
         container,
         space_id=request.space_id,
         profile_ids=request.profile_ids,
@@ -154,6 +169,19 @@ async def search_memory(
         profile_external_refs=request.profile_external_refs,
         thread_external_ref=request.thread_external_ref,
     )
+    if scope is None:
+        response = _empty_search_response(
+            policy_mode=container.settings.policy_mode.value,
+            request_id=request_id,
+            scope_not_found=True,
+        )
+        container.runtime_metrics.record_context(
+            latency_ms=_elapsed_ms(started),
+            diagnostics=response["data"]["diagnostics"],
+            request_id=request_id,
+            use_case="search_memory",
+        )
+        return response
     bundle = await container.build_context.execute(
         BuildContextQuery(
             space_id=scope.space_id,
@@ -173,7 +201,7 @@ async def search_memory(
             "items": [context_item_to_response(item) for item in bundle.items],
             "next_cursor": None,
             "diagnostics": bundle.diagnostics,
-        }
+        },
     }
     container.runtime_metrics.record_context(
         latency_ms=_elapsed_ms(started),
@@ -185,18 +213,56 @@ async def search_memory(
     return response
 
 
-def _empty_context_response(*, policy_mode: str, request_id: str) -> dict[str, Any]:
+def _empty_context_response(
+    *,
+    policy_mode: str,
+    request_id: str,
+    scope_not_found: bool = False,
+) -> dict[str, Any]:
+    diagnostics: dict[str, object] = {
+        "policy_mode": policy_mode,
+        "retrieval_disabled": True,
+    }
+    if scope_not_found:
+        diagnostics = {
+            "policy_mode": policy_mode,
+            "scope_not_found": True,
+            "retrieval_disabled": False,
+        }
     return {
         "meta": {"request_id": request_id},
         "data": {
             "bundle_id": "ctx_disabled",
             "rendered_text": "",
             "items": [],
-            "diagnostics": {
-                "policy_mode": policy_mode,
-                "retrieval_disabled": True,
-            },
+            "diagnostics": diagnostics,
+        },
+    }
+
+
+def _empty_search_response(
+    *,
+    policy_mode: str,
+    request_id: str,
+    scope_not_found: bool = False,
+) -> dict[str, Any]:
+    diagnostics: dict[str, object] = {
+        "policy_mode": policy_mode,
+        "retrieval_disabled": True,
+    }
+    if scope_not_found:
+        diagnostics = {
+            "policy_mode": policy_mode,
+            "scope_not_found": True,
+            "retrieval_disabled": False,
         }
+    return {
+        "meta": {"request_id": request_id},
+        "data": {
+            "items": [],
+            "next_cursor": None,
+            "diagnostics": diagnostics,
+        },
     }
 
 

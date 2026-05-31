@@ -158,6 +158,63 @@ def test_remember_and_list_fact_support_external_scope_refs(tmp_path: Path) -> N
     assert listed.json()["data"][0]["thread_id"] is not None
 
 
+def test_read_routes_do_not_create_missing_external_scope(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        before_spaces = client.get("/v1/spaces", headers=auth_headers())
+        facts = client.get(
+            "/v1/facts",
+            params={
+                "space_slug": "missing-read-space",
+                "profile_external_ref": "missing-profile",
+            },
+            headers=auth_headers(),
+        )
+        suggestions = client.get(
+            "/v1/suggestions",
+            params={
+                "space_slug": "missing-read-space",
+                "profile_external_ref": "missing-profile",
+            },
+            headers=auth_headers(),
+        )
+        context = client.post(
+            "/v1/context",
+            json={
+                "space_slug": "missing-read-space",
+                "profile_external_ref": "missing-profile",
+                "query": "nothing should be created",
+                "token_budget": 512,
+            },
+            headers=auth_headers(),
+        )
+        search = client.post(
+            "/v1/search",
+            json={
+                "space_slug": "missing-read-space",
+                "profile_external_ref": "missing-profile",
+                "query": "nothing should be created",
+                "token_budget": 512,
+            },
+            headers=auth_headers(),
+        )
+        after_spaces = client.get("/v1/spaces", headers=auth_headers())
+
+    assert before_spaces.status_code == 200
+    assert before_spaces.json()["data"] == []
+    assert facts.status_code == 200
+    assert facts.json() == {"data": [], "next_cursor": None}
+    assert suggestions.status_code == 200
+    assert suggestions.json() == {"data": []}
+    assert context.status_code == 200
+    assert context.json()["data"]["rendered_text"] == ""
+    assert context.json()["data"]["diagnostics"]["scope_not_found"] is True
+    assert search.status_code == 200
+    assert search.json()["data"]["items"] == []
+    assert search.json()["data"]["diagnostics"]["scope_not_found"] is True
+    assert after_spaces.status_code == 200
+    assert after_spaces.json()["data"] == []
+
+
 def test_same_idempotency_key_different_body_conflicts(tmp_path: Path) -> None:
     with make_client(tmp_path) as client:
         headers = auth_headers({"Idempotency-Key": "fact-1"})
