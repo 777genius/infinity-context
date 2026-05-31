@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi.testclient import TestClient
-from memory_adapters.postgres.models import MemoryOutboxRow
+from memory_adapters.postgres.models import MemoryOutboxRow, MemoryProfileRow, MemoryThreadRow
 from memory_core.domain.errors import MemoryConflictError
 from memory_core.domain.idempotency import IdempotencyRecord
 from memory_server.config import DeployProfile, MemoryPolicyMode, Settings
@@ -70,6 +70,25 @@ async def outbox_count(client: TestClient) -> int:
     engine = client.app.state.container.engine
     async with AsyncSession(engine) as session:
         return int(await session.scalar(select(func.count()).select_from(MemoryOutboxRow)))
+
+
+async def mark_scope_rows_deleted(
+    client: TestClient,
+    *,
+    profile_id: str | None = None,
+    thread_id: str | None = None,
+) -> None:
+    engine = client.app.state.container.engine
+    async with AsyncSession(engine) as session:
+        if profile_id:
+            profile = await session.get(MemoryProfileRow, profile_id)
+            assert profile is not None
+            profile.status = "deleted"
+        if thread_id:
+            thread = await session.get(MemoryThreadRow, thread_id)
+            assert thread is not None
+            thread.status = "deleted"
+        await session.commit()
 
 
 def test_remember_fact_requires_auth(tmp_path: Path) -> None:
@@ -506,6 +525,11 @@ def test_canonical_scope_ids_must_belong_together(tmp_path: Path) -> None:
             json={"space_id": space_b["id"], "external_ref": "beta", "name": "Beta"},
             headers=auth_headers(),
         ).json()["data"]
+        deleted_profile = client.post(
+            "/v1/profiles",
+            json={"space_id": space_a["id"], "external_ref": "deleted", "name": "Deleted"},
+            headers=auth_headers(),
+        ).json()["data"]
         seeded_thread = client.post(
             "/v1/facts",
             json={
@@ -518,6 +542,25 @@ def test_canonical_scope_ids_must_belong_together(tmp_path: Path) -> None:
             },
             headers=auth_headers(),
         ).json()["data"]
+        deleted_thread = client.post(
+            "/v1/facts",
+            json={
+                "space_slug": "canonical-a",
+                "profile_external_ref": "alpha",
+                "thread_external_ref": "thread-deleted",
+                "text": "CANONICAL_SCOPE_DELETED_THREAD_SEED belongs to a deleted thread.",
+                "kind": "note",
+                "source_refs": [{"source_type": "manual", "source_id": "deleted-thread-seed"}],
+            },
+            headers=auth_headers(),
+        ).json()["data"]
+        asyncio.run(
+            mark_scope_rows_deleted(
+                client,
+                profile_id=deleted_profile["id"],
+                thread_id=deleted_thread["thread_id"],
+            )
+        )
 
         cross_profile_fact = client.post(
             "/v1/facts",
@@ -581,6 +624,26 @@ def test_canonical_scope_ids_must_belong_together(tmp_path: Path) -> None:
             },
             headers=auth_headers(),
         )
+        deleted_profile_fact = client.post(
+            "/v1/facts",
+            json={
+                "space_id": space_a["id"],
+                "profile_id": deleted_profile["id"],
+                "text": "CANONICAL_SCOPE_DELETED_PROFILE must not be written.",
+                "kind": "note",
+                "source_refs": [{"source_type": "manual", "source_id": "deleted-profile"}],
+            },
+            headers=auth_headers(),
+        )
+        deleted_profile_context = client.post(
+            "/v1/context",
+            json={
+                "space_id": space_a["id"],
+                "profile_ids": [deleted_profile["id"]],
+                "query": "CANONICAL_SCOPE_DELETED_PROFILE",
+            },
+            headers=auth_headers(),
+        )
         orphan_thread_fact = client.post(
             "/v1/facts",
             json={
@@ -603,6 +666,28 @@ def test_canonical_scope_ids_must_belong_together(tmp_path: Path) -> None:
             },
             headers=auth_headers(),
         )
+        deleted_thread_fact = client.post(
+            "/v1/facts",
+            json={
+                "space_id": space_a["id"],
+                "profile_id": profile_a["id"],
+                "thread_id": deleted_thread["thread_id"],
+                "text": "CANONICAL_SCOPE_DELETED_THREAD must not be written.",
+                "kind": "note",
+                "source_refs": [{"source_type": "manual", "source_id": "deleted-thread"}],
+            },
+            headers=auth_headers(),
+        )
+        deleted_thread_context = client.post(
+            "/v1/context",
+            json={
+                "space_id": space_a["id"],
+                "profile_ids": [profile_a["id"]],
+                "thread_id": deleted_thread["thread_id"],
+                "query": "CANONICAL_SCOPE_DELETED_THREAD",
+            },
+            headers=auth_headers(),
+        )
 
     assert seeded_thread["thread_id"] is not None
     for response in (
@@ -610,16 +695,22 @@ def test_canonical_scope_ids_must_belong_together(tmp_path: Path) -> None:
         cross_thread_fact,
         cross_profile_context,
         cross_thread_context,
+        deleted_profile_fact,
+        deleted_profile_context,
         orphan_profile_fact,
         orphan_profile_context,
         orphan_thread_fact,
         orphan_thread_context,
+        deleted_thread_fact,
+        deleted_thread_context,
     ):
         assert response.status_code == 400
         assert response.json()["error"]["code"] == "memory.validation"
         assert "CANONICAL_SCOPE_CROSS" not in response.text
+        assert "CANONICAL_SCOPE_DELETED_PROFILE" not in response.text
         assert "CANONICAL_SCOPE_ORPHAN_PROFILE" not in response.text
         assert "CANONICAL_SCOPE_ORPHAN_THREAD" not in response.text
+        assert "CANONICAL_SCOPE_DELETED_THREAD" not in response.text
 
 
 def test_disabled_policy_blocks_public_writes(tmp_path: Path) -> None:

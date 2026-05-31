@@ -138,8 +138,12 @@ async def canonical_scope_matches(
         profile_rows = list(
             (
                 await session.execute(
-                    select(MemoryProfileRow.id, MemoryProfileRow.space_id).where(
-                        MemoryProfileRow.id.in_(unique_profile_ids)
+                    select(
+                        MemoryProfileRow.id,
+                        MemoryProfileRow.space_id,
+                        MemoryProfileRow.status,
+                    ).where(
+                        MemoryProfileRow.id.in_(unique_profile_ids),
                     )
                 )
             ).all()
@@ -148,20 +152,30 @@ async def canonical_scope_matches(
             return not profile_rows and thread_id is None
         if len(profile_rows) != len(unique_profile_ids):
             return False
+        if any(row.status != "active" for row in profile_rows):
+            return False
         if any(row.space_id != space_id for row in profile_rows):
             return False
         if thread_id is None:
             return True
         thread_row = (
             await session.execute(
-                select(MemoryThreadRow.space_id, MemoryThreadRow.profile_id).where(
-                    MemoryThreadRow.id == thread_id
+                select(
+                    MemoryThreadRow.space_id,
+                    MemoryThreadRow.profile_id,
+                    MemoryThreadRow.status,
+                ).where(
+                    MemoryThreadRow.id == thread_id,
                 )
             )
         ).one_or_none()
     if thread_row is None:
         return False
-    return thread_row.space_id == space_id and thread_row.profile_id in unique_profile_ids
+    return (
+        thread_row.status == "active"
+        and thread_row.space_id == space_id
+        and thread_row.profile_id in unique_profile_ids
+    )
 
 
 async def _add_space_from_path_resource(
