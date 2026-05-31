@@ -17,13 +17,15 @@ from memory_core.application import (
     EnsureScopeCommand,
     GetSessionStatusQuery,
     IngestEpisodeCommand,
+    ScopeResult,
 )
-from memory_core.domain.entities import MemoryChunkKind, SpeakerRole, ThreadId
+from memory_core.domain.entities import MemoryChunkKind, ProfileId, SpaceId, SpeakerRole, ThreadId
 from pydantic import BaseModel, Field
 
 from memory_server.api.auth import require_service_token
 from memory_server.api.dependencies import get_container
 from memory_server.api.policy import should_ingest_legacy_transcript, should_retrieve
+from memory_server.auth_scope import resolve_existing_external_scope
 from memory_server.composition import Container
 
 router = APIRouter(
@@ -139,26 +141,32 @@ async def legacy_context(
     included_chunks: list[dict[str, object]] = []
     bundle_id = request.context_snapshot_id or "ctx_disabled"
     if should_retrieve(container):
-        scope = await _legacy_scope(container, request.session_id)
-        bundle = await container.build_context.execute(
-            BuildContextQuery(
-                space_id=scope.space_id,
-                profile_ids=(scope.profile_id,),
-                thread_id=scope.thread_id,
-                query=query_text,
-                consistency_mode=ConsistencyMode.BEST_EFFORT,
-                token_budget=max_chars // 4,
-                max_rendered_chars=max_chars,
-                max_facts=20,
-                max_chunks=max_results,
+        scope = await _legacy_scope(container, request.session_id, create_missing=False)
+        if scope is not None:
+            bundle = await container.build_context.execute(
+                BuildContextQuery(
+                    space_id=scope.space_id,
+                    profile_ids=(scope.profile_id,),
+                    thread_id=scope.thread_id,
+                    query=query_text,
+                    consistency_mode=ConsistencyMode.BEST_EFFORT,
+                    token_budget=max_chars // 4,
+                    max_rendered_chars=max_chars,
+                    max_facts=20,
+                    max_chunks=max_results,
+                )
             )
-        )
-        memory_text = bundle.rendered_text
-        included_chunks = [
-            {"id": item.item_id, "kind": item.item_type, "score": item.score, "reason": "retrieved"}
-            for item in bundle.items
-        ]
-        bundle_id = request.context_snapshot_id or bundle.bundle_id
+            memory_text = bundle.rendered_text
+            included_chunks = [
+                {
+                    "id": item.item_id,
+                    "kind": item.item_type,
+                    "score": item.score,
+                    "reason": "retrieved",
+                }
+                for item in bundle.items
+            ]
+            bundle_id = request.context_snapshot_id or bundle.bundle_id
     sections = _hard_sections(request)
     text, artifact = _render_legacy_context(
         context_snapshot_id=bundle_id,
@@ -181,7 +189,9 @@ async def legacy_delete_session(
     session_id: Annotated[str, Path(min_length=1, max_length=160)],
     container: Annotated[Container, Depends(get_container)],
 ) -> dict[str, Any]:
-    scope = await _legacy_scope(container, session_id)
+    scope = await _legacy_scope(container, session_id, create_missing=False)
+    if scope is None:
+        return {"data": _empty_delete_counts()}
     result = await container.delete_thread_memory.execute(
         DeleteThreadMemoryCommand(
             space_id=scope.space_id,
@@ -203,7 +213,9 @@ async def legacy_session_status(
     session_id: Annotated[str, Path(min_length=1, max_length=160)],
     container: Annotated[Container, Depends(get_container)],
 ) -> dict[str, Any]:
-    scope = await _legacy_scope(container, session_id)
+    scope = await _legacy_scope(container, session_id, create_missing=False)
+    if scope is None:
+        return {"data": _empty_status_counts()}
     result = await container.get_session_status.execute(
         GetSessionStatusQuery(
             space_id=scope.space_id,
@@ -221,14 +233,51 @@ async def legacy_session_status(
     }
 
 
-async def _legacy_scope(container: Container, session_id: str):
-    return await container.ensure_scope.execute(
-        EnsureScopeCommand(
-            space_slug=container.settings.default_space_slug,
-            profile_external_ref=container.settings.default_profile_external_ref,
-            thread_external_ref=session_id,
+async def _legacy_scope(
+    container: Container,
+    session_id: str,
+    *,
+    create_missing: bool = True,
+) -> ScopeResult | None:
+    if create_missing:
+        return await container.ensure_scope.execute(
+            EnsureScopeCommand(
+                space_slug=container.settings.default_space_slug,
+                profile_external_ref=container.settings.default_profile_external_ref,
+                thread_external_ref=session_id,
+            )
         )
+
+    existing = await resolve_existing_external_scope(
+        container,
+        space_slug=container.settings.default_space_slug,
+        profile_external_ref=container.settings.default_profile_external_ref,
+        thread_external_ref=session_id,
     )
+    if existing is None:
+        return None
+    return ScopeResult(
+        space_id=SpaceId(existing.space_id),
+        profile_id=ProfileId(existing.profile_id),
+        thread_id=ThreadId(existing.thread_id) if existing.thread_id else None,
+    )
+
+
+def _empty_delete_counts() -> dict[str, int]:
+    return {
+        "deleted_chunks": 0,
+        "deleted_facts": 0,
+        "deleted_jobs": 0,
+    }
+
+
+def _empty_status_counts() -> dict[str, int]:
+    return {
+        "chunks": 0,
+        "facts": 0,
+        "jobs": 0,
+        "pending_jobs": 0,
+    }
 
 
 def _required_thread(thread_id: ThreadId | None) -> ThreadId:

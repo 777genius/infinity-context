@@ -207,6 +207,57 @@ def test_legacy_ingest_context_duplicate_and_delete_session(tmp_path: Path) -> N
     }
 
 
+def test_legacy_read_routes_do_not_create_missing_session_scope(tmp_path: Path) -> None:
+    session_id = "legacy-missing-session"
+    with make_client(tmp_path) as client:
+        before_spaces = client.get("/v1/spaces", headers=auth_headers())
+        context = client.post(
+            "/api/v1/interview-memory/context",
+            json={
+                "session_id": session_id,
+                "context_snapshot_id": "ctx-missing-session",
+                "current_request": {
+                    "id": "req-1",
+                    "label": "request",
+                    "text": "hard context should still render",
+                },
+                "budget_max_chars": 6000,
+                "max_memory_results": 8,
+            },
+            headers=auth_headers(),
+        )
+        status = client.get(
+            f"/api/v1/interview-memory/sessions/{session_id}/status",
+            headers=auth_headers(),
+        )
+        deleted = client.delete(
+            f"/api/v1/interview-memory/sessions/{session_id}",
+            headers=auth_headers(),
+        )
+        after_spaces = client.get("/v1/spaces", headers=auth_headers())
+
+    assert before_spaces.status_code == 200
+    assert before_spaces.json()["data"] == []
+    assert context.status_code == 200
+    assert "hard context should still render" in context.json()["data"]["text"]
+    assert context.json()["data"]["artifact"]["included_chunks"] == []
+    assert status.status_code == 200
+    assert status.json()["data"] == {
+        "chunks": 0,
+        "facts": 0,
+        "jobs": 0,
+        "pending_jobs": 0,
+    }
+    assert deleted.status_code == 200
+    assert deleted.json()["data"] == {
+        "deleted_chunks": 0,
+        "deleted_facts": 0,
+        "deleted_jobs": 0,
+    }
+    assert after_spaces.status_code == 200
+    assert after_spaces.json()["data"] == []
+
+
 def test_v1_episode_context_status_duplicate_and_delete_thread_memory(
     tmp_path: Path,
 ) -> None:
