@@ -14,6 +14,7 @@ from memory_core.application import (
     BuildContextQuery,
     BuildContextUseCase,
     ConsistencyMode,
+    ContextItem,
     EnsureScopeCommand,
     ForgetFactCommand,
 )
@@ -1765,6 +1766,52 @@ class FakeVectorAdapter:
                 )
             ]
         )
+
+
+def test_context_revalidation_drops_provider_only_raw_items(tmp_path: Path) -> None:
+    class ProviderOnlyGraphCollector:
+        async def collect(
+            self,
+            *,
+            query: BuildContextQuery,
+            profile_ids: tuple[str, ...],
+            diagnostics: dict[str, object],
+        ) -> tuple[ContextItem, ...]:
+            diagnostics["graph_status"] = "ok"
+            return (
+                ContextItem(
+                    item_id="provider_only_graph_item",
+                    item_type="provider_raw",
+                    text="PROVIDER_ONLY_GRAPH_TEXT_SHOULD_NOT_RENDER",
+                    score=0.99,
+                    source_refs=(SourceRef(source_type="graphiti", source_id="provider-only"),),
+                    diagnostics={"profile_id": str(profile_ids[0])},
+                ),
+            )
+
+    with make_client(tmp_path) as client:
+        container = client.app.state.container
+        use_case = BuildContextUseCase(
+            uow_factory=container.uow_factory,
+            ids=container.ids,
+            vector_index=NoopVectorMemoryAdapter(),
+            graph_index=NoopGraphMemoryAdapter(),
+            embedder=NoopEmbeddingAdapter(),
+        )
+        use_case._graph_collector = ProviderOnlyGraphCollector()  # noqa: SLF001
+        context = asyncio.run(
+            use_case.execute(
+                BuildContextQuery(
+                    space_id=SpaceId("space_hackinterview"),
+                    profile_ids=(ProfileId("profile_default"),),
+                    query="provider only graph text",
+                    token_budget=512,
+                )
+            )
+        )
+
+    assert "PROVIDER_ONLY_GRAPH_TEXT_SHOULD_NOT_RENDER" not in context.rendered_text
+    assert context.items == ()
 
 
 def test_canonical_only_context_skips_all_provider_adapters(tmp_path: Path) -> None:

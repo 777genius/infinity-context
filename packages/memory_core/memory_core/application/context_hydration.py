@@ -138,6 +138,4 @@ class ContextHydrator:
                         diagnostics=item.diagnostics,
                     )
                 )
-            else:
-                visible_items.append(item)
         return tuple(visible_items)
