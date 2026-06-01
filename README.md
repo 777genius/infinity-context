@@ -6,7 +6,8 @@ This project is the new source of truth for the memory platform architecture and
 
 ## Current Status
 
-Docs extracted from client application docs on 2026-05-24.
+This README describes the standalone Memory Platform repository, its local run
+modes and the supported integration contracts.
 
 Implementation target:
 
@@ -225,17 +226,30 @@ MEMORY_SERVICE_TOKEN=local-dev-token \
 .venv/bin/python -m memory_server.main
 ```
 
-Legacy client local canary can point at this server:
+The legacy compatibility gateway is opt-in for older client integrations that
+still call `/api/v1/interview-memory/*`. New integrations should prefer the
+canonical `/v1/*` API or `memory_sdk`.
 
 ```bash
 MEMORY_DEFAULT_SPACE_SLUG=client-app \
 MEMORY_LEGACY_CLIENT_ENABLED=true \
 make memory-stack-up-lite
+```
 
-INTERVIEW_MEMORY_API_URL=http://127.0.0.1:7788 \
-INTERVIEW_MEMORY_API_VARIANT=platform \
-INTERVIEW_MEMORY_AUTH_TOKEN=local-dev-token \
-pnpm e2e:memory-canary -- --api-url http://127.0.0.1:7788 --auth-token local-dev-token
+Smoke the legacy gateway directly:
+
+```bash
+curl -X POST http://127.0.0.1:7788/api/v1/interview-memory/context \
+  -H "Authorization: Bearer local-dev-token" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "session_id": "session-123",
+    "current_request": {
+      "id": "req-1",
+      "label": "request",
+      "text": "What memory is available for this session?"
+    }
+  }'
 ```
 
 Other apps can use canonical ids or external scope refs. External refs are the
