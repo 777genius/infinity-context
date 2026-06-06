@@ -212,6 +212,53 @@ def _scorecard_fixture_results() -> dict[str, dict[str, Any]]:
     }
 
 
+def _full_provider_canary_report() -> dict[str, Any]:
+    return {
+        "suite": "memo-stack-full-provider-canary",
+        "ok": True,
+        "checks": {
+            "fact_created": True,
+            "updated_fact_versioned": True,
+            "forgotten_fact_deleted": True,
+            "providers_are_healthy": True,
+            "context_provider_status_ok": True,
+            "mcp_provider_diagnostics_ok": True,
+            "mcp_search_has_graphiti_fact_after_worker": True,
+            "mcp_search_has_qdrant_document_chunk_after_worker": True,
+        },
+        "adapters": {
+            "qdrant": "ok",
+            "graphiti": "ok",
+            "embeddings": "ok",
+            "cognee": "disabled",
+        },
+        "mcp": {"ok": True},
+    }
+
+
+def _agent_behavior_benchmark_report() -> dict[str, Any]:
+    return {
+        "suite": "memory_mcp_agent_behavior",
+        "ok": True,
+        "scenario_set": "realistic",
+        "model": "gpt-5.4-mini",
+        "metrics": {
+            "tool_choice_accuracy": 1.0,
+            "search_before_write_rate": 1.0,
+            "update_vs_duplicate_rate": 1.0,
+            "document_routing_accuracy": 1.0,
+            "answer_support_rate": 1.0,
+            "secret_redaction_violation_count": 0,
+        },
+        "gates": {
+            "critical_scenarios_passed": True,
+            "tool_choice_accuracy_min": True,
+            "answer_support_rate_min": True,
+        },
+        "scenarios": [],
+    }
+
+
 def test_eval_cli_uses_env_token_not_cli_auth_token() -> None:
     source = (
         Path(__file__).parents[2]
@@ -1272,6 +1319,12 @@ def test_memory_quality_scorecard_passes_with_required_capabilities(tmp_path: Pa
     assert result["capabilities"]["graph_native_recall"]["ok"] is True
     assert result["capabilities"]["scope_and_safety"]["ok"] is True
     assert result["capabilities"]["prompt_context_contract"]["ok"] is True
+    assert result["external_evidence"]["confidence_tier"] == "internal_deterministic"
+    assert result["external_evidence"]["top_library_comparison_ready"] is False
+    assert result["external_evidence"]["evidence_gaps"] == [
+        "full_provider_canary_missing",
+        "agent_behavior_benchmark_missing",
+    ]
     assert result["metrics"]["safety_leak_count"] == 0
     assert result["failures"] == []
     assert payload["ok"] is True
@@ -1292,6 +1345,50 @@ def test_memory_quality_scorecard_loads_existing_suite_reports(tmp_path: Path) -
     assert result["score"]["maturity_score_10"] == 10.0
     assert result["suites"]["auto-memory-golden"]["case_count"] == 13
     assert result["suites"]["prompt-contract"]["ok"] is True
+
+
+def test_memory_quality_scorecard_reports_external_evidence_tier() -> None:
+    suite_results = _scorecard_fixture_results()
+    suite_results["memo-stack-full-provider-canary"] = _full_provider_canary_report()
+    suite_results["memory_mcp_agent_behavior"] = _agent_behavior_benchmark_report()
+
+    result = build_memory_quality_scorecard(suite_results)
+
+    assert result["ok"] is True
+    evidence = result["external_evidence"]
+    assert evidence["confidence_tier"] == "full_provider_and_agent_evaluated"
+    assert evidence["top_library_comparison_ready"] is True
+    assert evidence["evidence_gaps"] == []
+    assert evidence["full_provider_canary"]["ok"] is True
+    assert evidence["full_provider_canary"]["adapters"]["graphiti"] == "ok"
+    assert evidence["agent_behavior_benchmark"]["ok"] is True
+    assert evidence["agent_behavior_benchmark"]["metrics"]["tool_choice_accuracy"] == 1.0
+
+
+def test_memory_quality_scorecard_can_use_nested_agent_evidence() -> None:
+    suite_results = _scorecard_fixture_results()
+    full_provider = _full_provider_canary_report()
+    full_provider["agent_behavior"] = _agent_behavior_benchmark_report()
+    suite_results["memo-stack-full-provider-canary"] = full_provider
+
+    result = build_memory_quality_scorecard(suite_results)
+
+    assert result["external_evidence"]["confidence_tier"] == "full_provider_and_agent_evaluated"
+    assert result["external_evidence"]["agent_behavior_benchmark"]["scenario_set"] == "realistic"
+
+
+def test_memory_quality_scorecard_warns_on_failed_external_evidence() -> None:
+    suite_results = _scorecard_fixture_results()
+    full_provider = _full_provider_canary_report()
+    full_provider["checks"]["providers_are_healthy"] = False
+    suite_results["memo-stack-full-provider-canary"] = full_provider
+
+    result = build_memory_quality_scorecard(suite_results)
+
+    assert result["ok"] is True
+    assert result["external_evidence"]["confidence_tier"] == "internal_deterministic"
+    assert result["external_evidence"]["top_library_comparison_ready"] is False
+    assert "full_provider_canary_failed" in result["external_evidence"]["evidence_gaps"]
 
 
 def test_memory_quality_scorecard_fails_on_undercovered_suite() -> None:

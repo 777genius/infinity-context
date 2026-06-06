@@ -33,6 +33,7 @@ from neo4j import GraphDatabase
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PYTHON = sys.executable
+FULL_PROVIDER_CANARY_SUITE = "memo-stack-full-provider-canary"
 SENSITIVE_ENV_KEYS = (
     "MEMORY_AGENT_BENCH_OPENAI_API_KEY",
     "MEMORY_MCP_AUTH_TOKEN",
@@ -227,6 +228,7 @@ def main() -> int:
                         env=server_env,
                     )
                 )
+        result["suite"] = FULL_PROVIDER_CANARY_SUITE
         result["project"] = project_name
         result["elapsed_seconds"] = round(time.perf_counter() - started, 3)
         print(
@@ -239,6 +241,7 @@ def main() -> int:
         return 0
     except Exception as exc:
         details: dict[str, Any] = {
+            "suite": FULL_PROVIDER_CANARY_SUITE,
             "ok": False,
             "error": exc.__class__.__name__,
             "message": _redact_text(str(exc), env=server_env),

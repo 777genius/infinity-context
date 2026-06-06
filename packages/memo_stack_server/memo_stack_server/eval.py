@@ -39,6 +39,8 @@ LONG_MEMORY_GOLDEN_SUITE = "long-memory-golden"
 AUTO_MEMORY_GOLDEN_SUITE = "auto-memory-golden"
 GRAPH_NATIVE_GOLDEN_SUITE = "graph-native-golden"
 MEMORY_QUALITY_SCORECARD_SUITE = "memory-quality-scorecard"
+FULL_PROVIDER_CANARY_SUITE = "memo-stack-full-provider-canary"
+AGENT_BEHAVIOR_BENCH_SUITE = "memory_mcp_agent_behavior"
 PROMPT_CONTRACT_SNAPSHOT_VERSION = 1
 PROMPT_CONTRACT_SNAPSHOT_FILE = "prompt_contract.json"
 _DEFAULT_SNAPSHOT_DIR = Path("tests/snapshots")
@@ -75,6 +77,13 @@ _MEMORY_QUALITY_SCORECARD_MIN_CASE_COUNTS = {
 }
 _MEMORY_QUALITY_SCORECARD_MIN_EXTRACTION_CASES = 78
 _MEMORY_QUALITY_SCORECARD_MIN_SEMANTIC_EXTRACTION_CASES = 18
+_FULL_PROVIDER_CANARY_SUITE_ALIASES = (
+    FULL_PROVIDER_CANARY_SUITE,
+    "memo_stack_full_provider_canary",
+    "memo-stack-clean-full-smoke",
+    "clean-full-smoke",
+    "clean_full_smoke",
+)
 
 
 def _eval_auth_token_from_env() -> str | None:
@@ -381,6 +390,7 @@ def build_memory_quality_scorecard(
         "all_capabilities_ok": all_capabilities_ok,
         "maturity_score_min": maturity_score_10 >= _MEMORY_QUALITY_SCORECARD_MIN_SCORE_10,
     }
+    external_evidence = _scorecard_external_evidence(suite_results)
     failures = _scorecard_failures(
         missing_suites=missing_suites,
         suites=suites,
@@ -405,6 +415,7 @@ def build_memory_quality_scorecard(
         },
         "suites": suites,
         "capabilities": capabilities,
+        "external_evidence": external_evidence,
         "gates": gates,
         "metrics": _scorecard_metrics(suite_results),
         "failures": failures,
@@ -603,6 +614,140 @@ def _scorecard_prompt_context_contract(
         "matches_snapshot": checks_map.get("matches_snapshot") is True,
     }
     return _scorecard_capability("prompt_context_contract", checks)
+
+
+def _scorecard_external_evidence(
+    suite_results: Mapping[str, dict[str, object]],
+) -> dict[str, object]:
+    full_provider = _scorecard_find_full_provider_report(suite_results)
+    agent_behavior = _scorecard_find_agent_behavior_report(suite_results, full_provider)
+    full_provider_summary = _scorecard_full_provider_evidence_summary(full_provider)
+    agent_behavior_summary = _scorecard_agent_behavior_evidence_summary(agent_behavior)
+    full_provider_ok = full_provider_summary["ok"] is True
+    agent_behavior_ok = agent_behavior_summary["ok"] is True
+    if full_provider_ok and agent_behavior_ok:
+        confidence_tier = "full_provider_and_agent_evaluated"
+    elif full_provider_ok:
+        confidence_tier = "full_provider_evaluated"
+    elif agent_behavior_ok:
+        confidence_tier = "agent_behavior_evaluated"
+    else:
+        confidence_tier = "internal_deterministic"
+
+    evidence_gaps = []
+    if not full_provider_summary["present"]:
+        evidence_gaps.append("full_provider_canary_missing")
+    elif not full_provider_ok:
+        evidence_gaps.append("full_provider_canary_failed")
+    if not agent_behavior_summary["present"]:
+        evidence_gaps.append("agent_behavior_benchmark_missing")
+    elif not agent_behavior_ok:
+        evidence_gaps.append("agent_behavior_benchmark_failed")
+
+    return {
+        "confidence_tier": confidence_tier,
+        "top_library_comparison_ready": full_provider_ok and agent_behavior_ok,
+        "benchmark_note": (
+            "Internal deterministic suites are the local quality gate. "
+            "Full-provider and real-agent reports are optional evidence for "
+            "production/top-library comparison claims."
+        ),
+        "evidence_gaps": evidence_gaps,
+        "full_provider_canary": full_provider_summary,
+        "agent_behavior_benchmark": agent_behavior_summary,
+    }
+
+
+def _scorecard_find_full_provider_report(
+    suite_results: Mapping[str, dict[str, object]],
+) -> dict[str, object] | None:
+    for suite in _FULL_PROVIDER_CANARY_SUITE_ALIASES:
+        result = suite_results.get(suite)
+        if result is not None:
+            return result
+    return None
+
+
+def _scorecard_find_agent_behavior_report(
+    suite_results: Mapping[str, dict[str, object]],
+    full_provider: dict[str, object] | None,
+) -> dict[str, object] | None:
+    result = suite_results.get(AGENT_BEHAVIOR_BENCH_SUITE)
+    if result is not None:
+        return result
+    if full_provider is None:
+        return None
+    nested = full_provider.get("agent_behavior")
+    return nested if isinstance(nested, dict) else None
+
+
+def _scorecard_full_provider_evidence_summary(
+    result: dict[str, object] | None,
+) -> dict[str, object]:
+    if result is None:
+        return {"present": False, "ok": None}
+    checks = result.get("checks", {})
+    checks_map = checks if isinstance(checks, dict) else {}
+    adapters = result.get("adapters", {})
+    adapters_map = adapters if isinstance(adapters, dict) else {}
+    mcp = result.get("mcp", {})
+    mcp_map = mcp if isinstance(mcp, dict) else {}
+    required_checks = {
+        "providers_are_healthy": checks_map.get("providers_are_healthy") is True,
+        "context_provider_status_ok": checks_map.get("context_provider_status_ok") is True,
+        "mcp_provider_diagnostics_ok": (
+            mcp_map.get("skipped") is True
+            or checks_map.get("mcp_provider_diagnostics_ok") is True
+        ),
+    }
+    check_values = [value is True for value in checks_map.values()]
+    return {
+        "present": True,
+        "suite": result.get("suite", FULL_PROVIDER_CANARY_SUITE),
+        "ok": result.get("ok") is True and all(required_checks.values()),
+        "required_checks": required_checks,
+        "checks_ok_count": sum(1 for value in check_values if value),
+        "checks_total": len(check_values),
+        "adapters": {
+            name: adapters_map.get(name)
+            for name in ("qdrant", "graphiti", "embeddings", "cognee")
+            if name in adapters_map
+        },
+        "mcp_included": mcp_map.get("skipped") is not True if mcp_map else None,
+        "prod_load_included": isinstance(result.get("prod_load"), dict),
+    }
+
+
+def _scorecard_agent_behavior_evidence_summary(
+    result: dict[str, object] | None,
+) -> dict[str, object]:
+    if result is None:
+        return {"present": False, "ok": None}
+    metrics = _scorecard_result_metrics(result)
+    gates = result.get("gates", {})
+    gates_map = gates if isinstance(gates, dict) else {}
+    gate_values = [value is True for value in gates_map.values()]
+    metric_keys = (
+        "tool_choice_accuracy",
+        "search_before_write_rate",
+        "update_vs_duplicate_rate",
+        "document_routing_accuracy",
+        "answer_support_rate",
+        "secret_redaction_violation_count",
+        "live_session_pass_rate",
+        "transcript_corpus_pass_rate",
+        "adversarial_pass_rate",
+    )
+    return {
+        "present": True,
+        "suite": result.get("suite", AGENT_BEHAVIOR_BENCH_SUITE),
+        "ok": result.get("ok") is True,
+        "scenario_set": result.get("scenario_set"),
+        "model": result.get("model"),
+        "gates_ok_count": sum(1 for value in gate_values if value),
+        "gates_total": len(gate_values),
+        "metrics": {key: metrics[key] for key in metric_keys if key in metrics},
+    }
 
 
 def _scorecard_capability(name: str, checks: Mapping[str, bool]) -> dict[str, object]:
