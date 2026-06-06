@@ -107,6 +107,37 @@ def test_memory_agent_plugin_install_stops_on_failed_primary_command(
     assert len(calls) == 1
 
 
+def test_memory_agent_plugin_install_writes_materialized_source_root_markers(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    module = _load_script()
+    materialized_root = tmp_path / "materialized"
+    primary_claude = materialized_root / "claude" / "memo-stack-agent-plugin"
+    primary_claude.mkdir(parents=True)
+    primary_nested = primary_claude / "plugins" / "memo-stack-agent-plugin"
+    primary_nested.mkdir(parents=True)
+    gemini_hooks = materialized_root / "gemini" / "memo-stack-agent-plugin-gemini-hooks"
+    gemini_hooks.mkdir(parents=True)
+    monkeypatch.setenv("PLUGIN_KIT_AI_MATERIALIZED_ROOT", str(materialized_root))
+
+    for spec in module.install_specs():
+        module.write_source_root_markers(spec)
+
+    assert (primary_claude / module.SOURCE_ROOT_MARKER).read_text(encoding="utf-8") == (
+        f"{module.PROJECT_ROOT}\n"
+    )
+    assert (primary_claude / "bin" / "memo-stack-mcp").exists()
+    assert (primary_nested / module.SOURCE_ROOT_MARKER).read_text(encoding="utf-8") == (
+        f"{module.PROJECT_ROOT}\n"
+    )
+    assert (primary_nested / "bin" / "memo-stack-plugin-hook").exists()
+    assert (gemini_hooks / module.SOURCE_ROOT_MARKER).read_text(encoding="utf-8") == (
+        f"{module.PROJECT_ROOT}\n"
+    )
+    assert (gemini_hooks / "bin" / "memo-stack-plugin-hook").exists()
+
+
 def _load_script() -> Any:
     spec = importlib.util.spec_from_file_location(
         "install_memory_agent_plugin_for_test",

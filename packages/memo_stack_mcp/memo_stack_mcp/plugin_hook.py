@@ -674,7 +674,7 @@ def _safe_capture_metadata(values: dict[str, object]) -> dict[str, object]:
         lowered = key.lower()
         if any(marker in lowered for marker in ("token", "secret", "password", "key")):
             continue
-        if isinstance(value, (str, int, float, bool, type(None))):
+        if isinstance(value, str | int | float | bool | None):
             safe[key] = value
     return safe
 

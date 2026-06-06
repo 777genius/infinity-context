@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -346,6 +347,40 @@ def test_generated_gemini_hook_plugin_hooks_reference_existing_runner() -> None:
         "${extensionPath}${/}bin${/}memo-stack-plugin-hook GeminiSessionEnd",
     }
     assert (GEMINI_HOOK_PLUGIN_ROOT / "bin" / "memo-stack-plugin-hook").exists()
+
+
+def test_materialized_gemini_hook_wrapper_resolves_source_root_marker(
+    tmp_path: Path,
+) -> None:
+    materialized_root = (
+        tmp_path / "materialized" / "gemini" / "memo-stack-agent-plugin-gemini-hooks"
+    )
+    shutil.copytree(GEMINI_HOOK_PLUGIN_ROOT, materialized_root)
+    (materialized_root / ".memo-stack-source-root").write_text(
+        f"{PROJECT_ROOT}\n",
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env.update(
+        {
+            "MEMORY_PLUGIN_HOOK_CONTEXT_EVENTS": "",
+            "MEMORY_PLUGIN_HOOK_INGEST_EVENTS": "",
+        }
+    )
+
+    completed = subprocess.run(
+        [str(materialized_root / "bin" / "memo-stack-plugin-hook"), "GeminiSessionEnd"],
+        cwd=PROJECT_ROOT,
+        env=env,
+        input=json.dumps({"session_id": "s", "hook_event_name": "SessionEnd"}),
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    assert json.loads(completed.stdout) == {}
+    assert "Memo Stack packages not found" not in completed.stderr
 
 
 def test_generated_cursor_workspace_plugin_mcp_status_e2e(tmp_path: Path) -> None:

@@ -3,7 +3,21 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 plugin_root="$(cd "${script_dir}/.." && pwd)"
-repo_root="$(cd "${plugin_root}/../.." && pwd)"
+repo_root_candidate="${MEMO_STACK_REPO_ROOT:-${MEMORY_MCP_REPO_ROOT:-}}"
+if [ -z "${repo_root_candidate}" ] && [ -f "${plugin_root}/.memo-stack-source-root" ]; then
+  repo_root_candidate="$(sed -n '1p' "${plugin_root}/.memo-stack-source-root")"
+fi
+if [ -z "${repo_root_candidate}" ]; then
+  repo_root_candidate="${plugin_root}/../.."
+fi
+if ! repo_root="$(cd "${repo_root_candidate}" 2>/dev/null && pwd)"; then
+  printf '%s\n' "memo-stack-plugin-hook: Memo Stack repo root not found. Set MEMO_STACK_REPO_ROOT." >&2
+  exit 127
+fi
+if [ ! -d "${repo_root}/packages/memo_stack_mcp" ]; then
+  printf '%s\n' "memo-stack-plugin-hook: Memo Stack packages not found under ${repo_root}. Set MEMO_STACK_REPO_ROOT." >&2
+  exit 127
+fi
 
 python_bin="${repo_root}/.venv/bin/python"
 if [ ! -x "${python_bin}" ]; then
