@@ -8,7 +8,11 @@ are backed by artifacts instead of terminal-only output.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import platform
+import subprocess
+import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -108,6 +112,7 @@ def build_quality_evidence_bundle(
         "ok": scorecard.get("ok") is True,
         "output_dir": str(output_dir),
         "scorecard_report_path": str(scorecard_path),
+        "manifest_path": str(output_dir / "quality-evidence-manifest.json"),
         "require_top_evidence": require_top_evidence,
         "deterministic_reports": suite_summaries,
         "extra_report_paths": [str(path) for path in extra_reports],
@@ -128,7 +133,17 @@ def build_quality_evidence_bundle(
             "evidence_gaps": _nested_get(scorecard, "external_evidence", "evidence_gaps"),
         },
     }
-    _write_json(output_dir / "quality-evidence-bundle.json", result)
+    bundle_path = output_dir / "quality-evidence-bundle.json"
+    _write_json(bundle_path, result)
+    manifest = _build_manifest(
+        output_dir=output_dir,
+        deterministic_report_paths=suite_report_paths,
+        extra_report_paths=extra_reports,
+        scorecard_path=scorecard_path,
+        bundle_path=bundle_path,
+        require_top_evidence=require_top_evidence,
+    )
+    _write_json(output_dir / "quality-evidence-manifest.json", manifest)
     return result
 
 
@@ -178,6 +193,97 @@ def _nested_get(payload: dict[str, object], *keys: str) -> object:
             return None
         value = value.get(key)
     return value
+
+
+def _build_manifest(
+    *,
+    output_dir: Path,
+    deterministic_report_paths: Sequence[Path],
+    extra_report_paths: Sequence[Path],
+    scorecard_path: Path,
+    bundle_path: Path,
+    require_top_evidence: bool,
+) -> dict[str, object]:
+    artifacts = [
+        *(
+            _artifact_summary(path, kind="deterministic_report", output_dir=output_dir)
+            for path in deterministic_report_paths
+        ),
+        *(
+            _artifact_summary(path, kind="external_report", output_dir=output_dir)
+            for path in extra_report_paths
+        ),
+        _artifact_summary(scorecard_path, kind="scorecard", output_dir=output_dir),
+        _artifact_summary(bundle_path, kind="bundle_summary", output_dir=output_dir),
+    ]
+    return {
+        "schema_version": 1,
+        "suite": "memo-stack-quality-evidence-manifest",
+        "require_top_evidence": require_top_evidence,
+        "output_dir": str(output_dir),
+        "git": _git_metadata(),
+        "runtime": {
+            "python_version": sys.version.split()[0],
+            "platform": platform.platform(),
+        },
+        "artifacts": artifacts,
+    }
+
+
+def _artifact_summary(path: Path, *, kind: str, output_dir: Path) -> dict[str, object]:
+    data = path.read_bytes()
+    return {
+        "kind": kind,
+        "path": str(path),
+        "relative_path": _relative_path(path, output_dir),
+        "size_bytes": len(data),
+        "sha256": hashlib.sha256(data).hexdigest(),
+    }
+
+
+def _relative_path(path: Path, output_dir: Path) -> str | None:
+    try:
+        return str(path.resolve().relative_to(output_dir.resolve()))
+    except ValueError:
+        return None
+
+
+def _git_metadata() -> dict[str, object]:
+    repo_root = _repository_root()
+    return {
+        "commit": _git_output("rev-parse", "HEAD", cwd=repo_root),
+        "short_commit": _git_output("rev-parse", "--short", "HEAD", cwd=repo_root),
+        "dirty": _git_dirty(cwd=repo_root),
+    }
+
+
+def _repository_root() -> Path | None:
+    for candidate in Path(__file__).resolve().parents:
+        if (candidate / ".git").exists():
+            return candidate
+    return None
+
+
+def _git_dirty(*, cwd: Path | None) -> bool | None:
+    status = _git_output("status", "--short", cwd=cwd)
+    return None if status is None else bool(status.strip())
+
+
+def _git_output(*args: str, cwd: Path | None) -> str | None:
+    try:
+        completed = subprocess.run(
+            ["git", *args],
+            capture_output=True,
+            check=False,
+            cwd=cwd,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if completed.returncode != 0:
+        return None
+    return completed.stdout.strip()
 
 
 def _write_json(path: Path, payload: dict[str, object]) -> None:

@@ -25,7 +25,25 @@ def test_quality_evidence_bundle_writes_scorecard_artifacts(tmp_path: Path) -> N
     }
     assert (tmp_path / "memory-quality-scorecard.json").exists()
     assert (tmp_path / "quality-evidence-bundle.json").exists()
+    assert (tmp_path / "quality-evidence-manifest.json").exists()
     assert json.loads((tmp_path / "quality-evidence-bundle.json").read_text())["ok"] is True
+    manifest = json.loads((tmp_path / "quality-evidence-manifest.json").read_text())
+    artifact_names = {item["relative_path"] for item in manifest["artifacts"]}
+    artifact_hashes = {item["sha256"] for item in manifest["artifacts"]}
+    assert manifest["schema_version"] == 1
+    assert manifest["suite"] == "memo-stack-quality-evidence-manifest"
+    assert manifest["runtime"]["python_version"]
+    assert artifact_names == {
+        "small-golden.json",
+        "quality-golden.json",
+        "long-memory-golden.json",
+        "auto-memory-golden.json",
+        "graph-native-golden.json",
+        "prompt-contract.json",
+        "memory-quality-scorecard.json",
+        "quality-evidence-bundle.json",
+    }
+    assert all(len(value) == 64 for value in artifact_hashes)
 
 
 def test_quality_evidence_bundle_requires_existing_extra_reports(tmp_path: Path) -> None:
@@ -113,3 +131,13 @@ def test_quality_evidence_bundle_can_pass_strict_top_evidence_with_external_repo
     )
     assert result["scorecard"]["top_library_comparison_ready"] is True
     assert result["scorecard"]["evidence_gaps"] == []
+    manifest = json.loads(
+        ((tmp_path / "evidence") / "quality-evidence-manifest.json").read_text()
+    )
+    external_artifacts = [
+        item for item in manifest["artifacts"] if item["kind"] == "external_report"
+    ]
+    assert result["manifest_path"].endswith("quality-evidence-manifest.json")
+    assert len(external_artifacts) == 1
+    assert external_artifacts[0]["path"] == str(external_report)
+    assert external_artifacts[0]["relative_path"] is None
