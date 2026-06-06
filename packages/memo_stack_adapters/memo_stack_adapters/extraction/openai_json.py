@@ -12,6 +12,7 @@ from typing import Any
 from memo_stack_core.domain.entities import Confidence, MemoryKind, SourceRef
 from memo_stack_core.domain.errors import MemoryInfrastructureError, MemoryValidationError
 from memo_stack_core.ports.auto_memory import (
+    ALLOWED_TTL_POLICIES,
     CandidateOperation,
     MemoryCandidate,
     MemoryExtractorPort,
@@ -181,7 +182,7 @@ def _candidate_from_payload(
         operation_hint=operation,
         category=_optional_str(payload.get("category"), max_chars=80),
         tags=_tags(payload.get("tags")),
-        ttl_policy=_optional_str(payload.get("ttl_policy"), max_chars=80),
+        ttl_policy=_optional_ttl_policy(payload.get("ttl_policy")),
         target_fact_id=_optional_str(payload.get("target_fact_id"), max_chars=80),
         target_fact_version=_optional_int(payload.get("target_fact_version")),
         target_hint=_optional_str(payload.get("target_hint"), max_chars=240),
@@ -245,6 +246,15 @@ def _optional_str(value: Any, *, max_chars: int) -> str | None:
         raise MemoryValidationError("extractor.openai.invalid_string")
     normalized = value.strip()
     return normalized[:max_chars] or None
+
+
+def _optional_ttl_policy(value: Any) -> str | None:
+    ttl_policy = _optional_str(value, max_chars=80)
+    if ttl_policy is None:
+        return None
+    if ttl_policy not in ALLOWED_TTL_POLICIES:
+        raise MemoryValidationError("extractor.openai.invalid_ttl_policy")
+    return ttl_policy
 
 
 def _optional_int(value: Any) -> int | None:

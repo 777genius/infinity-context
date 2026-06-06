@@ -12,6 +12,7 @@ from memo_stack_core.ports.adapters import (
 )
 from memo_stack_core.ports.auth import AuthPort, MemoryPrincipal, MemoryScope, ReadScope
 from memo_stack_core.ports.auto_memory import (
+    ALLOWED_TTL_POLICIES,
     FactExtractionPort,
     MemoryCandidate,
     MemoryClassifierPort,
@@ -50,6 +51,7 @@ from memo_stack_core.ports.ids import IdGeneratorPort
 
 __all__ = [
     "AdapterCapabilities",
+    "ALLOWED_TTL_POLICIES",
     "AuthPort",
     "CapabilityDescriptor",
     "CapabilityDiagnostic",

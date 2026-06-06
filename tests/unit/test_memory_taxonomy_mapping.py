@@ -4,6 +4,7 @@ from memo_stack_core.application.auto_memory import RuleBasedMemoryClassifier
 from memo_stack_core.domain.entities import Confidence, MemoryKind, TrustLevel
 from memo_stack_core.domain.taxonomy import DefaultTaxonomyPolicy
 from memo_stack_core.ports.auto_memory import (
+    ALLOWED_TTL_POLICIES,
     CandidateOperation,
     MemoryCandidate,
     SourceProvenance,
@@ -27,6 +28,25 @@ def test_taxonomy_maps_kind_to_default_category_and_durable_ttl() -> None:
     assert result.tags == ("graphiti", "memory")
     assert result.ttl_policy.name == "durable"
     assert result.ttl_policy.duration is None
+
+
+def test_taxonomy_supports_port_ttl_contract() -> None:
+    policy = DefaultTaxonomyPolicy()
+
+    for ttl_policy in ALLOWED_TTL_POLICIES:
+        result = policy.normalize(
+            MemoryCandidate(
+                text=f"TTL contract must support {ttl_policy}.",
+                kind=MemoryKind.NOTE,
+                confidence=Confidence.MEDIUM,
+                source_refs=(),
+                safe_reason="test",
+                ttl_policy=ttl_policy,
+            )
+        )
+
+        assert result.ttl_policy.name == ttl_policy
+        assert not result.unknown_labels
 
 
 def test_taxonomy_unknown_labels_are_not_persisted_raw() -> None:

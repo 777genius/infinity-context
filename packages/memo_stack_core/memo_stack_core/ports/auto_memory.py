@@ -9,6 +9,8 @@ from typing import Protocol
 
 from memo_stack_core.domain.entities import Confidence, MemoryKind, SourceRef, TrustLevel
 
+ALLOWED_TTL_POLICIES = frozenset({"durable", "task", "short", "review", "delete_review"})
+
 
 class CandidateOperation(StrEnum):
     ADD = "add"

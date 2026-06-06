@@ -1282,6 +1282,41 @@ def test_openai_json_memory_extractor_rejects_invented_evidence_quote() -> None:
     asyncio.run(run())
 
 
+def test_openai_json_memory_extractor_rejects_invalid_ttl_policy() -> None:
+    async def run() -> None:
+        fake = FakeOpenAIClient(
+            {
+                "candidates": [
+                    _openai_candidate_payload(
+                        text="INVALID_TTL_MARKER should fail.",
+                        operation="add",
+                        evidence_quote="INVALID_TTL_MARKER",
+                        ttl_policy="forever",
+                    )
+                ]
+            }
+        )
+        extractor = OpenAIJsonMemoryExtractor(
+            api_key=None,
+            model="test-extractor-model",
+            client_factory=lambda: fake,
+        )
+        source = SourceProvenance(
+            source_type="capture:hook",
+            source_id="cap_invalid_ttl",
+            trust_level=TrustLevel.MEDIUM,
+        )
+
+        try:
+            await extractor.extract_facts(text="INVALID_TTL_MARKER", source=source)
+        except MemoryValidationError as exc:
+            assert "invalid_ttl_policy" in str(exc)
+        else:
+            raise AssertionError("Expected invalid TTL policy to fail")
+
+    asyncio.run(run())
+
+
 def test_openai_json_memory_extractor_rejects_unknown_output_fields() -> None:
     async def run() -> None:
         fake = FakeOpenAIClient(
