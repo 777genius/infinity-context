@@ -2,20 +2,20 @@ import asyncio
 import json
 from types import SimpleNamespace
 
-from memory_adapters.cognee import CogneeMemoryAdapter
-from memory_adapters.extraction import OpenAIJsonMemoryExtractor
-from memory_adapters.graphiti import GraphitiGraphMemoryAdapter
-from memory_adapters.noop import (
+from memo_stack_adapters.cognee import CogneeMemoryAdapter
+from memo_stack_adapters.extraction import OpenAIJsonMemoryExtractor
+from memo_stack_adapters.graphiti import GraphitiGraphMemoryAdapter
+from memo_stack_adapters.noop import (
     NoopEmbeddingAdapter,
     NoopGraphMemoryAdapter,
     NoopVectorMemoryAdapter,
 )
-from memory_adapters.qdrant import QdrantVectorMemoryAdapter
-from memory_core.domain.entities import TrustLevel
-from memory_core.domain.errors import MemoryInfrastructureError, MemoryValidationError
-from memory_core.ports.adapters import PortStatus, VectorUpsertItem
-from memory_core.ports.auto_memory import SourceProvenance
-from memory_core.ports.capabilities import (
+from memo_stack_adapters.qdrant import QdrantVectorMemoryAdapter
+from memo_stack_core.domain.entities import TrustLevel
+from memo_stack_core.domain.errors import MemoryInfrastructureError, MemoryValidationError
+from memo_stack_core.ports.adapters import PortStatus, VectorUpsertItem
+from memo_stack_core.ports.auto_memory import SourceProvenance
+from memo_stack_core.ports.capabilities import (
     CapabilityRecallQuery,
     CapabilityStatus,
     DocumentMemoryWrite,
@@ -24,7 +24,7 @@ from memory_core.ports.capabilities import (
     MemoryScopeFilter,
     ProjectionForgetRequest,
 )
-from memory_server.config import Settings
+from memo_stack_server.config import Settings
 
 
 class FakeGraphiti:
@@ -543,7 +543,7 @@ def test_configured_graphiti_without_client_degrades_instead_of_disabling(monkey
         adapter = GraphitiGraphMemoryAdapter(
             neo4j_uri="bolt://graphiti.test:7687",
             neo4j_user="neo4j",
-            neo4j_password="memorygraph",
+            neo4j_password="memostackgraph",
         )
         try:
             capabilities = await adapter.capabilities()
@@ -670,10 +670,10 @@ class FakeQdrantClient:
 class FakeQdrantWrongSizeClient(FakeQdrantClient):
     def __init__(self) -> None:
         super().__init__()
-        self.collections.add("memory_chunks_v1")
+        self.collections.add("memo_stack_chunks_v1")
 
     async def get_collection(self, *, collection_name: str) -> object:
-        assert collection_name == "memory_chunks_v1"
+        assert collection_name == "memo_stack_chunks_v1"
         return SimpleNamespace(
             config=SimpleNamespace(
                 params=SimpleNamespace(vectors=SimpleNamespace(size=2)),
@@ -691,7 +691,7 @@ def test_qdrant_adapter_creates_collection_before_upsert_and_search() -> None:
         fake = FakeQdrantClient()
         adapter = QdrantVectorMemoryAdapter(
             url="http://qdrant.test",
-            collection_name="memory_chunks_v1",
+            collection_name="memo_stack_chunks_v1",
             vector_size=3,
         )
         adapter._client = lambda: _fake_qdrant_client(fake)  # type: ignore[method-assign]
@@ -728,7 +728,7 @@ def test_qdrant_adapter_search_contract_uses_scope_and_projection_filters() -> N
         fake = FakeQdrantClient()
         adapter = QdrantVectorMemoryAdapter(
             url="http://qdrant.test",
-            collection_name="memory_chunks_v1",
+            collection_name="memo_stack_chunks_v1",
             vector_size=3,
             projection_version="projection_v2",
         )
@@ -760,7 +760,7 @@ def test_qdrant_adapter_search_contract_filters_current_thread_or_profile_wide_c
         fake = FakeQdrantClient()
         adapter = QdrantVectorMemoryAdapter(
             url="http://qdrant.test",
-            collection_name="memory_chunks_v1",
+            collection_name="memo_stack_chunks_v1",
             vector_size=3,
         )
         adapter._client = lambda: _fake_qdrant_client(fake)  # type: ignore[method-assign]
@@ -791,7 +791,7 @@ def test_qdrant_zero_limit_search_is_noop() -> None:
         fake = FakeQdrantClient()
         adapter = QdrantVectorMemoryAdapter(
             url="http://qdrant.test",
-            collection_name="memory_chunks_v1",
+            collection_name="memo_stack_chunks_v1",
             vector_size=3,
         )
         adapter._client = lambda: _fake_qdrant_client(fake)  # type: ignore[method-assign]
@@ -815,7 +815,7 @@ def test_qdrant_dimension_mismatch_fails_closed() -> None:
         fake = FakeQdrantWrongSizeClient()
         adapter = QdrantVectorMemoryAdapter(
             url="http://qdrant.test",
-            collection_name="memory_chunks_v1",
+            collection_name="memo_stack_chunks_v1",
             vector_size=3,
         )
         adapter._client = lambda: _fake_qdrant_client(fake)  # type: ignore[method-assign]
@@ -860,7 +860,7 @@ def test_qdrant_client_unavailable_fails_capability_closed() -> None:
 
         adapter = QdrantVectorMemoryAdapter(
             url="http://qdrant.test",
-            collection_name="memory_chunks_v1",
+            collection_name="memo_stack_chunks_v1",
             vector_size=3,
         )
         adapter._client = unavailable_client  # type: ignore[method-assign]
@@ -879,7 +879,7 @@ def test_qdrant_server_unavailable_reports_configured_adapter_degraded() -> None
         fake = FakeQdrantUnavailableClient()
         adapter = QdrantVectorMemoryAdapter(
             url="http://qdrant.test",
-            collection_name="memory_chunks_v1",
+            collection_name="memo_stack_chunks_v1",
             vector_size=3,
         )
         adapter._client = lambda: _fake_qdrant_client(fake)  # type: ignore[method-assign]

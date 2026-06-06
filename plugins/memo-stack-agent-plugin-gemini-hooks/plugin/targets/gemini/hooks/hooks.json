@@ -1,0 +1,48 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${extensionPath}${/}bin${/}memo-stack-plugin-hook GeminiSessionStart"
+          }
+        ]
+      }
+    ],
+    "BeforeAgent": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${extensionPath}${/}bin${/}memo-stack-plugin-hook GeminiBeforeAgent"
+          }
+        ]
+      }
+    ],
+    "AfterAgent": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${extensionPath}${/}bin${/}memo-stack-plugin-hook GeminiAfterAgent"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${extensionPath}${/}bin${/}memo-stack-plugin-hook GeminiSessionEnd"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -3,14 +3,14 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from fastapi.testclient import TestClient
-from memory_adapters.postgres.models import MemoryOutboxRow
-from memory_core.application import ConsolidateCaptureCommand, ConsolidateCaptureUseCase
-from memory_core.domain.entities import Confidence, MemoryKind, SourceRef
-from memory_core.domain.errors import MemoryInfrastructureError
-from memory_core.ports.auto_memory import CandidateOperation, MemoryCandidate, SourceProvenance
-from memory_server.config import CaptureMode, DeployProfile, MemoryPolicyMode, Settings
-from memory_server.main import create_app
-from memory_server.worker import OutboxWorker
+from memo_stack_adapters.postgres.models import MemoryOutboxRow
+from memo_stack_core.application import ConsolidateCaptureCommand, ConsolidateCaptureUseCase
+from memo_stack_core.domain.entities import Confidence, MemoryKind, SourceRef
+from memo_stack_core.domain.errors import MemoryInfrastructureError
+from memo_stack_core.ports.auto_memory import CandidateOperation, MemoryCandidate, SourceProvenance
+from memo_stack_server.config import CaptureMode, DeployProfile, MemoryPolicyMode, Settings
+from memo_stack_server.main import create_app
+from memo_stack_server.worker import OutboxWorker
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 

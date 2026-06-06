@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+plugin_root="$(cd "${script_dir}/.." && pwd)"
+repo_root="$(cd "${plugin_root}/../.." && pwd)"
+
+python_bin="${repo_root}/.venv/bin/python"
+if [ ! -x "${python_bin}" ]; then
+  if command -v python3 >/dev/null 2>&1; then
+    python_bin="$(command -v python3)"
+  elif command -v python >/dev/null 2>&1; then
+    python_bin="$(command -v python)"
+  else
+    printf '%s\n' "memo-stack-mcp: Python not found. Create ${repo_root}/.venv or install python3." >&2
+    exit 127
+  fi
+fi
+
+memory_pythonpath="${repo_root}/packages/memo_stack_core:${repo_root}/packages/memo_stack_server:${repo_root}/packages/memo_stack_adapters:${repo_root}/packages/memo_stack_sdk:${repo_root}/packages/memo_stack_mcp"
+if [ -n "${PYTHONPATH:-}" ]; then
+  export PYTHONPATH="${memory_pythonpath}:${PYTHONPATH}"
+else
+  export PYTHONPATH="${memory_pythonpath}"
+fi
+
+if [ -n "${MEMORY_MCP_RUNTIME_API_URL:-}" ]; then
+  export MEMORY_MCP_API_URL="${MEMORY_MCP_RUNTIME_API_URL}"
+fi
+if [ -n "${MEMORY_MCP_RUNTIME_AUTH_TOKEN:-}" ]; then
+  export MEMORY_MCP_AUTH_TOKEN="${MEMORY_MCP_RUNTIME_AUTH_TOKEN}"
+fi
+if [ -n "${MEMORY_MCP_RUNTIME_DEFAULT_SPACE_SLUG:-}" ]; then
+  export MEMORY_MCP_DEFAULT_SPACE_SLUG="${MEMORY_MCP_RUNTIME_DEFAULT_SPACE_SLUG}"
+fi
+if [ -n "${MEMORY_MCP_RUNTIME_DEFAULT_PROFILE_EXTERNAL_REF:-}" ]; then
+  export MEMORY_MCP_DEFAULT_PROFILE_EXTERNAL_REF="${MEMORY_MCP_RUNTIME_DEFAULT_PROFILE_EXTERNAL_REF}"
+fi
+if [ -n "${MEMORY_MCP_RUNTIME_DEFAULT_THREAD_EXTERNAL_REF:-}" ]; then
+  export MEMORY_MCP_DEFAULT_THREAD_EXTERNAL_REF="${MEMORY_MCP_RUNTIME_DEFAULT_THREAD_EXTERNAL_REF}"
+fi
+if [ -n "${MEMORY_MCP_RUNTIME_AGENT_NAME:-}" ]; then
+  export MEMORY_MCP_AGENT_NAME="${MEMORY_MCP_RUNTIME_AGENT_NAME}"
+fi
+if [ -n "${MEMORY_MCP_RUNTIME_WRITE_MODE:-}" ]; then
+  export MEMORY_MCP_WRITE_MODE="${MEMORY_MCP_RUNTIME_WRITE_MODE}"
+fi
+if [ -n "${MEMORY_MCP_RUNTIME_DELETE_MODE:-}" ]; then
+  export MEMORY_MCP_DELETE_MODE="${MEMORY_MCP_RUNTIME_DELETE_MODE}"
+fi
+if [ -n "${MEMORY_MCP_RUNTIME_INGEST_MODE:-}" ]; then
+  export MEMORY_MCP_INGEST_MODE="${MEMORY_MCP_RUNTIME_INGEST_MODE}"
+fi
+if [ -n "${MEMORY_MCP_RUNTIME_TRANSPORT:-}" ]; then
+  export MEMORY_MCP_TRANSPORT="${MEMORY_MCP_RUNTIME_TRANSPORT}"
+fi
+
+case "${MEMORY_MCP_DEFAULT_THREAD_EXTERNAL_REF:-}" in
+  "__MEMO_STACK_NO_DEFAULT_THREAD__")
+    unset MEMORY_MCP_DEFAULT_THREAD_EXTERNAL_REF
+    ;;
+esac
+
+exec "${python_bin}" -m memo_stack_mcp "$@"

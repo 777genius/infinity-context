@@ -1,0 +1,6 @@
+api_version: v1
+name: memo-stack-agent-plugin-gemini-hooks
+version: 0.1.0
+description: Memo Stack Gemini extension with lifecycle hooks for durable project memory.
+targets:
+  - gemini

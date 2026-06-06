@@ -42,21 +42,21 @@ dev = [
 ]
 
 [project.scripts]
-memory-mcp = "memory_mcp.server:main"
-memory-mcp-bench = "memory_mcp.bench:main"
-memory-mcp-agent-bench = "memory_mcp.agent_behavior_bench:main"
+memo-stack-mcp = "memo_stack_mcp.server:main"
+memo-stack-mcp-bench = "memo_stack_mcp.bench:main"
+memo-stack-mcp-agent-bench = "memo_stack_mcp.agent_behavior_bench:main"
 
 [tool.setuptools.packages.find]
 where = [
-  "packages/memory_core",
-  "packages/memory_server",
-  "packages/memory_adapters",
-  "packages/memory_sdk",
-  "packages/memory_mcp",
+  "packages/memo_stack_core",
+  "packages/memo_stack_server",
+  "packages/memo_stack_adapters",
+  "packages/memo_stack_sdk",
+  "packages/memo_stack_mcp",
 ]
 
 [tool.setuptools.package-data]
-memory_adapters = [
+memo_stack_adapters = [
   "extraction/prompts/*.md",
   "extraction/schemas/*.json",
 ]
@@ -64,11 +64,11 @@ memory_adapters = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = [
-  "packages/memory_core",
-  "packages/memory_server",
-  "packages/memory_adapters",
-  "packages/memory_sdk",
-  "packages/memory_mcp",
+  "packages/memo_stack_core",
+  "packages/memo_stack_server",
+  "packages/memo_stack_adapters",
+  "packages/memo_stack_sdk",
+  "packages/memo_stack_mcp",
 ]
 
 [tool.ruff]

@@ -1,6 +1,6 @@
 """Generic local Memo Stack smoke test.
 
-Run after `docker compose up` or `make memory-stack-up`.
+Run after `docker compose up` or `make memo-stack-up`.
 The script uses only the public SDK and HTTP API.
 """
 
@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from time import time
 from typing import Any
 
-from memory_sdk import MemoryPlatformClient, MemoryPlatformError
+from memo_stack_sdk import MemoStackClient, MemoStackError
 
 
 class SmokeFailure(RuntimeError):
@@ -179,14 +179,14 @@ def run_smoke(client: Any, config: SmokeConfig) -> dict[str, Any]:
 
 def main() -> int:
     config = SmokeConfig.from_env()
-    client = MemoryPlatformClient(
+    client = MemoStackClient(
         base_url=config.api_url,
         token=config.auth_token,
         timeout=config.timeout,
     )
     try:
         result = run_smoke(client, config)
-    except MemoryPlatformError as exc:
+    except MemoStackError as exc:
         print(
             json.dumps(
                 {

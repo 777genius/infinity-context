@@ -5,32 +5,36 @@ from pathlib import Path
 from typing import Any
 
 from fastapi.testclient import TestClient
-from memory_adapters.postgres import create_schema
-from memory_adapters.postgres.models import MemoryFactRow, MemoryOutboxRow
-from memory_core.ports.adapters import (
+from memo_stack_adapters.postgres import create_schema
+from memo_stack_adapters.postgres.models import MemoryFactRow, MemoryOutboxRow
+from memo_stack_core.ports.adapters import (
     AdapterCapabilities,
     EmbeddingResult,
     PortStatus,
     VectorWriteResult,
 )
-from memory_core.ports.capabilities import (
+from memo_stack_core.ports.capabilities import (
     CapabilityStatus,
     ProjectionForgetResult,
     ProjectionWriteResult,
 )
-from memory_server.admin import ACTIVE_CONTEXT_MANUAL_CHECK_NAMES, invariant_check, seed_defaults
-from memory_server.composition import build_container
-from memory_server.config import DeployProfile, Settings
-from memory_server.db import upgrade
-from memory_server.doctor import run_doctor
-from memory_server.eval import (
+from memo_stack_server.admin import (
+    ACTIVE_CONTEXT_MANUAL_CHECK_NAMES,
+    invariant_check,
+    seed_defaults,
+)
+from memo_stack_server.composition import build_container
+from memo_stack_server.config import DeployProfile, Settings
+from memo_stack_server.db import upgrade
+from memo_stack_server.doctor import run_doctor
+from memo_stack_server.eval import (
     _execute_small_golden,
     run_auto_memory_golden,
     run_quality_golden,
     run_small_golden,
 )
-from memory_server.main import create_app
-from memory_server.worker import OutboxWorker, _safe_diagnostic_code, _safe_error
+from memo_stack_server.main import create_app
+from memo_stack_server.worker import OutboxWorker, _safe_diagnostic_code, _safe_error
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -74,8 +78,8 @@ def test_eval_cli_uses_env_token_not_cli_auth_token() -> None:
     source = (
         Path(__file__).parents[2]
         / "packages"
-        / "memory_server"
-        / "memory_server"
+        / "memo_stack_server"
+        / "memo_stack_server"
         / "eval.py"
     ).read_text(encoding="utf-8")
 

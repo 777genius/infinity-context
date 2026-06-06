@@ -24,12 +24,13 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-PLUGIN_ROOT = PROJECT_ROOT / "plugins" / "memory-agent-plugin"
-CURSOR_WORKSPACE_PLUGIN_ROOT = PROJECT_ROOT / "plugins" / "memory-agent-plugin-cursor-workspace"
+PLUGIN_ROOT = PROJECT_ROOT / "plugins" / "memo-stack-agent-plugin"
+CURSOR_WORKSPACE_PLUGIN_ROOT = PROJECT_ROOT / "plugins" / "memo-stack-agent-plugin-cursor-workspace"
+GEMINI_HOOK_PLUGIN_ROOT = PROJECT_ROOT / "plugins" / "memo-stack-agent-plugin-gemini-hooks"
 NO_DEFAULT_THREAD_SENTINEL = "__MEMO_STACK_NO_DEFAULT_THREAD__"
 MCP_SERVER_ALIAS = "memo-stack"
-LEGACY_MCP_SERVER_ALIAS = "memory-platform"
-INTEGRATION_ID = "memory-agent-plugin"
+INTEGRATION_ID = "memo-stack-agent-plugin"
+GEMINI_HOOK_INTEGRATION_ID = "memo-stack-agent-plugin-gemini-hooks"
 DEFAULT_API_URL = "http://127.0.0.1:7788"
 DEFAULT_AUTH_TOKEN = "local-dev-token"
 SENSITIVE_KEY_RE = re.compile(
@@ -137,12 +138,16 @@ def run_install_doctor(*, strict_codex: bool, skip_cli_lists: bool) -> dict[str,
     if not doctor_result["ok"]:
         failures.append("plugin-kit-ai integrations doctor failed")
 
-    installation = load_plugin_installation()
+    installation = load_plugin_installation(INTEGRATION_ID)
+    gemini_hook_installation = load_plugin_installation(GEMINI_HOOK_INTEGRATION_ID)
     targets = installation.get("targets", {})
     if not isinstance(targets, dict):
-        raise VerificationFailure("memory-agent-plugin targets must be an object")
+        raise VerificationFailure("memo-stack-agent-plugin targets must be an object")
+    gemini_hook_targets = gemini_hook_installation.get("targets", {})
+    if not isinstance(gemini_hook_targets, dict):
+        raise VerificationFailure("memo-stack-agent-plugin-gemini-hooks targets must be an object")
 
-    required_installed = ("claude", "cursor", "gemini", "opencode")
+    required_installed = ("claude", "cursor", "opencode")
     target_checks: dict[str, dict[str, Any]] = {}
 
     for target in required_installed:
@@ -153,13 +158,20 @@ def run_install_doctor(*, strict_codex: bool, skip_cli_lists: bool) -> dict[str,
         if check.get("owned_paths_missing"):
             failures.append(f"{target} has missing owned paths")
 
+    gemini_check = target_state(gemini_hook_targets, "gemini")
+    target_checks["gemini_hooks"] = gemini_check
+    if gemini_check["state"] != "installed":
+        failures.append(f"gemini_hooks is {gemini_check['state']}, expected installed")
+    if gemini_check.get("owned_paths_missing"):
+        failures.append("gemini_hooks has missing owned paths")
+
     codex_check = target_state(targets, "codex")
     target_checks["codex"] = codex_check
     if codex_check["state"] == "installed":
         pass
     elif codex_check["state"] == "activation_pending":
         message = (
-            "codex native activation is pending: install memory-agent-plugin from "
+            "codex native activation is pending: install memo-stack-agent-plugin from "
             "the Codex Plugin Directory and start a new Codex thread"
         )
         if strict_codex:
@@ -183,7 +195,7 @@ def run_install_doctor(*, strict_codex: bool, skip_cli_lists: bool) -> dict[str,
 
     return {
         "ok": not failures,
-        "integration_id": INTEGRATION_ID,
+        "integration_ids": [INTEGRATION_ID, GEMINI_HOOK_INTEGRATION_ID],
         "checks": {
             "plugin_kit_ai_list": list_result["ok"],
             "plugin_kit_ai_doctor": doctor_result["ok"],
@@ -216,10 +228,10 @@ async def run_live_smoke(
             agent_name="agent-live-package",
         ),
         "gemini": await run_generated_mcp_status(
-            plugin_root=PLUGIN_ROOT,
+            plugin_root=GEMINI_HOOK_PLUGIN_ROOT,
             config_relpath="gemini-extension.json",
-            workspace_root=PLUGIN_ROOT,
-            cwd=PLUGIN_ROOT,
+            workspace_root=GEMINI_HOOK_PLUGIN_ROOT,
+            cwd=GEMINI_HOOK_PLUGIN_ROOT,
             api_url=api_url,
             auth_token=auth_token,
             space_slug="agent-live-gemini",
@@ -353,7 +365,7 @@ def run_agent_cli_smokes(
         "Do not call shell tools, subagents, or file tools. "
         "After the MCP call succeeds, reply with exactly: memory_status_checked."
     )
-    memory_mcp_bin = str(PLUGIN_ROOT / "bin" / "memory-mcp")
+    memory_mcp_bin = str(PLUGIN_ROOT / "bin" / "memo-stack-mcp")
     agent_env = {
         "MEMORY_MCP_API_URL": api_url,
         "MEMORY_MCP_AUTH_TOKEN": auth_token,
@@ -387,7 +399,7 @@ def run_agent_cli_smokes(
             "-p",
             gemini_prompt,
             "--extensions",
-            INTEGRATION_ID,
+            GEMINI_HOOK_INTEGRATION_ID,
             "--allowed-mcp-server-names",
             "memo-stack",
             "--output-format",
@@ -639,7 +651,7 @@ def check_gemini_extension_list() -> dict[str, Any]:
         extensions = json.loads(raw)
     except json.JSONDecodeError:
         return {"status": "blocked", "reason": "gemini extensions list returned non-json"}
-    found = any(str(item.get("name", "")) == INTEGRATION_ID for item in extensions)
+    found = any(str(item.get("name", "")) == GEMINI_HOOK_INTEGRATION_ID for item in extensions)
     return {"status": "ok" if found else "failed", "found": found}
 
 
@@ -665,10 +677,10 @@ def check_gemini_extension_runtime_config(
     except json.JSONDecodeError:
         return {"status": "blocked", "reason": "gemini extensions list returned non-json"}
     for item in extensions:
-        if str(item.get("name", "")) != INTEGRATION_ID:
+        if str(item.get("name", "")) != GEMINI_HOOK_INTEGRATION_ID:
             continue
         mcp_servers = item.get("mcpServers") or {}
-        server = mcp_servers.get(MCP_SERVER_ALIAS) or mcp_servers.get(LEGACY_MCP_SERVER_ALIAS) or {}
+        server = mcp_servers.get(MCP_SERVER_ALIAS) or {}
         env = server.get("env") or {}
         actual_api_url = str(env.get("MEMORY_MCP_API_URL", "")).strip()
         actual_token = str(env.get("MEMORY_MCP_AUTH_TOKEN", ""))
@@ -708,10 +720,13 @@ def check_gemini_extension_runtime_config(
                 "<set>" if runtime_override_auth_token_present else "<not-set>"
             ),
         }
-    return {"status": "blocked", "reason": "gemini memory-agent-plugin extension not installed"}
+    return {
+        "status": "blocked",
+        "reason": "gemini memo-stack-agent-plugin-gemini-hooks extension not installed",
+    }
 
 
-def load_plugin_installation() -> dict[str, Any]:
+def load_plugin_installation(integration_id: str = INTEGRATION_ID) -> dict[str, Any]:
     state_path = Path(
         os.getenv("PLUGIN_KIT_AI_STATE_PATH", str(Path.home() / ".plugin-kit-ai" / "state.json"))
     )
@@ -722,9 +737,9 @@ def load_plugin_installation() -> dict[str, Any]:
     if not isinstance(installations, list):
         raise VerificationFailure("plugin-kit-ai state must contain installations list")
     for installation in installations:
-        if installation.get("integration_id") == INTEGRATION_ID:
+        if installation.get("integration_id") == integration_id:
             return installation
-    raise VerificationFailure("memory-agent-plugin is not present in plugin-kit-ai state")
+    raise VerificationFailure(f"{integration_id} is not present in plugin-kit-ai state")
 
 
 def target_state(targets: Mapping[str, Any], target: str) -> dict[str, Any]:
@@ -760,7 +775,7 @@ def load_generated_mcp_server(
     else:
         servers = parsed.get("mcpServers", parsed)
         env_key = "env"
-    server = servers.get(MCP_SERVER_ALIAS) or servers.get(LEGACY_MCP_SERVER_ALIAS)
+    server = servers.get(MCP_SERVER_ALIAS)
     if not isinstance(server, dict):
         raise VerificationFailure(
             f"generated MCP config {config_relpath} is missing {MCP_SERVER_ALIAS}"

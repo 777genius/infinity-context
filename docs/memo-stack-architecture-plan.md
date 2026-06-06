@@ -9,7 +9,7 @@
 Ключевое решение:
 
 ```text
-Our Memory Core + Postgres canonical truth + Graphiti adapter + Qdrant adapter
+Our Memo Stack Core + Postgres canonical truth + Graphiti adapter + Qdrant adapter
 ```
 
 Оценка целевого v1:
@@ -21,11 +21,11 @@ Our Memory Core + Postgres canonical truth + Graphiti adapter + Qdrant adapter
 
 Мы не делаем "интеграцию с Graphiti" и не делаем "интеграцию с Qdrant". Мы делаем свою **Memo Stack**, где:
 
-- `memory_core` содержит domain, use cases и ports.
-- `memory_server` дает HTTP API, worker, migrations, auth, config.
-- `memory_adapters` подключают Postgres, Graphiti, Qdrant, LLM, embeddings, object storage.
-- `memory_sdk` дает удобный Python client, потом можно сгенерировать TypeScript/Rust clients из OpenAPI.
-- `memory_mcp` и UI добавляются позже поверх того же API.
+- `memo_stack_core` содержит domain, use cases и ports.
+- `memo_stack_server` дает HTTP API, worker, migrations, auth, config.
+- `memo_stack_adapters` подключают Postgres, Graphiti, Qdrant, LLM, embeddings, object storage.
+- `memo_stack_sdk` дает удобный Python client, потом можно сгенерировать TypeScript/Rust clients из OpenAPI.
+- `memo_stack_mcp` и UI добавляются позже поверх того же API.
 
 Главный invariant:
 
@@ -118,7 +118,7 @@ Weak spots found and fixed in this pass:
 
 5. Client App integration was too greenfield.
    - Risk: replacing the existing desktop bridge breaks `ActiveContext`, settings rollback, local fallback or production canaries.
-   - Fix: add a legacy compatibility gateway and migration contract before changing prompt-impacting behavior.
+   - Fix: add a client compatibility gateway and migration contract before changing prompt-impacting behavior.
 
 6. Existing memory session ownership was under-specified.
    - Risk: current `session_id` JSON store and future `MemoryThread` ids diverge, causing imports into a session the desktop will not read.
@@ -366,7 +366,7 @@ Weak spots found and fixed in this pass:
 
 67. Public DTO/schema ownership was still implicit.
     - Risk: API routes, SDK models, event payloads, import/export bundles and MCP tools each serialize similar objects differently.
-    - Fix: add a versioned `memory_contracts` package with canonical public DTOs, JSON schemas, fixtures and schema registry.
+    - Fix: add a versioned `memo_stack_contracts` package with canonical public DTOs, JSON schemas, fixtures and schema registry.
 
 68. Domain entities could leak into transport contracts.
     - Risk: FastAPI/Pydantic convenience turns internal aggregates into public API shape, making domain refactors breaking changes.
@@ -554,7 +554,7 @@ Use this map when implementing or reviewing a PR. A PR should explicitly state w
 
 | Concern | Primary sections | Must not violate |
 |---|---|---|
-| Clean boundaries | Architectural Principles, Package Layout, Ports, First Concrete PR | `memory_core` must not import infrastructure clients or FastAPI |
+| Clean boundaries | Architectural Principles, Package Layout, Ports, First Concrete PR | `memo_stack_core` must not import infrastructure clients or FastAPI |
 | Contract schemas | Contract and DTO Schema Layer, API Contract, SDK Contract, CI Gates | domain entities are never exposed directly as public DTOs |
 | Bootstrap and runtime config | Bootstrap and Runtime Configuration Model, Deployment, Security and Privacy | first owner/token/config are provisioned once and cannot become auth bypass |
 | Migration and upgrade safety | Migration and Upgrade Governance Model, Deployment, CI Gates | schema, data, contract and projection upgrades move through explicit phases |
@@ -608,7 +608,7 @@ Use this map when implementing or reviewing a PR. A PR should explicitly state w
 | Qdrant is a derived vector/RAG index | handles large docs, chunks and semantic retrieval | `VectorMemoryPort`, `QdrantAdapter` | payload indexes, chunk retrieval, stale vector result filtering | slow search or private chunk leakage |
 | Projection state is canonical metadata | makes rebuild/drift/deindex observable and resumable | `ProjectionState`, `ProjectionMapping`, `ProjectionRebuildJob` | mapping, watermark, rebuild resume and drift tests | derived indexes silently drift from Postgres |
 | Public operations are not outbox jobs | gives SDKs stable progress/retry semantics without leaking worker internals | `ClientOperation`, `IdempotencyRecord`, `OperationResultSnapshot` | timeout/retry, response snapshot, cancel and resume tests | retries duplicate data or clients poll unsafe internals |
-| Canonical contract schemas | keeps API, SDK, events, bundles and MCP tools aligned | `memory_contracts`, schema registry, DTO mappers | schema roundtrip, unknown enum and OpenAPI fixture tests | clients drift or import/export becomes incompatible |
+| Canonical contract schemas | keeps API, SDK, events, bundles and MCP tools aligned | `memo_stack_contracts`, schema registry, DTO mappers | schema roundtrip, unknown enum and OpenAPI fixture tests | clients drift or import/export becomes incompatible |
 | Bootstrap is explicit and locked | prevents open first-admin flows and config drift | `BootstrapState`, `RuntimeConfigSnapshot`, bootstrap CLI/API | first boot, token reuse, auth mode downgrade and worker config tests | server starts open or different processes run different policies |
 | Upgrades are phased and observable | prevents mixed schema/worker/index states from corrupting memory | `SchemaMigrationRun`, `DataBackfillJob`, migration lock, compatibility window | upgrade dry-run, backfill resume, old worker guard tests | partial upgrade corrupts data or blocks safe rollback |
 | Workers and schedulers are leased | keeps background work safe with one or many processes | `WorkerInstance`, `WorkerLease`, `ScheduledTask`, outbox claim | heartbeat, singleton scheduler, shutdown and crash recovery tests | duplicate maintenance jobs or stuck leases corrupt operations |
@@ -657,7 +657,7 @@ Estimated changes: included in core `15500-28500` lines.
 Выбираем:
 
 ```text
-memory_server first
+memo_stack_server first
 local Docker for personal/dev usage
 remote server later with same API
 future sync supported by event/outbox schema, but not implemented in v1
@@ -821,12 +821,12 @@ sdk -> HTTP client only
 Allowed dependency direction:
 
 ```text
-memory_server
-  -> memory_adapters
-  -> memory_core.application
-  -> memory_core.domain
+memo_stack_server
+  -> memo_stack_adapters
+  -> memo_stack_core.application
+  -> memo_stack_core.domain
 
-memory_sdk
+memo_stack_sdk
   -> HTTP API
 ```
 
@@ -892,7 +892,7 @@ DIP:
 
 - use cases зависят от ports;
 - adapters реализуют ports;
-- composition root живет в `memory_server`.
+- composition root живет в `memo_stack_server`.
 
 ### Simple DDD
 
@@ -948,8 +948,8 @@ Operations Context
 
 ```mermaid
 flowchart TD
-  A["Client App: Client App, Codex, Claude, Slack"] --> B["memory_sdk or HTTP API"]
-  B --> C["memory_server: FastAPI"]
+  A["Client App: Client App, Codex, Claude, Slack"] --> B["memo_stack_sdk or HTTP API"]
+  B --> C["memo_stack_server: FastAPI"]
   C --> D["application use cases"]
   D --> E["domain model"]
   D --> F["ports"]
@@ -968,7 +968,7 @@ flowchart TD
 Request path:
 
 ```text
-client -> memory_server API -> use case -> canonical Postgres transaction -> outbox -> async indexes
+client -> memo_stack_server API -> use case -> canonical Postgres transaction -> outbox -> async indexes
 ```
 
 Search path:
@@ -995,9 +995,9 @@ memo_stack/
   .env.example
 
   packages/
-    memory_contracts/
+    memo_stack_contracts/
       pyproject.toml
-      memory_contracts/
+      memo_stack_contracts/
         commands/
         responses/
         events/
@@ -1006,9 +1006,9 @@ memo_stack/
         fixtures/
         registry.py
 
-    memory_core/
+    memo_stack_core/
       pyproject.toml
-      memory_core/
+      memo_stack_core/
         domain/
           entities/
           value_objects/
@@ -1022,9 +1022,9 @@ memo_stack/
         dto/
         contracts/
 
-    memory_adapters/
+    memo_stack_adapters/
       pyproject.toml
-      memory_adapters/
+      memo_stack_adapters/
         postgres/
         graphiti/
         qdrant/
@@ -1035,9 +1035,9 @@ memo_stack/
         cache/
         observability/
 
-    memory_server/
+    memo_stack_server/
       pyproject.toml
-      memory_server/
+      memo_stack_server/
         api/
         workers/
         migrations/
@@ -1046,16 +1046,16 @@ memo_stack/
         composition.py
         main.py
 
-    memory_sdk/
+    memo_stack_sdk/
       pyproject.toml
-      memory_sdk/
+      memo_stack_sdk/
         client.py
         models.py
         errors.py
 
-    memory_mcp/
+    memo_stack_mcp/
       pyproject.toml
-      memory_mcp/
+      memo_stack_mcp/
         server.py
 
   scripts/
@@ -1079,11 +1079,11 @@ memo_stack/
 Shorter v1 layout is acceptable:
 
 ```text
-memory_contracts/
-memory_core/
-memory_adapters/
-memory_server/
-memory_sdk/
+memo_stack_contracts/
+memo_stack_core/
+memo_stack_adapters/
+memo_stack_server/
+memo_stack_sdk/
 ```
 
 But keep imports and boundaries as if packages were split.
@@ -1105,7 +1105,7 @@ alembic for Postgres migrations
 Rules:
 
 - dependencies must be locked;
-- adapter dependencies stay out of `memory_core`;
+- adapter dependencies stay out of `memo_stack_core`;
 - generated OpenAPI is checked in or compared deterministically in CI;
 - no CI step should require real external AI credentials;
 - tests that need external providers are opt-in and skipped by default;
@@ -1126,7 +1126,7 @@ Database rows are not SDK models.
 Recommended package:
 
 ```text
-memory_contracts/
+memo_stack_contracts/
   commands/
     remember_fact.py
     update_fact.py
@@ -1159,10 +1159,10 @@ memory_contracts/
 
 Ownership:
 
-- `memory_contracts` owns public DTOs, JSON schema ids, fixture examples and version metadata;
-- `memory_core` owns domain entities, value objects, use-case commands and domain errors;
-- `memory_server` maps HTTP requests into application commands and maps results into public DTOs;
-- `memory_sdk` consumes generated or shared contract models, but does not import domain entities;
+- `memo_stack_contracts` owns public DTOs, JSON schema ids, fixture examples and version metadata;
+- `memo_stack_core` owns domain entities, value objects, use-case commands and domain errors;
+- `memo_stack_server` maps HTTP requests into application commands and maps results into public DTOs;
+- `memo_stack_sdk` consumes generated or shared contract models, but does not import domain entities;
 - import/export, event cursor, MCP tools and legacy compatibility routes use the same public DTO families where possible.
 
 Contract families:
@@ -1240,10 +1240,10 @@ Required artifacts:
 Hard boundary:
 
 ```text
-memory_core/domain imports memory_contracts: forbidden
-memory_contracts imports FastAPI/SQLAlchemy/Graphiti/Qdrant: forbidden
-memory_server imports memory_contracts: allowed
-memory_sdk imports memory_contracts or generated models: allowed
+memo_stack_core/domain imports memo_stack_contracts: forbidden
+memo_stack_contracts imports FastAPI/SQLAlchemy/Graphiti/Qdrant: forbidden
+memo_stack_server imports memo_stack_contracts: allowed
+memo_stack_sdk imports memo_stack_contracts or generated models: allowed
 ```
 
 ## Bootstrap and Runtime Configuration Model
@@ -1253,7 +1253,7 @@ Bootstrap and config are part of the architecture, not deployment trivia. A reus
 Core invariant:
 
 ```text
-No memory_server process accepts normal mutating/read API traffic until bootstrap, migrations and runtime config validation are complete.
+No memo_stack_server process accepts normal mutating/read API traffic until bootstrap, migrations and runtime config validation are complete.
 ```
 
 ### DeploymentInstance
@@ -1371,12 +1371,12 @@ Rules:
 Bootstrap commands:
 
 ```text
-memory_server bootstrap status
-memory_server bootstrap init-local --owner-name ... --space-name ... --profile-name ...
-memory_server bootstrap create-token --scope local_setup --ttl 10m
-memory_server config doctor
-memory_server dev seed --synthetic-only
-memory_server dev reset --confirm-local-lineage ...
+memo_stack_server bootstrap status
+memo_stack_server bootstrap init-local --owner-name ... --space-name ... --profile-name ...
+memo_stack_server bootstrap create-token --scope local_setup --ttl 10m
+memo_stack_server config doctor
+memo_stack_server dev seed --synthetic-only
+memo_stack_server dev reset --confirm-local-lineage ...
 ```
 
 Optional API endpoints:
@@ -1544,12 +1544,12 @@ Runtime rules:
 CLI/API:
 
 ```text
-memory_server migrate plan
-memory_server migrate dry-run
-memory_server migrate apply --phase expand
-memory_server migrate backfill --job ...
-memory_server migrate verify
-memory_server migrate cleanup --after-compat-window
+memo_stack_server migrate plan
+memo_stack_server migrate dry-run
+memo_stack_server migrate apply --phase expand
+memo_stack_server migrate backfill --job ...
+memo_stack_server migrate verify
+memo_stack_server migrate cleanup --after-compat-window
 
 GET  /v1/admin/migrations
 GET  /v1/admin/migrations/{migration_run_id}
@@ -2256,7 +2256,7 @@ Rules:
 
 - degraded context is labeled in response metadata and debug-safe diagnostics;
 - degraded context still follows `ReadScope`, `VisibilityPredicate`, `VisibilityProof` and cache freshness rules;
-- `local_fallback_only` and `no_memory` are valid safe outcomes when memory_server cannot answer in time;
+- `local_fallback_only` and `no_memory` are valid safe outcomes when memo_stack_server cannot answer in time;
 - no degraded mode may return stale/deleted/forbidden data for better recall;
 - clients should avoid treating degraded context as complete project memory.
 
@@ -2290,7 +2290,7 @@ Rules:
 - fallback must never skip canonical status/auth/policy filtering;
 - fallback can omit lower-value sources but must preserve critical constraints when available;
 - fallback status is machine-readable so SDK/MCP clients can decide whether to retry, warn or continue;
-- local fallback is client-owned and must be clearly distinguished from memory_server context.
+- local fallback is client-owned and must be clearly distinguished from memo_stack_server context.
 
 ### Prompt Path Execution
 
@@ -2370,7 +2370,7 @@ Integration:
 E2E:
 
 - Client App compatibility route returns context or fallback-safe status within current desktop budget;
-- memory_server down still produces local/minimal fallback in desktop flow;
+- memo_stack_server down still produces local/minimal fallback in desktop flow;
 - provider circuit breaker open does not block context;
 - repeated context calls during import keep p95 under configured budget on local Docker test.
 
@@ -2378,7 +2378,7 @@ E2E:
 
 ### Principal
 
-Actor that calls memory_server.
+Actor that calls memo_stack_server.
 
 Examples:
 
@@ -3758,7 +3758,7 @@ Examples:
 
 ```text
 project "Memo Stack" in Client App architecture profile
-package "memory_core" in repo Client App
+package "memo_stack_core" in repo Client App
 person "Alex" in team profile vs interview candidate profile
 ```
 
@@ -4121,7 +4121,7 @@ last_seen_at:
   last primary evidence that confirmed the fact
 
 ingested_at:
-  when memory_server stored the record
+  when memo_stack_server stored the record
 
 created_at/updated_at:
   database lifecycle timestamps
@@ -9383,7 +9383,7 @@ GET    /api/v1/interview-memory/sessions/{session_id}/status
 Rules:
 
 - these routes are compatibility adapters over core use cases, not a second memory implementation;
-- they may be served by memory_server during migration;
+- they may be served by memo_stack_server during migration;
 - response envelope must match existing desktop expectations;
 - raw error bodies must stay production-safe because desktop diagnostics store sanitized errors.
 
@@ -9394,7 +9394,7 @@ Every externally visible contract must have an owner, compatibility rule and bre
 | Contract | Version owner | Compatibility rule | Breaking change requires |
 |---|---|---|---|
 | HTTP API routes | `api_version` in response meta and OpenAPI | `/v1` remains backward compatible inside v1 | new `/v2`, ADR, migration guide, dual-run window |
-| Canonical DTO schemas | `memory_contracts` schema registry | public DTOs are additive within supported version window | schema ADR, fixture update and SDK compatibility evidence |
+| Canonical DTO schemas | `memo_stack_contracts` schema registry | public DTOs are additive within supported version window | schema ADR, fixture update and SDK compatibility evidence |
 | Domain-to-contract mappers | owning use-case/API adapter | domain refactors must not change public DTO shape silently | mapper tests and golden response diff |
 | Bootstrap contract | bootstrap/config contract version | setup status/init shapes are additive and safe | bootstrap fixture update, auth review and setup migration note |
 | Runtime config contract | config snapshot version | config status is safe metadata and additive | config doctor test, worker/API compatibility test and release note |
@@ -9499,7 +9499,7 @@ Context:
 Python:
 
 ```python
-from memory_sdk import MemoryClient
+from memo_stack_sdk import MemoryClient
 
 memory = MemoryClient(
     base_url="http://127.0.0.1:7788",
@@ -9798,10 +9798,10 @@ Memory-only auth behavior:
 Recommended migration sequence:
 
 ```text
-1. Add compatibility routes in memory_server.
-2. Run existing Client App canary against memory_server by changing only INTERVIEW_MEMORY_API_URL.
+1. Add compatibility routes in memo_stack_server.
+2. Run existing Client App canary against memo_stack_server by changing only INTERVIEW_MEMORY_API_URL.
 3. Add new SDK client behind the same desktop mode resolver.
-4. Shadow compare old backend vs memory_server retrieval with production-safe diffs.
+4. Shadow compare old backend vs memo_stack_server retrieval with production-safe diffs.
 5. Switch active context only after canary/document recall gates pass.
 6. Remove legacy route dependency later, not in v1.
 ```
@@ -10053,7 +10053,7 @@ metadata
 Rules:
 
 - lockfile is source of truth for Python/Node dependencies;
-- adapter dependencies stay out of `memory_core`;
+- adapter dependencies stay out of `memo_stack_core`;
 - optional heavy parser/OCR dependencies are grouped and disabled unless the adapter is enabled;
 - inventory is attached to release artifacts and remote/team deployment diagnostics.
 
@@ -10635,7 +10635,7 @@ interactive_context > ingest_hot_path > delete/deindex > indexing > ai_extractio
 Local Docker v1:
 
 ```text
-memory_server
+memo_stack_server
 postgres
 qdrant
 neo4j for graphiti
@@ -10646,7 +10646,7 @@ worker
 Recommended local ports:
 
 ```text
-memory_server: 7788
+memo_stack_server: 7788
 postgres: 54329
 qdrant: 6333
 neo4j: 7474/7687
@@ -10721,7 +10721,7 @@ managed_remote_later:
 Local Docker requirements:
 
 ```text
-docker compose up memory_server postgres qdrant neo4j object_storage worker
+docker compose up memo_stack_server postgres qdrant neo4j object_storage worker
 docker compose ps shows health for every service
 bootstrap command creates first owner/space/profile/token
 dev_reset clears derived indexes and Postgres test data intentionally
@@ -10766,15 +10766,15 @@ Runbook matrix:
 
 | Scenario | Required command/endpoint | Expected safe behavior |
 |---|---|---|
-| Rebuild Qdrant | `memory_server rebuild vector --profile ...` | Postgres remains canonical, deleted chunks stay hidden |
-| Rebuild Graphiti | `memory_server rebuild graph --profile ...` | facts reindexed from active canonical records only |
-| Create backup | `memory_server backup create --policy ...` | manifest records commit cursor, key versions and object inventory hash |
-| Validate restore | `memory_server restore validate --manifest ...` | reports key/object/tombstone blockers without mutation |
+| Rebuild Qdrant | `memo_stack_server rebuild vector --profile ...` | Postgres remains canonical, deleted chunks stay hidden |
+| Rebuild Graphiti | `memo_stack_server rebuild graph --profile ...` | facts reindexed from active canonical records only |
+| Create backup | `memo_stack_server backup create --policy ...` | manifest records commit cursor, key versions and object inventory hash |
+| Validate restore | `memo_stack_server restore validate --manifest ...` | reports key/object/tombstone blockers without mutation |
 | Restore Postgres | documented backup restore plus derived rebuild | derived indexes discarded or validated against commit position |
 | Point-in-time restore | restore dry-run plus retained tombstone replay | later hard-delete/tombstone/legal-hold effects stay effective |
 | Provider outage | diagnostics plus circuit breaker status | async jobs retry, prompt path uses fallback/context without model call |
 | Prompt template rollback | activate previous prompt/schema version | new classifications use old version, existing facts unchanged |
-| Secret remediation | `memory_server remediate secrets --source ...` | stale embeddings deindexed, redacted artifacts created, audit safe |
+| Secret remediation | `memo_stack_server remediate secrets --source ...` | stale embeddings deindexed, redacted artifacts created, audit safe |
 | Migration failure | migration status and read-only fallback | no partial destructive migration without backup/export |
 | Backfill crash | resume backfill job from cursor | no duplicate transformation and no skipped deleted/held rows |
 | Contract switch mismatch | dual-read verification | block switch and keep old compatible route active |
@@ -11149,7 +11149,7 @@ Example:
 
 ```text
 "Alex" in an interview candidate profile vs "Alex" in a team Slack profile.
-"memory_core" package in Client App vs another repo with same package name.
+"memo_stack_core" package in Client App vs another repo with same package name.
 ```
 
 Expected behavior:
@@ -11251,7 +11251,7 @@ Expected behavior:
 
 Expected behavior:
 
-- local memory_server can run in Docker;
+- local memo_stack_server can run in Docker;
 - if remote unavailable, app can use configured local URL;
 - sync to cloud later is out of v1 but schema should support event log/outbox.
 
@@ -12210,7 +12210,7 @@ Expected behavior:
 Problem:
 
 ```text
-memory_server starts in a fresh DB and accepts normal API requests before owner/token setup.
+memo_stack_server starts in a fresh DB and accepts normal API requests before owner/token setup.
 ```
 
 Expected behavior:
@@ -12442,7 +12442,7 @@ Expected behavior:
 
 - OpenAPI spec is generated from server routes in CI;
 - contract diff is reviewed in PRs;
-- generated SDK smoke tests call a real memory_server test instance;
+- generated SDK smoke tests call a real memo_stack_server test instance;
 - unknown enum values are handled conservatively by clients;
 - compatibility routes have separate contract tests because desktop expects legacy envelopes.
 
@@ -12456,7 +12456,7 @@ a FastAPI route returns a domain entity or ORM model directly because it is conv
 
 Expected behavior:
 
-- public routes return only `memory_contracts` DTOs or generated equivalents;
+- public routes return only `memo_stack_contracts` DTOs or generated equivalents;
 - mapper tests fail when required source refs, status, versions, sensitivity or operation ids are dropped;
 - domain refactor does not change public response shape unless schema fixture changes in the same PR;
 - code review treats direct domain/ORM/adapter serialization as a release blocker.
@@ -12557,7 +12557,7 @@ Graphiti or classifier adapter defaults to an external LLM/embedder even though 
 
 Expected behavior:
 
-- all external LLM/embedding providers are configured through memory_server config and `MemoryPolicy`;
+- all external LLM/embedding providers are configured through memo_stack_server config and `MemoryPolicy`;
 - local Docker defaults to `MEMORY_ALLOW_EXTERNAL_AI=false`;
 - boot fails or adapter is disabled if an external provider is selected without explicit policy/config;
 - telemetry opt-out is set explicitly for Graphiti in private/local deployments.
@@ -12642,13 +12642,13 @@ Expected behavior:
 Problem:
 
 ```text
-old local_interview_memory Postgres and new memory_server local Docker both ingest the same events.
+old local_interview_memory Postgres and new memo_stack_server local Docker both ingest the same events.
 ```
 
 Expected behavior:
 
 - integration mode chooses one write target per run;
-- diagnostics report selected memory target: legacy_backend, local_db, memory_server or disabled;
+- diagnostics report selected memory target: legacy_backend, local_db, memo_stack_server or disabled;
 - dual-write is allowed only in explicit shadow comparison mode with idempotency namespace;
 - no hidden second local memory path can affect prompt context.
 
@@ -12886,7 +12886,7 @@ Adapters:
 Docker stack:
 
 ```text
-Postgres + Qdrant + Graphiti backend + memory_server
+Postgres + Qdrant + Graphiti backend + memo_stack_server
 ```
 
 Scenarios:
@@ -12926,7 +12926,7 @@ Scenarios:
 - import/export lifecycle supports dry-run, cancel, retry and artifact expiry;
 - contract version matrix is reflected in `/v1/capabilities`;
 - API, SDK and OpenAPI fixtures remain compatible across the supported window.
-- `memory_contracts` schema registry matches OpenAPI components and JSON schema artifacts;
+- `memo_stack_contracts` schema registry matches OpenAPI components and JSON schema artifacts;
 - generated SDK handles unknown enum, unknown field, missing field and explicit null fixtures;
 - native `/v1` route and Client App compatibility route map to equivalent safe result DTOs.
 - fresh DB reports bootstrap_required and blocks normal API traffic until setup completes;
@@ -13011,7 +13011,7 @@ Client App:
 - run existing production-safe memory canary against compatibility gateway;
 - run existing document recall E2E against compatibility gateway;
 - verify native `/v1/context` and legacy `/api/v1/interview-memory/context` agree on safe context DTO fields;
-- verify old SDK/client fixture can read response from current memory_server without crashing on additive fields;
+- verify old SDK/client fixture can read response from current memo_stack_server without crashing on additive fields;
 - verify fresh local Docker can bootstrap first owner/profile/token and then run context/remember calls;
 - verify unbootstrapped server cannot ingest/search memory through normal endpoints;
 - verify `INTERVIEW_MEMORY_FORCE_DISABLED=true` prevents backend calls;
@@ -13246,20 +13246,20 @@ pnpm e2e:companion-context -- --verify-memory --memory-api-url http://127.0.0.1:
 Minimum memo_stack checks:
 
 ```bash
-pytest packages/memory_core/tests packages/memory_server/tests
-pytest packages/memory_core/tests/test_fact_currency.py packages/memory_server/tests/test_current_fact_context.py
-pytest packages/memory_core/tests/test_backup_restore.py packages/memory_server/tests/test_restore_validation.py
-pytest packages/memory_core/tests/test_visibility_guard.py packages/memory_server/tests/test_read_visibility.py
-pytest packages/memory_core/tests/test_prompt_path_slo.py packages/memory_server/tests/test_context_deadlines.py
-pytest packages/memory_core/tests/test_cache_freshness.py packages/memory_server/tests/test_cache_invalidation.py
-pytest packages/memory_core/tests/test_data_residency.py packages/memory_server/tests/test_processing_location.py
-pytest packages/memory_core/tests/test_repository_scope.py packages/memory_server/tests/test_query_scope.py
-pytest packages/memory_core/tests/test_supply_chain.py packages/memory_server/tests/test_parser_sandbox.py
-python -m memory_server openapi > /tmp/memory-openapi.json
-python -m memory_server diagnostics --check-supply-chain --check-parser-sandbox
-python -m memory_server diagnostics --check-indexes --check-capabilities
-python -m memory_server worker --once --queue maintenance
-python -m memory_server eval run --suite small-golden
+pytest packages/memo_stack_core/tests packages/memo_stack_server/tests
+pytest packages/memo_stack_core/tests/test_fact_currency.py packages/memo_stack_server/tests/test_current_fact_context.py
+pytest packages/memo_stack_core/tests/test_backup_restore.py packages/memo_stack_server/tests/test_restore_validation.py
+pytest packages/memo_stack_core/tests/test_visibility_guard.py packages/memo_stack_server/tests/test_read_visibility.py
+pytest packages/memo_stack_core/tests/test_prompt_path_slo.py packages/memo_stack_server/tests/test_context_deadlines.py
+pytest packages/memo_stack_core/tests/test_cache_freshness.py packages/memo_stack_server/tests/test_cache_invalidation.py
+pytest packages/memo_stack_core/tests/test_data_residency.py packages/memo_stack_server/tests/test_processing_location.py
+pytest packages/memo_stack_core/tests/test_repository_scope.py packages/memo_stack_server/tests/test_query_scope.py
+pytest packages/memo_stack_core/tests/test_supply_chain.py packages/memo_stack_server/tests/test_parser_sandbox.py
+python -m memo_stack_server openapi > /tmp/memory-openapi.json
+python -m memo_stack_server diagnostics --check-supply-chain --check-parser-sandbox
+python -m memo_stack_server diagnostics --check-indexes --check-capabilities
+python -m memo_stack_server worker --once --queue maintenance
+python -m memo_stack_server eval run --suite small-golden
 ```
 
 Production/staging compatibility canary:
@@ -13617,7 +13617,7 @@ Logs:
 - candidate counts;
 - canonical filter drops;
 - packer drops.
-- selected memory target: disabled, legacy_backend, local_db, memory_server;
+- selected memory target: disabled, legacy_backend, local_db, memo_stack_server;
 - resolved legacy mode and platform policy mode;
 - legacy session id and platform thread id mapping.
 - entity resolution status and ambiguity count;
@@ -13876,7 +13876,7 @@ Rules:
 | Rebuild generation activation loses data | 9 | 3 | source watermark, old generation fallback, explicit activation audit |
 | API retry duplicates a committed mutation | 10 | 4 | idempotency record, operation ledger, response snapshot replay tests |
 | Long-running operation status lies to SDK | 8 | 4 | client operation lifecycle, safe progress, cancel/partial commit tests |
-| Public DTO schema drifts from domain/use cases | 9 | 5 | `memory_contracts`, mapper tests, golden fixtures, OpenAPI diff |
+| Public DTO schema drifts from domain/use cases | 9 | 5 | `memo_stack_contracts`, mapper tests, golden fixtures, OpenAPI diff |
 | Server starts open before bootstrap | 10 | 3 | explicit bootstrap state, one-time setup token, normal endpoint lock tests |
 | API and worker use incompatible config | 9 | 4 | runtime config snapshots, config hash diagnostics, worker claim compatibility checks |
 | Dev seed/reset touches real data | 10 | 2 | deployment lineage guard, synthetic-only fixtures, explicit confirmation tests |
@@ -14014,8 +14014,8 @@ V1 target is a reusable memo stack that can run locally and be integrated safely
 Must include in V1:
 
 ```text
-memory_core domain
-memory_server HTTP API
+memo_stack_core domain
+memo_stack_server HTTP API
 canonical Postgres fact lifecycle
 fact currency and conflict resolution
 profiles/threads/policies/principals
@@ -14026,7 +14026,7 @@ Qdrant document/chunk retrieval
 object storage lifecycle for large files and artifacts
 Graphiti adapter behind port
 context builder with source refs
-Client App legacy compatibility gateway
+Client App client compatibility gateway
 small golden eval suite
 local Docker
 backup manifest and restore dry-run guardrails
@@ -14050,8 +14050,8 @@ hard enterprise compliance workflows
 
 Hard stop conditions:
 
-- no Graphiti/Qdrant adapter until `memory_core` import boundaries are enforced by tests;
-- no public API expansion until `memory_contracts` schema registry and mapper tests exist;
+- no Graphiti/Qdrant adapter until `memo_stack_core` import boundaries are enforced by tests;
+- no public API expansion until `memo_stack_contracts` schema registry and mapper tests exist;
 - no local Docker release until first bootstrap, config doctor and dev reset guards pass;
 - no data migration/backfill rollout until dry-run, crash/resume and compatibility-window gates pass;
 - no background worker rollout until worker lease, scheduler singleton and shutdown gates pass;
@@ -14065,7 +14065,7 @@ Hard stop conditions:
 - no prompt-impacting context rollout until deadline, stage-timeout, degraded response and fallback tests pass;
 - no mutating API rollout until operation/idempotency replay tests pass;
 - no server-side context/search cache rollout until cache freshness, forget, update, grant revoke and policy disable tests pass;
-- no prompt-impacting Client App switch until compatibility canary and document recall pass against memory_server;
+- no prompt-impacting Client App switch until compatibility canary and document recall pass against memo_stack_server;
 - no auto_safe default until suggestion mode and false-positive evals pass;
 - no automatic consolidation merge/delete until digest/cluster false-merge evals pass;
 - no large imports/auto-memory/external AI until quota admission, storage artifact and reservation tests pass;
@@ -14084,7 +14084,7 @@ Recommended PR sequence:
    Scope:
 
    - package layout;
-   - `memory_contracts` package and schema registry skeleton;
+   - `memo_stack_contracts` package and schema registry skeleton;
    - domain value objects/entities as dependency-light dataclasses/domain models;
    - public DTOs for health/capabilities/common envelope;
    - mapper conventions and first mapper tests;
@@ -14336,7 +14336,7 @@ Recommended PR sequence:
    - legacy routes;
    - session/thread mapping;
    - envelope compatibility;
-   - existing canary scripts against memory_server.
+   - existing canary scripts against memo_stack_server.
 
 Each PR should have:
 
@@ -14690,14 +14690,14 @@ Exit gate:
 ### Phase 5 - Client App Integration
 
 🎯 9   🛡️ 9   🧠 7
-Estimated changes: `900-1800` lines across memory_server compatibility routes, tests and small Client App config wiring.
+Estimated changes: `900-1800` lines across memo_stack_server compatibility routes, tests and small Client App config wiring.
 
 Deliver:
 
-- legacy `/api/v1/interview-memory/*` compatibility routes in memory_server;
+- legacy `/api/v1/interview-memory/*` compatibility routes in memo_stack_server;
 - mapping from legacy `session_id` to platform `MemoryThread`;
 - response envelope compatible with current desktop bridge;
-- memory_server URL config through existing `INTERVIEW_MEMORY_API_URL` path first;
+- memo_stack_server URL config through existing `INTERVIEW_MEMORY_API_URL` path first;
 - no desktop prompt-path rewrite until compatibility canary is green;
 - document import path through existing `pnpm memory:import-document`;
 - context retrieval path through existing `pnpm e2e:memory-canary` and document recall tests;
@@ -14707,9 +14707,9 @@ Exit gate:
 
 - Client App does not import Graphiti/Qdrant;
 - local Docker memory works;
-- fallback works when memory_server down.
+- fallback works when memo_stack_server down.
 - existing mode precedence tests pass;
-- existing canary scripts pass against memory_server URL;
+- existing canary scripts pass against memo_stack_server URL;
 - `INTERVIEW_MEMORY_FORCE_DISABLED=true` prevents backend calls;
 - Settings switch still disables memory without restart;
 - document import into companion session is recalled by desktop context;
@@ -14720,7 +14720,7 @@ Exit gate:
 
 Final chosen option:
 
-**Our Memory Core + Graphiti + Qdrant directly**
+**Our Memo Stack Core + Graphiti + Qdrant directly**
 🎯 9   🛡️ 9   🧠 7
 Estimated changes: `15500-28500` lines.
 
@@ -14761,7 +14761,7 @@ Use only for:
 
 ## Critical Design Rules
 
-1. No Graphiti/Qdrant types in `memory_core`.
+1. No Graphiti/Qdrant types in `memo_stack_core`.
 2. No direct Graphiti/Qdrant import in client apps.
 3. Postgres canonical status always wins.
 4. Every fact needs source refs.
@@ -14832,7 +14832,7 @@ Use only for:
 69. Mutating API requests create or reuse idempotency records before side effects.
 70. ClientOperation is the public progress contract; OutboxJob remains internal worker state.
 71. Idempotent replay returns the stored result or operation status, never a second mutation.
-72. Public DTOs live in `memory_contracts`, not in domain entities, ORM models or adapter payloads.
+72. Public DTOs live in `memo_stack_contracts`, not in domain entities, ORM models or adapter payloads.
 73. Every public DTO change requires schema fixture diff, mapper tests and SDK compatibility evidence.
 74. Unknown public enum values must degrade safely, never trigger unsafe default behavior.
 75. Fresh deployments must expose only bootstrap-safe endpoints until first owner/space/profile setup is complete.
@@ -14922,7 +14922,7 @@ Use only for:
 
 12. AI provider gateway scope.
     - Recommendation: implement provider governance as shared adapter infrastructure in v1, but expose only purpose-specific ports to use cases.
-    - Alternative: expose a generic model-call API in `memory_core`, but this increases coupling and misuse risk.
+    - Alternative: expose a generic model-call API in `memo_stack_core`, but this increases coupling and misuse risk.
 
 13. Redaction engine.
     - Recommendation: deterministic regex/entropy/known secret detectors first, with LLM-assisted sensitive-data detection only later and local-only by default.
@@ -14978,8 +14978,8 @@ Use only for:
     - Alternative: expose internal outbox jobs to SDKs, but this leaks worker internals and makes retries brittle.
 
 26. Contract model implementation style.
-    - Recommendation: separate `memory_contracts` package with public DTOs/schema registry, while `memory_core` keeps dependency-light domain entities and internal use-case DTOs.
-    - Alternative: put all DTOs inside `memory_core`, but this makes domain refactors and public contract evolution harder to separate.
+    - Recommendation: separate `memo_stack_contracts` package with public DTOs/schema registry, while `memo_stack_core` keeps dependency-light domain entities and internal use-case DTOs.
+    - Alternative: put all DTOs inside `memo_stack_core`, but this makes domain refactors and public contract evolution harder to separate.
     - Alternative: generate everything only from OpenAPI, but import/export/events/MCP contracts still need explicit non-HTTP schema ownership.
 
 27. Bootstrap interface.
@@ -15027,8 +15027,8 @@ feat(memory): scaffold reusable memo stack core and server
 
 Scope:
 
-- `memory_contracts` package;
-- `memory_core` package;
+- `memo_stack_contracts` package;
+- `memo_stack_core` package;
 - domain entities;
 - public DTO/schema registry skeleton;
 - mapper conventions and first mapper tests;
@@ -15053,9 +15053,9 @@ Why:
 
 Acceptance criteria:
 
-- `memory_core` imports only stdlib/domain-safe dependencies;
-- `memory_contracts` imports no FastAPI, SQLAlchemy, Graphiti, Qdrant or domain infrastructure;
-- `memory_server` owns FastAPI/composition root;
+- `memo_stack_core` imports only stdlib/domain-safe dependencies;
+- `memo_stack_contracts` imports no FastAPI, SQLAlchemy, Graphiti, Qdrant or domain infrastructure;
+- `memo_stack_server` owns FastAPI/composition root;
 - public DTOs for health/capabilities/common envelope have fixtures;
 - mapper tests prove domain/use-case result to response DTO conversion;
 - bootstrap/config/migration state contracts have domain tests without real adapters;
@@ -15070,14 +15070,14 @@ Acceptance criteria:
 Suggested verification:
 
 ```bash
-pytest packages/memory_core/tests packages/memory_server/tests
-pytest packages/memory_contracts/tests
-python -m memory_server openapi > /tmp/memory-openapi.json
-rg -n "graphiti|qdrant_client|sqlalchemy|fastapi" packages/memory_core
-rg -n "fastapi|sqlalchemy|graphiti|qdrant_client" packages/memory_contracts
+pytest packages/memo_stack_core/tests packages/memo_stack_server/tests
+pytest packages/memo_stack_contracts/tests
+python -m memo_stack_server openapi > /tmp/memory-openapi.json
+rg -n "graphiti|qdrant_client|sqlalchemy|fastapi" packages/memo_stack_core
+rg -n "fastapi|sqlalchemy|graphiti|qdrant_client" packages/memo_stack_contracts
 ```
 
-The import-boundary commands should return no forbidden imports from `memory_core` or `memory_contracts`.
+The import-boundary commands should return no forbidden imports from `memo_stack_core` or `memo_stack_contracts`.
 
 ## Done Definition for V1
 
@@ -15095,7 +15095,7 @@ V1 is done when:
 - local and remote modes record processing-location decisions before external provider, managed index, backup, export, import or sync transfer actions;
 - scoped repository methods reject unscoped access and query-scope proof diagnostics exist for guarded reads/writes;
 - release attestation, dependency inventory and parser sandbox diagnostics exist before remote/team mode is considered safe;
-- public DTOs live in `memory_contracts` and are covered by schema registry, fixtures and mapper tests;
+- public DTOs live in `memo_stack_contracts` and are covered by schema registry, fixtures and mapper tests;
 - domain entities, ORM rows and adapter payloads are never returned directly as public API/SDK DTOs;
 - generated SDK compatibility fixtures cover unknown enum, unknown field, missing field and explicit null cases;
 - Graphiti and Qdrant are both used through adapters;

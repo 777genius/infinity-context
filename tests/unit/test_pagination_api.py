@@ -1,8 +1,8 @@
 from pathlib import Path
 
 from fastapi.testclient import TestClient
-from memory_server.config import DeployProfile, Settings
-from memory_server.main import create_app
+from memo_stack_server.config import DeployProfile, Settings
+from memo_stack_server.main import create_app
 
 
 def make_client(tmp_path: Path) -> TestClient:

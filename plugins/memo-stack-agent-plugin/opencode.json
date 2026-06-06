@@ -1,0 +1,22 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "memo-stack": {
+      "command": [
+        "./bin/memo-stack-mcp"
+      ],
+      "environment": {
+        "MEMORY_MCP_AGENT_NAME": "agent",
+        "MEMORY_MCP_API_URL": "http://127.0.0.1:7788",
+        "MEMORY_MCP_AUTH_TOKEN": "local-dev-token",
+        "MEMORY_MCP_DEFAULT_PROFILE_EXTERNAL_REF": "default",
+        "MEMORY_MCP_DEFAULT_SPACE_SLUG": "default",
+        "MEMORY_MCP_DEFAULT_THREAD_EXTERNAL_REF": "__MEMO_STACK_NO_DEFAULT_THREAD__",
+        "MEMORY_MCP_DELETE_MODE": "off",
+        "MEMORY_MCP_INGEST_MODE": "small_docs",
+        "MEMORY_MCP_WRITE_MODE": "suggest"
+      },
+      "type": "local"
+    }
+  }
+}

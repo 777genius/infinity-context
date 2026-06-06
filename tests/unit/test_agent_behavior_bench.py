@@ -3,7 +3,7 @@ import json
 from typing import Any
 
 from mcp.types import Tool
-from memory_mcp.agent_behavior_bench import (
+from memo_stack_mcp.agent_behavior_bench import (
     AgentBenchConfig,
     AgentBenchRunner,
     AgentBenchScenario,
@@ -531,7 +531,7 @@ def test_tool_loop_repairs_missing_expected_memory_tool_once() -> None:
         assert [name for name, _ in session.calls] == ["memory_search"]
         assert len(llm.calls) == 3
         repair_prompt = json.dumps(llm.calls[1]["input_items"], ensure_ascii=False)
-        assert "skipped required Memory MCP tool" in repair_prompt
+        assert "skipped required Memo Stack MCP tool" in repair_prompt
         assert "Missing required tool pattern(s): memory_search" in repair_prompt
 
     asyncio.run(run())

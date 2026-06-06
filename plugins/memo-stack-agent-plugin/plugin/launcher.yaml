@@ -1,0 +1,2 @@
+runtime: shell
+entrypoint: ./bin/memo-stack-plugin-hook

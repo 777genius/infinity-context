@@ -1,0 +1,7 @@
+{
+  "description": "Memo Stack universal agent plugin for durable project memory.",
+  "mcpServers": "./.mcp.json",
+  "name": "memo-stack-agent-plugin",
+  "skills": "./skills/",
+  "version": "0.1.0"
+}

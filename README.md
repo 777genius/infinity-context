@@ -12,7 +12,7 @@ modes and the supported integration contracts.
 Implementation target:
 
 ```text
-Memory Core Lite = Postgres canonical truth + Qdrant RAG + thin Graphiti adapter + compatibility gateway
+Memo Stack Core Lite = Postgres canonical truth + Qdrant RAG + thin Graphiti adapter + compatibility gateway
 ```
 
 Core principles:
@@ -29,17 +29,17 @@ Core principles:
 
 - [Core Lite implementation plan](docs/memo-stack-core-lite-plan.md)
 - [Global architecture plan](docs/memo-stack-architecture-plan.md)
-- [Legacy client memory notes](docs/client-integration/interview-memory-clean-architecture-plan.md)
-- [Legacy client integration run notes](docs/client-integration/current-integration-run-notes.md)
+- [Client compatibility notes](docs/client-integration/interview-memo-stack-clean-architecture-plan.md)
+- [Client integration run notes](docs/client-integration/current-integration-run-notes.md)
 
 ## Intended Package Layout
 
 ```text
 packages/
-  memory_core/
-  memory_server/
-  memory_adapters/
-  memory_sdk/
+  memo_stack_core/
+  memo_stack_server/
+  memo_stack_adapters/
+  memo_stack_sdk/
 
 tests/
   unit/
@@ -54,10 +54,10 @@ Client applications should consume this project through HTTP or SDK, not by impo
 
 Core Lite is implemented as a reusable service/library baseline:
 
-- `memory_core` owns domain entities, application use cases and ports only;
-- `memory_server` owns FastAPI routes, composition root, auth, config, admin CLI, worker CLI and eval CLI;
-- `memory_adapters` owns Postgres, optional Qdrant/OpenAI/Graphiti adapters and disabled noop adapters;
-- `memory_sdk` owns HTTP client calls and typed error handling for other apps;
+- `memo_stack_core` owns domain entities, application use cases and ports only;
+- `memo_stack_server` owns FastAPI routes, composition root, auth, config, admin CLI, worker CLI and eval CLI;
+- `memo_stack_adapters` owns Postgres, optional Qdrant/OpenAI/Graphiti adapters and disabled noop adapters;
+- `memo_stack_sdk` owns HTTP client calls and typed error handling for other apps;
 - Postgres is canonical truth for spaces, profiles, facts, source refs, fact versions, episodes, documents, chunks, suggestions, outbox and idempotency;
 - Qdrant vectors and Graphiti graph memory are derived projections behind ports;
 - Qdrant adapter creates its collection on first upsert/search when enabled;
@@ -81,7 +81,7 @@ Implemented API surface:
 - `/v1/thread-memory/status`, `/v1/thread-memory` delete for thread-scoped cleanup;
 - `/v1/suggestions` create/list/approve/reject/expire for review-gated memory;
 - `/v1/diagnostics/adapters`, `/outbox`, `/profile/{profile_id}` with production-safe metadata only;
-- optional Legacy-client-compatible `/api/v1/interview-memory/ingest`, `/context`, session status and delete routes when `MEMORY_LEGACY_CLIENT_ENABLED=true`.
+- optional client-compatible `/api/v1/interview-memory/ingest`, `/context`, session status and delete routes when `MEMORY_LEGACY_CLIENT_ENABLED=true`.
 
 Operational pieces:
 
@@ -92,7 +92,7 @@ Operational pieces:
 - admin commands for doctor, invariant check, projection repair dry-run and dead-job replay;
 - admin service-token create/list/revoke stores token hashes only; raw token is printed once on creation;
 - database service tokens support expiry and last-used tracking without storing raw tokens;
-- `memory_server.db upgrade`, `admin seed-defaults` and guarded `admin reset-local`;
+- `memo_stack_server.db upgrade`, `admin seed-defaults` and guarded `admin reset-local`;
 - schema upgrade is additive for Core Lite local databases and repairs missing
   fact/document/chunk classification columns without dropping canonical data;
 - document delete hides chunks immediately and also deletes active facts whose
@@ -115,16 +115,16 @@ python3 -m venv .venv
 The Docker compose file has two practical profiles:
 
 ```text
-lite           Postgres + Memory Server, provider adapters disabled.
-full           Postgres + Qdrant + Neo4j + Memory Server + worker, with OpenAI embeddings and Graphiti enabled.
+lite           Postgres + Memo Stack Server, provider adapters disabled.
+full           Postgres + Qdrant + Neo4j + Memo Stack Server + worker, with OpenAI embeddings and Graphiti enabled.
 ```
 
 Recommended local MVP:
 
 ```bash
-make memory-stack-up-lite
-make memory-smoke
-make memory-mcp-smoke
+make memo-stack-up-lite
+make memo-stack-smoke
+make memo-stack-mcp-smoke
 ```
 
 Full provider mode needs OpenAI for embeddings and Graphiti. Do not paste the
@@ -135,8 +135,8 @@ an ignored local env file:
 read -s OPENAI_API_KEY
 export OPENAI_API_KEY
 export MEMORY_OPENAI_API_KEY="$OPENAI_API_KEY"
-make memory-stack-up-full
-make memory-stack-smoke-full
+make memo-stack-up-full
+make memo-stack-smoke-full
 ```
 
 `MEMORY_OPENAI_API_KEY` is used by the Memo Stack embeddings adapter.
@@ -149,7 +149,7 @@ migrations, seeds defaults, starts the server, verifies Graphiti/Qdrant/OpenAI
 behavior, then tears everything down:
 
 ```bash
-make memory-clean-full-smoke
+make memo-stack-clean-full-smoke
 ```
 
 If the key is not already exported in the current shell, use the interactive
@@ -157,7 +157,7 @@ wrapper. It reads the key with terminal echo disabled and passes it only through
 the canary process environment:
 
 ```bash
-make memory-full-provider-canary-interactive
+make memo-stack-full-provider-canary-interactive
 ```
 
 For local defaults, copy `.env.example` to `.env` and adjust non-secret provider
@@ -165,15 +165,15 @@ flags. Secrets should stay in your shell, `.env.local`, `.env.full`, or another
 ignored file. Cognee is available as an optional adapter boundary, but the MVP
 RAG path is Qdrant directly and the MVP temporal fact path is Graphiti directly.
 
-Common local targets are available in `Makefile`, for example `make memory-lint`,
-`make memory-test-unit`, `make memory-eval`, `make memory-db-upgrade`,
-`make memory-seed-defaults`, `make memory-doctor`, `make memory-up`,
-`make memory-server`, `make memory-stack-up-lite`, `make memory-stack-up-full`,
-`make memory-clean-full-smoke`, `make memory-auto-memory-eval`,
-`make memory-auto-memory-quality` and `make memory-mcp-smoke`.
+Common local targets are available in `Makefile`, for example `make memo-stack-lint`,
+`make memo-stack-test-unit`, `make memo-stack-eval`, `make memo-stack-db-upgrade`,
+`make memo-stack-seed-defaults`, `make memo-stack-doctor`, `make memo-stack-up`,
+`make memo-stack-server`, `make memo-stack-up-lite`, `make memo-stack-up-full`,
+`make memo-stack-clean-full-smoke`, `make memo-stack-auto-memory-eval`,
+`make memo-stack-auto-memory-quality` and `make memo-stack-mcp-smoke`.
 
 GitHub Actions runs the same prompt-impacting gate on push and pull requests:
-`make PYTHON=python RUFF=ruff memory-test-quality`. Keep quality changes green
+`make PYTHON=python RUFF=ruff memo-stack-test-quality`. Keep quality changes green
 there before relying on memory in an agent prompt path.
 
 Policy modes:
@@ -200,14 +200,14 @@ MEMORY_MAX_PENDING_SUGGESTIONS_PER_PROFILE=500 # review queue ingress guard
 ```
 
 `MEMORY_AUTO_MEMORY_MODE` is accepted as a compatibility alias for
-`MEMORY_CAPTURE_MODE` on both Memory Server and plugin hooks. When both are set,
+`MEMORY_CAPTURE_MODE` on both Memo Stack Server and plugin hooks. When both are set,
 `MEMORY_AUTO_MEMORY_MODE` wins.
 
 `rule_based` keeps consolidation local and deterministic. `openai` is available
 behind `MemoryExtractorPort`, but it requires both
 `MEMORY_CAPTURE_EXTERNAL_AI_ENABLED=true` and `MEMORY_OPENAI_API_KEY`; otherwise
 startup or consolidation fails closed without sending capture text to a provider.
-Auto-memory quality is checked by `make memory-auto-memory-quality`, which
+Auto-memory quality is checked by `make memo-stack-auto-memory-quality`, which
 includes deterministic golden capture metrics for review gating, redaction,
 duplicate suppression, replay idempotency and `auto_apply_safe` safety.
 The Python SDK exposes `create_capture`, `get_capture`, `list_captures`,
@@ -226,22 +226,22 @@ restricted  # canonical storage only, excluded from context by default
 Worker and operational commands:
 
 ```bash
-MEMORY_SERVICE_TOKEN=local-dev-token .venv/bin/python -m memory_server.worker --once
-MEMORY_SERVICE_TOKEN=local-dev-token .venv/bin/python -m memory_server.doctor
-MEMORY_SERVICE_TOKEN=local-dev-token .venv/bin/python -m memory_server.admin repair-projections --space project-alpha --profile default --dry-run
-MEMORY_SERVICE_TOKEN=local-dev-token .venv/bin/python -m memory_server.admin import-profile --space project-alpha --profile default --file profile-export.json --dry-run
-MEMORY_SERVICE_TOKEN=local-dev-token .venv/bin/python -m memory_server.eval run --suite small-golden
-MEMORY_SERVICE_TOKEN=local-dev-token .venv/bin/python -m memory_server.eval run --suite quality-golden
+MEMORY_SERVICE_TOKEN=local-dev-token .venv/bin/python -m memo_stack_server.worker --once
+MEMORY_SERVICE_TOKEN=local-dev-token .venv/bin/python -m memo_stack_server.doctor
+MEMORY_SERVICE_TOKEN=local-dev-token .venv/bin/python -m memo_stack_server.admin repair-projections --space project-alpha --profile default --dry-run
+MEMORY_SERVICE_TOKEN=local-dev-token .venv/bin/python -m memo_stack_server.admin import-profile --space project-alpha --profile default --file profile-export.json --dry-run
+MEMORY_SERVICE_TOKEN=local-dev-token .venv/bin/python -m memo_stack_server.eval run --suite small-golden
+MEMORY_SERVICE_TOKEN=local-dev-token .venv/bin/python -m memo_stack_server.eval run --suite quality-golden
 ```
 
 Service tokens:
 
 ```bash
-MEMORY_SERVICE_TOKEN=root-token .venv/bin/python -m memory_server.admin token create --description app
-MEMORY_SERVICE_TOKEN=root-token .venv/bin/python -m memory_server.admin token create --space space_project_alpha --description project-alpha --expires-at 2026-12-31T23:59:59+00:00
-MEMORY_SERVICE_TOKEN=root-token .venv/bin/python -m memory_server.admin token create --space space_project_alpha --profile profile_default --description project-alpha-default
-MEMORY_SERVICE_TOKEN=root-token .venv/bin/python -m memory_server.admin token list
-MEMORY_SERVICE_TOKEN=root-token .venv/bin/python -m memory_server.admin token revoke --token-id tok_...
+MEMORY_SERVICE_TOKEN=root-token .venv/bin/python -m memo_stack_server.admin token create --description app
+MEMORY_SERVICE_TOKEN=root-token .venv/bin/python -m memo_stack_server.admin token create --space space_project_alpha --description project-alpha --expires-at 2026-12-31T23:59:59+00:00
+MEMORY_SERVICE_TOKEN=root-token .venv/bin/python -m memo_stack_server.admin token create --space space_project_alpha --profile profile_default --description project-alpha-default
+MEMORY_SERVICE_TOKEN=root-token .venv/bin/python -m memo_stack_server.admin token list
+MEMORY_SERVICE_TOKEN=root-token .venv/bin/python -m memo_stack_server.admin token revoke --token-id tok_...
 ```
 
 The static `MEMORY_SERVICE_TOKEN` is a root token. Database service tokens are
@@ -261,20 +261,20 @@ MEMORY_GRAPHITI_NEO4J_USER=neo4j \
 MEMORY_GRAPHITI_NEO4J_PASSWORD=<password> \
 MEMORY_GRAPHITI_BUILD_INDICES=true \
 MEMORY_SERVICE_TOKEN=local-dev-token \
-.venv/bin/python -m memory_server.main
+.venv/bin/python -m memo_stack_server.main
 ```
 
-The legacy compatibility gateway is opt-in for older client integrations that
+The client compatibility gateway is opt-in for older client integrations that
 still call `/api/v1/interview-memory/*`. New integrations should prefer the
-canonical `/v1/*` API or `memory_sdk`.
+canonical `/v1/*` API or `memo_stack_sdk`.
 
 ```bash
 MEMORY_DEFAULT_SPACE_SLUG=client-app \
 MEMORY_LEGACY_CLIENT_ENABLED=true \
-make memory-stack-up-lite
+make memo-stack-up-lite
 ```
 
-Smoke the legacy gateway directly:
+Smoke the client compatibility gateway directly:
 
 ```bash
 curl -X POST http://127.0.0.1:7788/api/v1/interview-memory/context \
@@ -323,9 +323,9 @@ curl -X POST http://127.0.0.1:7788/v1/context \
 SDK example:
 
 ```python
-from memory_sdk import MemoryPlatformClient
+from memo_stack_sdk import MemoStackClient
 
-client = MemoryPlatformClient(token="local-dev-token")
+client = MemoStackClient(token="local-dev-token")
 client.remember_fact(
     space_id="space_project_alpha",
     profile_id="profile_default",
@@ -370,6 +370,6 @@ python -m venv .venv
 .venv/bin/python -m pip install -e '.[dev]'
 .venv/bin/ruff check .
 .venv/bin/python -m pytest
-.venv/bin/python -m memory_server.eval run --suite small-golden
-.venv/bin/python -m memory_server.eval run --suite quality-golden
+.venv/bin/python -m memo_stack_server.eval run --suite small-golden
+.venv/bin/python -m memo_stack_server.eval run --suite quality-golden
 ```

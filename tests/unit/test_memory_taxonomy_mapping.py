@@ -1,9 +1,9 @@
 import asyncio
 
-from memory_core.application.auto_memory import RuleBasedMemoryClassifier
-from memory_core.domain.entities import Confidence, MemoryKind, TrustLevel
-from memory_core.domain.taxonomy import DefaultTaxonomyPolicy
-from memory_core.ports.auto_memory import MemoryCandidate, SourceProvenance
+from memo_stack_core.application.auto_memory import RuleBasedMemoryClassifier
+from memo_stack_core.domain.entities import Confidence, MemoryKind, TrustLevel
+from memo_stack_core.domain.taxonomy import DefaultTaxonomyPolicy
+from memo_stack_core.ports.auto_memory import MemoryCandidate, SourceProvenance
 
 
 def test_taxonomy_maps_kind_to_default_category_and_durable_ttl() -> None:

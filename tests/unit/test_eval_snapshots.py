@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from memory_server.eval import (
+from memo_stack_server.eval import (
     PROMPT_CONTRACT_SNAPSHOT_FILE,
     build_prompt_contract_snapshot,
     run_prompt_snapshots,

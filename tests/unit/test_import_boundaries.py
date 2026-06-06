@@ -2,7 +2,7 @@ import ast
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-CORE_ROOT = PROJECT_ROOT / "packages" / "memory_core" / "memory_core"
+CORE_ROOT = PROJECT_ROOT / "packages" / "memo_stack_core" / "memo_stack_core"
 
 FORBIDDEN_IN_CORE = {
     "cognee",
@@ -18,8 +18,8 @@ FORBIDDEN_IN_CORE = {
     "sqlalchemy",
     "asyncpg",
     "uvicorn",
-    "memory_adapters",
-    "memory_server",
+    "memo_stack_adapters",
+    "memo_stack_server",
 }
 
 
@@ -43,15 +43,15 @@ def test_memory_core_has_no_infrastructure_imports() -> None:
 
 
 def test_capability_contracts_are_importable_without_provider_adapters() -> None:
-    import memory_core.ports.capabilities as capabilities  # noqa: PLC0415
+    import memo_stack_core.ports.capabilities as capabilities  # noqa: PLC0415
 
     assert capabilities.MemoryCapability.TEMPORAL_FACT_GRAPH == "temporal_fact_graph"
     assert capabilities.ConsistencyMode.REQUIRE_FRESH_PROJECTION == "require_fresh_projection"
 
 
 def test_routes_do_not_import_provider_adapter_packages() -> None:
-    api_root = PROJECT_ROOT / "packages" / "memory_server" / "memory_server" / "api"
-    forbidden_prefixes = ("memory_adapters", "sqlalchemy")
+    api_root = PROJECT_ROOT / "packages" / "memo_stack_server" / "memo_stack_server" / "api"
+    forbidden_prefixes = ("memo_stack_adapters", "sqlalchemy")
     forbidden_calls = {"AsyncSession", "create_engine", "create_async_engine"}
 
     imported_modules: set[str] = set()
@@ -81,7 +81,7 @@ def test_routes_do_not_import_provider_adapter_packages() -> None:
 
 
 def test_routes_do_not_use_unit_of_work_directly() -> None:
-    api_root = PROJECT_ROOT / "packages" / "memory_server" / "memory_server" / "api"
+    api_root = PROJECT_ROOT / "packages" / "memo_stack_server" / "memo_stack_server" / "api"
     offenders = []
     for path in api_root.rglob("*.py"):
         source = path.read_text(encoding="utf-8")
@@ -92,6 +92,6 @@ def test_routes_do_not_use_unit_of_work_directly() -> None:
 
 
 def test_sdk_imports_without_provider_adapters() -> None:
-    from memory_sdk import MemoryPlatformClient  # noqa: PLC0415
+    from memo_stack_sdk import MemoStackClient  # noqa: PLC0415
 
-    assert MemoryPlatformClient().base_url == "http://127.0.0.1:7788"
+    assert MemoStackClient().base_url == "http://127.0.0.1:7788"

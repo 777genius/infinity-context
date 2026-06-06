@@ -1,15 +1,15 @@
-x-memory-server-common: &memory-server-common
+x-memo-stack-server-common: &memo-stack-server-common
   image: python:3.12-slim
   working_dir: /app
   volumes:
     - ./:/app
   depends_on:
-    memory_postgres:
+    memo_stack_postgres:
       condition: service_healthy
 
-x-memory-server-base-env: &memory-server-base-env
+x-memo-stack-server-base-env: &memo-stack-server-base-env
   MEMORY_DEPLOY_PROFILE: local
-  MEMORY_DATABASE_URL: postgresql+asyncpg://memory:memory@memory_postgres:5432/memory
+  MEMORY_DATABASE_URL: postgresql+asyncpg://memo_stack:memo_stack@memo_stack_postgres:5432/memo_stack
   MEMORY_AUTO_CREATE_SCHEMA: "true"
   MEMORY_HOST: 0.0.0.0
   MEMORY_PORT: "7788"
@@ -22,9 +22,9 @@ x-memory-server-base-env: &memory-server-base-env
   MEMORY_PROVIDER_CIRCUIT_RESET_AFTER_SECONDS: "60"
   MEMORY_COGNEE_ENABLED: ${MEMORY_COGNEE_ENABLED:-false}
   MEMORY_COGNEE_RUNTIME_CONFIGURED: ${MEMORY_COGNEE_RUNTIME_CONFIGURED:-false}
-  MEMORY_COGNEE_DATASET_PREFIX: ${MEMORY_COGNEE_DATASET_PREFIX:-memory}
+  MEMORY_COGNEE_DATASET_PREFIX: ${MEMORY_COGNEE_DATASET_PREFIX:-memo_stack}
 
-x-memory-server-healthcheck: &memory-server-healthcheck
+x-memo-stack-server-healthcheck: &memo-stack-server-healthcheck
   test:
     [
       "CMD",
@@ -38,88 +38,88 @@ x-memory-server-healthcheck: &memory-server-healthcheck
   start_period: 20s
 
 services:
-  memory_postgres:
+  memo_stack_postgres:
     image: postgres:16
     environment:
-      POSTGRES_USER: memory
-      POSTGRES_PASSWORD: memory
-      POSTGRES_DB: memory
+      POSTGRES_USER: memo_stack
+      POSTGRES_PASSWORD: memo_stack
+      POSTGRES_DB: memo_stack
     ports:
       - "${MEMORY_POSTGRES_PORT:-54329}:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U memory -d memory"]
+      test: ["CMD-SHELL", "pg_isready -U memo_stack -d memo_stack"]
       interval: 5s
       timeout: 3s
       retries: 20
 
-  memory_qdrant:
+  memo_stack_qdrant:
     image: qdrant/qdrant:v1.18.0
     profiles: ["full"]
     ports:
       - "${MEMORY_QDRANT_PORT:-6333}:6333"
     volumes:
-      - memory_qdrant_data:/qdrant/storage
+      - memo_stack_qdrant_data:/qdrant/storage
 
-  memory_neo4j:
+  memo_stack_neo4j:
     image: neo4j:5.26-community
     profiles: ["full"]
     environment:
-      NEO4J_AUTH: neo4j/memorygraph
+      NEO4J_AUTH: neo4j/memostackgraph
     ports:
       - "${MEMORY_NEO4J_HTTP_PORT:-7474}:7474"
       - "${MEMORY_NEO4J_BOLT_PORT:-7687}:7687"
     volumes:
-      - memory_neo4j_data:/data
+      - memo_stack_neo4j_data:/data
 
-  memory_server:
-    <<: *memory-server-common
+  memo_stack_server:
+    <<: *memo-stack-server-common
     profiles: ["lite"]
-    command: sh -c "pip install -e '.[dev]' && python -m memory_server.db upgrade && python -m memory_server.admin seed-defaults && python -m memory_server.main"
+    command: sh -c "pip install -e '.[dev]' && python -m memo_stack_server.db upgrade && python -m memo_stack_server.admin seed-defaults && python -m memo_stack_server.main"
     environment:
-      <<: *memory-server-base-env
+      <<: *memo-stack-server-base-env
       MEMORY_QDRANT_ENABLED: "false"
-      MEMORY_QDRANT_URL: http://memory_qdrant:6333
-      MEMORY_QDRANT_COLLECTION: memory_chunks_v1
+      MEMORY_QDRANT_URL: http://memo_stack_qdrant:6333
+      MEMORY_QDRANT_COLLECTION: memo_stack_chunks_v1
       MEMORY_EMBEDDINGS_ENABLED: "false"
       MEMORY_EMBEDDINGS_PROVIDER: noop
       MEMORY_GRAPHITI_ENABLED: "false"
-      MEMORY_GRAPHITI_NEO4J_URI: bolt://memory_neo4j:7687
+      MEMORY_GRAPHITI_NEO4J_URI: bolt://memo_stack_neo4j:7687
       MEMORY_GRAPHITI_NEO4J_USER: neo4j
-      MEMORY_GRAPHITI_NEO4J_PASSWORD: memorygraph
+      MEMORY_GRAPHITI_NEO4J_PASSWORD: memostackgraph
       MEMORY_GRAPHITI_BUILD_INDICES: "false"
     ports:
       - "${MEMORY_SERVER_PORT:-7788}:7788"
-    healthcheck: *memory-server-healthcheck
+    healthcheck: *memo-stack-server-healthcheck
 
-  memory_worker:
-    <<: *memory-server-common
+  memo_stack_worker:
+    <<: *memo-stack-server-common
     profiles: ["lite"]
-    command: sh -c "pip install -e '.[dev]' && python -m memory_server.worker --loop --sleep-seconds 2"
+    command: sh -c "pip install -e '.[dev]' && python -m memo_stack_server.worker --loop --sleep-seconds 2"
     environment:
-      <<: *memory-server-base-env
+      <<: *memo-stack-server-base-env
       MEMORY_QDRANT_ENABLED: "false"
-      MEMORY_QDRANT_URL: http://memory_qdrant:6333
-      MEMORY_QDRANT_COLLECTION: memory_chunks_v1
+      MEMORY_QDRANT_URL: http://memo_stack_qdrant:6333
+      MEMORY_QDRANT_COLLECTION: memo_stack_chunks_v1
       MEMORY_EMBEDDINGS_ENABLED: "false"
       MEMORY_EMBEDDINGS_PROVIDER: noop
       MEMORY_GRAPHITI_ENABLED: "false"
-      MEMORY_GRAPHITI_NEO4J_URI: bolt://memory_neo4j:7687
+      MEMORY_GRAPHITI_NEO4J_URI: bolt://memo_stack_neo4j:7687
       MEMORY_GRAPHITI_NEO4J_USER: neo4j
-      MEMORY_GRAPHITI_NEO4J_PASSWORD: memorygraph
+      MEMORY_GRAPHITI_NEO4J_PASSWORD: memostackgraph
       MEMORY_GRAPHITI_BUILD_INDICES: "false"
     depends_on:
-      memory_server:
+      memo_stack_server:
         condition: service_healthy
 
-  memory_server_full:
-    <<: *memory-server-common
+  memo_stack_server_full:
+    <<: *memo-stack-server-common
     profiles: ["full"]
-    command: sh -c "pip install -e '.[dev,qdrant,openai,graphiti]' && python -m memory_server.db upgrade && python -m memory_server.admin seed-defaults && python -m memory_server.main"
+    command: sh -c "pip install -e '.[dev,qdrant,openai,graphiti]' && python -m memo_stack_server.db upgrade && python -m memo_stack_server.admin seed-defaults && python -m memo_stack_server.main"
     environment:
-      <<: *memory-server-base-env
+      <<: *memo-stack-server-base-env
       MEMORY_QDRANT_ENABLED: "true"
-      MEMORY_QDRANT_URL: http://memory_qdrant:6333
-      MEMORY_QDRANT_COLLECTION: ${MEMORY_QDRANT_COLLECTION:-memory_chunks_v1}
+      MEMORY_QDRANT_URL: http://memo_stack_qdrant:6333
+      MEMORY_QDRANT_COLLECTION: ${MEMORY_QDRANT_COLLECTION:-memo_stack_chunks_v1}
       MEMORY_EMBEDDINGS_ENABLED: "true"
       MEMORY_EMBEDDINGS_PROVIDER: openai
       MEMORY_EMBEDDINGS_MODEL: ${MEMORY_EMBEDDINGS_MODEL:-text-embedding-3-small}
@@ -127,30 +127,30 @@ services:
       MEMORY_OPENAI_API_KEY: ${MEMORY_OPENAI_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       MEMORY_GRAPHITI_ENABLED: "true"
-      MEMORY_GRAPHITI_NEO4J_URI: bolt://memory_neo4j:7687
+      MEMORY_GRAPHITI_NEO4J_URI: bolt://memo_stack_neo4j:7687
       MEMORY_GRAPHITI_NEO4J_USER: neo4j
-      MEMORY_GRAPHITI_NEO4J_PASSWORD: memorygraph
+      MEMORY_GRAPHITI_NEO4J_PASSWORD: memostackgraph
       MEMORY_GRAPHITI_BUILD_INDICES: "true"
     ports:
       - "${MEMORY_SERVER_PORT:-7788}:7788"
     depends_on:
-      memory_postgres:
+      memo_stack_postgres:
         condition: service_healthy
-      memory_qdrant:
+      memo_stack_qdrant:
         condition: service_started
-      memory_neo4j:
+      memo_stack_neo4j:
         condition: service_started
-    healthcheck: *memory-server-healthcheck
+    healthcheck: *memo-stack-server-healthcheck
 
-  memory_worker_full:
-    <<: *memory-server-common
+  memo_stack_worker_full:
+    <<: *memo-stack-server-common
     profiles: ["full"]
-    command: sh -c "pip install -e '.[dev,qdrant,openai,graphiti]' && python -m memory_server.worker --loop --sleep-seconds 2"
+    command: sh -c "pip install -e '.[dev,qdrant,openai,graphiti]' && python -m memo_stack_server.worker --loop --sleep-seconds 2"
     environment:
-      <<: *memory-server-base-env
+      <<: *memo-stack-server-base-env
       MEMORY_QDRANT_ENABLED: "true"
-      MEMORY_QDRANT_URL: http://memory_qdrant:6333
-      MEMORY_QDRANT_COLLECTION: ${MEMORY_QDRANT_COLLECTION:-memory_chunks_v1}
+      MEMORY_QDRANT_URL: http://memo_stack_qdrant:6333
+      MEMORY_QDRANT_COLLECTION: ${MEMORY_QDRANT_COLLECTION:-memo_stack_chunks_v1}
       MEMORY_EMBEDDINGS_ENABLED: "true"
       MEMORY_EMBEDDINGS_PROVIDER: openai
       MEMORY_EMBEDDINGS_MODEL: ${MEMORY_EMBEDDINGS_MODEL:-text-embedding-3-small}
@@ -158,14 +158,14 @@ services:
       MEMORY_OPENAI_API_KEY: ${MEMORY_OPENAI_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       MEMORY_GRAPHITI_ENABLED: "true"
-      MEMORY_GRAPHITI_NEO4J_URI: bolt://memory_neo4j:7687
+      MEMORY_GRAPHITI_NEO4J_URI: bolt://memo_stack_neo4j:7687
       MEMORY_GRAPHITI_NEO4J_USER: neo4j
-      MEMORY_GRAPHITI_NEO4J_PASSWORD: memorygraph
+      MEMORY_GRAPHITI_NEO4J_PASSWORD: memostackgraph
       MEMORY_GRAPHITI_BUILD_INDICES: "true"
     depends_on:
-      memory_server_full:
+      memo_stack_server_full:
         condition: service_healthy
 
 volumes:
-  memory_qdrant_data:
-  memory_neo4j_data:
+  memo_stack_qdrant_data:
+  memo_stack_neo4j_data:

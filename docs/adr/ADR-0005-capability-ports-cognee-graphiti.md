@@ -39,14 +39,14 @@ Postgres remains canonical. Cognee, Graphiti and Qdrant are infrastructure
 adapters behind ports that match the capability being used.
 
 ```text
-memory_core.domain
+memo_stack_core.domain
   MemoryAddress
   MemoryCell / canonical fact aggregate
   EvidenceRef
   BankPolicy
   ContextPack
 
-memory_core.ports
+memo_stack_core.ports
   DocumentMemoryPort        # Cognee primary
   RagRecallPort             # Cognee primary
   SessionMemoryPort         # Cognee primary when enabled
@@ -176,8 +176,8 @@ Qdrant collection/payload/point_id
   -> Memo Stack chunk ids and vector candidate DTOs
 ```
 
-No external SDK type crosses into `memory_core`. No external engine id becomes a
-public API id unless Memory Core minted or mapped it. Adapter-specific metadata
+No external SDK type crosses into `memo_stack_core`. No external engine id becomes a
+public API id unless Memo Stack Core minted or mapped it. Adapter-specific metadata
 can appear only in safe diagnostics or projection records.
 
 ## Context Compiler Ownership
@@ -263,7 +263,7 @@ read plane
 
 Never add a shortcut where Cognee, Graphiti or Qdrant returns prompt-ready
 memory directly to an API response. This keeps tenant isolation, fact lifecycle,
-forget semantics and scoring rules in Memory Core.
+forget semantics and scoring rules in Memo Stack Core.
 
 ### Capability routing manifest
 
@@ -462,7 +462,7 @@ Goal: introduce target ports without replacing working adapters yet.
 
 Do:
 
-- add `memory_core.ports.capabilities`;
+- add `memo_stack_core.ports.capabilities`;
 - define `DocumentMemoryPort`, `RagRecallPort`, `TemporalFactGraphPort`,
   `FactProjectionPort`, `VectorRecallPort`, `ProjectionForgetPort` and
   `EngineHealthPort`;
@@ -472,13 +472,13 @@ Do:
 
 Gate:
 
-- no external SDK imports in `memory_core`;
+- no external SDK imports in `memo_stack_core`;
 - no use case accepts Cognee/Graphiti/Qdrant ids directly;
 - `/v1/capabilities` can describe capabilities, not only adapter method flags.
 
 ### Phase 2 - Split context compilation
 
-Goal: keep prompt context quality in Memory Core, not in adapters.
+Goal: keep prompt context quality in Memo Stack Core, not in adapters.
 
 Do:
 
@@ -494,7 +494,7 @@ Gate:
 - same query in canonical-only mode never calls embeddings, Cognee, Graphiti or
   Qdrant;
 - best-effort mode degrades safely when any adapter is down;
-- mixed scores are reranked by Memory Core, not raw adapter scores.
+- mixed scores are reranked by Memo Stack Core, not raw adapter scores.
 
 ### Phase 3 - Harden outbox and projection lifecycle
 
@@ -531,7 +531,7 @@ Gate:
 
 - stale Graphiti hits are dropped by canonical hydration;
 - Graphiti disabled mode keeps canonical facts working;
-- temporal conflict resolution prefers Memory Core lifecycle.
+- temporal conflict resolution prefers Memo Stack Core lifecycle.
 
 ### Phase 5 - Add Cognee behind document/RAG capabilities
 
@@ -550,7 +550,7 @@ Gate:
 
 - Cognee disabled mode falls back to canonical/Qdrant/keyword recall;
 - Cognee search results include source refs or are excluded from final context;
-- no Cognee SDK type crosses into `memory_core` or public API.
+- no Cognee SDK type crosses into `memo_stack_core` or public API.
 
 ### Phase 6 - Enable auto-memory as policy-driven suggestions
 
@@ -601,9 +601,9 @@ with tests, not a separate pull request.
 Files:
 
 ```text
-packages/memory_core/memory_core/ports/capabilities.py
-packages/memory_core/memory_core/application/dto.py
-packages/memory_core/memory_core/ports/__init__.py
+packages/memo_stack_core/memo_stack_core/ports/capabilities.py
+packages/memo_stack_core/memo_stack_core/application/dto.py
+packages/memo_stack_core/memo_stack_core/ports/__init__.py
 tests/unit/test_import_boundaries.py
 tests/unit/test_health_capabilities.py
 ```
@@ -613,11 +613,11 @@ Work:
 - add capability enums and DTOs;
 - add narrow Protocol ports;
 - keep existing broad ports as compatibility layer;
-- update import-boundary tests to protect `memory_core`.
+- update import-boundary tests to protect `memo_stack_core`.
 
 Done when:
 
-- `memory_core` has no SDK imports;
+- `memo_stack_core` has no SDK imports;
 - capabilities can describe `rag_chunk_recall`, `temporal_fact_graph`,
   `vector_recall`, `projection_forget` and `engine_health`.
 
@@ -626,11 +626,11 @@ Done when:
 Files:
 
 ```text
-packages/memory_core/memory_core/application/use_cases/build_context.py
-packages/memory_core/memory_core/application/context_packer.py
-packages/memory_core/memory_core/application/context_collectors.py
-packages/memory_core/memory_core/application/context_hydration.py
-packages/memory_core/memory_core/application/context_policy.py
+packages/memo_stack_core/memo_stack_core/application/use_cases/build_context.py
+packages/memo_stack_core/memo_stack_core/application/context_packer.py
+packages/memo_stack_core/memo_stack_core/application/context_collectors.py
+packages/memo_stack_core/memo_stack_core/application/context_hydration.py
+packages/memo_stack_core/memo_stack_core/application/context_policy.py
 tests/unit/test_context_packer.py
 tests/unit/test_legacy_and_context_api.py
 ```
@@ -654,11 +654,11 @@ Done when:
 Files:
 
 ```text
-packages/memory_server/memory_server/composition.py
-packages/memory_server/memory_server/api/v1/capabilities.py
-packages/memory_server/memory_server/diagnostics.py
-packages/memory_sdk/memory_sdk/__init__.py
-packages/memory_mcp/memory_mcp/application/service.py
+packages/memo_stack_server/memo_stack_server/composition.py
+packages/memo_stack_server/memo_stack_server/api/v1/capabilities.py
+packages/memo_stack_server/memo_stack_server/diagnostics.py
+packages/memo_stack_sdk/memo_stack_sdk/__init__.py
+packages/memo_stack_mcp/memo_stack_mcp/application/service.py
 tests/unit/test_health_capabilities.py
 tests/unit/test_mcp_adapter.py
 ```
@@ -680,12 +680,12 @@ Done when:
 Files:
 
 ```text
-packages/memory_core/memory_core/domain/events.py
-packages/memory_core/memory_core/ports/unit_of_work.py
-packages/memory_adapters/memory_adapters/postgres/models.py
-packages/memory_adapters/memory_adapters/postgres/repositories.py
-packages/memory_adapters/memory_adapters/postgres/migrations/
-packages/memory_server/memory_server/worker.py
+packages/memo_stack_core/memo_stack_core/domain/events.py
+packages/memo_stack_core/memo_stack_core/ports/unit_of_work.py
+packages/memo_stack_adapters/memo_stack_adapters/postgres/models.py
+packages/memo_stack_adapters/memo_stack_adapters/postgres/repositories.py
+packages/memo_stack_adapters/memo_stack_adapters/postgres/migrations/
+packages/memo_stack_server/memo_stack_server/worker.py
 tests/unit/test_worker_eval.py
 tests/integration/test_outbox_worker.py
 ```
@@ -707,9 +707,9 @@ Done when:
 Files:
 
 ```text
-packages/memory_adapters/memory_adapters/graphiti/adapter.py
-packages/memory_adapters/memory_adapters/noop/adapters.py
-packages/memory_server/memory_server/composition.py
+packages/memo_stack_adapters/memo_stack_adapters/graphiti/adapter.py
+packages/memo_stack_adapters/memo_stack_adapters/noop/adapters.py
+packages/memo_stack_server/memo_stack_server/composition.py
 tests/unit/test_provider_adapters.py
 tests/unit/test_legacy_and_context_api.py
 ```
@@ -732,10 +732,10 @@ Done when:
 Files:
 
 ```text
-packages/memory_adapters/memory_adapters/cognee/
-packages/memory_server/memory_server/config.py
-packages/memory_server/memory_server/composition.py
-packages/memory_core/memory_core/application/context_collectors.py
+packages/memo_stack_adapters/memo_stack_adapters/cognee/
+packages/memo_stack_server/memo_stack_server/config.py
+packages/memo_stack_server/memo_stack_server/composition.py
+packages/memo_stack_core/memo_stack_core/application/context_collectors.py
 tests/unit/test_provider_adapters.py
 tests/e2e/test_memory_quality_e2e.py
 ```
@@ -752,7 +752,7 @@ Work:
 Done when:
 
 - Cognee can be disabled without breaking canonical memory;
-- RAG recall improves document search while final context remains Memory Core
+- RAG recall improves document search while final context remains Memo Stack Core
   owned.
 
 ### WP7 - Auto-memory and team readiness
@@ -760,14 +760,14 @@ Done when:
 Files:
 
 ```text
-packages/memory_core/memory_core/application/use_cases/suggestions.py
-packages/memory_core/memory_core/ports/auth.py
-packages/memory_server/memory_server/auth_scope.py
-packages/memory_server/memory_server/api/v1/
-packages/memory_mcp/memory_mcp/
+packages/memo_stack_core/memo_stack_core/application/use_cases/suggestions.py
+packages/memo_stack_core/memo_stack_core/ports/auth.py
+packages/memo_stack_server/memo_stack_server/auth_scope.py
+packages/memo_stack_server/memo_stack_server/api/v1/
+packages/memo_stack_mcp/memo_stack_mcp/
 tests/unit/test_suggestions_api.py
 tests/unit/test_admin_tokens.py
-tests/e2e/test_memory_mcp_e2e.py
+tests/e2e/test_memo_stack_mcp_e2e.py
 ```
 
 Work:
@@ -812,18 +812,18 @@ Main branch rules:
 Minimal verification commands:
 
 ```bash
-make memory-lint
-make memory-test-application
-make memory-test-integration
-make memory-eval
-make memory-doctor
+make memo-stack-lint
+make memo-stack-test-application
+make memo-stack-test-integration
+make memo-stack-eval
+make memo-stack-doctor
 ```
 
 Run full tests when disk/CI capacity allows:
 
 ```bash
-make memory-test-unit
-make memory-test-e2e
+make memo-stack-test-unit
+make memo-stack-test-e2e
 ```
 
 Rollback rule:
@@ -848,7 +848,7 @@ Start with three small commits on `main`:
 
 2. Commit B - capability diagnostics shape.
    Files: `use_cases/get_capabilities.py`, `api/v1/capabilities.py`,
-   `memory_sdk/__init__.py`, `memory_mcp/application/service.py`,
+   `memo_stack_sdk/__init__.py`, `memo_stack_mcp/application/service.py`,
    `tests/unit/test_health_capabilities.py`, `tests/unit/test_mcp_adapter.py`.
    Keep old adapter fields for backward compatibility.
 
@@ -937,12 +937,12 @@ Rules:
 
 ```text
 document/event temporal recall -> Cognee temporal/RAG capability
-canonical fact supersession -> Memory Core lifecycle + Graphiti projection
+canonical fact supersession -> Memo Stack Core lifecycle + Graphiti projection
 current truth -> canonical lifecycle resolver, not engine-specific recency
 ```
 
 If Cognee and Graphiti disagree, the context compiler must surface a safe
-diagnostic and prefer canonical Memory Core lifecycle/authority rules.
+diagnostic and prefer canonical Memo Stack Core lifecycle/authority rules.
 
 ### 5. Scope mapping mismatch
 
@@ -955,7 +955,7 @@ Rules:
 - use cases never accept Cognee dataset ids or Graphiti group ids;
 - Graphiti `group_id` is derived from hard scope, not category/tag;
 - Cognee dataset/node-set mapping must not be treated as an ACL boundary unless
-  Memory Core policy also allows it.
+  Memo Stack Core policy also allows it.
 
 ### 6. Retrieval mode leakage
 
@@ -1014,7 +1014,7 @@ extractors just because a derived adapter can process it.
 
 Rules:
 
-- Memory Core policy decides whether a source can be processed externally;
+- Memo Stack Core policy decides whether a source can be processed externally;
 - adapter receives already-approved work only;
 - adapter diagnostics must not include raw memory text;
 - restricted data can remain canonical-only.
@@ -1028,7 +1028,7 @@ Rules:
 
 - adapter maps external payloads to stable Memo Stack DTOs;
 - adapter contract tests cover all enabled capabilities;
-- no external SDK types cross into `memory_core`;
+- no external SDK types cross into `memo_stack_core`;
 - capabilities include adapter version/schema when available.
 
 ### 12. Benchmark contamination
@@ -1111,14 +1111,14 @@ Cognee, Graphiti and Qdrant scores are not comparable.
 Rules:
 
 - adapter scores are local signals only;
-- Memory Core normalizes candidates into coarse tiers or reranks after hydration;
+- Memo Stack Core normalizes candidates into coarse tiers or reranks after hydration;
 - never sort final context by raw mixed-engine scores alone;
 - diagnostics should show source adapter and normalization reason.
 
 ### 19. Session-to-permanent promotion
 
 Cognee may be useful for session memory. Permanent shared memory still requires
-Memory Core policy.
+Memo Stack Core policy.
 
 Rules:
 
@@ -1200,7 +1200,7 @@ outputs.
 Rules:
 
 - adapter summaries can be shown as evidence only when source refs are present;
-- permanent facts are created through Memory Core suggestion/review or
+- permanent facts are created through Memo Stack Core suggestion/review or
   auto-memory policy;
 - summary text cannot supersede a canonical fact without a lifecycle command;
 - summary confidence is separate from canonical fact confidence.
@@ -1210,7 +1210,7 @@ Rules:
 1. Keep current Core Lite ports and adapter behavior stable.
 2. Add capability routing config and safe capability diagnostics before adding
    any Cognee runtime dependency.
-3. Add capability DTOs and ports in `memory_core.ports.capabilities` or split the
+3. Add capability DTOs and ports in `memo_stack_core.ports.capabilities` or split the
    current `ports/adapters.py` once the first Cognee adapter starts.
 4. Add no-op capability adapters and import-boundary tests first.
 5. Add Cognee adapter for document ingestion/RAG recall behind
@@ -1226,7 +1226,7 @@ Rules:
 
 These checks should become tests or `doctor` assertions as the adapters mature:
 
-- `memory_core` imports no Cognee, Graphiti, Qdrant, OpenAI, Neo4j or HTTP SDK
+- `memo_stack_core` imports no Cognee, Graphiti, Qdrant, OpenAI, Neo4j or HTTP SDK
   modules;
 - use cases depend on capability ports, not concrete adapters;
 - composition root is the only place that selects concrete adapters for a
@@ -1250,7 +1250,7 @@ These checks should become tests or `doctor` assertions as the adapters mature:
 
 ## Tests Required Before Enabling Cognee In A Prompt Path
 
-- import-boundary test: `memory_core` imports no Cognee/Graphiti/Qdrant SDKs;
+- import-boundary test: `memo_stack_core` imports no Cognee/Graphiti/Qdrant SDKs;
 - adapter contract tests for each capability;
 - scope-isolation tests across two spaces and two profiles;
 - stale projection tests: deleted/superseded rows returned by Cognee/Graphiti are
@@ -1290,7 +1290,7 @@ These checks should become tests or `doctor` assertions as the adapters mature:
 - Memo Stack can use direct Graphiti without rebuilding Cognee's document
   pipeline.
 - Adapters stay replaceable and testable.
-- Context quality becomes a Memory Core responsibility, not an engine side
+- Context quality becomes a Memo Stack Core responsibility, not an engine side
   effect.
 - The architecture remains ready for future engines, including Zep Cloud,
   self-hosted Graphiti, Cognee, Qdrant, pgvector or another RAG backend.

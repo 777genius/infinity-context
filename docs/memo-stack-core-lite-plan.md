@@ -11,7 +11,7 @@ Core Lite - это не полный SaaS/Zep competitor. Это минимал�
 Главное решение:
 
 ```text
-Memory Core Lite = Postgres canonical truth + Qdrant RAG + thin Graphiti adapter + Client App compatibility gateway
+Memo Stack Core Lite = Postgres canonical truth + Qdrant RAG + thin Graphiti adapter + Client App compatibility gateway
 ```
 
 Оценка:
@@ -29,7 +29,7 @@ Approx changes: `22000-42000` lines.
 
 Что этот план обязан сделать лучше, чем простой "прикрутить Qdrant/Graphiti":
 
-1. Разделить domain, application, ports, adapters и server так, чтобы `memory_core` можно было вынести в отдельную библиотеку.
+1. Разделить domain, application, ports, adapters и server так, чтобы `memo_stack_core` можно было вынести в отдельную библиотеку.
 2. Сохранить Postgres как canonical truth, чтобы Qdrant/Graphiti не стали скрытой базой истины.
 3. Сначала доказать correctness для Client App: document recall, fact update, forget, fallback.
 4. Не тащить enterprise-слои из глобального плана в первый delivery.
@@ -53,7 +53,7 @@ Global Plan implements enterprise hardening and product platform layers.
 5. Assistant output is low-trust evidence by default.
 6. Retrieved memory is evidence, never instruction.
 7. Client App must keep fallback behavior when memory server fails.
-8. `memory_core` cannot import infrastructure.
+8. `memo_stack_core` cannot import infrastructure.
 9. Adapters can fail without corrupting canonical state.
 10. Every prompt-impacting behavior has E2E or golden eval coverage.
 
@@ -96,8 +96,8 @@ automatic aggressive consolidation
 
 ### Must Have
 
-1. `memory_core` без инфраструктурных зависимостей.
-2. `memory_server` HTTP API и composition root.
+1. `memo_stack_core` без инфраструктурных зависимостей.
+2. `memo_stack_server` HTTP API и composition root.
 3. Postgres как canonical source of truth.
 4. Qdrant для document/transcript chunks.
 5. Thin Graphiti adapter behind port для facts/entities/temporal graph.
@@ -162,22 +162,22 @@ Approx changes: `35000-65000` lines.
 ### Clean Architecture Dependency Rule
 
 ```text
-memory_core.domain
+memo_stack_core.domain
   no external dependencies
 
-memory_core.application
+memo_stack_core.application
   depends on domain + ports
 
-memory_core.ports
+memo_stack_core.ports
   protocols/interfaces only
 
-memory_adapters
+memo_stack_adapters
   implements ports using Postgres, Qdrant, Graphiti, embeddings
 
-memory_server
+memo_stack_server
   FastAPI, config, auth, composition root
 
-memory_sdk
+memo_stack_sdk
   HTTP client only
 
 Client App
@@ -187,10 +187,10 @@ Client App
 Forbidden:
 
 ```text
-memory_core imports fastapi
-memory_core imports sqlalchemy
-memory_core imports qdrant_client
-memory_core imports graphiti
+memo_stack_core imports fastapi
+memo_stack_core imports sqlalchemy
+memo_stack_core imports qdrant_client
+memo_stack_core imports graphiti
 Client App imports graphiti
 Client App imports qdrant_client
 domain entities returned directly as API DTOs
@@ -242,19 +242,19 @@ DIP:
 
 - use cases depend on ports;
 - adapters implement ports;
-- `memory_server` wires concrete implementations.
+- `memo_stack_server` wires concrete implementations.
 
 ### Boundary Enforcement
 
 Every PR must keep these import rules:
 
 ```text
-memory_core.domain -> stdlib only
-memory_core.application -> domain + ports
-memory_core.ports -> typing/protocols + domain DTOs
-memory_adapters -> memory_core ports + external libraries
-memory_server -> memory_core application + adapters
-memory_sdk -> HTTP DTOs only
+memo_stack_core.domain -> stdlib only
+memo_stack_core.application -> domain + ports
+memo_stack_core.ports -> typing/protocols + domain DTOs
+memo_stack_adapters -> memo_stack_core ports + external libraries
+memo_stack_server -> memo_stack_core application + adapters
+memo_stack_sdk -> HTTP DTOs only
 ```
 
 Import-boundary test idea:
@@ -271,7 +271,7 @@ FORBIDDEN_IN_CORE = {
 
 
 def test_memory_core_has_no_infrastructure_imports():
-    imports = scan_imports("memo_stack/packages/memory_core")
+    imports = scan_imports("memo_stack/packages/memo_stack_core")
     assert not (imports & FORBIDDEN_IN_CORE)
 ```
 
@@ -282,12 +282,12 @@ These tests are permanent architecture guardrails. They are not optional lint.
 Fitness checks:
 
 ```text
-memory_core has no infrastructure imports
-memory_core has no environment variable reads
-memory_core has no wall-clock direct calls except through ClockPort
-memory_core has no uuid direct calls except through IdGeneratorPort
-memory_server routes do not instantiate repositories directly
-memory_adapters do not import FastAPI routes
+memo_stack_core has no infrastructure imports
+memo_stack_core has no environment variable reads
+memo_stack_core has no wall-clock direct calls except through ClockPort
+memo_stack_core has no uuid direct calls except through IdGeneratorPort
+memo_stack_server routes do not instantiate repositories directly
+memo_stack_adapters do not import FastAPI routes
 Client App does not import provider SDKs
 API mappers never return ORM models
 all adapter implementations pass shared contract tests
@@ -297,9 +297,9 @@ Example:
 
 ```python
 def test_use_cases_depend_on_ports_not_adapters():
-    imports = scan_imports("memo_stack/packages/memory_core/memory_core/application")
+    imports = scan_imports("memo_stack/packages/memo_stack_core/memo_stack_core/application")
     forbidden = {
-        "memory_adapters",
+        "memo_stack_adapters",
         "sqlalchemy",
         "qdrant_client",
         "graphiti",
@@ -309,7 +309,7 @@ def test_use_cases_depend_on_ports_not_adapters():
 
 
 def test_routes_do_not_open_database_sessions_directly():
-    source = read_all_python("memo_stack/packages/memory_server/memory_server/api")
+    source = read_all_python("memo_stack/packages/memo_stack_server/memo_stack_server/api")
     assert "AsyncSession(" not in source
     assert "create_engine(" not in source
 ```
@@ -340,7 +340,7 @@ OCP checks:
 ```text
 Adding Weaviate/pgvector does not change BuildContextUseCase.
 Adding another graph engine does not change RememberFactUseCase.
-Adding another client app does not change memory_core.
+Adding another client app does not change memo_stack_core.
 Adding another auth strategy does not change domain entities.
 ```
 
@@ -368,7 +368,7 @@ DIP checks:
 Application constructor accepts ports/protocols.
 Composition root creates concrete adapters.
 Tests can swap every external adapter with a fake/noop.
-No use case imports memory_adapters, FastAPI, SQLAlchemy, Qdrant or Graphiti.
+No use case imports memo_stack_adapters, FastAPI, SQLAlchemy, Qdrant or Graphiti.
 ```
 
 Review questions:
@@ -743,7 +743,7 @@ Never:
 - let adapter exceptions leak to public API unchanged;
 - let Qdrant/Graphiti decide visibility;
 - let embedding/provider outage block delete/forget;
-- let `memory_server` bypass use cases and write repositories directly.
+- let `memo_stack_server` bypass use cases and write repositories directly.
 
 ## Adapter Capability Contract
 
@@ -859,7 +859,7 @@ Rules:
 
 ### Exception Policy
 
-Allowed exceptions across `memory_core` boundaries:
+Allowed exceptions across `memo_stack_core` boundaries:
 
 ```text
 MemoryValidationError
@@ -870,7 +870,7 @@ MemoryUnauthorizedError
 MemoryInvariantError
 ```
 
-Not allowed across `memory_core` boundaries:
+Not allowed across `memo_stack_core` boundaries:
 
 ```text
 sqlalchemy.*
@@ -947,7 +947,7 @@ Rules:
 - preview is optional and never trusted as final text;
 - adapter score is one feature, not final ranking;
 - graph candidate without canonical ids is low confidence or dropped;
-- candidate DTOs live in `memory_core.ports`, not in provider adapter packages.
+- candidate DTOs live in `memo_stack_core.ports`, not in provider adapter packages.
 
 ## Package Layout
 
@@ -960,9 +960,9 @@ memo_stack/
   .env.example
 
   packages/
-    memory_core/
+    memo_stack_core/
       pyproject.toml
-      memory_core/
+      memo_stack_core/
         domain/
           entities.py
           value_objects.py
@@ -979,9 +979,9 @@ memo_stack/
           auth.py
           unit_of_work.py
 
-    memory_adapters/
+    memo_stack_adapters/
       pyproject.toml
-      memory_adapters/
+      memo_stack_adapters/
         postgres/
           models.py
           repositories.py
@@ -994,9 +994,9 @@ memo_stack/
           openai_adapter.py
           noop_adapter.py
 
-    memory_server/
+    memo_stack_server/
       pyproject.toml
-      memory_server/
+      memo_stack_server/
         api/
           v1/
           legacy_client.py
@@ -1004,9 +1004,9 @@ memo_stack/
         composition.py
         main.py
 
-    memory_sdk/
+    memo_stack_sdk/
       pyproject.toml
-      memory_sdk/
+      memo_stack_sdk/
         client.py
         models.py
 
@@ -1020,9 +1020,9 @@ memo_stack/
 Shorter first PR is acceptable:
 
 ```text
-memo_stack/packages/memory_core
-memo_stack/packages/memory_server
-memo_stack/packages/memory_adapters
+memo_stack/packages/memo_stack_core
+memo_stack/packages/memo_stack_server
+memo_stack/packages/memo_stack_adapters
 ```
 
 But imports must already respect future package split.
@@ -1031,10 +1031,10 @@ But imports must already respect future package split.
 
 Keep public package APIs narrow. Most modules are internal by convention.
 
-`memory_core` public exports:
+`memo_stack_core` public exports:
 
 ```text
-memory_core.domain
+memo_stack_core.domain
   MemoryFact
   MemoryDocument
   DocumentChunk
@@ -1042,18 +1042,18 @@ memory_core.domain
   MemoryPolicy
   domain errors
 
-memory_core.application
+memo_stack_core.application
   command/query DTOs
   use case classes
   application result DTOs
 
-memory_core.ports
+memo_stack_core.ports
   repository ports
   adapter ports
   clock/id/auth ports
 ```
 
-`memory_server` public surface:
+`memo_stack_server` public surface:
 
 ```text
 FastAPI app factory
@@ -1063,7 +1063,7 @@ worker command entrypoint
 admin command entrypoint
 ```
 
-`memory_adapters` public surface:
+`memo_stack_adapters` public surface:
 
 ```text
 Postgres repositories/UoW
@@ -1077,18 +1077,18 @@ parser adapters
 Rules:
 
 - no package should import from another package private module if a public module exists;
-- `memory_sdk` imports only HTTP/client models, not `memory_core`;
-- Client App imports only `memory_sdk` or uses HTTP;
+- `memo_stack_sdk` imports only HTTP/client models, not `memo_stack_core`;
+- Client App imports only `memo_stack_sdk` or uses HTTP;
 - public API changes require changelog entry in the plan or ADR during implementation.
 
-Example `memory_core/application/__init__.py`:
+Example `memo_stack_core/application/__init__.py`:
 
 ```python
-from memory_core.application.use_cases.remember_fact import (
+from memo_stack_core.application.use_cases.remember_fact import (
     RememberFactCommand,
     RememberFactUseCase,
 )
-from memory_core.application.use_cases.build_context import (
+from memo_stack_core.application.use_cases.build_context import (
     BuildContextQuery,
     BuildContextUseCase,
 )
@@ -1108,10 +1108,10 @@ PR 0 should be mechanically simple. Do not start by wiring providers.
 Bootstrap commands:
 
 ```bash
-mkdir -p memo_stack/packages/memory_core/memory_core/{domain,application,ports}
-mkdir -p memo_stack/packages/memory_server/memory_server/api/v1
-mkdir -p memo_stack/packages/memory_adapters/memory_adapters/{noop,postgres,qdrant,graphiti,embeddings}
-mkdir -p memo_stack/packages/memory_sdk/memory_sdk
+mkdir -p memo_stack/packages/memo_stack_core/memo_stack_core/{domain,application,ports}
+mkdir -p memo_stack/packages/memo_stack_server/memo_stack_server/api/v1
+mkdir -p memo_stack/packages/memo_stack_adapters/memo_stack_adapters/{noop,postgres,qdrant,graphiti,embeddings}
+mkdir -p memo_stack/packages/memo_stack_sdk/memo_stack_sdk
 mkdir -p memo_stack/tests/{unit,integration,e2e,fixtures}
 mkdir -p docs/adr
 ```
@@ -1122,16 +1122,16 @@ Initial files:
 memo_stack/pyproject.toml
 memo_stack/docker-compose.yml
 memo_stack/.env.example
-memo_stack/packages/memory_core/pyproject.toml
-memo_stack/packages/memory_core/memory_core/domain/entities.py
-memo_stack/packages/memory_core/memory_core/domain/errors.py
-memo_stack/packages/memory_core/memory_core/ports/*.py
-memo_stack/packages/memory_server/memory_server/main.py
-memo_stack/packages/memory_server/memory_server/config.py
-memo_stack/packages/memory_server/memory_server/composition.py
-memo_stack/packages/memory_adapters/memory_adapters/noop/*.py
+memo_stack/packages/memo_stack_core/pyproject.toml
+memo_stack/packages/memo_stack_core/memo_stack_core/domain/entities.py
+memo_stack/packages/memo_stack_core/memo_stack_core/domain/errors.py
+memo_stack/packages/memo_stack_core/memo_stack_core/ports/*.py
+memo_stack/packages/memo_stack_server/memo_stack_server/main.py
+memo_stack/packages/memo_stack_server/memo_stack_server/config.py
+memo_stack/packages/memo_stack_server/memo_stack_server/composition.py
+memo_stack/packages/memo_stack_adapters/memo_stack_adapters/noop/*.py
 memo_stack/tests/unit/test_import_boundaries.py
-docs/adr/ADR-0001-memory-core-lite-boundaries.md
+docs/adr/ADR-0001-memo-stack-core-lite-boundaries.md
 docs/adr/ADR-0002-postgres-canonical-truth.md
 ```
 
@@ -1154,7 +1154,7 @@ testpaths = ["tests"]
 Scaffolding acceptance:
 
 ```text
-python -m memory_server.main starts
+python -m memo_stack_server.main starts
 GET /v1/health returns ok
 GET /v1/capabilities returns noop adapters
 import-boundary test passes
@@ -1170,7 +1170,7 @@ Use these ordering rules to avoid big-bang implementation:
 3. Qdrant document recall before Graphiti graph recall.
 4. Context builder before prompt-impacting Client App switch.
 5. Compatibility routes before changing desktop bridge behavior.
-6. E2E canary before enabling active context against memory_server.
+6. E2E canary before enabling active context against memo_stack_server.
 7. SDK after API stabilizes enough to avoid churn.
 
 Bad sequence:
@@ -1337,14 +1337,14 @@ POST /v1/facts creates one active fact with source refs and outbox event.
 Files:
 
 ```text
-memory_core/domain/entities.py
-memory_core/application/use_cases/remember_fact.py
-memory_core/ports/repositories.py
-memory_core/ports/unit_of_work.py
-memory_server/api/v1/facts.py
-memory_server/mappers.py
-memory_adapters/postgres/fact_repository.py
-memory_adapters/postgres/unit_of_work.py
+memo_stack_core/domain/entities.py
+memo_stack_core/application/use_cases/remember_fact.py
+memo_stack_core/ports/repositories.py
+memo_stack_core/ports/unit_of_work.py
+memo_stack_server/api/v1/facts.py
+memo_stack_server/mappers.py
+memo_stack_adapters/postgres/fact_repository.py
+memo_stack_adapters/postgres/unit_of_work.py
 tests/unit/test_memory_fact.py
 tests/application/test_remember_fact.py
 tests/integration/test_postgres_fact_repository.py
@@ -1927,8 +1927,8 @@ Application DTOs are stable internal contracts. They are not FastAPI/Pydantic re
 
 Rules:
 
-- API request DTOs live in `memory_server`;
-- application command/query DTOs live in `memory_core.application`;
+- API request DTOs live in `memo_stack_server`;
+- application command/query DTOs live in `memo_stack_core.application`;
 - domain entities are not request DTOs;
 - response DTOs are mapped from application results;
 - command DTOs contain canonical ids after scope resolution;
@@ -2103,7 +2103,7 @@ occurred_at
   when source event happened, can be user/client supplied
 
 ingested_at
-  when memory_server accepted it, server clock only
+  when memo_stack_server accepted it, server clock only
 
 created_at
   when canonical row was created
@@ -2336,7 +2336,7 @@ These examples are illustrative. Exact file names can change during implementati
 ### Domain Entity Example
 
 ```python
-# packages/memory_core/memory_core/domain/entities.py
+# packages/memo_stack_core/memo_stack_core/domain/entities.py
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -2390,9 +2390,9 @@ class MemoryFact:
 ### Port Example
 
 ```python
-# packages/memory_core/memory_core/ports/repositories.py
+# packages/memo_stack_core/memo_stack_core/ports/repositories.py
 from typing import Protocol
-from memory_core.domain.entities import MemoryFact, MemoryFactId, ProfileId, SpaceId
+from memo_stack_core.domain.entities import MemoryFact, MemoryFactId, ProfileId, SpaceId
 
 
 class FactRepositoryPort(Protocol):
@@ -2421,11 +2421,11 @@ class FactRepositoryPort(Protocol):
 ### Use Case Example
 
 ```python
-# packages/memory_core/memory_core/application/use_cases/remember_fact.py
+# packages/memo_stack_core/memo_stack_core/application/use_cases/remember_fact.py
 from dataclasses import dataclass
-from memory_core.domain.entities import MemoryFact, FactStatus, SourceRef
-from memory_core.ports.repositories import FactRepositoryPort
-from memory_core.ports.unit_of_work import UnitOfWorkPort
+from memo_stack_core.domain.entities import MemoryFact, FactStatus, SourceRef
+from memo_stack_core.ports.repositories import FactRepositoryPort
+from memo_stack_core.ports.unit_of_work import UnitOfWorkPort
 
 
 @dataclass(frozen=True)
@@ -2473,7 +2473,7 @@ class RememberFactUseCase:
 ### Vector Port Example
 
 ```python
-# packages/memory_core/memory_core/ports/indexes.py
+# packages/memo_stack_core/memo_stack_core/ports/indexes.py
 from typing import Protocol
 
 
@@ -2500,7 +2500,7 @@ class VectorMemoryPort(Protocol):
 ### Context Builder Example
 
 ```python
-# packages/memory_core/memory_core/application/use_cases/build_context.py
+# packages/memo_stack_core/memo_stack_core/application/use_cases/build_context.py
 from dataclasses import dataclass
 
 
@@ -2546,7 +2546,7 @@ class BuildContextUseCase:
 ### FastAPI Route Example
 
 ```python
-# packages/memory_server/memory_server/api/v1/facts.py
+# packages/memo_stack_server/memo_stack_server/api/v1/facts.py
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
@@ -2578,7 +2578,7 @@ async def remember_fact(
 ### Client App Compatibility Route Example
 
 ```python
-# packages/memory_server/memory_server/api/legacy_client.py
+# packages/memo_stack_server/memo_stack_server/api/legacy_client.py
 @router.post("/api/v1/interview-memory/ingest")
 async def legacy_ingest(request: LegacyIngestRequest, container = Depends(get_container)):
     thread = await container.resolve_thread_by_external_ref.execute(
@@ -2619,7 +2619,7 @@ async def test_remember_fact_requires_source_ref(fake_uow, fake_fact_repo):
 ### Unit Of Work And Outbox Example
 
 ```python
-# packages/memory_core/memory_core/ports/unit_of_work.py
+# packages/memo_stack_core/memo_stack_core/ports/unit_of_work.py
 from datetime import datetime
 from typing import Protocol, Any
 
@@ -2689,7 +2689,7 @@ Core Lite idempotency targets:
 ### DTO Mapper Example
 
 ```python
-# packages/memory_server/memory_server/mappers.py
+# packages/memo_stack_server/memo_stack_server/mappers.py
 def fact_to_response(fact: MemoryFact) -> dict:
     return {
         "id": str(fact.id),
@@ -2723,7 +2723,7 @@ Mapper tests must assert:
 ### Postgres Repository Example
 
 ```python
-# packages/memory_adapters/memory_adapters/postgres/fact_repository.py
+# packages/memo_stack_adapters/memo_stack_adapters/postgres/fact_repository.py
 class PostgresFactRepository(FactRepositoryPort):
     def __init__(self, session) -> None:
         self._session = session
@@ -2784,7 +2784,7 @@ Adapter test must seed a point from another profile and verify it is not returne
 ### Composition Root Example
 
 ```python
-# packages/memory_server/memory_server/composition.py
+# packages/memo_stack_server/memo_stack_server/composition.py
 def build_container(config: Settings) -> Container:
     session_factory = build_postgres_session_factory(config.database_url)
     qdrant = build_qdrant_client(config.qdrant_url) if config.qdrant_enabled else None
@@ -2812,7 +2812,7 @@ Core Lite should use explicit dependency injection through a composition root. A
 Composition ownership:
 
 ```text
-memory_server.composition
+memo_stack_server.composition
   reads Settings
   creates provider clients
   creates adapter instances
@@ -2820,7 +2820,7 @@ memory_server.composition
   creates application services/use cases
   exposes Container to routes, worker and admin commands
 
-memory_core
+memo_stack_core
   declares ports and use cases
   never reads Settings
   never constructs provider adapters
@@ -2902,8 +2902,8 @@ Rules:
 - routes do not instantiate repositories, sessions or provider clients;
 - worker and CLI commands reuse the same container builder;
 - test container can replace any adapter with fake/noop;
-- no module-level singleton provider client in `memory_core`;
-- no route should import `memory_adapters.qdrant` or `memory_adapters.graphiti`.
+- no module-level singleton provider client in `memo_stack_core`;
+- no route should import `memo_stack_adapters.qdrant` or `memo_stack_adapters.graphiti`.
 
 Deploy profile wiring:
 
@@ -2930,7 +2930,7 @@ test_container_build_fails_fast_on_invalid_required_config
 Domain/application errors should be typed and mapped to public API errors at the server boundary.
 
 ```python
-# packages/memory_core/memory_core/domain/errors.py
+# packages/memo_stack_core/memo_stack_core/domain/errors.py
 class MemoryError(Exception):
     code = "memory.internal"
     retryable = False
@@ -2950,7 +2950,7 @@ class MemoryConflictError(MemoryError):
 ```
 
 ```python
-# packages/memory_server/memory_server/api/errors.py
+# packages/memo_stack_server/memo_stack_server/api/errors.py
 def to_error_response(error: Exception, request_id: str) -> dict:
     if isinstance(error, MemoryConflictError):
         return {
@@ -3017,7 +3017,7 @@ class UpdateFactUseCase:
 ### Config Example
 
 ```python
-# packages/memory_server/memory_server/config.py
+# packages/memo_stack_server/memo_stack_server/config.py
 from pydantic_settings import BaseSettings
 
 
@@ -3040,7 +3040,7 @@ class Settings(BaseSettings):
 ### SDK Example
 
 ```python
-from memory_sdk import MemoryClient
+from memo_stack_sdk import MemoryClient
 
 client = MemoryClient(
     base_url="http://127.0.0.1:7788",
@@ -3096,7 +3096,7 @@ SDK rules:
 
 - SDK wraps HTTP and auth;
 - SDK has typed request/response models;
-- SDK does not import `memory_core`;
+- SDK does not import `memo_stack_core`;
 - SDK does not know Qdrant/Graphiti;
 - SDK surfaces server error codes as typed exceptions;
 - SDK methods accept explicit `timeout` where prompt path may call them.
@@ -3455,16 +3455,16 @@ domain aggregate -> repository mapper -> ORM row(s)
 Repository file split:
 
 ```text
-memory_adapters/postgres/models.py
+memo_stack_adapters/postgres/models.py
   SQLAlchemy table/ORM definitions only
 
-memory_adapters/postgres/mappers.py
+memo_stack_adapters/postgres/mappers.py
   ORM/domain conversion only
 
-memory_adapters/postgres/repositories.py
+memo_stack_adapters/postgres/repositories.py
   port implementation and queries only
 
-memory_adapters/postgres/unit_of_work.py
+memo_stack_adapters/postgres/unit_of_work.py
   transaction/session lifecycle only
 ```
 
@@ -3956,8 +3956,8 @@ class LegacyClientMemoryMapper:
 
 Rules:
 
-- no `Legacy*Request` type can be imported by `memory_core`;
-- no Client App env var is read inside `memory_core`;
+- no `Legacy*Request` type can be imported by `memo_stack_core`;
+- no Client App env var is read inside `memo_stack_core`;
 - compatibility response mapper is tested separately;
 - legacy adapter can be deleted later without rewriting use cases.
 
@@ -4496,7 +4496,7 @@ Rules:
 - application use cases validate business policy and lifecycle;
 - route mapper resolves scope before command creation;
 - route mapper never trusts client-provided profile ids after scope resolution;
-- Pydantic models are not imported by `memory_core`;
+- Pydantic models are not imported by `memo_stack_core`;
 - DTO changes require endpoint acceptance tests and SDK facade tests.
 
 ## Auth And Scope Model
@@ -4630,7 +4630,7 @@ These flows are the reference for implementation and tests.
 ```mermaid
 sequenceDiagram
   participant Client
-  participant API as memory_server API
+  participant API as memo_stack_server API
   participant UC as RememberFactUseCase
   participant PG as Postgres
   participant OB as Outbox
@@ -4738,7 +4738,7 @@ Core Lite config must be explicit because this service will later run both local
 Required local env:
 
 ```text
-MEMORY_DATABASE_URL=postgresql+asyncpg://memory:memory@127.0.0.1:54329/memory
+MEMORY_DATABASE_URL=postgresql+asyncpg://memo_stack:memo_stack@127.0.0.1:54329/memo_stack
 MEMORY_SERVICE_TOKEN=local-dev-token
 MEMORY_QDRANT_ENABLED=true
 MEMORY_QDRANT_URL=http://127.0.0.1:6333
@@ -4768,7 +4768,7 @@ Config rules:
 - missing optional adapter config must not crash the server;
 - missing `MEMORY_SERVICE_TOKEN` crashes startup outside test mode;
 - test mode uses fake clock, fake ids and no external network;
-- config is read only in `memory_server`, never inside domain entities.
+- config is read only in `memo_stack_server`, never inside domain entities.
 
 ## Deploy Profiles
 
@@ -4813,7 +4813,7 @@ Rules:
 - `test` profile cannot use real provider clients;
 - `server` profile cannot start without service token and migrations;
 - `canary` profile keeps active context disabled unless explicitly enabled;
-- profile validation happens at startup in `memory_server`;
+- profile validation happens at startup in `memo_stack_server`;
 - domain/application code never branches by deploy profile.
 
 Profile validator example:
@@ -4845,7 +4845,7 @@ quality: ruff, mypy or pyright
 
 Rules:
 
-- every provider dependency lives in `memory_adapters`, not `memory_core`;
+- every provider dependency lives in `memo_stack_adapters`, not `memo_stack_core`;
 - Graphiti/Qdrant/OpenAI dependencies should be optional extras where practical;
 - before adding a dependency, verify current stable version and maintenance status;
 - no dependency may force Client App to import provider SDKs;
@@ -4879,32 +4879,32 @@ Docker compose blueprint:
 
 ```yaml
 services:
-  memory_postgres:
+  memo_stack_postgres:
     image: postgres:16
     environment:
-      POSTGRES_USER: memory
-      POSTGRES_PASSWORD: memory
-      POSTGRES_DB: memory
+      POSTGRES_USER: memo_stack
+      POSTGRES_PASSWORD: memo_stack
+      POSTGRES_DB: memo_stack
     ports:
       - "54329:5432"
 
-  memory_qdrant:
+  memo_stack_qdrant:
     image: qdrant/qdrant:latest
     ports:
       - "6333:6333"
 
-  memory_server:
+  memo_stack_server:
     build: .
     environment:
-      MEMORY_DATABASE_URL: postgresql+asyncpg://memory:memory@memory_postgres:5432/memory
+      MEMORY_DATABASE_URL: postgresql+asyncpg://memo_stack:memo_stack@memo_stack_postgres:5432/memo_stack
       MEMORY_SERVICE_TOKEN: local-dev-token
-      MEMORY_QDRANT_URL: http://memory_qdrant:6333
+      MEMORY_QDRANT_URL: http://memo_stack_qdrant:6333
       MEMORY_QDRANT_ENABLED: "true"
       MEMORY_GRAPHITI_ENABLED: "false"
       MEMORY_EMBEDDINGS_ENABLED: "false"
     depends_on:
-      - memory_postgres
-      - memory_qdrant
+      - memo_stack_postgres
+      - memo_stack_qdrant
     ports:
       - "7788:7788"
 ```
@@ -5206,7 +5206,7 @@ async def test_same_profile_external_ref_allowed_in_different_spaces(db):
 
 ## Migration Plan
 
-Use Alembic or equivalent migration tooling inside `memory_adapters.postgres`.
+Use Alembic or equivalent migration tooling inside `memo_stack_adapters.postgres`.
 
 Migration order:
 
@@ -5220,7 +5220,7 @@ Migration order:
 
 Migration rules:
 
-- migrations do not import `memory_core`;
+- migrations do not import `memo_stack_core`;
 - migrations are deterministic and environment independent;
 - every table has `created_at` and `updated_at` where lifecycle matters;
 - every profile-scoped table has `space_id` and `profile_id`;
@@ -5254,8 +5254,8 @@ Migration phases for non-trivial changes:
 Backfill command shape:
 
 ```bash
-python -m memory_server.admin backfill --name chunker-version-v1 --batch-size 500 --dry-run
-python -m memory_server.admin backfill --name chunker-version-v1 --batch-size 500
+python -m memo_stack_server.admin backfill --name chunker-version-v1 --batch-size 500 --dry-run
+python -m memo_stack_server.admin backfill --name chunker-version-v1 --batch-size 500
 ```
 
 Migration tests:
@@ -5296,7 +5296,7 @@ def upgrade() -> None:
 Dev reset command:
 
 ```bash
-python -m memory_server.admin reset-local --i-understand-this-deletes-local-memory
+python -m memo_stack_server.admin reset-local --i-understand-this-deletes-local-memory
 ```
 
 No production reset command in Core Lite.
@@ -5513,8 +5513,8 @@ suggestion.expire
 Minimal worker command:
 
 ```bash
-python -m memory_server.worker --once
-python -m memory_server.worker --loop
+python -m memo_stack_server.worker --once
+python -m memo_stack_server.worker --loop
 ```
 
 Worker pseudocode:
@@ -5857,10 +5857,10 @@ Derived indexes must be repairable from Postgres.
 Commands:
 
 ```bash
-python -m memory_server.admin reindex-qdrant --space client-app --profile default
-python -m memory_server.admin reindex-graphiti --space client-app --profile default
-python -m memory_server.admin repair-projections --space client-app --dry-run
-python -m memory_server.admin replay-outbox --status dead --limit 50
+python -m memo_stack_server.admin reindex-qdrant --space client-app --profile default
+python -m memo_stack_server.admin reindex-graphiti --space client-app --profile default
+python -m memo_stack_server.admin repair-projections --space client-app --dry-run
+python -m memo_stack_server.admin replay-outbox --status dead --limit 50
 ```
 
 Repair rules:
@@ -5989,7 +5989,7 @@ projection_version
 Collection naming:
 
 ```text
-memory_chunks_v1_1536
+memo_stack_chunks_v1_1536
 memory_chunks_v2_3072
 ```
 
@@ -6474,7 +6474,7 @@ Mode behavior:
 | `shadow_ingest` | ingest only | no prompt impact | empty/fallback |
 | `shadow_retrieve` | ingest + retrieve | diagnostics only | not inserted |
 | `active_context` | ingest + retrieve | full safe retrieval | inserted as evidence |
-| `local_only` | local fallback only | memory_server avoided | local evidence only |
+| `local_only` | local fallback only | memo_stack_server avoided | local evidence only |
 
 Pipeline rules:
 
@@ -6957,7 +6957,7 @@ Backpressure response:
 
 Rules:
 
-- rate limiting belongs to `memory_server`, not domain;
+- rate limiting belongs to `memo_stack_server`, not domain;
 - backpressure never blocks forget/delete;
 - context endpoint should prefer degraded response over hard rate failure where safe;
 - document ingest can return retryable backpressure when outbox is too large;
@@ -6985,7 +6985,7 @@ Current Core Lite implementation:
 - document ingest can return retryable `memory.backpressure` when
   `MEMORY_OUTBOX_BACKPRESSURE_PENDING_THRESHOLD` is set and active outbox jobs are above
   the threshold;
-- backpressure is implemented in `memory_server`, not domain/use cases;
+- backpressure is implemented in `memo_stack_server`, not domain/use cases;
 - document delete bypasses the document-ingest backpressure guard;
 - diagnostics expose outbox pending/dead counts, provider circuit state and context
   degraded rate without raw memory text.
@@ -7042,7 +7042,7 @@ test_budget_diagnostics_omit_raw_text
 
 Current Core Lite implementation:
 
-- provider budgets are disabled by default and live in `memory_server` wiring/worker code,
+- provider budgets are disabled by default and live in `memo_stack_server` wiring/worker code,
   not in domain entities or use cases;
 - `MEMORY_MAX_EMBEDDING_TOKENS_PER_DOCUMENT` blocks document chunk embedding projection
   when the canonical document exceeds the configured token cap, while the document/chunks
@@ -7078,7 +7078,7 @@ Rules:
 
 Current Core Lite implementation:
 
-- import-boundary tests prove `memory_core` has no FastAPI/SQLAlchemy/provider SDK imports,
+- import-boundary tests prove `memo_stack_core` has no FastAPI/SQLAlchemy/provider SDK imports,
   and API routes do not import provider adapter packages or open database sessions directly;
 - noop vector/graph/embedding adapters fail closed with disabled/degraded statuses and no
   candidates/vectors, so disabled engines remain safe substitutes at runtime;
@@ -7103,9 +7103,9 @@ Every PR must declare which gates it affects.
 
 ```text
 ruff format/check
-type check for memory_core and memory_server
+type check for memo_stack_core and memo_stack_server
 import-boundary test
-no forbidden imports in memory_core
+no forbidden imports in memo_stack_core
 no raw provider SDK import in Client App
 ```
 
@@ -7184,11 +7184,11 @@ ci:cross-profile-isolation
 Suggested command mapping:
 
 ```bash
-make memory-lint
-make memory-test-application
-make memory-test-integration
-make memory-test-e2e
-make memory-eval
+make memo-stack-lint
+make memo-stack-test-application
+make memo-stack-test-integration
+make memo-stack-test-e2e
+make memo-stack-eval
 ```
 
 Rules:
@@ -7202,14 +7202,14 @@ Rules:
 
 Current Core Lite implementation:
 
-- `make memory-test-quality` is the local full quality gate and runs lint,
+- `make memo-stack-test-quality` is the local full quality gate and runs lint,
   application tests, integration tests, e2e-style memory tests and golden eval;
-- `make memory-test-application` covers domain/fact/context/suggestion behavior;
-- `make memory-test-integration` covers provider adapters and worker retry/dead-letter
+- `make memo-stack-test-application` covers domain/fact/context/suggestion behavior;
+- `make memo-stack-test-integration` covers provider adapters and worker retry/dead-letter
   behavior;
-- `make memory-test-e2e` covers legacy/context and worker paths used by the live memory
+- `make memo-stack-test-e2e` covers legacy/context and worker paths used by the live memory
   workflow;
-- `make memory-eval` runs the small golden suite and prompt contract snapshot check;
+- `make memo-stack-eval` runs the small golden suite and prompt contract snapshot check;
 - OpenAPI contract coverage currently lives in the full unit suite through
   `tests/unit/test_openapi_contract.py`.
 
@@ -7246,9 +7246,9 @@ Approx changes: `800-1400` lines.
 Deliver:
 
 - package layout;
-- `memory_core` domain entities and ports;
-- `memory_server` FastAPI app skeleton;
-- `memory_adapters` empty adapters;
+- `memo_stack_core` domain entities and ports;
+- `memo_stack_server` FastAPI app skeleton;
+- `memo_stack_adapters` empty adapters;
 - health/capabilities endpoint;
 - import-boundary tests;
 - first ADR linking this Core Lite plan to global plan.
@@ -7259,14 +7259,14 @@ Steps:
 2. Add package pyprojects.
 3. Add domain dataclasses and ports.
 4. Add FastAPI app with health/capabilities.
-5. Add tests ensuring `memory_core` has no forbidden imports.
+5. Add tests ensuring `memo_stack_core` has no forbidden imports.
 
 Exit gate:
 
 ```bash
-pytest memo_stack/packages/memory_core/tests
-pytest memo_stack/packages/memory_server/tests
-rg -n "fastapi|sqlalchemy|qdrant|graphiti" memo_stack/packages/memory_core
+pytest memo_stack/packages/memo_stack_core/tests
+pytest memo_stack/packages/memo_stack_server/tests
+rg -n "fastapi|sqlalchemy|qdrant|graphiti" memo_stack/packages/memo_stack_core
 ```
 
 The `rg` command should return no forbidden imports.
@@ -7307,8 +7307,8 @@ Tests:
 Exit gate:
 
 ```bash
-pytest memo_stack/packages/memory_core/tests/test_fact_lifecycle.py
-pytest memo_stack/packages/memory_adapters/tests/test_postgres_fact_repository.py
+pytest memo_stack/packages/memo_stack_core/tests/test_fact_lifecycle.py
+pytest memo_stack/packages/memo_stack_adapters/tests/test_postgres_fact_repository.py
 ```
 
 ### Phase 2 - Client App Compatibility Gateway
@@ -7382,7 +7382,7 @@ Tests:
 Exit gate:
 
 ```bash
-pytest memo_stack/packages/memory_adapters/tests/test_qdrant_adapter.py
+pytest memo_stack/packages/memo_stack_adapters/tests/test_qdrant_adapter.py
 pytest memo_stack/tests/e2e/test_document_recall.py
 ```
 
@@ -7412,8 +7412,8 @@ Tests:
 Exit gate:
 
 ```bash
-python -m memory_server eval run --suite small-golden
-pytest memo_stack/packages/memory_core/tests/test_context_builder.py
+python -m memo_stack_server eval run --suite small-golden
+pytest memo_stack/packages/memo_stack_core/tests/test_context_builder.py
 ```
 
 ### Phase 5 - Thin Graphiti Adapter
@@ -7453,7 +7453,7 @@ Tests:
 Exit gate:
 
 ```bash
-pytest memo_stack/packages/memory_adapters/tests/test_graphiti_adapter.py
+pytest memo_stack/packages/memo_stack_adapters/tests/test_graphiti_adapter.py
 pytest memo_stack/tests/integration/test_graph_context.py
 ```
 
@@ -7492,7 +7492,7 @@ Deliver:
 
 - Python SDK;
 - `.env.example`;
-- Docker compose: memory_server, Postgres, Qdrant, Neo4j if Graphiti phase enabled;
+- Docker compose: memo_stack_server, Postgres, Qdrant, Neo4j if Graphiti phase enabled;
 - seed default space/profile;
 - runbook.
 
@@ -7517,33 +7517,33 @@ python examples/integration_memory_smoke.py
 
 Current Core Lite implementation:
 
-- `docker-compose.yml` starts `memory_server`, Postgres, Qdrant and Neo4j for local use;
-- Docker startup runs `memory_server.db upgrade` and `memory_server.admin seed-defaults`
+- `docker-compose.yml` starts `memo_stack_server`, Postgres, Qdrant and Neo4j for local use;
+- Docker startup runs `memo_stack_server.db upgrade` and `memo_stack_server.admin seed-defaults`
   before serving HTTP;
-- Docker Compose waits for Postgres health before starting `memory_server` and exposes a
+- Docker Compose waits for Postgres health before starting `memo_stack_server` and exposes a
   server `/v1/health` healthcheck;
 - `.env.example` contains local defaults for server, embeddings, Qdrant, Graphiti and
   Client App compatibility;
-- `make memory-stack-up` starts the local server service through Docker Compose;
-- `make memory-stack-smoke` starts the local server service, waits for `/v1/health` and runs
+- `make memo-stack-up` starts the local server service through Docker Compose;
+- `make memo-stack-smoke` starts the local server service, waits for `/v1/health` and runs
   the SDK smoke path;
-- `make memory-smoke` runs `examples/integration_memory_smoke.py` against
+- `make memo-stack-api-smoke` runs `examples/integration_memory_smoke.py` against
   `http://127.0.0.1:7788` by default;
-- the smoke script uses only `MemoryPlatformClient` and verifies health, space/profile
+- the smoke script uses only the Memo Stack SDK client and verifies health, space/profile
   creation, remember, update, document ingest, search, context and forget;
 - smoke output is production-safe ids/counts/status only and does not print the auth token or
   raw memory text.
 
 ## Client App Integration Plan
 
-Goal: Client App should treat memory_server as an external dependency and keep its current local fallback.
+Goal: Client App should treat memo_stack_server as an external dependency and keep its current local fallback.
 
 Integration sequence:
 
-1. Add memory_server local Docker runbook.
+1. Add memo_stack_server local Docker runbook.
 2. Add `INTERVIEW_MEMORY_API_URL=http://127.0.0.1:7788` for local canary.
 3. Keep existing `INTERVIEW_MEMORY_MODE` behavior.
-4. Route only memory calls to memory_server.
+4. Route only memory calls to memo_stack_server.
 5. Keep STT/backend traffic unchanged unless explicitly testing full stack.
 6. Start with `shadow_ingest`.
 7. Enable `shadow_retrieve` and compare diagnostics.
@@ -7573,20 +7573,20 @@ Compatibility mapping:
 Desktop fallback rule:
 
 ```text
-Any network/auth/timeout/schema error from memory_server -> local fallback.
+Any network/auth/timeout/schema error from memo_stack_server -> local fallback.
 Only explicit successful context response can affect prompt.
 ```
 
 Canary flow:
 
 ```text
-start memory_server
+start memo_stack_server
 legacy ingest known document/fact
 legacy context asks deterministic question
 assert rendered evidence contains expected fact/chunk
 delete session
 assert context no longer contains deleted evidence
-stop memory_server
+stop memo_stack_server
 assert desktop fallback still works
 ```
 
@@ -7595,7 +7595,7 @@ assert desktop fallback still works
 | Phase | User-visible impact | Rollback | Must pass before next phase |
 |---|---|---|---|
 | Phase 0 skeleton | none | remove package or disable service | import-boundary tests |
-| Phase 1 Postgres facts | API only | stop memory_server | fact lifecycle tests |
+| Phase 1 Postgres facts | API only | stop memo_stack_server | fact lifecycle tests |
 | Phase 2 compatibility | Client App can call server | `INTERVIEW_MEMORY_FORCE_LOCAL_ONLY=true` | legacy route E2E |
 | Phase 3 Qdrant RAG | document recall improves | `MEMORY_QDRANT_ENABLED=false` | stale vector and document recall E2E |
 | Phase 4 context builder | prompt context changes | shadow mode or local fallback | golden eval suite |
@@ -7611,7 +7611,7 @@ No phase can change Client App active prompt context until it has a shadow run, 
 
 Suggested rollout:
 
-1. Run memory_server in shadow ingest.
+1. Run memo_stack_server in shadow ingest.
 2. Enable shadow retrieve and compare diagnostics.
 3. Enable active context for one local profile.
 4. Enable active context behind settings switch.
@@ -7680,16 +7680,16 @@ First three commits:
 Minimum verification after each behavior-changing commit:
 
 ```bash
-make memory-lint
-make memory-test-application
-make memory-test-integration
-make memory-doctor
+make memo-stack-lint
+make memo-stack-test-application
+make memo-stack-test-integration
+make memo-stack-doctor
 ```
 
 Run eval before prompt-path changes:
 
 ```bash
-make memory-eval
+make memo-stack-eval
 ```
 
 ## Detailed Main Branch Implementation Playbook
@@ -7706,8 +7706,8 @@ Run:
 cd /Users/belief/dev/projects/ai/memo-stack
 git status --short
 df -h .
-make memory-lint
-make memory-test-application
+make memo-stack-lint
+make memo-stack-test-application
 ```
 
 Check:
@@ -7731,9 +7731,9 @@ feat(memory): add capability DTO contracts
 Files:
 
 ```text
-packages/memory_core/memory_core/ports/capabilities.py
-packages/memory_core/memory_core/application/dto.py
-packages/memory_core/memory_core/ports/__init__.py
+packages/memo_stack_core/memo_stack_core/ports/capabilities.py
+packages/memo_stack_core/memo_stack_core/application/dto.py
+packages/memo_stack_core/memo_stack_core/ports/__init__.py
 tests/unit/test_import_boundaries.py
 tests/unit/test_health_capabilities.py
 ```
@@ -7758,8 +7758,8 @@ Steps:
    - `EngineHealthPort`.
 3. Do not wire the new ports into runtime yet.
 4. Keep `VectorMemoryPort`, `GraphMemoryPort` and `AdapterCapabilities`.
-5. Export new contracts from `memory_core.ports`.
-6. Add tests that prove `memory_core` imports no Cognee, Graphiti, Qdrant,
+5. Export new contracts from `memo_stack_core.ports`.
+6. Add tests that prove `memo_stack_core` imports no Cognee, Graphiti, Qdrant,
    OpenAI, Neo4j, FastAPI, httpx or MCP SDKs.
 
 Expected behavior:
@@ -7771,7 +7771,7 @@ Expected behavior:
 Verify:
 
 ```bash
-make memory-lint
+make memo-stack-lint
 .venv/bin/python -m pytest tests/unit/test_import_boundaries.py tests/unit/test_health_capabilities.py
 ```
 
@@ -7792,11 +7792,11 @@ feat(memory): expose capability diagnostics
 Files:
 
 ```text
-packages/memory_core/memory_core/application/use_cases/get_capabilities.py
-packages/memory_server/memory_server/api/v1/capabilities.py
-packages/memory_server/memory_server/diagnostics.py
-packages/memory_sdk/memory_sdk/__init__.py
-packages/memory_mcp/memory_mcp/application/service.py
+packages/memo_stack_core/memo_stack_core/application/use_cases/get_capabilities.py
+packages/memo_stack_server/memo_stack_server/api/v1/capabilities.py
+packages/memo_stack_server/memo_stack_server/diagnostics.py
+packages/memo_stack_sdk/memo_stack_sdk/__init__.py
+packages/memo_stack_mcp/memo_stack_mcp/application/service.py
 tests/unit/test_health_capabilities.py
 tests/unit/test_mcp_adapter.py
 ```
@@ -7831,7 +7831,7 @@ Expected behavior:
 Verify:
 
 ```bash
-make memory-lint
+make memo-stack-lint
 .venv/bin/python -m pytest tests/unit/test_health_capabilities.py tests/unit/test_mcp_adapter.py
 ```
 
@@ -7852,10 +7852,10 @@ feat(memory): add canonical context consistency mode
 Files:
 
 ```text
-packages/memory_core/memory_core/application/dto.py
-packages/memory_core/memory_core/application/use_cases/build_context.py
-packages/memory_server/memory_server/api/v1/context.py
-packages/memory_server/memory_server/api/v1/legacy_client.py
+packages/memo_stack_core/memo_stack_core/application/dto.py
+packages/memo_stack_core/memo_stack_core/application/use_cases/build_context.py
+packages/memo_stack_server/memo_stack_server/api/v1/context.py
+packages/memo_stack_server/memo_stack_server/api/v1/legacy_client.py
 tests/unit/test_legacy_and_context_api.py
 ```
 
@@ -7886,7 +7886,7 @@ Expected behavior:
 Verify:
 
 ```bash
-make memory-lint
+make memo-stack-lint
 .venv/bin/python -m pytest tests/unit/test_legacy_and_context_api.py
 ```
 
@@ -7907,12 +7907,12 @@ refactor(memory): split context compiler pipeline
 Files:
 
 ```text
-packages/memory_core/memory_core/application/use_cases/build_context.py
-packages/memory_core/memory_core/application/context_collectors.py
-packages/memory_core/memory_core/application/context_hydration.py
-packages/memory_core/memory_core/application/context_policy.py
-packages/memory_core/memory_core/application/context_ranking.py
-packages/memory_core/memory_core/application/context_packer.py
+packages/memo_stack_core/memo_stack_core/application/use_cases/build_context.py
+packages/memo_stack_core/memo_stack_core/application/context_collectors.py
+packages/memo_stack_core/memo_stack_core/application/context_hydration.py
+packages/memo_stack_core/memo_stack_core/application/context_policy.py
+packages/memo_stack_core/memo_stack_core/application/context_ranking.py
+packages/memo_stack_core/memo_stack_core/application/context_packer.py
 tests/unit/test_context_packer.py
 tests/unit/test_legacy_and_context_api.py
 ```
@@ -7943,9 +7943,9 @@ packer
 Verify:
 
 ```bash
-make memory-lint
-make memory-test-application
-make memory-eval
+make memo-stack-lint
+make memo-stack-test-application
+make memo-stack-eval
 ```
 
 Stop if:
@@ -7965,13 +7965,13 @@ feat(memory): harden projection outbox lifecycle
 Files:
 
 ```text
-packages/memory_core/memory_core/domain/events.py
-packages/memory_core/memory_core/ports/unit_of_work.py
-packages/memory_adapters/memory_adapters/postgres/models.py
-packages/memory_adapters/memory_adapters/postgres/repositories.py
-packages/memory_adapters/memory_adapters/postgres/migrations/
-packages/memory_server/memory_server/worker.py
-packages/memory_server/memory_server/diagnostics.py
+packages/memo_stack_core/memo_stack_core/domain/events.py
+packages/memo_stack_core/memo_stack_core/ports/unit_of_work.py
+packages/memo_stack_adapters/memo_stack_adapters/postgres/models.py
+packages/memo_stack_adapters/memo_stack_adapters/postgres/repositories.py
+packages/memo_stack_adapters/memo_stack_adapters/postgres/migrations/
+packages/memo_stack_server/memo_stack_server/worker.py
+packages/memo_stack_server/memo_stack_server/diagnostics.py
 tests/unit/test_worker_eval.py
 tests/integration/test_outbox_worker.py
 ```
@@ -7992,9 +7992,9 @@ Steps:
 Verify:
 
 ```bash
-make memory-lint
-make memory-test-integration
-make memory-worker-once
+make memo-stack-lint
+make memo-stack-test-integration
+make memo-stack-worker-once
 ```
 
 Stop if:
@@ -8014,9 +8014,9 @@ refactor(memory): expose graphiti temporal capability ports
 Files:
 
 ```text
-packages/memory_adapters/memory_adapters/graphiti/adapter.py
-packages/memory_adapters/memory_adapters/noop/adapters.py
-packages/memory_server/memory_server/composition.py
+packages/memo_stack_adapters/memo_stack_adapters/graphiti/adapter.py
+packages/memo_stack_adapters/memo_stack_adapters/noop/adapters.py
+packages/memo_stack_server/memo_stack_server/composition.py
 tests/unit/test_provider_adapters.py
 tests/unit/test_legacy_and_context_api.py
 ```
@@ -8033,8 +8033,8 @@ Steps:
 Verify:
 
 ```bash
-make memory-lint
-make memory-test-integration
+make memo-stack-lint
+make memo-stack-test-integration
 ```
 
 Stop if:
@@ -8054,9 +8054,9 @@ feat(memory): add cognee adapter skeleton
 Files:
 
 ```text
-packages/memory_adapters/memory_adapters/cognee/
-packages/memory_server/memory_server/config.py
-packages/memory_server/memory_server/composition.py
+packages/memo_stack_adapters/memo_stack_adapters/cognee/
+packages/memo_stack_server/memo_stack_server/config.py
+packages/memo_stack_server/memo_stack_server/composition.py
 tests/unit/test_provider_adapters.py
 tests/unit/test_health_capabilities.py
 ```
@@ -8073,14 +8073,14 @@ Steps:
 Verify:
 
 ```bash
-make memory-lint
-make memory-test-integration
+make memo-stack-lint
+make memo-stack-test-integration
 ```
 
 Stop if:
 
 - installing default package requires Cognee;
-- Cognee SDK leaks into `memory_core`;
+- Cognee SDK leaks into `memo_stack_core`;
 - disabled Cognee changes context output.
 
 ### Commit H - Cognee document/RAG runtime
@@ -8094,9 +8094,9 @@ feat(memory): enable cognee document rag adapter
 Files:
 
 ```text
-packages/memory_adapters/memory_adapters/cognee/
-packages/memory_core/memory_core/application/context_collectors.py
-packages/memory_server/memory_server/composition.py
+packages/memo_stack_adapters/memo_stack_adapters/cognee/
+packages/memo_stack_core/memo_stack_core/application/context_collectors.py
+packages/memo_stack_server/memo_stack_server/composition.py
 tests/e2e/test_memory_quality_e2e.py
 ```
 
@@ -8112,15 +8112,15 @@ Steps:
 Verify:
 
 ```bash
-make memory-lint
-make memory-test-application
-make memory-test-integration
-make memory-eval
+make memo-stack-lint
+make memo-stack-test-application
+make memo-stack-test-integration
+make memo-stack-eval
 ```
 
 Stop if:
 
-- Cognee output becomes canonical fact without Memory Core approval;
+- Cognee output becomes canonical fact without Memo Stack Core approval;
 - source refs are missing;
 - restricted/unknown data is sent to external AI without policy approval.
 
@@ -8158,12 +8158,12 @@ feat(memory): route auto memory through suggestions
 Files:
 
 ```text
-packages/memory_core/memory_core/application/use_cases/suggestions.py
-packages/memory_core/memory_core/application/use_cases/ingest_episode.py
-packages/memory_server/memory_server/api/v1/suggestions.py
-packages/memory_mcp/memory_mcp/application/service.py
+packages/memo_stack_core/memo_stack_core/application/use_cases/suggestions.py
+packages/memo_stack_core/memo_stack_core/application/use_cases/ingest_episode.py
+packages/memo_stack_server/memo_stack_server/api/v1/suggestions.py
+packages/memo_stack_mcp/memo_stack_mcp/application/service.py
 tests/unit/test_suggestions_api.py
-tests/e2e/test_memory_mcp_e2e.py
+tests/e2e/test_memo_stack_mcp_e2e.py
 ```
 
 Steps:
@@ -8177,9 +8177,9 @@ Steps:
 Verify:
 
 ```bash
-make memory-lint
-make memory-test-application
-make memory-test-e2e
+make memo-stack-lint
+make memo-stack-test-application
+make memo-stack-test-e2e
 ```
 
 Stop if:
@@ -8215,13 +8215,13 @@ feat(memory): add resolved read scope contract
 Files:
 
 ```text
-packages/memory_core/memory_core/ports/auth.py
-packages/memory_server/memory_server/auth_scope.py
-packages/memory_server/memory_server/api/v1/
-packages/memory_sdk/memory_sdk/__init__.py
-packages/memory_mcp/memory_mcp/
+packages/memo_stack_core/memo_stack_core/ports/auth.py
+packages/memo_stack_server/memo_stack_server/auth_scope.py
+packages/memo_stack_server/memo_stack_server/api/v1/
+packages/memo_stack_sdk/memo_stack_sdk/__init__.py
+packages/memo_stack_mcp/memo_stack_mcp/
 tests/unit/test_admin_tokens.py
-tests/e2e/test_memory_mcp_e2e.py
+tests/e2e/test_memo_stack_mcp_e2e.py
 ```
 
 Steps:
@@ -8235,9 +8235,9 @@ Steps:
 Verify:
 
 ```bash
-make memory-lint
-make memory-test-application
-make memory-test-e2e
+make memo-stack-lint
+make memo-stack-test-application
+make memo-stack-test-e2e
 ```
 
 Stop if:
@@ -8248,7 +8248,7 @@ Stop if:
 
 Current Core Lite implementation:
 
-- `memory_core.ports.auth` defines `MemoryPrincipal`, `MemoryScope` and `ReadScope`
+- `memo_stack_core.ports.auth` defines `MemoryPrincipal`, `MemoryScope` and `ReadScope`
   with optional additive `tenant_id` and `workspace_id` fields for future SaaS
   migration;
 - v1 route scope resolution validates canonical single-profile scopes through
@@ -8261,7 +8261,7 @@ Current Core Lite implementation:
 - the SDK exposes typed `MemoryScope` and `ReadScope` DTOs while keeping the existing
   kwargs API backward compatible;
 - the MCP adapter uses a dedicated read scope for search/context so multi-profile
-  `profile_external_refs` are sent to Memory Server instead of being silently reduced
+  `profile_external_refs` are sent to Memo Stack Server instead of being silently reduced
   to one profile;
 - MCP read scope rejects `thread_external_ref` with multiple profiles because the
   server contract allows thread-scoped context only for one profile.
@@ -8270,7 +8270,7 @@ Current Core Lite implementation:
 
 - Postgres owns canonical lifecycle.
 - Derived engines can be disabled independently.
-- No provider SDK import crosses into `memory_core`.
+- No provider SDK import crosses into `memo_stack_core`.
 - Every derived hit is hydrated before prompt rendering.
 - Prompt memory is evidence, never instruction.
 - Client App imports no Memo Stack internals.
@@ -8334,13 +8334,13 @@ kill switches manually verified
 Implemented gate command:
 
 ```bash
-python -m memory_server.doctor --gate active_context
+python -m memo_stack_server.doctor --gate active_context
 ```
 
 Manual checks are intentionally explicit. After each external/manual item is verified, acknowledge it with repeated `--ack` flags or with `--ack-all-manual` in local release checks:
 
 ```bash
-python -m memory_server.doctor --gate active_context \
+python -m memo_stack_server.doctor --gate active_context \
   --ack client_fallback_canary \
   --ack shadow_retrieve_diagnostics \
   --ack golden_eval \
@@ -8360,7 +8360,7 @@ Gate B is enough for manual memory API.
 
 Current Core Lite implementation:
 
-- `python -m memory_server.doctor --gate active_context` checks doctor status, default
+- `python -m memo_stack_server.doctor --gate active_context` checks doctor status, default
   `client-app/default` scope, dead outbox count and canonical/projection invariants;
 - manual checks are explicit and must be acknowledged by documented names or
   `--ack-all-manual`;
@@ -8487,9 +8487,9 @@ Rules:
 Commands:
 
 ```bash
-python -m memory_server.admin token create --space client-app --description local-dev
-python -m memory_server.admin token revoke --token-id tok_123
-python -m memory_server.admin token list --space client-app
+python -m memo_stack_server.admin token create --space client-app --description local-dev
+python -m memo_stack_server.admin token revoke --token-id tok_123
+python -m memo_stack_server.admin token list --space client-app
 ```
 
 Tests:
@@ -8627,7 +8627,7 @@ Current Core Lite implementation:
 
 - diagnostics APIs omit `payload_json` and expose outbox ids/counts/status/safe codes only;
 - source quote previews are bounded at the public API boundary;
-- `python -m memory_server.admin compact-outbox` compacts old `done` outbox payloads
+- `python -m memo_stack_server.admin compact-outbox` compacts old `done` outbox payloads
   without deleting audit columns such as event type, aggregate type/id/version, workload
   class, fairness key, status and attempt count;
 - `compact-outbox --dry-run` reports matched/would-compact counts without mutating rows;
@@ -8722,7 +8722,7 @@ Expected:
 - repeated assistant claims do not raise confidence;
 - explicit user confirmation can promote.
 
-### Client App Memory Server Timeout
+### Client App Memo Stack Server Timeout
 
 Expected:
 
@@ -8755,7 +8755,7 @@ Expected:
 | clock skew in imported events | wrong temporal order | store `occurred_at` and `ingested_at`, use stable tie-breaker | unit test |
 | partial migration failure | inconsistent schema | migration transaction or explicit repair command | integration test |
 | outbox poison message | endless retry | max attempts then `dead` diagnostics | worker test |
-| memory_server down | interview blocked | desktop local fallback continues | Client App canary |
+| memo_stack_server down | interview blocked | desktop local fallback continues | Client App canary |
 | Graphiti not installed locally | dev stack blocked | Graphiti phase behind config, Qdrant/facts still run | Docker smoke |
 | Qdrant not installed locally | facts blocked | vector disabled, Postgres facts still run | Docker smoke |
 | raw text in logs | privacy leak | logs contain ids/counts only | logging test |
@@ -9213,7 +9213,7 @@ Important:
 
 Current Core Lite implementation:
 
-- `python -m memory_server eval run --suite small-golden` seeds deterministic
+- `python -m memo_stack_server eval run --suite small-golden` seeds deterministic
   local SQLite fixtures with facts, documents, update/delete, prompt-injection
   and cross-profile cases;
 - `--api-url` runs the same suite against a live Memo Stack HTTP server;
@@ -9255,15 +9255,15 @@ Rules:
 Command:
 
 ```bash
-python -m memory_server eval snapshots --suite prompt-contract
-python -m memory_server eval snapshots --suite prompt-contract --update
+python -m memo_stack_server eval snapshots --suite prompt-contract
+python -m memo_stack_server eval snapshots --suite prompt-contract --update
 ```
 
 Current Core Lite implementation:
 
-- `python -m memory_server eval snapshots --suite prompt-contract`;
-- `python -m memory_server eval snapshots --suite prompt-contract --update`;
-- `make memory-eval` runs both `small-golden` and `prompt-contract`;
+- `python -m memo_stack_server eval snapshots --suite prompt-contract`;
+- `python -m memo_stack_server eval snapshots --suite prompt-contract --update`;
+- `make memo-stack-eval` runs both `small-golden` and `prompt-contract`;
 - baseline lives in `tests/snapshots/prompt_contract.json`;
 - snapshot cases include safe synthetic rendered text and metadata ids only;
 - `instruction_flag_dropped` pins the fail-closed rule for instruction-marked candidates.
@@ -9340,7 +9340,7 @@ Golden eval should be runnable as a normal developer command.
 Command:
 
 ```bash
-python -m memory_server eval run --suite small-golden --api-url http://127.0.0.1:7788
+python -m memo_stack_server eval run --suite small-golden --api-url http://127.0.0.1:7788
 ```
 
 Eval runner flow:
@@ -9393,15 +9393,15 @@ Eval runner rules:
 Core:
 
 ```bash
-pytest memo_stack/packages/memory_core/tests
-pytest memo_stack/packages/memory_server/tests
-pytest memo_stack/packages/memory_adapters/tests
+pytest memo_stack/packages/memo_stack_core/tests
+pytest memo_stack/packages/memo_stack_server/tests
+pytest memo_stack/packages/memo_stack_adapters/tests
 ```
 
 Import boundaries:
 
 ```bash
-rg -n "fastapi|sqlalchemy|qdrant|graphiti" memo_stack/packages/memory_core
+rg -n "fastapi|sqlalchemy|qdrant|graphiti" memo_stack/packages/memo_stack_core
 ```
 
 Expected: no output.
@@ -9410,7 +9410,7 @@ Local server:
 
 ```bash
 docker compose up -d postgres qdrant
-python -m memory_server.main
+python -m memo_stack_server.main
 curl http://127.0.0.1:7788/v1/health
 ```
 
@@ -9428,17 +9428,17 @@ Add developer-friendly targets after PR 0.
 Targets:
 
 ```text
-make memory-format
-make memory-lint
-make memory-test-unit
-make memory-test-application
-make memory-test-integration
-make memory-test-e2e
-make memory-eval
-make memory-doctor
-make memory-worker-once
-make memory-up
-make memory-down
+make memo-stack-format
+make memo-stack-lint
+make memo-stack-test-unit
+make memo-stack-test-application
+make memo-stack-test-integration
+make memo-stack-test-e2e
+make memo-stack-eval
+make memo-stack-doctor
+make memo-stack-worker-once
+make memo-stack-up
+make memo-stack-down
 ```
 
 Rules:
@@ -9452,14 +9452,14 @@ Rules:
 Example:
 
 ```makefile
-memory-test-unit:
+memo-stack-test-unit:
 	pytest memo_stack/tests/unit
 
-memory-eval:
-	python -m memory_server eval run --suite small-golden
+memo-stack-eval:
+	python -m memo_stack_server eval run --suite small-golden
 
-memory-doctor:
-	python -m memory_server.doctor
+memo-stack-doctor:
+	python -m memo_stack_server.doctor
 ```
 
 ## Local Runbook
@@ -9469,17 +9469,17 @@ First local run:
 ```bash
 cd memo_stack
 cp .env.example .env
-docker compose up -d memory_postgres memory_qdrant
-python -m memory_server.db upgrade
-python -m memory_server.admin seed-defaults
-python -m memory_server.main
+docker compose up -d memo_stack_postgres memo_stack_qdrant
+python -m memo_stack_server.db upgrade
+python -m memo_stack_server.admin seed-defaults
+python -m memo_stack_server.main
 curl -H "Authorization: Bearer local-dev-token" http://127.0.0.1:7788/v1/health
 ```
 
 Worker run:
 
 ```bash
-python -m memory_server.worker --loop
+python -m memo_stack_server.worker --loop
 ```
 
 Client App canary:
@@ -9529,13 +9529,13 @@ logs do not include raw memory text
 Local readiness command target:
 
 ```bash
-python -m memory_server.doctor
+python -m memo_stack_server.doctor
 ```
 
 Active-context release gate target:
 
 ```bash
-python -m memory_server.doctor --gate active_context
+python -m memo_stack_server.doctor --gate active_context
 ```
 
 Doctor output shape:
@@ -9659,8 +9659,8 @@ Health checks say whether the service responds. Invariant checks say whether mem
 Command:
 
 ```bash
-python -m memory_server.admin check-invariants --space client-app --profile default
-python -m memory_server.admin check-invariants --space client-app --profile default --include-projections
+python -m memo_stack_server.admin check-invariants --space client-app --profile default
+python -m memo_stack_server.admin check-invariants --space client-app --profile default --include-projections
 ```
 
 Checks:
@@ -9733,8 +9733,8 @@ prepare future SaaS migration
 Commands:
 
 ```bash
-python -m memory_server.admin export-profile --space client-app --profile default --out profile-export.json
-python -m memory_server.admin import-profile --space client-app --profile default --file profile-export.json --dry-run
+python -m memo_stack_server.admin export-profile --space client-app --profile default --out profile-export.json
+python -m memo_stack_server.admin import-profile --space client-app --profile default --file profile-export.json --dry-run
 ```
 
 Export format:
@@ -9801,7 +9801,7 @@ Current Core Lite implementation:
 
 ## Incident Playbooks
 
-### Memory Server Down
+### Memo Stack Server Down
 
 Expected behavior:
 
@@ -9815,7 +9815,7 @@ Operator steps:
 
 ```bash
 curl http://127.0.0.1:7788/v1/health
-python -m memory_server.doctor
+python -m memo_stack_server.doctor
 INTERVIEW_MEMORY_FORCE_LOCAL_ONLY=true pnpm tauri dev
 ```
 
@@ -9832,8 +9832,8 @@ repair can rebuild Qdrant from Postgres chunks
 Operator steps:
 
 ```bash
-python -m memory_server.admin repair-projections --space client-app --profile default --dry-run
-python -m memory_server.admin reindex-qdrant --space client-app --profile default
+python -m memo_stack_server.admin repair-projections --space client-app --profile default --dry-run
+python -m memo_stack_server.admin reindex-qdrant --space client-app --profile default
 ```
 
 ### Graphiti Corrupt Or Slow
@@ -9849,8 +9849,8 @@ canonical facts remain safe
 Operator steps:
 
 ```bash
-MEMORY_GRAPHITI_ENABLED=false python -m memory_server.main
-python -m memory_server.admin reindex-graphiti --space client-app --profile default --dry-run
+MEMORY_GRAPHITI_ENABLED=false python -m memo_stack_server.main
+python -m memo_stack_server.admin reindex-graphiti --space client-app --profile default --dry-run
 ```
 
 ### Bad Memory Appears In Prompt
@@ -9869,7 +9869,7 @@ Operator steps:
 INTERVIEW_MEMORY_FORCE_LOCAL_ONLY=true pnpm tauri dev
 curl -X DELETE http://127.0.0.1:7788/v1/facts/fact_bad \
   -H "Authorization: Bearer local-dev-token"
-python -m memory_server eval run --suite small-golden
+python -m memo_stack_server eval run --suite small-golden
 ```
 
 ## Future Extraction To SaaS
@@ -9879,7 +9879,7 @@ Core Lite should not implement SaaS, but should avoid blocking it.
 Keep stable:
 
 ```text
-memory_core domain/application ports
+memo_stack_core domain/application ports
 public /v1 API DTOs
 SDK method names
 Postgres canonical lifecycle
@@ -9916,7 +9916,7 @@ If a feature is useful only for SaaS and not needed for Client App correctness, 
 
 Current Core Lite implementation:
 
-- reusable boundaries live in `memory_core` ports/use cases, public `/v1` DTOs, Python SDK,
+- reusable boundaries live in `memo_stack_core` ports/use cases, public `/v1` DTOs, Python SDK,
   MCP adapter and local Docker server;
 - future SaaS fields are additive only, currently limited to optional `tenant_id` and
   `workspace_id` scope fields in core auth DTOs;
@@ -9925,7 +9925,7 @@ Current Core Lite implementation:
 - admin/export/import are local/server operational tools over canonical Postgres, not a cloud
   sync protocol;
 - MCP exposes no broad destructive delete-by-query tool; destructive forget requires a
-  concrete `fact_id` and can be disabled with `MEMORY_MCP_ALLOW_DELETES=false`;
+  concrete `fact_id` and can be disabled with `MEMORY_MCP_DELETE_MODE=off`;
 - provider engines remain replaceable adapters behind ports, while Postgres canonical
   lifecycle and projection/outbox semantics remain stable.
 
@@ -9953,7 +9953,7 @@ Fallback:
 
 - if Qdrant fails, use Postgres facts and keyword fallback;
 - if Graphiti fails, use Postgres/Qdrant;
-- if memory_server fails, Client App uses local/current-session fallback.
+- if memo_stack_server fails, Client App uses local/current-session fallback.
 
 Current Core Lite implementation:
 
@@ -9972,7 +9972,7 @@ Current Core Lite implementation:
 
 Core Lite is done when:
 
-- Client App can point to memory_server and pass current memory canaries;
+- Client App can point to memo_stack_server and pass current memory canaries;
 - document recall E2E passes;
 - fact update E2E passes;
 - forget E2E passes;
@@ -9981,7 +9981,7 @@ Core Lite is done when:
 - deleted/superseded memory never appears in context;
 - source refs are present for all active facts;
 - memory context is rendered as evidence, never instruction;
-- `memory_core` has no infrastructure imports;
+- `memo_stack_core` has no infrastructure imports;
 - local Docker starts with one command;
 - SDK can remember/search/context/forget;
 - all phases have tests and production-safe diagnostics.
@@ -9996,10 +9996,10 @@ feat(memory): scaffold core-lite memo stack
 
 Scope:
 
-- `memo_stack/packages/memory_core`;
+- `memo_stack/packages/memo_stack_core`;
 - domain entities;
 - ports;
-- `memory_server` health/capabilities;
+- `memo_stack_server` health/capabilities;
 - empty adapters;
 - import-boundary tests;
 - ADR linking Core Lite to global plan.
@@ -10026,15 +10026,15 @@ Files:
 
 ```text
 memo_stack/pyproject.toml
-memo_stack/packages/memory_core/pyproject.toml
-memo_stack/packages/memory_core/memory_core/domain/*
-memo_stack/packages/memory_core/memory_core/ports/*
-memo_stack/packages/memory_server/pyproject.toml
-memo_stack/packages/memory_server/memory_server/main.py
-memo_stack/packages/memory_server/memory_server/config.py
-memo_stack/packages/memory_adapters/pyproject.toml
+memo_stack/packages/memo_stack_core/pyproject.toml
+memo_stack/packages/memo_stack_core/memo_stack_core/domain/*
+memo_stack/packages/memo_stack_core/memo_stack_core/ports/*
+memo_stack/packages/memo_stack_server/pyproject.toml
+memo_stack/packages/memo_stack_server/memo_stack_server/main.py
+memo_stack/packages/memo_stack_server/memo_stack_server/config.py
+memo_stack/packages/memo_stack_adapters/pyproject.toml
 memo_stack/tests/unit/test_import_boundaries.py
-docs/adr/ADR-0001-memory-core-lite-boundaries.md
+docs/adr/ADR-0001-memo-stack-core-lite-boundaries.md
 ```
 
 Acceptance:
@@ -10042,7 +10042,7 @@ Acceptance:
 ```text
 health endpoint returns ok
 capabilities endpoint returns adapters disabled/noop
-memory_core has no forbidden imports
+memo_stack_core has no forbidden imports
 unit tests pass
 no Client App behavior changes
 ```
@@ -10052,14 +10052,14 @@ no Client App behavior changes
 Files:
 
 ```text
-memory_adapters/postgres/models.py
-memory_adapters/postgres/repositories.py
-memory_adapters/postgres/unit_of_work.py
-memory_adapters/postgres/migrations/*
-memory_core/application/use_cases/remember_fact.py
-memory_core/application/use_cases/update_fact.py
-memory_core/application/use_cases/forget_fact.py
-memory_server/api/v1/facts.py
+memo_stack_adapters/postgres/models.py
+memo_stack_adapters/postgres/repositories.py
+memo_stack_adapters/postgres/unit_of_work.py
+memo_stack_adapters/postgres/migrations/*
+memo_stack_core/application/use_cases/remember_fact.py
+memo_stack_core/application/use_cases/update_fact.py
+memo_stack_core/application/use_cases/forget_fact.py
+memo_stack_server/api/v1/facts.py
 ```
 
 Acceptance:
@@ -10077,9 +10077,9 @@ idempotency prevents duplicate facts
 Files:
 
 ```text
-memory_server/api/legacy_client.py
-memory_core/application/use_cases/ingest_episode.py
-memory_core/application/use_cases/build_context.py
+memo_stack_server/api/legacy_client.py
+memo_stack_core/application/use_cases/ingest_episode.py
+memo_stack_core/application/use_cases/build_context.py
 Client App memory bridge config only if needed
 ```
 
@@ -10088,7 +10088,7 @@ Acceptance:
 ```text
 legacy ingest works
 legacy context returns current response shape
-memory_server timeout falls back locally
+memo_stack_server timeout falls back locally
 kill switches still win
 ```
 
@@ -10097,11 +10097,11 @@ kill switches still win
 Files:
 
 ```text
-memory_core/application/use_cases/ingest_document.py
-memory_core/application/use_cases/process_document.py
-memory_adapters/qdrant/vector_adapter.py
-memory_adapters/embeddings/noop_adapter.py
-memory_adapters/embeddings/openai_adapter.py
+memo_stack_core/application/use_cases/ingest_document.py
+memo_stack_core/application/use_cases/process_document.py
+memo_stack_adapters/qdrant/vector_adapter.py
+memo_stack_adapters/embeddings/noop_adapter.py
+memo_stack_adapters/embeddings/openai_adapter.py
 ```
 
 Acceptance:
@@ -10195,7 +10195,7 @@ Use this checklist for every PR in this plan.
 Architecture:
 
 ```text
-Does memory_core avoid infrastructure imports?
+Does memo_stack_core avoid infrastructure imports?
 Does the use case depend on ports, not adapters?
 Is the new abstraction actually needed?
 Can a fake/noop adapter be used in tests?
@@ -10252,11 +10252,11 @@ Approx changes: `900-1500` lines.
 Steps:
 
 1. Create `memo_stack/pyproject.toml`.
-2. Create `memory_core` package with `domain`, `application`, `ports`.
+2. Create `memo_stack_core` package with `domain`, `application`, `ports`.
 3. Add minimal domain value objects and errors.
 4. Add empty ports with `Protocol`.
-5. Create `memory_server` with `/v1/health` and `/v1/capabilities`.
-6. Create `memory_adapters` package with noop adapters only.
+5. Create `memo_stack_server` with `/v1/health` and `/v1/capabilities`.
+6. Create `memo_stack_adapters` package with noop adapters only.
 7. Add import-boundary test.
 8. Add ADR-0001 and ADR-0002.
 
@@ -10273,7 +10273,7 @@ Verification:
 
 ```bash
 pytest memo_stack/tests/unit/test_import_boundaries.py
-python -m memory_server.main
+python -m memo_stack_server.main
 curl http://127.0.0.1:7788/v1/health
 ```
 
@@ -10334,8 +10334,8 @@ local fallback remains available
 Expected distribution:
 
 ```text
-memory_core domain/use cases/ports: 5800-9800
-memory_server API/composition/config/auth/admin: 4300-7600
+memo_stack_core domain/use cases/ports: 5800-9800
+memo_stack_server API/composition/config/auth/admin: 4300-7600
 Postgres adapter/migrations/schema constraints: 3500-6500
 Qdrant adapter/RAG/parser/repair/versioning/blob pipeline: 2400-4600
 Graphiti adapter/repair: 1200-2500

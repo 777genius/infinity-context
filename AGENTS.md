@@ -29,15 +29,15 @@ Global reference:
 docs/memo-stack-architecture-plan.md
 ```
 
-Legacy client compatibility notes:
+Client compatibility notes:
 
 ```text
-docs/client-integration/interview-memory-clean-architecture-plan.md
+docs/client-integration/interview-memo-stack-clean-architecture-plan.md
 ```
 
 ## Implementation Rule
 
-Do not let `memory_core` import FastAPI, SQLAlchemy, Qdrant, Graphiti, OpenAI or client application code.
+Do not let `memo_stack_core` import FastAPI, SQLAlchemy, Qdrant, Graphiti, OpenAI or client application code.
 
 Implementation order:
 

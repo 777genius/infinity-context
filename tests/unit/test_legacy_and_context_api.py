@@ -4,13 +4,13 @@ from pathlib import Path
 from typing import Any
 
 from fastapi.testclient import TestClient
-from memory_adapters.noop import (
+from memo_stack_adapters.noop import (
     NoopEmbeddingAdapter,
     NoopGraphMemoryAdapter,
     NoopVectorMemoryAdapter,
 )
-from memory_adapters.postgres.models import MemoryEpisodeRow, MemoryOutboxRow, MemoryThreadRow
-from memory_core.application import (
+from memo_stack_adapters.postgres.models import MemoryEpisodeRow, MemoryOutboxRow, MemoryThreadRow
+from memo_stack_core.application import (
     BuildContextQuery,
     BuildContextUseCase,
     ConsistencyMode,
@@ -18,12 +18,12 @@ from memory_core.application import (
     EnsureScopeCommand,
     ForgetFactCommand,
 )
-from memory_core.application.context_collectors import (
+from memo_stack_core.application.context_collectors import (
     CanonicalCollectionResult,
     CanonicalContextCollector,
 )
-from memory_core.domain.entities import ProfileId, SourceRef, SpaceId, TrustLevel
-from memory_core.ports.adapters import (
+from memo_stack_core.domain.entities import ProfileId, SourceRef, SpaceId, TrustLevel
+from memo_stack_core.ports.adapters import (
     AdapterCapabilities,
     EmbeddingResult,
     GraphCandidate,
@@ -32,18 +32,18 @@ from memory_core.ports.adapters import (
     VectorCandidate,
     VectorSearchResult,
 )
-from memory_core.ports.capabilities import (
+from memo_stack_core.ports.capabilities import (
     CapabilityRecallCandidate,
     CapabilityRecallQuery,
     CapabilityRecallResult,
     CapabilityStatus,
     MemoryCapability,
 )
-from memory_server.api.legacy_client import _legacy_trust
-from memory_server.config import DeployProfile, MemoryPolicyMode, Settings
-from memory_server.main import create_app
-from memory_server.provider_budget import QueryEmbeddingBudgetAdapter
-from memory_server.provider_circuit import (
+from memo_stack_server.api.legacy_client import _legacy_trust
+from memo_stack_server.config import DeployProfile, MemoryPolicyMode, Settings
+from memo_stack_server.main import create_app
+from memo_stack_server.provider_budget import QueryEmbeddingBudgetAdapter
+from memo_stack_server.provider_circuit import (
     CircuitBreakingEmbeddingAdapter,
     CircuitBreakingGraphMemoryAdapter,
     CircuitBreakingVectorMemoryAdapter,

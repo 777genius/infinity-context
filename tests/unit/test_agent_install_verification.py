@@ -10,11 +10,11 @@ from typing import Any
 ROOT = Path(__file__).parents[2]
 SCRIPT_PATH = ROOT / "scripts" / "agent_install_verification.py"
 PLUGIN_SKILL_PATHS = (
-    ROOT / "plugins" / "memory-agent-plugin" / "skills" / "memory" / "SKILL.md",
-    ROOT / "plugins" / "memory-agent-plugin" / "plugin" / "skills" / "memory" / "SKILL.md",
+    ROOT / "plugins" / "memo-stack-agent-plugin" / "skills" / "memory" / "SKILL.md",
+    ROOT / "plugins" / "memo-stack-agent-plugin" / "plugin" / "skills" / "memory" / "SKILL.md",
     ROOT
     / "plugins"
-    / "memory-agent-plugin"
+    / "memo-stack-agent-plugin"
     / ".opencode"
     / "skills"
     / "memory"
@@ -30,18 +30,21 @@ def test_agent_install_verifier_accepts_codex_activation_pending(tmp_path, monke
             {
                 "installations": [
                     {
-                        "integration_id": "memory-agent-plugin",
+                        "integration_id": "memo-stack-agent-plugin",
                         "targets": {
                             "claude": _target("installed"),
                             "cursor": _target("installed"),
-                            "gemini": _target("installed"),
                             "opencode": _target("installed"),
                             "codex": _target(
                                 "activation_pending",
                                 activation_state="native_activation_pending",
                             ),
                         },
-                    }
+                    },
+                    {
+                        "integration_id": "memo-stack-agent-plugin-gemini-hooks",
+                        "targets": {"gemini": _target("installed")},
+                    },
                 ]
             }
         ),
@@ -87,7 +90,7 @@ def test_agent_install_verifier_accepts_gemini_json_on_stderr(monkeypatch) -> No
         lambda *_args, **_kwargs: {
             "ok": True,
             "stdout": "",
-            "stderr": json.dumps([{"name": "memory-agent-plugin"}]),
+            "stderr": json.dumps([{"name": "memo-stack-agent-plugin-gemini-hooks"}]),
         },
     )
 
@@ -106,7 +109,7 @@ def test_gemini_runtime_config_blocks_mismatched_installed_api_url(monkeypatch) 
             "stdout": json.dumps(
                 [
                     {
-                        "name": "memory-agent-plugin",
+                        "name": "memo-stack-agent-plugin-gemini-hooks",
                         "mcpServers": {
                             "memo-stack": {
                                 "env": {
@@ -150,7 +153,7 @@ def test_gemini_runtime_config_accepts_runtime_override_for_installed_mismatch(
             "stdout": json.dumps(
                 [
                     {
-                        "name": "memory-agent-plugin",
+                        "name": "memo-stack-agent-plugin-gemini-hooks",
                         "mcpServers": {
                             "memo-stack": {
                                 "env": {
@@ -196,7 +199,7 @@ def test_gemini_runtime_config_accepts_matching_or_inherited_env(monkeypatch) ->
             "stdout": json.dumps(
                 [
                     {
-                        "name": "memory-agent-plugin",
+                        "name": "memo-stack-agent-plugin-gemini-hooks",
                         "mcpServers": {"memo-stack": {"env": {}}},
                     }
                 ]
@@ -248,15 +251,18 @@ def test_agent_install_doctor_fails_when_plugin_kit_doctor_fails(
             {
                 "installations": [
                     {
-                        "integration_id": "memory-agent-plugin",
+                        "integration_id": "memo-stack-agent-plugin",
                         "targets": {
                             "claude": _target("installed"),
                             "cursor": _target("installed"),
-                            "gemini": _target("installed"),
                             "opencode": _target("installed"),
                             "codex": _target("installed"),
                         },
-                    }
+                    },
+                    {
+                        "integration_id": "memo-stack-agent-plugin-gemini-hooks",
+                        "targets": {"gemini": _target("installed")},
+                    },
                 ]
             }
         ),
@@ -387,11 +393,12 @@ def test_agent_cli_smokes_run_agent_commands_in_parallel(monkeypatch) -> None:
     assert set(result) == {"claude", "gemini", "opencode", "codex"}
     assert set(calls) == {"claude", "gemini", "opencode", "codex"}
     assert "--allowed-mcp-server-names" in calls["gemini"]
+    assert module.GEMINI_HOOK_INTEGRATION_ID in calls["gemini"]
     assert "memo-stack" in calls["gemini"]
     assert "--output-format" in calls["gemini"]
     assert "mcp_memo-stack_memory_status" in " ".join(calls["gemini"])
     assert "--plugin-dir" in calls["claude"]
-    assert f'mcp_servers.memo-stack.command="{module.PLUGIN_ROOT / "bin" / "memory-mcp"}"' in (
+    assert f'mcp_servers.memo-stack.command="{module.PLUGIN_ROOT / "bin" / "memo-stack-mcp"}"' in (
         calls["codex"]
     )
     assert "unit-live-token" not in " ".join(calls["codex"])

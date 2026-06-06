@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 
 import pytest
-from memory_core.domain.entities import (
+from memo_stack_core.domain.entities import (
     MemoryFact,
     MemoryFactId,
     MemoryKind,
@@ -9,7 +9,7 @@ from memory_core.domain.entities import (
     SourceRef,
     SpaceId,
 )
-from memory_core.domain.errors import MemoryConflictError, MemoryValidationError
+from memo_stack_core.domain.errors import MemoryConflictError, MemoryValidationError
 
 
 def test_active_fact_requires_source_refs() -> None:

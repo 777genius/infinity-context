@@ -3,8 +3,8 @@ from pathlib import Path
 from typing import Any
 
 from fastapi.testclient import TestClient
-from memory_server.config import CaptureMode, DeployProfile, MemoryPolicyMode, Settings
-from memory_server.main import create_app
+from memo_stack_server.config import CaptureMode, DeployProfile, MemoryPolicyMode, Settings
+from memo_stack_server.main import create_app
 
 
 def make_client(tmp_path: Path, **overrides: Any) -> TestClient:

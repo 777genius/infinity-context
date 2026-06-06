@@ -37,15 +37,15 @@ def _assert_no_imports(package: str, forbidden_roots: set[str]) -> None:
 
 def test_memory_core_has_no_infrastructure_dependencies() -> None:
     _assert_no_imports(
-        "packages/memory_core/memory_core",
+        "packages/memo_stack_core/memo_stack_core",
         {
             "anthropic",
             "fastapi",
             "graphiti",
             "httpx",
-            "memory_adapters",
-            "memory_mcp",
-            "memory_server",
+            "memo_stack_adapters",
+            "memo_stack_mcp",
+            "memo_stack_server",
             "mcp",
             "openai",
             "qdrant_client",
@@ -56,11 +56,11 @@ def test_memory_core_has_no_infrastructure_dependencies() -> None:
 
 def test_memory_adapters_do_not_depend_on_api_or_mcp_layers() -> None:
     _assert_no_imports(
-        "packages/memory_adapters/memory_adapters",
+        "packages/memo_stack_adapters/memo_stack_adapters",
         {
             "fastapi",
-            "memory_mcp",
-            "memory_server",
+            "memo_stack_mcp",
+            "memo_stack_server",
             "mcp",
         },
     )
@@ -68,13 +68,13 @@ def test_memory_adapters_do_not_depend_on_api_or_mcp_layers() -> None:
 
 def test_memory_mcp_does_not_depend_on_server_adapters_or_providers() -> None:
     _assert_no_imports(
-        "packages/memory_mcp/memory_mcp",
+        "packages/memo_stack_mcp/memo_stack_mcp",
         {
             "anthropic",
             "fastapi",
             "graphiti",
-            "memory_adapters",
-            "memory_server",
+            "memo_stack_adapters",
+            "memo_stack_server",
             "openai",
             "qdrant_client",
             "sqlalchemy",
@@ -84,15 +84,15 @@ def test_memory_mcp_does_not_depend_on_server_adapters_or_providers() -> None:
 
 def test_memory_sdk_stays_transport_client_only() -> None:
     _assert_no_imports(
-        "packages/memory_sdk/memory_sdk",
+        "packages/memo_stack_sdk/memo_stack_sdk",
         {
             "anthropic",
             "fastapi",
             "graphiti",
-            "memory_adapters",
-            "memory_core",
-            "memory_mcp",
-            "memory_server",
+            "memo_stack_adapters",
+            "memo_stack_core",
+            "memo_stack_mcp",
+            "memo_stack_server",
             "mcp",
             "openai",
             "qdrant_client",

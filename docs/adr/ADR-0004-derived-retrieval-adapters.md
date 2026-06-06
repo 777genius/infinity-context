@@ -14,5 +14,5 @@ Context/search hydrates every derived candidate through Postgres before renderin
 
 - canonical writes succeed when Qdrant, embeddings or Graphiti are disabled;
 - deleted/superseded canonical rows are filtered even if an adapter returns stale ids;
-- adapters can be replaced without changing `memory_core`;
+- adapters can be replaced without changing `memo_stack_core`;
 - repair/reindex can rebuild derived indexes from Postgres.

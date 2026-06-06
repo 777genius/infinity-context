@@ -1,28 +1,28 @@
 # Memo Stack MCP Adapter
 
 The MCP adapter is an outer adapter over the Memo Stack HTTP API. It does
-not depend on `memory_core` internals and does not contain persistence or
+not depend on `memo_stack_core` internals and does not contain persistence or
 retrieval business rules.
 
 ## Architecture
 
 ```text
 Agent / MCP client
-  -> memory_mcp.server FastMCP composition root
-  -> memory_mcp.application.MemoryToolService
+  -> memo_stack_mcp.server FastMCP composition root
+  -> memo_stack_mcp.application.MemoryToolService
   -> MemoryGatewayPort
-  -> memory_mcp.adapters.HttpMemoryGateway
-  -> memory_server HTTP API
-  -> memory_core use cases
+  -> memo_stack_mcp.adapters.HttpMemoryGateway
+  -> memo_stack_server HTTP API
+  -> memo_stack_core use cases
 ```
 
 Rules:
 
-- `memory_core` stays framework-free and has no MCP dependency.
-- `memory_mcp.application` depends on a port, not on `httpx` or FastMCP.
-- `memory_mcp.adapters` owns HTTP transport details, auth headers, timeouts,
+- `memo_stack_core` stays framework-free and has no MCP dependency.
+- `memo_stack_mcp.application` depends on a port, not on `httpx` or FastMCP.
+- `memo_stack_mcp.adapters` owns HTTP transport details, auth headers, timeouts,
   idempotency headers, and error mapping.
-- `memory_mcp.server` only registers MCP tools/resources/prompts.
+- `memo_stack_mcp.server` only registers MCP tools/resources/prompts.
 - Facts are managed through canonical lifecycle: remember, update with
   `expected_version`, forget by `fact_id`.
 
@@ -77,7 +77,7 @@ MEMORY_MCP_MAX_TOKEN_BUDGET=6000
 MEMORY_MCP_MAX_SEARCH_ITEMS=50
 ```
 
-`MEMORY_MCP_AUTH_TOKEN` is required for protected Memory Server instances. Set
+`MEMORY_MCP_AUTH_TOKEN` is required for protected Memo Stack Server instances. Set
 it from your environment or secret manager before launching the adapter.
 
 Safe defaults are `write_mode=suggest`, `delete_mode=off`, and
@@ -91,16 +91,9 @@ If `MEMORY_MCP_AUTH_TOKEN` is absent, the adapter falls back to
 Generated agent plugin configs use
 `MEMORY_MCP_DEFAULT_THREAD_EXTERNAL_REF=__MEMO_STACK_NO_DEFAULT_THREAD__`
 instead of an empty value because `plugin-kit-ai` removes empty env values from
-generated artifacts. The repo-local `bin/memory-mcp` wrappers unset this sentinel
-before starting `python -m memory_mcp`, so runtime behavior is the same as an
+generated artifacts. The repo-local `bin/memo-stack-mcp` wrappers unset this sentinel
+before starting the Memo Stack MCP module, so runtime behavior is the same as an
 unset default thread.
-
-Legacy flags still work for one transition phase:
-
-```bash
-MEMORY_MCP_ALLOW_WRITES=false
-MEMORY_MCP_ALLOW_DELETES=false
-```
 
 Recommended agent workflow:
 
@@ -113,8 +106,7 @@ Recommended agent workflow:
 Run locally:
 
 ```bash
-memory-mcp
-python -m memory_mcp
+memo-stack-mcp
 ```
 
 For local agents, prefer stdio. For a future shared remote MCP endpoint, use
@@ -127,10 +119,9 @@ scoping at the deployment edge.
 {
   "mcpServers": {
     "memo-stack": {
-      "command": "/Users/belief/dev/projects/ai/memo-stack/.venv/bin/python",
-      "args": ["-m", "memory_mcp"],
+      "command": "/Users/belief/dev/projects/ai/memo-stack/.venv/bin/memo-stack-mcp",
       "env": {
-        "PYTHONPATH": "/Users/belief/dev/projects/ai/memo-stack/packages/memory_core:/Users/belief/dev/projects/ai/memo-stack/packages/memory_server:/Users/belief/dev/projects/ai/memo-stack/packages/memory_adapters:/Users/belief/dev/projects/ai/memo-stack/packages/memory_sdk:/Users/belief/dev/projects/ai/memo-stack/packages/memory_mcp",
+        "PYTHONPATH": "/Users/belief/dev/projects/ai/memo-stack/packages/memo_stack_core:/Users/belief/dev/projects/ai/memo-stack/packages/memo_stack_server:/Users/belief/dev/projects/ai/memo-stack/packages/memo_stack_adapters:/Users/belief/dev/projects/ai/memo-stack/packages/memo_stack_sdk:/Users/belief/dev/projects/ai/memo-stack/packages/memo_stack_mcp",
         "MEMORY_MCP_API_URL": "http://127.0.0.1:7788",
         "MEMORY_MCP_DEFAULT_SPACE_SLUG": "project-alpha",
         "MEMORY_MCP_DEFAULT_PROFILE_EXTERNAL_REF": "default",
@@ -170,38 +161,38 @@ client configs.
 MCP clients should branch on these public codes, not raw backend/provider
 messages:
 
-- `memory_mcp.validation.invalid_input`
-- `memory_mcp.validation.invalid_scope`
-- `memory_mcp.validation.invalid_source_ref`
-- `memory_mcp.validation.input_too_large`
-- `memory_mcp.validation.backend_rejected`
-- `memory_mcp.policy.secret_detected`
-- `memory_mcp.policy.control_characters`
-- `memory_mcp.policy.invisible_characters`
-- `memory_mcp.policy.evidence_required`
-- `memory_mcp.policy.evidence_mismatch`
-- `memory_mcp.policy.write_mode_off`
-- `memory_mcp.policy.delete_mode_off`
-- `memory_mcp.policy.ingest_mode_off`
-- `memory_mcp.policy.ingest_too_large`
-- `memory_mcp.gateway.network_error`
-- `memory_mcp.gateway.connect_timeout`
-- `memory_mcp.gateway.read_timeout`
-- `memory_mcp.gateway.write_timeout`
-- `memory_mcp.gateway.invalid_json`
-- `memory_mcp.gateway.auth_failed`
-- `memory_mcp.gateway.backend_error`
-- `memory_mcp.conflict.version_stale`
-- `memory_mcp.conflict.idempotency_mismatch`
-- `memory_mcp.conflict.same_target_in_batch`
-- `memory_mcp.conflict.requires_review`
-- `memory_mcp.degraded.backpressure`
-- `memory_mcp.internal.unexpected`
+- `memo_stack_mcp.validation.invalid_input`
+- `memo_stack_mcp.validation.invalid_scope`
+- `memo_stack_mcp.validation.invalid_source_ref`
+- `memo_stack_mcp.validation.input_too_large`
+- `memo_stack_mcp.validation.backend_rejected`
+- `memo_stack_mcp.policy.secret_detected`
+- `memo_stack_mcp.policy.control_characters`
+- `memo_stack_mcp.policy.invisible_characters`
+- `memo_stack_mcp.policy.evidence_required`
+- `memo_stack_mcp.policy.evidence_mismatch`
+- `memo_stack_mcp.policy.write_mode_off`
+- `memo_stack_mcp.policy.delete_mode_off`
+- `memo_stack_mcp.policy.ingest_mode_off`
+- `memo_stack_mcp.policy.ingest_too_large`
+- `memo_stack_mcp.gateway.network_error`
+- `memo_stack_mcp.gateway.connect_timeout`
+- `memo_stack_mcp.gateway.read_timeout`
+- `memo_stack_mcp.gateway.write_timeout`
+- `memo_stack_mcp.gateway.invalid_json`
+- `memo_stack_mcp.gateway.auth_failed`
+- `memo_stack_mcp.gateway.backend_error`
+- `memo_stack_mcp.conflict.version_stale`
+- `memo_stack_mcp.conflict.idempotency_mismatch`
+- `memo_stack_mcp.conflict.same_target_in_batch`
+- `memo_stack_mcp.conflict.requires_review`
+- `memo_stack_mcp.degraded.backpressure`
+- `memo_stack_mcp.internal.unexpected`
 
 Proposal-only duplicate decisions are not whole-call errors:
 
-- `memory_mcp.duplicate.same_batch`
-- `memory_mcp.duplicate.existing_memory`
+- `memo_stack_mcp.duplicate.same_batch`
+- `memo_stack_mcp.duplicate.existing_memory`
 
 ## Verification
 
@@ -209,14 +200,14 @@ Targeted tests:
 
 ```bash
 .venv/bin/pytest tests/unit/test_mcp_adapter.py tests/unit/test_facts_api.py tests/unit/test_sdk_contract.py -q
-.venv/bin/pytest tests/e2e/test_memory_mcp_e2e.py -q
+.venv/bin/pytest tests/e2e/test_memo_stack_mcp_e2e.py -q
 ```
 
 Live stdio smoke against a running Memo Stack server:
 
 ```bash
-make memory-stack-up-lite
-make memory-mcp-smoke
+make memo-stack-up-lite
+make memo-stack-mcp-smoke
 ```
 
 Free production-shape scale/chaos/load e2e:
@@ -230,52 +221,52 @@ document idempotency, mutation storms, backpressure, expired worker lease
 recovery, stale outbox lag alerting, worker drain recovery and poison outbox
 handling. The lag case verifies `outbox_pending_lag_seconds`, drains through a
 real worker CLI run, clears the alert and keeps canonical read/write paths
-available. The replay case verifies `memory_server.admin replay-outbox` moves a
-dead job back to `pending`, worker drain clears it, `memory_server.doctor`
+available. The replay case verifies `memo_stack_server.admin replay-outbox` moves a
+dead job back to `pending`, worker drain clears it, `memo_stack_server.doctor`
 returns to ok and raw payload stays redacted. The poison case verifies the
 unknown job becomes `dead`, checks the operational alert, checks
-`memory_server.doctor` degraded output, checks raw payload redaction and proves
+`memo_stack_server.doctor` degraded output, checks raw payload redaction and proves
 canonical read/write paths still work. The restart case verifies canonical
-facts/documents and idempotency records survive Memory Server process restart,
+facts/documents and idempotency records survive Memo Stack Server process restart,
 while stale, deleted and restricted memory stays filtered. The compaction case
-verifies `memory_server.admin compact-outbox` dry-run, actual redaction of
+verifies `memo_stack_server.admin compact-outbox` dry-run, actual redaction of
 done-job payloads and continued context retrieval after maintenance.
 
 Real-stack canary with Graphiti, Qdrant and embeddings:
 
 ```bash
-make memory-clean-full-mcp-smoke
-make memory-full-provider-canary
-make memory-full-provider-canary-interactive
-make memory-prod-confidence-strict-preflight
-make memory-prod-confidence-strict
+make memo-stack-clean-full-mcp-smoke
+make memo-stack-full-provider-canary
+make memo-stack-full-provider-canary-interactive
+make memo-stack-prod-confidence-strict-preflight
+make memo-stack-prod-confidence-strict
 ```
 
 This is a manual paid gate. It requires Docker and `MEMORY_OPENAI_API_KEY` or
 `OPENAI_API_KEY`, starts fresh isolated Postgres, Qdrant and Neo4j resources,
 then runs the HTTP lifecycle smoke plus a real stdio MCP client against the
-same Memory Server. The MCP part verifies status/readiness, search, remember,
+same Memo Stack Server. The MCP part verifies status/readiness, search, remember,
 update, document ingest, forget, Graphiti projection, Qdrant chunk recall,
 outbox drain, provider diagnostics and token redaction.
-Use `memory-full-provider-canary-interactive` when the key is not already
+Use `memo-stack-full-provider-canary-interactive` when the key is not already
 exported; it reads the key with terminal echo disabled and passes it only via
 process environment.
-Use `memory-prod-confidence-strict` when the final release gate must include
+Use `memo-stack-prod-confidence-strict` when the final release gate must include
 both the paid full-provider canary and strict real-agent CLI auth. It requires
 the OpenAI key in process env and authenticated Codex, Claude, Gemini and
-OpenCode CLIs. It runs `memory-prod-confidence-strict-preflight` before the
+OpenCode CLIs. It runs `memo-stack-prod-confidence-strict-preflight` before the
 paid provider canary, so missing key/auth fails before starting the full stack.
-`memory-prod-confidence-full` is an alias for the same gate.
+`memo-stack-prod-confidence-full` is an alias for the same gate.
 
 The historical clean full smoke target also runs MCP checks by default. Use
-`MEMORY_CLEAN_SMOKE_SKIP_MCP=true make memory-clean-full-smoke` only when you
+`MEMORY_CLEAN_SMOKE_SKIP_MCP=true make memo-stack-clean-full-smoke` only when you
 need to isolate a provider/API issue from the MCP adapter. This canary is
-intentionally not part of `make memory-test-quality`.
+intentionally not part of `make memo-stack-test-quality`.
 
 Production-like scale/chaos/load canary:
 
 ```bash
-MEMORY_OPENAI_API_KEY="$KEY" make memory-prod-load-canary
+MEMORY_OPENAI_API_KEY="$KEY" make memo-stack-prod-load-canary
 ```
 
 This is a heavier manual paid gate over the same isolated full stack. It keeps
@@ -290,7 +281,7 @@ MCP enabled and adds:
 - document delete with stale chunks hidden;
 - large multi-chunk document recall through API and MCP;
 - thread-scoped memory isolation with neighboring thread leakage checks;
-- Memory Server restart continuity before MCP reads;
+- Memo Stack Server restart continuity before MCP reads;
 - Qdrant and Neo4j provider restart recovery before MCP reads;
 - Qdrant and Neo4j outage while projection jobs are pending, followed by retry
   drain and API/MCP recall recovery;
@@ -302,13 +293,13 @@ accidentally creating thousands of paid provider jobs.
 Real LLM agent-behavior benchmark:
 
 ```bash
-MEMORY_AGENT_BENCH_MODEL="$MODEL" MEMORY_OPENAI_API_KEY="$KEY" make memory-agent-behavior-bench
+MEMORY_AGENT_BENCH_MODEL="$MODEL" MEMORY_OPENAI_API_KEY="$KEY" make memo-stack-agent-behavior-bench
 ```
 
 More realistic/adversarial agent-behavior benchmark:
 
 ```bash
-MEMORY_AGENT_BENCH_MODEL="$MODEL" MEMORY_OPENAI_API_KEY="$KEY" make memory-agent-realistic-bench
+MEMORY_AGENT_BENCH_MODEL="$MODEL" MEMORY_OPENAI_API_KEY="$KEY" make memo-stack-agent-realistic-bench
 ```
 
 This runs `MEMORY_AGENT_BENCH_SCENARIO_SET=realistic`: noisy meeting transcripts,
@@ -325,7 +316,7 @@ provider/worker availability.
 
 Important production reading:
 
-- A passing MCP real-stack canary proves the Memory Server, canonical Postgres
+- A passing MCP real-stack canary proves the Memo Stack Server, canonical Postgres
   lifecycle, Graphiti projection, Qdrant projection, worker drain and stdio MCP
   adapter are functioning.
 - A failing real LLM agent-behavior benchmark is not automatically a storage
@@ -357,7 +348,7 @@ Important production reading:
 This extends the clean full canary with an agent behavior block. The benchmark
 uses OpenAI Responses API function calling, converts public MCP tool schemas to
 function tools, lets the model choose tools with `tool_choice=auto`, executes
-calls through real stdio `memory_mcp`, returns `function_call_output` items, and
+calls through real stdio `memo_stack_mcp`, returns `function_call_output` items, and
 deterministically evaluates the trace. The report includes `tool_choice_accuracy`,
 `search_before_write_rate`, `update_vs_duplicate_rate`, `document_routing_accuracy`,
 `answer_support_rate`, unsafe write counts and leak counts. It also includes
@@ -378,15 +369,15 @@ separate from the embeddings key. Long paid runs can be bounded with
 Agent install verification:
 
 ```bash
-make memory-agent-install-dry-run
-make memory-agent-install
-make memory-agent-install-doctor
-make memory-agent-live-smoke
-make memory-agent-live-smoke-agents
-make memory-agent-live-smoke-agents-strict
-make memory-agent-auth-doctor
-make memory-agent-auth-doctor-strict
-make memory-agent-auth-repair
+make memo-stack-agent-install-dry-run
+make memo-stack-agent-install
+make memo-stack-agent-install-doctor
+make memo-stack-agent-live-smoke
+make memo-stack-agent-live-smoke-agents
+make memo-stack-agent-live-smoke-agents-strict
+make memo-stack-agent-auth-doctor
+make memo-stack-agent-auth-doctor-strict
+make memo-stack-agent-auth-repair
 ```
 
 `plugin-kit-ai add` uses managed install targets `codex`, `claude`, `gemini`,
@@ -395,22 +386,22 @@ the current plugin-kit-ai release; keep it as the generated `.cursor/mcp.json`
 workspace-copy lane and verify it through plugin e2e. Codex may report native
 activation pending until the plugin is installed from the Codex Plugin Directory
 and a new Codex thread is started.
-`memory-agent-install-doctor` is a hard gate over both structured install state
+`memo-stack-agent-install-doctor` is a hard gate over both structured install state
 and `plugin-kit-ai integrations list/doctor`; a failed plugin-kit-ai doctor run
 does not pass just because `state.json` still looks healthy.
 
-`memory-agent-live-smoke` runs the generated MCP config hard gate and does not
+`memo-stack-agent-live-smoke` runs the generated MCP config hard gate and does not
 depend on local Claude/Gemini/OpenCode/Codex model auth. It proves the package,
 Gemini, OpenCode and Cursor workspace generated configs can start stdio MCP and
-verify `memory_status` over that transport. `memory-agent-live-smoke-agents`
+verify `memory_status` over that transport. `memo-stack-agent-live-smoke-agents`
 adds real agent CLI prompts and reports auth/session failures as advisory
 blocked states while keeping generated MCP strict. Use
-`memory-agent-live-smoke-agents-strict` when local agent auth/session state is
+`memo-stack-agent-live-smoke-agents-strict` when local agent auth/session state is
 ready and every real agent CLI must pass end to end.
 The live-smoke targets default to isolated host ports
 `MEMORY_AGENT_SMOKE_SERVER_PORT=17788` and
 `MEMORY_AGENT_SMOKE_POSTGRES_PORT=55429`. This prevents false positives when a
-different local Memory Server is already listening on `7788`.
+different local Memo Stack Server is already listening on `7788`.
 Gemini persists MCP env in the installed extension config, so process env may
 not override `MEMORY_MCP_API_URL` directly. The repo-local wrapper therefore
 supports `MEMORY_MCP_RUNTIME_*` overrides. Real-agent smoke can verify the
@@ -420,15 +411,15 @@ mismatched persisted Gemini API URL is still reported as a blocked preflight.
 Gemini CLI can also inject a host sequencing argument named `wait_for_previous`
 into MCP calls. The MCP boundary ignores only that known host argument before
 strict Pydantic validation; unknown user/tool arguments remain rejected.
-`memory-agent-auth-doctor` runs plain model prompts without the Memory plugin.
+`memo-stack-agent-auth-doctor` runs plain model prompts without the Memory plugin.
 Use it to separate local agent credential failures from MCP/plugin failures.
-`memory-agent-auth-repair` is an interactive local helper that runs the official
+`memo-stack-agent-auth-repair` is an interactive local helper that runs the official
 Claude and OpenCode login flows, then re-runs strict auth verification.
 
 Benchmark:
 
 ```bash
-MEMORY_MCP_API_URL=http://127.0.0.1:7788 MEMORY_MCP_AUTH_TOKEN="${MEMORY_MCP_AUTH_TOKEN}" memory-mcp-bench --iterations 10
+MEMORY_MCP_API_URL=http://127.0.0.1:7788 MEMORY_MCP_AUTH_TOKEN="${MEMORY_MCP_AUTH_TOKEN}" memo-stack-mcp-bench --iterations 10
 ```
 
 The benchmark intentionally uses direct write/delete lifecycle settings inside

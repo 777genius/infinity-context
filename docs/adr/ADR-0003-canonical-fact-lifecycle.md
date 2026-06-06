@@ -6,7 +6,7 @@ PR 1 adds the first canonical write path: remembered facts with source refs, ver
 
 ## Decision
 
-Fact lifecycle is implemented through `memory_core` use cases and a Postgres adapter.
+Fact lifecycle is implemented through `memo_stack_core` use cases and a Postgres adapter.
 
 Rules:
 

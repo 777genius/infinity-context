@@ -117,7 +117,7 @@ class ServerHandle:
 def main() -> int:
     started = time.perf_counter()
     run_id = str(time.time_ns())
-    project_name = os.getenv("MEMORY_CLEAN_SMOKE_PROJECT", f"memory-clean-{run_id[-8:]}")
+    project_name = os.getenv("MEMORY_CLEAN_SMOKE_PROJECT", f"memo-stack-clean-{run_id[-8:]}")
     token = os.getenv("MEMORY_CLEAN_SMOKE_TOKEN", "clean-smoke-token")
     os.environ.setdefault("MEMORY_CLEAN_SMOKE_TOKEN", token)
     ports = _ports()
@@ -141,16 +141,16 @@ def main() -> int:
             "full",
             "up",
             "-d",
-            "memory_postgres",
-            "memory_qdrant",
-            "memory_neo4j",
+            "memo_stack_postgres",
+            "memo_stack_qdrant",
+            "memo_stack_neo4j",
         )
         _wait_for_postgres(project_name, compose_env)
         _wait_for_http(f"http://127.0.0.1:{ports['qdrant']}/")
         _wait_for_neo4j(ports["neo4j_bolt"])
 
-        _run_python(server_env, "-m", "memory_server.db", "upgrade")
-        _run_python(server_env, "-m", "memory_server.admin", "seed-defaults")
+        _run_python(server_env, "-m", "memo_stack_server.db", "upgrade")
+        _run_python(server_env, "-m", "memo_stack_server.admin", "seed-defaults")
 
         server = _start_server(server_env)
         base_url = f"http://127.0.0.1:{ports['server']}"
@@ -165,12 +165,12 @@ def main() -> int:
             _wait_for_http(f"{base_url}/v1/health", token=token)
 
         def restart_providers_for_canary() -> None:
-            _compose(project_name, compose_env, "restart", "memory_qdrant", "memory_neo4j")
+            _compose(project_name, compose_env, "restart", "memo_stack_qdrant", "memo_stack_neo4j")
             _wait_for_http(f"http://127.0.0.1:{ports['qdrant']}/")
             _wait_for_neo4j(ports["neo4j_bolt"])
 
         def stop_providers_for_canary() -> None:
-            _compose(project_name, compose_env, "stop", "memory_qdrant", "memory_neo4j")
+            _compose(project_name, compose_env, "stop", "memo_stack_qdrant", "memo_stack_neo4j")
 
         result = _run_lifecycle(base_url=base_url, token=token, env=server_env, run_id=run_id)
         if skip_mcp:
@@ -295,7 +295,7 @@ def _server_env(*, ports: Mapping[str, int], token: str, run_id: str) -> dict[st
             "MEMORY_OPENAI_API_KEY": openai_key,
             "MEMORY_DEPLOY_PROFILE": "local",
             "MEMORY_DATABASE_URL": (
-                f"postgresql+asyncpg://memory:memory@127.0.0.1:{ports['postgres']}/memory"
+                f"postgresql+asyncpg://memo_stack:memo_stack@127.0.0.1:{ports['postgres']}/memory"
             ),
             "MEMORY_AUTO_CREATE_SCHEMA": "true",
             "MEMORY_HOST": "127.0.0.1",
@@ -315,7 +315,7 @@ def _server_env(*, ports: Mapping[str, int], token: str, run_id: str) -> dict[st
             "MEMORY_GRAPHITI_ENABLED": "true",
             "MEMORY_GRAPHITI_NEO4J_URI": f"bolt://127.0.0.1:{ports['neo4j_bolt']}",
             "MEMORY_GRAPHITI_NEO4J_USER": "neo4j",
-            "MEMORY_GRAPHITI_NEO4J_PASSWORD": "memorygraph",
+            "MEMORY_GRAPHITI_NEO4J_PASSWORD": "memostackgraph",
             "MEMORY_GRAPHITI_BUILD_INDICES": "true",
             "MEMORY_PROVIDER_CIRCUIT_FAILURE_THRESHOLD": "2",
             "MEMORY_PROVIDER_CIRCUIT_RESET_AFTER_SECONDS": "30",
@@ -504,11 +504,11 @@ async def _run_mcp_lifecycle(
         space_slug=space_slug,
         profile_ref=profile_ref,
     )
-    params = StdioServerParameters(command=PYTHON, args=["-m", "memory_mcp"], env=mcp_env)
+    params = StdioServerParameters(command=PYTHON, args=["-m", "memo_stack_mcp"], env=mcp_env)
 
     async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
-        await _await_mcp(session.initialize(), "memory_mcp.initialize", env=mcp_env)
-        tools = await _await_mcp(session.list_tools(), "memory_mcp.list_tools", env=mcp_env)
+        await _await_mcp(session.initialize(), "memo_stack_mcp.initialize", env=mcp_env)
+        tools = await _await_mcp(session.list_tools(), "memo_stack_mcp.list_tools", env=mcp_env)
         tool_names = {tool.name for tool in tools.tools}
         required_tools = {
             "memory_status",
@@ -1111,9 +1111,9 @@ async def _run_prod_load_canary(
         space_slug=space_slug,
         profile_ref=alpha,
     )
-    params = StdioServerParameters(command=PYTHON, args=["-m", "memory_mcp"], env=mcp_env)
+    params = StdioServerParameters(command=PYTHON, args=["-m", "memo_stack_mcp"], env=mcp_env)
     async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
-        await _await_mcp(session.initialize(), "prod_load.memory_mcp.initialize", env=mcp_env)
+        await _await_mcp(session.initialize(), "prod_load.memo_stack_mcp.initialize", env=mcp_env)
         status_result = await _call_mcp_result(session, "memory_status", {}, env=mcp_env)
         status = _structured_mcp(status_result, "prod_load.memory_status", env=mcp_env)
         mcp_fact = _structured_mcp(
@@ -1506,7 +1506,7 @@ async def _run_agent_behavior_benchmark(
     env: Mapping[str, str],
     run_id: str,
 ) -> dict[str, Any]:
-    from memory_mcp.agent_behavior_bench import run_agent_behavior_benchmark
+    from memo_stack_mcp.agent_behavior_bench import run_agent_behavior_benchmark
 
     model = os.getenv("MEMORY_AGENT_BENCH_MODEL", "").strip()
     if not model:
@@ -2299,11 +2299,11 @@ def _repo_pythonpath(existing: str | None) -> str:
     package_paths = [
         str(PROJECT_ROOT / "packages" / name)
         for name in (
-            "memory_adapters",
-            "memory_core",
-            "memory_mcp",
-            "memory_sdk",
-            "memory_server",
+            "memo_stack_adapters",
+            "memo_stack_core",
+            "memo_stack_mcp",
+            "memo_stack_sdk",
+            "memo_stack_server",
         )
     ]
     if existing:
@@ -2331,7 +2331,7 @@ def _worker_once(env: Mapping[str, str]) -> None:
     _run_python(
         env,
         "-m",
-        "memory_server.worker",
+        "memo_stack_server.worker",
         "--once",
         "--limit",
         "20",
@@ -2412,7 +2412,7 @@ def _start_server(env: Mapping[str, str]) -> ServerHandle:
     output = tempfile.TemporaryFile(mode="w+", encoding="utf-8")  # noqa: SIM115
     try:
         process = subprocess.Popen(
-            [PYTHON, "-m", "memory_server.main"],
+            [PYTHON, "-m", "memo_stack_server.main"],
             cwd=PROJECT_ROOT,
             env=env,
             stdout=output,
@@ -2436,7 +2436,7 @@ def _wait_for_postgres(project_name: str, env: Mapping[str, str]) -> None:
                 project_name,
                 "exec",
                 "-T",
-                "memory_postgres",
+                "memo_stack_postgres",
                 "pg_isready",
                 "-U",
                 "memory",
@@ -2479,7 +2479,7 @@ def _wait_for_neo4j(port: int) -> None:
     while time.monotonic() < deadline:
         driver = GraphDatabase.driver(
             f"bolt://127.0.0.1:{port}",
-            auth=("neo4j", "memorygraph"),
+            auth=("neo4j", "memostackgraph"),
         )
         try:
             driver.verify_connectivity()

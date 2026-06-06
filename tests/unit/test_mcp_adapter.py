@@ -6,17 +6,17 @@ from typing import Any
 import httpx
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.shared.version import LATEST_PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS
-from memory_mcp import bench as memory_mcp_bench
-from memory_mcp.adapters.http_gateway import HttpMemoryGateway
-from memory_mcp.application.service import MEMORY_USAGE_GUIDE, MemoryToolService
-from memory_mcp.config import (
+from memo_stack_mcp import bench as memory_mcp_bench
+from memo_stack_mcp.adapters.http_gateway import HttpMemoryGateway
+from memo_stack_mcp.application.service import MEMORY_USAGE_GUIDE, MemoryToolService
+from memo_stack_mcp.config import (
     MemoryMcpDeleteMode,
     MemoryMcpIngestMode,
     MemoryMcpSettings,
     MemoryMcpWriteMode,
     load_settings,
 )
-from memory_mcp.domain.models import (
+from memo_stack_mcp.domain.models import (
     MemoryGatewayError,
     MemoryReadScope,
     MemoryScope,
@@ -26,7 +26,7 @@ from memory_mcp.domain.models import (
     has_zero_width_characters,
     public_error_code,
 )
-from memory_mcp.server import create_mcp_server
+from memo_stack_mcp.server import create_mcp_server
 
 
 class RecordingGateway:
@@ -158,13 +158,12 @@ def test_load_settings_uses_memory_service_token_fallback() -> None:
         {
             "MEMORY_SERVICE_TOKEN": "server-token",
             "MEMORY_MCP_API_URL": "http://memory.test/",
-            "MEMORY_MCP_ALLOW_DELETES": "false",
         }
     )
 
     assert settings.auth_token == "server-token"
     assert settings.api_url == "http://memory.test"
-    assert settings.allow_deletes is False
+    assert settings.allow_deletes is True
     assert settings.delete_mode == MemoryMcpDeleteMode.OFF
 
 
@@ -268,7 +267,7 @@ def test_service_remember_fact_dedupes_existing_active_fact() -> None:
         assert result["ok"] is True
         assert result["data"]["id"] == "fact_existing"
         assert result["data"]["status"] == "duplicate"
-        assert result["data"]["safe_reason"] == "memory_mcp.duplicate.existing_memory"
+        assert result["data"]["safe_reason"] == "memo_stack_mcp.duplicate.existing_memory"
         assert result["diagnostics"]["side_effects"] == []
         assert "remember_fact" not in [name for name, _ in gateway.calls]
 
@@ -305,7 +304,7 @@ def test_service_remember_fact_routes_conflicting_existing_fact_to_review() -> N
         assert result["ok"] is True
         assert result["data"]["id"] == "sug_1"
         assert result["diagnostics"]["side_effects"] == ["created_suggestion"]
-        assert result["diagnostics"]["warnings"] == ["memory_mcp.conflict.requires_review"]
+        assert result["diagnostics"]["warnings"] == ["memo_stack_mcp.conflict.requires_review"]
         assert "remember_fact" not in [name for name, _ in gateway.calls]
         assert [name for name, _ in gateway.calls] == [
             "list_facts",
@@ -337,7 +336,7 @@ def test_service_remember_fact_routes_low_trust_source_to_suggestion() -> None:
         assert result["data"]["status"] == "pending"
         assert result["diagnostics"]["policy"]["decision"] == "allow_suggestion"
         assert gateway.calls[0][0] == "create_suggestion"
-        assert gateway.calls[0][1]["safe_reason"] == "memory_mcp.policy.source_requires_review"
+        assert gateway.calls[0][1]["safe_reason"] == "memo_stack_mcp.policy.source_requires_review"
 
     asyncio.run(run())
 
@@ -352,9 +351,12 @@ def test_service_blocks_destructive_tools_when_disabled() -> None:
         result = await service.forget_fact(fact_id="fact_1")
 
         assert result["ok"] is False
-        assert result["error"]["code"] == "memory_mcp.policy.delete_mode_off"
-        assert result["error"]["safe_message"] == "Memory MCP deletes are disabled by local policy"
-        assert result["diagnostics"]["schema_version"] == "mcp.memory.v1"
+        assert result["error"]["code"] == "memo_stack_mcp.policy.delete_mode_off"
+        assert (
+            result["error"]["safe_message"]
+            == "Memo Stack MCP deletes are disabled by local policy"
+        )
+        assert result["diagnostics"]["schema_version"] == "mcp.memo_stack.v1"
 
     asyncio.run(run())
 
@@ -369,7 +371,7 @@ def test_service_status_surfaces_capability_diagnostics() -> None:
         result = await service.status()
 
         assert result["ok"] is True
-        assert result["diagnostics"]["schema_version"] == "mcp.memory.v1"
+        assert result["diagnostics"]["schema_version"] == "mcp.memo_stack.v1"
         assert result["data"]["readiness"]["read_ready"] is True
         assert result["data"]["readiness"]["write_ready"] is True
         assert result["data"]["readiness"]["projection_ready"] is True
@@ -572,7 +574,7 @@ def test_service_search_rejects_thread_scope_with_multiple_profiles() -> None:
         )
 
         assert result["ok"] is False
-        assert result["error"]["code"] == "memory_mcp.validation.invalid_scope"
+        assert result["error"]["code"] == "memo_stack_mcp.validation.invalid_scope"
         assert gateway.calls == []
 
     asyncio.run(run())
@@ -581,7 +583,7 @@ def test_service_search_rejects_thread_scope_with_multiple_profiles() -> None:
 def test_service_status_degrades_when_capabilities_unavailable() -> None:
     class SafeCapabilitiesDownGateway(RecordingGateway):
         async def capabilities(self) -> dict[str, Any]:
-            from memory_mcp.domain.models import MemoryGatewayError
+            from memo_stack_mcp.domain.models import MemoryGatewayError
 
             raise MemoryGatewayError(
                 status_code=503,
@@ -604,7 +606,7 @@ def test_service_status_degrades_when_capabilities_unavailable() -> None:
         assert "capabilities.unavailable" in result["data"]["readiness"]["degraded_reasons"]
         assert result["diagnostics"]["degraded"] is True
         assert result["diagnostics"]["backend"]["capabilities_error"]["code"] == (
-            "memory_mcp.gateway.backend_error"
+            "memo_stack_mcp.gateway.backend_error"
         )
 
     asyncio.run(run())
@@ -621,7 +623,7 @@ def test_service_rejects_invalid_kind_before_gateway() -> None:
         result = await service.remember_fact(text="A durable fact.", kind="runbook")
 
         assert result["ok"] is False
-        assert result["error"]["code"] == "memory_mcp.validation.invalid_input"
+        assert result["error"]["code"] == "memo_stack_mcp.validation.invalid_input"
         assert gateway.calls == []
 
     asyncio.run(run())
@@ -664,9 +666,9 @@ def test_service_rejects_token_source_id_and_quote_preview() -> None:
         )
 
         assert source_result["ok"] is False
-        assert source_result["error"]["code"] == "memory_mcp.validation.invalid_source_ref"
+        assert source_result["error"]["code"] == "memo_stack_mcp.validation.invalid_source_ref"
         assert quote_result["ok"] is False
-        assert quote_result["error"]["code"] == "memory_mcp.policy.secret_detected"
+        assert quote_result["error"]["code"] == "memo_stack_mcp.policy.secret_detected"
         assert gateway.calls == []
 
     asyncio.run(run())
@@ -684,7 +686,7 @@ def test_service_rejects_invalid_source_type() -> None:
         )
 
         assert result["ok"] is False
-        assert result["error"]["code"] == "memory_mcp.validation.invalid_source_ref"
+        assert result["error"]["code"] == "memo_stack_mcp.validation.invalid_source_ref"
         assert gateway.calls == []
 
     asyncio.run(run())
@@ -710,9 +712,9 @@ def test_service_write_mode_off_blocks_write_paths() -> None:
         )
 
         assert remembered["ok"] is False
-        assert remembered["error"]["code"] == "memory_mcp.policy.write_mode_off"
+        assert remembered["error"]["code"] == "memo_stack_mcp.policy.write_mode_off"
         assert suggested["ok"] is False
-        assert suggested["error"]["code"] == "memory_mcp.policy.write_mode_off"
+        assert suggested["error"]["code"] == "memo_stack_mcp.policy.write_mode_off"
         assert gateway.calls == []
 
     asyncio.run(run())
@@ -730,7 +732,7 @@ def test_service_secret_text_is_rejected_before_gateway() -> None:
         )
 
         assert result["ok"] is False
-        assert result["error"]["code"] == "memory_mcp.policy.secret_detected"
+        assert result["error"]["code"] == "memo_stack_mcp.policy.secret_detected"
         assert gateway.calls == []
 
     asyncio.run(run())
@@ -744,7 +746,7 @@ def test_service_secret_search_query_is_rejected_before_gateway() -> None:
         result = await service.search(query="Find password=bench-secret-project-alpha")
 
         assert result["ok"] is False
-        assert result["error"]["code"] == "memory_mcp.policy.secret_detected"
+        assert result["error"]["code"] == "memo_stack_mcp.policy.secret_detected"
         assert result["error"]["safe_message"] == "Search query contains a credential-like value"
         assert gateway.calls == []
 
@@ -780,10 +782,10 @@ def test_service_rejects_private_key_generic_secret_and_invisible_text() -> None
             source_id="note-4",
         )
 
-        assert private_key["error"]["code"] == "memory_mcp.policy.secret_detected"
-        assert generic_secret["error"]["code"] == "memory_mcp.policy.secret_detected"
-        assert invisible["error"]["code"] == "memory_mcp.policy.invisible_characters"
-        assert bidi["error"]["code"] == "memory_mcp.policy.control_characters"
+        assert private_key["error"]["code"] == "memo_stack_mcp.policy.secret_detected"
+        assert generic_secret["error"]["code"] == "memo_stack_mcp.policy.secret_detected"
+        assert invisible["error"]["code"] == "memo_stack_mcp.policy.invisible_characters"
+        assert bidi["error"]["code"] == "memo_stack_mcp.policy.control_characters"
         assert gateway.calls == []
 
     asyncio.run(run())
@@ -803,7 +805,7 @@ def test_service_small_doc_ingest_mode_blocks_large_docs() -> None:
         result = await service.ingest_document(title="doc", text="x" * 11)
 
         assert result["ok"] is False
-        assert result["error"]["code"] == "memory_mcp.policy.ingest_too_large"
+        assert result["error"]["code"] == "memo_stack_mcp.policy.ingest_too_large"
         assert gateway.calls == []
 
     asyncio.run(run())
@@ -904,7 +906,7 @@ def test_service_propose_updates_direct_explicit_requires_confirmation() -> None
         )
 
         assert without_confirmation["data"]["accepted_suggestions"][0]["decision_code"] == (
-            "memory_mcp.policy.explicit_confirmation_required"
+            "memo_stack_mcp.policy.explicit_confirmation_required"
         )
         assert with_confirmation["data"]["direct_writes"][0]["fact_id"] == "fact_1"
         assert [name for name, _ in gateway.calls].count("remember_fact") == 1
@@ -936,7 +938,7 @@ def test_service_propose_updates_uncertain_evidence_needs_review_even_when_confi
 
         assert result["ok"] is True
         assert result["data"]["accepted_suggestions"][0]["decision_code"] == (
-            "memory_mcp.policy.uncertain_claim"
+            "memo_stack_mcp.policy.uncertain_claim"
         )
         assert result["diagnostics"]["side_effects"] == ["created_suggestion"]
         assert [name for name, _ in gateway.calls] == [
@@ -975,7 +977,10 @@ def test_service_propose_updates_dedupes_same_batch() -> None:
         )
 
         assert result["data"]["direct_writes"][0]["status"] == "direct_write"
-        assert result["data"]["duplicates"][0]["decision_code"] == "memory_mcp.duplicate.same_batch"
+        assert (
+            result["data"]["duplicates"][0]["decision_code"]
+            == "memo_stack_mcp.duplicate.same_batch"
+        )
         assert [name for name, _ in gateway.calls].count("remember_fact") == 1
 
     asyncio.run(run())
@@ -1015,7 +1020,7 @@ def test_service_propose_updates_detects_existing_fact_conflict() -> None:
 
         assert result["ok"] is True
         assert result["data"]["conflicts"][0]["decision_code"] == (
-            "memory_mcp.conflict.requires_review"
+            "memo_stack_mcp.conflict.requires_review"
         )
         assert result["data"]["conflicts"][0]["duplicate_id"] == "fact_mysql"
         assert [name for name, _ in gateway.calls] == ["list_facts", "list_suggestions"]
@@ -1058,7 +1063,7 @@ def test_service_propose_updates_dedupes_pending_suggestions() -> None:
 
         assert result["ok"] is True
         assert result["data"]["duplicates"][0]["decision_code"] == (
-            "memory_mcp.duplicate.existing_memory"
+            "memo_stack_mcp.duplicate.existing_memory"
         )
         assert result["data"]["duplicates"][0]["duplicate_id"] == "sug_pending"
         assert "create_suggestion" not in [name for name, _ in gateway.calls]
@@ -1090,8 +1095,8 @@ def test_service_propose_updates_rejects_unsafe_and_invalid_candidates() -> None
         )
 
         assert [item["decision_code"] for item in result["data"]["unsafe_rejected"]] == [
-            "memory_mcp.policy.secret_detected",
-            "memory_mcp.validation.invalid_input",
+            "memo_stack_mcp.policy.secret_detected",
+            "memo_stack_mcp.validation.invalid_input",
         ]
         assert gateway.calls == []
 
@@ -1110,7 +1115,7 @@ def test_service_propose_updates_dry_run_has_no_side_effects() -> None:
             dry_run=True,
         )
 
-        assert result["data"]["needs_review"][0]["decision_code"] == "memory_mcp.policy.dry_run"
+        assert result["data"]["needs_review"][0]["decision_code"] == "memo_stack_mcp.policy.dry_run"
         assert result["diagnostics"]["side_effects"] == []
         assert gateway.calls == []
 
@@ -1133,7 +1138,7 @@ def test_service_propose_updates_requires_evidence_for_direct_write() -> None:
 
         assert result["ok"] is True
         assert result["data"]["accepted_suggestions"][0]["decision_code"] == (
-            "memory_mcp.policy.evidence_required"
+            "memo_stack_mcp.policy.evidence_required"
         )
         assert [name for name, _ in gateway.calls] == [
             "list_facts",
@@ -1165,7 +1170,7 @@ def test_service_propose_updates_detects_evidence_mismatch() -> None:
         )
 
         assert result["data"]["needs_review"][0]["decision_code"] == (
-            "memory_mcp.policy.evidence_mismatch"
+            "memo_stack_mcp.policy.evidence_mismatch"
         )
         assert gateway.calls == []
 
@@ -1185,7 +1190,7 @@ def test_service_propose_updates_rejects_string_booleans() -> None:
         )
 
         assert result["ok"] is False
-        assert result["error"]["code"] == "memory_mcp.validation.invalid_input"
+        assert result["error"]["code"] == "memo_stack_mcp.validation.invalid_input"
         assert gateway.calls == []
 
     asyncio.run(run())
@@ -1226,7 +1231,7 @@ def test_service_propose_updates_maps_stale_expected_version_to_conflict() -> No
 
         assert result["ok"] is True
         assert result["data"]["conflicts"][0]["decision_code"] == (
-            "memory_mcp.conflict.version_stale"
+            "memo_stack_mcp.conflict.version_stale"
         )
         assert result["data"]["conflicts"][0]["target_fact_id"] == "fact_1"
         assert [name for name, _ in gateway.calls] == ["update_fact"]
@@ -1266,7 +1271,7 @@ def test_service_propose_updates_conflicts_same_target_in_batch() -> None:
 
         assert result["data"]["direct_writes"][0]["status"] == "direct_update"
         assert result["data"]["conflicts"][0]["decision_code"] == (
-            "memory_mcp.conflict.same_target_in_batch"
+            "memo_stack_mcp.conflict.same_target_in_batch"
         )
         assert [name for name, _ in gateway.calls].count("update_fact") == 1
 
@@ -1354,7 +1359,7 @@ def test_service_review_suggestion_rejects_invalid_action() -> None:
         result = await service.review_suggestion(suggestion_id="sug_1", action="merge")
 
         assert result["ok"] is False
-        assert result["error"]["code"] == "memory_mcp.validation.invalid_input"
+        assert result["error"]["code"] == "memo_stack_mcp.validation.invalid_input"
         assert gateway.calls == []
 
     asyncio.run(run())
@@ -1441,7 +1446,7 @@ def test_service_list_captures_rejects_unknown_statuses() -> None:
         result = await service.list_captures(status="active")
 
         assert result["ok"] is False
-        assert result["error"]["code"] == "memory_mcp.validation.invalid_input"
+        assert result["error"]["code"] == "memo_stack_mcp.validation.invalid_input"
         assert gateway.calls == []
 
     asyncio.run(run())
@@ -1557,7 +1562,7 @@ def test_http_gateway_redacts_backend_error_messages() -> None:
         else:
             raise AssertionError("expected gateway error")
 
-        assert error.code == "memory_mcp.gateway.backend_error"
+        assert error.code == "memo_stack_mcp.gateway.backend_error"
         assert error.message == "Authorization: [redacted] leaked"
 
     asyncio.run(run())
@@ -1565,11 +1570,11 @@ def test_http_gateway_redacts_backend_error_messages() -> None:
 
 def test_http_gateway_maps_public_error_taxonomy_for_common_statuses() -> None:
     cases = (
-        (400, "backend.raw", "memory_mcp.validation.backend_rejected", False),
-        (401, "backend.raw", "memory_mcp.gateway.auth_failed", False),
-        (409, "backend.raw", "memory_mcp.conflict.version_stale", False),
-        (429, "memory.backpressure", "memory_mcp.degraded.backpressure", True),
-        (500, "backend.raw", "memory_mcp.gateway.backend_error", True),
+        (400, "backend.raw", "memo_stack_mcp.validation.backend_rejected", False),
+        (401, "backend.raw", "memo_stack_mcp.gateway.auth_failed", False),
+        (409, "backend.raw", "memo_stack_mcp.conflict.version_stale", False),
+        (429, "memory.backpressure", "memo_stack_mcp.degraded.backpressure", True),
+        (500, "backend.raw", "memo_stack_mcp.gateway.backend_error", True),
     )
 
     async def run_case(
@@ -1623,7 +1628,7 @@ def test_http_gateway_classifies_invalid_json_and_connect_timeout() -> None:
         else:
             raise AssertionError("expected invalid json error")
 
-        assert error.code == "memory_mcp.gateway.invalid_json"
+        assert error.code == "memo_stack_mcp.gateway.invalid_json"
         assert error.retryable is False
 
     async def connect_timeout() -> None:
@@ -1643,7 +1648,7 @@ def test_http_gateway_classifies_invalid_json_and_connect_timeout() -> None:
         else:
             raise AssertionError("expected connect timeout error")
 
-        assert error.code == "memory_mcp.gateway.connect_timeout"
+        assert error.code == "memo_stack_mcp.gateway.connect_timeout"
         assert error.retryable is True
         assert error.unknown_commit_state is False
 
@@ -1676,7 +1681,7 @@ def test_http_gateway_marks_429_backpressure_retryable() -> None:
         else:
             raise AssertionError("expected backpressure error")
 
-        assert error.code == "memory_mcp.degraded.backpressure"
+        assert error.code == "memo_stack_mcp.degraded.backpressure"
         assert error.retryable is True
 
     asyncio.run(run())
@@ -1708,7 +1713,7 @@ def test_http_gateway_marks_write_read_timeout_unknown_commit_state() -> None:
         else:
             raise AssertionError("expected timeout error")
 
-        assert error.code == "memory_mcp.gateway.read_timeout"
+        assert error.code == "memo_stack_mcp.gateway.read_timeout"
         assert error.retryable is True
         assert error.unknown_commit_state is True
 
@@ -1741,7 +1746,7 @@ def test_http_gateway_marks_write_body_timeout_unknown_commit_state() -> None:
         else:
             raise AssertionError("expected write timeout error")
 
-        assert error.code == "memory_mcp.gateway.write_timeout"
+        assert error.code == "memo_stack_mcp.gateway.write_timeout"
         assert error.retryable is True
         assert error.unknown_commit_state is True
 
@@ -2007,52 +2012,52 @@ def test_memory_usage_guide_forbids_quoting_excluded_transcript_text() -> None:
 def test_mcp_public_error_taxonomy_is_stable_and_documented() -> None:
     documented = (Path(__file__).resolve().parents[2] / "docs" / "mcp-adapter.md").read_text()
     expected_codes = {
-        "memory_mcp.validation.invalid_input",
-        "memory_mcp.validation.invalid_scope",
-        "memory_mcp.validation.invalid_source_ref",
-        "memory_mcp.validation.input_too_large",
-        "memory_mcp.validation.backend_rejected",
-        "memory_mcp.policy.secret_detected",
-        "memory_mcp.policy.control_characters",
-        "memory_mcp.policy.invisible_characters",
-        "memory_mcp.policy.evidence_required",
-        "memory_mcp.policy.evidence_mismatch",
-        "memory_mcp.policy.write_mode_off",
-        "memory_mcp.policy.delete_mode_off",
-        "memory_mcp.policy.ingest_mode_off",
-        "memory_mcp.policy.ingest_too_large",
-        "memory_mcp.gateway.network_error",
-        "memory_mcp.gateway.connect_timeout",
-        "memory_mcp.gateway.read_timeout",
-        "memory_mcp.gateway.write_timeout",
-        "memory_mcp.gateway.invalid_json",
-        "memory_mcp.gateway.auth_failed",
-        "memory_mcp.gateway.backend_error",
-        "memory_mcp.conflict.version_stale",
-        "memory_mcp.conflict.idempotency_mismatch",
-        "memory_mcp.conflict.same_target_in_batch",
-        "memory_mcp.conflict.requires_review",
-        "memory_mcp.degraded.backpressure",
-        "memory_mcp.internal.unexpected",
+        "memo_stack_mcp.validation.invalid_input",
+        "memo_stack_mcp.validation.invalid_scope",
+        "memo_stack_mcp.validation.invalid_source_ref",
+        "memo_stack_mcp.validation.input_too_large",
+        "memo_stack_mcp.validation.backend_rejected",
+        "memo_stack_mcp.policy.secret_detected",
+        "memo_stack_mcp.policy.control_characters",
+        "memo_stack_mcp.policy.invisible_characters",
+        "memo_stack_mcp.policy.evidence_required",
+        "memo_stack_mcp.policy.evidence_mismatch",
+        "memo_stack_mcp.policy.write_mode_off",
+        "memo_stack_mcp.policy.delete_mode_off",
+        "memo_stack_mcp.policy.ingest_mode_off",
+        "memo_stack_mcp.policy.ingest_too_large",
+        "memo_stack_mcp.gateway.network_error",
+        "memo_stack_mcp.gateway.connect_timeout",
+        "memo_stack_mcp.gateway.read_timeout",
+        "memo_stack_mcp.gateway.write_timeout",
+        "memo_stack_mcp.gateway.invalid_json",
+        "memo_stack_mcp.gateway.auth_failed",
+        "memo_stack_mcp.gateway.backend_error",
+        "memo_stack_mcp.conflict.version_stale",
+        "memo_stack_mcp.conflict.idempotency_mismatch",
+        "memo_stack_mcp.conflict.same_target_in_batch",
+        "memo_stack_mcp.conflict.requires_review",
+        "memo_stack_mcp.degraded.backpressure",
+        "memo_stack_mcp.internal.unexpected",
     }
     mapping_cases = {
-        "network_error": "memory_mcp.gateway.network_error",
-        "invalid_json": "memory_mcp.gateway.invalid_json",
-        "invalid_scope": "memory_mcp.validation.invalid_scope",
-        "writes_disabled": "memory_mcp.policy.write_mode_off",
-        "deletes_disabled": "memory_mcp.policy.delete_mode_off",
-        "memory.backpressure": "memory_mcp.degraded.backpressure",
-        "provider.version_conflict": "memory_mcp.conflict.version_stale",
-        "idempotency conflict": "memory_mcp.conflict.idempotency_mismatch",
-        "raw.sql": "memory_mcp.gateway.backend_error",
+        "network_error": "memo_stack_mcp.gateway.network_error",
+        "invalid_json": "memo_stack_mcp.gateway.invalid_json",
+        "invalid_scope": "memo_stack_mcp.validation.invalid_scope",
+        "writes_disabled": "memo_stack_mcp.policy.write_mode_off",
+        "deletes_disabled": "memo_stack_mcp.policy.delete_mode_off",
+        "memory.backpressure": "memo_stack_mcp.degraded.backpressure",
+        "provider.version_conflict": "memo_stack_mcp.conflict.version_stale",
+        "idempotency conflict": "memo_stack_mcp.conflict.idempotency_mismatch",
+        "raw.sql": "memo_stack_mcp.gateway.backend_error",
     }
 
     for raw_code, expected in mapping_cases.items():
         status = 500 if raw_code == "raw.sql" else 0
         assert public_error_code(raw_code, status_code=status) == expected
-    assert public_error_code("auth", status_code=401) == "memory_mcp.gateway.auth_failed"
-    assert public_error_code("bad", status_code=422) == "memory_mcp.validation.backend_rejected"
-    assert public_error_code("too_many", status_code=429) == "memory_mcp.degraded.backpressure"
+    assert public_error_code("auth", status_code=401) == "memo_stack_mcp.gateway.auth_failed"
+    assert public_error_code("bad", status_code=422) == "memo_stack_mcp.validation.backend_rejected"
+    assert public_error_code("too_many", status_code=429) == "memo_stack_mcp.degraded.backpressure"
 
     for code in expected_codes:
         assert code in documented
@@ -2075,7 +2080,7 @@ def test_mcp_whole_call_failures_are_tool_errors_with_structured_envelope() -> N
 
         assert result.isError is True
         assert result.structuredContent["ok"] is False
-        assert result.structuredContent["error"]["code"] == "memory_mcp.policy.secret_detected"
+        assert result.structuredContent["error"]["code"] == "memo_stack_mcp.policy.secret_detected"
         assert "sk-test" not in result.content[0].text
 
     asyncio.run(run())

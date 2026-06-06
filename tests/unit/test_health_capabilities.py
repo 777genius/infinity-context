@@ -1,9 +1,9 @@
 from pathlib import Path
 
 from fastapi.testclient import TestClient
-from memory_core.domain.entities import SourceRef
-from memory_core.domain.errors import MemoryInfrastructureError, MemoryInvariantError
-from memory_core.ports import (
+from memo_stack_core.domain.entities import SourceRef
+from memo_stack_core.domain.errors import MemoryInfrastructureError, MemoryInvariantError
+from memo_stack_core.ports import (
     CapabilityDescriptor,
     CapabilityMode,
     CapabilityRecallCandidate,
@@ -20,8 +20,8 @@ from memory_core.ports import (
     TemporalFactGraphPort,
     VectorRecallPort,
 )
-from memory_server.config import CaptureMode, DeployProfile, MemoryPolicyMode, Settings
-from memory_server.main import create_app
+from memo_stack_server.config import CaptureMode, DeployProfile, MemoryPolicyMode, Settings
+from memo_stack_server.main import create_app
 
 
 def build_test_client() -> TestClient:
@@ -225,7 +225,7 @@ def test_capability_recall_contract_validates_scope_and_score() -> None:
     candidate = CapabilityRecallCandidate(
         item_id="fact-1",
         item_type="fact",
-        text="Use Memory Core as canonical source of truth.",
+        text="Use Memo Stack Core as canonical source of truth.",
         score=0.91,
         source_refs=(SourceRef(source_type="manual", source_id="note-1"),),
         capability=MemoryCapability.FACT_PROJECTION,

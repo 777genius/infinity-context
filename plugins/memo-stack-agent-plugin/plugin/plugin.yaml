@@ -1,0 +1,10 @@
+api_version: v1
+name: memo-stack-agent-plugin
+version: 0.1.0
+description: Memo Stack universal agent plugin for durable project memory.
+targets:
+  - claude
+  - codex-package
+  - gemini
+  - opencode
+  - cursor

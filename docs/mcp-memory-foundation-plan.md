@@ -1,4 +1,4 @@
-# Memory MCP Foundation Plan
+# Memo Stack MCP Foundation Plan
 
 Status: implementation plan, not final architecture record.
 
@@ -14,7 +14,7 @@ The current Memo Stack already has the important core:
 - Graphiti adapter for temporal fact graph projection;
 - Qdrant + embeddings adapter for vector/document recall;
 - HTTP API and SDK boundary;
-- MCP adapter package, `memory_mcp`, as an outer adapter over HTTP;
+- MCP adapter package, `memo_stack_mcp`, as an outer adapter over HTTP;
 - e2e and quality tests proving create/update/delete/recall paths.
 
 The next layer should make this memory useful for agents in real work:
@@ -96,7 +96,7 @@ user_preference
    Official docs now mark `2025-11-25` as the latest protocol version, and the local environment has `mcp 1.27.1` whose `LATEST_PROTOCOL_VERSION` is `2025-11-25`. The plan should target current SDK behavior, while keeping text fallback for clients that only behave like older structured-output clients.
 
 8. MCP Tasks exist, but they are experimental and should not be used in V1.
-   The local SDK exposes `Tool.execution.taskSupport`. Because this plan does not implement `tasks/get`, `tasks/result`, `tasks/cancel`, task TTLs or task isolation, every Memory MCP tool should either omit task support or explicitly declare task support as forbidden if the SDK API allows it. Do not accidentally advertise task support for document ingest or benchmarks.
+   The local SDK exposes `Tool.execution.taskSupport`. Because this plan does not implement `tasks/get`, `tasks/result`, `tasks/cancel`, task TTLs or task isolation, every Memo Stack MCP tool should either omit task support or explicitly declare task support as forbidden if the SDK API allows it. Do not accidentally advertise task support for document ingest or benchmarks.
 
 9. `resources/listChanged`, `resources/subscribe` and task notifications should not be implied by product behavior.
    Static resource templates are enough for V1. If the SDK advertises list change support automatically, tests should verify we do not manually send dynamic list-change notifications for every fact update. Fact/resource freshness comes from canonical reads, not MCP subscription semantics.
@@ -113,7 +113,7 @@ user_preference
 13. Dependency ranges can silently change protocol behavior.
    The current pyproject allows `mcp>=1.27.1,<2.0.0`. That is fine only if CI captures tool/capability/schema snapshots. For release builds, prefer a lock file or constraints file so MCP protocol behavior does not drift unnoticed.
 
-14. Memory Server backpressure must be visible at MCP level.
+14. Memo Stack Server backpressure must be visible at MCP level.
    The server already has document ingest backpressure responses. MCP should map `memory.backpressure` and provider circuit degradation into safe retryable tool results with no hidden partial write claims.
 
 15. Text normalization is currently weak for adversarial duplicates.
@@ -153,16 +153,16 @@ user_preference
    Current `memory_remember_fact` can synthesize a source id when the caller omits provenance. That is acceptable for compatibility, but the preferred `memory_propose_updates` path must require either an explicit user memory command or concrete evidence fields before direct persistence. Agent-inferred facts without evidence should become suggestions or be rejected.
 
 27. `SourceRef` validation must be stricter at the MCP boundary than the current backend minimum.
-   Memory Core already validates non-negative `char_start`, non-negative `char_end` and `char_end >= char_start`. MCP should add source-type allowlists, source-id redaction/hash rules, quote-preview secret scans and max range sanity before sending data to the backend.
+   Memo Stack Core already validates non-negative `char_start`, non-negative `char_end` and `char_end >= char_start`. MCP should add source-type allowlists, source-id redaction/hash rules, quote-preview secret scans and max range sanity before sending data to the backend.
 
 28. Prompt arguments are untrusted input.
    MCP prompts accept caller-provided arguments. The plan must treat `task`, `task_summary`, `changed_files`, `decisions` and similar prompt inputs as data, not as higher-priority instructions. Prompt argument values need length caps, control-character checks and safe rendering inside clearly delimited sections.
 
 29. Backend readiness should affect MCP policy, not just status text.
-   `memory_status` already calls `/v1/health` and `/v1/capabilities`, and Memory Server exposes diagnostics. V1 should compute a safe readiness summary from these sources and degrade conservatively: reads may continue with warnings, but direct writes should be blocked or downgraded to suggestions when canonical write or projection prerequisites are unhealthy.
+   `memory_status` already calls `/v1/health` and `/v1/capabilities`, and Memo Stack Server exposes diagnostics. V1 should compute a safe readiness summary from these sources and degrade conservatively: reads may continue with warnings, but direct writes should be blocked or downgraded to suggestions when canonical write or projection prerequisites are unhealthy.
 
 30. Error codes need a public MCP taxonomy.
-   The HTTP gateway currently forwards backend error codes and messages. MCP should map backend/provider/SQL/network details into stable public codes, redact messages and preserve retryability. Agents should learn from `memory_mcp.validation.*`, `memory_mcp.policy.*`, `memory_mcp.gateway.*`, `memory_mcp.conflict.*` and `memory_mcp.degraded.*`, not from raw internal errors.
+   The HTTP gateway currently forwards backend error codes and messages. MCP should map backend/provider/SQL/network details into stable public codes, redact messages and preserve retryability. Agents should learn from `memo_stack_mcp.validation.*`, `memo_stack_mcp.policy.*`, `memo_stack_mcp.gateway.*`, `memo_stack_mcp.conflict.*` and `memo_stack_mcp.degraded.*`, not from raw internal errors.
 
 ### 2.2 Threats This Plan Must Handle Locally
 
@@ -287,7 +287,7 @@ Additional MCP research changed the implementation rules in these areas:
 - Resources for read-only fact/scope/status data.
 - Prompts for agent workflows.
 - Unit tests, MCP e2e tests and quality evals.
-- Clean Architecture boundaries inside `memory_mcp`.
+- Clean Architecture boundaries inside `memo_stack_mcp`.
 
 ### 3.2 Explicitly Out Of Scope For This Plan
 
@@ -310,24 +310,24 @@ MCP remains an outer adapter:
 
 ```text
 Agent / MCP client
-  -> memory_mcp.server FastMCP composition root
-  -> memory_mcp.application.MemoryToolService
-  -> memory_mcp.application.PolicyService
-  -> memory_mcp.application ports
-  -> memory_mcp.adapters.HttpMemoryGateway
-  -> memory_server HTTP API
-  -> memory_core use cases
+  -> memo_stack_mcp.server FastMCP composition root
+  -> memo_stack_mcp.application.MemoryToolService
+  -> memo_stack_mcp.application.PolicyService
+  -> memo_stack_mcp.application ports
+  -> memo_stack_mcp.adapters.HttpMemoryGateway
+  -> memo_stack_server HTTP API
+  -> memo_stack_core use cases
   -> adapters: Postgres, Graphiti, Qdrant, embeddings
 ```
 
 Rules:
 
-- `memory_core` must not import MCP.
-- `memory_server` must not import MCP.
-- `memory_mcp.server` only registers tools, resources and prompts.
-- `memory_mcp.application` owns agent-facing workflow logic and policy decisions.
-- `memory_mcp.adapters` owns HTTP transport and error mapping.
-- `memory_mcp.domain` owns MCP-specific value objects and enums.
+- `memo_stack_core` must not import MCP.
+- `memo_stack_server` must not import MCP.
+- `memo_stack_mcp.server` only registers tools, resources and prompts.
+- `memo_stack_mcp.application` owns agent-facing workflow logic and policy decisions.
+- `memo_stack_mcp.adapters` owns HTTP transport and error mapping.
+- `memo_stack_mcp.domain` owns MCP-specific value objects and enums.
 
 ### 4.2 SOLID
 
@@ -335,7 +335,7 @@ Rules:
 - OCP: adding a new policy check should not rewrite tool handlers.
 - LSP: fake gateways used in tests must behave like the real gateway port.
 - ISP: avoid one huge gateway port if unrelated capabilities grow later.
-- DIP: services depend on ports, not `httpx`, FastMCP or Memory Server internals.
+- DIP: services depend on ports, not `httpx`, FastMCP or Memo Stack Server internals.
 
 ### 4.3 Simple DDD
 
@@ -356,8 +356,8 @@ This is not the canonical memory domain. It is the agent-facing adapter domain.
 Existing package:
 
 ```text
-packages/memory_mcp/
-  memory_mcp/
+packages/memo_stack_mcp/
+  memo_stack_mcp/
     server.py
     config.py
     domain/models.py
@@ -495,7 +495,7 @@ Every tool should return the same shape:
   "message": "Memory search completed.",
   "data": {},
   "diagnostics": {
-    "schema_version": "mcp.memory.v1",
+    "schema_version": "mcp.memo_stack.v1",
     "trace_id": "mcp_...",
     "scope": {
       "space_slug": "client-app",
@@ -523,12 +523,12 @@ Error shape:
   "ok": false,
   "message": "Memory write rejected by policy.",
   "error": {
-    "code": "memory_mcp.secret_detected",
+    "code": "memo_stack_mcp.secret_detected",
     "safe_message": "Candidate contains a credential-like value.",
     "retryable": false
   },
   "diagnostics": {
-    "schema_version": "mcp.memory.v1",
+    "schema_version": "mcp.memo_stack.v1",
     "trace_id": "mcp_...",
     "side_effects": []
   }
@@ -568,7 +568,7 @@ class McpToolError(McpPublicModel):
 
 
 class McpDiagnostics(McpPublicModel):
-    schema_version: Literal["mcp.memory.v1"] = "mcp.memory.v1"
+    schema_version: Literal["mcp.memo_stack.v1"] = "mcp.memo_stack.v1"
     trace_id: str
     scope: dict[str, object] | None = None
     policy: dict[str, object] = Field(default_factory=dict)
@@ -618,8 +618,8 @@ Rules:
 
 FastMCP boundary rule:
 
-- `memory_mcp.application` may internally work with dictionaries from HTTP gateway;
-- `memory_mcp.server` handlers should expose typed return annotations such as `-> MemorySearchResponse`;
+- `memo_stack_mcp.application` may internally work with dictionaries from HTTP gateway;
+- `memo_stack_mcp.server` handlers should expose typed return annotations such as `-> MemorySearchResponse`;
 - do not leave public handlers as `-> dict[str, Any]` after Phase 1 unless a test proves FastMCP still emits the exact intended output schema.
 
 If Pydantic generic response models produce unstable FastMCP schemas, use concrete subclasses per tool instead of generic aliases. The schema snapshot is the authority.
@@ -925,7 +925,7 @@ Approx changes: 250-500 lines. Avoid in V1. It increases context pollution and p
 
 ### 6.12 Token And Config Redaction Policy
 
-Local-first still uses secrets when Memory Server auth is enabled.
+Local-first still uses secrets when Memo Stack Server auth is enabled.
 
 Known local inputs:
 
@@ -986,7 +986,7 @@ Stdio MCP servers are often launched by the client, not by our service manager. 
 Rules:
 
 - no canonical memory state lives only in the MCP process;
-- no pending write queue in MCP process; writes go through Memory Server;
+- no pending write queue in MCP process; writes go through Memo Stack Server;
 - no background indexing worker inside MCP process;
 - no process-local dedupe cache required for correctness;
 - `httpx.AsyncClient` reuse is allowed for performance only if shutdown is clean and tests prove no pending tasks leak;
@@ -1005,37 +1005,37 @@ MCP errors should be stable enough for agents and client wrappers to handle with
 Public code prefixes:
 
 ```text
-memory_mcp.validation.*
-memory_mcp.policy.*
-memory_mcp.gateway.*
-memory_mcp.conflict.*
-memory_mcp.degraded.*
-memory_mcp.internal.*
+memo_stack_mcp.validation.*
+memo_stack_mcp.policy.*
+memo_stack_mcp.gateway.*
+memo_stack_mcp.conflict.*
+memo_stack_mcp.degraded.*
+memo_stack_mcp.internal.*
 ```
 
 Examples:
 
 | Code | Retryable | Meaning |
 |---|---:|---|
-| `memory_mcp.validation.invalid_source_ref` | false | source ref is missing, malformed or unsafe |
-| `memory_mcp.validation.input_too_large` | false | input exceeds configured limits |
-| `memory_mcp.policy.secret_detected` | false | candidate or source preview contains a secret-like value |
-| `memory_mcp.policy.evidence_required` | false | direct write lacks explicit user confirmation or evidence |
-| `memory_mcp.policy.write_mode_off` | false | writes are disabled |
-| `memory_mcp.gateway.network_error` | true | backend request failed before a known write commit |
-| `memory_mcp.gateway.invalid_json` | false | backend returned invalid JSON |
-| `memory_mcp.conflict.version_stale` | false | expected fact version is stale |
-| `memory_mcp.conflict.idempotency_mismatch` | false | reused idempotency key with different body |
-| `memory_mcp.degraded.backend_unhealthy` | true | backend health/capability check is degraded |
-| `memory_mcp.internal.unexpected` | false | safe fallback for unexpected adapter error |
+| `memo_stack_mcp.validation.invalid_source_ref` | false | source ref is missing, malformed or unsafe |
+| `memo_stack_mcp.validation.input_too_large` | false | input exceeds configured limits |
+| `memo_stack_mcp.policy.secret_detected` | false | candidate or source preview contains a secret-like value |
+| `memo_stack_mcp.policy.evidence_required` | false | direct write lacks explicit user confirmation or evidence |
+| `memo_stack_mcp.policy.write_mode_off` | false | writes are disabled |
+| `memo_stack_mcp.gateway.network_error` | true | backend request failed before a known write commit |
+| `memo_stack_mcp.gateway.invalid_json` | false | backend returned invalid JSON |
+| `memo_stack_mcp.conflict.version_stale` | false | expected fact version is stale |
+| `memo_stack_mcp.conflict.idempotency_mismatch` | false | reused idempotency key with different body |
+| `memo_stack_mcp.degraded.backend_unhealthy` | true | backend health/capability check is degraded |
+| `memo_stack_mcp.internal.unexpected` | false | safe fallback for unexpected adapter error |
 
 Mapping rules:
 
-- map backend `memory.backpressure` to `memory_mcp.degraded.backpressure`;
-- map backend auth failures to `memory_mcp.gateway.auth_failed` without token echo;
-- map HTTP 409 version/idempotency errors to `memory_mcp.conflict.*`;
-- map unknown 5xx errors to `memory_mcp.gateway.backend_error` with redacted message;
-- map validation and policy failures before gateway calls to `memory_mcp.validation.*` or `memory_mcp.policy.*`;
+- map backend `memory.backpressure` to `memo_stack_mcp.degraded.backpressure`;
+- map backend auth failures to `memo_stack_mcp.gateway.auth_failed` without token echo;
+- map HTTP 409 version/idempotency errors to `memo_stack_mcp.conflict.*`;
+- map unknown 5xx errors to `memo_stack_mcp.gateway.backend_error` with redacted message;
+- map validation and policy failures before gateway calls to `memo_stack_mcp.validation.*` or `memo_stack_mcp.policy.*`;
 - never expose SQL messages, stack traces, provider request ids, auth headers or raw backend bodies in public `message`;
 - keep raw backend code only in redacted `diagnostics.backend.code` when it is safe and useful.
 
@@ -1187,7 +1187,7 @@ Meaning:
 - `off`: document ingest disabled.
 - `small_docs`: only small documents allowed directly.
 - `allowed`: full configured limit allowed.
-- backend backpressure still wins over MCP ingest mode. If Memory Server returns `memory.backpressure`, MCP returns a retryable whole-call failure with no claimed write unless the backend response proves otherwise.
+- backend backpressure still wins over MCP ingest mode. If Memo Stack Server returns `memory.backpressure`, MCP returns a retryable whole-call failure with no claimed write unless the backend response proves otherwise.
 
 Recommended default:
 
@@ -1195,14 +1195,14 @@ Recommended default:
 MEMORY_MCP_INGEST_MODE=small_docs
 ```
 
-### 7.4 Backward Compatibility
+### 7.4 Compatibility Boundary
 
-Existing booleans remain for one phase:
+MCP policy is controlled only through explicit mode envs. Do not add hidden
+boolean aliases for write/delete policy because they make generated plugin
+configs harder to audit:
 
-- `MEMORY_MCP_ALLOW_WRITES=false` maps to `WRITE_MODE=off`.
-- `MEMORY_MCP_ALLOW_DELETES=false` maps to `DELETE_MODE=off`.
-
-New envs should be preferred in docs.
+- `MEMORY_MCP_WRITE_MODE=off` disables writes.
+- `MEMORY_MCP_DELETE_MODE=off` disables destructive forget.
 
 ### 7.5 Source Trust Rules
 
@@ -1243,7 +1243,7 @@ Rules:
   - existing fact id plus expected version for update/forget;
   - concrete evidence quote/source ref for suggestions and review workflows.
 - agent-inferred facts from task summaries default to suggestions.
-- if a candidate says "we decided X" but the source/evidence does not contain X, mark `needs_review` with `memory_mcp.policy.evidence_mismatch`.
+- if a candidate says "we decided X" but the source/evidence does not contain X, mark `needs_review` with `memo_stack_mcp.policy.evidence_mismatch`.
 - if evidence contains prompt-injection text, keep it as source evidence only and do not store it as fact text.
 - if source evidence is too large, store a short redacted preview and a source id, then require document/resource retrieval for full context.
 
@@ -1303,7 +1303,7 @@ Notes:
 
 - For writes, use exactly one write profile at a time.
 - For search, multi-profile is allowed.
-- If `profile_external_refs` has more than one value and operation writes, reject with `memory_mcp.multi_profile_write_ambiguous`.
+- If `profile_external_refs` has more than one value and operation writes, reject with `memo_stack_mcp.multi_profile_write_ambiguous`.
 - `operation=unknown` is allowed. Policy can classify it into suggestion.
 - `target_fact_id` is required for update/forget candidates.
 - `expected_version` is required for direct update candidates.
@@ -1360,7 +1360,7 @@ Implementation rule:
 - expose `labels` as MCP-only metadata;
 - do not expand `MemoryKind` in this plan.
 
-If future product work needs first-class `runbook` or `status`, handle it as a separate Memory Core migration and API contract change.
+If future product work needs first-class `runbook` or `status`, handle it as a separate Memo Stack Core migration and API contract change.
 
 ### 8.5 Output Schema
 
@@ -1384,7 +1384,7 @@ If future product work needs first-class `runbook` or `status`, handle it as a s
     "needs_review": []
   },
   "diagnostics": {
-    "schema_version": "mcp.memory.v1",
+    "schema_version": "mcp.memo_stack.v1",
     "policy": {
       "write_mode": "suggest",
       "decision": "created_suggestions"
@@ -1455,7 +1455,7 @@ Candidate result shape:
 {
   "candidate_index": 0,
   "status": "accepted_suggestion",
-  "decision_code": "memory_mcp.write_mode_suggest",
+  "decision_code": "memo_stack_mcp.write_mode_suggest",
   "fact_id": null,
   "suggestion_id": "sug_123",
   "duplicate_fact_ids": [],
@@ -1495,7 +1495,7 @@ MCP proposal fingerprints are used for dedupe and retry safety. They must be det
 Current local note:
 
 ```text
-memory_core.application.normalize.normalize_text = trim + lowercase + whitespace collapse
+memo_stack_core.application.normalize.normalize_text = trim + lowercase + whitespace collapse
 ```
 
 V1 MCP fingerprint normalization:
@@ -1723,11 +1723,11 @@ Tasks:
 
 ```bash
 .venv/bin/python -m pytest tests/unit/test_mcp_adapter.py -q
-.venv/bin/python -m pytest tests/e2e/test_memory_mcp_e2e.py -q
+.venv/bin/python -m pytest tests/e2e/test_memo_stack_mcp_e2e.py -q
 ```
 
 - Record current tool list from FastMCP if there is an inspector path.
-- Confirm `memory_mcp` still imports without server env.
+- Confirm `memo_stack_mcp` still imports without server env.
 - Confirm no secrets in docs/env examples.
 - Confirm server startup does not print non-protocol text to stdout.
 - Confirm local run examples use absolute project paths and explicit env vars where MCP clients need them.
@@ -1785,14 +1785,7 @@ MEMORY_MCP_INGEST_MODE
 MEMORY_MCP_SMALL_DOC_MAX_CHARS
 ```
 
-3. Keep legacy boolean compatibility:
-
-```text
-MEMORY_MCP_ALLOW_WRITES=false -> write_mode=off
-MEMORY_MCP_ALLOW_DELETES=false -> delete_mode=off
-```
-
-4. Fix tool annotations:
+3. Fix tool annotations:
 
 - `openWorldHint=False` for all memory tools.
 - `destructiveHint=True` only for `memory_forget_fact`.
@@ -1875,13 +1868,13 @@ Acceptance:
 
 ## Phase 2 - Policy Service
 
-Goal: centralize memory write safety without moving canonical logic out of Memory Server.
+Goal: centralize memory write safety without moving canonical logic out of Memo Stack Server.
 
 New files:
 
 ```text
-packages/memory_mcp/memory_mcp/application/policy.py
-packages/memory_mcp/memory_mcp/domain/policy.py
+packages/memo_stack_mcp/memo_stack_mcp/application/policy.py
+packages/memo_stack_mcp/memo_stack_mcp/domain/policy.py
 ```
 
 Core classes:
@@ -2071,7 +2064,7 @@ Approx changes: 900-1800 lines plus provider costs. Better semantic matching in 
 
 **C. Hybrid deterministic now, optional async classifier later**
 🎯 9   🛡️ 9   🧠 5
-Approx changes: 700-1200 lines now. Recommended. V1 policy is deterministic and conservative; later Memory Server can add async classifier/eval without changing MCP contract.
+Approx changes: 700-1200 lines now. Recommended. V1 policy is deterministic and conservative; later Memo Stack Server can add async classifier/eval without changing MCP contract.
 
 Choose C for the architecture, implemented as deterministic-only in this MVP.
 
@@ -2128,7 +2121,7 @@ Tests:
 - direct write without evidence is downgraded to suggestion or `needs_review`;
 - evidence quote with token-like data is rejected before gateway call;
 - source ref range `char_start > char_end` is rejected before gateway call;
-- candidate/evidence mismatch returns `memory_mcp.policy.evidence_mismatch`.
+- candidate/evidence mismatch returns `memo_stack_mcp.policy.evidence_mismatch`.
 
 Acceptance:
 
@@ -2304,7 +2297,7 @@ Unit tests:
 MCP e2e:
 
 ```bash
-.venv/bin/python -m pytest tests/e2e/test_memory_mcp_e2e.py -q
+.venv/bin/python -m pytest tests/e2e/test_memo_stack_mcp_e2e.py -q
 ```
 
 MCP contract tests:
@@ -2320,7 +2313,7 @@ MCP contract tests:
 Full quality gate:
 
 ```bash
-make memory-test-quality
+make memo-stack-test-quality
 ```
 
 New benchmark scenarios:
@@ -2492,7 +2485,7 @@ Do not fail the full gate because a provider-backed benchmark is slow. Fail it o
 | public handler returns loose `dict[str, Any]` | output schema snapshot fails unless explicitly allowed | unit |
 | whole-call backend failure | `ok=false`, retryable when safe, MCP `isError=true` if supported | e2e |
 | partial proposal has unsafe candidate | `ok=true`, `isError=false`, candidate in `unsafe_rejected` | e2e |
-| Memory Server returns `memory.backpressure` | retryable safe tool execution error, no claimed persistence | e2e |
+| Memo Stack Server returns `memory.backpressure` | retryable safe tool execution error, no claimed persistence | e2e |
 | MCP SDK version changes in CI | protocol/schema snapshot requires intentional update | unit/ci |
 | candidate text differs only by line endings/extra spaces | duplicate fingerprint stable | unit |
 | candidate includes bidi override control | reject before gateway call | unit |
@@ -2519,7 +2512,7 @@ Do not fail the full gate because a provider-backed benchmark is slow. Fail it o
 | stdio process restarts between calls | canonical memory behavior unchanged | e2e |
 | process killed during write-class call | next process uses canonical read/idempotency, not local state | e2e |
 | direct write candidate has no evidence and no explicit user confirmation | suggestion or `needs_review`, no direct write | unit/e2e |
-| agent claims "user decided X" but evidence quote does not contain X | `memory_mcp.policy.evidence_mismatch`, review only | eval |
+| agent claims "user decided X" but evidence quote does not contain X | `memo_stack_mcp.policy.evidence_mismatch`, review only | eval |
 | source ref has `char_start > char_end` | reject before gateway call | unit |
 | source ref source id contains absolute path with username | hash/redact or reject before persistence | unit |
 | source ref source id contains token-like value | reject or redact before gateway call | unit |
@@ -2536,42 +2529,42 @@ Do not fail the full gate because a provider-backed benchmark is slow. Fail it o
 Expected changes:
 
 ```text
-packages/memory_mcp/memory_mcp/config.py
+packages/memo_stack_mcp/memo_stack_mcp/config.py
   - add policy mode enums and env parsing
 
-packages/memory_mcp/memory_mcp/domain/models.py
+packages/memo_stack_mcp/memo_stack_mcp/domain/models.py
   - add proposal, candidate, policy and response DTOs
 
-packages/memory_mcp/memory_mcp/application/ports.py
+packages/memo_stack_mcp/memo_stack_mcp/application/ports.py
   - add any gateway methods needed by proposal policy
 
-packages/memory_mcp/memory_mcp/application/policy.py
+packages/memo_stack_mcp/memo_stack_mcp/application/policy.py
   - new policy service
 
-packages/memory_mcp/memory_mcp/application/service.py
+packages/memo_stack_mcp/memo_stack_mcp/application/service.py
   - use policy service
   - add propose updates workflow
   - unify output envelope
 
-packages/memory_mcp/memory_mcp/adapters/http_gateway.py
+packages/memo_stack_mcp/memo_stack_mcp/adapters/http_gateway.py
   - add or normalize methods needed by proposal workflow
   - preserve HTTP-only responsibility
 
-packages/memory_mcp/memory_mcp/server.py
+packages/memo_stack_mcp/memo_stack_mcp/server.py
   - register new tools/resources/prompts
   - fix annotations
 
 tests/unit/test_mcp_adapter.py
   - expand contract/policy tests
 
-tests/e2e/test_memory_mcp_e2e.py
+tests/e2e/test_memo_stack_mcp_e2e.py
   - add workflow e2e
 
 docs/mcp-adapter.md
   - update runbook after implementation
 ```
 
-Do not move Memory Server or Memory Core logic into MCP.
+Do not move Memo Stack Server or Memo Stack Core logic into MCP.
 
 ## 14. Suggested Code Skeletons
 
@@ -2601,16 +2594,16 @@ class MemoryPolicyService:
 
     def evaluate(self, item: PolicyInput) -> PolicyResult:
         if self._secret_scanner.contains_secret(item.text):
-            return PolicyResult.reject("memory_mcp.secret_detected")
+            return PolicyResult.reject("memo_stack_mcp.secret_detected")
         if item.operation == "forget" and self._settings.delete_mode == "off":
-            return PolicyResult.reject("memory_mcp.deletes_disabled")
+            return PolicyResult.reject("memo_stack_mcp.deletes_disabled")
         if self._settings.write_mode == "off":
-            return PolicyResult.reject("memory_mcp.writes_disabled")
+            return PolicyResult.reject("memo_stack_mcp.writes_disabled")
         if self._settings.write_mode == "suggest":
-            return PolicyResult.review("memory_mcp.review_required")
+            return PolicyResult.review("memo_stack_mcp.review_required")
         if self._settings.write_mode == "direct_explicit" and not item.user_confirmed:
-            return PolicyResult.review("memory_mcp.explicit_confirmation_required")
-        return PolicyResult.allow("memory_mcp.allowed")
+            return PolicyResult.review("memo_stack_mcp.explicit_confirmation_required")
+        return PolicyResult.allow("memo_stack_mcp.allowed")
 ```
 
 This skeleton is illustrative. Exact APIs can differ, but the final implementation must preserve:
@@ -2723,8 +2716,8 @@ Compatibility fallback:
 
 Operational rollback:
 
-- revert only `packages/memory_mcp` and MCP docs if needed;
-- do not roll back Memory Core, Memory Server, Graphiti or Qdrant for MCP-only regressions;
+- revert only `packages/memo_stack_mcp` and MCP docs if needed;
+- do not roll back Memo Stack Core, Memo Stack Server, Graphiti or Qdrant for MCP-only regressions;
 - disable writes before debugging if there is any risk of duplicate or unsafe persistence;
 - clear or reject newly created suggestions instead of deleting canonical facts when investigating proposal issues.
 
@@ -2743,19 +2736,19 @@ These assumptions remain intentionally explicit:
 - timeout stage classification depends on what `httpx` exposes from the exception path. If exact stage cannot be proven, default write-class timeouts to `unknown_commit_state=true`;
 - deterministic duplicate/conflict detection will miss some semantic duplicates. This is acceptable in v1 because uncertain cases go to review instead of direct write;
 - Unicode normalization for fingerprints is intentionally conservative. It improves duplicate stability but is not a complete homoglyph defense;
-- suggestion idempotency is not currently guaranteed by the Memory Server API. MCP must dedupe before writing, and backend idempotency can be added later;
-- Memory Core idempotency records currently do not expose a TTL in the inspected value object. Treat reused keys as durable within the database until proven otherwise;
+- suggestion idempotency is not currently guaranteed by the Memo Stack Server API. MCP must dedupe before writing, and backend idempotency can be added later;
+- Memo Stack Core idempotency records currently do not expose a TTL in the inspected value object. Treat reused keys as durable within the database until proven otherwise;
 - document ingest quality depends on the existing Qdrant/embedding/document pipeline. MCP should expose status and safe policy, not reimplement chunking or indexing;
 - fact forget is tombstone plus async projection delete. Graphiti/Qdrant may lag, so canonical filtering is required in MCP search;
 - resource links returned by tools may not appear in resource listing, per MCP schema behavior. Tool outputs must stay actionable without discovery;
-- auth token redaction must happen in MCP even if Memory Server accidentally echoes sensitive input in an error body;
+- auth token redaction must happen in MCP even if Memo Stack Server accidentally echoes sensitive input in an error body;
 - stable `memory_` tool names reduce but do not fully solve client-side tool collision when users configure multiple servers;
 - `token_budget` is an approximation, not a tokenizer guarantee. Hard character/item caps remain the safety boundary;
 - prompt-injection filtering is defense in depth, not proof of safety. Evidence-only labeling and source-trust policy are still required;
 - local-first stdio avoids HTTP session-hijack classes, but a compromised local client can still call tools. Write/delete modes are the practical local safety boundary;
 - no MCP resource subscription freshness guarantee exists in V1. Agents must explicitly refresh reads after writes.
 - evidence requirements reduce hallucinated writes, but they do not prove factual truth. A user can still explicitly ask to store a false fact, and that is a product/review concern, not an MCP adapter truth oracle;
-- Memory Server diagnostic endpoints may evolve. MCP readiness should use `/v1/health` and `/v1/capabilities` as the baseline and treat optional diagnostics as best-effort enrichment;
+- Memo Stack Server diagnostic endpoints may evolve. MCP readiness should use `/v1/health` and `/v1/capabilities` as the baseline and treat optional diagnostics as best-effort enrichment;
 - source-id redaction policy needs a small allowlist/denylist tuned with real client examples. Until then, prefer hashing suspicious source ids over storing raw absolute paths;
 - public error-code taxonomy is an MCP contract. Adding new codes later is allowed, but must be documented and covered by snapshots.
 
@@ -2775,14 +2768,14 @@ Functional:
 Architecture:
 
 - MCP remains outer adapter.
-- No Memory Core dependency on MCP.
+- No Memo Stack Core dependency on MCP.
 - No FastMCP/httpx imports in application policy code.
 - Policy service is unit-testable with fake gateway/scanner.
 
 Quality:
 
 - `tests/unit/test_mcp_adapter.py` covers policy and contract.
-- `tests/e2e/test_memory_mcp_e2e.py` covers full workflow.
+- `tests/e2e/test_memo_stack_mcp_e2e.py` covers full workflow.
 - protocol/capability tests prove current MCP SDK compatibility.
 - schema snapshots cover tool descriptions, server instructions, prompts, annotations, input schemas, output schemas and task-support posture.
 - public handlers expose typed output schemas instead of generic `dict[str, Any]` schemas.
@@ -2800,7 +2793,7 @@ Quality:
 - no critical operational field exists only in `_meta`.
 - token redaction tests prove auth secrets never leak through output, docs, logs or backend error mapping.
 - tool-name snapshots prove no generic aliases were added.
-- `make memory-test-quality` passes.
+- `make memo-stack-test-quality` passes.
 - benchmark reports memory proposal quality metrics.
 
 Docs:
@@ -2912,7 +2905,7 @@ Every phase must satisfy:
 - New behavior is behind config or a narrow workflow until tested.
 - No auth token appears in stdout, stderr, tool output, snapshots or docs.
 - No writes happen in tests unless the fake gateway or isolated e2e stack is used.
-- If a phase fails, rollback touches only `packages/memory_mcp` and MCP docs.
+- If a phase fails, rollback touches only `packages/memo_stack_mcp` and MCP docs.
 
 Do not start the next phase while:
 
@@ -2934,7 +2927,7 @@ Steps:
 
 ```bash
 .venv/bin/python -m pytest tests/unit/test_mcp_adapter.py -q
-.venv/bin/python -m pytest tests/e2e/test_memory_mcp_e2e.py -q
+.venv/bin/python -m pytest tests/e2e/test_memo_stack_mcp_e2e.py -q
 ```
 
 2. Record current `mcp` package version and negotiated protocol version.
@@ -2959,8 +2952,7 @@ Steps:
 1. Add policy mode enums and env parsing:
    - `MEMORY_MCP_WRITE_MODE`;
    - `MEMORY_MCP_DELETE_MODE`;
-   - `MEMORY_MCP_INGEST_MODE`;
-   - legacy `MEMORY_MCP_ALLOW_WRITES` and `MEMORY_MCP_ALLOW_DELETES` mapping.
+   - `MEMORY_MCP_INGEST_MODE`.
 2. Add typed response envelope models:
    - `ok`;
    - `message`;
@@ -3034,7 +3026,7 @@ Goal: centralize local MCP safety decisions.
 
 Steps:
 
-1. Create `memory_mcp.application.policy`.
+1. Create `memo_stack_mcp.application.policy`.
 2. Create pure domain policy DTOs without FastMCP/httpx imports.
 3. Implement checks in order:
    - mode check;
@@ -3203,7 +3195,7 @@ Steps:
 7. Run full quality gate:
 
 ```bash
-make memory-test-quality
+make memo-stack-test-quality
 ```
 
 Exit gate:
@@ -3215,9 +3207,9 @@ Exit gate:
 Real-stack canary status:
 
 - `scripts/clean_full_smoke.py` owns the isolated full-provider canary.
-- `memory-clean-full-smoke` runs HTTP/API checks and MCP checks by default.
-- `memory-clean-full-mcp-smoke` is the explicit manual paid MCP gate.
-- `memory-agent-behavior-bench` is the explicit manual paid real LLM gate.
+- `memo-stack-clean-full-smoke` runs HTTP/API checks and MCP checks by default.
+- `memo-stack-clean-full-mcp-smoke` is the explicit manual paid MCP gate.
+- `memo-stack-agent-behavior-bench` is the explicit manual paid real LLM gate.
 - Paid real LLM gates default `MEMORY_AGENT_BENCH_FAIL_ON_WORKER_ERROR=true`,
   so projection worker failures after mutating MCP tools are hard failures.
 - `MEMORY_CLEAN_SMOKE_SKIP_MCP=true` keeps the historical HTTP/API-only smoke
@@ -3225,12 +3217,12 @@ Real-stack canary status:
 - The MCP canary uses a real stdio MCP client against the isolated Memory
   Server and verifies Graphiti projection, Qdrant document recall, OpenAI
   embeddings readiness, outbox drain, stale/delete hiding and token redaction.
-- `memory-prod-load-canary` extends the same paid/manual full stack with
+- `memo-stack-prod-load-canary` extends the same paid/manual full stack with
   production-like scale, chaos and load checks: concurrent writes, idempotent
   retry races, multi-profile corpus growth, document ingest, auth/validation/
   not-found floods, repeated worker drain, API and stdio MCP retrieval, update,
   delete, provider diagnostics, outbox drain and context latency p95.
-- The prod load canary also covers Memory Server restart continuity,
+- The prod load canary also covers Memo Stack Server restart continuity,
   Qdrant/Neo4j provider restart recovery, provider outage while projection jobs
   are pending, retry drain after providers return, thread-scoped isolation,
   large multi-chunk document recall and stale chunk hiding after document
@@ -3238,20 +3230,20 @@ Real-stack canary status:
 - The free scale/chaos/load e2e gate covers concurrent fact and document
   idempotency, mutation storms with parallel context reads, outbox backpressure
   with cleanup availability, stale outbox lag alerting with worker drain
-  recovery, dead outbox runbook recovery through `memory_server.admin
+  recovery, dead outbox runbook recovery through `memo_stack_server.admin
   replay-outbox`, expired worker lease recovery through the worker CLI, poison
   outbox jobs becoming `dead` with safe diagnostics and no raw payload leak,
-  `memory_server.doctor` degraded output on dead jobs, Memory Server process
+  `memo_stack_server.doctor` degraded output on dead jobs, Memo Stack Server process
   restart continuity with idempotency retry persistence, done outbox compaction
   with payload redaction and continued retrieval, pagination, profile isolation,
   restricted memory hiding and latency p95.
 - The prod load canary is bounded by env maximums and stays out of
-  `make memory-test-quality`, because it requires Docker and paid embeddings/
+  `make memo-stack-test-quality`, because it requires Docker and paid embeddings/
   provider projection work.
 - The agent behavior benchmark extends the same isolated full stack with
   `MEMORY_CLEAN_SMOKE_AGENT_BENCH=true`. It exposes public MCP tools to an
   env-configured OpenAI Responses API model, executes chosen calls through
-  stdio `memory_mcp`, runs worker catch-up after mutating calls and scores
+  stdio `memo_stack_mcp`, runs worker catch-up after mutating calls and scores
   search-before-write, update-vs-duplicate, document routing, supported
   answers, stale/delete hiding, scope isolation and secret safety.
 - The agent behavior benchmark includes minimal host-side repair guardrails:
@@ -3307,7 +3299,7 @@ Use this order inside each phase to keep dependencies clean.
 
 1. `tests/unit/test_mcp_adapter.py`
    Add snapshot helpers and mark current gaps.
-2. `tests/e2e/test_memory_mcp_e2e.py`
+2. `tests/e2e/test_memo_stack_mcp_e2e.py`
    Add startup/list smoke if missing.
 3. `docs/mcp-adapter.md`
    Record current run assumptions only if needed.
@@ -3316,15 +3308,15 @@ Do not change runtime code in M0 unless a test cannot even import because of an 
 
 #### M1 file order
 
-1. `packages/memory_mcp/memory_mcp/domain/models.py`
+1. `packages/memo_stack_mcp/memo_stack_mcp/domain/models.py`
    Add public response/error/diagnostic models first.
-2. `packages/memory_mcp/memory_mcp/config.py`
+2. `packages/memo_stack_mcp/memo_stack_mcp/config.py`
    Add mode enums and env parsing.
-3. `packages/memory_mcp/memory_mcp/application/service.py`
+3. `packages/memo_stack_mcp/memo_stack_mcp/application/service.py`
    Add `_ok`, `_guard`, readiness builder and text fallback through typed models.
-4. `packages/memory_mcp/memory_mcp/adapters/http_gateway.py`
+4. `packages/memo_stack_mcp/memo_stack_mcp/adapters/http_gateway.py`
    Add safe backend error mapping and redaction at adapter boundary.
-5. `packages/memory_mcp/memory_mcp/server.py`
+5. `packages/memo_stack_mcp/memo_stack_mcp/server.py`
    Wire annotations and typed handler return annotations.
 6. Tests and snapshots.
 
@@ -3332,11 +3324,11 @@ Do not add `memory_propose_updates` in M1. M1 is contract hardening only.
 
 #### M2 file order
 
-1. `packages/memory_mcp/memory_mcp/domain/models.py`
+1. `packages/memo_stack_mcp/memo_stack_mcp/domain/models.py`
    Add input DTOs and source-ref DTOs.
-2. `packages/memory_mcp/memory_mcp/application/service.py`
+2. `packages/memo_stack_mcp/memo_stack_mcp/application/service.py`
    Add source sanitizer and budget/limit normalization.
-3. `packages/memory_mcp/memory_mcp/server.py`
+3. `packages/memo_stack_mcp/memo_stack_mcp/server.py`
    Replace loose tool parameters with strict input-compatible shapes where FastMCP allows it.
 4. `tests/unit/test_mcp_adapter.py`
    Add invalid input/source-ref/token-budget tests.
@@ -3345,43 +3337,43 @@ Do not wire policy decisions yet except minimal validation. M2 is shape safety.
 
 #### M3 file order
 
-1. `packages/memory_mcp/memory_mcp/domain/policy.py`
+1. `packages/memo_stack_mcp/memo_stack_mcp/domain/policy.py`
    Add pure policy DTOs and enums.
-2. `packages/memory_mcp/memory_mcp/application/policy.py`
+2. `packages/memo_stack_mcp/memo_stack_mcp/application/policy.py`
    Add deterministic policy service.
-3. `packages/memory_mcp/memory_mcp/application/service.py`
+3. `packages/memo_stack_mcp/memo_stack_mcp/application/service.py`
    Route existing write/delete/ingest methods through policy.
 4. `tests/unit/test_mcp_adapter.py`
    Add policy unit tests with fake gateway.
-5. `tests/e2e/test_memory_mcp_e2e.py`
+5. `tests/e2e/test_memo_stack_mcp_e2e.py`
    Add one guarded write path test.
 
 Do not create new tools in M3. The goal is proving old write paths cannot bypass policy.
 
 #### M4 file order
 
-1. `packages/memory_mcp/memory_mcp/domain/models.py`
+1. `packages/memo_stack_mcp/memo_stack_mcp/domain/models.py`
    Add proposal candidate/result DTOs.
-2. `packages/memory_mcp/memory_mcp/application/policy.py`
+2. `packages/memo_stack_mcp/memo_stack_mcp/application/policy.py`
    Add proposal-specific decisions if needed without changing old policy behavior.
-3. `packages/memory_mcp/memory_mcp/application/service.py`
+3. `packages/memo_stack_mcp/memo_stack_mcp/application/service.py`
    Implement proposal orchestration.
-4. `packages/memory_mcp/memory_mcp/server.py`
+4. `packages/memo_stack_mcp/memo_stack_mcp/server.py`
    Register `memory_propose_updates`.
 5. `tests/unit/test_mcp_adapter.py`
    Add deterministic proposal cases.
-6. `tests/e2e/test_memory_mcp_e2e.py`
+6. `tests/e2e/test_memo_stack_mcp_e2e.py`
    Add fake-gateway proposal lifecycle.
 
 Do not add prompts/resources in M4. Keep the new workflow isolated until it is stable.
 
 #### M5 file order
 
-1. `packages/memory_mcp/memory_mcp/domain/models.py`
+1. `packages/memo_stack_mcp/memo_stack_mcp/domain/models.py`
    Add review action input/result models.
-2. `packages/memory_mcp/memory_mcp/application/service.py`
+2. `packages/memo_stack_mcp/memo_stack_mcp/application/service.py`
    Add consolidated review method.
-3. `packages/memory_mcp/memory_mcp/server.py`
+3. `packages/memo_stack_mcp/memo_stack_mcp/server.py`
    Register `memory_review_suggestion`.
 4. Tests.
 5. Docs.
@@ -3390,13 +3382,13 @@ Keep old review tools as compatibility tools.
 
 #### M6 file order
 
-1. `packages/memory_mcp/memory_mcp/application/service.py`
+1. `packages/memo_stack_mcp/memo_stack_mcp/application/service.py`
    Add bounded read helpers for resources.
-2. `packages/memory_mcp/memory_mcp/server.py`
+2. `packages/memo_stack_mcp/memo_stack_mcp/server.py`
    Register resources first, prompts second.
 3. `tests/unit/test_mcp_adapter.py`
    Add resource URI validation and prompt render tests.
-4. `tests/e2e/test_memory_mcp_e2e.py`
+4. `tests/e2e/test_memo_stack_mcp_e2e.py`
    Add list/read prompts/resources.
 5. Docs.
 
@@ -3404,9 +3396,9 @@ Register prompts after resource tests are green, because prompts are extra promp
 
 #### M7 file order
 
-1. `tests/e2e/test_memory_mcp_e2e.py`
+1. `tests/e2e/test_memo_stack_mcp_e2e.py`
    Complete deterministic stdio/fake-gateway coverage.
-2. `packages/memory_mcp/memory_mcp/bench.py`
+2. `packages/memo_stack_mcp/memo_stack_mcp/bench.py`
    Add benchmark scenarios only after correctness tests pass.
 3. `docs/mcp-adapter.md`
    Update agent usage and local config.
@@ -3439,7 +3431,7 @@ After M0:
 
 ```bash
 .venv/bin/python -m pytest tests/unit/test_mcp_adapter.py -q
-.venv/bin/python -m pytest tests/e2e/test_memory_mcp_e2e.py -q
+.venv/bin/python -m pytest tests/e2e/test_memo_stack_mcp_e2e.py -q
 ```
 
 After M1:
@@ -3464,20 +3456,20 @@ After M4:
 
 ```bash
 .venv/bin/python -m pytest tests/unit/test_mcp_adapter.py -q -k "proposal or policy"
-.venv/bin/python -m pytest tests/e2e/test_memory_mcp_e2e.py -q
+.venv/bin/python -m pytest tests/e2e/test_memo_stack_mcp_e2e.py -q
 ```
 
 After M5 and M6:
 
 ```bash
 .venv/bin/python -m pytest tests/unit/test_mcp_adapter.py -q -k "suggestion or resource or prompt"
-.venv/bin/python -m pytest tests/e2e/test_memory_mcp_e2e.py -q
+.venv/bin/python -m pytest tests/e2e/test_memo_stack_mcp_e2e.py -q
 ```
 
 After M7:
 
 ```bash
-make memory-test-quality
+make memo-stack-test-quality
 ```
 
 If a narrow `-k` selector misses tests because names differ, run the full `tests/unit/test_mcp_adapter.py` file instead of renaming tests just for the selector.

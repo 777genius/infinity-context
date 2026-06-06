@@ -84,15 +84,15 @@ Target boundary:
 ```text
 Client App desktop/backend
   -> HTTP or SDK
-  -> memory_server compatibility routes
-  -> memory_core use cases
+  -> memo_stack_server compatibility routes
+  -> memo_stack_core use cases
   -> Postgres canonical truth + Qdrant/Graphiti derived indexes
 ```
 
 Rules:
 
 - Client App must not import Qdrant/Graphiti provider SDKs;
-- compatibility DTOs stay in `memory_server`, not `memory_core`;
+- compatibility DTOs stay in `memo_stack_server`, not `memo_stack_core`;
 - fallback behavior remains best-effort and non-blocking;
 - active prompt path must keep kill switches;
 - local-only mode must avoid remote memory calls.

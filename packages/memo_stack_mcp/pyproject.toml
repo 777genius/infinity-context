@@ -1,0 +1,12 @@
+[project]
+name = "memo-stack-mcp"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+  "httpx>=0.28.1,<1.0.0",
+  "mcp>=1.27.1,<2.0.0",
+]
+
+[project.scripts]
+memo-stack-mcp = "memo_stack_mcp.server:main"
+memo-stack-mcp-bench = "memo_stack_mcp.bench:main"

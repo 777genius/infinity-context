@@ -14,9 +14,9 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from memory_adapters.postgres.models import MemoryOutboxRow
-from memory_adapters.postgres.unit_of_work import build_async_engine
-from memory_server_harness import run_memory_server
+from memo_stack_adapters.postgres.models import MemoryOutboxRow
+from memo_stack_adapters.postgres.unit_of_work import build_async_engine
+from memo_stack_server_harness import run_memo_stack_server
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -84,7 +84,7 @@ def test_scale_corpus_recall_isolation_update_delete_and_latency_e2e(
     tmp_path: Path,
 ) -> None:
     with (
-        run_memory_server(tmp_path, database_name="scale-corpus.db") as server,
+        run_memo_stack_server(tmp_path, database_name="scale-corpus.db") as server,
         httpx.Client(
             base_url=server.base_url,
             headers={"Authorization": f"Bearer {server.token}"},
@@ -283,7 +283,7 @@ def test_scale_corpus_recall_isolation_update_delete_and_latency_e2e(
 def test_load_concurrent_idempotent_writes_and_optimistic_locking_e2e(
     tmp_path: Path,
 ) -> None:
-    with run_memory_server(tmp_path, database_name="concurrent-load.db") as server:
+    with run_memo_stack_server(tmp_path, database_name="concurrent-load.db") as server:
         marker = f"CONCURRENT_LOAD_{time.time_ns()}"
         space_slug = "concurrent-load-e2e"
         profile_ref = "project-concurrency"
@@ -408,7 +408,7 @@ def test_server_restart_preserves_memory_and_idempotency_filters_e2e(
     idempotency_key = f"{marker}:stable-fact-idempotency"
 
     with (
-        run_memory_server(tmp_path, database_name=database_name) as server,
+        run_memo_stack_server(tmp_path, database_name=database_name) as server,
         httpx.Client(
             base_url=server.base_url,
             headers={"Authorization": f"Bearer {server.token}"},
@@ -494,7 +494,7 @@ def test_server_restart_preserves_memory_and_idempotency_filters_e2e(
         setup_probe.assert_effective(max_p95_ms=3_500.0)
 
     with (
-        run_memory_server(tmp_path, database_name=database_name) as server,
+        run_memo_stack_server(tmp_path, database_name=database_name) as server,
         httpx.Client(
             base_url=server.base_url,
             headers={"Authorization": f"Bearer {server.token}"},
@@ -552,7 +552,7 @@ def test_server_restart_preserves_memory_and_idempotency_filters_e2e(
 
 def test_chaos_invalid_requests_restricted_data_and_recovery_e2e(tmp_path: Path) -> None:
     with (
-        run_memory_server(tmp_path, database_name="chaos-recovery.db") as server,
+        run_memo_stack_server(tmp_path, database_name="chaos-recovery.db") as server,
         httpx.Client(
             base_url=server.base_url,
             headers={"Authorization": f"Bearer {server.token}"},
@@ -679,7 +679,7 @@ def test_chaos_invalid_requests_restricted_data_and_recovery_e2e(tmp_path: Path)
 
 def test_backpressure_keeps_reads_and_cleanup_available_e2e(tmp_path: Path) -> None:
     with (
-        run_memory_server(
+        run_memo_stack_server(
             tmp_path,
             database_name="backpressure-e2e.db",
             extra_env={"MEMORY_OUTBOX_BACKPRESSURE_PENDING_THRESHOLD": "3"},
@@ -791,7 +791,7 @@ def test_backpressure_keeps_reads_and_cleanup_available_e2e(tmp_path: Path) -> N
 
 def test_outbox_lag_alert_and_worker_drain_recovery_e2e(tmp_path: Path) -> None:
     with (
-        run_memory_server(tmp_path, database_name="outbox-lag-e2e.db") as server,
+        run_memo_stack_server(tmp_path, database_name="outbox-lag-e2e.db") as server,
         httpx.Client(
             base_url=server.base_url,
             headers={"Authorization": f"Bearer {server.token}"},
@@ -841,7 +841,7 @@ def test_outbox_lag_alert_and_worker_drain_recovery_e2e(tmp_path: Path) -> None:
             [
                 sys.executable,
                 "-m",
-                "memory_server.worker",
+                "memo_stack_server.worker",
                 "--once",
                 "--limit",
                 "10",
@@ -936,7 +936,7 @@ def test_outbox_lag_alert_and_worker_drain_recovery_e2e(tmp_path: Path) -> None:
 
 def test_worker_cli_recovers_expired_running_outbox_job_e2e(tmp_path: Path) -> None:
     with (
-        run_memory_server(tmp_path, database_name="worker-lease-e2e.db") as server,
+        run_memo_stack_server(tmp_path, database_name="worker-lease-e2e.db") as server,
         httpx.Client(
             base_url=server.base_url,
             headers={"Authorization": f"Bearer {server.token}"},
@@ -962,7 +962,7 @@ def test_worker_cli_recovers_expired_running_outbox_job_e2e(tmp_path: Path) -> N
             [
                 sys.executable,
                 "-m",
-                "memory_server.worker",
+                "memo_stack_server.worker",
                 "--once",
                 "--limit",
                 "10",
@@ -1002,7 +1002,7 @@ def test_worker_cli_recovers_expired_running_outbox_job_e2e(tmp_path: Path) -> N
 
 def test_worker_cli_dead_poison_job_keeps_service_safe_e2e(tmp_path: Path) -> None:
     with (
-        run_memory_server(tmp_path, database_name="worker-poison-e2e.db") as server,
+        run_memo_stack_server(tmp_path, database_name="worker-poison-e2e.db") as server,
         httpx.Client(
             base_url=server.base_url,
             headers={"Authorization": f"Bearer {server.token}"},
@@ -1028,7 +1028,7 @@ def test_worker_cli_dead_poison_job_keeps_service_safe_e2e(tmp_path: Path) -> No
             [
                 sys.executable,
                 "-m",
-                "memory_server.worker",
+                "memo_stack_server.worker",
                 "--once",
                 "--limit",
                 "10",
@@ -1051,7 +1051,7 @@ def test_worker_cli_dead_poison_job_keeps_service_safe_e2e(tmp_path: Path) -> No
             expected_status=200,
         ).json()["data"]
         doctor = subprocess.run(
-            [sys.executable, "-m", "memory_server.doctor"],
+            [sys.executable, "-m", "memo_stack_server.doctor"],
             cwd=PROJECT_ROOT,
             env=server.env,
             capture_output=True,
@@ -1118,7 +1118,7 @@ def test_worker_cli_dead_poison_job_keeps_service_safe_e2e(tmp_path: Path) -> No
 
 def test_admin_cli_replays_dead_outbox_and_recovers_doctor_e2e(tmp_path: Path) -> None:
     with (
-        run_memory_server(tmp_path, database_name="outbox-replay-e2e.db") as server,
+        run_memo_stack_server(tmp_path, database_name="outbox-replay-e2e.db") as server,
         httpx.Client(
             base_url=server.base_url,
             headers={"Authorization": f"Bearer {server.token}"},
@@ -1144,7 +1144,7 @@ def test_admin_cli_replays_dead_outbox_and_recovers_doctor_e2e(tmp_path: Path) -
             expected_status=200,
         ).json()["data"]
         degraded_doctor = subprocess.run(
-            [sys.executable, "-m", "memory_server.doctor"],
+            [sys.executable, "-m", "memo_stack_server.doctor"],
             cwd=PROJECT_ROOT,
             env=server.env,
             capture_output=True,
@@ -1163,7 +1163,7 @@ def test_admin_cli_replays_dead_outbox_and_recovers_doctor_e2e(tmp_path: Path) -
             [
                 sys.executable,
                 "-m",
-                "memory_server.admin",
+                "memo_stack_server.admin",
                 "replay-outbox",
                 "--status",
                 "dead",
@@ -1187,7 +1187,7 @@ def test_admin_cli_replays_dead_outbox_and_recovers_doctor_e2e(tmp_path: Path) -
             [
                 sys.executable,
                 "-m",
-                "memory_server.worker",
+                "memo_stack_server.worker",
                 "--once",
                 "--limit",
                 "10",
@@ -1205,7 +1205,7 @@ def test_admin_cli_replays_dead_outbox_and_recovers_doctor_e2e(tmp_path: Path) -
             expected_status=200,
         ).json()["data"]
         recovered_doctor = subprocess.run(
-            [sys.executable, "-m", "memory_server.doctor"],
+            [sys.executable, "-m", "memo_stack_server.doctor"],
             cwd=PROJECT_ROOT,
             env=server.env,
             capture_output=True,
@@ -1271,7 +1271,7 @@ def test_admin_cli_replays_dead_outbox_and_recovers_doctor_e2e(tmp_path: Path) -
 
 def test_admin_cli_compacts_done_outbox_without_breaking_memory_e2e(tmp_path: Path) -> None:
     with (
-        run_memory_server(tmp_path, database_name="outbox-compaction-e2e.db") as server,
+        run_memo_stack_server(tmp_path, database_name="outbox-compaction-e2e.db") as server,
         httpx.Client(
             base_url=server.base_url,
             headers={"Authorization": f"Bearer {server.token}"},
@@ -1311,7 +1311,7 @@ def test_admin_cli_compacts_done_outbox_without_breaking_memory_e2e(tmp_path: Pa
             [
                 sys.executable,
                 "-m",
-                "memory_server.worker",
+                "memo_stack_server.worker",
                 "--once",
                 "--limit",
                 "50",
@@ -1337,7 +1337,7 @@ def test_admin_cli_compacts_done_outbox_without_breaking_memory_e2e(tmp_path: Pa
             [
                 sys.executable,
                 "-m",
-                "memory_server.admin",
+                "memo_stack_server.admin",
                 "compact-outbox",
                 "--older-than-seconds",
                 "0",
@@ -1360,7 +1360,7 @@ def test_admin_cli_compacts_done_outbox_without_breaking_memory_e2e(tmp_path: Pa
             [
                 sys.executable,
                 "-m",
-                "memory_server.admin",
+                "memo_stack_server.admin",
                 "compact-outbox",
                 "--older-than-seconds",
                 "0",
@@ -1382,7 +1382,7 @@ def test_admin_cli_compacts_done_outbox_without_breaking_memory_e2e(tmp_path: Pa
             [
                 sys.executable,
                 "-m",
-                "memory_server.worker",
+                "memo_stack_server.worker",
                 "--once",
                 "--limit",
                 "50",
@@ -1462,7 +1462,7 @@ def test_admin_cli_compacts_done_outbox_without_breaking_memory_e2e(tmp_path: Pa
 
 
 def test_load_concurrent_document_idempotency_and_cleanup_e2e(tmp_path: Path) -> None:
-    with run_memory_server(tmp_path, database_name="concurrent-docs.db") as server:
+    with run_memo_stack_server(tmp_path, database_name="concurrent-docs.db") as server:
         marker = f"CONCURRENT_DOC_{time.time_ns()}"
         space_slug = "concurrent-document-e2e"
         profile_ref = "project-concurrent-docs"
@@ -1547,7 +1547,7 @@ def test_load_concurrent_document_idempotency_and_cleanup_e2e(tmp_path: Path) ->
 
 def test_context_scale_pagination_and_multi_profile_query_limits_e2e(tmp_path: Path) -> None:
     with (
-        run_memory_server(tmp_path, database_name="pagination-scale.db") as server,
+        run_memo_stack_server(tmp_path, database_name="pagination-scale.db") as server,
         httpx.Client(
             base_url=server.base_url,
             headers={"Authorization": f"Bearer {server.token}"},
@@ -1639,7 +1639,7 @@ def test_context_scale_pagination_and_multi_profile_query_limits_e2e(tmp_path: P
 
 def test_load_parallel_context_reads_during_mutation_storm_e2e(tmp_path: Path) -> None:
     with (
-        run_memory_server(tmp_path, database_name="mutation-storm.db") as server,
+        run_memo_stack_server(tmp_path, database_name="mutation-storm.db") as server,
         httpx.Client(
             base_url=server.base_url,
             headers={"Authorization": f"Bearer {server.token}"},

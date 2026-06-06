@@ -3,9 +3,9 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from fastapi.testclient import TestClient
-from memory_adapters.postgres.models import MemoryOutboxRow
-from memory_server.config import DeployProfile, Settings
-from memory_server.main import create_app
+from memo_stack_adapters.postgres.models import MemoryOutboxRow
+from memo_stack_server.config import DeployProfile, Settings
+from memo_stack_server.main import create_app
 from sqlalchemy.ext.asyncio import AsyncSession
 
 

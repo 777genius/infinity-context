@@ -1,2 +1,0 @@
-runtime: shell
-entrypoint: ./bin/memory-plugin-hook

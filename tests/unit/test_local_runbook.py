@@ -9,138 +9,146 @@ ROOT = Path(__file__).parents[2]
 def test_docker_compose_bootstraps_local_server_before_http() -> None:
     compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
 
-    assert "pg_isready -U memory -d memory" in compose
+    assert "pg_isready -U memo_stack -d memo_stack" in compose
     assert "condition: service_healthy" in compose
-    assert "python -m memory_server.db upgrade" in compose
-    assert "python -m memory_server.admin seed-defaults" in compose
+    assert "python -m memo_stack_server.db upgrade" in compose
+    assert "python -m memo_stack_server.admin seed-defaults" in compose
     assert "http://127.0.0.1:7788/v1/health" in compose
 
 
 def test_makefile_has_one_command_stack_smoke_target() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 
-    assert ".PHONY: memory-stack-smoke" in makefile
-    assert "$(COMPOSE) --profile lite up -d memory_server memory_worker" in makefile
-    assert "memory-test-quality: memory-lint memory-test-all memory-eval" in makefile
-    assert "$(PYTHON) -m memory_server eval run --suite quality-golden" in makefile
+    assert ".PHONY: memo-stack-smoke" in makefile
+    assert "$(COMPOSE) --profile lite up -d memo_stack_server memo_stack_worker" in makefile
+    assert (
+        "memo-stack-test-quality: memo-stack-lint memo-stack-test-all memo-stack-eval"
+        in makefile
+    )
+    assert "$(PYTHON) -m memo_stack_server eval run --suite quality-golden" in makefile
     assert "$(PYTHON) -m pytest tests/e2e" in makefile
     assert "curl -fsS http://127.0.0.1:7788/v1/health" in makefile
-    assert "$(MAKE) memory-smoke" in makefile
+    assert "$(MAKE) memo-stack-api-smoke" in makefile
 
 
 def test_makefile_has_clean_full_mcp_smoke_target() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 
-    assert ".PHONY: memory-clean-full-mcp-smoke" in makefile
-    assert "memory-clean-full-mcp-smoke:" in makefile
+    assert ".PHONY: memo-stack-clean-full-mcp-smoke" in makefile
+    assert "memo-stack-clean-full-mcp-smoke:" in makefile
     assert "MEMORY_CLEAN_SMOKE_SKIP_MCP=false" in makefile
     assert "$(PYTHON) scripts/clean_full_smoke.py" in makefile
 
 
 def test_makefile_has_manual_prod_load_canary_target() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
-    recipe = _make_target_recipe(makefile, "memory-prod-load-canary")
+    recipe = _make_target_recipe(makefile, "memo-stack-prod-load-canary")
 
-    assert ".PHONY: memory-prod-load-canary" in makefile
+    assert ".PHONY: memo-stack-prod-load-canary" in makefile
     assert "MEMORY_CLEAN_SMOKE_PROD_LOAD=true" in "\n".join(recipe)
     assert "MEMORY_CLEAN_SMOKE_SKIP_MCP=false" in "\n".join(recipe)
     assert "MEMORY_OPENAI_API_KEY" in "\n".join(recipe)
-    assert "memory-test-quality: memory-lint memory-test-all memory-eval" in makefile
-    assert "memory-test-quality: memory-prod-load-canary" not in makefile
+    assert (
+        "memo-stack-test-quality: memo-stack-lint memo-stack-test-all memo-stack-eval"
+        in makefile
+    )
+    assert "memo-stack-test-quality: memo-stack-prod-load-canary" not in makefile
 
 
 def test_makefile_has_memory_plugin_gate_target() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 
-    assert ".PHONY: memory-plugin-test" in makefile
+    assert ".PHONY: memo-stack-plugin-test" in makefile
     assert (
-        "memory-plugin-test: memory-plugin-check memory-plugin-validate memory-plugin-e2e"
+        "memo-stack-plugin-test: memo-stack-plugin-check "
+        "memo-stack-plugin-validate memo-stack-plugin-e2e"
         in makefile
     )
-    assert "$(PYTHON) -m pytest tests/e2e/test_memory_agent_plugin_e2e.py -q" in makefile
+    assert "$(PYTHON) -m pytest tests/e2e/test_memo_stack_agent_plugin_e2e.py -q" in makefile
 
 
 def test_makefile_has_prod_confidence_gate_with_cleanup() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
-    recipe = "\n".join(_make_target_recipe(makefile, "memory-prod-confidence"))
+    recipe = "\n".join(_make_target_recipe(makefile, "memo-stack-prod-confidence"))
 
-    assert ".PHONY: memory-prod-confidence" in makefile
-    assert ".PHONY: memory-secret-scan" in makefile
+    assert ".PHONY: memo-stack-prod-confidence" in makefile
+    assert ".PHONY: memo-stack-secret-scan" in makefile
     assert "trap cleanup EXIT INT TERM" in recipe
-    assert "$(MAKE) memory-down" in recipe
-    assert "$(MAKE) memory-plugin-test" in recipe
-    assert "$(MAKE) memory-test-quality" in recipe
-    assert "$(MAKE) memory-agent-install-doctor" in recipe
-    assert "$(MAKE) memory-agent-live-smoke" in recipe
-    assert "$(MAKE) memory-agent-live-smoke-agents" in recipe
+    assert "$(MAKE) memo-stack-down" in recipe
+    assert "$(MAKE) memo-stack-plugin-test" in recipe
+    assert "$(MAKE) memo-stack-test-quality" in recipe
+    assert "$(MAKE) memo-stack-agent-install-doctor" in recipe
+    assert "$(MAKE) memo-stack-agent-live-smoke" in recipe
+    assert "$(MAKE) memo-stack-agent-live-smoke-agents" in recipe
     assert "MEMORY_PROD_CONFIDENCE_POSTGRES_PORT" in recipe
     assert "MEMORY_PROD_CONFIDENCE_SERVER_PORT" in recipe
-    assert "$(MAKE) memory-agent-auth-doctor" in recipe
+    assert "$(MAKE) memo-stack-agent-auth-doctor" in recipe
     assert "git diff --check" in recipe
-    assert "$(MAKE) memory-secret-scan" in recipe
-    assert "memory-full-provider-canary" not in recipe
-    assert "memory-agent-live-smoke-agents-strict" not in recipe
+    assert "$(MAKE) memo-stack-secret-scan" in recipe
+    assert "memo-stack-full-provider-canary" not in recipe
+    assert "memo-stack-agent-live-smoke-agents-strict" not in recipe
 
 
 def test_makefile_has_strict_full_prod_confidence_gate() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
-    recipe = "\n".join(_make_target_recipe(makefile, "memory-prod-confidence-strict"))
+    recipe = "\n".join(_make_target_recipe(makefile, "memo-stack-prod-confidence-strict"))
     preflight_recipe = "\n".join(
-        _make_target_recipe(makefile, "memory-prod-confidence-strict-preflight")
+        _make_target_recipe(makefile, "memo-stack-prod-confidence-strict-preflight")
     )
 
-    assert ".PHONY: memory-prod-confidence-strict" in makefile
-    assert ".PHONY: memory-prod-confidence-full" in makefile
-    assert ".PHONY: memory-prod-confidence-strict-preflight" in makefile
-    assert "memory-prod-confidence-full: memory-prod-confidence-strict" in makefile
+    assert ".PHONY: memo-stack-prod-confidence-strict" in makefile
+    assert ".PHONY: memo-stack-prod-confidence-full" in makefile
+    assert ".PHONY: memo-stack-prod-confidence-strict-preflight" in makefile
+    assert "memo-stack-prod-confidence-full: memo-stack-prod-confidence-strict" in makefile
     assert "trap cleanup EXIT INT TERM" in recipe
-    assert "$(MAKE) memory-prod-confidence-strict-preflight" in recipe
-    assert "$(MAKE) memory-down" in recipe
-    assert "$(MAKE) memory-plugin-test" in recipe
-    assert "$(MAKE) memory-test-quality" in recipe
-    assert "$(MAKE) memory-agent-install-doctor" in recipe
-    assert "$(MAKE) memory-full-provider-canary" in recipe
-    assert "$(MAKE) memory-agent-live-smoke" in recipe
-    assert "$(MAKE) memory-agent-live-smoke-agents-strict" in recipe
+    assert "$(MAKE) memo-stack-prod-confidence-strict-preflight" in recipe
+    assert "$(MAKE) memo-stack-down" in recipe
+    assert "$(MAKE) memo-stack-plugin-test" in recipe
+    assert "$(MAKE) memo-stack-test-quality" in recipe
+    assert "$(MAKE) memo-stack-agent-install-doctor" in recipe
+    assert "$(MAKE) memo-stack-full-provider-canary" in recipe
+    assert "$(MAKE) memo-stack-agent-live-smoke" in recipe
+    assert "$(MAKE) memo-stack-agent-live-smoke-agents-strict" in recipe
     assert "MEMORY_PROD_CONFIDENCE_POSTGRES_PORT" in recipe
     assert "MEMORY_PROD_CONFIDENCE_SERVER_PORT" in recipe
     assert "git diff --check" in recipe
-    assert "$(MAKE) memory-secret-scan" in recipe
+    assert "$(MAKE) memo-stack-secret-scan" in recipe
     assert "MEMORY_OPENAI_API_KEY" in preflight_recipe
     assert "OPENAI_API_KEY" in preflight_recipe
-    assert "$(MAKE) memory-agent-auth-doctor-strict" in preflight_recipe
-    assert "$(MAKE) memory-agent-live-smoke-agents;" not in recipe
-    assert "$(MAKE) memory-agent-auth-doctor;" not in recipe
+    assert "$(MAKE) memo-stack-agent-auth-doctor-strict" in preflight_recipe
+    assert "$(MAKE) memo-stack-agent-live-smoke-agents;" not in recipe
+    assert "$(MAKE) memo-stack-agent-auth-doctor;" not in recipe
 
 
 def test_makefile_has_agent_install_and_full_canary_targets() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 
-    assert ".PHONY: memory-full-provider-canary" in makefile
-    assert "memory-full-provider-canary: memory-clean-full-mcp-smoke" in makefile
-    assert ".PHONY: memory-full-provider-canary-interactive" in makefile
+    assert ".PHONY: memo-stack-full-provider-canary" in makefile
+    assert "memo-stack-full-provider-canary: memo-stack-clean-full-mcp-smoke" in makefile
+    assert ".PHONY: memo-stack-full-provider-canary-interactive" in makefile
     interactive_recipe = "\n".join(
-        _make_target_recipe(makefile, "memory-full-provider-canary-interactive")
+        _make_target_recipe(makefile, "memo-stack-full-provider-canary-interactive")
     )
     assert "stty -echo" in interactive_recipe
     assert "IFS= read -r OPENAI_KEY" in interactive_recipe
     assert "OpenAI key (input hidden)" in interactive_recipe
-    assert "$(MAKE) memory-full-provider-canary" in interactive_recipe
+    assert "$(MAKE) memo-stack-full-provider-canary" in interactive_recipe
     assert "sk-" not in interactive_recipe
-    assert ".PHONY: memory-agent-install-dry-run" in makefile
-    assert ".PHONY: memory-agent-install" in makefile
-    assert ".PHONY: memory-agent-install-doctor" in makefile
-    assert ".PHONY: memory-agent-live-smoke" in makefile
-    assert ".PHONY: memory-agent-live-smoke-agents" in makefile
-    assert ".PHONY: memory-agent-live-smoke-agents-strict" in makefile
-    assert ".PHONY: memory-agent-auth-doctor" in makefile
-    assert ".PHONY: memory-agent-auth-doctor-strict" in makefile
-    assert ".PHONY: memory-agent-auth-repair" in makefile
+    assert ".PHONY: memo-stack-agent-install-dry-run" in makefile
+    assert ".PHONY: memo-stack-agent-install" in makefile
+    assert ".PHONY: memo-stack-agent-install-doctor" in makefile
+    assert ".PHONY: memo-stack-agent-live-smoke" in makefile
+    assert ".PHONY: memo-stack-agent-live-smoke-agents" in makefile
+    assert ".PHONY: memo-stack-agent-live-smoke-agents-strict" in makefile
+    assert ".PHONY: memo-stack-agent-auth-doctor" in makefile
+    assert ".PHONY: memo-stack-agent-auth-doctor-strict" in makefile
+    assert ".PHONY: memo-stack-agent-auth-repair" in makefile
     assert "MEMORY_AGENT_SMOKE_POSTGRES_PORT ?= 55429" in makefile
     assert "MEMORY_AGENT_SMOKE_SERVER_PORT ?= 17788" in makefile
     assert "MEMORY_PROD_CONFIDENCE_POSTGRES_PORT ?= 55431" in makefile
     assert "MEMORY_PROD_CONFIDENCE_SERVER_PORT ?= 17791" in makefile
-    assert "MEMORY_AGENT_INSTALL_TARGETS ?= codex claude gemini opencode cursor" in makefile
+    assert "MEMORY_AGENT_INSTALL_TARGETS ?= codex claude opencode cursor" in makefile
+    assert "MEMORY_AGENT_GEMINI_HOOK_INSTALL_TARGETS ?= gemini" in makefile
     assert "cursor-workspace" not in re.search(
         r"MEMORY_AGENT_INSTALL_TARGETS \?= (?P<targets>.+)",
         makefile,
@@ -154,7 +162,7 @@ def test_makefile_has_agent_install_and_full_canary_targets() -> None:
     assert (
         "MEMORY_POSTGRES_PORT=$${MEMORY_POSTGRES_PORT:-$(MEMORY_AGENT_SMOKE_POSTGRES_PORT)} "
         "MEMORY_SERVER_PORT=$${MEMORY_SERVER_PORT:-$(MEMORY_AGENT_SMOKE_SERVER_PORT)} "
-        "$(MAKE) memory-stack-up-lite"
+        "$(MAKE) memo-stack-up-lite"
     ) in makefile
     assert (
         "MEMORY_MCP_API_URL=$${MEMORY_MCP_API_URL:-http://127.0.0.1:"
@@ -176,13 +184,13 @@ def test_makefile_has_agent_install_and_full_canary_targets() -> None:
     assert "Run this target from an interactive terminal" in makefile
     assert "claude auth login --claudeai" in makefile
     assert "opencode providers login --provider openai" in makefile
-    assert "$(MAKE) memory-agent-auth-doctor-strict" in makefile
+    assert "$(MAKE) memo-stack-agent-auth-doctor-strict" in makefile
 
 
 def test_memory_agent_plugin_wrappers_support_runtime_env_overrides() -> None:
     wrappers = [
-        ROOT / "plugins" / "memory-agent-plugin" / "bin" / "memory-mcp",
-        ROOT / "plugins" / "memory-agent-plugin-cursor-workspace" / "bin" / "memory-mcp",
+        ROOT / "plugins" / "memo-stack-agent-plugin" / "bin" / "memo-stack-mcp",
+        ROOT / "plugins" / "memo-stack-agent-plugin-cursor-workspace" / "bin" / "memo-stack-mcp",
     ]
 
     for wrapper_path in wrappers:
@@ -200,20 +208,20 @@ def test_memory_agent_plugin_wrappers_support_runtime_env_overrides() -> None:
 def test_makefile_has_paid_agent_behavior_benchmark_target() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 
-    assert ".PHONY: memory-agent-behavior-bench" in makefile
-    assert ".PHONY: memory-agent-realistic-bench" in makefile
+    assert ".PHONY: memo-stack-agent-behavior-bench" in makefile
+    assert ".PHONY: memo-stack-agent-realistic-bench" in makefile
     assert "MEMORY_AGENT_BENCH_MODEL" in makefile
     assert "MEMORY_CLEAN_SMOKE_AGENT_BENCH=true" in makefile
     assert "MEMORY_AGENT_BENCH_SCENARIO_SET=realistic" in makefile
     assert "MEMORY_CLEAN_SMOKE_WORKER_TIMEOUT_SECONDS" in makefile
     assert "MEMORY_AGENT_BENCH_LLM_TIMEOUT_SECONDS" in makefile
     assert "MEMORY_AGENT_BENCH_FAIL_ON_WORKER_ERROR" in makefile
-    assert "memory-agent-behavior-bench" not in re.search(
-        r"memory-test-quality: (?P<deps>.+)",
+    assert "memo-stack-agent-behavior-bench" not in re.search(
+        r"memo-stack-test-quality: (?P<deps>.+)",
         makefile,
     ).group("deps")
-    assert "memory-agent-realistic-bench" not in re.search(
-        r"memory-test-quality: (?P<deps>.+)",
+    assert "memo-stack-agent-realistic-bench" not in re.search(
+        r"memo-stack-test-quality: (?P<deps>.+)",
         makefile,
     ).group("deps")
 
@@ -221,11 +229,11 @@ def test_makefile_has_paid_agent_behavior_benchmark_target() -> None:
 def test_makefile_has_auto_memory_eval_quality_gate() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 
-    assert ".PHONY: memory-auto-memory-eval" in makefile
-    assert "$(PYTHON) -m memory_server eval run --suite auto-memory-golden" in makefile
+    assert ".PHONY: memo-stack-auto-memory-eval" in makefile
+    assert "$(PYTHON) -m memo_stack_server eval run --suite auto-memory-golden" in makefile
     assert (
-        "memory-auto-memory-quality: "
-        "memory-capture-test memory-hook-capture-smoke memory-auto-memory-eval"
+        "memo-stack-auto-memory-quality: "
+        "memo-stack-capture-test memo-stack-hook-capture-smoke memo-stack-auto-memory-eval"
     ) in makefile
 
 
@@ -233,10 +241,10 @@ def test_paid_make_targets_do_not_put_openai_keys_in_python_command_line() -> No
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 
     for target in (
-        "memory-clean-full-smoke",
-        "memory-clean-full-mcp-smoke",
-        "memory-agent-behavior-bench",
-        "memory-agent-realistic-bench",
+        "memo-stack-clean-full-smoke",
+        "memo-stack-clean-full-mcp-smoke",
+        "memo-stack-agent-behavior-bench",
+        "memo-stack-agent-realistic-bench",
     ):
         recipe = _make_target_recipe(makefile, target)
         python_lines = [line for line in recipe if "$(PYTHON) scripts/clean_full_smoke.py" in line]
@@ -401,7 +409,7 @@ def test_clean_full_smoke_redacts_explicit_canary_env_without_process_env() -> N
                 "message": (
                     "token=explicit-service-token "
                     "postgresql+asyncpg://memory:secret-db-pass@127.0.0.1/memory "
-                    "neo4j password memorygraph"
+                    "neo4j password memostackgraph"
                 )
             },
             env={
@@ -409,7 +417,7 @@ def test_clean_full_smoke_redacts_explicit_canary_env_without_process_env() -> N
                 "MEMORY_DATABASE_URL": (
                     "postgresql+asyncpg://memory:secret-db-pass@127.0.0.1/memory"
                 ),
-                "MEMORY_GRAPHITI_NEO4J_PASSWORD": "memorygraph",
+                "MEMORY_GRAPHITI_NEO4J_PASSWORD": "memostackgraph",
             },
         ),
         ensure_ascii=False,
@@ -417,7 +425,7 @@ def test_clean_full_smoke_redacts_explicit_canary_env_without_process_env() -> N
 
     assert "explicit-service-token" not in rendered
     assert "secret-db-pass" not in rendered
-    assert "memorygraph" not in rendered
+    assert "memostackgraph" not in rendered
     assert "<redacted>" in rendered
 
 
@@ -634,7 +642,7 @@ def test_clean_full_smoke_mcp_env_does_not_inherit_provider_secrets(monkeypatch)
     assert env["MEMORY_MCP_API_URL"] == "http://127.0.0.1:7788"
     assert env["MEMORY_MCP_AUTH_TOKEN"] == "unit-mcp-token"
     assert env["MEMORY_MCP_REQUEST_TIMEOUT_SECONDS"] == "90"
-    assert "packages/memory_mcp" in env["PYTHONPATH"]
+    assert "packages/memo_stack_mcp" in env["PYTHONPATH"]
     assert "existing-pythonpath" in env["PYTHONPATH"]
     assert "OPENAI_API_KEY" not in env
     assert "MEMORY_OPENAI_API_KEY" not in env
@@ -771,8 +779,8 @@ def test_real_stack_mcp_canary_docs_are_env_based() -> None:
         ]
     )
 
-    assert "memory-clean-full-mcp-smoke" in docs
-    assert "memory-prod-load-canary" in docs
+    assert "memo-stack-clean-full-mcp-smoke" in docs
+    assert "memo-stack-prod-load-canary" in docs
     assert "MEMORY_CLEAN_SMOKE_SKIP_MCP=true" in docs
     assert "--auth-token" not in docs
     assert "local-token" not in docs

@@ -2,7 +2,7 @@ import json
 
 import httpx
 import pytest
-from memory_sdk import MemoryPlatformClient, MemoryPlatformError, MemoryScope, ReadScope
+from memo_stack_sdk import MemoryScope, MemoStackClient, MemoStackError, ReadScope
 
 
 def test_sdk_sends_auth_and_params() -> None:
@@ -13,7 +13,7 @@ def test_sdk_sends_auth_and_params() -> None:
         seen["url"] = str(request.url)
         return httpx.Response(200, json={"data": {"ok": True}})
 
-    client = MemoryPlatformClient(
+    client = MemoStackClient(
         base_url="http://memory.test",
         token="test-token",
         transport=httpx.MockTransport(handler),
@@ -40,7 +40,7 @@ def test_sdk_exposes_process_and_diagnostics_facade_methods() -> None:
         seen.append(f"{request.method} {request.url}")
         return httpx.Response(200, json={"data": {"ok": True}})
 
-    client = MemoryPlatformClient(
+    client = MemoStackClient(
         base_url="http://memory.test",
         token="test-token",
         transport=httpx.MockTransport(handler),
@@ -91,7 +91,7 @@ def test_sdk_exposes_capability_diagnostics_facade() -> None:
             },
         )
 
-    client = MemoryPlatformClient(
+    client = MemoStackClient(
         base_url="http://memory.test",
         transport=httpx.MockTransport(handler),
     )
@@ -129,7 +129,7 @@ def test_sdk_facade_accepts_additive_response_fields() -> None:
             },
         )
 
-    client = MemoryPlatformClient(
+    client = MemoStackClient(
         base_url="http://memory.test",
         token="test-token",
         transport=httpx.MockTransport(handler),
@@ -153,7 +153,7 @@ def test_sdk_process_document_sends_idempotency_key() -> None:
         seen["idempotency_key"] = request.headers.get("idempotency-key")
         return httpx.Response(200, json={"data": {"ok": True}})
 
-    client = MemoryPlatformClient(
+    client = MemoStackClient(
         base_url="http://memory.test",
         token="test-token",
         transport=httpx.MockTransport(handler),
@@ -172,7 +172,7 @@ def test_sdk_exposes_platform_episode_and_thread_memory_methods() -> None:
         seen.append((request.method, request.url.path, body))
         return httpx.Response(200, json={"data": {"ok": True}})
 
-    client = MemoryPlatformClient(
+    client = MemoStackClient(
         base_url="http://memory.test",
         token="test-token",
         transport=httpx.MockTransport(handler),
@@ -227,7 +227,7 @@ def test_sdk_exposes_full_capture_facade_methods() -> None:
         seen.append((request.method, str(request.url), body))
         return httpx.Response(200, json={"data": {"ok": True}})
 
-    client = MemoryPlatformClient(
+    client = MemoStackClient(
         base_url="http://memory.test",
         token="test-token",
         transport=httpx.MockTransport(handler),
@@ -330,7 +330,7 @@ def test_sdk_suggestions_support_external_scope() -> None:
         seen.append((request.method, str(request.url), body))
         return httpx.Response(200, json={"data": {"ok": True}})
 
-    client = MemoryPlatformClient(
+    client = MemoStackClient(
         base_url="http://memory.test",
         token="test-token",
         transport=httpx.MockTransport(handler),
@@ -370,7 +370,7 @@ def test_sdk_context_search_and_documents_support_external_scope() -> None:
         seen.append((request.method, request.url.path, body))
         return httpx.Response(200, json={"data": {"ok": True}})
 
-    client = MemoryPlatformClient(
+    client = MemoStackClient(
         base_url="http://memory.test",
         token="test-token",
         transport=httpx.MockTransport(handler),
@@ -424,7 +424,7 @@ def test_sdk_supports_typed_scope_dtos() -> None:
         seen.append((request.url.path, body))
         return httpx.Response(200, json={"data": {"ok": True}})
 
-    client = MemoryPlatformClient(
+    client = MemoStackClient(
         base_url="http://memory.test",
         token="test-token",
         transport=httpx.MockTransport(handler),
@@ -481,7 +481,7 @@ def test_sdk_remember_fact_sends_classification() -> None:
         seen["body"] = json.loads(request.content.decode("utf-8"))
         return httpx.Response(201, json={"data": {"id": "fact_1"}})
 
-    client = MemoryPlatformClient(
+    client = MemoStackClient(
         base_url="http://memory.test",
         token="test-token",
         transport=httpx.MockTransport(handler),
@@ -512,13 +512,13 @@ def test_sdk_raises_typed_server_error_envelope() -> None:
             },
         )
 
-    client = MemoryPlatformClient(
+    client = MemoStackClient(
         base_url="http://memory.test",
         token="test-token",
         transport=httpx.MockTransport(handler),
     )
 
-    with pytest.raises(MemoryPlatformError) as raised:
+    with pytest.raises(MemoStackError) as raised:
         client.forget_fact("fact_1")
 
     assert raised.value.status_code == 409
@@ -530,13 +530,13 @@ def test_sdk_maps_transport_error_to_retryable_memory_error() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("connection refused", request=request)
 
-    client = MemoryPlatformClient(
+    client = MemoStackClient(
         base_url="http://memory.test",
         token="test-token",
         transport=httpx.MockTransport(handler),
     )
 
-    with pytest.raises(MemoryPlatformError) as raised:
+    with pytest.raises(MemoStackError) as raised:
         client.build_context(
             space_id="space_client_app",
             profile_ids=["profile_default"],

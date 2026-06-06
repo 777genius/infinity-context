@@ -1,0 +1,269 @@
+"""Fact lifecycle API."""
+
+from __future__ import annotations
+
+from typing import Annotated, Any
+
+from fastapi import APIRouter, Depends, Header, Query, Response, status
+from memo_stack_core.application import (
+    FactVersionsQuery,
+    ForgetFactCommand,
+    GetFactQuery,
+    ListFactsQuery,
+    RememberFactCommand,
+    UpdateFactCommand,
+)
+from memo_stack_core.domain.entities import (
+    FactStatus,
+    MemoryFact,
+    MemoryKind,
+    SourceRef,
+)
+from memo_stack_core.domain.errors import MemoryValidationError
+from pydantic import BaseModel, ConfigDict, Field
+
+from memo_stack_server.api.auth import require_service_token
+from memo_stack_server.api.dependencies import get_container
+from memo_stack_server.api.policy import ensure_server_writes_enabled
+from memo_stack_server.api.v1.scope_resolution import (
+    resolve_existing_single_scope,
+    resolve_single_scope,
+)
+from memo_stack_server.composition import Container
+from memo_stack_server.pagination import cursor_datetime, cursor_str, decode_cursor, encode_cursor
+
+router = APIRouter(
+    prefix="/facts",
+    tags=["facts"],
+    dependencies=[Depends(require_service_token)],
+)
+
+
+class SourceRefRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_type: str = Field(min_length=1, max_length=80)
+    source_id: str = Field(min_length=1, max_length=160)
+    chunk_id: str | None = Field(default=None, max_length=160)
+    char_start: int | None = Field(default=None, ge=0)
+    char_end: int | None = Field(default=None, ge=0)
+    quote_preview: str | None = Field(default=None, max_length=240)
+
+
+class RememberFactRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    space_id: str | None = Field(default=None, min_length=1, max_length=80)
+    profile_id: str | None = Field(default=None, min_length=1, max_length=80)
+    thread_id: str | None = Field(default=None, max_length=80)
+    space_slug: str | None = Field(default=None, min_length=1, max_length=160)
+    profile_external_ref: str | None = Field(default=None, min_length=1, max_length=200)
+    thread_external_ref: str | None = Field(default=None, min_length=1, max_length=200)
+    text: str = Field(min_length=1, max_length=4000)
+    kind: str = "note"
+    source_refs: list[SourceRefRequest] = Field(min_length=1)
+    classification: str = Field(default="internal", max_length=40)
+
+
+class UpdateFactRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_version: int = Field(ge=1)
+    text: str = Field(min_length=1, max_length=4000)
+    reason: str = Field(min_length=1, max_length=240)
+    source_refs: list[SourceRefRequest] = Field(min_length=1)
+
+
+def map_source_ref(request: SourceRefRequest) -> SourceRef:
+    return SourceRef(
+        source_type=request.source_type,
+        source_id=request.source_id,
+        chunk_id=request.chunk_id,
+        char_start=request.char_start,
+        char_end=request.char_end,
+        quote_preview=request.quote_preview,
+    )
+
+
+def map_memory_kind(value: str) -> MemoryKind:
+    try:
+        return MemoryKind(value)
+    except ValueError as exc:
+        raise MemoryValidationError(f"Unknown memory kind: {value}") from exc
+
+
+def fact_to_response(fact: MemoryFact, indexing_status: str | None = None) -> dict[str, Any]:
+    body: dict[str, Any] = {
+        "id": str(fact.id),
+        "space_id": str(fact.space_id),
+        "profile_id": str(fact.profile_id),
+        "thread_id": str(fact.thread_id) if fact.thread_id else None,
+        "text": fact.text,
+        "kind": fact.kind.value,
+        "status": fact.status.value,
+        "version": fact.version,
+        "confidence": fact.confidence.value,
+        "trust_level": fact.trust_level.value,
+        "classification": fact.classification,
+        "source_refs": [
+            {
+                "source_type": ref.source_type,
+                "source_id": ref.source_id,
+                "chunk_id": ref.chunk_id,
+                "char_start": ref.char_start,
+                "char_end": ref.char_end,
+                "quote_preview": ref.quote_preview,
+            }
+            for ref in fact.source_refs
+        ],
+        "created_at": fact.created_at.isoformat(),
+        "updated_at": fact.updated_at.isoformat(),
+    }
+    if indexing_status is not None:
+        body["indexing_status"] = indexing_status
+    return body
+
+
+@router.post("", status_code=status.HTTP_201_CREATED)
+async def remember_fact(
+    request: RememberFactRequest,
+    container: Annotated[Container, Depends(get_container)],
+    response: Response,
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+) -> dict[str, Any]:
+    ensure_server_writes_enabled(container)
+    scope = await resolve_single_scope(
+        container,
+        space_id=request.space_id,
+        profile_id=request.profile_id,
+        thread_id=request.thread_id,
+        space_slug=request.space_slug,
+        profile_external_ref=request.profile_external_ref,
+        thread_external_ref=request.thread_external_ref,
+        thread_required=False,
+    )
+    result = await container.remember_fact.execute(
+        RememberFactCommand(
+            space_id=scope.space_id,
+            profile_id=scope.profile_id,
+            thread_id=scope.thread_id,
+            text=request.text,
+            kind=map_memory_kind(request.kind),
+            source_refs=tuple(map_source_ref(ref) for ref in request.source_refs),
+            classification=request.classification,
+            idempotency_key=idempotency_key,
+        )
+    )
+    if result.indexing_status == "already_indexed_or_pending":
+        response.status_code = status.HTTP_200_OK
+    return {"data": fact_to_response(result.fact, result.indexing_status)}
+
+
+@router.get("")
+async def list_facts(
+    container: Annotated[Container, Depends(get_container)],
+    space_id: Annotated[str | None, Query(min_length=1, max_length=80)] = None,
+    profile_id: Annotated[str | None, Query(min_length=1, max_length=80)] = None,
+    space_slug: Annotated[str | None, Query(min_length=1, max_length=160)] = None,
+    profile_external_ref: Annotated[str | None, Query(min_length=1, max_length=200)] = None,
+    thread_id: Annotated[str | None, Query(max_length=80)] = None,
+    thread_external_ref: Annotated[str | None, Query(min_length=1, max_length=200)] = None,
+    status_filter: Annotated[str | None, Query(alias="status", max_length=40)] = "active",
+    limit: Annotated[int, Query(ge=1, le=500)] = 100,
+    cursor: Annotated[str | None, Query(max_length=1000)] = None,
+) -> dict[str, Any]:
+    _validate_fact_status(status_filter)
+    scope = await resolve_existing_single_scope(
+        container,
+        space_id=space_id,
+        profile_id=profile_id,
+        thread_id=thread_id,
+        space_slug=space_slug,
+        profile_external_ref=profile_external_ref,
+        thread_external_ref=thread_external_ref,
+        thread_required=False,
+    )
+    if scope is None:
+        return {"data": [], "next_cursor": None}
+    decoded_cursor = decode_cursor(cursor, kind="facts")
+    result = await container.list_facts.execute(
+        ListFactsQuery(
+            space_id=scope.space_id,
+            profile_id=scope.profile_id,
+            thread_id=scope.thread_id,
+            status=status_filter,
+            limit=limit + 1,
+            cursor_updated_at=cursor_datetime(decoded_cursor, "updated_at"),
+            cursor_id=cursor_str(decoded_cursor, "id"),
+        )
+    )
+    facts = list(result.facts)
+    visible_facts = facts[:limit]
+    next_cursor = None
+    if len(facts) > limit and visible_facts:
+        last = visible_facts[-1]
+        next_cursor = encode_cursor(
+            "facts",
+            updated_at=last.updated_at.isoformat(),
+            id=str(last.id),
+        )
+    return {
+        "data": [fact_to_response(fact) for fact in visible_facts],
+        "next_cursor": next_cursor,
+    }
+
+
+@router.get("/{fact_id}")
+async def get_fact(
+    fact_id: str,
+    container: Annotated[Container, Depends(get_container)],
+) -> dict[str, Any]:
+    result = await container.get_fact.execute(GetFactQuery(fact_id=fact_id))
+    return {"data": fact_to_response(result.fact)}
+
+
+@router.get("/{fact_id}/versions")
+async def list_fact_versions(
+    fact_id: str,
+    container: Annotated[Container, Depends(get_container)],
+) -> dict[str, Any]:
+    result = await container.list_fact_versions.execute(FactVersionsQuery(fact_id=fact_id))
+    return {"data": [fact_to_response(version) for version in result.facts]}
+
+
+@router.patch("/{fact_id}")
+async def update_fact(
+    fact_id: str,
+    request: UpdateFactRequest,
+    container: Annotated[Container, Depends(get_container)],
+) -> dict[str, Any]:
+    ensure_server_writes_enabled(container)
+    result = await container.update_fact.execute(
+        UpdateFactCommand(
+            fact_id=fact_id,
+            expected_version=request.expected_version,
+            text=request.text,
+            reason=request.reason,
+            source_refs=tuple(map_source_ref(ref) for ref in request.source_refs),
+        )
+    )
+    return {"data": fact_to_response(result.fact, result.indexing_status)}
+
+
+@router.delete("/{fact_id}")
+async def forget_fact(
+    fact_id: str,
+    container: Annotated[Container, Depends(get_container)],
+) -> dict[str, Any]:
+    ensure_server_writes_enabled(container)
+    result = await container.forget_fact.execute(ForgetFactCommand(fact_id=fact_id))
+    return {"data": fact_to_response(result.fact, result.indexing_status)}
+
+
+def _validate_fact_status(status_filter: str | None) -> None:
+    if status_filter is None:
+        return
+    try:
+        FactStatus(status_filter)
+    except ValueError as exc:
+        raise MemoryValidationError("Unknown fact status") from exc

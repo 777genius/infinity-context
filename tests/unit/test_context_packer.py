@@ -1,8 +1,8 @@
-from memory_core.application.context_packer import ContextPacker
-from memory_core.application.context_policy import thread_is_visible
-from memory_core.application.context_ranking import dedupe_rank_items
-from memory_core.application.dto import ContextItem
-from memory_core.domain.entities import SourceRef
+from memo_stack_core.application.context_packer import ContextPacker
+from memo_stack_core.application.context_policy import thread_is_visible
+from memo_stack_core.application.context_ranking import dedupe_rank_items
+from memo_stack_core.application.dto import ContextItem
+from memo_stack_core.domain.entities import SourceRef
 
 
 def test_context_packer_keeps_profile_sections_and_caps_chunks_per_source() -> None:
