@@ -82,15 +82,19 @@ memo-stack-quality-evidence-bundle:
 	for report in $${MEMORY_SCORECARD_EXTRA_REPORTS:-}; do set -- "$$@" --extra-report "$$report"; done; \
 	$(PYTHON) scripts/quality_evidence_bundle.py "$$@"
 
+.PHONY: memo-stack-top-evidence-preflight
+memo-stack-top-evidence-preflight:
+	$(PYTHON) -m memo_stack_server.top_evidence_preflight --json
+
 .PHONY: memo-stack-top-evidence-bundle
 memo-stack-top-evidence-bundle:
-	@test -n "$${MEMORY_OPENAI_API_KEY:-$${OPENAI_API_KEY:-}}" || (echo "Set MEMORY_OPENAI_API_KEY or OPENAI_API_KEY before running top evidence bundle."; exit 1)
-	@test -n "$${MEMORY_AGENT_BENCH_MODEL:-}" || (echo "Set MEMORY_AGENT_BENCH_MODEL before running top evidence bundle."; exit 1)
-	@test -n "$${MEMORY_PUBLIC_BENCHMARK_LOCOMO_DATASET:-}" || (echo "Set MEMORY_PUBLIC_BENCHMARK_LOCOMO_DATASET to a representative LoCoMo dataset before running top evidence bundle."; exit 1)
-	@test -n "$${MEMORY_PUBLIC_BENCHMARK_LONGMEMEVAL_DATASET:-}" || (echo "Set MEMORY_PUBLIC_BENCHMARK_LONGMEMEVAL_DATASET to a representative LongMemEval dataset before running top evidence bundle."; exit 1)
 	@set -e; \
+	$(PYTHON) -m memo_stack_server.top_evidence_preflight --json; \
 	evidence_dir="$${MEMORY_QUALITY_EVIDENCE_DIR:-.tmp/memo-stack-top-evidence}"; \
 	external_report="$$evidence_dir/full-provider-agent-public.json"; \
+	expected_git_commit="$$(git rev-parse HEAD)"; \
+	allow_dirty_arg=""; \
+	case "$${MEMORY_QUALITY_EVIDENCE_ALLOW_DIRTY_TOP:-}" in 1|true|yes|on) allow_dirty_arg="--allow-dirty-top-evidence";; esac; \
 	mkdir -p "$$evidence_dir"; \
 	export MEMORY_CLEAN_SMOKE_REPORT_OUT="$$external_report"; \
 	export MEMORY_CLEAN_SMOKE_PUBLIC_BENCHMARK=true; \
@@ -107,6 +111,8 @@ memo-stack-top-evidence-bundle:
 	$(PYTHON) scripts/quality_evidence_bundle.py \
 		--output-dir "$$evidence_dir" \
 		--extra-report "$$external_report" \
+		--expected-git-commit "$$expected_git_commit" \
+		$$allow_dirty_arg \
 		--require-top-evidence
 
 .PHONY: memo-stack-public-benchmark

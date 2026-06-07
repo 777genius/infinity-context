@@ -87,6 +87,24 @@ run only the historical HTTP/API full-provider smoke, set:
 MEMORY_CLEAN_SMOKE_SKIP_MCP=true make memo-stack-clean-full-smoke
 ```
 
+Publishable top-library evidence should use the stricter bundle gate:
+
+```bash
+make memo-stack-top-evidence-preflight
+MEMORY_AGENT_BENCH_MODEL="$MODEL" \
+MEMORY_OPENAI_API_KEY="$KEY" \
+MEMORY_PUBLIC_BENCHMARK_LOCOMO_DATASET=/path/to/locomo.json \
+MEMORY_PUBLIC_BENCHMARK_LONGMEMEVAL_DATASET=/path/to/longmemeval.json \
+make memo-stack-top-evidence-bundle
+```
+
+The preflight fails before Docker/OpenAI work if the worktree is dirty, Docker
+is unavailable, the key/model is missing, representative public datasets are
+missing, `MEMORY_PUBLIC_BENCHMARK_NAME` is not `all`, or the public benchmark is
+configured below 600 cases / 0.902 minimum accuracy. It prints only safe
+diagnostics and never echoes API keys. `MEMORY_QUALITY_EVIDENCE_ALLOW_DIRTY_TOP=true`
+is accepted only for local diagnostics; publishable evidence should stay clean.
+
 Local smoke variables:
 
 ```text
