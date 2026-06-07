@@ -305,6 +305,10 @@ class BuildContextQuery:
     max_facts: int = 20
     max_chunks: int = 30
     include_graph: bool = True
+    category: str | None = None
+    tags_any: tuple[str, ...] = ()
+    tags_all: tuple[str, ...] = ()
+    tags_none: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

@@ -639,6 +639,29 @@ def test_service_search_clamps_budget_and_limits() -> None:
     asyncio.run(run())
 
 
+def test_service_search_passes_taxonomy_filters_when_set() -> None:
+    async def run() -> None:
+        gateway = RecordingGateway()
+        service = MemoryToolService(gateway=gateway, settings=MemoryMcpSettings())
+
+        result = await service.search(
+            query="Graphiti memory",
+            category="Architecture",
+            tags_any=["Graphiti"],
+            tags_all=["Memory"],
+            tags_none=["Redis"],
+        )
+
+        assert result["ok"] is True
+        call = gateway.calls[0][1]
+        assert call["category"] == "architecture"
+        assert call["tags_any"] == ["graphiti"]
+        assert call["tags_all"] == ["memory"]
+        assert call["tags_none"] == ["redis"]
+
+    asyncio.run(run())
+
+
 def test_service_search_reports_rendered_text_truncation() -> None:
     class LongContextGateway(RecordingGateway):
         async def build_context(self, **kwargs: Any) -> dict[str, Any]:
@@ -2059,6 +2082,11 @@ def test_mcp_tool_annotations_are_closed_domain_and_typed() -> None:
         assert "do not quote them back" in search_description
         assert "start with memory_search or memory_get_fact" in search_description
         assert "not a mutating tool" in search_description
+        assert "tag filters" in search_description
+        assert "category" in search.inputSchema["properties"]
+        assert "tags_any" in search.inputSchema["properties"]
+        assert "tags_all" in search.inputSchema["properties"]
+        assert "tags_none" in search.inputSchema["properties"]
         status = next(tool for tool in tools if tool.name == "memory_status")
         status_description = status.description.casefold()
         assert "readiness, policy, or provider diagnostics" in status_description

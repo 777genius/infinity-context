@@ -664,6 +664,10 @@ class PostgresFactRepository(FactRepositoryPort):
         thread_id: str | None,
         query: str,
         limit: int,
+        category: str | None = None,
+        tags_any: tuple[str, ...] = (),
+        tags_all: tuple[str, ...] = (),
+        tags_none: tuple[str, ...] = (),
     ) -> list[MemoryFact]:
         conditions = [
             MemoryFactRow.space_id == space_id,
@@ -672,6 +676,8 @@ class PostgresFactRepository(FactRepositoryPort):
             MemoryFactRow.classification != "restricted",
             _not_expired(MemoryFactRow, self._now),
         ]
+        if category:
+            conditions.append(MemoryFactRow.category == category)
         if thread_id is not None:
             conditions.append(
                 or_(MemoryFactRow.thread_id == thread_id, MemoryFactRow.thread_id.is_(None))
@@ -683,6 +689,17 @@ class PostgresFactRepository(FactRepositoryPort):
             .limit(_retrieval_candidate_limit(limit))
         )
         rows = list((await self._session.execute(statement)).scalars())
+        if tags_any or tags_all or tags_none:
+            rows = [
+                row
+                for row in rows
+                if _tags_match(
+                    row.tags_json or [],
+                    tags_any=tags_any,
+                    tags_all=tags_all,
+                    tags_none=tags_none,
+                )
+            ]
         terms = _terms(query)
         if terms:
             rows = [row for row in rows if _score(row.text, terms) > 0]
@@ -1422,6 +1439,21 @@ def _retrieval_candidate_limit(limit: int) -> int:
 def _not_expired(model: type, now: datetime | None):
     comparable_now = now if now is not None else func.now()
     return or_(model.expires_at.is_(None), model.expires_at > comparable_now)
+
+
+def _tags_match(
+    values: list[str],
+    *,
+    tags_any: tuple[str, ...],
+    tags_all: tuple[str, ...],
+    tags_none: tuple[str, ...],
+) -> bool:
+    tags = set(values)
+    return (
+        (not tags_any or bool(tags.intersection(tags_any)))
+        and (not tags_all or set(tags_all).issubset(tags))
+        and (not tags_none or not tags.intersection(tags_none))
+    )
 
 
 def _source_ref_points_to_deleted_document(

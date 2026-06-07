@@ -661,6 +661,37 @@ def test_sdk_supports_profile_snapshot_export_import() -> None:
     )
 
 
+def test_sdk_sends_search_taxonomy_filters() -> None:
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path
+        seen["body"] = json.loads(request.content.decode("utf-8"))
+        return httpx.Response(200, json={"data": {"items": []}})
+
+    client = MemoStackClient(
+        base_url="http://memory.test",
+        token="test-token",
+        transport=httpx.MockTransport(handler),
+    )
+
+    client.search(
+        space_id="space_client_app",
+        profile_ids=["profile_default"],
+        query="Graphiti memory",
+        category="architecture",
+        tags_any=["graphiti"],
+        tags_all=["memory"],
+        tags_none=["redis"],
+    )
+
+    assert seen["path"] == "/v1/search"
+    assert seen["body"]["category"] == "architecture"
+    assert seen["body"]["tags_any"] == ["graphiti"]
+    assert seen["body"]["tags_all"] == ["memory"]
+    assert seen["body"]["tags_none"] == ["redis"]
+
+
 def test_sdk_raises_typed_server_error_envelope() -> None:
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(

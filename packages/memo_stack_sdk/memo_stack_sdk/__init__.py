@@ -586,6 +586,10 @@ class MemoStackClient:
         token_budget: int = 1800,
         max_facts: int = 20,
         max_chunks: int = 30,
+        category: str | None = None,
+        tags_any: list[str] | None = None,
+        tags_all: list[str] | None = None,
+        tags_none: list[str] | None = None,
     ) -> dict[str, Any]:
         scope_payload = read_scope.to_payload() if read_scope is not None else None
         return self._request(
@@ -604,6 +608,10 @@ class MemoStackClient:
                 token_budget=token_budget,
                 max_facts=max_facts,
                 max_chunks=max_chunks,
+                category=category,
+                tags_any=tags_any,
+                tags_all=tags_all,
+                tags_none=tags_none,
             ),
         )
 
@@ -622,6 +630,10 @@ class MemoStackClient:
         token_budget: int = 1800,
         max_facts: int = 20,
         max_chunks: int = 30,
+        category: str | None = None,
+        tags_any: list[str] | None = None,
+        tags_all: list[str] | None = None,
+        tags_none: list[str] | None = None,
     ) -> dict[str, Any]:
         scope_payload = read_scope.to_payload() if read_scope is not None else None
         return self._request(
@@ -640,6 +652,10 @@ class MemoStackClient:
                 token_budget=token_budget,
                 max_facts=max_facts,
                 max_chunks=max_chunks,
+                category=category,
+                tags_any=tags_any,
+                tags_all=tags_all,
+                tags_none=tags_none,
             ),
         )
 

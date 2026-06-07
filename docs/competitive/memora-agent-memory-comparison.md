@@ -106,7 +106,7 @@ make memo-stack-compare-memora
 | Remember durable coding facts | 9.1 | 9.0 | Tie |
 | Update facts without stale answers | 9.2 | 8.1 | Memo Stack |
 | Forget/delete and review-gated control | 9.1 | 7.8 | Memo Stack |
-| Retrieve the right facts for a coding agent | 9.3 | 9.0 | Memo Stack |
+| Retrieve the right facts for a coding agent | 9.4 | 9.0 | Memo Stack |
 | Large documents and architecture notes | 9.4 | 9.1 | Memo Stack |
 | Graph relationships and temporal context | 9.2 | 8.4 | Memo Stack |
 | Agent hooks, plugins and real agent ergonomics | 8.9 | 7.8 | Memo Stack |
@@ -116,7 +116,7 @@ make memo-stack-compare-memora
 
 Weighted total:
 
-- Memo Stack: 9.16
+- Memo Stack: 9.17
 - Memora: 8.19
 
 ## Honest conclusion
@@ -138,7 +138,8 @@ response returns a fragment summary. Cognee/Qdrant remain the stronger
 replaceable RAG path. Memo Stack also exposes portable canonical graph export
 for facts, documents, typed fragments and evidence links. Canonical facts now
 carry category/tags/TTL and expired active facts are hidden from active
-list/context/export surfaces while staying auditable by direct id. Profile
+list/context/export surfaces while staying auditable by direct id. Context/search
+now support category plus tags_any/tags_all/tags_none filters for canonical facts. Profile
 snapshot export/import is available through HTTP API, SDK and MCP with dry-run
 and explicit confirmation gates. Memora still has more polished local graph UI.
 

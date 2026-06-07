@@ -20,6 +20,10 @@ class MemoryGatewayPort(Protocol):
         token_budget: int,
         max_facts: int,
         max_chunks: int,
+        category: str | None = None,
+        tags_any: list[str] | None = None,
+        tags_all: list[str] | None = None,
+        tags_none: list[str] | None = None,
     ) -> dict[str, Any]: ...
 
     async def build_digest(

@@ -66,6 +66,10 @@ class CanonicalContextCollector:
                 thread_id=str(query.thread_id) if query.thread_id else None,
                 query=query.query,
                 limit=query.max_facts,
+                category=query.category,
+                tags_any=query.tags_any,
+                tags_all=query.tags_all,
+                tags_none=query.tags_none,
             )
             keyword_chunks = await uow.chunks.keyword_search(
                 space_id=str(query.space_id),

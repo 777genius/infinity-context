@@ -171,3 +171,52 @@ def test_expired_active_fact_is_hidden_from_active_memory_surfaces(tmp_path: Pat
     assert exported.json()["data"]["counts"]["facts"] == 0
     assert direct.status_code == 200
     assert direct.json()["data"]["id"] == fact_id
+
+
+def test_search_filters_active_facts_by_category_and_tags(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        for text, category, tags in (
+            (
+                "FILTERED_TAXONOMY_MARKER: Graphiti memory owns temporal facts.",
+                "architecture",
+                ["graphiti", "memory"],
+            ),
+            (
+                "FILTERED_TAXONOMY_MARKER: Redis memory cache is unrelated.",
+                "debug_notes",
+                ["redis"],
+            ),
+        ):
+            client.post(
+                "/v1/facts",
+                json={
+                    "space_id": "space_client_app",
+                    "profile_id": "profile_default",
+                    "text": text,
+                    "kind": "note",
+                    "source_refs": [{"source_type": "manual", "source_id": text[:16]}],
+                    "category": category,
+                    "tags": tags,
+                },
+                headers=auth_headers(),
+            )
+        filtered = client.post(
+            "/v1/search",
+            json={
+                "space_id": "space_client_app",
+                "profile_ids": ["profile_default"],
+                "query": "FILTERED_TAXONOMY_MARKER memory",
+                "max_facts": 10,
+                "max_chunks": 0,
+                "category": "Architecture",
+                "tags_all": ["Memory"],
+                "tags_none": ["redis"],
+            },
+            headers=auth_headers(),
+        )
+
+    assert filtered.status_code == 200
+    items = filtered.json()["data"]["items"]
+    assert [item["text"] for item in items] == [
+        "FILTERED_TAXONOMY_MARKER: Graphiti memory owns temporal facts."
+    ]

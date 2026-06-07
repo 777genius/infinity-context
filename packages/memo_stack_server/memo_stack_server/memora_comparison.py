@@ -125,12 +125,12 @@ DIMENSIONS: tuple[Dimension, ...] = (
         id="retrieval_and_digest_quality",
         label="Retrieve the right facts for a coding agent",
         weight=0.14,
-        memo_stack_score=9.3,
+        memo_stack_score=9.4,
         memora_score=9.0,
         memo_stack_rationale=(
             "Context API, memory_search, memory_digest, ranking, token packing "
-            "canonical category/tag filters, TTL hiding and graph/vector adapters "
-            "are covered by deterministic gates."
+            "canonical category plus tags_any/tags_all/tags_none filters, TTL hiding "
+            "and graph/vector adapters are covered by deterministic gates."
         ),
         memora_rationale=(
             "Memora has hybrid search, semantic search, memory_digest, related "

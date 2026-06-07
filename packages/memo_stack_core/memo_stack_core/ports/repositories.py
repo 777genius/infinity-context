@@ -114,6 +114,10 @@ class FactRepositoryPort(Protocol):
         thread_id: str | None,
         query: str,
         limit: int,
+        category: str | None = None,
+        tags_any: tuple[str, ...] = (),
+        tags_all: tuple[str, ...] = (),
+        tags_none: tuple[str, ...] = (),
     ) -> list[MemoryFact]:
         """Find active facts for prompt context."""
 

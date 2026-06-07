@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from time import perf_counter
 from typing import Annotated, Any
 
@@ -35,6 +36,10 @@ class ContextRequest(BaseModel):
     token_budget: int = Field(default=1800, ge=64, le=16000)
     max_facts: int = Field(default=20, ge=0, le=100)
     max_chunks: int = Field(default=30, ge=0, le=200)
+    category: str | None = Field(default=None, max_length=80)
+    tags_any: list[str] = Field(default_factory=list, max_length=10)
+    tags_all: list[str] = Field(default_factory=list, max_length=10)
+    tags_none: list[str] = Field(default_factory=list, max_length=10)
 
 
 def context_item_to_response(item) -> dict[str, Any]:
@@ -114,6 +119,10 @@ async def build_context(
             max_rendered_chars=container.settings.max_context_chars,
             max_facts=request.max_facts,
             max_chunks=request.max_chunks,
+            category=_normalize_label(request.category),
+            tags_any=_normalize_tags(request.tags_any),
+            tags_all=_normalize_tags(request.tags_all),
+            tags_none=_normalize_tags(request.tags_none),
         )
     )
     response = {
@@ -195,6 +204,10 @@ async def search_memory(
             max_rendered_chars=container.settings.max_context_chars,
             max_facts=request.max_facts,
             max_chunks=request.max_chunks,
+            category=_normalize_label(request.category),
+            tags_any=_normalize_tags(request.tags_any),
+            tags_all=_normalize_tags(request.tags_all),
+            tags_none=_normalize_tags(request.tags_none),
         )
     )
     response = {
@@ -270,6 +283,25 @@ def _empty_search_response(
 
 def _elapsed_ms(started: float) -> float:
     return (perf_counter() - started) * 1000
+
+
+_LABEL_RE = re.compile(r"[^a-z0-9_-]+")
+
+
+def _normalize_label(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = _LABEL_RE.sub("_", value.strip().lower()).strip("_-")
+    return normalized or None
+
+
+def _normalize_tags(values: list[str]) -> tuple[str, ...]:
+    tags: list[str] = []
+    for value in values:
+        normalized = _normalize_label(value)
+        if normalized and normalized not in tags:
+            tags.append(normalized[:48].rstrip("_-"))
+    return tuple(tag for tag in tags if tag)
 
 
 def _trace_scope(scope) -> dict[str, object]:

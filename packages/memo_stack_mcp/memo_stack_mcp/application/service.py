@@ -213,6 +213,10 @@ class MemoryToolService:
         token_budget: int = 1800,
         max_facts: int = 12,
         max_chunks: int = 12,
+        category: str | None = None,
+        tags_any: list[str] | None = None,
+        tags_all: list[str] | None = None,
+        tags_none: list[str] | None = None,
     ) -> dict[str, Any]:
         async def action() -> dict[str, Any]:
             if contains_sensitive_value(query):
@@ -247,13 +251,26 @@ class MemoryToolService:
                 profile_external_refs=profile_external_refs,
                 thread_external_ref=thread_external_ref,
             )
-            payload = await self._gateway.build_context(
-                scope=scope,
-                query=query,
-                token_budget=effective_token_budget,
-                max_facts=effective_max_facts,
-                max_chunks=effective_max_chunks,
-            )
+            normalized_category = _normalize_optional_label(category)
+            normalized_tags_any = _normalize_tool_tags(tags_any or [])
+            normalized_tags_all = _normalize_tool_tags(tags_all or [])
+            normalized_tags_none = _normalize_tool_tags(tags_none or [])
+            context_kwargs: dict[str, Any] = {
+                "scope": scope,
+                "query": query,
+                "token_budget": effective_token_budget,
+                "max_facts": effective_max_facts,
+                "max_chunks": effective_max_chunks,
+            }
+            if normalized_category is not None:
+                context_kwargs["category"] = normalized_category
+            if normalized_tags_any:
+                context_kwargs["tags_any"] = normalized_tags_any
+            if normalized_tags_all:
+                context_kwargs["tags_all"] = normalized_tags_all
+            if normalized_tags_none:
+                context_kwargs["tags_none"] = normalized_tags_none
+            payload = await self._gateway.build_context(**context_kwargs)
             data = payload.get("data", {})
             if isinstance(data, list):
                 data = {"items": data}
@@ -269,6 +286,15 @@ class MemoryToolService:
             data.setdefault("effective_max_facts", effective_max_facts)
             data.setdefault("requested_max_chunks", max_chunks)
             data.setdefault("effective_max_chunks", effective_max_chunks)
+            data.setdefault(
+                "filters",
+                {
+                    "category": normalized_category,
+                    "tags_any": normalized_tags_any,
+                    "tags_all": normalized_tags_all,
+                    "tags_none": normalized_tags_none,
+                },
+            )
             original_rendered_text = str(data.get("rendered_text") or "")
             rendered_text = self._truncate(original_rendered_text)
             rendered_text_truncated = (

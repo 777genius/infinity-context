@@ -27,6 +27,7 @@ def is_graph_fact_visible(
         and fact.status.value == "active"
         and thread_is_visible(fact.thread_id, query.thread_id)
         and not fact_is_expired(fact, now=now)
+        and fact_matches_taxonomy(fact, query=query)
     )
 
 
@@ -55,3 +56,13 @@ def fact_is_expired(fact: MemoryFact, *, now: datetime | None = None) -> bool:
     elif comparable_expires_at.tzinfo is not None and comparable_now.tzinfo is None:
         comparable_now = comparable_now.replace(tzinfo=comparable_expires_at.tzinfo)
     return comparable_expires_at <= comparable_now
+
+
+def fact_matches_taxonomy(fact: MemoryFact, *, query: BuildContextQuery) -> bool:
+    fact_tags = set(fact.tags)
+    return (
+        (query.category is None or fact.category == query.category)
+        and (not query.tags_any or bool(fact_tags.intersection(query.tags_any)))
+        and (not query.tags_all or set(query.tags_all).issubset(fact_tags))
+        and (not query.tags_none or not fact_tags.intersection(query.tags_none))
+    )

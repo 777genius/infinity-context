@@ -67,6 +67,10 @@ def context_body(
     token_budget: int,
     max_facts: int,
     max_chunks: int,
+    category: str | None = None,
+    tags_any: list[str] | None = None,
+    tags_all: list[str] | None = None,
+    tags_none: list[str] | None = None,
 ) -> dict[str, Any]:
     payload = scope_payload or context_scope_payload(
         space_id=space_id,
@@ -77,13 +81,19 @@ def context_body(
         profile_external_refs=profile_external_refs,
         thread_external_ref=thread_external_ref,
     )
-    return {
-        **payload,
-        "query": query,
-        "token_budget": token_budget,
-        "max_facts": max_facts,
-        "max_chunks": max_chunks,
-    }
+    return without_none(
+        {
+            **payload,
+            "query": query,
+            "token_budget": token_budget,
+            "max_facts": max_facts,
+            "max_chunks": max_chunks,
+            "category": category,
+            "tags_any": tags_any or None,
+            "tags_all": tags_all or None,
+            "tags_none": tags_none or None,
+        }
+    )
 
 
 def context_scope_body(
