@@ -53,6 +53,7 @@ def test_sdk_exposes_process_and_diagnostics_facade_methods() -> None:
         cursor="fact_cursor",
     )
     client.get_fact("fact_1")
+    client.get_related_facts("fact_1", limit=7, include_other_threads=True)
     client.list_fact_versions("fact_1")
     client.list_document_chunks("doc_1", limit=5, cursor="chunk_cursor")
     client.process_document("doc_1")
@@ -62,6 +63,7 @@ def test_sdk_exposes_process_and_diagnostics_facade_methods() -> None:
     assert seen == [
         "GET http://memory.test/v1/facts?space_id=space_client_app&profile_id=profile_default&limit=10&status=active&cursor=fact_cursor",
         "GET http://memory.test/v1/facts/fact_1",
+        "GET http://memory.test/v1/facts/fact_1/related?limit=7&include_other_threads=true",
         "GET http://memory.test/v1/facts/fact_1/versions",
         "GET http://memory.test/v1/documents/doc_1/chunks?limit=5&cursor=chunk_cursor",
         "POST http://memory.test/v1/documents/doc_1/process",

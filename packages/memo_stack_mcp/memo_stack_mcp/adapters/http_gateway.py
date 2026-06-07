@@ -281,6 +281,22 @@ class HttpMemoryGateway:
     async def get_fact(self, *, fact_id: str) -> dict[str, Any]:
         return await self._request("GET", f"/v1/facts/{fact_id}")
 
+    async def get_related_facts(
+        self,
+        *,
+        fact_id: str,
+        limit: int,
+        include_other_threads: bool,
+    ) -> dict[str, Any]:
+        return await self._request(
+            "GET",
+            f"/v1/facts/{fact_id}/related",
+            params={
+                "limit": limit,
+                "include_other_threads": include_other_threads,
+            },
+        )
+
     async def list_fact_versions(self, *, fact_id: str) -> dict[str, Any]:
         return await self._request("GET", f"/v1/facts/{fact_id}/versions")
 

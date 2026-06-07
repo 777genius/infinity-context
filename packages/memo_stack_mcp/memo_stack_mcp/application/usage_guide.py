@@ -17,6 +17,8 @@ MEMORY_USAGE_GUIDE = """Memo Stack MCP usage guide:
   defaults to dry-run and real writes require explicit confirmation.
 - If the user asks to search, check, look up, or compare memory, call memory_search before
   answering. Do not answer with an intent to search without actually using the tool.
+- Use memory_related_facts after memory_search or memory_get_fact when auditing adjacent
+  decisions, resolving update/delete targets, or summarizing related project memory.
 - Use memory_status only when readiness, policy, or provider diagnostics are unknown or requested.
   For normal remember/search/update/forget tasks, start with the task-relevant memory tool.
 - Store only stable facts, decisions, constraints, preferences, and durable project context.

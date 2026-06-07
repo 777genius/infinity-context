@@ -10,6 +10,8 @@ from memo_stack_core.application import (
     ForgetFactCommand,
     GetFactQuery,
     ListFactsQuery,
+    RelatedFactItem,
+    RelatedFactsQuery,
     RememberFactCommand,
     UpdateFactCommand,
 )
@@ -131,6 +133,13 @@ def fact_to_response(fact: MemoryFact, indexing_status: str | None = None) -> di
     return body
 
 
+def related_fact_to_response(item: RelatedFactItem) -> dict[str, Any]:
+    body = fact_to_response(item.fact)
+    body["score"] = item.score
+    body["relation_reasons"] = list(item.relation_reasons)
+    return body
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def remember_fact(
     request: RememberFactRequest,
@@ -243,6 +252,29 @@ async def list_fact_versions(
 ) -> dict[str, Any]:
     result = await container.list_fact_versions.execute(FactVersionsQuery(fact_id=fact_id))
     return {"data": [fact_to_response(version) for version in result.facts]}
+
+
+@router.get("/{fact_id}/related")
+async def related_facts(
+    fact_id: str,
+    container: Annotated[Container, Depends(get_container)],
+    limit: Annotated[int, Query(ge=1, le=50)] = 10,
+    include_other_threads: bool = False,
+) -> dict[str, Any]:
+    result = await container.related_facts.execute(
+        RelatedFactsQuery(
+            fact_id=fact_id,
+            limit=limit,
+            include_other_threads=include_other_threads,
+        )
+    )
+    return {
+        "data": {
+            "target": fact_to_response(result.target),
+            "items": [related_fact_to_response(item) for item in result.items],
+            "diagnostics": result.diagnostics,
+        }
+    }
 
 
 @router.patch("/{fact_id}")

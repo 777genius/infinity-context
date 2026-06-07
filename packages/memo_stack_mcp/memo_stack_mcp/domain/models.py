@@ -128,6 +128,7 @@ class MemoryRecordData(McpDataModel):
     source_refs: list[MemorySourceRefData] = Field(default_factory=list)
     resource_uri: str | None = None
     indexing_status: str | None = None
+    relation_reasons: list[str] = Field(default_factory=list)
     created_at: str | None = None
     updated_at: str | None = None
     deleted_at: str | None = None
@@ -494,6 +495,12 @@ class MemoryFactListData(McpDataModel):
     truncated: bool | None = None
 
 
+class MemoryRelatedFactsData(McpDataModel):
+    target: MemoryRecordData | None = None
+    items: list[MemoryRecordData] = Field(default_factory=list)
+    diagnostics: dict[str, JsonScalar] = Field(default_factory=dict)
+
+
 class MemoryFactMutationData(MemoryRecordData):
     fact: MemoryRecordData | None = None
     suggestion: MemoryRecordData | None = None
@@ -615,6 +622,10 @@ class MemoryFactResponse(McpToolResponse):
 
 class MemoryFactListResponse(McpToolResponse):
     data: MemoryFactListData | None = None
+
+
+class MemoryRelatedFactsResponse(McpToolResponse):
+    data: MemoryRelatedFactsData | None = None
 
 
 class MemoryFactMutationResponse(McpToolResponse):

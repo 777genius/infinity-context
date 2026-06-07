@@ -2037,6 +2037,7 @@ def test_mcp_tool_annotations_are_closed_domain_and_typed() -> None:
             "memory_remember_fact",
             "memory_list_facts",
             "memory_get_fact",
+            "memory_related_facts",
             "memory_list_fact_versions",
             "memory_update_fact",
             "memory_forget_fact",
@@ -2097,6 +2098,9 @@ def test_mcp_tool_annotations_are_closed_domain_and_typed() -> None:
         assert "do not call it as a substitute" in status_description
         assert "status alone does not complete" in status_description
         assert "call this before relying on memory" not in status_description
+        related = next(tool for tool in tools if tool.name == "memory_related_facts")
+        assert related.annotations.readOnlyHint is True
+        assert "relation_reasons" in related.description
         graph_export = next(tool for tool in tools if tool.name == "memory_export_graph")
         assert graph_export.annotations.readOnlyHint is True
         assert "graph.json" in graph_export.description

@@ -22,6 +22,7 @@ def test_openapi_contains_stable_v1_fields() -> None:
     paths = body["paths"]
     assert "/v1/facts" in paths
     assert "/v1/facts/{fact_id}" in paths
+    assert "/v1/facts/{fact_id}/related" in paths
     assert "/v1/documents" in paths
     assert "/v1/context" in paths
     assert "/v1/search" in paths

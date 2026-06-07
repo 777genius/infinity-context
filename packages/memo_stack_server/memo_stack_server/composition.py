@@ -51,6 +51,7 @@ from memo_stack_core.application import (
     PurgeCaptureUseCase,
     ReceiveCaptureUseCase,
     RejectSuggestionUseCase,
+    RelatedFactsUseCase,
     RememberFactUseCase,
     UpdateFactUseCase,
 )
@@ -109,6 +110,7 @@ class Container:
     list_facts: ListFactsUseCase
     get_fact: GetFactUseCase
     list_fact_versions: ListFactVersionsUseCase
+    related_facts: RelatedFactsUseCase
     update_fact: UpdateFactUseCase
     forget_fact: ForgetFactUseCase
     ensure_scope: EnsureScopeUseCase
@@ -212,6 +214,7 @@ def build_container(settings: Settings | None = None) -> Container:
     list_facts = ListFactsUseCase(uow_factory=uow_factory)
     get_fact = GetFactUseCase(uow_factory=uow_factory)
     list_fact_versions = ListFactVersionsUseCase(uow_factory=uow_factory)
+    related_facts = RelatedFactsUseCase(uow_factory=uow_factory)
     update_fact = UpdateFactUseCase(uow_factory=uow_factory, clock=clock)
     forget_fact = ForgetFactUseCase(uow_factory=uow_factory, clock=clock)
     ensure_scope = EnsureScopeUseCase(uow_factory=uow_factory, clock=clock)
@@ -310,6 +313,7 @@ def build_container(settings: Settings | None = None) -> Container:
         list_facts=list_facts,
         get_fact=get_fact,
         list_fact_versions=list_fact_versions,
+        related_facts=related_facts,
         update_fact=update_fact,
         forget_fact=forget_fact,
         ensure_scope=ensure_scope,

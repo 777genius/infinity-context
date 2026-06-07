@@ -63,6 +63,7 @@ READ_BEFORE_WRITE_TOOLS = {
     "memory_search",
     "memory_list_facts",
     "memory_get_fact",
+    "memory_related_facts",
     "memory_list_fact_versions",
 }
 DIRECT_WRITE_TOOLS = {

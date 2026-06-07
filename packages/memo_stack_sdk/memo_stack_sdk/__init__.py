@@ -205,6 +205,22 @@ class MemoStackClient:
     def get_fact(self, fact_id: str) -> dict[str, Any]:
         return self._request("GET", f"/v1/facts/{fact_id}")
 
+    def get_related_facts(
+        self,
+        fact_id: str,
+        *,
+        limit: int = 10,
+        include_other_threads: bool = False,
+    ) -> dict[str, Any]:
+        return self._request(
+            "GET",
+            f"/v1/facts/{fact_id}/related",
+            params={
+                "limit": limit,
+                "include_other_threads": include_other_threads,
+            },
+        )
+
     def list_fact_versions(self, fact_id: str) -> dict[str, Any]:
         return self._request("GET", f"/v1/facts/{fact_id}/versions")
 

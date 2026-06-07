@@ -98,6 +98,13 @@ class FactVersionsQuery:
 
 
 @dataclass(frozen=True)
+class RelatedFactsQuery:
+    fact_id: str
+    limit: int = 10
+    include_other_threads: bool = False
+
+
+@dataclass(frozen=True)
 class ListFactsQuery:
     space_id: SpaceId
     profile_id: ProfileId
@@ -118,6 +125,20 @@ class FactQueryResult:
 @dataclass(frozen=True)
 class FactsQueryResult:
     facts: tuple[MemoryFact, ...]
+
+
+@dataclass(frozen=True)
+class RelatedFactItem:
+    fact: MemoryFact
+    score: float
+    relation_reasons: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class RelatedFactsResult:
+    target: MemoryFact
+    items: tuple[RelatedFactItem, ...]
+    diagnostics: dict[str, object]
 
 
 @dataclass(frozen=True)

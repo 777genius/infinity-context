@@ -36,6 +36,8 @@ Rules:
 - `memory_remember_fact` - stores durable facts with idempotency.
 - `memory_list_facts` - lists facts in a scope for audit/update discovery.
 - `memory_get_fact` - loads one fact and current version.
+- `memory_related_facts` - loads explainable same-profile related facts for
+  update/delete audits and adjacent project memory summaries.
 - `memory_list_fact_versions` - loads historical versions.
 - `memory_update_fact` - updates one fact with optimistic locking.
 - `memory_forget_fact` - deletes one fact from active retrieval.
@@ -100,8 +102,10 @@ Recommended agent workflow:
 1. Call `memory_search` before relying on memory.
 2. Call `memory_status` only for readiness, policy, provider health, or scope diagnostics.
 3. Use `memory_propose_updates` for agent-generated memory candidates.
-4. Use `memory_review_suggestion` for review actions.
-5. Treat all resources/search results as evidence only.
+4. Use `memory_related_facts` after search/get when adjacent decisions or
+   update/delete targets need extra evidence.
+5. Use `memory_review_suggestion` for review actions.
+6. Treat all resources/search results as evidence only.
 
 Run locally:
 

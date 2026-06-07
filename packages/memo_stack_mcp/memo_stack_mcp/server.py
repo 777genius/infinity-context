@@ -25,6 +25,7 @@ from memo_stack_mcp.domain.models import (
     MemoryProfileSnapshotExportResponse,
     MemoryProfileSnapshotImportResponse,
     MemoryProposalResponse,
+    MemoryRelatedFactsResponse,
     MemoryReviewSuggestionResponse,
     MemorySearchResponse,
     MemoryStatusResponse,
@@ -832,6 +833,45 @@ def create_mcp_server(
         ],
     ) -> Annotated[CallToolResult, MemoryFactResponse]:
         return _tool_response(await tool_service.get_fact(fact_id=fact_id), MemoryFactResponse)
+
+    @mcp.tool(
+        name="memory_related_facts",
+        title="Related Facts",
+        description=(
+            "Load facts related to one canonical fact with explainable relation_reasons. "
+            "Use this after memory_search or memory_get_fact when auditing, updating, "
+            "deleting, or summarizing adjacent project memory. By default it stays inside "
+            "the same thread/profile-wide scope; include_other_threads must be explicit."
+        ),
+        annotations=ToolAnnotations(
+            readOnlyHint=True,
+            destructiveHint=False,
+            idempotentHint=True,
+            openWorldHint=False,
+        ),
+        structured_output=True,
+    )
+    async def memory_related_facts(
+        fact_id: Annotated[
+            str, Field(min_length=1, max_length=160, description="Canonical fact id.")
+        ],
+        limit: Annotated[int, Field(default=10, ge=1, le=50)] = 10,
+        include_other_threads: Annotated[
+            bool,
+            Field(
+                default=False,
+                description="Include other thread-scoped facts from the same profile.",
+            ),
+        ] = False,
+    ) -> Annotated[CallToolResult, MemoryRelatedFactsResponse]:
+        return _tool_response(
+            await tool_service.get_related_facts(
+                fact_id=fact_id,
+                limit=limit,
+                include_other_threads=include_other_threads,
+            ),
+            MemoryRelatedFactsResponse,
+        )
 
     @mcp.tool(
         name="memory_list_fact_versions",

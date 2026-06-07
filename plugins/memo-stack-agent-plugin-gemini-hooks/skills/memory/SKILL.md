@@ -35,10 +35,12 @@ facts that may have changed, document recall, or cross-agent continuity.
    already-said memory, call `memory_search` first.
 8. Treat `memory_propose_updates` as mutating: call `memory_search` or `memory_get_fact`
    first when candidates may duplicate, update, forget, or conflict with existing memory.
-9. For any save, remember, propose, update, forget, or document ingest request, your first
+9. Use `memory_related_facts` after `memory_search` or `memory_get_fact` when auditing
+   adjacent decisions, resolving update/delete targets, or summarizing related project memory.
+10. For any save, remember, propose, update, forget, or document ingest request, your first
    memory tool must be `memory_search` or `memory_get_fact`, not a mutating tool.
-10. Use `memory_list_captures` only to inspect redacted auto-memory hook diagnostics.
-11. Use `memory_consolidate_capture` only when the user/operator asks to process a capture
+11. Use `memory_list_captures` only to inspect redacted auto-memory hook diagnostics.
+12. Use `memory_consolidate_capture` only when the user/operator asks to process a capture
     into pending review suggestions. It must not be treated as active memory until approved.
 
 ## Constraints

@@ -403,6 +403,114 @@ def test_fact_update_context_only_renders_current_version(tmp_path: Path) -> Non
     assert any("FACT_UPDATE_NEW_MARKER" in text for text in version_texts)
 
 
+def test_related_facts_returns_explainable_same_scope_neighbors(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        target = client.post(
+            "/v1/facts",
+            json={
+                "space_slug": "related-space",
+                "profile_external_ref": "backend",
+                "thread_external_ref": "thread-a",
+                "text": "RELATED_TARGET: Graphiti stores temporal memory edges.",
+                "kind": "architecture_decision",
+                "category": "architecture",
+                "tags": ["graph", "memory"],
+                "source_refs": [
+                    {
+                        "source_type": "document",
+                        "source_id": "adr-1",
+                        "chunk_id": "chunk-a",
+                    }
+                ],
+            },
+            headers=auth_headers(),
+        )
+        same_thread = client.post(
+            "/v1/facts",
+            json={
+                "space_slug": "related-space",
+                "profile_external_ref": "backend",
+                "thread_external_ref": "thread-a",
+                "text": "RELATED_SAME_THREAD: Qdrant handles memory vector recall.",
+                "kind": "architecture_decision",
+                "category": "architecture",
+                "tags": ["memory"],
+                "source_refs": [
+                    {
+                        "source_type": "document",
+                        "source_id": "adr-1",
+                        "chunk_id": "chunk-a",
+                    }
+                ],
+            },
+            headers=auth_headers(),
+        )
+        profile_wide = client.post(
+            "/v1/facts",
+            json={
+                "space_slug": "related-space",
+                "profile_external_ref": "backend",
+                "text": "RELATED_PROFILE_WIDE: Postgres remains canonical memory truth.",
+                "kind": "architecture_decision",
+                "category": "architecture",
+                "tags": ["memory"],
+                "source_refs": [{"source_type": "manual", "source_id": "profile-wide"}],
+            },
+            headers=auth_headers(),
+        )
+        other_thread = client.post(
+            "/v1/facts",
+            json={
+                "space_slug": "related-space",
+                "profile_external_ref": "backend",
+                "thread_external_ref": "thread-b",
+                "text": "RELATED_OTHER_THREAD: should require explicit opt-in.",
+                "kind": "architecture_decision",
+                "category": "architecture",
+                "tags": ["memory"],
+                "source_refs": [{"source_type": "document", "source_id": "adr-1"}],
+            },
+            headers=auth_headers(),
+        )
+        client.post(
+            "/v1/facts",
+            json={
+                "space_slug": "related-space",
+                "profile_external_ref": "backend",
+                "text": "RELATED_RESTRICTED: should not appear in related facts.",
+                "kind": "architecture_decision",
+                "classification": "restricted",
+                "category": "architecture",
+                "tags": ["memory"],
+                "source_refs": [{"source_type": "document", "source_id": "adr-1"}],
+            },
+            headers=auth_headers(),
+        )
+
+        default = client.get(
+            f"/v1/facts/{target.json()['data']['id']}/related",
+            headers=auth_headers(),
+        )
+        expanded = client.get(
+            f"/v1/facts/{target.json()['data']['id']}/related",
+            params={"include_other_threads": True},
+            headers=auth_headers(),
+        )
+
+    assert target.status_code == 201
+    assert default.status_code == 200
+    default_items = default.json()["data"]["items"]
+    default_ids = {item["id"] for item in default_items}
+    assert same_thread.json()["data"]["id"] in default_ids
+    assert profile_wide.json()["data"]["id"] in default_ids
+    assert other_thread.json()["data"]["id"] not in default_ids
+    assert default_items[0]["relation_reasons"][0] == "shared_source_chunk"
+    assert default.json()["data"]["diagnostics"]["include_other_threads"] is False
+
+    expanded_ids = {item["id"] for item in expanded.json()["data"]["items"]}
+    assert other_thread.json()["data"]["id"] in expanded_ids
+
+
 def test_forget_fact_context_and_search_hide_deleted_fact(tmp_path: Path) -> None:
     with make_client(tmp_path) as client:
         created = client.post(

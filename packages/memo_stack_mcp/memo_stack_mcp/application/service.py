@@ -588,6 +588,35 @@ class MemoryToolService:
 
         return await self._guard(action)
 
+    async def get_related_facts(
+        self,
+        *,
+        fact_id: str,
+        limit: int = 10,
+        include_other_threads: bool = False,
+    ) -> dict[str, Any]:
+        async def action() -> dict[str, Any]:
+            effective_limit, warnings = self._clamp_int(
+                name="limit",
+                value=limit,
+                minimum=1,
+                maximum=50,
+            )
+            payload = await self._gateway.get_related_facts(
+                fact_id=fact_id,
+                limit=effective_limit,
+                include_other_threads=include_other_threads,
+            )
+            data = payload.get("data", payload)
+            return self._ok(
+                "Related facts loaded with explainable relation reasons.",
+                data=data,
+                side_effects=[],
+                warnings=warnings,
+            )
+
+        return await self._guard(action)
+
     async def list_fact_versions(self, *, fact_id: str) -> dict[str, Any]:
         async def action() -> dict[str, Any]:
             payload = await self._gateway.list_fact_versions(fact_id=fact_id)

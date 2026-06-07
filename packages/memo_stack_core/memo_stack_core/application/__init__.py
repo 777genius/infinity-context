@@ -52,6 +52,9 @@ from memo_stack_core.application.dto import (
     PurgeCaptureCommand,
     ReceiveCaptureCommand,
     RejectSuggestionCommand,
+    RelatedFactItem,
+    RelatedFactsQuery,
+    RelatedFactsResult,
     RememberFactCommand,
     ScopeResult,
     SessionStatusResult,
@@ -93,6 +96,7 @@ from memo_stack_core.application.use_cases.query_facts import (
     ListFactVersionsUseCase,
 )
 from memo_stack_core.application.use_cases.receive_capture import ReceiveCaptureUseCase
+from memo_stack_core.application.use_cases.related_facts import RelatedFactsUseCase
 from memo_stack_core.application.use_cases.remember_fact import RememberFactUseCase
 from memo_stack_core.application.use_cases.spaces_profiles import (
     CreateProfileUseCase,
@@ -196,6 +200,10 @@ __all__ = [
     "ReceiveCaptureUseCase",
     "RememberFactCommand",
     "RememberFactUseCase",
+    "RelatedFactItem",
+    "RelatedFactsQuery",
+    "RelatedFactsResult",
+    "RelatedFactsUseCase",
     "RejectSuggestionCommand",
     "RejectSuggestionUseCase",
     "ScopeResult",
