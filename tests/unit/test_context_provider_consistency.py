@@ -358,6 +358,71 @@ def test_v1_context_accepts_consistency_mode_without_changing_defaults(tmp_path:
     assert "CONTEXT_CONSISTENCY_MODE_MARKER" in canonical_context.json()["data"]["rendered_text"]
 
 
+def test_context_surfaces_pending_conflict_suggestions_for_visible_facts(
+    tmp_path: Path,
+) -> None:
+    with make_client(tmp_path) as client:
+        fact_response = client.post(
+            "/v1/facts",
+            json={
+                "space_id": "space_client_app",
+                "profile_id": "profile_default",
+                "text": "CONFLICT_CONTEXT_ACTIVE: Postgres owns document vector retrieval.",
+                "kind": "architecture_decision",
+                "source_refs": [{"source_type": "manual", "source_id": "active-decision"}],
+            },
+            headers=auth_headers(),
+        )
+        fact_id = fact_response.json()["data"]["id"]
+        suggestion_response = client.post(
+            "/v1/suggestions",
+            json={
+                "space_id": "space_client_app",
+                "profile_id": "profile_default",
+                "candidate_text": (
+                    "CONFLICT_CONTEXT_PENDING: Docs retrieval should use Qdrant vectors."
+                ),
+                "kind": "architecture_decision",
+                "source_refs": [{"source_type": "manual", "source_id": "pending-decision"}],
+                "confidence": "medium",
+                "trust_level": "medium",
+                "safe_reason": "test_conflict_requires_review",
+                "review_payload": {
+                    "conflicting_fact_id": fact_id,
+                    "conflict_source": "unit_test",
+                },
+            },
+            headers=auth_headers(),
+        )
+        context_response = client.post(
+            "/v1/context",
+            json={
+                "space_id": "space_client_app",
+                "profile_ids": ["profile_default"],
+                "query": "document vector retrieval",
+                "token_budget": 512,
+            },
+            headers=auth_headers(),
+        )
+
+    assert fact_response.status_code == 201
+    assert suggestion_response.status_code == 201
+    assert context_response.status_code == 200
+    data = context_response.json()["data"]
+    rendered = data["rendered_text"]
+    assert "CONFLICT_CONTEXT_ACTIVE" in rendered
+    assert "CONFLICT_CONTEXT_PENDING" in rendered
+    assert "Pending review add suggestion for active fact" in rendered
+    assert data["diagnostics"]["pending_conflict_suggestions_considered"] == 1
+    suggestion_items = [item for item in data["items"] if item["item_type"] == "suggestion"]
+    assert len(suggestion_items) == 1
+    assert suggestion_items[0]["diagnostics"]["retrieval_source"] == (
+        "pending_conflict_suggestion"
+    )
+    assert suggestion_items[0]["diagnostics"]["canonical"] is False
+    assert suggestion_items[0]["diagnostics"]["conflicting_fact_id"] == fact_id
+
+
 def test_context_can_include_rag_recall_candidates_when_adapter_is_enabled(
     tmp_path: Path,
 ) -> None:

@@ -371,6 +371,7 @@ class HttpMemoryGateway:
         category: str | None = None,
         tags: list[str] | None = None,
         ttl_policy: str | None = None,
+        review_payload: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         return await self._request(
             "POST",
@@ -388,6 +389,7 @@ class HttpMemoryGateway:
                     "category": category,
                     "tags": tags or [],
                     "ttl_policy": ttl_policy,
+                    "review_payload": review_payload,
                 }
             ),
         )

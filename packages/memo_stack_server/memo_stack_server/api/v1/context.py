@@ -36,6 +36,7 @@ class ContextRequest(BaseModel):
     token_budget: int = Field(default=1800, ge=64, le=16000)
     max_facts: int = Field(default=20, ge=0, le=100)
     max_chunks: int = Field(default=30, ge=0, le=200)
+    max_conflicting_suggestions: int = Field(default=5, ge=0, le=20)
     category: str | None = Field(default=None, max_length=80)
     tags_any: list[str] = Field(default_factory=list, max_length=10)
     tags_all: list[str] = Field(default_factory=list, max_length=10)
@@ -119,6 +120,7 @@ async def build_context(
             max_rendered_chars=container.settings.max_context_chars,
             max_facts=request.max_facts,
             max_chunks=request.max_chunks,
+            max_conflicting_suggestions=request.max_conflicting_suggestions,
             category=_normalize_label(request.category),
             tags_any=_normalize_tags(request.tags_any),
             tags_all=_normalize_tags(request.tags_all),
@@ -204,6 +206,7 @@ async def search_memory(
             max_rendered_chars=container.settings.max_context_chars,
             max_facts=request.max_facts,
             max_chunks=request.max_chunks,
+            max_conflicting_suggestions=request.max_conflicting_suggestions,
             category=_normalize_label(request.category),
             tags_any=_normalize_tags(request.tags_any),
             tags_all=_normalize_tags(request.tags_all),

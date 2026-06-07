@@ -158,13 +158,20 @@ class BuildContextUseCase:
             query=query,
             profile_ids=profile_ids,
         )
+        pending_conflicts = await self._pending_conflict_items(
+            query=query,
+            visible_fact_ids=tuple(
+                item.item_id for item in deduped if item.item_type == "fact"
+            ),
+        )
         result = self._packer.pack(
             bundle_id=self._ids.new_id("ctx"),
-            items=deduped,
+            items=dedupe_rank_items((*deduped, *pending_conflicts)),
             token_budget=query.token_budget,
             max_rendered_chars=query.max_rendered_chars,
         )
         diagnostics.update(result.bundle.diagnostics)
+        diagnostics["pending_conflict_suggestions_considered"] = len(pending_conflicts)
         return ContextBundle(
             bundle_id=result.bundle.bundle_id,
             rendered_text=result.bundle.rendered_text,
@@ -172,3 +179,80 @@ class BuildContextUseCase:
             token_estimate=result.bundle.token_estimate,
             diagnostics=diagnostics,
         )
+
+    async def _pending_conflict_items(
+        self,
+        *,
+        query: BuildContextQuery,
+        visible_fact_ids: tuple[str, ...],
+    ) -> tuple[ContextItem, ...]:
+        max_items = max(0, query.max_conflicting_suggestions)
+        visible_fact_id_set = set(visible_fact_ids)
+        if max_items <= 0 or not visible_fact_id_set:
+            return ()
+
+        items: list[ContextItem] = []
+        async with self._uow_factory() as uow:
+            for profile_id in query.profile_ids:
+                if len(items) >= max_items:
+                    break
+                suggestions = await uow.suggestions.list_for_scope(
+                    space_id=str(query.space_id),
+                    profile_id=str(profile_id),
+                    status="pending",
+                    operation=None,
+                    category=None,
+                    tag=None,
+                    limit=max(20, max_items * 4),
+                )
+                for suggestion in suggestions:
+                    conflict_fact_id = _suggestion_conflict_fact_id(suggestion)
+                    if conflict_fact_id not in visible_fact_id_set:
+                        continue
+                    items.append(
+                        ContextItem(
+                            item_id=str(suggestion.id),
+                            item_type="suggestion",
+                            text=_conflict_suggestion_text(
+                                candidate_text=suggestion.candidate_text,
+                                operation=suggestion.operation.value,
+                                conflict_fact_id=conflict_fact_id,
+                            ),
+                            score=0.94,
+                            source_refs=suggestion.source_refs,
+                            diagnostics={
+                                "profile_id": str(suggestion.profile_id),
+                                "retrieval_source": "pending_conflict_suggestion",
+                                "status": suggestion.status.value,
+                                "operation": suggestion.operation.value,
+                                "canonical": False,
+                                "conflicting_fact_id": conflict_fact_id,
+                            },
+                        )
+                    )
+                    if len(items) >= max_items:
+                        return tuple(items)
+        return tuple(items)
+
+
+def _suggestion_conflict_fact_id(suggestion) -> str | None:
+    payload = suggestion.review_payload or {}
+    for key in ("conflicting_fact_id", "conflict_fact_id", "possible_conflict_fact_id"):
+        value = payload.get(key)
+        if value:
+            return str(value)
+    if suggestion.target_fact_id:
+        return str(suggestion.target_fact_id)
+    return None
+
+
+def _conflict_suggestion_text(
+    *,
+    candidate_text: str,
+    operation: str,
+    conflict_fact_id: str,
+) -> str:
+    return (
+        f"Pending review {operation} suggestion for active fact {conflict_fact_id}: "
+        f"{candidate_text}"
+    )

@@ -522,6 +522,10 @@ class MemoryToolService:
                     category=category,
                     tags=safe_tags,
                     ttl_policy=ttl_policy,
+                    review_payload={
+                        "conflicting_fact_id": duplicate_id,
+                        "conflict_source": "mcp_preflight",
+                    },
                 )
                 return self._ok(
                     "Potentially conflicting memory found. Suggestion created for review.",

@@ -268,6 +268,10 @@ def test_service_remember_fact_routes_negated_semantic_neighbor_to_review() -> N
             "list_suggestions",
             "create_suggestion",
         ]
+        assert gateway.calls[-1][1]["review_payload"] == {
+            "conflicting_fact_id": "fact_qdrant_negated",
+            "conflict_source": "mcp_preflight",
+        }
 
     asyncio.run(run())
 
@@ -308,6 +312,10 @@ def test_service_remember_fact_does_not_dedupe_different_engine_neighbor() -> No
             "list_suggestions",
             "create_suggestion",
         ]
+        assert gateway.calls[-1][1]["review_payload"] == {
+            "conflicting_fact_id": "fact_qdrant_documents",
+            "conflict_source": "mcp_preflight",
+        }
 
     asyncio.run(run())
 

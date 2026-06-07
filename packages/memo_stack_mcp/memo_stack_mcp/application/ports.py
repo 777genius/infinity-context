@@ -171,6 +171,7 @@ class MemoryGatewayPort(Protocol):
         category: str | None = None,
         tags: list[str] | None = None,
         ttl_policy: str | None = None,
+        review_payload: dict[str, Any] | None = None,
     ) -> dict[str, Any]: ...
 
     async def create_suggestions_batch(

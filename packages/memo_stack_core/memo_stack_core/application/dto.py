@@ -364,6 +364,7 @@ class BuildContextQuery:
     max_rendered_chars: int = 18000
     max_facts: int = 20
     max_chunks: int = 30
+    max_conflicting_suggestions: int = 5
     include_graph: bool = True
     category: str | None = None
     tags_any: tuple[str, ...] = ()
