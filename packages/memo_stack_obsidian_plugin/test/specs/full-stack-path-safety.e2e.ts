@@ -112,6 +112,63 @@ describe("Memo Stack path safety E2E", function () {
     assert.ok(calls.every((call) => !call.args.includes(outsideVaultRoot)));
     assert.ok(calls.every((call) => !call.args.includes(unsafeSpaceSlug)));
   });
+
+  it("recovers after the user fixes a missing connector CLI path in settings", async function () {
+    const fact = await createFact(baseUrl, {
+      text: "Obsidian WDIO connector path recovery backend fact.",
+      sourceId: "wdio-connector-path-recovery-seed",
+    });
+    const vaultPath = await resetVault();
+    const missingCliPath = path.join(tempDir, "missing-memo-stack-obsidian.cjs");
+    fs.mkdirSync(path.join(vaultPath, ".obsidian", "plugins", "memo-stack"), { recursive: true });
+
+    await openMemoStackSettings();
+    await setSettingsInput("apiUrl", baseUrl);
+    await setSettingsInput("token", token);
+    await setSettingsInput("cliPath", missingCliPath);
+    await setSettingsInput("vaultPathOverride", vaultPath);
+    await setSettingsInput("rootFolder", rootFolder);
+    await setSettingsInput("spaceSlug", spaceSlug);
+    await setSettingsInput("profileExternalRef", profileExternalRef);
+    await setSettingsInput("commandTimeoutMs", "20000");
+    await waitForPathReady(rootFolder, spaceSlug);
+
+    await clickSettingsButton("Vault sync", "Sync");
+    await waitForPluginIdle();
+    await sleep(500);
+
+    let snapshot = await memoStackSnapshot();
+    assert.equal(snapshot.pathError, "");
+    assert.equal(snapshot.lastCommand, "sync");
+    assert.equal(snapshot.lastResult.exitCode, 1);
+    assert.equal(readCliCalls(vaultPath).length, 0);
+    assert.equal(factFiles(vaultPath).length, 0);
+
+    await setSettingsInput("cliPath", realCliPath);
+    await waitForSettingsFile(vaultPath, realCliPath);
+
+    await browser.executeObsidianCommand("memo-stack:connect-vault");
+    await waitForCliCalls(vaultPath, 1);
+    await waitForPluginIdle();
+    await clickSettingsButton("Vault sync", "Sync");
+    await waitForCliCalls(vaultPath, 2);
+    await waitForPluginIdle();
+
+    const exportedFact = factFileForId(vaultPath, fact.id);
+    assert.match(fs.readFileSync(exportedFact, "utf8"), /connector path recovery backend fact/);
+
+    snapshot = await memoStackSnapshot();
+    assert.equal(snapshot.lastCommand, "sync");
+    assert.equal(snapshot.lastResult.exitCode, 0);
+    assert.equal(snapshot.generatedFactsExists, true);
+
+    const calls = readCliCalls(vaultPath);
+    assert.deepEqual(calls.map((call) => call.command), ["connect", "sync"]);
+    assert.ok(calls.every((call) => call.status === 0));
+    assert.ok(calls.every((call) => call.args.includes(rootFolder)));
+    assert.ok(calls.every((call) => call.args.includes(spaceSlug)));
+    assert.ok(calls.every((call) => call.args.includes(profileExternalRef)));
+  });
 });
 
 async function resetVault(): Promise<string> {
