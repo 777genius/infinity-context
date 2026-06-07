@@ -13,7 +13,6 @@ MAX_LINES = 2500
 IDEAL_LINES = 1000
 
 LEGACY_OVER_MAX_ALLOWLIST = {
-    "packages/memo_stack_mcp/memo_stack_mcp/agent_behavior_bench.py",
     "packages/memo_stack_server/memo_stack_server/eval.py",
     "scripts/clean_full_smoke.py",
     "tests/unit/test_legacy_and_context_api.py",
@@ -22,6 +21,7 @@ LEGACY_OVER_MAX_ALLOWLIST = {
 
 IDEAL_OVER_1000_DEBT_ALLOWLIST = {
     *LEGACY_OVER_MAX_ALLOWLIST,
+    "packages/memo_stack_mcp/memo_stack_mcp/agent_behavior_bench.py",
     "packages/memo_stack_adapters/memo_stack_adapters/postgres/repositories.py",
     "packages/memo_stack_mcp/memo_stack_mcp/application/service.py",
     "packages/memo_stack_mcp/memo_stack_mcp/plugin_hook.py",
