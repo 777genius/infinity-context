@@ -46,6 +46,8 @@ facts that may have changed, document recall, or cross-agent continuity.
 13. Use `memory_list_captures` only to inspect redacted auto-memory hook diagnostics.
 14. Use `memory_consolidate_capture` only when the user/operator asks to process a capture
     into pending review suggestions. It must not be treated as active memory until approved.
+15. Use `memory_review_suggestions_batch` only after listing or digesting pending suggestions.
+    Inspect per-item failures before claiming a batch succeeded.
 
 ## Constraints
 

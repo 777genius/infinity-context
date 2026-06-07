@@ -2049,6 +2049,7 @@ def test_mcp_tool_annotations_are_closed_domain_and_typed() -> None:
             "memory_consolidate_capture",
             "memory_approve_suggestion",
             "memory_review_suggestion",
+            "memory_review_suggestions_batch",
             "memory_reject_suggestion",
             "memory_expire_suggestion",
             "memory_ingest_document",

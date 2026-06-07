@@ -533,6 +533,38 @@ class ExpireSuggestionCommand:
 
 
 @dataclass(frozen=True)
+class ReviewSuggestionBatchItemCommand:
+    suggestion_id: str
+    action: str
+    reason: str | None = None
+    force: bool = False
+
+
+@dataclass(frozen=True)
+class ReviewSuggestionsBatchCommand:
+    items: tuple[ReviewSuggestionBatchItemCommand, ...]
+    continue_on_error: bool = False
+
+
+@dataclass(frozen=True)
+class ReviewSuggestionBatchItemResult:
+    suggestion_id: str
+    action: str
+    status: str
+    result: SuggestionResult | None = None
+    error_code: str | None = None
+    error_message: str | None = None
+
+
+@dataclass(frozen=True)
+class ReviewSuggestionsBatchResult:
+    applied: int
+    failed: int
+    stopped: bool
+    results: tuple[ReviewSuggestionBatchItemResult, ...]
+
+
+@dataclass(frozen=True)
 class ReceiveCaptureCommand:
     space_id: SpaceId
     profile_id: ProfileId

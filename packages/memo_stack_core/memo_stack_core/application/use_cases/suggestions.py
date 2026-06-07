@@ -8,6 +8,10 @@ from memo_stack_core.application.dto import (
     ExpireSuggestionCommand,
     ListSuggestionsQuery,
     RejectSuggestionCommand,
+    ReviewSuggestionBatchItemCommand,
+    ReviewSuggestionBatchItemResult,
+    ReviewSuggestionsBatchCommand,
+    ReviewSuggestionsBatchResult,
     SuggestionResult,
 )
 from memo_stack_core.domain.entities import (
@@ -21,6 +25,7 @@ from memo_stack_core.domain.entities import (
 )
 from memo_stack_core.domain.errors import (
     MemoryConflictError,
+    MemoryError,
     MemoryNotFoundError,
     MemoryValidationError,
 )
@@ -225,6 +230,79 @@ class ExpireSuggestionUseCase:
             )
             await uow.commit()
         return SuggestionResult(suggestion=saved)
+
+
+class ReviewSuggestionsBatchUseCase:
+    def __init__(
+        self,
+        *,
+        approve_suggestion: ApproveSuggestionUseCase,
+        reject_suggestion: RejectSuggestionUseCase,
+        expire_suggestion: ExpireSuggestionUseCase,
+    ) -> None:
+        self._approve_suggestion = approve_suggestion
+        self._reject_suggestion = reject_suggestion
+        self._expire_suggestion = expire_suggestion
+
+    async def execute(self, command: ReviewSuggestionsBatchCommand) -> ReviewSuggestionsBatchResult:
+        if not command.items:
+            raise MemoryValidationError("Batch review requires at least one item")
+        if len(command.items) > 50:
+            raise MemoryValidationError("Batch review supports at most 50 items")
+
+        results: list[ReviewSuggestionBatchItemResult] = []
+        stopped = False
+        for item in command.items:
+            if item.action not in {"approve", "reject", "expire"}:
+                raise MemoryValidationError("Unknown suggestion review action")
+            try:
+                result = await self._review_one(item)
+                results.append(
+                    ReviewSuggestionBatchItemResult(
+                        suggestion_id=item.suggestion_id,
+                        action=item.action,
+                        status="applied",
+                        result=result,
+                    )
+                )
+            except MemoryError as exc:
+                results.append(
+                    ReviewSuggestionBatchItemResult(
+                        suggestion_id=item.suggestion_id,
+                        action=item.action,
+                        status="failed",
+                        error_code=exc.code,
+                        error_message=str(exc),
+                    )
+                )
+                if not command.continue_on_error:
+                    stopped = True
+                    break
+
+        failed = sum(1 for result in results if result.status == "failed")
+        return ReviewSuggestionsBatchResult(
+            applied=len(results) - failed,
+            failed=failed,
+            stopped=stopped,
+            results=tuple(results),
+        )
+
+    async def _review_one(self, item: ReviewSuggestionBatchItemCommand) -> SuggestionResult:
+        if item.action == "approve":
+            return await self._approve_suggestion.execute(
+                ApproveSuggestionCommand(
+                    suggestion_id=item.suggestion_id,
+                    reason=item.reason,
+                    force=item.force,
+                )
+            )
+        if item.action == "reject":
+            return await self._reject_suggestion.execute(
+                RejectSuggestionCommand(suggestion_id=item.suggestion_id, reason=item.reason)
+            )
+        return await self._expire_suggestion.execute(
+            ExpireSuggestionCommand(suggestion_id=item.suggestion_id, reason=item.reason)
+        )
 
 
 def _safe_reason(reason: str, auto_approve: bool, trust: TrustLevel) -> str:

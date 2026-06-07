@@ -583,6 +583,23 @@ class MemoryReviewSuggestionData(MemoryFactMutationData):
     pass
 
 
+class MemoryReviewBatchItemData(McpDataModel):
+    suggestion_id: str | None = None
+    action: str | None = None
+    status: str | None = None
+    suggestion: MemoryRecordData | None = None
+    fact: MemoryRecordData | None = None
+    error_code: str | None = None
+    error_message: str | None = None
+
+
+class MemoryReviewSuggestionsBatchData(McpDataModel):
+    applied: int | None = None
+    failed: int | None = None
+    stopped: bool | None = None
+    results: list[MemoryReviewBatchItemData] = Field(default_factory=list)
+
+
 class MemoryDocumentFragmentSummaryData(McpDataModel):
     fragment_count: int | None = None
     node_counts: dict[str, int] = Field(default_factory=dict)
@@ -607,6 +624,7 @@ class MemoryToolData(
     MemoryCaptureListData,
     MemoryCaptureMutationData,
     MemoryProposalBatchData,
+    MemoryReviewSuggestionsBatchData,
 ):
     chunks: int | list[MemorySearchItemData] | list[MemoryRecordData] | None = None
     pass
@@ -687,6 +705,10 @@ class MemoryReviewSuggestionResponse(McpToolResponse):
     data: MemoryReviewSuggestionData | None = None
 
 
+class MemoryReviewSuggestionsBatchResponse(McpToolResponse):
+    data: MemoryReviewSuggestionsBatchData | None = None
+
+
 class MemoryDocumentIngestResponse(McpToolResponse):
     data: MemoryDocumentIngestData | None = None
 
@@ -720,6 +742,13 @@ class MemoryUpdateCandidateInput(McpPublicModel):
     reason: str = Field(default="", max_length=320)
     evidence_quote: str | None = Field(default=None, max_length=500)
     labels: list[Annotated[str, Field(max_length=80)]] = Field(default_factory=list, max_length=12)
+
+
+class MemoryReviewSuggestionBatchItemInput(McpPublicModel):
+    suggestion_id: str = Field(min_length=1, max_length=160)
+    action: Literal["approve", "reject", "expire"]
+    reason: str | None = Field(default=None, max_length=320)
+    force: bool = False
 
 
 @dataclass(frozen=True)

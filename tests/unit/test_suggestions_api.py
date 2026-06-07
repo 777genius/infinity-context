@@ -149,6 +149,108 @@ def test_review_suggestion_rejects_unknown_fields(tmp_path: Path) -> None:
     assert reviewed.json()["error"]["code"] == "memory.validation"
 
 
+def test_review_suggestions_batch_applies_mixed_review_actions(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        approved_candidate = client.post(
+            "/v1/suggestions",
+            json=suggestion_payload(candidate_text="Batch approved memory marker."),
+            headers=auth_headers(),
+        )
+        rejected_candidate = client.post(
+            "/v1/suggestions",
+            json=suggestion_payload(candidate_text="Batch rejected memory marker."),
+            headers=auth_headers(),
+        )
+        reviewed = client.post(
+            "/v1/suggestions/review-batch",
+            json={
+                "items": [
+                    {
+                        "suggestion_id": approved_candidate.json()["data"]["id"],
+                        "action": "approve",
+                        "reason": "batch accepted",
+                    },
+                    {
+                        "suggestion_id": rejected_candidate.json()["data"]["id"],
+                        "action": "reject",
+                        "reason": "batch rejected",
+                    },
+                ]
+            },
+            headers=auth_headers(),
+        )
+        context = client.post(
+            "/v1/context",
+            json={
+                "space_id": "space_client_app",
+                "profile_ids": ["profile_default"],
+                "query": "Batch memory marker",
+                "token_budget": 512,
+            },
+            headers=auth_headers(),
+        )
+
+    assert approved_candidate.status_code == 201
+    assert rejected_candidate.status_code == 201
+    assert reviewed.status_code == 200
+    data = reviewed.json()["data"]
+    assert data["applied"] == 2
+    assert data["failed"] == 0
+    assert data["stopped"] is False
+    assert [item["status"] for item in data["results"]] == ["applied", "applied"]
+    assert data["results"][0]["fact"]["text"] == "Batch approved memory marker."
+    assert "Batch approved memory marker." in context.json()["data"]["rendered_text"]
+    assert "Batch rejected memory marker." not in context.json()["data"]["rendered_text"]
+
+
+def test_review_suggestions_batch_stops_on_first_item_failure(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        weak = client.post(
+            "/v1/suggestions",
+            json=suggestion_payload(
+                candidate_text="Assistant-only suggestion should fail approval.",
+                source_refs=[{"source_type": "assistant_answer", "source_id": "assistant"}],
+            ),
+            headers=auth_headers(),
+        )
+        untouched = client.post(
+            "/v1/suggestions",
+            json=suggestion_payload(candidate_text="Batch stop keeps this pending."),
+            headers=auth_headers(),
+        )
+        reviewed = client.post(
+            "/v1/suggestions/review-batch",
+            json={
+                "items": [
+                    {"suggestion_id": weak.json()["data"]["id"], "action": "approve"},
+                    {"suggestion_id": untouched.json()["data"]["id"], "action": "reject"},
+                ],
+                "continue_on_error": False,
+            },
+            headers=auth_headers(),
+        )
+        pending = client.get(
+            "/v1/suggestions",
+            params={
+                "space_id": "space_client_app",
+                "profile_id": "profile_default",
+                "status": "pending",
+            },
+            headers=auth_headers(),
+        )
+
+    assert reviewed.status_code == 200
+    data = reviewed.json()["data"]
+    assert data["applied"] == 0
+    assert data["failed"] == 1
+    assert data["stopped"] is True
+    assert data["results"][0]["error_code"] == "memory.validation"
+    assert {item["id"] for item in pending.json()["data"]} == {
+        weak.json()["data"]["id"],
+        untouched.json()["data"]["id"],
+    }
+
+
 def test_rejected_suggestion_never_appears_in_context(tmp_path: Path) -> None:
     with make_client(tmp_path) as client:
         created = client.post(

@@ -906,6 +906,18 @@ class MemoStackClient:
             json={"reason": reason, "force": force},
         )
 
+    def review_suggestions_batch(
+        self,
+        items: list[dict[str, Any]],
+        *,
+        continue_on_error: bool = False,
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/v1/suggestions/review-batch",
+            json={"items": items, "continue_on_error": continue_on_error},
+        )
+
     def reject_suggestion(self, suggestion_id: str, *, reason: str | None = None) -> dict[str, Any]:
         return self._request(
             "POST",

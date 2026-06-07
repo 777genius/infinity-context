@@ -55,6 +55,7 @@ from memo_stack_core.application import (
     RejectSuggestionUseCase,
     RelatedFactsUseCase,
     RememberFactUseCase,
+    ReviewSuggestionsBatchUseCase,
     UnlinkFactRelationUseCase,
     UpdateFactUseCase,
 )
@@ -137,6 +138,7 @@ class Container:
     approve_suggestion: ApproveSuggestionUseCase
     reject_suggestion: RejectSuggestionUseCase
     expire_suggestion: ExpireSuggestionUseCase
+    review_suggestions_batch: ReviewSuggestionsBatchUseCase
     receive_capture: ReceiveCaptureUseCase
     get_capture: GetCaptureUseCase
     list_captures: ListCapturesUseCase
@@ -267,6 +269,11 @@ def build_container(settings: Settings | None = None) -> Container:
     approve_suggestion = ApproveSuggestionUseCase(uow_factory=uow_factory, clock=clock, ids=ids)
     reject_suggestion = RejectSuggestionUseCase(uow_factory=uow_factory, clock=clock)
     expire_suggestion = ExpireSuggestionUseCase(uow_factory=uow_factory, clock=clock)
+    review_suggestions_batch = ReviewSuggestionsBatchUseCase(
+        approve_suggestion=approve_suggestion,
+        reject_suggestion=reject_suggestion,
+        expire_suggestion=expire_suggestion,
+    )
     receive_capture = ReceiveCaptureUseCase(
         uow_factory=uow_factory,
         clock=clock,
@@ -346,6 +353,7 @@ def build_container(settings: Settings | None = None) -> Container:
         approve_suggestion=approve_suggestion,
         reject_suggestion=reject_suggestion,
         expire_suggestion=expire_suggestion,
+        review_suggestions_batch=review_suggestions_batch,
         receive_capture=receive_capture,
         get_capture=get_capture,
         list_captures=list_captures,

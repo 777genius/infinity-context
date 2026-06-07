@@ -109,12 +109,13 @@ DIMENSIONS: tuple[Dimension, ...] = (
         id="forget_delete_and_review_control",
         label="Forget/delete and review-gated control",
         weight=0.12,
-        memo_stack_score=9.3,
+        memo_stack_score=9.4,
         memora_score=7.8,
         memo_stack_rationale=(
             "MCP defaults are suggestion-first, delete can be disabled, and "
-            "fact/suggestion/capture review tools plus read-only memory_insights "
-            "are first-class."
+            "fact/suggestion/capture review tools, bounded batch suggestion "
+            "review with per-item failures, plus read-only memory_insights are "
+            "first-class."
         ),
         memora_rationale=(
             "Memora has delete, batch delete, document fragment guards and "
@@ -182,11 +183,12 @@ DIMENSIONS: tuple[Dimension, ...] = (
         id="agent_hooks_and_plugin_distribution",
         label="Agent hooks, plugins and real agent ergonomics",
         weight=0.10,
-        memo_stack_score=9.0,
+        memo_stack_score=9.1,
         memora_score=7.8,
         memo_stack_rationale=(
             "Repo includes plugin-kit-ai generated artifacts, MCP doctor, stdio "
-            "e2e, hook capture tests and CLI memory operations for agent workflows."
+            "e2e, hook capture tests, CLI memory operations and bounded MCP batch "
+            "suggestion review for agent workflows."
         ),
         memora_rationale=(
             "Memora ships MCP config and Claude/Cursor integration examples. "
@@ -292,6 +294,8 @@ def build_memora_agent_memory_comparison(
                 "tests/unit/test_graph_export_api.py",
                 "tests/unit/test_mcp_related_facts.py",
                 "tests/unit/test_mcp_fact_relations.py",
+                "tests/unit/test_mcp_suggestion_batch_review.py",
+                "tests/unit/test_suggestions_api.py",
                 "tests/unit/test_profile_snapshot_api.py",
                 "tests/unit/test_mcp_profile_snapshot_preview.py",
                 "memo_stack_core.profile_snapshots",

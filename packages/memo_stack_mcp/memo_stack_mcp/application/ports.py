@@ -191,6 +191,13 @@ class MemoryGatewayPort(Protocol):
         force: bool,
     ) -> dict[str, Any]: ...
 
+    async def review_suggestions_batch(
+        self,
+        *,
+        items: list[dict[str, Any]],
+        continue_on_error: bool,
+    ) -> dict[str, Any]: ...
+
     async def reject_suggestion(
         self,
         *,

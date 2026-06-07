@@ -12,6 +12,8 @@ from memo_stack_core.application import (
     ExpireSuggestionCommand,
     ListSuggestionsQuery,
     RejectSuggestionCommand,
+    ReviewSuggestionBatchItemCommand,
+    ReviewSuggestionsBatchCommand,
 )
 from memo_stack_core.domain.entities import (
     Confidence,
@@ -76,6 +78,22 @@ class ReviewSuggestionRequest(BaseModel):
 
     reason: str | None = Field(default=None, max_length=320)
     force: bool = False
+
+
+class ReviewSuggestionBatchItemRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    suggestion_id: str = Field(min_length=1, max_length=160)
+    action: str = Field(max_length=16)
+    reason: str | None = Field(default=None, max_length=320)
+    force: bool = False
+
+
+class ReviewSuggestionsBatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[ReviewSuggestionBatchItemRequest] = Field(min_length=1, max_length=50)
+    continue_on_error: bool = False
 
 
 def suggestion_to_response(suggestion: MemorySuggestion) -> dict[str, Any]:
@@ -206,6 +224,31 @@ async def list_suggestions(
     return {"data": [suggestion_to_response(suggestion) for suggestion in suggestions]}
 
 
+@router.post("/review-batch")
+async def review_suggestions_batch(
+    request: ReviewSuggestionsBatchRequest,
+    container: Annotated[Container, Depends(get_container)],
+) -> dict[str, Any]:
+    ensure_server_writes_enabled(container)
+    for item in request.items:
+        _validate_review_action(item.action)
+    result = await container.review_suggestions_batch.execute(
+        ReviewSuggestionsBatchCommand(
+            items=tuple(
+                ReviewSuggestionBatchItemCommand(
+                    suggestion_id=item.suggestion_id,
+                    action=item.action,
+                    reason=item.reason,
+                    force=item.force,
+                )
+                for item in request.items
+            ),
+            continue_on_error=request.continue_on_error,
+        )
+    )
+    return {"data": _review_batch_to_response(result)}
+
+
 @router.post("/{suggestion_id}/approve")
 async def approve_suggestion(
     suggestion_id: str,
@@ -272,6 +315,40 @@ def _validate_suggestion_status(status_filter: str | None) -> None:
 def _validate_operation(value: str) -> None:
     if value not in {"add", "update", "delete", "review"}:
         raise MemoryValidationError("Unknown suggestion operation")
+
+
+def _validate_review_action(value: str) -> None:
+    if value not in {"approve", "reject", "expire"}:
+        raise MemoryValidationError("Unknown suggestion review action")
+
+
+def _review_batch_to_response(result: Any) -> dict[str, Any]:
+    return {
+        "applied": result.applied,
+        "failed": result.failed,
+        "stopped": result.stopped,
+        "results": [
+            {
+                "suggestion_id": item.suggestion_id,
+                "action": item.action,
+                "status": item.status,
+                **_review_batch_item_payload(item),
+            }
+            for item in result.results
+        ],
+    }
+
+
+def _review_batch_item_payload(item: Any) -> dict[str, Any]:
+    if item.result is None:
+        return {
+            "error_code": item.error_code,
+            "error_message": item.error_message,
+        }
+    payload: dict[str, Any] = {"suggestion": suggestion_to_response(item.result.suggestion)}
+    if item.result.fact is not None:
+        payload["fact"] = fact_to_response(item.result.fact, item.result.indexing_status)
+    return payload
 
 
 def _normalize_tags(tags: list[str]) -> list[str]:

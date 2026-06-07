@@ -28,7 +28,9 @@ from memo_stack_mcp.domain.models import (
     MemoryProfileSnapshotImportResponse,
     MemoryProposalResponse,
     MemoryRelatedFactsResponse,
+    MemoryReviewSuggestionBatchItemInput,
     MemoryReviewSuggestionResponse,
+    MemoryReviewSuggestionsBatchResponse,
     MemorySearchResponse,
     MemoryStatusResponse,
     MemorySuggestionListResponse,
@@ -1420,6 +1422,41 @@ def create_mcp_server(
                 force=force,
             ),
             MemoryReviewSuggestionResponse,
+        )
+
+    @mcp.tool(
+        name="memory_review_suggestions_batch",
+        title="Review Suggestions Batch",
+        description=(
+            "Approve, reject, or expire multiple pending memory suggestions in one bounded "
+            "batch. Use after memory_list_suggestions or memory_digest when the user wants "
+            "to review several suggestions at once. The result is per-item: one failed "
+            "suggestion can stop the batch unless continue_on_error=true."
+        ),
+        annotations=ToolAnnotations(
+            readOnlyHint=False,
+            destructiveHint=False,
+            idempotentHint=False,
+            openWorldHint=False,
+        ),
+        structured_output=True,
+    )
+    async def memory_review_suggestions_batch(
+        items: Annotated[
+            list[MemoryReviewSuggestionBatchItemInput],
+            Field(min_length=1, max_length=50, description="Review actions to apply."),
+        ],
+        continue_on_error: Annotated[
+            bool,
+            Field(default=False, description="Continue after item-level failures."),
+        ] = False,
+    ) -> Annotated[CallToolResult, MemoryReviewSuggestionsBatchResponse]:
+        return _tool_response(
+            await tool_service.review_suggestions_batch(
+                items=[item.model_dump(exclude_none=True) for item in items],
+                continue_on_error=continue_on_error,
+            ),
+            MemoryReviewSuggestionsBatchResponse,
         )
 
     @mcp.tool(

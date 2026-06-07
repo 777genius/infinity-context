@@ -6,13 +6,24 @@ import hashlib
 import json
 import unicodedata
 import uuid
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import Awaitable, Callable
 from dataclasses import asdict
 from datetime import UTC, datetime
 from typing import Any
 
+from memo_stack_mcp.application.normalization import (
+    drop_none_values as _drop_none_values,
+)
+from memo_stack_mcp.application.normalization import (
+    normalize_optional_label as _normalize_optional_label,
+)
+from memo_stack_mcp.application.normalization import (
+    normalize_tool_tags as _normalize_tool_tags,
+)
 from memo_stack_mcp.application.policy import MemoryPolicyService
 from memo_stack_mcp.application.ports import MemoryGatewayPort
+from memo_stack_mcp.application.readiness import build_readiness, safe_gateway_error
+from memo_stack_mcp.application.review_batch import normalize_review_batch_items
 from memo_stack_mcp.application.usage_guide import MEMORY_USAGE_GUIDE
 from memo_stack_mcp.config import MemoryMcpSettings
 from memo_stack_mcp.domain.models import (
@@ -127,11 +138,13 @@ class MemoryToolService:
         health, health_error = await self._capture_gateway(self._gateway.health)
         capabilities, capabilities_error = await self._capture_gateway(self._gateway.capabilities)
         capability_diagnostics = capabilities.get("capabilities", []) if capabilities else []
-        readiness = self._readiness(
+        readiness = build_readiness(
             health=health,
             health_error=health_error,
             capabilities=capabilities,
             capabilities_error=capabilities_error,
+            writes_enabled=self._settings.writes_enabled,
+            deletes_enabled=self._settings.deletes_enabled,
         )
         warnings = list(readiness["degraded_reasons"])
         return self._ok(
@@ -155,8 +168,8 @@ class MemoryToolService:
             degraded=bool(readiness["degraded"]),
             warnings=warnings,
             backend={
-                "health_error": self._safe_gateway_error(health_error),
-                "capabilities_error": self._safe_gateway_error(capabilities_error),
+                "health_error": safe_gateway_error(health_error),
+                "capabilities_error": safe_gateway_error(capabilities_error),
             },
         )
 
@@ -1124,6 +1137,39 @@ class MemoryToolService:
                 policy=self._policy_payload(policy),
                 side_effects=[side_effect],
                 warnings=list(policy.warnings),
+            )
+
+        return await self._guard(run)
+
+    async def review_suggestions_batch(
+        self,
+        *,
+        items: list[dict[str, Any]],
+        continue_on_error: bool = False,
+    ) -> dict[str, Any]:
+        async def run() -> dict[str, Any]:
+            self._ensure_bool("continue_on_error", continue_on_error)
+            normalized = normalize_review_batch_items(items)
+            policy = self._decide_policy(
+                operation=MemoryPolicyOperation.REVIEW,
+                text=" ".join(item["suggestion_id"] for item in normalized),
+                source_type=None,
+            )
+            payload = await self._gateway.review_suggestions_batch(
+                items=normalized,
+                continue_on_error=continue_on_error,
+            )
+            data = payload.get("data", payload)
+            failed = int(data.get("failed", 0)) if isinstance(data, dict) else 0
+            return self._ok(
+                "Suggestion review batch applied."
+                if failed == 0
+                else "Suggestion review batch finished with item failures.",
+                data=data,
+                policy=self._policy_payload(policy),
+                side_effects=["reviewed_suggestions_batch"],
+                warnings=list(policy.warnings),
+                degraded=failed > 0,
             )
 
         return await self._guard(run)
@@ -2392,100 +2438,6 @@ class MemoryToolService:
         except MemoryGatewayError as exc:
             return None, exc
 
-    def _readiness(
-        self,
-        *,
-        health: dict[str, Any] | None,
-        health_error: MemoryGatewayError | None,
-        capabilities: dict[str, Any] | None,
-        capabilities_error: MemoryGatewayError | None,
-    ) -> dict[str, Any]:
-        api_reachable = health_error is None and bool(health)
-        capabilities_available = capabilities_error is None and bool(capabilities)
-        projection_ready, projection_reasons = self._projection_readiness(capabilities)
-        degraded_reasons: list[str] = []
-        if not api_reachable:
-            degraded_reasons.append("api.unreachable")
-        if not capabilities_available:
-            degraded_reasons.append("capabilities.unavailable")
-        degraded_reasons.extend(projection_reasons)
-        read_ready = api_reachable and capabilities_available
-        write_ready = read_ready and self._settings.writes_enabled
-        delete_ready = read_ready and self._settings.deletes_enabled
-        return {
-            "api_reachable": api_reachable,
-            "read_ready": read_ready,
-            "write_ready": write_ready,
-            "delete_ready": delete_ready,
-            "projection_ready": projection_ready,
-            "degraded": bool(degraded_reasons),
-            "degraded_reasons": degraded_reasons,
-            "checked_endpoints": ["/v1/health", "/v1/capabilities"],
-        }
-
-    @staticmethod
-    def _projection_readiness(capabilities: dict[str, Any] | None) -> tuple[bool, list[str]]:
-        if not capabilities:
-            return False, ["projection.unknown"]
-        capability_items = capabilities.get("capabilities", [])
-        if not isinstance(capability_items, list) or not capability_items:
-            return False, ["projection.unknown"]
-        reasons: list[str] = []
-        for item in capability_items:
-            if not isinstance(item, dict):
-                reasons.append("projection.invalid_capability")
-                continue
-            status = str(item.get("status") or "")
-            healthy = bool(item.get("healthy", status == "ok"))
-            enabled = bool(item.get("enabled", True))
-            name = str(item.get("adapter_name") or item.get("capability") or "adapter")
-            if not enabled:
-                reasons.append(f"{name}.disabled")
-            elif not healthy or status not in {"ok", "healthy"}:
-                reasons.append(f"{name}.degraded")
-        return not reasons, reasons
-
-    @staticmethod
-    def _safe_gateway_error(error: MemoryGatewayError | None) -> dict[str, Any] | None:
-        if error is None:
-            return None
-        return {
-            "status_code": error.status_code,
-            "code": public_error_code(error.code, status_code=error.status_code),
-            "message": safe_message(error.message),
-            "retryable": error.retryable,
-        }
-
     @staticmethod
     def _trace_id() -> str:
         return f"mcp_{uuid.uuid4().hex[:16]}"
-
-
-def _normalize_optional_label(value: str | None) -> str | None:
-    if value is None:
-        return None
-    normalized = value.strip().lower()
-    return normalized or None
-
-
-def _normalize_tool_tags(values: Iterable[str]) -> list[str]:
-    tags: list[str] = []
-    for value in values:
-        normalized = _normalize_optional_label(value)
-        if normalized and normalized not in tags:
-            tags.append(normalized)
-        if len(tags) >= 10:
-            break
-    return tags
-
-
-def _drop_none_values(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {
-            key: _drop_none_values(item)
-            for key, item in value.items()
-            if item is not None
-        }
-    if isinstance(value, list):
-        return [_drop_none_values(item) for item in value]
-    return value

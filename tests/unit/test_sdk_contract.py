@@ -657,6 +657,40 @@ def test_sdk_remember_fact_sends_classification() -> None:
     assert seen["body"]["classification"] == "restricted"
 
 
+def test_sdk_supports_review_suggestions_batch() -> None:
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path
+        seen["body"] = json.loads(request.content.decode("utf-8"))
+        return httpx.Response(200, json={"data": {"applied": 2, "failed": 0}})
+
+    client = MemoStackClient(
+        base_url="http://memory.test",
+        token="test-token",
+        transport=httpx.MockTransport(handler),
+    )
+
+    client.review_suggestions_batch(
+        [
+            {"suggestion_id": "sug_1", "action": "approve", "reason": "reviewed"},
+            {"suggestion_id": "sug_2", "action": "reject"},
+        ],
+        continue_on_error=True,
+    )
+
+    assert seen == {
+        "path": "/v1/suggestions/review-batch",
+        "body": {
+            "items": [
+                {"suggestion_id": "sug_1", "action": "approve", "reason": "reviewed"},
+                {"suggestion_id": "sug_2", "action": "reject"},
+            ],
+            "continue_on_error": True,
+        },
+    }
+
+
 def test_sdk_supports_profile_snapshot_export_import() -> None:
     seen: list[tuple[str, dict[str, object], dict[str, object]]] = []
 

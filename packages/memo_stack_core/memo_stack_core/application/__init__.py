@@ -61,6 +61,10 @@ from memo_stack_core.application.dto import (
     RelatedFactsQuery,
     RelatedFactsResult,
     RememberFactCommand,
+    ReviewSuggestionBatchItemCommand,
+    ReviewSuggestionBatchItemResult,
+    ReviewSuggestionsBatchCommand,
+    ReviewSuggestionsBatchResult,
     ScopeResult,
     SessionStatusResult,
     SpaceResult,
@@ -121,6 +125,7 @@ from memo_stack_core.application.use_cases.suggestions import (
     ExpireSuggestionUseCase,
     ListSuggestionsUseCase,
     RejectSuggestionUseCase,
+    ReviewSuggestionsBatchUseCase,
 )
 from memo_stack_core.application.use_cases.update_fact import UpdateFactUseCase
 
@@ -218,6 +223,11 @@ __all__ = [
     "ReceiveCaptureUseCase",
     "RememberFactCommand",
     "RememberFactUseCase",
+    "ReviewSuggestionBatchItemCommand",
+    "ReviewSuggestionBatchItemResult",
+    "ReviewSuggestionsBatchCommand",
+    "ReviewSuggestionsBatchResult",
+    "ReviewSuggestionsBatchUseCase",
     "RelatedFactItem",
     "RelatedFactsQuery",
     "RelatedFactsResult",

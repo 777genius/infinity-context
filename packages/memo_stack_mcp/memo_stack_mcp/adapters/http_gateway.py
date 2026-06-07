@@ -429,6 +429,18 @@ class HttpMemoryGateway:
             json=_without_none({"reason": reason, "force": force}),
         )
 
+    async def review_suggestions_batch(
+        self,
+        *,
+        items: list[dict[str, Any]],
+        continue_on_error: bool,
+    ) -> dict[str, Any]:
+        return await self._request(
+            "POST",
+            "/v1/suggestions/review-batch",
+            json={"items": items, "continue_on_error": continue_on_error},
+        )
+
     async def reject_suggestion(
         self,
         *,
