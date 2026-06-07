@@ -129,6 +129,15 @@ _PUBLIC_MEMORY_BENCHMARK_COMPETITIVE_FLOORS = {
     LOCOMO_BENCHMARK_SUITE: {"min_accuracy": 0.947, "min_case_count": 600},
     LONGMEMEVAL_BENCHMARK_SUITE: {"min_accuracy": 0.902, "min_case_count": 500},
 }
+_PUBLIC_MEMORY_BENCHMARK_DATASET_SOURCE_KINDS = (
+    "official_download",
+    "local_override",
+    "local_dataset",
+)
+_PUBLIC_MEMORY_BENCHMARK_OFFICIAL_SOURCE_KINDS = (
+    "official_download",
+    "local_override",
+)
 _AGENT_BEHAVIOR_ACCEPTED_SCENARIO_SETS = ("realistic", "live", "transcript", "all")
 _AGENT_BEHAVIOR_RATE_FLOORS = {
     "tool_choice_accuracy": 0.80,
@@ -478,6 +487,12 @@ def memory_quality_scorecard_policy_snapshot(
             "top_evidence_required_safety_checks": list(TOP_EVIDENCE_SAFETY_CHECKS),
             "top_evidence_requires_dataset_fingerprint": True,
             "top_evidence_requires_dataset_source_metadata": True,
+            "top_evidence_requires_dataset_source_hash_match": True,
+            "top_evidence_requires_dataset_path_label": True,
+            "top_evidence_requires_official_url_for_official_sources": True,
+            "top_evidence_allowed_dataset_source_kinds": list(
+                _PUBLIC_MEMORY_BENCHMARK_DATASET_SOURCE_KINDS
+            ),
         },
     }
 
@@ -1003,10 +1018,12 @@ def _scorecard_public_benchmark_dataset_evidence_summary(
             for name in benchmark_names
             if not _scorecard_public_benchmark_has_dataset_fingerprint(report, name)
         ]
-        missing_sources = [
-            name
+        source_failures = {
+            name: _scorecard_public_benchmark_dataset_source_failures(report, name)
             for name in benchmark_names
-            if not _scorecard_public_benchmark_has_dataset_source(report, name)
+        }
+        missing_sources = [
+            name for name, failures in source_failures.items() if failures
         ]
         ok = bool(benchmark_names) and not missing_fingerprints and not missing_sources
         if not ok:
@@ -1021,6 +1038,11 @@ def _scorecard_public_benchmark_dataset_evidence_summary(
                 ),
                 "missing_dataset_fingerprints": missing_fingerprints,
                 "missing_dataset_sources": missing_sources,
+                "dataset_source_failures": {
+                    name: list(failures)
+                    for name, failures in source_failures.items()
+                    if failures
+                },
                 "has_dataset_hash": _scorecard_nonempty_string(
                     report.get("dataset_hash")
                 ),
@@ -1068,27 +1090,38 @@ def _scorecard_public_benchmark_has_dataset_fingerprint(
     return _scorecard_public_benchmark_dataset_fingerprint(report, benchmark) is not None
 
 
-def _scorecard_public_benchmark_has_dataset_source(
+def _scorecard_public_benchmark_dataset_source_failures(
     report: Mapping[str, object],
     benchmark: str,
-) -> bool:
+) -> tuple[str, ...]:
+    failures: list[str] = []
     dataset_sources = report.get("dataset_sources")
     if not isinstance(dataset_sources, Mapping):
-        return False
+        return ("dataset_sources_missing",)
     source = dataset_sources.get(benchmark)
     if not isinstance(source, Mapping):
-        return False
+        return ("dataset_source_missing",)
     source_kind = source.get("source_kind")
     sha256 = source.get("sha256")
     size_bytes = source.get("size_bytes")
+    path_label = source.get("path_label")
+    official_url = source.get("official_url")
     expected_sha256 = _scorecard_public_benchmark_dataset_fingerprint(report, benchmark)
-    return (
-        _scorecard_nonempty_string(source_kind)
-        and _scorecard_nonempty_string(sha256)
-        and sha256 == expected_sha256
-        and isinstance(size_bytes, int)
-        and size_bytes > 0
-    )
+    if source_kind not in _PUBLIC_MEMORY_BENCHMARK_DATASET_SOURCE_KINDS:
+        failures.append("source_kind_not_allowed")
+    if not _scorecard_nonempty_string(sha256):
+        failures.append("sha256_missing")
+    elif sha256 != expected_sha256:
+        failures.append("sha256_mismatch")
+    if not isinstance(size_bytes, int) or size_bytes <= 0:
+        failures.append("size_bytes_missing")
+    if not _scorecard_nonempty_string(path_label):
+        failures.append("path_label_missing")
+    if source_kind in _PUBLIC_MEMORY_BENCHMARK_OFFICIAL_SOURCE_KINDS and not (
+        _scorecard_nonempty_string(official_url)
+    ):
+        failures.append("official_url_missing")
+    return tuple(failures)
 
 
 def _scorecard_public_benchmark_dataset_fingerprint(

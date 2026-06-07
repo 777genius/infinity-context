@@ -1548,6 +1548,20 @@ def test_memory_quality_scorecard_policy_snapshot_documents_top_evidence_floors(
     assert policy["public_benchmark"][
         "top_evidence_requires_dataset_source_metadata"
     ] is True
+    assert policy["public_benchmark"][
+        "top_evidence_requires_dataset_source_hash_match"
+    ] is True
+    assert policy["public_benchmark"][
+        "top_evidence_requires_dataset_path_label"
+    ] is True
+    assert policy["public_benchmark"][
+        "top_evidence_requires_official_url_for_official_sources"
+    ] is True
+    assert policy["public_benchmark"]["top_evidence_allowed_dataset_source_kinds"] == [
+        "official_download",
+        "local_override",
+        "local_dataset",
+    ]
     assert "provenance_generator_allowed" in policy["agent_behavior"][
         "top_evidence_required_provenance_checks"
     ]
@@ -1645,6 +1659,7 @@ def test_memory_quality_scorecard_accepts_split_public_benchmark_reports() -> No
         "dataset_sources": {
             "locomo": {
                 "source_kind": "local_dataset",
+                "path_label": "locomo.json",
                 "sha256": "locomo-dataset-sha256",
                 "size_bytes": 1000,
             }
@@ -1662,6 +1677,7 @@ def test_memory_quality_scorecard_accepts_split_public_benchmark_reports() -> No
         "dataset_sources": {
             "longmemeval": {
                 "source_kind": "local_dataset",
+                "path_label": "longmemeval.json",
                 "sha256": "longmemeval-dataset-sha256",
                 "size_bytes": 1000,
             }
@@ -1743,6 +1759,49 @@ def test_memory_quality_scorecard_rejects_public_benchmark_source_hash_mismatch(
     assert evidence["public_benchmark"]["dataset_evidence"]["reports"][0][
         "missing_dataset_sources"
     ] == ["locomo"]
+    assert evidence["public_benchmark"]["dataset_evidence"]["reports"][0][
+        "dataset_source_failures"
+    ] == {"locomo": ["sha256_mismatch"]}
+    assert "public_benchmark_dataset_evidence_failed" in evidence["evidence_gaps"]
+
+
+def test_memory_quality_scorecard_rejects_invalid_public_benchmark_source_metadata() -> None:
+    suite_results = _scorecard_fixture_results()
+    suite_results["memo-stack-full-provider-canary"] = _full_provider_canary_report()
+    suite_results["memory_mcp_agent_behavior"] = _agent_behavior_benchmark_report()
+    public_benchmark = _public_benchmark_report()
+    public_benchmark["dataset_sources"]["locomo"].pop("official_url")
+    public_benchmark["dataset_sources"]["locomo"].pop("path_label")
+    public_benchmark["dataset_sources"]["locomo"]["source_kind"] = "unknown_source"
+    suite_results["public-memory-benchmark"] = public_benchmark
+
+    result = build_memory_quality_scorecard(suite_results, require_top_evidence=True)
+
+    evidence = result["external_evidence"]
+    assert result["ok"] is False
+    assert evidence["public_benchmark"]["dataset_evidence_ok"] is False
+    assert evidence["public_benchmark"]["dataset_evidence"]["reports"][0][
+        "dataset_source_failures"
+    ] == {"locomo": ["source_kind_not_allowed", "path_label_missing"]}
+    assert "public_benchmark_dataset_evidence_failed" in evidence["evidence_gaps"]
+
+
+def test_memory_quality_scorecard_requires_official_url_for_official_sources() -> None:
+    suite_results = _scorecard_fixture_results()
+    suite_results["memo-stack-full-provider-canary"] = _full_provider_canary_report()
+    suite_results["memory_mcp_agent_behavior"] = _agent_behavior_benchmark_report()
+    public_benchmark = _public_benchmark_report()
+    public_benchmark["dataset_sources"]["locomo"].pop("official_url")
+    suite_results["public-memory-benchmark"] = public_benchmark
+
+    result = build_memory_quality_scorecard(suite_results, require_top_evidence=True)
+
+    evidence = result["external_evidence"]
+    assert result["ok"] is False
+    assert evidence["public_benchmark"]["dataset_evidence_ok"] is False
+    assert evidence["public_benchmark"]["dataset_evidence"]["reports"][0][
+        "dataset_source_failures"
+    ] == {"locomo": ["official_url_missing"]}
     assert "public_benchmark_dataset_evidence_failed" in evidence["evidence_gaps"]
 
 
