@@ -442,6 +442,12 @@ def memory_quality_scorecard_policy_snapshot(
             "top_evidence_required_scenario_tag_metrics": dict(
                 _AGENT_BEHAVIOR_TOP_EVIDENCE_SCENARIO_TAG_METRICS
             ),
+            "top_evidence_required_scenario_integrity_checks": [
+                "scenario_reports_well_formed",
+                "scenario_report_ids_present",
+                "scenario_report_ids_unique",
+                "scenario_reports_all_passed",
+            ],
             "rate_floors": dict(_AGENT_BEHAVIOR_RATE_FLOORS),
             "zero_count_metrics": list(_AGENT_BEHAVIOR_ZERO_COUNT_METRICS),
         },
@@ -1120,6 +1126,18 @@ def _scorecard_agent_behavior_required_checks(
         scenario_count = _scorecard_int(scenario_evidence.get("scenario_count"))
         metric_scenario_count = _scorecard_int(metrics.get("scenario_count"))
         checks["scenario_reports_present"] = scenario_evidence["present"] is True
+        checks["scenario_reports_well_formed"] = (
+            scenario_evidence.get("invalid_entry_count") == 0
+        )
+        checks["scenario_report_ids_present"] = (
+            scenario_evidence.get("missing_id_count") == 0
+        )
+        checks["scenario_report_ids_unique"] = (
+            scenario_evidence.get("duplicate_id_count") == 0
+        )
+        checks["scenario_reports_all_passed"] = (
+            scenario_evidence.get("non_passed_count") == 0
+        )
         checks["scenario_report_count_min_41"] = (
             scenario_count is not None
             and scenario_count >= _AGENT_BEHAVIOR_TOP_EVIDENCE_CASE_COUNT_FLOORS[
@@ -1149,13 +1167,36 @@ def _scorecard_agent_behavior_scenario_evidence(
 ) -> dict[str, object]:
     scenarios = result.get("scenarios")
     if not isinstance(scenarios, list):
-        return {"present": False, "scenario_count": None, "tag_counts": {}}
+        return {
+            "present": False,
+            "scenario_count": None,
+            "tag_counts": {},
+            "invalid_entry_count": None,
+            "missing_id_count": None,
+            "duplicate_id_count": None,
+            "non_passed_count": None,
+        }
     tag_counts = {
         tag: 0 for tag in _AGENT_BEHAVIOR_TOP_EVIDENCE_SCENARIO_TAG_METRICS.values()
     }
+    seen_ids: set[str] = set()
+    invalid_entry_count = 0
+    missing_id_count = 0
+    duplicate_id_count = 0
+    non_passed_count = 0
     for scenario in scenarios:
         if not isinstance(scenario, Mapping):
+            invalid_entry_count += 1
             continue
+        scenario_id = scenario.get("id")
+        if not isinstance(scenario_id, str) or not scenario_id.strip():
+            missing_id_count += 1
+        elif scenario_id in seen_ids:
+            duplicate_id_count += 1
+        else:
+            seen_ids.add(scenario_id)
+        if scenario.get("status") != "passed":
+            non_passed_count += 1
         tags = scenario.get("tags")
         if not isinstance(tags, list):
             continue
@@ -1167,6 +1208,10 @@ def _scorecard_agent_behavior_scenario_evidence(
         "present": True,
         "scenario_count": len(scenarios),
         "tag_counts": tag_counts,
+        "invalid_entry_count": invalid_entry_count,
+        "missing_id_count": missing_id_count,
+        "duplicate_id_count": duplicate_id_count,
+        "non_passed_count": non_passed_count,
     }
 
 

@@ -304,20 +304,20 @@ def _agent_behavior_scenario_reports(
             )
         )
     remaining_adversarial = adversarial_count - transcript_adversarial_count
-    for index in range(remaining_adversarial):
+    for _ in range(remaining_adversarial):
         scenarios.append(
             _agent_behavior_scenario_report(
-                len(scenarios) + index,
+                len(scenarios),
                 tags=("live_session", "adversarial"),
             )
         )
     remaining_live = live_session_count - sum(
         "live_session" in scenario["tags"] for scenario in scenarios
     )
-    for index in range(max(remaining_live, 0)):
+    for _ in range(max(remaining_live, 0)):
         scenarios.append(
             _agent_behavior_scenario_report(
-                len(scenarios) + index,
+                len(scenarios),
                 tags=("live_session",),
             )
         )
@@ -1467,6 +1467,12 @@ def test_memory_quality_scorecard_policy_snapshot_documents_top_evidence_floors(
         "transcript_corpus_case_count": "transcript_corpus",
         "adversarial_case_count": "adversarial",
     }
+    assert policy["agent_behavior"]["top_evidence_required_scenario_integrity_checks"] == [
+        "scenario_reports_well_formed",
+        "scenario_report_ids_present",
+        "scenario_report_ids_unique",
+        "scenario_reports_all_passed",
+    ]
     assert policy["agent_behavior"]["rate_floors"]["adversarial_pass_rate"] == 0.9
     assert "unsafe_write_count" in policy["agent_behavior"]["zero_count_metrics"]
     assert policy["public_benchmark"]["required_benchmarks"] == [
@@ -1521,6 +1527,10 @@ def test_memory_quality_scorecard_reports_external_evidence_tier() -> None:
             "transcript_corpus": 5,
             "adversarial": 9,
         },
+        "invalid_entry_count": 0,
+        "missing_id_count": 0,
+        "duplicate_id_count": 0,
+        "non_passed_count": 0,
     }
     assert evidence["public_benchmark"]["present"] is False
 
@@ -1756,6 +1766,10 @@ def test_memory_quality_scorecard_requires_agent_scenario_reports_for_top_eviden
             "transcript_corpus": 0,
             "adversarial": 0,
         },
+        "invalid_entry_count": 0,
+        "missing_id_count": 0,
+        "duplicate_id_count": 0,
+        "non_passed_count": 0,
     }
     assert evidence["agent_behavior_benchmark"]["failed_required_checks"] == [
         "adversarial_scenario_report_count_matches_metric",
@@ -1763,6 +1777,44 @@ def test_memory_quality_scorecard_requires_agent_scenario_reports_for_top_eviden
         "scenario_report_count_matches_metric",
         "scenario_report_count_min_41",
         "transcript_corpus_scenario_report_count_matches_metric",
+    ]
+
+
+def test_memory_quality_scorecard_rejects_malformed_agent_scenario_reports() -> None:
+    suite_results = _scorecard_fixture_results()
+    agent_behavior = _agent_behavior_benchmark_report()
+    scenarios = list(agent_behavior["scenarios"])
+    scenarios[0] = {**scenarios[0], "status": "failed"}
+    scenarios[1] = {**scenarios[1], "id": scenarios[0]["id"]}
+    scenarios[2] = {key: value for key, value in scenarios[2].items() if key != "id"}
+    scenarios[-1] = "invalid-scenario"
+    agent_behavior["scenarios"] = scenarios
+    suite_results["memo-stack-full-provider-canary"] = _full_provider_canary_report()
+    suite_results["memory_mcp_agent_behavior"] = agent_behavior
+    suite_results["public-memory-benchmark"] = _public_benchmark_report()
+
+    result = build_memory_quality_scorecard(suite_results, require_top_evidence=True)
+
+    evidence = result["external_evidence"]
+    assert result["ok"] is False
+    assert evidence["agent_behavior_benchmark"]["scenario_evidence"] == {
+        "present": True,
+        "scenario_count": 41,
+        "tag_counts": {
+            "live_session": 11,
+            "transcript_corpus": 5,
+            "adversarial": 9,
+        },
+        "invalid_entry_count": 1,
+        "missing_id_count": 1,
+        "duplicate_id_count": 1,
+        "non_passed_count": 1,
+    }
+    assert evidence["agent_behavior_benchmark"]["failed_required_checks"] == [
+        "scenario_report_ids_present",
+        "scenario_report_ids_unique",
+        "scenario_reports_all_passed",
+        "scenario_reports_well_formed",
     ]
 
 

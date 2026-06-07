@@ -139,10 +139,10 @@ def _agent_behavior_scenario_reports() -> list[dict[str, object]]:
                 tags=("live_session", "transcript_corpus", "adversarial"),
             )
         )
-    for index in range(4):
+    for _ in range(4):
         scenarios.append(
             _agent_behavior_scenario_report(
-                len(scenarios) + index,
+                len(scenarios),
                 tags=("live_session", "adversarial"),
             )
         )
