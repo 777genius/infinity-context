@@ -7,10 +7,21 @@ from dataclasses import dataclass
 from hashlib import sha256
 
 _TOKEN_PATTERNS = (
-    re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b"),
+    re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]{8,}\b", re.IGNORECASE),
     re.compile(r"\bsk-proj-[A-Za-z0-9_-]{20,}\b"),
-    re.compile(r"\b[A-Za-z0-9_]*API[_-]?KEY\s*=\s*['\"]?[^'\"\s]{12,}", re.I),
-    re.compile(r"\b[A-Za-z0-9_]*TOKEN\s*=\s*['\"]?[^'\"\s]{12,}", re.I),
+    re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b"),
+    re.compile(r"\bgh[pousr]_[A-Za-z0-9_]{20,}\b"),
+    re.compile(r"\bAKIA[0-9A-Z]{12,}\b"),
+    re.compile(
+        r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----",
+        re.DOTALL,
+    ),
+    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
+    re.compile(
+        r"\b[A-Za-z0-9_]*(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL)"
+        r"\s*=\s*['\"]?[^'\"\s]{12,}",
+        re.IGNORECASE,
+    ),
 )
 
 
