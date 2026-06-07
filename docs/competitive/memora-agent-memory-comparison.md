@@ -153,7 +153,8 @@ surface through HTTP API, SDK and MCP, returning deterministic conflicts,
 skipped records, would-import counts and superseded facts before a destructive
 restore. Read-only memory insights are available through HTTP API, SDK, MCP and
 CLI for pending review load, expired facts, document indexing coverage,
-taxonomy hotspots, recent activity, duplicate/similar fact review and cleanup action items.
+taxonomy hotspots, recent activity, duplicate/similar fact review, a safe
+consolidation plan and cleanup action items.
 Memora still has
 more polished local graph UI. Memo Stack now also has `memory_related_facts` and
 `GET /v1/facts/{fact_id}/related`, giving agents read-only related fact

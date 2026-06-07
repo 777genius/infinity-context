@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends
 from memo_stack_core.application import (
     BuildMemoryInsightsQuery,
     MemoryActivityItem,
+    MemoryConsolidationPlanItem,
     MemoryInsightActionItem,
     MemoryInsightsResult,
 )
@@ -120,6 +121,9 @@ def insights_to_response(insights: MemoryInsightsResult) -> dict[str, Any]:
         "taxonomy": insights.taxonomy,
         "action_items": [_action_item_to_response(item) for item in insights.action_items],
         "recent_activity": [_activity_item_to_response(item) for item in insights.recent_activity],
+        "consolidation_plan": [
+            _consolidation_plan_item_to_response(item) for item in insights.consolidation_plan
+        ],
         "diagnostics": insights.diagnostics,
     }
 
@@ -148,6 +152,21 @@ def _activity_item_to_response(item: MemoryActivityItem) -> dict[str, Any]:
         "profile_id": item.profile_id,
         "thread_id": item.thread_id,
         "status": item.status,
+        "preview": item.preview,
+        "metadata": item.metadata or {},
+    }
+
+
+def _consolidation_plan_item_to_response(item: MemoryConsolidationPlanItem) -> dict[str, Any]:
+    return {
+        "id": item.id,
+        "plan_type": item.plan_type,
+        "profile_id": item.profile_id,
+        "confidence": item.confidence,
+        "canonical_candidate_id": item.canonical_candidate_id,
+        "candidate_fact_ids": list(item.candidate_fact_ids),
+        "recommended_steps": list(item.recommended_steps),
+        "reason": item.reason,
         "preview": item.preview,
         "metadata": item.metadata or {},
     }
@@ -184,6 +203,7 @@ def _empty_insights_response(
             "taxonomy": {},
             "action_items": [],
             "recent_activity": [],
+            "consolidation_plan": [],
             "diagnostics": diagnostics,
         },
     }

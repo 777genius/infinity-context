@@ -41,6 +41,18 @@ class InsightsGateway:
                         "preview": "Review pending memory.",
                     }
                 ],
+                "consolidation_plan": [
+                    {
+                        "id": "mplan_1",
+                        "plan_type": "similar_fact_review",
+                        "profile_id": "profile_default",
+                        "confidence": "medium",
+                        "canonical_candidate_id": "fact_1",
+                        "candidate_fact_ids": ["fact_2"],
+                        "recommended_steps": ["Inspect both facts and source refs."],
+                        "reason": "Two active facts look similar.",
+                    }
+                ],
                 "diagnostics": {"evidence_only": True, "read_only": True},
             }
         }
@@ -69,6 +81,9 @@ def test_mcp_insights_structured_output_and_scope() -> None:
         )
         assert result.structuredContent["data"]["recent_activity"][0]["event_type"] == (
             "suggestion_created"
+        )
+        assert result.structuredContent["data"]["consolidation_plan"][0]["plan_type"] == (
+            "similar_fact_review"
         )
         assert gateway.calls[0][0] == "build_insights"
         assert gateway.calls[0][1]["max_suggestions"] == 25

@@ -28,11 +28,14 @@ facts that may have changed, document recall, or cross-agent continuity.
 1. Call `memory_search` before relying on memory or when the user asks to search/check memory.
 2. Call `memory_status` only when readiness, policy, provider health, or active scope is unknown.
 3. Prefer `memory_propose_updates` for agent-generated remember, update, or forget candidates.
-4. Use `memory_insights` when the user asks for memory health, pending review, or recent activity.
+4. Use `memory_insights` when the user asks for memory health, pending review, recent activity,
+   duplicate/similar fact cleanup, or a consolidation plan.
 5. Use `memory_suggest_facts_batch` when several extracted facts should all stay pending review.
 6. Use direct lifecycle tools only when the user explicitly asks or the local write policy allows it.
 7. Include evidence and source references when proposing memory changes.
 8. Prefer updating an existing fact over adding a contradictory duplicate.
+   If `memory_insights.consolidation_plan` lists related facts, treat it as read-only guidance:
+   inspect evidence, link/update/forget only with explicit user confirmation.
 9. If the user asks to save only after checking duplicate, equivalent, already-saved, or
    already-said memory, call `memory_search` first.
 10. Treat `memory_propose_updates` as mutating: call `memory_search` or `memory_get_fact`

@@ -255,6 +255,19 @@ class MemoryActivityItemData(McpDataModel):
     metadata: dict[str, JsonScalar | list[JsonScalar]] = Field(default_factory=dict)
 
 
+class MemoryConsolidationPlanItemData(McpDataModel):
+    id: str | None = None
+    plan_type: str | None = None
+    profile_id: str | None = None
+    confidence: Literal["low", "medium", "high"] | str | None = None
+    canonical_candidate_id: str | None = None
+    candidate_fact_ids: list[str] = Field(default_factory=list)
+    recommended_steps: list[str] = Field(default_factory=list)
+    reason: str | None = None
+    preview: str | None = None
+    metadata: dict[str, JsonScalar | list[JsonScalar]] = Field(default_factory=dict)
+
+
 class MemoryInsightCountData(McpDataModel):
     value: str | None = None
     count: int | None = None
@@ -333,6 +346,7 @@ class MemoryInsightsData(McpDataModel):
     taxonomy: MemoryInsightsTaxonomyData = Field(default_factory=MemoryInsightsTaxonomyData)
     action_items: list[MemoryInsightActionItemData] = Field(default_factory=list)
     recent_activity: list[MemoryActivityItemData] = Field(default_factory=list)
+    consolidation_plan: list[MemoryConsolidationPlanItemData] = Field(default_factory=list)
     diagnostics: MemoryInsightsDiagnosticsData = Field(
         default_factory=MemoryInsightsDiagnosticsData
     )

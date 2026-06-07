@@ -446,6 +446,20 @@ class MemoryActivityItem:
 
 
 @dataclass(frozen=True)
+class MemoryConsolidationPlanItem:
+    id: str
+    plan_type: str
+    profile_id: str
+    confidence: str
+    canonical_candidate_id: str
+    candidate_fact_ids: tuple[str, ...]
+    recommended_steps: tuple[str, ...]
+    reason: str
+    preview: str | None = None
+    metadata: dict[str, object] | None = None
+
+
+@dataclass(frozen=True)
 class MemoryInsightsResult:
     insights_id: str
     generated_at: datetime
@@ -455,6 +469,7 @@ class MemoryInsightsResult:
     taxonomy: dict[str, object]
     action_items: tuple[MemoryInsightActionItem, ...]
     recent_activity: tuple[MemoryActivityItem, ...]
+    consolidation_plan: tuple[MemoryConsolidationPlanItem, ...]
     diagnostics: dict[str, object]
 
 

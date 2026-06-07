@@ -116,7 +116,8 @@ DIMENSIONS: tuple[Dimension, ...] = (
             "MCP defaults are suggestion-first, delete can be disabled, and "
             "fact/suggestion/capture review tools, bounded batch suggestion "
             "review with per-item failures, plus read-only memory_insights with "
-            "recent activity and duplicate/similar fact review actions are first-class."
+            "recent activity, duplicate/similar fact review actions and a safe "
+            "consolidation plan are first-class."
         ),
         memora_rationale=(
             "Memora has delete, batch delete, document fragment guards and "
@@ -225,8 +226,8 @@ DIMENSIONS: tuple[Dimension, ...] = (
             "profile snapshot export/import with manifest verification plus "
             "dedicated read-only import previews via API, SDK and MCP exist. "
             "Profile snapshots now include durable typed fact relations. Memory "
-            "insights, recent activity and duplicate/similar fact review actions "
-            "are available via API, SDK, MCP and CLI."
+            "insights, recent activity, duplicate/similar fact review actions and "
+            "safe consolidation plans are available via API, SDK, MCP and CLI."
         ),
         memora_rationale=(
             "Direct temp-db smoke passed and public repo is active, but we did "

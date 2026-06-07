@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from memo_stack_core.application.dto import (
     BuildMemoryInsightsQuery,
     MemoryActivityItem,
+    MemoryConsolidationPlanItem,
     MemoryInsightActionItem,
     MemoryInsightsResult,
 )
@@ -76,6 +77,7 @@ class BuildMemoryInsightsUseCase:
         taxonomy = _taxonomy(samples)
         action_items = _action_items(samples=samples, now=now)
         recent_activity = _recent_activity(samples, limit=query.max_activity)
+        consolidation_plan = _consolidation_plan(action_items)
         return MemoryInsightsResult(
             insights_id=self._ids.new_id("ins"),
             generated_at=now,
@@ -89,6 +91,7 @@ class BuildMemoryInsightsUseCase:
             taxonomy=taxonomy,
             action_items=tuple(action_items[:50]),
             recent_activity=tuple(recent_activity),
+            consolidation_plan=tuple(consolidation_plan),
             diagnostics={
                 "evidence_only": True,
                 "read_only": True,
@@ -625,6 +628,63 @@ def _recent_activity(
     return sorted(items, key=_activity_sort_key, reverse=True)[:limit]
 
 
+def _consolidation_plan(
+    action_items: list[MemoryInsightActionItem],
+) -> list[MemoryConsolidationPlanItem]:
+    items: list[MemoryConsolidationPlanItem] = []
+    for action in action_items:
+        if action.action == "review_duplicate_facts":
+            metadata = action.metadata or {}
+            candidate_ids = _metadata_ids(metadata, "duplicate_fact_ids")
+            items.append(
+                _plan_item(
+                    plan_type="exact_duplicate_fact_review",
+                    profile_id=action.profile_id,
+                    confidence="high",
+                    canonical_candidate_id=_metadata_string(
+                        metadata,
+                        "canonical_candidate_id",
+                        fallback=action.target_id,
+                    ),
+                    candidate_fact_ids=tuple(candidate_ids),
+                    recommended_steps=(
+                        "Inspect every listed fact and source ref.",
+                        "Link confirmed duplicates with relation_type=duplicates.",
+                        "Update or forget redundant facts only after explicit confirmation.",
+                    ),
+                    reason=action.reason,
+                    preview=action.preview,
+                    metadata=metadata,
+                )
+            )
+        elif action.action == "review_similar_facts":
+            metadata = action.metadata or {}
+            candidate_ids = _metadata_ids(metadata, "similar_fact_ids")
+            items.append(
+                _plan_item(
+                    plan_type="similar_fact_review",
+                    profile_id=action.profile_id,
+                    confidence="medium",
+                    canonical_candidate_id=_metadata_string(
+                        metadata,
+                        "canonical_candidate_id",
+                        fallback=action.target_id,
+                    ),
+                    candidate_fact_ids=tuple(candidate_ids),
+                    recommended_steps=(
+                        "Inspect both facts and source refs.",
+                        "If they are equivalent, link them with relation_type=duplicates.",
+                        "If they conflict, link them with relation_type=contradicts.",
+                        "Do not merge automatically from this read-only plan.",
+                    ),
+                    reason=action.reason,
+                    preview=action.preview,
+                    metadata=metadata,
+                )
+            )
+    return items[:10]
+
+
 def _health_score(metrics: dict[str, object]) -> float:
     facts = metrics["facts"]
     documents = metrics["documents"]
@@ -690,6 +750,36 @@ def _activity_item(
         profile_id=profile_id,
         thread_id=thread_id,
         status=status,
+        preview=preview,
+        metadata=metadata,
+    )
+
+
+def _plan_item(
+    *,
+    plan_type: str,
+    profile_id: str,
+    confidence: str,
+    canonical_candidate_id: str,
+    candidate_fact_ids: tuple[str, ...],
+    recommended_steps: tuple[str, ...],
+    reason: str,
+    preview: str | None,
+    metadata: dict[str, object],
+) -> MemoryConsolidationPlanItem:
+    stable = "|".join(
+        (plan_type, profile_id, canonical_candidate_id, ",".join(candidate_fact_ids), reason)
+    )
+    digest = hashlib.sha256(stable.encode("utf-8")).hexdigest()[:24]
+    return MemoryConsolidationPlanItem(
+        id=f"mplan_{digest}",
+        plan_type=plan_type,
+        profile_id=profile_id,
+        confidence=confidence,
+        canonical_candidate_id=canonical_candidate_id,
+        candidate_fact_ids=candidate_fact_ids,
+        recommended_steps=recommended_steps,
+        reason=reason,
         preview=preview,
         metadata=metadata,
     )
@@ -768,6 +858,25 @@ def _jaccard(left: tuple[str, ...], right: tuple[str, ...]) -> float:
     if not left_set or not right_set:
         return 0.0
     return len(left_set & right_set) / len(left_set | right_set)
+
+
+def _metadata_string(
+    metadata: dict[str, object],
+    key: str,
+    *,
+    fallback: str | None,
+) -> str:
+    value = metadata.get(key)
+    if isinstance(value, str) and value:
+        return value
+    return fallback or ""
+
+
+def _metadata_ids(metadata: dict[str, object], key: str) -> list[str]:
+    value = metadata.get(key)
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if isinstance(item, str) and item]
 
 
 def _top_counts(counter: Counter[str], *, limit: int = 20) -> list[dict[str, object]]:

@@ -151,6 +151,12 @@ def test_memory_insights_reports_review_and_taxonomy_state(tmp_path: Path) -> No
     assert "review_pending_suggestions" in actions
     assert similar_action["metadata"]["match_type"] == "same_kind_category_token_overlap"
     assert similar_action["metadata"]["similarity"] >= 0.82
+    plan = data["consolidation_plan"][0]
+    assert plan["plan_type"] == "similar_fact_review"
+    assert plan["confidence"] == "medium"
+    assert plan["canonical_candidate_id"] == similar_action["metadata"]["canonical_candidate_id"]
+    assert plan["candidate_fact_ids"] == similar_action["metadata"]["similar_fact_ids"]
+    assert any("Do not merge automatically" in step for step in plan["recommended_steps"])
     activity_types = {item["event_type"] for item in data["recent_activity"]}
     assert {"fact_created", "suggestion_created"} <= activity_types
     assert all(item["preview"] for item in data["recent_activity"])
