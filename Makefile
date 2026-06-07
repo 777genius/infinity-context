@@ -18,6 +18,7 @@ MEMORY_AGENT_SMOKE_POSTGRES_PORT ?= 55429
 MEMORY_AGENT_SMOKE_SERVER_PORT ?= 17788
 MEMORY_PROD_CONFIDENCE_POSTGRES_PORT ?= 55431
 MEMORY_PROD_CONFIDENCE_SERVER_PORT ?= 17791
+MEMORA_DIRECT_SMOKE_REPORT ?= .tmp/memora-direct-smoke.json
 
 .PHONY: memo-stack-format
 memo-stack-format:
@@ -129,13 +130,13 @@ memo-stack-public-benchmark:
 
 .PHONY: memo-stack-memora-direct-smoke
 memo-stack-memora-direct-smoke:
-	@$(PYTHON) scripts/memora_direct_mcp_smoke.py
+	@$(PYTHON) scripts/memora_direct_mcp_smoke.py --report-out "$(MEMORA_DIRECT_SMOKE_REPORT)"
 
 .PHONY: memo-stack-compare-memora
 memo-stack-compare-memora:
 	@set -e; \
-	smoke_report="$${MEMORA_DIRECT_SMOKE_REPORT:-}"; \
-	if [ -n "$$smoke_report" ]; then \
+	smoke_report="$${MEMORA_DIRECT_SMOKE_REPORT:-$(MEMORA_DIRECT_SMOKE_REPORT)}"; \
+	if [ -n "$$smoke_report" ] && [ -f "$$smoke_report" ]; then \
 		$(PYTHON) -m memo_stack_server.memora_comparison --memora-smoke-report "$$smoke_report"; \
 	else \
 		$(PYTHON) -m memo_stack_server.memora_comparison; \

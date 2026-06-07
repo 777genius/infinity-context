@@ -412,6 +412,22 @@ def test_makefile_has_public_memory_benchmark_gate() -> None:
     assert "MEMORY_PUBLIC_BENCHMARK_MAX_CASES" in makefile
 
 
+def test_makefile_persists_and_reuses_memora_direct_smoke_report() -> None:
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
+    smoke_recipe = "\n".join(_make_target_recipe(makefile, "memo-stack-memora-direct-smoke"))
+    compare_recipe = "\n".join(_make_target_recipe(makefile, "memo-stack-compare-memora"))
+
+    assert "MEMORA_DIRECT_SMOKE_REPORT ?= .tmp/memora-direct-smoke.json" in makefile
+    assert ".tmp/" in gitignore
+    assert '--report-out "$(MEMORA_DIRECT_SMOKE_REPORT)"' in smoke_recipe
+    assert 'smoke_report="$${MEMORA_DIRECT_SMOKE_REPORT:-$(MEMORA_DIRECT_SMOKE_REPORT)}"' in (
+        compare_recipe
+    )
+    assert '[ -f "$$smoke_report" ]' in compare_recipe
+    assert "--memora-smoke-report" in compare_recipe
+
+
 def test_makefile_has_official_public_benchmark_canary() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
     recipe = "\n".join(

@@ -1,4 +1,6 @@
 import ast
+import importlib.util
+import json
 from pathlib import Path
 
 from memo_stack_server.memora_comparison import (
@@ -85,3 +87,30 @@ def test_comparison_module_does_not_import_competitor_runtime() -> None:
 
     assert "memora" not in imported_roots
     assert "mcp" not in imported_roots
+
+
+def test_memora_direct_smoke_script_writes_report_out(tmp_path, monkeypatch, capsys) -> None:
+    script_path = Path(__file__).parents[2] / "scripts" / "memora_direct_mcp_smoke.py"
+    spec = importlib.util.spec_from_file_location("memora_direct_mcp_smoke_test", script_path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    async def fake_smoke() -> dict[str, object]:
+        return {
+            "system": "agentic-box/memora",
+            "ok": True,
+            "checks": {"has_core_tools": True},
+        }
+
+    report_path = tmp_path / "reports" / "memora.json"
+    monkeypatch.setattr(module, "run_memora_direct_mcp_smoke", fake_smoke)
+
+    exit_code = module.main(["--report-out", str(report_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert report_path.exists()
+    assert json.loads(report_path.read_text(encoding="utf-8"))["ok"] is True
+    assert json.loads(captured.out)["system"] == "agentic-box/memora"

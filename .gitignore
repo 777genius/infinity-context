@@ -13,3 +13,4 @@ build/
 .e2e-artifacts/
 .runtime/
 .serena/
+.tmp/

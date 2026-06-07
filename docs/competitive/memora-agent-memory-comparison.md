@@ -44,6 +44,11 @@ Direct Memora smoke command:
 make memo-stack-memora-direct-smoke
 ```
 
+The target writes a reusable JSON report to
+`.tmp/memora-direct-smoke.json` by default. `make memo-stack-compare-memora`
+automatically includes that report when it exists, or use
+`MEMORA_DIRECT_SMOKE_REPORT=/path/to/report.json` for an explicit report path.
+
 The direct smoke uses:
 
 - `uvx --from git+https://github.com/agentic-box/memora.git memora-server --no-graph`

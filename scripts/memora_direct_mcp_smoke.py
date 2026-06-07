@@ -7,6 +7,7 @@ runtime dependency of Memo Stack.
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import json
 import os
@@ -333,8 +334,22 @@ async def run_memora_direct_mcp_smoke() -> dict[str, Any]:
     return report
 
 
-def main() -> int:
-    print(json.dumps(asyncio.run(run_memora_direct_mcp_smoke()), indent=2, sort_keys=True))
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--report-out",
+        type=Path,
+        default=None,
+        help="Optional path where the sanitized JSON report should be written.",
+    )
+    args = parser.parse_args(argv)
+
+    report = asyncio.run(run_memora_direct_mcp_smoke())
+    rendered = json.dumps(report, indent=2, sort_keys=True)
+    if args.report_out is not None:
+        args.report_out.parent.mkdir(parents=True, exist_ok=True)
+        args.report_out.write_text(rendered + "\n", encoding="utf-8")
+    print(rendered)
     return 0
 
 
