@@ -265,6 +265,78 @@ describe("Memo Stack path safety E2E", function () {
     assert.ok(calls.every((call) => call.args.includes(profileExternalRef)));
   });
 
+  it("recovers when a wrong existing vault path override sends sync to another folder", async function () {
+    const fact = await createFact(baseUrl, {
+      text: "Obsidian WDIO wrong vault override recovery backend fact.",
+      sourceId: "wdio-wrong-vault-override-seed",
+    });
+    const vaultPath = await resetVault();
+    const wrongVaultPath = path.join(tempDir, "wrong-vault-override");
+    fs.mkdirSync(path.join(vaultPath, ".obsidian", "plugins", "memo-stack"), { recursive: true });
+    fs.mkdirSync(wrongVaultPath, { recursive: true });
+
+    await openMemoStackSettings();
+    await setSettingsInput("apiUrl", baseUrl);
+    await setSettingsInput("token", token);
+    await setSettingsInput("cliPath", realCliPath);
+    await setSettingsInput("vaultPathOverride", wrongVaultPath);
+    await setSettingsInput("rootFolder", rootFolder);
+    await setSettingsInput("spaceSlug", spaceSlug);
+    await setSettingsInput("profileExternalRef", profileExternalRef);
+    await setSettingsInput("commandTimeoutMs", "20000");
+    await waitForSettingsFile(vaultPath, wrongVaultPath);
+    await waitForVaultPath(wrongVaultPath);
+
+    await browser.executeObsidianCommand("memo-stack:connect-vault");
+    await waitForCliCalls(wrongVaultPath, 1);
+    await waitForPluginIdle();
+    await browser.executeObsidianCommand("memo-stack:sync-now");
+    await waitForCliCalls(wrongVaultPath, 2);
+    await waitForPluginIdle();
+
+    let snapshot = await memoStackSnapshot();
+    assert.equal(snapshot.vaultPath, wrongVaultPath);
+    assert.equal(snapshot.pathError, "");
+    assert.equal(snapshot.generatedFactsExists, false);
+    assert.equal(readCliCalls(vaultPath).length, 0);
+    assert.equal(factFiles(vaultPath).length, 0);
+
+    let wrongFact = factFileForId(wrongVaultPath, fact.id);
+    assert.match(fs.readFileSync(wrongFact, "utf8"), /wrong vault override recovery backend fact/);
+    assert.deepEqual(readCliCalls(wrongVaultPath).map((call) => call.command), ["connect", "sync"]);
+    assert.ok(readCliCalls(wrongVaultPath).every((call) => valueAfter(call.args, "--vault") === wrongVaultPath));
+
+    await openMemoStackSettings();
+    await setSettingsInput("vaultPathOverride", "");
+    await waitForVaultPath(vaultPath);
+
+    await browser.executeObsidianCommand("memo-stack:connect-vault");
+    await waitForCliCalls(vaultPath, 1);
+    await waitForPluginIdle();
+    await browser.executeObsidianCommand("memo-stack:sync-now");
+    await waitForCliCalls(vaultPath, 2);
+    await waitForPluginIdle();
+
+    const currentFact = factFileForId(vaultPath, fact.id);
+    assert.match(fs.readFileSync(currentFact, "utf8"), /wrong vault override recovery backend fact/);
+    wrongFact = factFileForId(wrongVaultPath, fact.id);
+    assert.match(fs.readFileSync(wrongFact, "utf8"), /wrong vault override recovery backend fact/);
+    assert.equal(factFiles(vaultPath).length, 1);
+    assert.equal(factFiles(wrongVaultPath).length, 1);
+
+    snapshot = await memoStackSnapshot();
+    assert.equal(snapshot.vaultPath, vaultPath);
+    assert.equal(snapshot.generatedFactsExists, true);
+
+    await browser.executeObsidianCommand("memo-stack:open-inbox");
+    assert.equal(await activeFilePath(), posixPath(path.join(scopedRoot, "inbox", "README.md")));
+
+    const currentCalls = readCliCalls(vaultPath);
+    assert.deepEqual(currentCalls.map((call) => call.command), ["connect", "sync"]);
+    assert.ok(currentCalls.every((call) => valueAfter(call.args, "--vault") === vaultPath));
+    assert.ok(currentCalls.every((call) => call.status === 0));
+  });
+
   it("keeps current vault sync after reload when the vault path override is blank", async function () {
     const fact = await createFact(baseUrl, {
       text: "Obsidian WDIO blank override reload backend fact.",
@@ -493,6 +565,23 @@ async function waitForPathReady(expectedRoot: string, expectedSpace: string): Pr
   );
 }
 
+async function waitForVaultPath(expectedVaultPath: string): Promise<void> {
+  await browser.waitUntil(
+    async () => {
+      try {
+        const snapshot = await memoStackSnapshot();
+        return snapshot.pathError === "" && snapshot.vaultPath === expectedVaultPath;
+      } catch (_error) {
+        return false;
+      }
+    },
+    {
+      timeout: 20000,
+      timeoutMsg: `Memo Stack plugin did not use vault path ${expectedVaultPath}`,
+    },
+  );
+}
+
 async function waitForSettingsFile(vaultPath: string, marker: string): Promise<void> {
   const settingsPath = path.join(vaultPath, ".obsidian", "plugins", "memo-stack", "data.json");
   await waitUntil(
@@ -625,6 +714,10 @@ async function memoStackSnapshot(): Promise<any> {
   return await browser.executeObsidian(({ plugins }) => {
     return (plugins.memoStack as any).snapshot();
   });
+}
+
+async function activeFilePath(): Promise<string> {
+  return await browser.executeObsidian(({ app }) => app.workspace.getActiveFile()?.path ?? "");
 }
 
 async function waitUntil(check: () => Promise<boolean>, message: string): Promise<void> {
