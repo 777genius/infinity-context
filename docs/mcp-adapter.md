@@ -454,9 +454,10 @@ Important production reading:
 - Projection worker catch-up errors inside the agent-behavior block are reported
   as optional diagnostics. The full MCP canary remains the hard gate for
   Graphiti, Qdrant, embeddings, outbox drain and stale/deleted projection leaks.
-- Direct `memory_remember_fact` includes a server-side preflight duplicate and
-  conflict check. This protects storage if an agent forgets to search first, but
-  it cannot help when the agent never calls a memory tool at all.
+- Direct `memory_remember_fact` includes a server-side preflight duplicate,
+  conservative semantic-equivalent duplicate and conflict check. This protects
+  storage if an agent forgets to search first, but it cannot help when the agent
+  never calls a memory tool at all.
 
 This extends the clean full canary with an agent behavior block. The benchmark
 uses OpenAI Responses API function calling, converts public MCP tool schemas to

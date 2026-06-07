@@ -305,6 +305,50 @@ def test_service_propose_updates_dedupes_pending_suggestions() -> None:
     asyncio.run(run())
 
 
+def test_service_propose_updates_dedupes_semantic_equivalent_pending_suggestion() -> None:
+    class PendingSuggestionGateway(RecordingGateway):
+        async def list_suggestions(self, **kwargs: Any) -> dict[str, Any]:
+            self.calls.append(("list_suggestions", kwargs))
+            return {
+                "data": [
+                    {
+                        "id": "sug_qdrant_documents",
+                        "candidate_text": "Qdrant owns document vector retrieval.",
+                    }
+                ]
+            }
+
+    async def run() -> None:
+        gateway = PendingSuggestionGateway()
+        service = MemoryToolService(
+            gateway=gateway,
+            settings=MemoryMcpSettings(write_mode=MemoryMcpWriteMode.DIRECT),
+        )
+
+        result = await service.propose_updates(
+            candidates=[
+                {
+                    "text": "Docs retrieval should use Qdrant vectors.",
+                    "kind": "architecture_decision",
+                    "operation": "remember",
+                }
+            ],
+            source_type="manual",
+            source_id="note-1",
+            user_confirmed=True,
+        )
+
+        assert result["ok"] is True
+        assert result["data"]["duplicates"][0]["decision_code"] == (
+            "memo_stack_mcp.duplicate.existing_memory"
+        )
+        assert result["data"]["duplicates"][0]["duplicate_id"] == "sug_qdrant_documents"
+        assert "create_suggestion" not in [name for name, _ in gateway.calls]
+        assert "remember_fact" not in [name for name, _ in gateway.calls]
+
+    asyncio.run(run())
+
+
 def test_service_propose_updates_rejects_unsafe_and_invalid_candidates() -> None:
     async def run() -> None:
         gateway = RecordingGateway()

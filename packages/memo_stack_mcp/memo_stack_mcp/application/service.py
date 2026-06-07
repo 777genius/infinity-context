@@ -44,6 +44,7 @@ from memo_stack_mcp.application.service_helpers import (
     ensure_choice,
     generated_at,
     looks_conflicting_fact,
+    looks_equivalent_fact,
     meaningful_terms,
     normalize_candidate,
     payload_items,
@@ -1986,6 +1987,8 @@ class MemoryToolService:
             item_id = str(item.get("id") or item.get("fact_id") or "")
             if normalize_candidate(item_text) == normalized:
                 return ("duplicate", item_id)
+            if looks_equivalent_fact(text, item_text):
+                return ("duplicate", item_id)
             if possible_conflict is None and looks_conflicting_fact(text, item_text):
                 possible_conflict = item_id
         suggestions = await self._gateway.list_suggestions(
@@ -1999,6 +2002,8 @@ class MemoryToolService:
         for item in payload_items(suggestions):
             candidate_text = str(item.get("candidate_text") or item.get("text") or "")
             if normalize_candidate(candidate_text) == normalized:
+                return ("duplicate", str(item.get("id") or item.get("suggestion_id") or ""))
+            if looks_equivalent_fact(text, candidate_text):
                 return ("duplicate", str(item.get("id") or item.get("suggestion_id") or ""))
         if possible_conflict is not None:
             return ("conflict", possible_conflict)

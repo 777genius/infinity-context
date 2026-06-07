@@ -195,6 +195,121 @@ def test_service_remember_fact_dedupes_existing_active_fact() -> None:
     asyncio.run(run())
 
 
+def test_service_remember_fact_dedupes_semantic_equivalent_active_fact() -> None:
+    class DuplicateGateway(RecordingGateway):
+        async def list_facts(self, **kwargs: Any) -> dict[str, Any]:
+            self.calls.append(("list_facts", kwargs))
+            return {
+                "data": [
+                    {
+                        "id": "fact_qdrant_documents",
+                        "text": "Qdrant owns document vector retrieval.",
+                    }
+                ]
+            }
+
+    async def run() -> None:
+        gateway = DuplicateGateway()
+        service = MemoryToolService(
+            gateway=gateway,
+            settings=MemoryMcpSettings(write_mode=MemoryMcpWriteMode.DIRECT),
+        )
+
+        result = await service.remember_fact(
+            text="Docs retrieval should use Qdrant vectors.",
+            kind="architecture_decision",
+            source_type="manual",
+            source_id="manual-note-1",
+        )
+
+        assert result["ok"] is True
+        assert result["data"]["id"] == "fact_qdrant_documents"
+        assert result["data"]["status"] == "duplicate"
+        assert result["data"]["safe_reason"] == "memo_stack_mcp.duplicate.existing_memory"
+        assert [name for name, _ in gateway.calls] == ["list_facts"]
+
+    asyncio.run(run())
+
+
+def test_service_remember_fact_does_not_dedupe_negated_semantic_neighbor() -> None:
+    class NegatedNeighborGateway(RecordingGateway):
+        async def list_facts(self, **kwargs: Any) -> dict[str, Any]:
+            self.calls.append(("list_facts", kwargs))
+            return {
+                "data": [
+                    {
+                        "id": "fact_qdrant_negated",
+                        "text": "Qdrant should not use document vectors.",
+                    }
+                ]
+            }
+
+    async def run() -> None:
+        gateway = NegatedNeighborGateway()
+        service = MemoryToolService(
+            gateway=gateway,
+            settings=MemoryMcpSettings(write_mode=MemoryMcpWriteMode.DIRECT),
+        )
+
+        result = await service.remember_fact(
+            text="Docs retrieval should use Qdrant vectors.",
+            kind="architecture_decision",
+            source_type="manual",
+            source_id="manual-note-1",
+        )
+
+        assert result["ok"] is True
+        assert result["data"]["id"] == "fact_1"
+        assert result["diagnostics"]["side_effects"] == ["remembered_fact"]
+        assert [name for name, _ in gateway.calls] == [
+            "list_facts",
+            "list_suggestions",
+            "remember_fact",
+        ]
+
+    asyncio.run(run())
+
+
+def test_service_remember_fact_does_not_dedupe_different_engine_neighbor() -> None:
+    class DifferentEngineGateway(RecordingGateway):
+        async def list_facts(self, **kwargs: Any) -> dict[str, Any]:
+            self.calls.append(("list_facts", kwargs))
+            return {
+                "data": [
+                    {
+                        "id": "fact_qdrant_documents",
+                        "text": "Qdrant owns document vector retrieval.",
+                    }
+                ]
+            }
+
+    async def run() -> None:
+        gateway = DifferentEngineGateway()
+        service = MemoryToolService(
+            gateway=gateway,
+            settings=MemoryMcpSettings(write_mode=MemoryMcpWriteMode.DIRECT),
+        )
+
+        result = await service.remember_fact(
+            text="Postgres owns document vector retrieval.",
+            kind="architecture_decision",
+            source_type="manual",
+            source_id="manual-note-1",
+        )
+
+        assert result["ok"] is True
+        assert result["data"]["id"] == "sug_1"
+        assert result["data"]["status"] == "pending"
+        assert result["diagnostics"]["side_effects"] == ["created_suggestion"]
+        assert [name for name, _ in gateway.calls] == [
+            "list_facts",
+            "list_suggestions",
+            "create_suggestion",
+        ]
+
+    asyncio.run(run())
+
+
 def test_service_remember_fact_routes_conflicting_existing_fact_to_review() -> None:
     class ConflictGateway(RecordingGateway):
         async def list_facts(self, **kwargs: Any) -> dict[str, Any]:

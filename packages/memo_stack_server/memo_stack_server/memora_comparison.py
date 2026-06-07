@@ -80,9 +80,9 @@ DIMENSIONS: tuple[Dimension, ...] = (
         memora_score=9.0,
         memo_stack_rationale=(
             "memory_remember_fact, canonical facts, idempotency, source refs, "
-            "canonical category/tags/TTL, suggestions, bounded batch suggestion "
-            "create, MCP tools and HTTP API are verified by local quality and "
-            "MCP e2e gates."
+            "canonical category/tags/TTL, exact and conservative semantic-equivalent "
+            "duplicate preflight, suggestions, bounded batch suggestion create, "
+            "MCP tools and HTTP API are verified by local quality and MCP e2e gates."
         ),
         memora_rationale=(
             "Direct MCP smoke and public docs show simple memory_create, batch "
@@ -116,7 +116,8 @@ DIMENSIONS: tuple[Dimension, ...] = (
             "MCP defaults are suggestion-first, delete can be disabled, and "
             "fact/suggestion/capture review tools, bounded batch suggestion "
             "review with per-item failures, DB-enforced race-safe pending "
-            "suggestion dedupe, plus read-only memory_insights with "
+            "suggestion dedupe, semantic-equivalent duplicate suppression, plus read-only "
+            "memory_insights with "
             "recent activity, duplicate/similar fact review actions and a safe "
             "consolidation plan are first-class."
         ),
