@@ -18,12 +18,16 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from memo_stack_server.eval import (
+    AGENT_BEHAVIOR_BENCH_SUITE,
     AUTO_MEMORY_GOLDEN_SUITE,
     FULL_PROVIDER_CANARY_SUITE,
     GRAPH_NATIVE_GOLDEN_SUITE,
+    LOCOMO_BENCHMARK_SUITE,
     LONG_MEMORY_GOLDEN_SUITE,
+    LONGMEMEVAL_BENCHMARK_SUITE,
     MEMORY_QUALITY_SCORECARD_SUITE,
     PROMPT_CONTRACT_SUITE,
+    PUBLIC_MEMORY_BENCHMARK_SUITE,
     QUALITY_GOLDEN_SUITE,
     SMALL_GOLDEN_SUITE,
     memory_quality_scorecard_policy_snapshot,
@@ -37,15 +41,25 @@ from memo_stack_server.eval import (
 )
 
 DEFAULT_EVIDENCE_DIR = Path(".tmp") / "memo-stack-quality-evidence"
-_FULL_PROVIDER_REPORT_SUITES = frozenset(
-    (
-        FULL_PROVIDER_CANARY_SUITE,
-        "memo_stack_full_provider_canary",
-        "memo-stack-clean-full-smoke",
-        "clean-full-smoke",
-        "clean_full_smoke",
-    )
+_PUBLIC_BENCHMARK_REPORT_GENERATORS = frozenset(
+    {
+        "memo_stack_server.official_public_benchmark",
+        "memo_stack_server.public_benchmark",
+    }
 )
+_TOP_EVIDENCE_REPORT_GENERATORS = {
+    FULL_PROVIDER_CANARY_SUITE: frozenset({"scripts/clean_full_smoke.py"}),
+    "memo_stack_full_provider_canary": frozenset({"scripts/clean_full_smoke.py"}),
+    "memo-stack-clean-full-smoke": frozenset({"scripts/clean_full_smoke.py"}),
+    "clean-full-smoke": frozenset({"scripts/clean_full_smoke.py"}),
+    "clean_full_smoke": frozenset({"scripts/clean_full_smoke.py"}),
+    AGENT_BEHAVIOR_BENCH_SUITE: frozenset({"memo_stack_mcp.agent_behavior_bench"}),
+    PUBLIC_MEMORY_BENCHMARK_SUITE: _PUBLIC_BENCHMARK_REPORT_GENERATORS,
+    "public_memory_benchmark": _PUBLIC_BENCHMARK_REPORT_GENERATORS,
+    "memory-public-benchmarks": _PUBLIC_BENCHMARK_REPORT_GENERATORS,
+    LOCOMO_BENCHMARK_SUITE: _PUBLIC_BENCHMARK_REPORT_GENERATORS,
+    LONGMEMEVAL_BENCHMARK_SUITE: _PUBLIC_BENCHMARK_REPORT_GENERATORS,
+}
 
 
 @dataclass(frozen=True)
@@ -269,35 +283,36 @@ def _validate_top_evidence_report_provenance(
     allow_dirty_top_evidence: bool,
 ) -> None:
     payload = _read_json_object(path)
-    if payload.get("suite") not in _FULL_PROVIDER_REPORT_SUITES:
+    expected_generators = _expected_top_evidence_generators(payload.get("suite"))
+    if expected_generators is None:
         return
     provenance = payload.get("provenance")
     if not isinstance(provenance, dict):
-        raise ValueError(f"Top evidence full-provider report is missing provenance: {path}")
-    if provenance.get("generated_by") != "scripts/clean_full_smoke.py":
+        raise ValueError(f"Top evidence report is missing provenance: {path}")
+    if provenance.get("generated_by") not in expected_generators:
         raise ValueError(
-            f"Top evidence full-provider report has unsupported provenance generator: {path}"
+            f"Top evidence report has unsupported provenance generator: {path}"
         )
     git = provenance.get("git")
     commit = git.get("commit") if isinstance(git, dict) else None
     dirty = git.get("dirty") if isinstance(git, dict) else None
     if not isinstance(commit, str) or not commit:
-        raise ValueError(
-            f"Top evidence full-provider report is missing provenance git commit: {path}"
-        )
+        raise ValueError(f"Top evidence report is missing provenance git commit: {path}")
     if not isinstance(dirty, bool):
-        raise ValueError(
-            f"Top evidence full-provider report is missing provenance dirty state: {path}"
-        )
+        raise ValueError(f"Top evidence report is missing provenance dirty state: {path}")
     if commit != expected_git_commit:
         raise ValueError(
-            "Top evidence full-provider report commit mismatch: "
+            "Top evidence report commit mismatch: "
             f"expected {expected_git_commit}, got {commit}"
         )
     if dirty and not allow_dirty_top_evidence:
-        raise ValueError(
-            f"Top evidence full-provider report was generated from a dirty worktree: {path}"
-        )
+        raise ValueError(f"Top evidence report was generated from a dirty worktree: {path}")
+
+
+def _expected_top_evidence_generators(suite: object) -> frozenset[str] | None:
+    if not isinstance(suite, str):
+        return None
+    return _TOP_EVIDENCE_REPORT_GENERATORS.get(suite)
 
 
 def _read_json_object(path: Path) -> dict[str, object]:

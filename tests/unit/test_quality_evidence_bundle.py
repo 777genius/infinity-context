@@ -377,3 +377,78 @@ def test_quality_evidence_bundle_requires_top_evidence_provenance(
         assert "missing provenance" in str(exc)
     else:
         raise AssertionError("expected missing full-provider provenance to fail")
+
+
+def test_quality_evidence_bundle_requires_standalone_agent_top_evidence_provenance(
+    tmp_path: Path,
+) -> None:
+    external_report = tmp_path / "agent-behavior.json"
+    external_report.write_text(
+        json.dumps({"suite": "memory_mcp_agent_behavior", "ok": True}),
+        encoding="utf-8",
+    )
+
+    try:
+        build_quality_evidence_bundle(
+            output_dir=tmp_path / "evidence",
+            extra_report_paths=(external_report,),
+            require_top_evidence=True,
+            expected_git_commit="expected-commit",
+        )
+    except ValueError as exc:
+        assert "missing provenance" in str(exc)
+    else:
+        raise AssertionError("expected missing standalone agent provenance to fail")
+
+
+def test_quality_evidence_bundle_requires_standalone_public_benchmark_provenance(
+    tmp_path: Path,
+) -> None:
+    external_report = tmp_path / "public-benchmark.json"
+    external_report.write_text(
+        json.dumps({"suite": "public-memory-benchmark", "ok": True}),
+        encoding="utf-8",
+    )
+
+    try:
+        build_quality_evidence_bundle(
+            output_dir=tmp_path / "evidence",
+            extra_report_paths=(external_report,),
+            require_top_evidence=True,
+            expected_git_commit="expected-commit",
+        )
+    except ValueError as exc:
+        assert "missing provenance" in str(exc)
+    else:
+        raise AssertionError("expected missing standalone public benchmark provenance to fail")
+
+
+def test_quality_evidence_bundle_rejects_wrong_standalone_top_evidence_generator(
+    tmp_path: Path,
+) -> None:
+    external_report = tmp_path / "agent-behavior-wrong-generator.json"
+    external_report.write_text(
+        json.dumps(
+            {
+                "suite": "memory_mcp_agent_behavior",
+                "ok": True,
+                "provenance": {
+                    "generated_by": "scripts/clean_full_smoke.py",
+                    "git": {"commit": "abc123", "dirty": False},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    try:
+        build_quality_evidence_bundle(
+            output_dir=tmp_path / "evidence",
+            extra_report_paths=(external_report,),
+            require_top_evidence=True,
+            expected_git_commit="abc123",
+        )
+    except ValueError as exc:
+        assert "unsupported provenance generator" in str(exc)
+    else:
+        raise AssertionError("expected unsupported standalone top evidence generator to fail")
