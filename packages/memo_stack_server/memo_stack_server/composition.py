@@ -40,8 +40,10 @@ from memo_stack_core.application import (
     GetSessionStatusUseCase,
     IngestDocumentUseCase,
     IngestEpisodeUseCase,
+    LinkFactsUseCase,
     ListCapturesUseCase,
     ListDocumentChunksUseCase,
+    ListFactRelationsUseCase,
     ListFactsUseCase,
     ListFactVersionsUseCase,
     ListProfilesUseCase,
@@ -53,6 +55,7 @@ from memo_stack_core.application import (
     RejectSuggestionUseCase,
     RelatedFactsUseCase,
     RememberFactUseCase,
+    UnlinkFactRelationUseCase,
     UpdateFactUseCase,
 )
 from memo_stack_core.application.auto_memory import RuleBasedMemoryClassifier
@@ -111,6 +114,9 @@ class Container:
     get_fact: GetFactUseCase
     list_fact_versions: ListFactVersionsUseCase
     related_facts: RelatedFactsUseCase
+    link_facts: LinkFactsUseCase
+    list_fact_relations: ListFactRelationsUseCase
+    unlink_fact_relation: UnlinkFactRelationUseCase
     update_fact: UpdateFactUseCase
     forget_fact: ForgetFactUseCase
     ensure_scope: EnsureScopeUseCase
@@ -215,6 +221,9 @@ def build_container(settings: Settings | None = None) -> Container:
     get_fact = GetFactUseCase(uow_factory=uow_factory)
     list_fact_versions = ListFactVersionsUseCase(uow_factory=uow_factory)
     related_facts = RelatedFactsUseCase(uow_factory=uow_factory)
+    link_facts = LinkFactsUseCase(uow_factory=uow_factory, clock=clock, ids=ids)
+    list_fact_relations = ListFactRelationsUseCase(uow_factory=uow_factory)
+    unlink_fact_relation = UnlinkFactRelationUseCase(uow_factory=uow_factory, clock=clock)
     update_fact = UpdateFactUseCase(uow_factory=uow_factory, clock=clock)
     forget_fact = ForgetFactUseCase(uow_factory=uow_factory, clock=clock)
     ensure_scope = EnsureScopeUseCase(uow_factory=uow_factory, clock=clock)
@@ -314,6 +323,9 @@ def build_container(settings: Settings | None = None) -> Container:
         get_fact=get_fact,
         list_fact_versions=list_fact_versions,
         related_facts=related_facts,
+        link_facts=link_facts,
+        list_fact_relations=list_fact_relations,
+        unlink_fact_relation=unlink_fact_relation,
         update_fact=update_fact,
         forget_fact=forget_fact,
         ensure_scope=ensure_scope,

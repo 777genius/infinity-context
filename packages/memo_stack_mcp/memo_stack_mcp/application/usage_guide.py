@@ -19,6 +19,11 @@ MEMORY_USAGE_GUIDE = """Memo Stack MCP usage guide:
   answering. Do not answer with an intent to search without actually using the tool.
 - Use memory_related_facts after memory_search or memory_get_fact when auditing adjacent
   decisions, resolving update/delete targets, or summarizing related project memory.
+- Use memory_link_facts only after both concrete fact ids are known. Use it for durable
+  relationships such as supports, supersedes, contradicts, duplicates, references,
+  depends_on, or related_to. Use memory_list_fact_relations to audit persisted links.
+- Use memory_unlink_fact_relation only with a concrete relation_id from
+  memory_list_fact_relations; it removes the relation, not the facts.
 - Use memory_status only when readiness, policy, or provider diagnostics are unknown or requested.
   For normal remember/search/update/forget tasks, start with the task-relevant memory tool.
 - Store only stable facts, decisions, constraints, preferences, and durable project context.

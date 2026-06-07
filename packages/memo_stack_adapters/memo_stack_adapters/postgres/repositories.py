@@ -12,6 +12,7 @@ from memo_stack_core.domain.entities import (
     MemoryDocument,
     MemoryEpisode,
     MemoryFact,
+    MemoryFactRelation,
     MemoryProfile,
     MemorySpace,
     MemorySuggestion,
@@ -25,6 +26,7 @@ from memo_stack_core.ports.repositories import (
     ChunkRepositoryPort,
     DocumentRepositoryPort,
     EpisodeRepositoryPort,
+    FactRelationRepositoryPort,
     FactRepositoryPort,
     IdempotencyRepositoryPort,
     ResolvedScope,
@@ -51,6 +53,8 @@ from memo_stack_adapters.postgres.mappers import (
     document_row_to_domain,
     document_to_row,
     episode_to_row,
+    fact_relation_row_to_domain,
+    fact_relation_to_row,
     fact_row_to_domain,
     profile_row_to_domain,
     source_ref_to_json,
@@ -63,6 +67,7 @@ from memo_stack_adapters.postgres.models import (
     MemoryChunkRow,
     MemoryDocumentRow,
     MemoryEpisodeRow,
+    MemoryFactRelationRow,
     MemoryFactRow,
     MemoryFactVersionRow,
     MemoryIdempotencyRecordRow,
@@ -878,6 +883,72 @@ class PostgresFactRepository(FactRepositoryPort):
                 )
             ).scalars()
         )
+
+
+class PostgresFactRelationRepository(FactRelationRepositoryPort):
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def create(self, relation: MemoryFactRelation) -> MemoryFactRelation:
+        self._session.add(fact_relation_to_row(relation))
+        return relation
+
+    async def get_by_id(self, relation_id: str) -> MemoryFactRelation | None:
+        row = await self._session.get(MemoryFactRelationRow, relation_id)
+        return fact_relation_row_to_domain(row) if row else None
+
+    async def save(self, relation: MemoryFactRelation) -> MemoryFactRelation:
+        row = await self._session.get(MemoryFactRelationRow, str(relation.id))
+        if row is None:
+            raise MemoryNotFoundError("Fact relation not found")
+        row.status = relation.status.value
+        row.reason = relation.reason
+        row.updated_at = relation.updated_at
+        return relation
+
+    async def find_active(
+        self,
+        *,
+        source_fact_id: str,
+        target_fact_id: str,
+        relation_type: str,
+    ) -> MemoryFactRelation | None:
+        row = (
+            await self._session.execute(
+                select(MemoryFactRelationRow).where(
+                    MemoryFactRelationRow.source_fact_id == source_fact_id,
+                    MemoryFactRelationRow.target_fact_id == target_fact_id,
+                    MemoryFactRelationRow.relation_type == relation_type,
+                    MemoryFactRelationRow.status == "active",
+                )
+            )
+        ).scalar_one_or_none()
+        return fact_relation_row_to_domain(row) if row else None
+
+    async def list_for_fact(
+        self,
+        *,
+        fact_id: str,
+        status: str | None,
+        limit: int,
+    ) -> list[MemoryFactRelation]:
+        conditions = [
+            or_(
+                MemoryFactRelationRow.source_fact_id == fact_id,
+                MemoryFactRelationRow.target_fact_id == fact_id,
+            )
+        ]
+        if status is not None:
+            conditions.append(MemoryFactRelationRow.status == status)
+        rows = (
+            await self._session.execute(
+                select(MemoryFactRelationRow)
+                .where(*conditions)
+                .order_by(MemoryFactRelationRow.updated_at.desc(), MemoryFactRelationRow.id.desc())
+                .limit(limit)
+            )
+        ).scalars()
+        return [fact_relation_row_to_domain(row) for row in rows]
 
 
 class PostgresEpisodeRepository(EpisodeRepositoryPort):

@@ -17,6 +17,7 @@ SpaceId = NewType("SpaceId", str)
 ProfileId = NewType("ProfileId", str)
 ThreadId = NewType("ThreadId", str)
 MemoryFactId = NewType("MemoryFactId", str)
+MemoryFactRelationId = NewType("MemoryFactRelationId", str)
 MemoryEpisodeId = NewType("MemoryEpisodeId", str)
 MemoryDocumentId = NewType("MemoryDocumentId", str)
 MemoryChunkId = NewType("MemoryChunkId", str)
@@ -28,6 +29,16 @@ class FactStatus(StrEnum):
     SUPERSEDED = "superseded"
     DISPUTED = "disputed"
     DELETED = "deleted"
+
+
+class FactRelationType(StrEnum):
+    SUPPORTS = "supports"
+    SUPERSEDES = "supersedes"
+    CONTRADICTS = "contradicts"
+    DUPLICATES = "duplicates"
+    REFERENCES = "references"
+    DEPENDS_ON = "depends_on"
+    RELATED_TO = "related_to"
 
 
 class LifecycleStatus(StrEnum):
@@ -344,6 +355,55 @@ class MemoryFact:
         if self.status == FactStatus.DELETED:
             return self
         return replace(self, status=FactStatus.DELETED, version=self.version + 1, updated_at=now)
+
+
+@dataclass(frozen=True)
+class MemoryFactRelation:
+    id: MemoryFactRelationId
+    space_id: SpaceId
+    profile_id: ProfileId
+    source_fact_id: MemoryFactId
+    target_fact_id: MemoryFactId
+    relation_type: FactRelationType
+    reason: str
+    status: LifecycleStatus
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        relation_id: MemoryFactRelationId,
+        space_id: SpaceId,
+        profile_id: ProfileId,
+        source_fact_id: MemoryFactId,
+        target_fact_id: MemoryFactId,
+        relation_type: FactRelationType,
+        reason: str,
+        now: datetime,
+    ) -> MemoryFactRelation:
+        if source_fact_id == target_fact_id:
+            raise MemoryValidationError("Fact relation requires two distinct facts")
+        if not reason.strip():
+            raise MemoryValidationError("Fact relation reason is required")
+        return cls(
+            id=relation_id,
+            space_id=space_id,
+            profile_id=profile_id,
+            source_fact_id=source_fact_id,
+            target_fact_id=target_fact_id,
+            relation_type=relation_type,
+            reason=reason.strip(),
+            status=LifecycleStatus.ACTIVE,
+            created_at=now,
+            updated_at=now,
+        )
+
+    def delete(self, *, now: datetime) -> MemoryFactRelation:
+        if self.status == LifecycleStatus.DELETED:
+            return self
+        return replace(self, status=LifecycleStatus.DELETED, updated_at=now)
 
 
 @dataclass(frozen=True)

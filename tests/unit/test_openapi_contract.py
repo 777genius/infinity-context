@@ -23,6 +23,8 @@ def test_openapi_contains_stable_v1_fields() -> None:
     assert "/v1/facts" in paths
     assert "/v1/facts/{fact_id}" in paths
     assert "/v1/facts/{fact_id}/related" in paths
+    assert "/v1/facts/{fact_id}/relations" in paths
+    assert "/v1/facts/relations/{relation_id}" in paths
     assert "/v1/documents" in paths
     assert "/v1/context" in paths
     assert "/v1/search" in paths
@@ -57,6 +59,7 @@ def test_openapi_contains_stable_v1_fields() -> None:
         "IngestEpisodeRequest",
         "RememberFactRequest",
         "UpdateFactRequest",
+        "LinkFactRequest",
         "CreateSpaceRequest",
         "CreateProfileRequest",
         "ThreadMemoryScopeRequest",
@@ -106,6 +109,15 @@ def test_v1_request_models_reject_unknown_fields() -> None:
                 "profile_id": "profile",
                 "text": "Fact",
                 "source_refs": [{"source_type": "manual", "source_id": "ref-1"}],
+                "unexpected": "raw",
+            },
+        ),
+        (
+            "/v1/facts/fact_1/relations",
+            {
+                "target_fact_id": "fact_2",
+                "relation_type": "supports",
+                "reason": "strict relation request",
                 "unexpected": "raw",
             },
         ),

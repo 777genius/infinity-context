@@ -19,6 +19,8 @@ from memo_stack_mcp.domain.models import (
     MemoryDocumentIngestResponse,
     MemoryFactListResponse,
     MemoryFactMutationResponse,
+    MemoryFactRelationResponse,
+    MemoryFactRelationsResponse,
     MemoryFactResponse,
     MemoryGraphExportResponse,
     MemoryInsightsResponse,
@@ -38,6 +40,16 @@ _IGNORED_HOST_TOOL_ARGUMENTS = frozenset({"wait_for_previous"})
 MemoryKind = Literal["note", "architecture_decision", "constraint", "user_preference"]
 MemoryClassification = Literal["public", "internal", "restricted", "unknown"]
 FactStatus = Literal["active", "superseded", "disputed", "deleted"]
+FactRelationType = Literal[
+    "supports",
+    "supersedes",
+    "contradicts",
+    "duplicates",
+    "references",
+    "depends_on",
+    "related_to",
+]
+FactRelationStatus = Literal["active", "deleted"]
 SuggestionStatus = Literal["pending", "approved", "rejected", "expired"]
 SuggestionOperation = Literal["add", "update", "delete", "review"]
 CaptureStatus = Literal["accepted", "rejected", "redacted", "purged"]
@@ -871,6 +883,101 @@ def create_mcp_server(
                 include_other_threads=include_other_threads,
             ),
             MemoryRelatedFactsResponse,
+        )
+
+    @mcp.tool(
+        name="memory_link_facts",
+        title="Link Facts",
+        description=(
+            "Create a durable typed relation between two canonical facts. Use this when the "
+            "relationship itself should be remembered, for example supports, supersedes, "
+            "contradicts, duplicates, references, depends_on, or related_to. First load both "
+            "facts with memory_search or memory_get_fact and pass exact fact ids, not raw text."
+        ),
+        annotations=ToolAnnotations(
+            readOnlyHint=False,
+            destructiveHint=False,
+            idempotentHint=True,
+            openWorldHint=False,
+        ),
+        structured_output=True,
+    )
+    async def memory_link_facts(
+        source_fact_id: Annotated[
+            str, Field(min_length=1, max_length=160, description="Source fact id.")
+        ],
+        target_fact_id: Annotated[
+            str, Field(min_length=1, max_length=160, description="Target fact id.")
+        ],
+        relation_type: Annotated[
+            FactRelationType,
+            Field(default="related_to", description="Typed relation to persist."),
+        ] = "related_to",
+        reason: Annotated[
+            str,
+            Field(min_length=1, max_length=320, description="Short source-backed reason."),
+        ] = "agent linked related facts",
+    ) -> Annotated[CallToolResult, MemoryFactRelationResponse]:
+        return _tool_response(
+            await tool_service.link_facts(
+                source_fact_id=source_fact_id,
+                target_fact_id=target_fact_id,
+                relation_type=relation_type,
+                reason=reason,
+            ),
+            MemoryFactRelationResponse,
+        )
+
+    @mcp.tool(
+        name="memory_list_fact_relations",
+        title="List Fact Relations",
+        description=(
+            "List durable typed incoming and outgoing relations for one canonical fact. Use this "
+            "when auditing why facts are connected or before changing linked memory."
+        ),
+        annotations=ToolAnnotations(
+            readOnlyHint=True,
+            destructiveHint=False,
+            idempotentHint=True,
+            openWorldHint=False,
+        ),
+        structured_output=True,
+    )
+    async def memory_list_fact_relations(
+        fact_id: Annotated[
+            str, Field(min_length=1, max_length=160, description="Canonical fact id.")
+        ],
+        status: Annotated[FactRelationStatus | None, Field(default="active")] = "active",
+        limit: Annotated[int, Field(default=50, ge=1, le=100)] = 50,
+    ) -> Annotated[CallToolResult, MemoryFactRelationsResponse]:
+        return _tool_response(
+            await tool_service.list_fact_relations(fact_id=fact_id, status=status, limit=limit),
+            MemoryFactRelationsResponse,
+        )
+
+    @mcp.tool(
+        name="memory_unlink_fact_relation",
+        title="Unlink Fact Relation",
+        description=(
+            "Soft-delete one durable fact relation by relation_id. This does not delete either "
+            "fact. It is destructive metadata cleanup and follows delete policy."
+        ),
+        annotations=ToolAnnotations(
+            readOnlyHint=False,
+            destructiveHint=True,
+            idempotentHint=True,
+            openWorldHint=False,
+        ),
+        structured_output=True,
+    )
+    async def memory_unlink_fact_relation(
+        relation_id: Annotated[
+            str, Field(min_length=1, max_length=160, description="Fact relation id.")
+        ],
+    ) -> Annotated[CallToolResult, MemoryFactRelationResponse]:
+        return _tool_response(
+            await tool_service.unlink_fact_relation(relation_id=relation_id),
+            MemoryFactRelationResponse,
         )
 
     @mcp.tool(

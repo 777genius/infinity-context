@@ -11,6 +11,7 @@ from memo_stack_core.ports.repositories import (
     ChunkRepositoryPort,
     DocumentRepositoryPort,
     EpisodeRepositoryPort,
+    FactRelationRepositoryPort,
     FactRepositoryPort,
     IdempotencyRepositoryPort,
     ScopeRepositoryPort,
@@ -26,6 +27,7 @@ class OutboxPort(Protocol):
 class UnitOfWorkPort(Protocol):
     scope: ScopeRepositoryPort
     facts: FactRepositoryPort
+    fact_relations: FactRelationRepositoryPort
     episodes: EpisodeRepositoryPort
     documents: DocumentRepositoryPort
     chunks: ChunkRepositoryPort

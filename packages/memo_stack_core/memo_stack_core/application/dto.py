@@ -12,6 +12,7 @@ from memo_stack_core.domain.entities import (
     MemoryDocument,
     MemoryEpisode,
     MemoryFact,
+    MemoryFactRelation,
     MemoryKind,
     MemoryProfile,
     MemorySpace,
@@ -139,6 +140,44 @@ class RelatedFactsResult:
     target: MemoryFact
     items: tuple[RelatedFactItem, ...]
     diagnostics: dict[str, object]
+
+
+@dataclass(frozen=True)
+class LinkFactsCommand:
+    source_fact_id: str
+    target_fact_id: str
+    relation_type: str
+    reason: str
+
+
+@dataclass(frozen=True)
+class ListFactRelationsQuery:
+    fact_id: str
+    status: str | None = "active"
+    limit: int = 50
+
+
+@dataclass(frozen=True)
+class UnlinkFactRelationCommand:
+    relation_id: str
+
+
+@dataclass(frozen=True)
+class FactRelationItem:
+    relation: MemoryFactRelation
+    related_fact: MemoryFact
+    direction: str
+
+
+@dataclass(frozen=True)
+class FactRelationResult:
+    relation: MemoryFactRelation
+
+
+@dataclass(frozen=True)
+class FactRelationsResult:
+    target: MemoryFact
+    items: tuple[FactRelationItem, ...]
 
 
 @dataclass(frozen=True)

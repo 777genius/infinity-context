@@ -51,6 +51,8 @@ WRITE_TOOLS = {
     "memory_remember_fact",
     "memory_update_fact",
     "memory_forget_fact",
+    "memory_link_facts",
+    "memory_unlink_fact_relation",
     "memory_suggest_fact",
     "memory_propose_updates",
     "memory_approve_suggestion",
@@ -64,12 +66,15 @@ READ_BEFORE_WRITE_TOOLS = {
     "memory_list_facts",
     "memory_get_fact",
     "memory_related_facts",
+    "memory_list_fact_relations",
     "memory_list_fact_versions",
 }
 DIRECT_WRITE_TOOLS = {
     "memory_remember_fact",
     "memory_update_fact",
     "memory_forget_fact",
+    "memory_link_facts",
+    "memory_unlink_fact_relation",
     "memory_ingest_document",
 }
 SENSITIVE_ENV_KEYS = (

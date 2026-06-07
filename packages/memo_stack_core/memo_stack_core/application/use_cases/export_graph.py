@@ -18,6 +18,7 @@ from memo_stack_core.domain.entities import (
     MemoryChunk,
     MemoryDocument,
     MemoryFact,
+    MemoryFactRelation,
     SourceRef,
 )
 from memo_stack_core.ports.unit_of_work import UnitOfWorkFactoryPort
@@ -64,6 +65,11 @@ class ExportGraphUseCase:
                 include_restricted=query.include_restricted,
                 list_chunks=uow.documents.list_chunks,
             )
+            relations = await _load_fact_relations(
+                facts=facts,
+                status=None if query.include_deleted else LifecycleStatus.ACTIVE.value,
+                list_relations=uow.fact_relations.list_for_fact,
+            )
 
         if facts_truncated:
             warnings.append("facts_truncated")
@@ -80,7 +86,7 @@ class ExportGraphUseCase:
             documents=documents,
             chunks=chunks,
         )
-        edges = _build_edges(facts=facts, documents=documents, chunks=chunks)
+        edges = _build_edges(facts=facts, documents=documents, chunks=chunks, relations=relations)
         return GraphExportResult(
             schema_version=_SCHEMA_VERSION,
             scope={
@@ -94,6 +100,7 @@ class ExportGraphUseCase:
                 "facts": len(facts),
                 "documents": len(documents),
                 "chunks": len(chunks),
+                "relations": len(relations),
                 "nodes": len(nodes),
                 "edges": len(edges),
             },
@@ -155,6 +162,24 @@ async def _load_document_chunks(
             truncated = True
         chunks.extend(visible_chunks[:remaining])
     return chunks, truncated
+
+
+async def _load_fact_relations(
+    *,
+    facts: list[MemoryFact],
+    status: str | None,
+    list_relations: Callable[..., Awaitable[list[MemoryFactRelation]]],
+) -> list[MemoryFactRelation]:
+    visible_fact_ids = {str(fact.id) for fact in facts}
+    by_id: dict[str, MemoryFactRelation] = {}
+    for fact_id in sorted(visible_fact_ids):
+        for relation in await list_relations(fact_id=fact_id, status=status, limit=200):
+            if (
+                str(relation.source_fact_id) in visible_fact_ids
+                and str(relation.target_fact_id) in visible_fact_ids
+            ):
+                by_id[str(relation.id)] = relation
+    return sorted(by_id.values(), key=lambda relation: str(relation.id))
 
 
 def _bounded(items: Iterable[_T], limit: int) -> tuple[list[_T], bool]:
@@ -248,6 +273,7 @@ def _build_edges(
     facts: list[MemoryFact],
     documents: list[MemoryDocument],
     chunks: list[MemoryChunk],
+    relations: list[MemoryFactRelation],
 ) -> list[GraphExportEdge]:
     edges: list[GraphExportEdge] = []
     profile_id = str(facts[0].profile_id if facts else documents[0].profile_id) if (
@@ -257,7 +283,28 @@ def _build_edges(
         edges.extend(_scope_edges(profile_id=profile_id, facts=facts, documents=documents))
     edges.extend(_document_chunk_edges(chunks))
     edges.extend(_fact_evidence_edges(facts=facts, documents=documents, chunks=chunks))
+    edges.extend(_fact_relation_edges(relations))
     return edges
+
+
+def _fact_relation_edges(relations: list[MemoryFactRelation]) -> list[GraphExportEdge]:
+    return [
+        GraphExportEdge(
+            id=f"relation:{relation.id}",
+            type=relation.relation_type.value,
+            source=f"fact:{relation.source_fact_id}",
+            target=f"fact:{relation.target_fact_id}",
+            label=relation.relation_type.value,
+            data={
+                "id": str(relation.id),
+                "reason": relation.reason,
+                "status": relation.status.value,
+                "created_at": relation.created_at.isoformat(),
+                "updated_at": relation.updated_at.isoformat(),
+            },
+        )
+        for relation in relations
+    ]
 
 
 def _scope_edges(

@@ -20,11 +20,9 @@ from memo_stack_sdk._payloads import (
     validate_read_scope_payload as _validate_read_scope_payload,
 )
 from memo_stack_sdk._payloads import (
-    validate_single_scope_payload as _validate_single_scope_payload,
-)
-from memo_stack_sdk._payloads import (
     without_none as _without_none,
 )
+from memo_stack_sdk.scopes import MemoryScope, ReadScope
 
 
 class MemoStackError(RuntimeError):
@@ -40,56 +38,6 @@ class MemoStackError(RuntimeError):
         self.status_code = status_code
         self.code = code
         self.retryable = retryable
-
-
-@dataclass(frozen=True)
-class MemoryScope:
-    space_id: str | None = None
-    profile_id: str | None = None
-    thread_id: str | None = None
-    space_slug: str | None = None
-    profile_external_ref: str | None = None
-    thread_external_ref: str | None = None
-
-    def to_payload(self) -> dict[str, Any]:
-        payload = _single_scope_body(
-            space_id=self.space_id,
-            profile_id=self.profile_id,
-            thread_id=self.thread_id,
-            space_slug=self.space_slug,
-            profile_external_ref=self.profile_external_ref,
-            thread_external_ref=self.thread_external_ref,
-        )
-        _validate_single_scope_payload(payload)
-        return payload
-
-
-@dataclass(frozen=True)
-class ReadScope:
-    space_id: str | None = None
-    profile_ids: tuple[str, ...] | None = None
-    thread_id: str | None = None
-    space_slug: str | None = None
-    profile_external_ref: str | None = None
-    profile_external_refs: tuple[str, ...] | None = None
-    thread_external_ref: str | None = None
-
-    def to_payload(self) -> dict[str, Any]:
-        payload = _context_scope_payload(
-            space_id=self.space_id,
-            profile_ids=list(self.profile_ids) if self.profile_ids is not None else None,
-            thread_id=self.thread_id,
-            space_slug=self.space_slug,
-            profile_external_ref=self.profile_external_ref,
-            profile_external_refs=(
-                list(self.profile_external_refs)
-                if self.profile_external_refs is not None
-                else None
-            ),
-            thread_external_ref=self.thread_external_ref,
-        )
-        _validate_read_scope_payload(payload)
-        return payload
 
 
 @dataclass(frozen=True)
@@ -220,6 +168,39 @@ class MemoStackClient:
                 "include_other_threads": include_other_threads,
             },
         )
+
+    def link_facts(
+        self,
+        source_fact_id: str,
+        *,
+        target_fact_id: str,
+        relation_type: str = "related_to",
+        reason: str,
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            f"/v1/facts/{source_fact_id}/relations",
+            json={
+                "target_fact_id": target_fact_id,
+                "relation_type": relation_type,
+                "reason": reason,
+            },
+        )
+
+    def list_fact_relations(
+        self,
+        fact_id: str,
+        *,
+        status: str | None = "active",
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {"limit": limit}
+        if status is not None:
+            params["status"] = status
+        return self._request("GET", f"/v1/facts/{fact_id}/relations", params=params)
+
+    def unlink_fact_relation(self, relation_id: str) -> dict[str, Any]:
+        return self._request("DELETE", f"/v1/facts/relations/{relation_id}")
 
     def list_fact_versions(self, fact_id: str) -> dict[str, Any]:
         return self._request("GET", f"/v1/facts/{fact_id}/versions")

@@ -6,18 +6,25 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, Query, Response, status
 from memo_stack_core.application import (
+    FactRelationItem,
     FactVersionsQuery,
     ForgetFactCommand,
     GetFactQuery,
+    LinkFactsCommand,
+    ListFactRelationsQuery,
     ListFactsQuery,
     RelatedFactItem,
     RelatedFactsQuery,
     RememberFactCommand,
+    UnlinkFactRelationCommand,
     UpdateFactCommand,
 )
 from memo_stack_core.domain.entities import (
+    FactRelationType,
     FactStatus,
+    LifecycleStatus,
     MemoryFact,
+    MemoryFactRelation,
     MemoryKind,
     SourceRef,
 )
@@ -79,6 +86,14 @@ class UpdateFactRequest(BaseModel):
     source_refs: list[SourceRefRequest] = Field(min_length=1)
 
 
+class LinkFactRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    target_fact_id: str = Field(min_length=1, max_length=160)
+    relation_type: str = Field(default=FactRelationType.RELATED_TO.value, max_length=80)
+    reason: str = Field(min_length=1, max_length=320)
+
+
 def map_source_ref(request: SourceRefRequest) -> SourceRef:
     return SourceRef(
         source_type=request.source_type,
@@ -138,6 +153,29 @@ def related_fact_to_response(item: RelatedFactItem) -> dict[str, Any]:
     body["score"] = item.score
     body["relation_reasons"] = list(item.relation_reasons)
     return body
+
+
+def fact_relation_to_response(relation: MemoryFactRelation) -> dict[str, Any]:
+    return {
+        "id": str(relation.id),
+        "space_id": str(relation.space_id),
+        "profile_id": str(relation.profile_id),
+        "source_fact_id": str(relation.source_fact_id),
+        "target_fact_id": str(relation.target_fact_id),
+        "relation_type": relation.relation_type.value,
+        "reason": relation.reason,
+        "status": relation.status.value,
+        "created_at": relation.created_at.isoformat(),
+        "updated_at": relation.updated_at.isoformat(),
+    }
+
+
+def fact_relation_item_to_response(item: FactRelationItem) -> dict[str, Any]:
+    return {
+        "relation": fact_relation_to_response(item.relation),
+        "related_fact": fact_to_response(item.related_fact),
+        "direction": item.direction,
+    }
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -277,6 +315,55 @@ async def related_facts(
     }
 
 
+@router.post("/{fact_id}/relations", status_code=status.HTTP_201_CREATED)
+async def link_fact_relation(
+    fact_id: str,
+    request: LinkFactRequest,
+    container: Annotated[Container, Depends(get_container)],
+) -> dict[str, Any]:
+    ensure_server_writes_enabled(container)
+    result = await container.link_facts.execute(
+        LinkFactsCommand(
+            source_fact_id=fact_id,
+            target_fact_id=request.target_fact_id,
+            relation_type=request.relation_type,
+            reason=request.reason,
+        )
+    )
+    return {"data": fact_relation_to_response(result.relation)}
+
+
+@router.get("/{fact_id}/relations")
+async def list_fact_relations(
+    fact_id: str,
+    container: Annotated[Container, Depends(get_container)],
+    status_filter: Annotated[str | None, Query(alias="status", max_length=40)] = "active",
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+) -> dict[str, Any]:
+    _validate_relation_status(status_filter)
+    result = await container.list_fact_relations.execute(
+        ListFactRelationsQuery(fact_id=fact_id, status=status_filter, limit=limit)
+    )
+    return {
+        "data": {
+            "target": fact_to_response(result.target),
+            "items": [fact_relation_item_to_response(item) for item in result.items],
+        }
+    }
+
+
+@router.delete("/relations/{relation_id}")
+async def unlink_fact_relation(
+    relation_id: str,
+    container: Annotated[Container, Depends(get_container)],
+) -> dict[str, Any]:
+    ensure_server_writes_enabled(container)
+    result = await container.unlink_fact_relation.execute(
+        UnlinkFactRelationCommand(relation_id=relation_id)
+    )
+    return {"data": fact_relation_to_response(result.relation)}
+
+
 @router.patch("/{fact_id}")
 async def update_fact(
     fact_id: str,
@@ -313,3 +400,12 @@ def _validate_fact_status(status_filter: str | None) -> None:
         FactStatus(status_filter)
     except ValueError as exc:
         raise MemoryValidationError("Unknown fact status") from exc
+
+
+def _validate_relation_status(status_filter: str | None) -> None:
+    if status_filter is None:
+        return
+    try:
+        LifecycleStatus(status_filter)
+    except ValueError as exc:
+        raise MemoryValidationError("Unknown fact relation status") from exc

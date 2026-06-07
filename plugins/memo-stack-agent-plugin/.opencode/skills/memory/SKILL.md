@@ -37,12 +37,16 @@ facts that may have changed, document recall, or cross-agent continuity.
    first when candidates may duplicate, update, forget, or conflict with existing memory.
 9. Use `memory_related_facts` after `memory_search` or `memory_get_fact` when auditing
    adjacent decisions, resolving update/delete targets, or summarizing related project memory.
-10. For any save, remember, propose, update, forget, or document ingest request, your first
+10. Use `memory_link_facts` only after both concrete fact ids are known, and use
+   `memory_list_fact_relations` to audit persisted typed links before unlinking one.
+11. Use `memory_unlink_fact_relation` only with a concrete relation_id. It removes the
+   relation, not either fact.
+12. For any save, remember, propose, update, forget, or document ingest request, your first
    memory tool must be `memory_search` or `memory_get_fact`, not a mutating tool.
-11. Use `memory_export_graph` when the user asks for graph.json, portable backup,
+13. Use `memory_export_graph` when the user asks for graph.json, portable backup,
     git-syncable memory evidence, or Obsidian/Cytoscape-style visualization data.
-12. Use `memory_list_captures` only to inspect redacted auto-memory hook diagnostics.
-13. Use `memory_consolidate_capture` only when the user/operator asks to process a capture
+14. Use `memory_list_captures` only to inspect redacted auto-memory hook diagnostics.
+15. Use `memory_consolidate_capture` only when the user/operator asks to process a capture
     into pending review suggestions. It must not be treated as active memory until approved.
 
 ## Constraints

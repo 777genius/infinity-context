@@ -73,6 +73,27 @@ def test_export_graph_includes_facts_documents_fragments_and_evidence_edges(
             },
             headers=auth_headers(),
         )
+        related_fact = client.post(
+            "/v1/facts",
+            json={
+                "space_id": "space_client_app",
+                "profile_id": "profile_default",
+                "text": "Graphiti remains a derived temporal graph adapter.",
+                "kind": "architecture_decision",
+                "source_refs": [{"source_type": "manual", "source_id": "graphiti-derived"}],
+                "classification": "internal",
+            },
+            headers=auth_headers(),
+        )
+        relation = client.post(
+            f"/v1/facts/{fact.json()['data']['id']}/relations",
+            json={
+                "target_fact_id": related_fact.json()["data"]["id"],
+                "relation_type": "supports",
+                "reason": "ADR links canonical export and derived graph policy.",
+            },
+            headers=auth_headers(),
+        )
         graph = client.get(
             "/v1/export/graph.json",
             params={
@@ -85,14 +106,17 @@ def test_export_graph_includes_facts_documents_fragments_and_evidence_edges(
     assert document.status_code == 201
     assert chunks.status_code == 200
     assert fact.status_code == 201
+    assert related_fact.status_code == 201
+    assert relation.status_code == 201
     assert graph.status_code == 200
     data = graph.json()["data"]
     node_ids = {node["id"] for node in data["nodes"]}
     edge_types = {edge["type"] for edge in data["edges"]}
     assert data["schema_version"] == "memo_stack.graph_export.v1"
-    assert data["counts"]["facts"] == 1
+    assert data["counts"]["facts"] == 2
     assert data["counts"]["documents"] == 1
     assert data["counts"]["chunks"] == 2
+    assert data["counts"]["relations"] == 1
     assert f"fact:{fact.json()['data']['id']}" in node_ids
     assert f"document:{document_id}" in node_ids
     assert f"chunk:{chunk_id}" in node_ids
@@ -101,6 +125,7 @@ def test_export_graph_includes_facts_documents_fragments_and_evidence_edges(
         "contains_document",
         "has_chunk",
         "evidenced_by_chunk",
+        "supports",
     }.issubset(edge_types)
 
 

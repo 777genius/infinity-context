@@ -162,13 +162,13 @@ DIMENSIONS: tuple[Dimension, ...] = (
         id="graph_relationships",
         label="Graph relationships and temporal context",
         weight=0.10,
-        memo_stack_score=9.3,
+        memo_stack_score=9.5,
         memora_score=8.4,
         memo_stack_rationale=(
             "Graphiti/Neo4j is modeled as a temporal derived graph adapter with "
             "canonical Postgres as source of truth, plus portable graph.json "
             "export for canonical facts, documents, fragments and evidence links "
-            "and read-only related-fact traversal through API, SDK and MCP."
+            "and durable typed fact links through API, SDK and MCP."
         ),
         memora_rationale=(
             "Memora has typed links, clusters, crossrefs and graph UI, but not "
@@ -288,6 +288,7 @@ def build_memora_agent_memory_comparison(
                 "tests/unit/test_memory_insights_api.py",
                 "tests/unit/test_graph_export_api.py",
                 "tests/unit/test_mcp_related_facts.py",
+                "tests/unit/test_mcp_fact_relations.py",
                 "tests/unit/test_profile_snapshot_api.py",
                 "tests/unit/test_mcp_profile_snapshot_preview.py",
                 "memo_stack_core.profile_snapshots",

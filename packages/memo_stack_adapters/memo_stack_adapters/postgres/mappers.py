@@ -17,6 +17,7 @@ from memo_stack_core.domain.capture import (
 from memo_stack_core.domain.entities import (
     Confidence,
     DataClassification,
+    FactRelationType,
     FactStatus,
     LifecycleStatus,
     MemoryChunk,
@@ -28,6 +29,8 @@ from memo_stack_core.domain.entities import (
     MemoryEpisodeId,
     MemoryFact,
     MemoryFactId,
+    MemoryFactRelation,
+    MemoryFactRelationId,
     MemoryKind,
     MemoryProfile,
     MemorySpace,
@@ -48,6 +51,7 @@ from memo_stack_adapters.postgres.models import (
     MemoryChunkRow,
     MemoryDocumentRow,
     MemoryEpisodeRow,
+    MemoryFactRelationRow,
     MemoryFactRow,
     MemoryProfileRow,
     MemorySourceRefRow,
@@ -89,6 +93,36 @@ def fact_row_to_domain(row: MemoryFactRow, source_refs: list[MemorySourceRefRow]
         tags=tuple(getattr(row, "tags_json", None) or ()),
         ttl_policy=getattr(row, "ttl_policy", None),
         expires_at=getattr(row, "expires_at", None),
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def fact_relation_to_row(relation: MemoryFactRelation) -> MemoryFactRelationRow:
+    return MemoryFactRelationRow(
+        id=str(relation.id),
+        space_id=str(relation.space_id),
+        profile_id=str(relation.profile_id),
+        source_fact_id=str(relation.source_fact_id),
+        target_fact_id=str(relation.target_fact_id),
+        relation_type=relation.relation_type.value,
+        reason=relation.reason,
+        status=relation.status.value,
+        created_at=relation.created_at,
+        updated_at=relation.updated_at,
+    )
+
+
+def fact_relation_row_to_domain(row: MemoryFactRelationRow) -> MemoryFactRelation:
+    return MemoryFactRelation(
+        id=MemoryFactRelationId(row.id),
+        space_id=SpaceId(row.space_id),
+        profile_id=ProfileId(row.profile_id),
+        source_fact_id=MemoryFactId(row.source_fact_id),
+        target_fact_id=MemoryFactId(row.target_fact_id),
+        relation_type=FactRelationType(row.relation_type),
+        reason=row.reason,
+        status=LifecycleStatus(row.status),
         created_at=row.created_at,
         updated_at=row.updated_at,
     )

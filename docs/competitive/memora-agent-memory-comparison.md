@@ -29,6 +29,7 @@ Memo Stack local evidence:
 - `tests/unit/test_memory_insights_api.py`
 - `tests/unit/test_graph_export_api.py`
 - `tests/unit/test_graph_export_mcp.py`
+- `tests/unit/test_mcp_fact_relations.py`
 - `tests/unit/test_profile_snapshot_api.py`
 - `tests/e2e/test_memory_quality_e2e.py`
 - `tests/e2e/test_memo_stack_agent_behavior_bench_e2e.py`
@@ -110,7 +111,7 @@ make memo-stack-compare-memora
 | Forget/delete and review-gated control | 9.3 | 7.8 | Memo Stack |
 | Retrieve the right facts for a coding agent | 9.5 | 9.0 | Memo Stack |
 | Large documents and architecture notes | 9.4 | 9.1 | Memo Stack |
-| Graph relationships and temporal context | 9.3 | 8.4 | Memo Stack |
+| Graph relationships and temporal context | 9.5 | 8.4 | Memo Stack |
 | Agent hooks, plugins and real agent ergonomics | 9.0 | 7.8 | Memo Stack |
 | Project/team/profile isolation | 9.2 | 7.5 | Memo Stack |
 | Operational confidence and benchmark evidence | 9.2 | 7.7 | Memo Stack |
@@ -118,7 +119,7 @@ make memo-stack-compare-memora
 
 Weighted total:
 
-- Memo Stack: 9.24
+- Memo Stack: 9.26
 - Memora: 8.19
 
 ## Honest conclusion
@@ -154,6 +155,11 @@ local graph UI. Memo Stack now also has `memory_related_facts` and
 `GET /v1/facts/{fact_id}/related`, giving agents read-only related fact
 traversal with explainable relation reasons before update/delete or summary
 work.
+Memo Stack now also has durable typed fact relations through API, SDK and MCP:
+`supports`, `supersedes`, `contradicts`, `duplicates`, `references`,
+`depends_on`, and `related_to`. Those links are exported through canonical
+`graph.json`, so graph visualization and git-syncable evidence do not depend on
+Graphiti/Cognee runtime state.
 
 ## Practical recommendation
 

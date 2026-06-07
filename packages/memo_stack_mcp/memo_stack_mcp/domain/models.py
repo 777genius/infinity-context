@@ -501,6 +501,30 @@ class MemoryRelatedFactsData(McpDataModel):
     diagnostics: dict[str, JsonScalar] = Field(default_factory=dict)
 
 
+class MemoryFactRelationData(McpDataModel):
+    id: str | None = None
+    space_id: str | None = None
+    profile_id: str | None = None
+    source_fact_id: str | None = None
+    target_fact_id: str | None = None
+    relation_type: str | None = None
+    reason: str | None = None
+    status: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+
+
+class MemoryFactRelationItemData(McpDataModel):
+    relation: MemoryFactRelationData | None = None
+    related_fact: MemoryRecordData | None = None
+    direction: Literal["incoming", "outgoing"] | str | None = None
+
+
+class MemoryFactRelationsData(McpDataModel):
+    target: MemoryRecordData | None = None
+    items: list[MemoryFactRelationItemData] = Field(default_factory=list)
+
+
 class MemoryFactMutationData(MemoryRecordData):
     fact: MemoryRecordData | None = None
     suggestion: MemoryRecordData | None = None
@@ -626,6 +650,14 @@ class MemoryFactListResponse(McpToolResponse):
 
 class MemoryRelatedFactsResponse(McpToolResponse):
     data: MemoryRelatedFactsData | None = None
+
+
+class MemoryFactRelationResponse(McpToolResponse):
+    data: MemoryFactRelationData | None = None
+
+
+class MemoryFactRelationsResponse(McpToolResponse):
+    data: MemoryFactRelationsData | None = None
 
 
 class MemoryFactMutationResponse(McpToolResponse):

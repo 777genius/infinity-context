@@ -2038,6 +2038,7 @@ def test_mcp_tool_annotations_are_closed_domain_and_typed() -> None:
             "memory_list_facts",
             "memory_get_fact",
             "memory_related_facts",
+            "memory_link_facts", "memory_list_fact_relations", "memory_unlink_fact_relation",
             "memory_list_fact_versions",
             "memory_update_fact",
             "memory_forget_fact",
@@ -2074,7 +2075,11 @@ def test_mcp_tool_annotations_are_closed_domain_and_typed() -> None:
             )
             assert '"additionalProperties": true' not in data_schema
             assert '"items": {}' not in data_schema
-            if tool.name in {"memory_forget_fact", "memory_import_profile_snapshot"}:
+            if tool.name in {
+                "memory_forget_fact",
+                "memory_import_profile_snapshot",
+                "memory_unlink_fact_relation",
+            }:
                 assert tool.annotations.destructiveHint is True
             else:
                 assert tool.annotations.destructiveHint is False

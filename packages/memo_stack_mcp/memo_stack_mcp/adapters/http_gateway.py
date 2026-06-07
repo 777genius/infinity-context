@@ -297,6 +297,39 @@ class HttpMemoryGateway:
             },
         )
 
+    async def link_facts(
+        self,
+        *,
+        source_fact_id: str,
+        target_fact_id: str,
+        relation_type: str,
+        reason: str,
+    ) -> dict[str, Any]:
+        return await self._request(
+            "POST",
+            f"/v1/facts/{source_fact_id}/relations",
+            json={
+                "target_fact_id": target_fact_id,
+                "relation_type": relation_type,
+                "reason": reason,
+            },
+        )
+
+    async def list_fact_relations(
+        self,
+        *,
+        fact_id: str,
+        status: str | None,
+        limit: int,
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {"limit": limit}
+        if status is not None:
+            params["status"] = status
+        return await self._request("GET", f"/v1/facts/{fact_id}/relations", params=params)
+
+    async def unlink_fact_relation(self, *, relation_id: str) -> dict[str, Any]:
+        return await self._request("DELETE", f"/v1/facts/relations/{relation_id}")
+
     async def list_fact_versions(self, *, fact_id: str) -> dict[str, Any]:
         return await self._request("GET", f"/v1/facts/{fact_id}/versions")
 

@@ -243,6 +243,43 @@ class MemoryFactVersionRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class MemoryFactRelationRow(Base):
+    __tablename__ = "memory_fact_relations"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    space_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    profile_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    source_fact_id: Mapped[str] = mapped_column(
+        String(80),
+        ForeignKey("memory_facts.id"),
+        nullable=False,
+    )
+    target_fact_id: Mapped[str] = mapped_column(
+        String(80),
+        ForeignKey("memory_facts.id"),
+        nullable=False,
+    )
+    relation_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    reason: Mapped[str] = mapped_column(String(320), nullable=False)
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="active")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    __table_args__ = (
+        Index(
+            "uq_memory_fact_relation_active",
+            "source_fact_id",
+            "target_fact_id",
+            "relation_type",
+            unique=True,
+            sqlite_where=status == "active",
+            postgresql_where=status == "active",
+        ),
+        Index("ix_memory_fact_relations_source", "source_fact_id", "status"),
+        Index("ix_memory_fact_relations_target", "target_fact_id", "status"),
+        Index("ix_memory_fact_relations_scope", "space_id", "profile_id", "status"),
+    )
+
+
 class MemorySuggestionRow(Base):
     __tablename__ = "memory_suggestions"
     __table_args__ = (

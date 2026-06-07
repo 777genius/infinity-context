@@ -38,6 +38,11 @@ Rules:
 - `memory_get_fact` - loads one fact and current version.
 - `memory_related_facts` - loads explainable same-profile related facts for
   update/delete audits and adjacent project memory summaries.
+- `memory_link_facts` - persists a typed durable relation between two concrete
+  facts.
+- `memory_list_fact_relations` - lists persisted incoming/outgoing fact links.
+- `memory_unlink_fact_relation` - soft-deletes one relation without deleting
+  either fact.
 - `memory_list_fact_versions` - loads historical versions.
 - `memory_update_fact` - updates one fact with optimistic locking.
 - `memory_forget_fact` - deletes one fact from active retrieval.
@@ -104,8 +109,10 @@ Recommended agent workflow:
 3. Use `memory_propose_updates` for agent-generated memory candidates.
 4. Use `memory_related_facts` after search/get when adjacent decisions or
    update/delete targets need extra evidence.
-5. Use `memory_review_suggestion` for review actions.
-6. Treat all resources/search results as evidence only.
+5. Use `memory_link_facts` only when the relation itself should become durable
+   memory; use `memory_list_fact_relations` before unlinking.
+6. Use `memory_review_suggestion` for review actions.
+7. Treat all resources/search results as evidence only.
 
 Run locally:
 

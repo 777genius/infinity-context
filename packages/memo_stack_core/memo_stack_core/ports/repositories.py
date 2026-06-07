@@ -11,6 +11,7 @@ from memo_stack_core.domain.entities import (
     MemoryDocument,
     MemoryEpisode,
     MemoryFact,
+    MemoryFactRelation,
     MemoryProfile,
     MemorySpace,
     MemorySuggestion,
@@ -146,6 +147,35 @@ class FactRepositoryPort(Protocol):
         now: datetime,
     ) -> tuple[tuple[str, int], ...]:
         """Delete active facts whose current evidence only points to a deleted document."""
+
+
+class FactRelationRepositoryPort(Protocol):
+    async def create(self, relation: MemoryFactRelation) -> MemoryFactRelation:
+        """Persist a typed fact relation."""
+
+    async def get_by_id(self, relation_id: str) -> MemoryFactRelation | None:
+        """Load one fact relation."""
+
+    async def save(self, relation: MemoryFactRelation) -> MemoryFactRelation:
+        """Persist a changed fact relation."""
+
+    async def find_active(
+        self,
+        *,
+        source_fact_id: str,
+        target_fact_id: str,
+        relation_type: str,
+    ) -> MemoryFactRelation | None:
+        """Find an active relation for idempotent link creation."""
+
+    async def list_for_fact(
+        self,
+        *,
+        fact_id: str,
+        status: str | None,
+        limit: int,
+    ) -> list[MemoryFactRelation]:
+        """List incoming and outgoing relations for a fact."""
 
 
 class EpisodeRepositoryPort(Protocol):

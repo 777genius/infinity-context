@@ -124,6 +124,25 @@ class MemoryGatewayPort(Protocol):
         include_other_threads: bool,
     ) -> dict[str, Any]: ...
 
+    async def link_facts(
+        self,
+        *,
+        source_fact_id: str,
+        target_fact_id: str,
+        relation_type: str,
+        reason: str,
+    ) -> dict[str, Any]: ...
+
+    async def list_fact_relations(
+        self,
+        *,
+        fact_id: str,
+        status: str | None,
+        limit: int,
+    ) -> dict[str, Any]: ...
+
+    async def unlink_fact_relation(self, *, relation_id: str) -> dict[str, Any]: ...
+
     async def list_fact_versions(self, *, fact_id: str) -> dict[str, Any]: ...
 
     async def update_fact(

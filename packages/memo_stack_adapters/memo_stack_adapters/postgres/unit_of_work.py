@@ -22,6 +22,7 @@ from memo_stack_adapters.postgres.repositories import (
     PostgresChunkRepository,
     PostgresDocumentRepository,
     PostgresEpisodeRepository,
+    PostgresFactRelationRepository,
     PostgresFactRepository,
     PostgresIdempotencyRepository,
     PostgresOutbox,
@@ -309,6 +310,7 @@ class PostgresUnitOfWork:
         now = self._clock.now()
         self.scope = PostgresScopeRepository(self._session)
         self.facts = PostgresFactRepository(self._session, now=now)
+        self.fact_relations = PostgresFactRelationRepository(self._session)
         self.episodes = PostgresEpisodeRepository(self._session)
         self.documents = PostgresDocumentRepository(self._session)
         self.chunks = PostgresChunkRepository(self._session)

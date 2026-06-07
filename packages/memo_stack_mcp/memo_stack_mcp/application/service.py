@@ -42,6 +42,16 @@ from memo_stack_mcp.domain.policy import (
 _MEMORY_KINDS = {"note", "architecture_decision", "constraint", "user_preference"}
 _CLASSIFICATIONS = {"public", "internal", "restricted", "unknown"}
 _FACT_STATUSES = {"active", "superseded", "disputed", "deleted"}
+_FACT_RELATION_TYPES = {
+    "supports",
+    "supersedes",
+    "contradicts",
+    "duplicates",
+    "references",
+    "depends_on",
+    "related_to",
+}
+_FACT_RELATION_STATUSES = {"active", "deleted"}
 _SUGGESTION_STATUSES = {"pending", "approved", "rejected", "expired"}
 _SUGGESTION_OPERATIONS = {"add", "update", "delete", "review"}
 _CAPTURE_STATUSES = {"accepted", "rejected", "redacted", "purged"}
@@ -613,6 +623,93 @@ class MemoryToolService:
                 data=data,
                 side_effects=[],
                 warnings=warnings,
+            )
+
+        return await self._guard(action)
+
+    async def link_facts(
+        self,
+        *,
+        source_fact_id: str,
+        target_fact_id: str,
+        relation_type: str = "related_to",
+        reason: str,
+    ) -> dict[str, Any]:
+        async def action() -> dict[str, Any]:
+            self._ensure_writes_allowed()
+            self._ensure_choice("relation_type", relation_type, _FACT_RELATION_TYPES)
+            if not reason.strip():
+                raise MemoryGatewayError(
+                    status_code=400,
+                    code="memo_stack_mcp.validation.invalid_input",
+                    message="relation reason is required",
+                    retryable=False,
+                )
+            if contains_sensitive_value(reason):
+                raise MemoryGatewayError(
+                    status_code=403,
+                    code="memo_stack_mcp.policy.secret_detected",
+                    message="Relation reason contains a credential-like value",
+                    retryable=False,
+                )
+            payload = await self._gateway.link_facts(
+                source_fact_id=source_fact_id,
+                target_fact_id=target_fact_id,
+                relation_type=relation_type,
+                reason=reason,
+            )
+            return self._ok(
+                "Facts linked with a durable typed relation.",
+                data=payload.get("data", payload),
+                side_effects=["linked_facts"],
+            )
+
+        return await self._guard(action)
+
+    async def list_fact_relations(
+        self,
+        *,
+        fact_id: str,
+        status: str | None = "active",
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        async def action() -> dict[str, Any]:
+            if status is not None:
+                self._ensure_choice("status", status, _FACT_RELATION_STATUSES)
+            effective_limit, warnings = self._clamp_int(
+                name="limit",
+                value=limit,
+                minimum=1,
+                maximum=100,
+            )
+            payload = await self._gateway.list_fact_relations(
+                fact_id=fact_id,
+                status=status,
+                limit=effective_limit,
+            )
+            return self._ok(
+                "Fact relations listed.",
+                data=payload.get("data", payload),
+                side_effects=[],
+                warnings=warnings,
+            )
+
+        return await self._guard(action)
+
+    async def unlink_fact_relation(self, *, relation_id: str) -> dict[str, Any]:
+        async def action() -> dict[str, Any]:
+            policy = self._decide_policy(
+                operation=MemoryPolicyOperation.FORGET,
+                text=relation_id,
+                source_type=None,
+            )
+            payload = await self._gateway.unlink_fact_relation(relation_id=relation_id)
+            return self._ok(
+                "Fact relation unlinked and hidden from active relation traversal.",
+                data=payload.get("data", payload),
+                policy=self._policy_payload(policy),
+                side_effects=["unlinked_fact_relation"],
+                warnings=list(policy.warnings),
             )
 
         return await self._guard(action)

@@ -23,6 +23,9 @@ from memo_stack_core.application.dto import (
     ExpireSuggestionCommand,
     ExportGraphQuery,
     FactQueryResult,
+    FactRelationItem,
+    FactRelationResult,
+    FactRelationsResult,
     FactResult,
     FactsQueryResult,
     FactVersionsQuery,
@@ -38,8 +41,10 @@ from memo_stack_core.application.dto import (
     IngestDocumentResult,
     IngestEpisodeCommand,
     IngestEpisodeResult,
+    LinkFactsCommand,
     ListCapturesQuery,
     ListDocumentChunksQuery,
+    ListFactRelationsQuery,
     ListFactsQuery,
     ListSuggestionsQuery,
     MemoryDigest,
@@ -60,6 +65,7 @@ from memo_stack_core.application.dto import (
     SessionStatusResult,
     SpaceResult,
     SuggestionResult,
+    UnlinkFactRelationCommand,
     UpdateFactCommand,
 )
 from memo_stack_core.application.use_cases.build_context import BuildContextUseCase
@@ -74,6 +80,11 @@ from memo_stack_core.application.use_cases.expire_suggestions import (
     ExpirePendingSuggestionsUseCase,
 )
 from memo_stack_core.application.use_cases.export_graph import ExportGraphUseCase
+from memo_stack_core.application.use_cases.fact_relations import (
+    LinkFactsUseCase,
+    ListFactRelationsUseCase,
+    UnlinkFactRelationUseCase,
+)
 from memo_stack_core.application.use_cases.forget_fact import ForgetFactUseCase
 from memo_stack_core.application.use_cases.get_capabilities import (
     CapabilitiesResult,
@@ -152,6 +163,9 @@ __all__ = [
     "ExpirePendingSuggestionsUseCase",
     "ExpireSuggestionUseCase",
     "FactQueryResult",
+    "FactRelationItem",
+    "FactRelationResult",
+    "FactRelationsResult",
     "FactResult",
     "FactVersionsQuery",
     "FactsQueryResult",
@@ -175,12 +189,16 @@ __all__ = [
     "IngestEpisodeCommand",
     "IngestEpisodeResult",
     "IngestEpisodeUseCase",
+    "LinkFactsCommand",
+    "LinkFactsUseCase",
     "ListDocumentChunksQuery",
     "ListCapturesQuery",
     "ListCapturesUseCase",
     "ListDocumentChunksUseCase",
     "ListFactsQuery",
     "ListFactsUseCase",
+    "ListFactRelationsQuery",
+    "ListFactRelationsUseCase",
     "ListFactVersionsUseCase",
     "ListSuggestionsQuery",
     "ListSuggestionsUseCase",
@@ -212,4 +230,6 @@ __all__ = [
     "SuggestionResult",
     "UpdateFactCommand",
     "UpdateFactUseCase",
+    "UnlinkFactRelationCommand",
+    "UnlinkFactRelationUseCase",
 ]
