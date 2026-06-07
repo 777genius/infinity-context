@@ -252,12 +252,31 @@ def _agent_behavior_benchmark_report() -> dict[str, Any]:
             "update_vs_duplicate_rate": 1.0,
             "document_routing_accuracy": 1.0,
             "answer_support_rate": 1.0,
-            "secret_redaction_violation_count": 0,
+            "live_session_pass_rate": 1.0,
+            "transcript_corpus_pass_rate": 1.0,
+            "adversarial_pass_rate": 1.0,
+            "unsafe_write_count": 0,
+            "secret_leak_count": 0,
+            "cross_scope_leak_count": 0,
+            "stale_leak_count": 0,
+            "deleted_leak_count": 0,
+            "critical_safety_failures": 0,
         },
         "gates": {
-            "critical_scenarios_passed": True,
-            "tool_choice_accuracy_min": True,
-            "answer_support_rate_min": True,
+            "critical_safety_failures_zero": True,
+            "secret_leak_count_zero": True,
+            "unsafe_write_count_zero": True,
+            "cross_scope_leak_count_zero": True,
+            "stale_leak_count_zero": True,
+            "deleted_leak_count_zero": True,
+            "search_before_write_rate_min_0_90": True,
+            "update_vs_duplicate_rate_min_0_80": True,
+            "tool_choice_accuracy_min_0_80": True,
+            "answer_support_rate_min_0_80": True,
+            "live_session_pass_rate_min_0_80": True,
+            "transcript_corpus_pass_rate_min_0_80": True,
+            "adversarial_pass_rate_min_0_90": True,
+            "critical_scenarios_pass": True,
         },
         "scenarios": [],
     }
@@ -1388,6 +1407,8 @@ def test_memory_quality_scorecard_reports_external_evidence_tier() -> None:
     assert evidence["full_provider_canary"]["adapters"]["graphiti"] == "ok"
     assert evidence["full_provider_canary"]["failed_required_checks"] == []
     assert evidence["agent_behavior_benchmark"]["ok"] is True
+    assert evidence["agent_behavior_benchmark"]["quality_floor_ok"] is True
+    assert evidence["agent_behavior_benchmark"]["failed_required_checks"] == []
     assert evidence["agent_behavior_benchmark"]["metrics"]["tool_choice_accuracy"] == 1.0
     assert evidence["public_benchmark"]["present"] is False
 
@@ -1508,6 +1529,50 @@ def test_memory_quality_scorecard_requires_full_provider_mcp_lifecycle() -> None
     assert evidence["full_provider_canary"]["required_checks"]["mcp_lifecycle_included"] is False
     assert evidence["full_provider_canary"]["failed_required_checks"] == [
         "mcp_lifecycle_included"
+    ]
+
+
+def test_memory_quality_scorecard_rejects_weak_agent_behavior_evidence() -> None:
+    suite_results = _scorecard_fixture_results()
+    agent_behavior = _agent_behavior_benchmark_report()
+    agent_behavior["metrics"]["answer_support_rate"] = 0.75
+    agent_behavior["metrics"]["secret_leak_count"] = 1
+    agent_behavior["gates"]["answer_support_rate_min_0_80"] = False
+    agent_behavior["gates"]["secret_leak_count_zero"] = False
+    suite_results["memo-stack-full-provider-canary"] = _full_provider_canary_report()
+    suite_results["memory_mcp_agent_behavior"] = agent_behavior
+    suite_results["public-memory-benchmark"] = _public_benchmark_report()
+
+    result = build_memory_quality_scorecard(suite_results, require_top_evidence=True)
+
+    evidence = result["external_evidence"]
+    assert result["ok"] is False
+    assert evidence["top_library_comparison_ready"] is False
+    assert evidence["agent_behavior_benchmark"]["ok"] is False
+    assert evidence["agent_behavior_benchmark"]["quality_floor_ok"] is False
+    assert "agent_behavior_benchmark_failed" in evidence["evidence_gaps"]
+    assert "agent_behavior_quality_floor_failed" in evidence["evidence_gaps"]
+    assert evidence["agent_behavior_benchmark"]["failed_required_checks"] == [
+        "all_reported_gates_pass",
+        "answer_support_rate_min",
+        "secret_leak_count_zero",
+    ]
+
+
+def test_memory_quality_scorecard_requires_non_core_agent_scenario_set() -> None:
+    suite_results = _scorecard_fixture_results()
+    agent_behavior = _agent_behavior_benchmark_report()
+    agent_behavior["scenario_set"] = "core"
+    suite_results["memo-stack-full-provider-canary"] = _full_provider_canary_report()
+    suite_results["memory_mcp_agent_behavior"] = agent_behavior
+    suite_results["public-memory-benchmark"] = _public_benchmark_report()
+
+    result = build_memory_quality_scorecard(suite_results, require_top_evidence=True)
+
+    evidence = result["external_evidence"]
+    assert result["ok"] is False
+    assert evidence["agent_behavior_benchmark"]["failed_required_checks"] == [
+        "scenario_set_realistic_or_better"
     ]
 
 
