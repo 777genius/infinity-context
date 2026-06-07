@@ -658,6 +658,10 @@ def test_sdk_supports_profile_snapshot_export_import() -> None:
         transport=httpx.MockTransport(handler),
     )
     snapshot = {"schema_version": 1, "facts": [], "documents": [], "chunks": []}
+    manifest = {
+        "schema_version": "memo_stack.profile_snapshot_manifest.v1",
+        "snapshot_sha256": "abc",
+    }
 
     client.export_profile_snapshot(
         space_slug="agents",
@@ -668,6 +672,7 @@ def test_sdk_supports_profile_snapshot_export_import() -> None:
         space_slug="agents",
         profile_external_ref="restore",
         snapshot=snapshot,
+        manifest=manifest,
         dry_run=False,
         merge_strategy="create_new_profile",
         confirmed=True,
@@ -690,6 +695,7 @@ def test_sdk_supports_profile_snapshot_export_import() -> None:
             "space_slug": "agents",
             "profile_external_ref": "restore",
             "snapshot": snapshot,
+            "manifest": manifest,
             "dry_run": False,
             "merge_strategy": "create_new_profile",
             "confirmed": True,

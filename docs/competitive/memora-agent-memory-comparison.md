@@ -143,10 +143,11 @@ carry category/tags/TTL and expired active facts are hidden from active
 list/context/export surfaces while staying auditable by direct id. Context/search
 now support category plus tags_any/tags_all/tags_none filters for canonical facts. Profile
 snapshot export/import is available through HTTP API, SDK, MCP and CLI with
-dry-run and explicit confirmation gates. Read-only memory insights are available
-through HTTP API, SDK, MCP and CLI for pending review load, expired facts,
-document indexing coverage, taxonomy hotspots and cleanup action items. Memora
-still has more polished local graph UI.
+dry-run, explicit confirmation gates and manifest hash verification for backup
+or git-sync integrity. Read-only memory insights are available through HTTP API,
+SDK, MCP and CLI for pending review load, expired facts, document indexing
+coverage, taxonomy hotspots and cleanup action items. Memora still has more
+polished local graph UI.
 
 ## Practical recommendation
 

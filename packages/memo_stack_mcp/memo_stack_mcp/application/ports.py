@@ -73,6 +73,7 @@ class MemoryGatewayPort(Protocol):
         *,
         scope: MemoryScope,
         snapshot: dict[str, Any],
+        manifest: dict[str, Any] | None,
         dry_run: bool,
         merge_strategy: str,
         confirmed: bool,

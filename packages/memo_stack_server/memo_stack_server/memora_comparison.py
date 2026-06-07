@@ -215,8 +215,8 @@ DIMENSIONS: tuple[Dimension, ...] = (
         memo_stack_rationale=(
             "Quality scorecard, full-provider canary, public benchmark canary, "
             "agent behavior benchmark, secret/top-evidence gates, and portable "
-            "profile snapshot export/import plus memory insights via API, SDK "
-            "MCP and CLI exist."
+            "profile snapshot export/import with manifest verification plus "
+            "memory insights via API, SDK, MCP and CLI exist."
         ),
         memora_rationale=(
             "Direct temp-db smoke passed and public repo is active, but we did "
@@ -285,6 +285,7 @@ def build_memora_agent_memory_comparison(
                 "tests/unit/test_memory_insights_api.py",
                 "tests/unit/test_graph_export_api.py",
                 "tests/unit/test_profile_snapshot_api.py",
+                "memo_stack_core.profile_snapshots",
                 "tests/e2e/test_memory_quality_e2e.py",
                 "tests/e2e/test_memo_stack_agent_behavior_bench_e2e.py",
                 "tests/e2e/test_memo_stack_agent_plugin_e2e.py",

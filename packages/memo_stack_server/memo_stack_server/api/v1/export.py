@@ -7,6 +7,10 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Query
 from memo_stack_core.application import EnsureScopeCommand, ExportGraphQuery, GraphExportResult
 from memo_stack_core.domain.errors import MemoryValidationError
+from memo_stack_core.profile_snapshots import (
+    build_snapshot_manifest,
+    verify_snapshot_manifest_payload,
+)
 from pydantic import BaseModel, ConfigDict, Field
 
 from memo_stack_server.api.auth import require_service_token
@@ -33,6 +37,7 @@ class ImportProfileSnapshotRequest(BaseModel):
     space_slug: str = Field(min_length=1, max_length=160)
     profile_external_ref: str = Field(min_length=1, max_length=200)
     snapshot: dict[str, Any]
+    manifest: dict[str, Any] | None = None
     dry_run: bool = True
     merge_strategy: str = Field(default="fail_on_conflict", max_length=80)
     confirmed: bool = False
@@ -106,11 +111,19 @@ async def export_profile_snapshot(
     )
     if result["status"] != "ok":
         return {"data": None, "status": result["status"]}
+    snapshot = result["snapshot"]
+    redacted = bool(result["redacted"])
     return {
-        "data": result["snapshot"],
+        "data": snapshot,
         "status": "ok",
         "counts": result["counts"],
-        "redacted": result["redacted"],
+        "redacted": redacted,
+        "manifest": build_snapshot_manifest(
+            snapshot=snapshot,
+            space_slug=space_slug,
+            profile_external_ref=profile_external_ref,
+            redacted=redacted,
+        ),
     }
 
 
@@ -123,6 +136,17 @@ async def import_profile_snapshot(
         raise MemoryValidationError("Unsupported profile snapshot merge strategy")
     if not request.dry_run and not request.confirmed:
         raise MemoryValidationError("Profile snapshot import requires confirmed=true")
+    if request.manifest is not None:
+        verification = verify_snapshot_manifest_payload(
+            snapshot=request.snapshot,
+            manifest=request.manifest,
+            expected_snapshot_file=None,
+        )
+        if not verification["ok"]:
+            errors = ", ".join(verification["errors"])
+            raise MemoryValidationError(
+                f"Profile snapshot manifest verification failed: {errors}"
+            )
 
     if request.dry_run:
         scope = await resolve_existing_single_scope(

@@ -1144,6 +1144,7 @@ class MemoryToolService:
                 "snapshot": payload.get("data") or {},
                 "counts": payload.get("counts") or {},
                 "redacted": payload.get("redacted"),
+                "manifest": payload.get("manifest") or {},
             }
             return self._ok(
                 "Portable profile memory snapshot exported.",
@@ -1159,6 +1160,7 @@ class MemoryToolService:
         self,
         *,
         snapshot: dict[str, Any],
+        manifest: dict[str, Any] | None = None,
         space_slug: str | None = None,
         profile_external_ref: str | None = None,
         dry_run: bool = True,
@@ -1172,6 +1174,13 @@ class MemoryToolService:
                     status_code=400,
                     code="memo_stack_mcp.validation.invalid_input",
                     message="snapshot must be a JSON object",
+                    retryable=False,
+                )
+            if manifest is not None and not isinstance(manifest, dict):
+                raise MemoryGatewayError(
+                    status_code=400,
+                    code="memo_stack_mcp.validation.invalid_input",
+                    message="manifest must be a JSON object when provided",
                     retryable=False,
                 )
             self._ensure_bool("dry_run", dry_run)
@@ -1203,6 +1212,7 @@ class MemoryToolService:
             payload = await self._gateway.import_profile_snapshot(
                 scope=scope,
                 snapshot=snapshot,
+                manifest=manifest,
                 dry_run=dry_run,
                 merge_strategy=merge_strategy,
                 confirmed=confirmed,

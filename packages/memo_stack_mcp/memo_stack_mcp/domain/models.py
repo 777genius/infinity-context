@@ -409,11 +409,36 @@ class MemoryProfileSnapshotData(McpDataModel):
     redacted: bool | None = None
 
 
+class MemoryProfileSnapshotManifestCountsData(McpDataModel):
+    facts: int | None = None
+    documents: int | None = None
+    chunks: int | None = None
+    source_refs: int | None = None
+
+
+class MemoryProfileSnapshotManifestData(McpDataModel):
+    schema_version: str | None = None
+    created_at: str | None = None
+    snapshot_file: str | None = None
+    snapshot_sha256: str | None = None
+    snapshot_bytes: int | None = None
+    space_slug: str | None = None
+    profile_external_ref: str | None = None
+    redacted: bool | None = None
+    snapshot_schema_version: int | str | None = None
+    counts: MemoryProfileSnapshotManifestCountsData = Field(
+        default_factory=MemoryProfileSnapshotManifestCountsData
+    )
+
+
 class MemoryProfileSnapshotExportData(McpDataModel):
     status: str | None = None
     snapshot: MemoryProfileSnapshotData = Field(default_factory=MemoryProfileSnapshotData)
     counts: dict[str, int] = Field(default_factory=dict)
     redacted: bool | None = None
+    manifest: MemoryProfileSnapshotManifestData = Field(
+        default_factory=MemoryProfileSnapshotManifestData
+    )
 
 
 class MemoryProfileSnapshotImportData(McpDataModel):

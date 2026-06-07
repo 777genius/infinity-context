@@ -276,6 +276,7 @@ def test_service_profile_snapshot_export_and_import_are_policy_gated() -> None:
         assert exported["ok"] is True
         assert exported["data"]["status"] == "ok"
         assert exported["data"]["redacted"] is True
+        assert exported["data"]["manifest"] == {}
         assert dry_run["data"]["dry_run"] is True
         assert refused["ok"] is False
         assert refused["error"]["code"] == "memo_stack_mcp.policy.explicit_confirmation_required"
@@ -286,6 +287,7 @@ def test_service_profile_snapshot_export_and_import_are_policy_gated() -> None:
             {"scope": MemoryScope("project-a", "backend", None), "redacted": True},
         ) in gateway.calls
         assert gateway.calls[-1][0] == "import_profile_snapshot"
+        assert gateway.calls[-1][1]["manifest"] is None
         assert gateway.calls[-1][1]["merge_strategy"] == "create_new_profile"
         assert gateway.calls[-1][1]["source_name"] == "unit-snapshot"
 
@@ -2108,7 +2110,9 @@ def test_mcp_tool_annotations_are_closed_domain_and_typed() -> None:
         )
         assert snapshot_import.annotations.destructiveHint is True
         assert snapshot_import.inputSchema["properties"]["dry_run"]["default"] is True
+        assert "manifest" in snapshot_import.inputSchema["properties"]
         assert "confirmed=true" in snapshot_import.description
+        assert "manifest" in snapshot_import.description.casefold()
         propose = next(tool for tool in tools if tool.name == "memory_propose_updates")
         propose_description = propose.description.casefold()
         assert "mutating tool" in propose_description

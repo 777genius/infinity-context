@@ -9,6 +9,11 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+from memo_stack_core.profile_snapshots import (
+    default_manifest_path,
+    verify_snapshot_manifest,
+    write_snapshot_bundle,
+)
 from memo_stack_sdk import MemoStackClient, MemoStackError, ReadScope
 
 from memo_stack_cli import __version__
@@ -16,11 +21,6 @@ from memo_stack_cli.config import DEFAULT_API_URL, init_local_config, load_confi
 from memo_stack_cli.doctor import doctor_payload, run_doctor
 from memo_stack_cli.mcp_config import SUPPORTED_AGENTS, render_mcp_config, write_mcp_config
 from memo_stack_cli.runtime import DockerComposeRuntime
-from memo_stack_cli.snapshots import (
-    default_manifest_path,
-    verify_snapshot_manifest,
-    write_snapshot_bundle,
-)
 
 
 def main(argv: list[str] | None = None) -> int:
