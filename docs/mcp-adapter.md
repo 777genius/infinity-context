@@ -130,6 +130,8 @@ Recommended agent workflow:
 
 Profile snapshot export/import is intentionally handled by the HTTP API, SDK,
 CLI and read-only MCP preview surface instead of derived graph/vector adapters.
+The CLI also exposes `profile-import-preview` for local backup/git-sync restore
+checks before running `profile-import --apply --confirmed`.
 Snapshots include facts, documents, chunks, source refs and durable typed fact
 relations. Import into a new profile remaps relation endpoints together with
 fact ids, so portable backups and git-sync bundles keep the semantic graph

@@ -165,6 +165,27 @@ def _build_parser() -> argparse.ArgumentParser:
     import_parser.add_argument("--confirmed", action="store_true")
     import_parser.set_defaults(handler=_cmd_profile_import)
 
+    preview_import_parser = subparsers.add_parser(
+        "profile-import-preview",
+        help="Build a read-only profile snapshot import preview.",
+    )
+    preview_import_parser.add_argument("--space", dest="space_slug", default=None)
+    preview_import_parser.add_argument("--profile", dest="profile_external_ref", default=None)
+    preview_import_parser.add_argument("--in", dest="in_path", type=Path, required=True)
+    preview_import_parser.add_argument(
+        "--merge-strategy",
+        choices=(
+            "fail_on_conflict",
+            "skip_existing",
+            "create_new_profile",
+            "supersede_matching_facts",
+        ),
+        default="fail_on_conflict",
+    )
+    preview_import_parser.add_argument("--manifest", type=Path, default=None)
+    preview_import_parser.add_argument("--json", action="store_true")
+    preview_import_parser.set_defaults(handler=_cmd_profile_import_preview)
+
     return parser
 
 
@@ -410,6 +431,49 @@ def _cmd_profile_import(args: argparse.Namespace) -> int:
         source_name=args.source_name,
     )
     print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0
+
+
+def _cmd_profile_import_preview(args: argparse.Namespace) -> int:
+    snapshot_path = args.in_path.expanduser()
+    manifest = None
+    if args.manifest is not None:
+        manifest_path = args.manifest.expanduser()
+        verification = verify_snapshot_manifest(
+            snapshot_path=snapshot_path,
+            manifest_path=manifest_path,
+        )
+        if not verification["ok"]:
+            raise ValueError(
+                "profile snapshot manifest verification failed: "
+                + ", ".join(verification["errors"])
+            )
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    config = load_config()
+    snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    client = MemoStackClient(base_url=config.api_url, token=config.service_token)
+    payload = client.preview_profile_snapshot_import(
+        space_slug=args.space_slug or config.default_space_slug,
+        profile_external_ref=args.profile_external_ref or config.default_profile_external_ref,
+        snapshot=snapshot,
+        manifest=manifest,
+        merge_strategy=args.merge_strategy,
+    )
+    if args.json:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+    data = payload.get("data", {}) if isinstance(payload, dict) else {}
+    preview = data.get("preview", {}) if isinstance(data.get("preview"), dict) else {}
+    print(f"status: {data.get('status')}")
+    print(f"dry_run: {data.get('dry_run')}")
+    print(f"conflict_count: {data.get('conflict_count', preview.get('conflict_count'))}")
+    print(f"would_import: {json.dumps(preview.get('would_import', {}), sort_keys=True)}")
+    print(f"would_skip: {json.dumps(preview.get('would_skip', {}), sort_keys=True)}")
+    if preview.get("would_supersede"):
+        print(f"would_supersede: {json.dumps(preview['would_supersede'], sort_keys=True)}")
+    warnings = preview.get("warnings", [])
+    if warnings:
+        print(f"warnings: {', '.join(str(item) for item in warnings)}")
     return 0
 
 

@@ -149,7 +149,7 @@ now support category plus tags_any/tags_all/tags_none filters for canonical fact
 snapshot export/import is available through HTTP API, SDK, MCP and CLI with
 dry-run, explicit confirmation gates and manifest hash verification for backup
 or git-sync integrity. Snapshot import also has a dedicated read-only preview
-surface through HTTP API, SDK and MCP, returning deterministic conflicts,
+surface through HTTP API, SDK, MCP and CLI, returning deterministic conflicts,
 skipped records, would-import counts and superseded facts before a destructive
 restore. Read-only memory insights are available through HTTP API, SDK, MCP and
 CLI for pending review load, expired facts, document indexing coverage,

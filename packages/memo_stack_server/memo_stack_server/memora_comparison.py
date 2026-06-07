@@ -224,7 +224,7 @@ DIMENSIONS: tuple[Dimension, ...] = (
             "Quality scorecard, full-provider canary, public benchmark canary, "
             "agent behavior benchmark, secret/top-evidence gates, and portable "
             "profile snapshot export/import with manifest verification plus "
-            "dedicated read-only import previews via API, SDK and MCP exist. "
+            "dedicated read-only import previews via API, SDK, MCP and CLI exist. "
             "Profile snapshots now include durable typed fact relations. Memory "
             "insights, recent activity, duplicate/similar fact review actions and "
             "safe consolidation plans are available via API, SDK, MCP and CLI."

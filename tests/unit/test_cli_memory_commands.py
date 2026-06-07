@@ -62,6 +62,23 @@ class FakeMemoStackClient:
             }
         }
 
+    def preview_profile_snapshot_import(self, **kwargs: Any) -> dict[str, Any]:
+        self.calls.append(("preview_profile_snapshot_import", kwargs))
+        return {
+            "data": {
+                "status": "ok",
+                "dry_run": True,
+                "conflict_count": 1,
+                "preview": {
+                    "conflict_count": 1,
+                    "would_import": {"facts": 2, "documents": 1},
+                    "would_skip": {"facts": 1, "documents": 0},
+                    "would_supersede": {"facts": 1, "fact_ids": ["fact_old"]},
+                    "warnings": ["conflicts_block_import"],
+                },
+            }
+        }
+
 
 def test_cli_insights_prints_summary_and_uses_default_scope(
     tmp_path: Path,
@@ -208,6 +225,91 @@ def test_cli_profile_import_verifies_manifest_before_client_call(
     tampered_exit = cli.main(
         [
             "profile-import",
+            "--in",
+            str(out_path),
+            "--manifest",
+            str(manifest_path),
+        ]
+    )
+    tampered_output = capsys.readouterr()
+
+    assert tampered_exit == 1
+    assert "manifest verification failed" in tampered_output.err
+    assert "snapshot_sha256_mismatch" in tampered_output.err
+    assert len(FakeMemoStackClient.instances) == client_count
+
+
+def test_cli_profile_import_preview_uses_read_only_preview_endpoint(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    _configure(tmp_path, monkeypatch)
+    monkeypatch.setattr(cli, "MemoStackClient", FakeMemoStackClient)
+    FakeMemoStackClient.instances.clear()
+    snapshot_path = tmp_path / "snapshot.json"
+    snapshot_path.write_text(json.dumps({"schema_version": 1}), encoding="utf-8")
+
+    exit_code = cli.main(
+        [
+            "profile-import-preview",
+            "--in",
+            str(snapshot_path),
+            "--merge-strategy",
+            "supersede_matching_facts",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "status: ok" in captured.out
+    assert "dry_run: True" in captured.out
+    assert "would_import:" in captured.out
+    assert "would_supersede:" in captured.out
+    assert "conflicts_block_import" in captured.out
+    call_name, kwargs = FakeMemoStackClient.instances[0].calls[0]
+    assert call_name == "preview_profile_snapshot_import"
+    assert kwargs["merge_strategy"] == "supersede_matching_facts"
+    assert kwargs["manifest"] is None
+
+
+def test_cli_profile_import_preview_verifies_manifest_before_client_call(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    _configure(tmp_path, monkeypatch)
+    monkeypatch.setattr(cli, "MemoStackClient", FakeMemoStackClient)
+    FakeMemoStackClient.instances.clear()
+    out_path = tmp_path / "snapshot.json"
+    manifest_path = tmp_path / "snapshot.json.manifest.json"
+
+    export_exit = cli.main(["profile-export", "--out", str(out_path)])
+    capsys.readouterr()
+    preview_exit = cli.main(
+        [
+            "profile-import-preview",
+            "--in",
+            str(out_path),
+            "--manifest",
+            str(manifest_path),
+            "--json",
+        ]
+    )
+    preview_output = capsys.readouterr()
+
+    assert export_exit == 0
+    assert preview_exit == 0
+    assert '"dry_run": true' in preview_output.out
+    preview_call = FakeMemoStackClient.instances[-1].calls[0]
+    assert preview_call[0] == "preview_profile_snapshot_import"
+    assert isinstance(preview_call[1]["manifest"], dict)
+
+    client_count = len(FakeMemoStackClient.instances)
+    out_path.write_text('{"tampered": true}\n', encoding="utf-8")
+    tampered_exit = cli.main(
+        [
+            "profile-import-preview",
             "--in",
             str(out_path),
             "--manifest",
