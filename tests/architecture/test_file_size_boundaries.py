@@ -8,6 +8,10 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 CODE_GLOBS = ("*.py", "*.js", "*.ts", "*.tsx", "*.rs")
 CODE_ROOTS = ("packages", "scripts", "tests")
+IGNORED_PATH_PARTS = {
+    "__pycache__",
+    "node_modules",
+}
 
 MAX_LINES = 2500
 IDEAL_LINES = 1000
@@ -15,7 +19,6 @@ IDEAL_LINES = 1000
 LEGACY_OVER_MAX_ALLOWLIST = {
     "packages/memo_stack_server/memo_stack_server/eval.py",
     "tests/unit/test_legacy_and_context_api.py",
-    "tests/unit/test_worker_eval.py",
 }
 
 IDEAL_OVER_1000_DEBT_ALLOWLIST = {
@@ -37,6 +40,8 @@ IDEAL_OVER_1000_DEBT_ALLOWLIST = {
     "tests/unit/test_mcp_adapter.py",
     "tests/unit/test_provider_adapters.py",
     "tests/unit/test_quality_evidence_bundle.py",
+    "tests/unit/test_worker_eval.py",
+    "tests/unit/test_worker_eval_scorecard.py",
 }
 
 
@@ -68,7 +73,7 @@ def _code_file_line_counts() -> list[tuple[str, int]]:
             continue
         for glob in CODE_GLOBS:
             for path in root.rglob(glob):
-                if "__pycache__" in path.parts:
+                if IGNORED_PATH_PARTS.intersection(path.parts):
                     continue
                 relative_path = path.relative_to(REPO_ROOT).as_posix()
                 results.append((relative_path, _line_count(path)))
