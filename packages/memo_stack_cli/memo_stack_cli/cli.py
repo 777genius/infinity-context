@@ -16,6 +16,11 @@ from memo_stack_cli.config import DEFAULT_API_URL, init_local_config, load_confi
 from memo_stack_cli.doctor import doctor_payload, run_doctor
 from memo_stack_cli.mcp_config import SUPPORTED_AGENTS, render_mcp_config, write_mcp_config
 from memo_stack_cli.runtime import DockerComposeRuntime
+from memo_stack_cli.snapshots import (
+    default_manifest_path,
+    verify_snapshot_manifest,
+    write_snapshot_bundle,
+)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -123,7 +128,18 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Export restorable raw memory text. Default output is redacted.",
     )
+    export_parser.add_argument("--manifest-out", type=Path, default=None)
+    export_parser.add_argument("--no-manifest", action="store_true")
     export_parser.set_defaults(handler=_cmd_profile_export)
+
+    verify_parser = subparsers.add_parser(
+        "profile-verify",
+        help="Verify a profile snapshot manifest before import or git sync.",
+    )
+    verify_parser.add_argument("--snapshot", type=Path, required=True)
+    verify_parser.add_argument("--manifest", type=Path, default=None)
+    verify_parser.add_argument("--json", action="store_true")
+    verify_parser.set_defaults(handler=_cmd_profile_verify)
 
     import_parser = subparsers.add_parser(
         "profile-import",
@@ -143,6 +159,7 @@ def _build_parser() -> argparse.ArgumentParser:
         default="fail_on_conflict",
     )
     import_parser.add_argument("--source-name", default="cli-profile-snapshot")
+    import_parser.add_argument("--manifest", type=Path, default=None)
     import_parser.add_argument("--apply", action="store_true")
     import_parser.add_argument("--confirmed", action="store_true")
     import_parser.set_defaults(handler=_cmd_profile_import)
@@ -293,24 +310,75 @@ def _cmd_insights(args: argparse.Namespace) -> int:
 def _cmd_profile_export(args: argparse.Namespace) -> int:
     config = load_config()
     out_path = args.out.expanduser()
+    redacted = not args.include_private
+    manifest_path = None
+    if not args.no_manifest:
+        manifest_path = (
+            args.manifest_out.expanduser()
+            if args.manifest_out is not None
+            else default_manifest_path(out_path)
+        )
     client = MemoStackClient(base_url=config.api_url, token=config.service_token)
     payload = client.export_profile_snapshot(
         space_slug=args.space_slug or config.default_space_slug,
         profile_external_ref=args.profile_external_ref or config.default_profile_external_ref,
-        redacted=not args.include_private,
+        redacted=redacted,
     )
     snapshot = payload.get("data", payload) if isinstance(payload, dict) else payload
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(snapshot, indent=2, sort_keys=True), encoding="utf-8")
-    print(str(out_path))
+    if not isinstance(snapshot, dict):
+        raise ValueError("profile export response did not contain a snapshot object")
+    write_snapshot_bundle(
+        snapshot=snapshot,
+        snapshot_path=out_path,
+        manifest_path=manifest_path,
+        space_slug=args.space_slug or config.default_space_slug,
+        profile_external_ref=args.profile_external_ref or config.default_profile_external_ref,
+        redacted=redacted,
+    )
+    print(f"snapshot: {out_path}")
+    if manifest_path is not None:
+        print(f"manifest: {manifest_path}")
     return 0
 
 
+def _cmd_profile_verify(args: argparse.Namespace) -> int:
+    snapshot_path = args.snapshot.expanduser()
+    manifest_path = (
+        args.manifest.expanduser()
+        if args.manifest is not None
+        else default_manifest_path(snapshot_path)
+    )
+    result = verify_snapshot_manifest(
+        snapshot_path=snapshot_path,
+        manifest_path=manifest_path,
+    )
+    if args.json:
+        print(json.dumps(result, indent=2, sort_keys=True))
+    else:
+        print(f"ok: {result['ok']}")
+        print(f"snapshot: {snapshot_path}")
+        print(f"manifest: {manifest_path}")
+        if result["errors"]:
+            print(f"errors: {', '.join(result['errors'])}")
+    return 0 if result["ok"] else 1
+
+
 def _cmd_profile_import(args: argparse.Namespace) -> int:
+    snapshot_path = args.in_path.expanduser()
+    if args.manifest is not None:
+        verification = verify_snapshot_manifest(
+            snapshot_path=snapshot_path,
+            manifest_path=args.manifest.expanduser(),
+        )
+        if not verification["ok"]:
+            raise ValueError(
+                "profile snapshot manifest verification failed: "
+                + ", ".join(verification["errors"])
+            )
     if args.apply and not args.confirmed:
         raise ValueError("profile-import --apply requires --confirmed")
     config = load_config()
-    snapshot = json.loads(args.in_path.expanduser().read_text(encoding="utf-8"))
+    snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
     client = MemoStackClient(base_url=config.api_url, token=config.service_token)
     payload = client.import_profile_snapshot(
         space_slug=args.space_slug or config.default_space_slug,

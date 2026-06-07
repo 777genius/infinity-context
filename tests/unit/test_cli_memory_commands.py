@@ -91,13 +91,47 @@ def test_cli_profile_export_is_redacted_by_default(
 
     captured = capsys.readouterr()
     written = json.loads(out_path.read_text(encoding="utf-8"))
+    manifest_path = tmp_path / "snapshot.json.manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert exit_code == 0
     assert str(out_path) in captured.out
+    assert str(manifest_path) in captured.out
     assert written["redacted"] is True
     assert written["facts"][0]["text"] is None
+    assert manifest["schema_version"] == "memo_stack.profile_snapshot_manifest.v1"
+    assert manifest["snapshot_file"] == "snapshot.json"
+    assert manifest["redacted"] is True
+    assert manifest["snapshot_sha256"]
     call_name, kwargs = FakeMemoStackClient.instances[0].calls[0]
     assert call_name == "export_profile_snapshot"
     assert kwargs["redacted"] is True
+
+
+def test_cli_profile_verify_accepts_manifest_and_rejects_tamper(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    _configure(tmp_path, monkeypatch)
+    monkeypatch.setattr(cli, "MemoStackClient", FakeMemoStackClient)
+    FakeMemoStackClient.instances.clear()
+    out_path = tmp_path / "snapshot.json"
+
+    export_exit = cli.main(["profile-export", "--out", str(out_path)])
+    capsys.readouterr()
+    verify_exit = cli.main(["profile-verify", "--snapshot", str(out_path), "--json"])
+    verify_output = capsys.readouterr()
+
+    assert export_exit == 0
+    assert verify_exit == 0
+    assert json.loads(verify_output.out)["ok"] is True
+
+    out_path.write_text('{"tampered": true}\n', encoding="utf-8")
+    tampered_exit = cli.main(["profile-verify", "--snapshot", str(out_path)])
+    tampered_output = capsys.readouterr()
+
+    assert tampered_exit == 1
+    assert "snapshot_sha256_mismatch" in tampered_output.out
 
 
 def test_cli_profile_import_dry_run_and_apply_confirmation(
@@ -128,6 +162,54 @@ def test_cli_profile_import_dry_run_and_apply_confirmation(
     assert first_call[1]["dry_run"] is True
     assert second_call[1]["dry_run"] is False
     assert second_call[1]["confirmed"] is True
+
+
+def test_cli_profile_import_verifies_manifest_before_client_call(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    _configure(tmp_path, monkeypatch)
+    monkeypatch.setattr(cli, "MemoStackClient", FakeMemoStackClient)
+    FakeMemoStackClient.instances.clear()
+    out_path = tmp_path / "snapshot.json"
+    manifest_path = tmp_path / "snapshot.json.manifest.json"
+
+    export_exit = cli.main(["profile-export", "--out", str(out_path)])
+    capsys.readouterr()
+    import_exit = cli.main(
+        [
+            "profile-import",
+            "--in",
+            str(out_path),
+            "--manifest",
+            str(manifest_path),
+        ]
+    )
+    good_output = capsys.readouterr()
+
+    assert export_exit == 0
+    assert import_exit == 0
+    assert '"dry_run": true' in good_output.out
+    assert FakeMemoStackClient.instances[-1].calls[0][0] == "import_profile_snapshot"
+
+    client_count = len(FakeMemoStackClient.instances)
+    out_path.write_text('{"tampered": true}\n', encoding="utf-8")
+    tampered_exit = cli.main(
+        [
+            "profile-import",
+            "--in",
+            str(out_path),
+            "--manifest",
+            str(manifest_path),
+        ]
+    )
+    tampered_output = capsys.readouterr()
+
+    assert tampered_exit == 1
+    assert "manifest verification failed" in tampered_output.err
+    assert "snapshot_sha256_mismatch" in tampered_output.err
+    assert len(FakeMemoStackClient.instances) == client_count
 
 
 def _configure(tmp_path: Path, monkeypatch) -> None:
