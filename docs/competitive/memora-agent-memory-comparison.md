@@ -114,12 +114,12 @@ make memo-stack-compare-memora
 | Graph relationships and temporal context | 9.5 | 8.4 | Memo Stack |
 | Agent hooks, plugins and real agent ergonomics | 9.0 | 7.8 | Memo Stack |
 | Project/team/profile isolation | 9.2 | 7.5 | Memo Stack |
-| Operational confidence and benchmark evidence | 9.2 | 7.7 | Memo Stack |
+| Operational confidence and benchmark evidence | 9.3 | 7.7 | Memo Stack |
 | Clean Architecture and extensibility | 9.1 | 6.8 | Memo Stack |
 
 Weighted total:
 
-- Memo Stack: 9.26
+- Memo Stack: 9.27
 - Memora: 8.19
 
 ## Honest conclusion
@@ -159,7 +159,10 @@ Memo Stack now also has durable typed fact relations through API, SDK and MCP:
 `supports`, `supersedes`, `contradicts`, `duplicates`, `references`,
 `depends_on`, and `related_to`. Those links are exported through canonical
 `graph.json`, so graph visualization and git-syncable evidence do not depend on
-Graphiti/Cognee runtime state.
+Graphiti/Cognee runtime state. Profile snapshot export/import also preserves
+those typed fact links, remapping relation endpoints when importing into a new
+profile. That closes the previous portability gap where facts could be restored
+without their durable semantic links.
 
 ## Practical recommendation
 

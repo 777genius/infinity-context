@@ -1464,6 +1464,7 @@ def test_import_profile_enqueues_projection_reindex_events(
         "facts": 1,
         "documents": 1,
         "chunks": 1,
+        "relations": 0,
         "source_refs": 1,
     }
     assert event_types == {"graph.upsert_fact", "vector.upsert_chunk"}
@@ -1596,6 +1597,7 @@ def test_import_profile_drops_thread_ids_without_thread_transfer(
         "facts": 1,
         "documents": 1,
         "chunks": 1,
+        "relations": 0,
         "source_refs": 1,
     }
     assert fact_thread_id is None
@@ -1748,6 +1750,7 @@ def test_import_profile_skips_episode_chunks_without_episode_transfer(
         "facts": 1,
         "documents": 0,
         "chunks": 0,
+        "relations": 0,
         "source_refs": 0,
     }
     assert fact is not None

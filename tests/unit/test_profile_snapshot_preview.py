@@ -12,6 +12,14 @@ def test_profile_snapshot_import_preview_reports_skip_and_supersede() -> None:
             {"id": "chunk_keep", "document_id": "doc_conflict"},
             {"id": "chunk_orphan", "document_id": "missing_doc"},
         ],
+        "relations": [
+            {
+                "id": "relation_keep",
+                "source_fact_id": "fact_keep",
+                "target_fact_id": "fact_conflict",
+                "relation_type": "supports",
+            }
+        ],
         "source_refs": [
             {"fact_id": "fact_keep", "chunk_id": "chunk_keep"},
             {"fact_id": "fact_conflict", "chunk_id": "chunk_orphan"},
@@ -33,6 +41,7 @@ def test_profile_snapshot_import_preview_reports_skip_and_supersede() -> None:
         "facts": 2,
         "documents": 1,
         "chunks": 2,
+        "relations": 1,
         "source_refs": 2,
     }
     assert skip_preview["conflicts"]["facts"] == ["fact_conflict"]
@@ -41,19 +50,23 @@ def test_profile_snapshot_import_preview_reports_skip_and_supersede() -> None:
         "facts": 1,
         "documents": 1,
         "chunks": 2,
+        "relations": 1,
         "source_refs": 2,
     }
     assert skip_preview["would_import"] == {
         "facts": 1,
         "documents": 0,
         "chunks": 0,
+        "relations": 0,
         "source_refs": 0,
     }
     assert "some_chunks_will_be_skipped" in skip_preview["warnings"]
+    assert "some_relations_will_be_skipped" in skip_preview["warnings"]
     assert supersede_preview["would_supersede"] == {
         "facts": 1,
         "fact_ids": ["fact_conflict"],
     }
+    assert supersede_preview["would_import"]["relations"] == 1
 
 
 def test_profile_snapshot_import_preview_warns_on_redacted_blocking_conflict() -> None:

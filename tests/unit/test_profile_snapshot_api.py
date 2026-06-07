@@ -41,6 +41,29 @@ def test_profile_snapshot_export_dry_run_and_confirmed_import(tmp_path: Path) ->
             },
             headers=auth_headers(),
         )
+        target = client.post(
+            "/v1/facts",
+            json={
+                "space_slug": "agents",
+                "profile_external_ref": "source-profile",
+                "text": "SNAPSHOT_RELATION_TARGET: relations survive profile snapshots.",
+                "kind": "architecture_decision",
+                "source_refs": [{"source_type": "manual", "source_id": "snapshot-link"}],
+                "category": "architecture",
+                "tags": ["snapshot"],
+                "ttl_policy": "durable",
+            },
+            headers=auth_headers(),
+        )
+        relation = client.post(
+            f"/v1/facts/{created.json()['data']['id']}/relations",
+            json={
+                "target_fact_id": target.json()["data"]["id"],
+                "relation_type": "supports",
+                "reason": "Snapshot relation target supports the portable snapshot decision.",
+            },
+            headers=auth_headers(),
+        )
         exported = client.get(
             "/v1/export/profile-snapshot",
             params={
@@ -99,29 +122,54 @@ def test_profile_snapshot_export_dry_run_and_confirmed_import(tmp_path: Path) ->
             },
             headers=auth_headers(),
         )
+        restored_source = next(
+            item
+            for item in restored.json()["data"]
+            if item["text"] == "SNAPSHOT_API_MARKER: profile snapshots are portable."
+        )
+        restored_relations = client.get(
+            f"/v1/facts/{restored_source['id']}/relations",
+            headers=auth_headers(),
+        )
 
     assert created.status_code == 201
+    assert target.status_code == 201
+    assert relation.status_code == 201
     assert exported.status_code == 200
-    assert exported.json()["counts"]["facts"] == 1
-    assert snapshot["schema_version"] == 1
+    assert exported.json()["counts"]["facts"] == 2
+    assert exported.json()["counts"]["relations"] == 1
+    assert snapshot["schema_version"] == 2
     assert manifest["schema_version"] == "memo_stack.profile_snapshot_manifest.v1"
+    assert manifest["counts"]["relations"] == 1
     assert manifest["snapshot_sha256"]
     assert verify_snapshot_manifest_payload(snapshot=snapshot, manifest=manifest)["ok"] is True
     assert snapshot["facts"][0]["text"] == "SNAPSHOT_API_MARKER: profile snapshots are portable."
     assert snapshot["facts"][0]["category"] == "architecture"
     assert snapshot["facts"][0]["tags"] == ["snapshot"]
+    assert snapshot["relations"][0]["relation_type"] == "supports"
     assert dry_run.status_code == 200
     assert dry_run.json()["data"]["dry_run"] is True
     assert dry_run.json()["data"]["would_create_profile"] is True
-    assert dry_run.json()["data"]["would_import"]["facts"] == 1
+    assert dry_run.json()["data"]["would_import"]["facts"] == 2
+    assert dry_run.json()["data"]["would_import"]["relations"] == 1
     assert dry_run.json()["data"]["preview"]["would_create_profile"] is True
-    assert dry_run.json()["data"]["preview"]["would_import"]["facts"] == 1
+    assert dry_run.json()["data"]["preview"]["would_import"]["facts"] == 2
+    assert dry_run.json()["data"]["preview"]["would_import"]["relations"] == 1
     assert refused.status_code == 400
     assert imported.status_code == 200
     assert imported.json()["data"]["merge_strategy"] == "create_new_profile"
+    assert imported.json()["data"]["imported"]["relations"] == 1
     assert restored.status_code == 200
-    assert restored.json()["data"][0]["text"] == snapshot["facts"][0]["text"]
-    assert restored.json()["data"][0]["id"] != created.json()["data"]["id"]
+    assert restored_source["id"] != created.json()["data"]["id"]
+    assert restored_relations.status_code == 200
+    restored_relation = restored_relations.json()["data"]["items"][0]
+    assert restored_relation["relation"]["relation_type"] == "supports"
+    assert restored_relation["relation"]["source_fact_id"] == restored_source["id"]
+    assert restored_relation["relation"]["target_fact_id"] != target.json()["data"]["id"]
+    assert (
+        restored_relation["related_fact"]["text"]
+        == "SNAPSHOT_RELATION_TARGET: relations survive profile snapshots."
+    )
 
 
 def test_profile_snapshot_import_dry_run_returns_conflict_preview(tmp_path: Path) -> None:

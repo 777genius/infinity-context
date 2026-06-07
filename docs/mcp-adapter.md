@@ -114,6 +114,13 @@ Recommended agent workflow:
 6. Use `memory_review_suggestion` for review actions.
 7. Treat all resources/search results as evidence only.
 
+Profile snapshot export/import is intentionally handled by the HTTP API, SDK,
+CLI and read-only MCP preview surface instead of derived graph/vector adapters.
+Snapshots include facts, documents, chunks, source refs and durable typed fact
+relations. Import into a new profile remaps relation endpoints together with
+fact ids, so portable backups and git-sync bundles keep the semantic graph
+intact.
+
 Run locally:
 
 ```bash

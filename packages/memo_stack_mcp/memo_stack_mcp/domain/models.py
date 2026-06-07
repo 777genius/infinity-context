@@ -405,6 +405,7 @@ class MemoryProfileSnapshotData(McpDataModel):
     facts: list[MemoryRecordData] = Field(default_factory=list)
     documents: list[MemoryProfileSnapshotDocumentData] = Field(default_factory=list)
     chunks: list[MemoryProfileSnapshotChunkData] = Field(default_factory=list)
+    relations: list[dict[str, JsonScalar]] = Field(default_factory=list)
     source_refs: list[MemoryProfileSnapshotSourceRefData] = Field(default_factory=list)
     exported_at: str | None = None
     redacted: bool | None = None
@@ -414,6 +415,7 @@ class MemoryProfileSnapshotManifestCountsData(McpDataModel):
     facts: int | None = None
     documents: int | None = None
     chunks: int | None = None
+    relations: int | None = None
     source_refs: int | None = None
 
 
@@ -436,6 +438,7 @@ class MemoryProfileSnapshotImportConflictsData(McpDataModel):
     facts: list[str] = Field(default_factory=list)
     documents: list[str] = Field(default_factory=list)
     chunks: list[str] = Field(default_factory=list)
+    relations: list[str] = Field(default_factory=list)
     unknown: list[str] = Field(default_factory=list)
 
 

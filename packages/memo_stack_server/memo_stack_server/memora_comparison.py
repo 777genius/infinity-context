@@ -168,7 +168,9 @@ DIMENSIONS: tuple[Dimension, ...] = (
             "Graphiti/Neo4j is modeled as a temporal derived graph adapter with "
             "canonical Postgres as source of truth, plus portable graph.json "
             "export for canonical facts, documents, fragments and evidence links "
-            "and durable typed fact links through API, SDK and MCP."
+            "and durable typed fact links through API, SDK and MCP. Profile "
+            "snapshot export/import preserves those links for backup/git-sync "
+            "without depending on derived Graphiti/Cognee runtime state."
         ),
         memora_rationale=(
             "Memora has typed links, clusters, crossrefs and graph UI, but not "
@@ -212,14 +214,15 @@ DIMENSIONS: tuple[Dimension, ...] = (
         id="ops_and_production_evidence",
         label="Operational confidence and benchmark evidence",
         weight=0.10,
-        memo_stack_score=9.2,
+        memo_stack_score=9.3,
         memora_score=7.7,
         memo_stack_rationale=(
             "Quality scorecard, full-provider canary, public benchmark canary, "
             "agent behavior benchmark, secret/top-evidence gates, and portable "
             "profile snapshot export/import with manifest verification plus "
             "dedicated read-only import previews via API, SDK and MCP exist. "
-            "Memory insights are available via API, SDK, MCP and CLI."
+            "Profile snapshots now include durable typed fact relations. Memory "
+            "insights are available via API, SDK, MCP and CLI."
         ),
         memora_rationale=(
             "Direct temp-db smoke passed and public repo is active, but we did "

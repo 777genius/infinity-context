@@ -24,6 +24,7 @@ class PreviewGateway:
                         "facts": 1,
                         "documents": 0,
                         "chunks": 0,
+                        "relations": 1,
                         "source_refs": 1,
                     }
                 },
@@ -53,6 +54,7 @@ def test_service_preview_profile_snapshot_import_is_read_only_and_scoped() -> No
         assert result["ok"] is True
         assert result["data"]["dry_run"] is True
         assert result["data"]["preview"]["would_import"]["facts"] == 1
+        assert result["data"]["preview"]["would_import"]["relations"] == 1
         assert result["diagnostics"]["side_effects"] == []
         assert gateway.calls == [
             (

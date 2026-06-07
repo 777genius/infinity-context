@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-_RECORD_TYPES = ("facts", "documents", "chunks")
+_RECORD_TYPES = ("facts", "documents", "chunks", "relations")
 _COUNT_TYPES = (*_RECORD_TYPES, "source_refs")
 
 
@@ -17,6 +17,7 @@ def build_profile_snapshot_import_preview(
     facts = _records(payload, "facts")
     documents = _records(payload, "documents")
     chunks = _records(payload, "chunks")
+    relations = _records(payload, "relations")
     source_refs = _records(payload, "source_refs")
     skipped = skipped_snapshot_ids(
         merge_strategy=merge_strategy,
@@ -24,12 +25,14 @@ def build_profile_snapshot_import_preview(
         facts=facts,
         documents=documents,
         chunks=chunks,
+        relations=relations,
     )
     conflicts = _conflicts_by_type(
         conflict_ids=conflict_ids,
         facts=facts,
         documents=documents,
         chunks=chunks,
+        relations=relations,
     )
     superseded_fact_ids = (
         _record_ids(facts) & conflict_ids if merge_strategy == "supersede_matching_facts" else set()
@@ -39,6 +42,7 @@ def build_profile_snapshot_import_preview(
             facts=facts,
             documents=documents,
             chunks=chunks,
+            relations=relations,
             source_refs=source_refs,
         ),
         "conflict_count": len(conflict_ids),
@@ -47,6 +51,7 @@ def build_profile_snapshot_import_preview(
             facts=facts,
             documents=documents,
             chunks=chunks,
+            relations=relations,
             source_refs=source_refs,
             skipped=skipped,
         ),
@@ -54,6 +59,7 @@ def build_profile_snapshot_import_preview(
             facts=facts,
             documents=documents,
             chunks=chunks,
+            relations=relations,
             source_refs=source_refs,
             skipped=skipped,
         ),
@@ -75,12 +81,14 @@ def snapshot_counts(
     facts: list[dict[str, Any]],
     documents: list[dict[str, Any]],
     chunks: list[dict[str, Any]],
+    relations: list[dict[str, Any]],
     source_refs: list[dict[str, Any]],
 ) -> dict[str, int]:
     return {
         "facts": len(facts),
         "documents": len(documents),
         "chunks": len(chunks),
+        "relations": len(relations),
         "source_refs": len(source_refs),
     }
 
@@ -92,10 +100,13 @@ def skipped_snapshot_ids(
     facts: list[dict[str, Any]],
     documents: list[dict[str, Any]],
     chunks: list[dict[str, Any]],
+    relations: list[dict[str, Any]] | None = None,
 ) -> dict[str, set[str]]:
+    relations = relations or []
     fact_ids = _record_ids(facts)
     document_ids = _record_ids(documents)
     chunk_ids = _record_ids(chunks)
+    relation_ids = _record_ids(relations)
     skipped_facts = fact_ids & conflict_ids if merge_strategy == "skip_existing" else set()
     skipped_documents = document_ids & conflict_ids
     skipped_chunks = chunk_ids & conflict_ids
@@ -106,10 +117,22 @@ def skipped_snapshot_ids(
         or str(chunk["document_id"]) not in document_ids
         or str(chunk["document_id"]) in skipped_documents
     )
+    skipped_relations = relation_ids & conflict_ids
+    skipped_relations.update(
+        str(relation["id"])
+        for relation in relations
+        if relation.get("source_fact_id") is None
+        or relation.get("target_fact_id") is None
+        or str(relation["source_fact_id"]) not in fact_ids
+        or str(relation["target_fact_id"]) not in fact_ids
+        or str(relation["source_fact_id"]) in skipped_facts
+        or str(relation["target_fact_id"]) in skipped_facts
+    )
     return {
         "facts": skipped_facts,
         "documents": skipped_documents,
         "chunks": skipped_chunks,
+        "relations": skipped_relations,
     }
 
 
@@ -120,12 +143,15 @@ def import_counts(
     chunks: list[dict[str, Any]],
     source_refs: list[dict[str, Any]],
     skipped: dict[str, set[str]],
+    relations: list[dict[str, Any]] | None = None,
 ) -> dict[str, int]:
     skipped_source_refs = _skipped_source_ref_indexes(source_refs=source_refs, skipped=skipped)
+    relations = relations or []
     return {
         "facts": len(facts) - _count_skipped(facts, skipped["facts"]),
         "documents": len(documents) - _count_skipped(documents, skipped["documents"]),
         "chunks": len(chunks) - _count_skipped(chunks, skipped["chunks"]),
+        "relations": len(relations) - _count_skipped(relations, skipped["relations"]),
         "source_refs": len(source_refs) - len(skipped_source_refs),
     }
 
@@ -135,6 +161,7 @@ def _skipped_counts(
     facts: list[dict[str, Any]],
     documents: list[dict[str, Any]],
     chunks: list[dict[str, Any]],
+    relations: list[dict[str, Any]],
     source_refs: list[dict[str, Any]],
     skipped: dict[str, set[str]],
 ) -> dict[str, int]:
@@ -143,6 +170,7 @@ def _skipped_counts(
         "facts": _count_skipped(facts, skipped["facts"]),
         "documents": _count_skipped(documents, skipped["documents"]),
         "chunks": _count_skipped(chunks, skipped["chunks"]),
+        "relations": _count_skipped(relations, skipped["relations"]),
         "source_refs": len(skipped_source_refs),
     }
 
@@ -153,11 +181,13 @@ def _conflicts_by_type(
     facts: list[dict[str, Any]],
     documents: list[dict[str, Any]],
     chunks: list[dict[str, Any]],
+    relations: list[dict[str, Any]],
 ) -> dict[str, set[str]]:
     conflicts = {
         "facts": _record_ids(facts) & conflict_ids,
         "documents": _record_ids(documents) & conflict_ids,
         "chunks": _record_ids(chunks) & conflict_ids,
+        "relations": _record_ids(relations) & conflict_ids,
     }
     known = set().union(*conflicts.values())
     conflicts["unknown"] = conflict_ids - known
@@ -176,6 +206,8 @@ def _preview_warnings(
         warnings.append("redacted_snapshot_cannot_be_applied")
     if skipped["chunks"]:
         warnings.append("some_chunks_will_be_skipped")
+    if skipped["relations"]:
+        warnings.append("some_relations_will_be_skipped")
     if conflict_ids and merge_strategy == "fail_on_conflict":
         warnings.append("conflicts_block_import")
     return warnings

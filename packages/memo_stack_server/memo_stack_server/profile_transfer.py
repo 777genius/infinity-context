@@ -15,6 +15,7 @@ from typing import Any
 from memo_stack_adapters.postgres.models import (
     MemoryChunkRow,
     MemoryDocumentRow,
+    MemoryFactRelationRow,
     MemoryFactRow,
     MemoryOutboxRow,
     MemoryProfileRow,
@@ -29,7 +30,15 @@ from memo_stack_core.profile_snapshot_preview import (
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
-SCHEMA_VERSION = 1
+from memo_stack_server.profile_transfer_conflicts import profile_snapshot_conflicts
+from memo_stack_server.profile_transfer_relations import (
+    relation_from_json,
+    relation_to_json,
+    remap_relation,
+)
+
+SCHEMA_VERSION = 2
+SUPPORTED_SCHEMA_VERSIONS = {1, 2}
 SUPPORTED_MERGE_STRATEGIES = {
     "fail_on_conflict",
     "skip_existing",
@@ -58,7 +67,8 @@ async def export_profile(
     counts = result["counts"]
     return {
         "status": "ok", "out": str(out_path), "facts": counts["facts"],
-        "documents": counts["documents"], "chunks": counts["chunks"], "redacted": redacted,
+        "documents": counts["documents"], "chunks": counts["chunks"],
+        "relations": counts["relations"], "redacted": redacted,
     }
 
 
@@ -116,6 +126,7 @@ async def export_profile_payload(
         )
         fact_ids = [fact.id for fact in facts]
         source_refs = []
+        relations = []
         if fact_ids:
             source_refs = list(
                 (
@@ -123,6 +134,20 @@ async def export_profile_payload(
                         select(MemorySourceRefRow)
                         .where(MemorySourceRefRow.fact_id.in_(fact_ids))
                         .order_by(MemorySourceRefRow.fact_id, MemorySourceRefRow.id)
+                    )
+                ).scalars()
+            )
+            relations = list(
+                (
+                    await session.execute(
+                        select(MemoryFactRelationRow)
+                        .where(
+                            MemoryFactRelationRow.space_id == space.id,
+                            MemoryFactRelationRow.profile_id == profile.id,
+                            MemoryFactRelationRow.source_fact_id.in_(fact_ids),
+                            MemoryFactRelationRow.target_fact_id.in_(fact_ids),
+                        )
+                        .order_by(MemoryFactRelationRow.created_at, MemoryFactRelationRow.id)
                     )
                 ).scalars()
             )
@@ -134,6 +159,7 @@ async def export_profile_payload(
         "facts": [_fact_to_json(fact, redacted=redacted) for fact in facts],
         "documents": [_document_to_json(document) for document in documents],
         "chunks": [_chunk_to_json(chunk, redacted=redacted) for chunk in chunks],
+        "relations": [relation_to_json(relation) for relation in relations],
         "source_refs": [_source_ref_to_json(ref, redacted=redacted) for ref in source_refs],
         "exported_at": datetime.now(UTC).isoformat(),
         "redacted": redacted,
@@ -145,6 +171,7 @@ async def export_profile_payload(
             "facts": len(facts),
             "documents": len(documents),
             "chunks": len(chunks),
+            "relations": len(relations),
             "source_refs": len(source_refs),
         },
         "redacted": redacted,
@@ -185,7 +212,7 @@ async def import_profile_payload(
     merge_strategy: str,
     source_name: str = "profile-snapshot",
 ) -> dict[str, object]:
-    if int(payload.get("schema_version", 0)) != SCHEMA_VERSION:
+    if int(payload.get("schema_version", 0)) not in SUPPORTED_SCHEMA_VERSIONS:
         return {"status": "failed", "reason": "unsupported_schema_version"}
     if merge_strategy not in SUPPORTED_MERGE_STRATEGIES:
         return {"status": "failed", "reason": "unsupported_merge_strategy"}
@@ -193,6 +220,7 @@ async def import_profile_payload(
     facts = list(payload.get("facts", []))
     documents = list(payload.get("documents", []))
     chunks = list(payload.get("chunks", []))
+    relations = list(payload.get("relations", []))
     source_refs = list(payload.get("source_refs", []))
     if not dry_run and _contains_redacted_memory(payload, facts=facts, chunks=chunks):
         return {"status": "refused", "reason": "redacted_profile_export_cannot_be_imported"}
@@ -204,6 +232,7 @@ async def import_profile_payload(
         fact_id_map: dict[str, str] = {}
         document_id_map: dict[str, str] = {}
         chunk_id_map: dict[str, str] = {}
+        relation_id_map: dict[str, str] = {}
 
         if merge_strategy == "create_new_profile" and not dry_run:
             profile = await _create_import_profile(
@@ -217,17 +246,21 @@ async def import_profile_payload(
             fact_id_map = _build_id_map("fact", facts, target_profile_id, import_batch_id)
             document_id_map = _build_id_map("doc", documents, target_profile_id, import_batch_id)
             chunk_id_map = _build_id_map("chunk", chunks, target_profile_id, import_batch_id)
+            relation_id_map = _build_id_map(
+                "relation", relations, target_profile_id, import_batch_id
+            )
 
         conflict_ids = (
             []
             if merge_strategy == "create_new_profile"
-            else await _conflicts(
+            else await profile_snapshot_conflicts(
                 session,
                 space_id=space_id,
                 profile_id=target_profile_id,
                 facts=facts,
                 documents=documents,
                 chunks=chunks,
+                relations=relations,
             )
         )
         conflict_id_set = set(conflict_ids)
@@ -251,6 +284,7 @@ async def import_profile_payload(
                 facts=facts,
                 documents=documents,
                 chunks=chunks,
+                relations=relations,
             )
             result: dict[str, object] = {
                 "status": "ok",
@@ -259,6 +293,7 @@ async def import_profile_payload(
                     facts=facts,
                     documents=documents,
                     chunks=chunks,
+                    relations=relations,
                     source_refs=source_refs,
                     skipped=skipped,
                 ),
@@ -279,6 +314,7 @@ async def import_profile_payload(
             facts=facts,
             documents=documents,
             chunks=chunks,
+            relations=relations,
         )
         if merge_strategy == "supersede_matching_facts":
             superseded_fact_ids = _fact_conflict_ids(
@@ -369,6 +405,26 @@ async def import_profile_payload(
                 continue
             session.add(_source_ref_from_json(mapped))
             imported_refs_by_fact.add(fact_id)
+        for relation in relations:
+            if str(relation["id"]) in skipped["relations"]:
+                continue
+            if str(relation["source_fact_id"]) in skipped["facts"]:
+                continue
+            if str(relation["target_fact_id"]) in skipped["facts"]:
+                continue
+            mapped = remap_relation(
+                relation,
+                fact_id_map=fact_id_map,
+                relation_id_map=relation_id_map,
+            )
+            session.add(
+                relation_from_json(
+                    mapped,
+                    space_id=space_id,
+                    profile_id=target_profile_id,
+                    now=now,
+                )
+            )
         for fact_id, fact_version in imported_fact_versions.items():
             if fact_id in imported_refs_by_fact:
                 continue
@@ -409,6 +465,7 @@ async def import_profile_payload(
             facts=facts,
             documents=documents,
             chunks=chunks,
+            relations=relations,
             source_refs=source_refs,
             skipped=skipped,
         ),
@@ -447,107 +504,6 @@ async def _load_scope(
     if profile is None:
         return None
     return space, profile
-
-
-async def _conflicts(
-    session: AsyncSession,
-    *,
-    space_id: str,
-    profile_id: str,
-    facts: list[dict[str, Any]],
-    documents: list[dict[str, Any]],
-    chunks: list[dict[str, Any]],
-) -> list[str]:
-    conflicts: list[str] = []
-    fact_ids = [str(item["id"]) for item in facts]
-    document_ids = [str(item["id"]) for item in documents]
-    chunk_ids = [str(item["id"]) for item in chunks]
-    for model, ids in (
-        (MemoryFactRow, fact_ids),
-        (MemoryDocumentRow, document_ids),
-        (MemoryChunkRow, chunk_ids),
-    ):
-        if not ids:
-            continue
-        result = await session.execute(select(model.id).where(model.id.in_(ids)))
-        conflicts.extend(str(row_id) for row_id in result.scalars())
-    conflicts.extend(
-        await _document_hash_conflicts(
-            session,
-            space_id=space_id,
-            profile_id=profile_id,
-            documents=documents,
-        )
-    )
-    conflicts.extend(
-        await _chunk_hash_conflicts(
-            session,
-            space_id=space_id,
-            profile_id=profile_id,
-            chunks=chunks,
-        )
-    )
-    return sorted(set(conflicts))
-
-
-async def _document_hash_conflicts(
-    session: AsyncSession,
-    *,
-    space_id: str,
-    profile_id: str,
-    documents: list[dict[str, Any]],
-) -> list[str]:
-    by_hash = {
-        str(item.get("content_hash")): str(item["id"])
-        for item in documents
-        if item.get("content_hash")
-    }
-    if not by_hash:
-        return []
-    rows = (
-        await session.execute(
-            select(MemoryDocumentRow.id, MemoryDocumentRow.content_hash).where(
-                MemoryDocumentRow.space_id == space_id,
-                MemoryDocumentRow.profile_id == profile_id,
-                MemoryDocumentRow.status != "deleted",
-                MemoryDocumentRow.content_hash.in_(by_hash),
-            )
-        )
-    ).all()
-    return [
-        by_hash[str(content_hash)]
-        for row_id, content_hash in rows
-        if str(row_id) != by_hash[str(content_hash)]
-    ]
-
-
-async def _chunk_hash_conflicts(
-    session: AsyncSession,
-    *,
-    space_id: str,
-    profile_id: str,
-    chunks: list[dict[str, Any]],
-) -> list[str]:
-    by_hash = {
-        str(item.get("source_hash")): str(item["id"]) for item in chunks if item.get("source_hash")
-    }
-    if not by_hash:
-        return []
-    rows = (
-        await session.execute(
-            select(MemoryChunkRow.id, MemoryChunkRow.source_hash).where(
-                MemoryChunkRow.space_id == space_id,
-                MemoryChunkRow.profile_id == profile_id,
-                MemoryChunkRow.status != "deleted",
-                MemoryChunkRow.source_hash.in_(by_hash),
-            )
-        )
-    ).all()
-    return [
-        by_hash[str(source_hash)]
-        for row_id, source_hash in rows
-        if str(row_id) != by_hash[str(source_hash)]
-    ]
 
 
 def _contains_redacted_memory(
