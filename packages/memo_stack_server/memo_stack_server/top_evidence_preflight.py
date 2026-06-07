@@ -19,6 +19,7 @@ from memo_stack_server.public_benchmark import (
 
 DEFAULT_MIN_PUBLIC_CASES = 600
 DEFAULT_MIN_PUBLIC_ACCURACY = 0.902
+REQUIRED_AGENT_SCENARIO_SET = "all"
 TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 
 
@@ -126,6 +127,22 @@ def run_top_evidence_preflight(
         failures,
         "agent_bench_model_present",
         "Set MEMORY_AGENT_BENCH_MODEL before running top evidence",
+    )
+
+    agent_scenario_set = (
+        env.get("MEMORY_AGENT_BENCH_SCENARIO_SET", REQUIRED_AGENT_SCENARIO_SET)
+        .strip()
+        .lower()
+        or REQUIRED_AGENT_SCENARIO_SET
+    )
+    checks["agent_bench_scenario_set_all"] = (
+        agent_scenario_set == REQUIRED_AGENT_SCENARIO_SET
+    )
+    _append_failure(
+        checks,
+        failures,
+        "agent_bench_scenario_set_all",
+        "Top evidence requires MEMORY_AGENT_BENCH_SCENARIO_SET=all",
     )
 
     benchmark_name = env.get("MEMORY_PUBLIC_BENCHMARK_NAME", "all").strip().lower() or "all"
@@ -260,6 +277,7 @@ def run_top_evidence_preflight(
         allow_dirty_top_evidence=allow_dirty,
         sanitized_config={
             "agent_bench_model": agent_model or None,
+            "agent_bench_scenario_set": agent_scenario_set,
             "docker_available": bool(docker_path),
             "locomo_dataset": str(locomo_dataset) if locomo_dataset is not None else None,
             "longmemeval_dataset": (

@@ -60,8 +60,10 @@ def test_top_evidence_preflight_accepts_clean_publishable_config(tmp_path: Path)
     assert result.allow_dirty_top_evidence is False
     assert result.failures == ()
     assert payload["checks"]["public_benchmark_case_count_representative"] is True
+    assert payload["checks"]["agent_bench_scenario_set_all"] is True
     assert payload["checks"]["locomo_dataset_valid"] is True
     assert payload["checks"]["longmemeval_dataset_valid"] is True
+    assert payload["sanitized_config"]["agent_bench_scenario_set"] == "all"
     assert payload["sanitized_config"]["locomo_case_count"] == 600
     assert payload["sanitized_config"]["longmemeval_case_count"] == 600
     assert "sk-test-secret-value" not in json.dumps(payload)
@@ -109,6 +111,22 @@ def test_top_evidence_preflight_rejects_tiny_public_benchmark_config(
     assert result.ok is False
     assert result.checks["public_benchmark_case_count_representative"] is False
     assert any("MAX_CASES >= 600" in failure for failure in result.failures)
+
+
+def test_top_evidence_preflight_rejects_partial_agent_scenario_set(
+    tmp_path: Path,
+) -> None:
+    result = run_top_evidence_preflight(
+        env=_top_evidence_env(tmp_path, MEMORY_AGENT_BENCH_SCENARIO_SET="realistic"),
+        cwd=tmp_path,
+        docker_path="/usr/bin/docker",
+        git={"commit": "abc123", "dirty": False},
+    )
+
+    assert result.ok is False
+    assert result.checks["agent_bench_scenario_set_all"] is False
+    assert result.sanitized_config["agent_bench_scenario_set"] == "realistic"
+    assert any("SCENARIO_SET=all" in failure for failure in result.failures)
 
 
 def test_top_evidence_preflight_ignores_lower_publishable_floor_overrides(

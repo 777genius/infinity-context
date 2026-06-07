@@ -100,11 +100,15 @@ make memo-stack-top-evidence-bundle
 
 The preflight fails before Docker/OpenAI work if the worktree is dirty, Docker
 is unavailable, the key/model is missing, representative public datasets are
-missing, `MEMORY_PUBLIC_BENCHMARK_NAME` is not `all`, or the public benchmark is
-configured below 600 cases / 0.902 minimum accuracy. It also parses the LoCoMo
-and LongMemEval dataset files through the same normalizer used by the benchmark
-runner and rejects empty, invalid or under-sized datasets before paid provider
-work starts. It prints only safe diagnostics and never echoes API keys.
+missing, `MEMORY_AGENT_BENCH_SCENARIO_SET` is not `all`,
+`MEMORY_PUBLIC_BENCHMARK_NAME` is not `all`, or the public benchmark is configured
+below 600 cases / 0.902 minimum accuracy. The top-evidence bundle defaults the
+agent benchmark to `all`, which runs core, realistic, live-session and transcript
+corpus scenarios so live/transcript/adversarial pass rates cannot be satisfied by
+zero-case metrics. It also parses the LoCoMo and LongMemEval dataset files
+through the same normalizer used by the benchmark runner and rejects empty,
+invalid or under-sized datasets before paid provider work starts. It prints only
+safe diagnostics and never echoes API keys.
 `MEMORY_QUALITY_EVIDENCE_ALLOW_DIRTY_TOP=true` is accepted only for local
 diagnostics; publishable evidence should stay clean. Floor overrides such as
 `MEMORY_TOP_EVIDENCE_MIN_PUBLIC_CASES` and

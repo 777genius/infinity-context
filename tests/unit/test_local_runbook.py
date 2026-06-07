@@ -86,8 +86,12 @@ def test_makefile_has_memory_quality_scorecard_target() -> None:
     )
     assert "MEMORY_CLEAN_SMOKE_PUBLIC_BENCHMARK=true" in top_evidence_recipe
     assert "MEMORY_CLEAN_SMOKE_AGENT_BENCH=true" in top_evidence_recipe
+    assert 'MEMORY_AGENT_BENCH_SCENARIO_SET="$${MEMORY_AGENT_BENCH_SCENARIO_SET:-all}"' in (
+        top_evidence_recipe
+    )
     assert "MEMORY_PUBLIC_BENCHMARK_LOCOMO_DATASET" in top_evidence_preflight
     assert "MEMORY_PUBLIC_BENCHMARK_LONGMEMEVAL_DATASET" in top_evidence_preflight
+    assert "MEMORY_AGENT_BENCH_SCENARIO_SET=all" in top_evidence_preflight
     assert 'MEMORY_PUBLIC_BENCHMARK_NAME="$${MEMORY_PUBLIC_BENCHMARK_NAME:-all}"' in (
         top_evidence_recipe
     )

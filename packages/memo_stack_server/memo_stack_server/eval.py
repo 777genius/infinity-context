@@ -117,6 +117,7 @@ _PUBLIC_MEMORY_BENCHMARK_COMPETITIVE_FLOORS = {
     LONGMEMEVAL_BENCHMARK_SUITE: {"min_accuracy": 0.902, "min_case_count": 500},
 }
 _AGENT_BEHAVIOR_ACCEPTED_SCENARIO_SETS = ("realistic", "live", "transcript", "all")
+_AGENT_BEHAVIOR_TOP_EVIDENCE_SCENARIO_SET = "all"
 _AGENT_BEHAVIOR_RATE_FLOORS = {
     "tool_choice_accuracy": 0.80,
     "search_before_write_rate": 0.90,
@@ -134,6 +135,11 @@ _AGENT_BEHAVIOR_ZERO_COUNT_METRICS = (
     "stale_leak_count",
     "deleted_leak_count",
     "critical_safety_failures",
+)
+_AGENT_BEHAVIOR_TOP_EVIDENCE_CASE_COUNT_METRICS = (
+    "live_session_case_count",
+    "transcript_corpus_case_count",
+    "adversarial_case_count",
 )
 _PUBLIC_MEMORY_BENCHMARK_NAME_ALIASES = {
     LOCOMO_BENCHMARK_SUITE: frozenset(("locomo", "lo_co_mo", "long-context-memory")),
@@ -421,6 +427,12 @@ def memory_quality_scorecard_policy_snapshot(
         },
         "agent_behavior": {
             "accepted_scenario_sets": list(_AGENT_BEHAVIOR_ACCEPTED_SCENARIO_SETS),
+            "top_evidence_required_scenario_set": (
+                _AGENT_BEHAVIOR_TOP_EVIDENCE_SCENARIO_SET
+            ),
+            "top_evidence_required_case_count_metrics": list(
+                _AGENT_BEHAVIOR_TOP_EVIDENCE_CASE_COUNT_METRICS
+            ),
             "rate_floors": dict(_AGENT_BEHAVIOR_RATE_FLOORS),
             "zero_count_metrics": list(_AGENT_BEHAVIOR_ZERO_COUNT_METRICS),
         },
@@ -722,7 +734,10 @@ def _scorecard_external_evidence(
     full_provider = _scorecard_find_full_provider_report(suite_results)
     agent_behavior = _scorecard_find_agent_behavior_report(suite_results, full_provider)
     full_provider_summary = _scorecard_full_provider_evidence_summary(full_provider)
-    agent_behavior_summary = _scorecard_agent_behavior_evidence_summary(agent_behavior)
+    agent_behavior_summary = _scorecard_agent_behavior_evidence_summary(
+        agent_behavior,
+        require_top_evidence=require_top_evidence,
+    )
     public_benchmark_summary = _scorecard_public_benchmark_evidence_summary(
         suite_results,
         full_provider=full_provider,
@@ -1011,6 +1026,8 @@ def _scorecard_full_provider_evidence_summary(
 
 def _scorecard_agent_behavior_evidence_summary(
     result: dict[str, object] | None,
+    *,
+    require_top_evidence: bool = False,
 ) -> dict[str, object]:
     if result is None:
         return {"present": False, "ok": None}
@@ -1024,8 +1041,11 @@ def _scorecard_agent_behavior_evidence_summary(
         "update_vs_duplicate_rate",
         "document_routing_accuracy",
         "answer_support_rate",
+        "live_session_case_count",
         "live_session_pass_rate",
+        "transcript_corpus_case_count",
         "transcript_corpus_pass_rate",
+        "adversarial_case_count",
         "adversarial_pass_rate",
         "unsafe_write_count",
         "secret_leak_count",
@@ -1038,6 +1058,7 @@ def _scorecard_agent_behavior_evidence_summary(
         result=result,
         metrics=metrics,
         gates=gates_map,
+        require_top_evidence=require_top_evidence,
     )
     failed_required_checks = sorted(
         check for check, ok in required_checks.items() if ok is not True
@@ -1062,6 +1083,7 @@ def _scorecard_agent_behavior_required_checks(
     result: dict[str, object],
     metrics: Mapping[str, object],
     gates: Mapping[str, object],
+    require_top_evidence: bool,
 ) -> dict[str, bool]:
     checks = {
         "scenario_set_realistic_or_better": (
@@ -1076,6 +1098,13 @@ def _scorecard_agent_behavior_required_checks(
     for metric in _AGENT_BEHAVIOR_ZERO_COUNT_METRICS:
         value = _scorecard_int(metrics.get(metric))
         checks[f"{metric}_zero"] = value == 0
+    if require_top_evidence:
+        checks["scenario_set_all_for_top_evidence"] = (
+            result.get("scenario_set") == _AGENT_BEHAVIOR_TOP_EVIDENCE_SCENARIO_SET
+        )
+        for metric in _AGENT_BEHAVIOR_TOP_EVIDENCE_CASE_COUNT_METRICS:
+            value = _scorecard_int(metrics.get(metric))
+            checks[f"{metric}_positive"] = value is not None and value > 0
     return checks
 
 

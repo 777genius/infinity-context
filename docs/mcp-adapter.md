@@ -257,7 +257,9 @@ key in process env, `MEMORY_AGENT_BENCH_MODEL`, representative LoCoMo and
 LongMemEval dataset files, a clean worktree and authenticated Codex, Claude,
 Gemini and OpenCode CLIs. It runs `memo-stack-prod-confidence-strict-preflight`
 before paid provider/model work, so missing key/model/datasets/auth fails before
-starting the full stack.
+starting the full stack. The top-evidence path also requires
+`MEMORY_AGENT_BENCH_SCENARIO_SET=all` so the agent behavior report covers core,
+realistic, live-session and transcript-corpus scenarios in one publishable run.
 `memo-stack-prod-confidence-full` is an alias for the same gate.
 
 The historical clean full smoke target also runs MCP checks by default. Use
