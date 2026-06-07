@@ -143,7 +143,7 @@ Memo Stack is stronger for the product we are building: governed project/team
 memory for coding agents. The big differences are first-class
 space/profile/thread isolation, canonical fact lifecycle, expected-version
 updates, review-gated suggestions, bounded batch suggestion create/review with
-per-item failures, server-side pending suggestion dedupe, safer delete policy,
+per-item failures, DB-enforced race-safe pending suggestion dedupe, safer delete policy,
 Cognee/Qdrant/Graphiti as replaceable adapters,
 plugin-kit-ai generated agent plugins, hook capture tests and architecture
 boundary tests. For documents/ADR/notes, Memo Stack now

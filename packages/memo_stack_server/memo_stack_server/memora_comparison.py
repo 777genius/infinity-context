@@ -115,8 +115,8 @@ DIMENSIONS: tuple[Dimension, ...] = (
         memo_stack_rationale=(
             "MCP defaults are suggestion-first, delete can be disabled, and "
             "fact/suggestion/capture review tools, bounded batch suggestion "
-            "review with per-item failures, server-side pending suggestion "
-            "dedupe, plus read-only memory_insights with "
+            "review with per-item failures, DB-enforced race-safe pending "
+            "suggestion dedupe, plus read-only memory_insights with "
             "recent activity, duplicate/similar fact review actions and a safe "
             "consolidation plan are first-class."
         ),

@@ -3,6 +3,7 @@ from pathlib import Path
 
 from memo_stack_adapters.postgres import build_async_engine, create_schema
 from sqlalchemy import inspect, text
+from sqlalchemy.exc import IntegrityError
 
 
 def test_create_schema_adds_classification_to_existing_memory_tables(tmp_path: Path) -> None:
@@ -219,6 +220,184 @@ def test_create_schema_adds_capture_tables_and_suggestion_metadata(tmp_path: Pat
     } <= result["suggestion_columns"]
     assert "ix_memory_captures_consolidation" in result["capture_indexes"]
     assert "ix_memory_suggestions_expiry" in result["suggestion_indexes"]
+    assert "uq_pending_suggestion_fingerprint_no_target" in result["suggestion_indexes"]
+    assert "uq_pending_suggestion_fingerprint_target" in result["suggestion_indexes"]
+
+
+def test_create_schema_dedupes_pending_suggestions_before_unique_indexes(
+    tmp_path: Path,
+) -> None:
+    async def run() -> dict[str, object]:
+        engine = build_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'suggestion-unique.db'}")
+        try:
+            async with engine.begin() as connection:
+                await connection.execute(
+                    text(
+                        """
+                        CREATE TABLE memory_suggestions (
+                            id VARCHAR(80) PRIMARY KEY,
+                            space_id VARCHAR(80) NOT NULL,
+                            profile_id VARCHAR(80) NOT NULL,
+                            candidate_text TEXT NOT NULL,
+                            kind VARCHAR(80) NOT NULL,
+                            operation VARCHAR(40) NOT NULL DEFAULT 'add',
+                            status VARCHAR(40) NOT NULL,
+                            source_refs_json JSON NOT NULL,
+                            confidence VARCHAR(40) NOT NULL,
+                            trust_level VARCHAR(40) NOT NULL,
+                            safe_reason VARCHAR(320) NOT NULL,
+                            target_fact_id VARCHAR(80),
+                            target_fact_version INTEGER,
+                            candidate_fingerprint VARCHAR(80),
+                            review_reason VARCHAR(320),
+                            created_at DATETIME NOT NULL,
+                            updated_at DATETIME NOT NULL,
+                            reviewed_at DATETIME
+                        )
+                        """
+                    )
+                )
+                await connection.execute(
+                    text(
+                        """
+                        INSERT INTO memory_suggestions (
+                            id,
+                            space_id,
+                            profile_id,
+                            candidate_text,
+                            kind,
+                            operation,
+                            status,
+                            source_refs_json,
+                            confidence,
+                            trust_level,
+                            safe_reason,
+                            target_fact_id,
+                            candidate_fingerprint,
+                            created_at,
+                            updated_at
+                        )
+                        VALUES
+                            (
+                                'sug_old',
+                                'space_1',
+                                'profile_1',
+                                'old duplicate',
+                                'note',
+                                'add',
+                                'pending',
+                                '[]',
+                                'medium',
+                                'medium',
+                                'migration',
+                                NULL,
+                                'same-fingerprint',
+                                '2026-05-25T10:00:00+00:00',
+                                '2026-05-25T10:00:00+00:00'
+                            ),
+                            (
+                                'sug_new',
+                                'space_1',
+                                'profile_1',
+                                'new duplicate',
+                                'note',
+                                'add',
+                                'pending',
+                                '[]',
+                                'medium',
+                                'medium',
+                                'migration',
+                                NULL,
+                                'same-fingerprint',
+                                '2026-05-25T10:01:00+00:00',
+                                '2026-05-25T10:01:00+00:00'
+                            )
+                        """
+                    )
+                )
+
+            await create_schema(engine)
+
+            async with engine.begin() as connection:
+                pending_result = await connection.execute(
+                    text(
+                        """
+                        SELECT COUNT(*)
+                        FROM memory_suggestions
+                        WHERE status = 'pending'
+                          AND candidate_fingerprint = 'same-fingerprint'
+                        """
+                    )
+                )
+                pending_count = pending_result.scalar_one()
+                expired_result = await connection.execute(
+                    text(
+                        """
+                        SELECT COUNT(*)
+                        FROM memory_suggestions
+                        WHERE status = 'expired'
+                          AND review_reason = 'deduped_by_schema_upgrade'
+                        """
+                    )
+                )
+                expired_count = expired_result.scalar_one()
+                duplicate_insert_ok = True
+                try:
+                    await connection.execute(
+                        text(
+                            """
+                            INSERT INTO memory_suggestions (
+                                id,
+                                space_id,
+                                profile_id,
+                                candidate_text,
+                                kind,
+                                operation,
+                                status,
+                                source_refs_json,
+                                confidence,
+                                trust_level,
+                                safe_reason,
+                                target_fact_id,
+                                candidate_fingerprint,
+                                created_at,
+                                updated_at
+                            )
+                            VALUES (
+                                'sug_duplicate',
+                                'space_1',
+                                'profile_1',
+                                'duplicate blocked',
+                                'note',
+                                'add',
+                                'pending',
+                                '[]',
+                                'medium',
+                                'medium',
+                                'migration',
+                                NULL,
+                                'same-fingerprint',
+                                '2026-05-25T10:02:00+00:00',
+                                '2026-05-25T10:02:00+00:00'
+                            )
+                            """
+                        )
+                    )
+                except IntegrityError:
+                    duplicate_insert_ok = False
+                return {
+                    "pending_count": pending_count,
+                    "expired_count": expired_count,
+                    "duplicate_insert_ok": duplicate_insert_ok,
+                }
+        finally:
+            await engine.dispose()
+
+    result = asyncio.run(run())
+
+    assert result["pending_count"] == 1
+    assert result["expired_count"] == 1
+    assert result["duplicate_insert_ok"] is False
 
 
 def test_create_schema_rebuilds_sqlite_legacy_document_unique_constraint(

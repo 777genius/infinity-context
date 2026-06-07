@@ -70,6 +70,8 @@ _ADDITIVE_SCHEMA_COLUMNS = {
         ("created_from_capture_id", "VARCHAR(80)"),
         ("candidate_fingerprint", "VARCHAR(80)"),
         ("review_payload_json", "JSON NOT NULL DEFAULT '{}'"),
+        ("review_reason", "VARCHAR(320)"),
+        ("reviewed_at", "TIMESTAMPTZ"),
     ),
 }
 
@@ -275,11 +277,75 @@ def _ensure_suggestion_metadata_indexes(connection: Connection) -> None:
     inspector = inspect(connection)
     if "memory_suggestions" not in set(inspector.get_table_names()):
         return
+    _expire_duplicate_pending_suggestions_before_unique_indexes(connection)
     connection.execute(
         text(
             """
             CREATE INDEX IF NOT EXISTS ix_memory_suggestions_expiry
             ON memory_suggestions(space_id, profile_id, status, expires_at)
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_pending_suggestion_fingerprint_no_target
+            ON memory_suggestions(space_id, profile_id, operation, candidate_fingerprint)
+            WHERE status = 'pending'
+              AND candidate_fingerprint IS NOT NULL
+              AND target_fact_id IS NULL
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_pending_suggestion_fingerprint_target
+            ON memory_suggestions(
+                space_id,
+                profile_id,
+                operation,
+                target_fact_id,
+                candidate_fingerprint
+            )
+            WHERE status = 'pending'
+              AND candidate_fingerprint IS NOT NULL
+              AND target_fact_id IS NOT NULL
+            """
+        )
+    )
+
+
+def _expire_duplicate_pending_suggestions_before_unique_indexes(connection: Connection) -> None:
+    connection.execute(
+        text(
+            """
+            UPDATE memory_suggestions
+            SET
+                status = 'expired',
+                updated_at = CURRENT_TIMESTAMP,
+                reviewed_at = COALESCE(reviewed_at, CURRENT_TIMESTAMP),
+                review_reason = COALESCE(review_reason, 'deduped_by_schema_upgrade')
+            WHERE id IN (
+                SELECT id
+                FROM (
+                    SELECT
+                        id,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY
+                                space_id,
+                                profile_id,
+                                operation,
+                                target_fact_id,
+                                candidate_fingerprint
+                            ORDER BY updated_at DESC, created_at DESC, id DESC
+                        ) AS duplicate_rank
+                    FROM memory_suggestions
+                    WHERE status = 'pending'
+                      AND candidate_fingerprint IS NOT NULL
+                ) ranked
+                WHERE duplicate_rank > 1
+            )
             """
         )
     )

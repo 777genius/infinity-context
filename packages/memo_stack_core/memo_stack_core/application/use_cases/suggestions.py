@@ -87,19 +87,45 @@ class CreateSuggestionUseCase:
             review_payload=command.review_payload,
             now=now,
         )
+        try:
+            async with self._uow_factory() as uow:
+                duplicate = await uow.suggestions.find_pending_duplicate(
+                    space_id=str(command.space_id),
+                    profile_id=str(command.profile_id),
+                    candidate_fingerprint=candidate_fingerprint,
+                    operation=operation.value,
+                    target_fact_id=command.target_fact_id,
+                )
+                if duplicate is not None:
+                    return SuggestionResult(suggestion=duplicate, created=False)
+                saved = await uow.suggestions.create(suggestion)
+                await uow.commit()
+        except MemoryConflictError:
+            duplicate = await self._load_pending_duplicate(
+                command=command,
+                operation=operation,
+                candidate_fingerprint=candidate_fingerprint,
+            )
+            if duplicate is not None:
+                return SuggestionResult(suggestion=duplicate, created=False)
+            raise
+        return SuggestionResult(suggestion=saved)
+
+    async def _load_pending_duplicate(
+        self,
+        *,
+        command: CreateSuggestionCommand,
+        operation: SuggestionOperation,
+        candidate_fingerprint: str,
+    ) -> MemorySuggestion | None:
         async with self._uow_factory() as uow:
-            duplicate = await uow.suggestions.find_pending_duplicate(
+            return await uow.suggestions.find_pending_duplicate(
                 space_id=str(command.space_id),
                 profile_id=str(command.profile_id),
                 candidate_fingerprint=candidate_fingerprint,
                 operation=operation.value,
                 target_fact_id=command.target_fact_id,
             )
-            if duplicate is not None:
-                return SuggestionResult(suggestion=duplicate, created=False)
-            saved = await uow.suggestions.create(suggestion)
-            await uow.commit()
-        return SuggestionResult(suggestion=saved)
 
 
 class CreateSuggestionsBatchUseCase:
