@@ -25,17 +25,20 @@ describe("Memo Stack Control Center E2E", function () {
   let server: ChildProcess | undefined;
   let tempDir = "";
   let baseUrl = "";
+  let dbPath = "";
+  let port = 0;
 
   beforeEach(async function () {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "memo-stack-wdio-control-center-"));
-    const port = await freePort();
+    port = await freePort();
     baseUrl = `http://127.0.0.1:${port}`;
-    server = startMemoStackServer(path.join(tempDir, "memory.db"), port);
+    dbPath = path.join(tempDir, "memory.db");
+    server = startMemoStackServer(dbPath, port);
     await waitForHealth(baseUrl);
   });
 
-  afterEach(function () {
-    server?.kill("SIGTERM");
+  afterEach(async function () {
+    await stopMemoStackServer(server);
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
@@ -109,6 +112,51 @@ describe("Memo Stack Control Center E2E", function () {
     assert.ok(calls.every((call) => call.args.includes(profileExternalRef)));
     assert.ok(calls[2].args.includes("--apply-import"));
   });
+
+  it("recovers Control Center sync after the backend goes offline and returns", async function () {
+    const fact = await createFact(baseUrl, {
+      text: "Obsidian WDIO Control Center backend recovery fact.",
+      sourceId: "wdio-control-center-recovery-seed",
+    });
+    const vaultPath = await resetVaultAndConfigure(baseUrl);
+
+    await browser.executeObsidianCommand("memo-stack:open-control-center");
+    await waitForPanelText("Vault sync");
+
+    await clickVaultAction("Connect");
+    await waitForCliCalls(vaultPath, 1);
+    await waitForPluginIdle();
+    await waitForPanelText("Connected Ready");
+
+    await stopMemoStackServer(server);
+    server = undefined;
+    await waitForServerDown(baseUrl);
+
+    await clickVaultAction("Sync");
+    await waitForCliCalls(vaultPath, 2);
+    await waitForPluginIdle();
+    await waitForPanelText("Last run: failed");
+    assert.equal(factFiles(vaultPath).length, 0, "failed sync must not export partial facts");
+
+    server = startMemoStackServer(dbPath, port);
+    await waitForHealth(baseUrl);
+
+    await clickVaultAction("Sync");
+    await waitForCliCalls(vaultPath, 3);
+    await waitForPluginIdle();
+    await waitForPanelText("Last run: ok");
+    await waitForPanelText("exported");
+
+    const exportedFact = onlyFactFile(vaultPath);
+    assert.match(fs.readFileSync(exportedFact, "utf8"), /Control Center backend recovery fact/);
+    assert.equal((await getFact(baseUrl, fact.id)).text, "Obsidian WDIO Control Center backend recovery fact.");
+
+    const calls = readCliCalls(vaultPath);
+    assert.deepEqual(
+      calls.map((call) => `${call.command}:${call.status}`),
+      ["connect:0", "sync:1", "sync:0"],
+    );
+  });
 });
 
 async function resetVaultAndConfigure(apiUrl: string): Promise<string> {
@@ -179,6 +227,23 @@ uvicorn.run(app, host="127.0.0.1", port=${port}, log_level="warning")
   });
 }
 
+async function stopMemoStackServer(server: ChildProcess | undefined): Promise<void> {
+  if (!server || server.exitCode !== null) {
+    return;
+  }
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(() => {
+      server.kill("SIGKILL");
+      resolve();
+    }, 5000);
+    server.once("exit", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+    server.kill("SIGTERM");
+  });
+}
+
 async function freePort(): Promise<number> {
   return await new Promise((resolve, reject) => {
     const server = net.createServer();
@@ -204,6 +269,17 @@ async function waitForHealth(apiUrl: string): Promise<void> {
       return false;
     }
   }, "Memo Stack server did not become healthy");
+}
+
+async function waitForServerDown(apiUrl: string): Promise<void> {
+  await waitUntil(async () => {
+    try {
+      await requestJson("GET", `${apiUrl}/v1/health`);
+      return false;
+    } catch (_error) {
+      return true;
+    }
+  }, "Memo Stack server did not stop");
 }
 
 async function createFact(
