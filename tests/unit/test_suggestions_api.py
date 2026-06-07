@@ -1,4 +1,6 @@
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Barrier
 from typing import Any
 
 from fastapi.testclient import TestClient
@@ -254,6 +256,49 @@ def test_create_suggestion_reuses_existing_pending_duplicate(tmp_path: Path) -> 
     assert second.json()["data"]["id"] == first.json()["data"]["id"]
     assert second.json()["data"]["candidate_fingerprint"]
     assert [item["id"] for item in listed.json()["data"]] == [first.json()["data"]["id"]]
+
+
+def test_create_suggestion_concurrent_duplicate_requests_reuse_single_pending(
+    tmp_path: Path,
+) -> None:
+    barrier = Barrier(2)
+
+    with make_client(tmp_path) as client:
+
+        def create_duplicate(source_id: str) -> tuple[int, dict[str, Any]]:
+            barrier.wait(timeout=5)
+            response = client.post(
+                "/v1/suggestions",
+                json=suggestion_payload(
+                    candidate_text="Concurrent duplicate suggestion should be reused.",
+                    source_refs=[{"source_type": "manual", "source_id": source_id}],
+                ),
+                headers=auth_headers(),
+            )
+            return response.status_code, response.json()
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [
+                executor.submit(create_duplicate, "concurrent-1"),
+                executor.submit(create_duplicate, "concurrent-2"),
+            ]
+            responses = [future.result(timeout=10) for future in futures]
+
+        listed = client.get(
+            "/v1/suggestions",
+            params={
+                "space_id": "space_client_app",
+                "profile_id": "profile_default",
+                "status": "pending",
+                "limit": 10,
+            },
+            headers=auth_headers(),
+        )
+
+    assert [status_code for status_code, _body in responses] == [201, 201]
+    suggestion_ids = {body["data"]["id"] for _status_code, body in responses}
+    assert len(suggestion_ids) == 1
+    assert [item["id"] for item in listed.json()["data"]] == list(suggestion_ids)
 
 
 def test_create_suggestions_batch_marks_existing_pending_duplicates(tmp_path: Path) -> None:
