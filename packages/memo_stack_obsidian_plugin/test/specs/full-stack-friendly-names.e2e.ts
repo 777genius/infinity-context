@@ -26,6 +26,8 @@ const rootFolder = "Team Memory";
 const safeSpaceSlug = safeScopeSegment(rawSpaceSlug);
 const safeProfileExternalRef = safeScopeSegment(rawProfileExternalRef);
 const scopedRoot = scopedRootFor(primaryScope);
+const textStart = "<!-- memo-stack-managed:fact-text:start -->";
+const textEnd = "<!-- memo-stack-managed:fact-text:end -->";
 
 describe("Memo Stack friendly project names E2E", function () {
   let server: ChildProcess | undefined;
@@ -390,6 +392,124 @@ describe("Memo Stack friendly project names E2E", function () {
     assert.ok(calls.every((call) => call.args.includes(rootFolder)));
     assert.ok(calls.every((call) => call.status === 0));
   });
+
+  it("preserves pending old-profile edits and inbox notes across profile switches", async function () {
+    const teamProfileScope: Scope = {
+      spaceSlug: primaryScope.spaceSlug,
+      profileExternalRef: "Research Lead+Ops",
+    };
+    const initialText = "Obsidian WDIO profile switch pending initial fact.";
+    const recoveredText = "Obsidian WDIO profile switch pending local edit recovered.";
+    const primaryFact = await createFact(baseUrl, {
+      text: initialText,
+      sourceId: "wdio-profile-switch-pending-primary-seed",
+      scope: primaryScope,
+    });
+    await createFact(baseUrl, {
+      text: "Team profile switch backend fact stays isolated.",
+      sourceId: "wdio-profile-switch-pending-team-seed",
+      scope: teamProfileScope,
+    });
+    const vaultPath = await resetVault();
+    fs.mkdirSync(path.join(vaultPath, ".obsidian", "plugins", "memo-stack"), { recursive: true });
+
+    await openMemoStackSettings();
+    await setSettingsInput("apiUrl", baseUrl);
+    await setSettingsInput("token", token);
+    await setSettingsInput("cliPath", realCliPath);
+    await setSettingsInput("vaultPathOverride", vaultPath);
+    await setSettingsInput("rootFolder", rootFolder);
+    await setSettingsInput("spaceSlug", primaryScope.spaceSlug);
+    await setSettingsInput("profileExternalRef", primaryScope.profileExternalRef);
+    await setSettingsInput("commandTimeoutMs", "20000");
+    await waitForPluginScope(primaryScope);
+    await waitForSettingsFile(vaultPath, primaryScope.profileExternalRef);
+
+    await browser.executeObsidianCommand("memo-stack:connect-vault");
+    await waitForCliCalls(vaultPath, 1);
+    await waitForPluginIdle();
+    await browser.executeObsidianCommand("memo-stack:sync-now");
+    await waitForCliCalls(vaultPath, 2);
+    await waitForPluginIdle();
+
+    const primaryFile = onlyFactFile(vaultPath, primaryScope);
+    replaceManagedText(primaryFile, recoveredText);
+    const primaryInboxMarker = "WDIO profile switch pending inbox imports only after return";
+    writeVaultFile(
+      vaultPath,
+      path.join(scopedRootFor(primaryScope), "inbox", "profile-switch-pending.md"),
+      primaryInboxMarker,
+    );
+
+    await openMemoStackSettings();
+    await setSettingsInput("profileExternalRef", teamProfileScope.profileExternalRef);
+    await waitForPluginScope(teamProfileScope);
+    await waitForSettingsFile(vaultPath, teamProfileScope.profileExternalRef);
+    await browser.executeObsidianCommand("memo-stack:connect-vault");
+    await waitForCliCalls(vaultPath, 3);
+    await waitForPluginIdle();
+    await browser.executeObsidianCommand("memo-stack:sync-now");
+    await waitForCliCalls(vaultPath, 4);
+    await waitForPluginIdle();
+
+    assert.equal((await getFact(baseUrl, primaryFact.id)).text, initialText);
+    assert.equal((await suggestionsContaining(baseUrl, primaryInboxMarker, primaryScope)).length, 0);
+    assert.equal((await suggestionsContaining(baseUrl, primaryInboxMarker, teamProfileScope)).length, 0);
+    assert.match(fs.readFileSync(primaryFile, "utf8"), new RegExp(recoveredText));
+    const teamFile = onlyFactFile(vaultPath, teamProfileScope);
+    assert.match(fs.readFileSync(teamFile, "utf8"), /Team profile switch backend fact stays isolated/);
+    assert.doesNotMatch(fs.readFileSync(teamFile, "utf8"), new RegExp(recoveredText));
+    assert.equal(conflictFiles(vaultPath, primaryScope).length, 0);
+    assert.equal(conflictFiles(vaultPath, teamProfileScope).length, 0);
+
+    await openMemoStackSettings();
+    await setSettingsInput("profileExternalRef", primaryScope.profileExternalRef);
+    await waitForPluginScope(primaryScope);
+    await waitForSettingsFile(vaultPath, primaryScope.profileExternalRef);
+    await browser.executeObsidianCommand("memo-stack:connect-vault");
+    await waitForCliCalls(vaultPath, 5);
+    await waitForPluginIdle();
+    await browser.executeObsidianCommand("memo-stack:sync-now");
+    await waitForCliCalls(vaultPath, 6);
+    await waitForPluginIdle();
+    await waitForBackendFactText(baseUrl, primaryFact.id, recoveredText);
+    await waitForSuggestionsContaining(baseUrl, primaryInboxMarker, 1, primaryScope);
+
+    await browser.executeObsidianCommand("memo-stack:sync-now");
+    await waitForCliCalls(vaultPath, 7);
+    await waitForPluginIdle();
+    await sleep(300);
+    assert.equal((await suggestionsContaining(baseUrl, primaryInboxMarker, primaryScope)).length, 1);
+    assert.match(fs.readFileSync(onlyFactFile(vaultPath, primaryScope), "utf8"), /memo_stack_version: 2/);
+
+    await openMemoStackSettings();
+    await setSettingsInput("profileExternalRef", teamProfileScope.profileExternalRef);
+    await waitForPluginScope(teamProfileScope);
+    await waitForSettingsFile(vaultPath, teamProfileScope.profileExternalRef);
+    await browser.executeObsidianCommand("memo-stack:connect-vault");
+    await waitForCliCalls(vaultPath, 8);
+    await waitForPluginIdle();
+    await browser.executeObsidianCommand("memo-stack:sync-now");
+    await waitForCliCalls(vaultPath, 9);
+    await waitForPluginIdle();
+
+    assert.doesNotMatch(fs.readFileSync(onlyFactFile(vaultPath, teamProfileScope), "utf8"), new RegExp(recoveredText));
+    assert.equal((await suggestionsContaining(baseUrl, primaryInboxMarker, teamProfileScope)).length, 0);
+    assert.equal(conflictFiles(vaultPath, primaryScope).length, 0);
+    assert.equal(conflictFiles(vaultPath, teamProfileScope).length, 0);
+
+    const calls = readCliCalls(vaultPath);
+    assert.deepEqual(
+      calls.map((call) => call.command),
+      ["connect", "sync", "connect", "sync", "connect", "sync", "sync", "connect", "sync"],
+    );
+    assertCallsUseScope(calls.slice(0, 2), primaryScope);
+    assertCallsUseScope(calls.slice(2, 4), teamProfileScope);
+    assertCallsUseScope(calls.slice(4, 7), primaryScope);
+    assertCallsUseScope(calls.slice(7), teamProfileScope);
+    assert.ok(calls.every((call) => call.args.includes(rootFolder)));
+    assert.ok(calls.every((call) => call.status === 0));
+  });
 });
 
 async function resetVaultAndConfigure(apiUrl: string, scope: Scope = primaryScope): Promise<string> {
@@ -516,6 +636,17 @@ async function getFact(apiUrl: string, factId: string): Promise<Record<string, a
   const response = await requestJson("GET", `${apiUrl}/v1/facts/${factId}`);
   assert.equal(response.status, 200);
   return response.body.data;
+}
+
+async function waitForBackendFactText(
+  apiUrl: string,
+  factId: string,
+  expectedText: string,
+): Promise<void> {
+  await waitUntil(async () => {
+    const fact = await getFact(apiUrl, factId);
+    return fact.text === expectedText;
+  }, `Backend fact did not reach expected text: ${expectedText}`);
 }
 
 async function waitForSuggestionsContaining(
@@ -755,6 +886,15 @@ function writeVaultFile(vaultPath: string, relativePath: string, content: string
   const target = path.join(vaultPath, relativePath);
   fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.writeFileSync(target, content, "utf8");
+}
+
+function replaceManagedText(filePath: string, text: string): void {
+  const old = fs.readFileSync(filePath, "utf8");
+  const start = old.indexOf(textStart) + textStart.length;
+  const end = old.indexOf(textEnd);
+  assert.ok(start >= textStart.length);
+  assert.ok(end > start);
+  fs.writeFileSync(filePath, `${old.slice(0, start)}\n${text}\n${old.slice(end)}`, "utf8");
 }
 
 function readCliCalls(vaultPath: string): Array<{ command: string; args: string[]; status: number }> {
