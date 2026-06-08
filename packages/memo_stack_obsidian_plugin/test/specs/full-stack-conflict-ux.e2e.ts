@@ -176,6 +176,68 @@ describe("Memo Stack conflict review UX E2E", function () {
     assert.equal(conflictFiles(vaultPath).length, 0);
   });
 
+  it("recreates deleted conflict artifacts while the source note remains unresolved", async function () {
+    const fact = await createFact(baseUrl, {
+      text: "Obsidian WDIO deleted conflict artifact initial fact.",
+      sourceId: "wdio-deleted-conflict-artifact-seed",
+    });
+    const vaultPath = await resetVaultAndConfigure(baseUrl);
+    const exportedFact = await connectAndExportFact(vaultPath);
+    const exportedRelativePath = vaultRelativePath(vaultPath, exportedFact);
+    const localDraft = "Obsidian WDIO deleted conflict artifact local draft remains.";
+    const backendText = "Obsidian WDIO deleted conflict artifact backend moved first.";
+
+    replaceManagedText(exportedFact, localDraft);
+    await updateFact(baseUrl, fact.id, {
+      expectedVersion: fact.version,
+      text: backendText,
+      reason: "External WDIO deleted conflict artifact update",
+    });
+
+    await browser.executeObsidianCommand("memo-stack:sync-now");
+    await waitForCliCalls(vaultPath, 3);
+    await waitForMemoStackIdle();
+
+    let calls = readCliCalls(vaultPath);
+    assert.equal(calls.at(-1)?.status, 1);
+    let conflicts = conflictFiles(vaultPath);
+    assert.equal(conflicts.length, 1);
+    const conflictRelativePath = vaultRelativePath(vaultPath, conflicts[0]);
+    assert.match(fs.readFileSync(conflicts[0], "utf8"), /Stale version/);
+    assert.match(fs.readFileSync(conflicts[0], "utf8"), new RegExp(escapeRegExp(exportedRelativePath)));
+
+    await deleteVaultFileInObsidian(conflictRelativePath);
+    await waitForVaultFileMissing(vaultPath, conflictRelativePath);
+    assert.match(fs.readFileSync(exportedFact, "utf8"), new RegExp(localDraft));
+
+    await browser.executeObsidianCommand("memo-stack:sync-now");
+    await waitForCliCalls(vaultPath, 4);
+    await waitForMemoStackIdle();
+
+    calls = readCliCalls(vaultPath);
+    assert.equal(calls.at(-1)?.status, 1);
+    conflicts = conflictFiles(vaultPath);
+    assert.equal(conflicts.length, 1);
+    assert.deepEqual(conflicts.map((file) => vaultRelativePath(vaultPath, file)), [conflictRelativePath]);
+    const recreatedConflict = fs.readFileSync(conflicts[0], "utf8");
+    assert.match(recreatedConflict, /Memo Stack Sync Conflict/);
+    assert.match(recreatedConflict, /Stale version/);
+    assert.match(recreatedConflict, new RegExp(fact.id));
+    assert.match(recreatedConflict, new RegExp(escapeRegExp(exportedRelativePath)));
+    assert.match(fs.readFileSync(exportedFact, "utf8"), new RegExp(localDraft));
+    assert.equal((await getFact(baseUrl, fact.id)).text, backendText);
+
+    await browser.executeObsidianCommand("memo-stack:sync-now");
+    await waitForCliCalls(vaultPath, 5);
+    await waitForMemoStackIdle();
+
+    calls = readCliCalls(vaultPath);
+    assert.equal(calls.at(-1)?.status, 1);
+    assert.deepEqual(conflictFiles(vaultPath).map((file) => vaultRelativePath(vaultPath, file)), [
+      conflictRelativePath,
+    ]);
+  });
+
   it("turns Obsidian workspace renames into recoverable non-canonical path conflicts", async function () {
     const fact = await createFact(baseUrl, {
       text: "Obsidian WDIO workspace rename initial fact.",
@@ -568,6 +630,26 @@ async function renameVaultFileInObsidian(fromPath: string, toPath: string): Prom
       await app.workspace.getLeaf(false).openFile(renamed as any);
     },
     { fromPath, toPath },
+  );
+}
+
+async function deleteVaultFileInObsidian(relativePath: string): Promise<void> {
+  await browser.executeObsidian(
+    async ({ app }, filePath) => {
+      const file = app.vault.getAbstractFileByPath(filePath);
+      if (!file || !("extension" in file)) {
+        throw new Error(`Vault file not found: ${filePath}`);
+      }
+      await app.vault.delete(file as any, true);
+    },
+    relativePath,
+  );
+}
+
+async function waitForVaultFileMissing(vaultPath: string, relativePath: string): Promise<void> {
+  await waitUntil(
+    async () => !fs.existsSync(path.join(vaultPath, relativePath)),
+    `Vault file was not deleted: ${relativePath}`,
   );
 }
 
