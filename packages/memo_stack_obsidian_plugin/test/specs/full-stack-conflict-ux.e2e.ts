@@ -128,6 +128,53 @@ describe("Memo Stack conflict review UX E2E", function () {
     assert.equal(conflictFiles(vaultPath).length, 0);
     assert.match(fs.readFileSync(onlyFactFile(vaultPath), "utf8"), new RegExp(backendText));
   });
+
+  it("syncs managed and inbox edits made through the Obsidian workspace", async function () {
+    const fact = await createFact(baseUrl, {
+      text: "Obsidian WDIO workspace edit initial fact.",
+      sourceId: "wdio-workspace-edit-seed",
+    });
+    const vaultPath = await resetVaultAndConfigure(baseUrl);
+    const exportedFact = await connectAndExportFact(vaultPath);
+    const exportedRelativePath = vaultRelativePath(vaultPath, exportedFact);
+    const workspaceEdit = "Obsidian WDIO workspace edit applied through vault modify.";
+    const inboxMarker = "WDIO workspace-created inbox marker imports once";
+    const inboxRelativePath = posixPath(path.join(scopedRoot, "inbox", "workspace-created.md"));
+
+    await openVaultFileInObsidian(exportedRelativePath);
+    assert.equal(await activeFilePath(), exportedRelativePath);
+    await replaceManagedTextInObsidian(exportedRelativePath, workspaceEdit);
+    assert.match(await activeMarkdown(), new RegExp(workspaceEdit));
+
+    await createOrModifyVaultFileInObsidian(inboxRelativePath, inboxMarker);
+    assert.equal(await activeFilePath(), inboxRelativePath);
+    assert.equal(await activeMarkdown(), inboxMarker);
+
+    await browser.executeObsidianCommand("memo-stack:sync-now");
+    await waitForCliCalls(vaultPath, 3);
+    await waitForMemoStackIdle();
+    await waitForBackendFactText(baseUrl, fact.id, workspaceEdit);
+    await waitForSuggestionsContaining(baseUrl, inboxMarker, 1);
+
+    await browser.executeObsidianCommand("memo-stack:sync-now");
+    await waitForCliCalls(vaultPath, 4);
+    await waitForMemoStackIdle();
+    await sleep(300);
+
+    const calls = readCliCalls(vaultPath);
+    assert.deepEqual(calls.map((call) => `${call.command}:${call.status}`), [
+      "connect:0",
+      "sync:0",
+      "sync:0",
+      "sync:0",
+    ]);
+    const updatedFact = await getFact(baseUrl, fact.id);
+    assert.equal(updatedFact.version, 2);
+    assert.equal(updatedFact.text, workspaceEdit);
+    assert.match(fs.readFileSync(exportedFact, "utf8"), /memo_stack_version: 2/);
+    assert.equal((await suggestionsContaining(baseUrl, inboxMarker)).length, 1);
+    assert.equal(conflictFiles(vaultPath).length, 0);
+  });
 });
 
 async function resetVaultAndConfigure(apiUrl: string): Promise<string> {
@@ -291,6 +338,41 @@ async function getFact(apiUrl: string, factId: string): Promise<Record<string, a
   return response.body.data;
 }
 
+async function waitForBackendFactText(
+  apiUrl: string,
+  factId: string,
+  expectedText: string,
+): Promise<void> {
+  await waitUntil(async () => {
+    const fact = await getFact(apiUrl, factId);
+    return fact.text === expectedText;
+  }, `Backend fact did not reach expected text: ${expectedText}`);
+}
+
+async function waitForSuggestionsContaining(
+  apiUrl: string,
+  marker: string,
+  count: number,
+): Promise<void> {
+  await waitUntil(
+    async () => (await suggestionsContaining(apiUrl, marker)).length >= count,
+    "Suggestion was not created",
+  );
+}
+
+async function suggestionsContaining(apiUrl: string, marker: string): Promise<Record<string, any>[]> {
+  const query = new URLSearchParams({
+    space_slug: spaceSlug,
+    profile_external_ref: profileExternalRef,
+    status: "pending",
+  });
+  const response = await requestJson("GET", `${apiUrl}/v1/suggestions?${query.toString()}`);
+  assert.equal(response.status, 200);
+  return response.body.data.filter((item: Record<string, any>) =>
+    String(item.candidate_text).includes(marker),
+  );
+}
+
 async function requestJson(
   method: "GET" | "POST" | "PATCH",
   url: string,
@@ -374,6 +456,44 @@ async function openVaultFileInObsidian(relativePath: string): Promise<void> {
       await app.workspace.getLeaf(false).openFile(file as any);
     },
     relativePath,
+  );
+}
+
+async function replaceManagedTextInObsidian(relativePath: string, text: string): Promise<void> {
+  await browser.executeObsidian(
+    async ({ app }, payload) => {
+      const file = app.vault.getAbstractFileByPath(payload.relativePath);
+      if (!file || !("extension" in file)) {
+        throw new Error(`Vault file not found: ${payload.relativePath}`);
+      }
+      const old = await app.vault.cachedRead(file as any);
+      const start = old.indexOf(payload.textStart) + payload.textStart.length;
+      const end = old.indexOf(payload.textEnd);
+      if (start < payload.textStart.length || end <= start) {
+        throw new Error("Managed text markers not found");
+      }
+      await app.vault.modify(
+        file as any,
+        `${old.slice(0, start)}\n${payload.text}\n${old.slice(end)}`,
+      );
+    },
+    { relativePath, text, textStart, textEnd },
+  );
+}
+
+async function createOrModifyVaultFileInObsidian(relativePath: string, content: string): Promise<void> {
+  await browser.executeObsidian(
+    async ({ app }, payload) => {
+      const existing = app.vault.getAbstractFileByPath(payload.relativePath);
+      if (existing && "extension" in existing) {
+        await app.vault.modify(existing as any, payload.content);
+        await app.workspace.getLeaf(false).openFile(existing as any);
+        return;
+      }
+      const file = await app.vault.create(payload.relativePath, payload.content);
+      await app.workspace.getLeaf(false).openFile(file as any);
+    },
+    { relativePath, content },
   );
 }
 
