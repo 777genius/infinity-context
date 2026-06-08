@@ -314,6 +314,83 @@ describe("Memo Stack settings rotation E2E", function () {
     assert.match(fs.readFileSync(onlyFactFile(vaultPath), "utf8"), /settings UI API URL recovery fact/);
     assert.equal((await getFact(baseUrl, fact.id)).text, "Obsidian WDIO settings UI API URL recovery fact.");
   });
+
+  it("preserves pending local edits and inbox notes while the user fixes an unavailable API URL", async function () {
+    const initialText = "Obsidian WDIO API URL pending initial fact.";
+    const recoveredText = "Obsidian WDIO API URL pending local managed edit recovered.";
+    const inboxMarker = "WDIO API URL pending inbox marker imports once";
+    const fact = await createFact(baseUrl, {
+      text: initialText,
+      sourceId: "wdio-api-url-pending-recovery-seed",
+    });
+    const deadUrl = `http://127.0.0.1:${await freePort()}`;
+    const vaultPath = await resetVaultAndConfigure({
+      apiUrl: baseUrl,
+      serviceToken: token,
+    });
+
+    await browser.executeObsidianCommand("memo-stack:connect-vault");
+    await waitForCliCalls(vaultPath, 1);
+    await waitForPluginIdle();
+    await browser.executeObsidianCommand("memo-stack:sync-now");
+    await waitForCliCalls(vaultPath, 2);
+    await waitForPluginIdle();
+
+    const exportedFact = onlyFactFile(vaultPath);
+    replaceManagedText(exportedFact, recoveredText);
+    writeVaultFile(vaultPath, path.join(scopedRoot, "inbox", "api-url-pending-inbox.md"), inboxMarker);
+
+    await openMemoStackSettings();
+    await setSettingsInput("apiUrl", deadUrl);
+    await waitForMemoStackApiUrl(deadUrl);
+    await waitForSettingsFile(vaultPath, deadUrl);
+
+    await browser.executeObsidianCommand("memo-stack:sync-now");
+    await waitForCliCalls(vaultPath, 3);
+    await waitForPluginIdle();
+
+    let calls = readCliCalls(vaultPath);
+    let snapshot = await memoStackSnapshot();
+    assert.deepEqual(calls.map((call) => `${call.command}:${call.status}`), ["connect:0", "sync:0", "sync:1"]);
+    assert.ok(calls.at(-1)?.args.includes(deadUrl));
+    assert.equal(snapshot.lastCommand, "sync");
+    assert.equal(snapshot.lastResult.exitCode, 1);
+    assert.equal((await getFact(baseUrl, fact.id)).text, initialText);
+    assert.match(fs.readFileSync(exportedFact, "utf8"), new RegExp(recoveredText));
+    assert.equal((await suggestionsContaining(baseUrl, inboxMarker)).length, 0);
+    assert.equal(conflictFiles(vaultPath).length, 0);
+
+    await openMemoStackSettings();
+    await setSettingsInput("apiUrl", baseUrl);
+    await waitForMemoStackApiUrl(baseUrl);
+    await waitForSettingsFile(vaultPath, baseUrl);
+
+    await browser.executeObsidianCommand("memo-stack:sync-now");
+    await waitForCliCalls(vaultPath, 4);
+    await waitForPluginIdle();
+    await waitForBackendFactText(baseUrl, fact.id, recoveredText);
+    await waitForSuggestionsContaining(baseUrl, inboxMarker, 1);
+
+    await browser.executeObsidianCommand("memo-stack:sync-now");
+    await waitForCliCalls(vaultPath, 5);
+    await waitForPluginIdle();
+    await sleep(300);
+
+    calls = readCliCalls(vaultPath);
+    snapshot = await memoStackSnapshot();
+    assert.deepEqual(
+      calls.map((call) => `${call.command}:${call.status}`),
+      ["connect:0", "sync:0", "sync:1", "sync:0", "sync:0"],
+    );
+    assert.ok(calls.slice(3).every((call) => call.args.includes(baseUrl)));
+    assert.equal(snapshot.lastResult.exitCode, 0);
+    assert.equal((await suggestionsContaining(baseUrl, inboxMarker)).length, 1);
+    assert.equal(conflictFiles(vaultPath).length, 0);
+    const updatedFact = await getFact(baseUrl, fact.id);
+    assert.equal(updatedFact.version, 2);
+    assert.equal(updatedFact.text, recoveredText);
+    assert.match(fs.readFileSync(exportedFact, "utf8"), /memo_stack_version: 2/);
+  });
 });
 
 async function resetVault(): Promise<string> {
