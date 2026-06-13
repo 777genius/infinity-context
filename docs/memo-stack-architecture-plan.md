@@ -53,7 +53,7 @@ Qdrant нужен для vector/RAG memory:
 
 Postgres нужен для canonical lifecycle:
 
-- profiles;
+- memory scopes;
 - facts;
 - fact versions;
 - documents;
@@ -105,7 +105,7 @@ Weak spots found and fixed in this pass:
    - Fix: explicit provider configuration, `GRAPHITI_TELEMETRY_ENABLED=false`, policy gate before external calls.
 
 2. Qdrant filtered search performance was under-specified.
-   - Risk: single collection works functionally but degrades badly with many profiles/documents.
+   - Risk: single collection works functionally but degrades badly with many memory scopes/documents.
    - Fix: payload indexes are now required for every field used in filters.
 
 3. Derived index backup/restore was incomplete.
@@ -133,12 +133,12 @@ Weak spots found and fixed in this pass:
    - Fix: add exact existing E2E/canary commands to the integration phase and acceptance criteria.
 
 9. Tenancy and authorization were too coarse.
-   - Risk: team mode, Slack/GitHub integrations or coding agents can read/write profiles they should not access.
-   - Fix: add first-class principals, space membership, profile grants and authorization ports.
+   - Risk: team mode, Slack/GitHub integrations or coding agents can read/write memory scopes they should not access.
+   - Fix: add first-class users, space membership, memory scope grants and authorization ports.
 
 10. Outbox semantics were underspecified.
     - Risk: retries duplicate Graphiti/Qdrant writes, dead jobs are invisible, or delete races reintroduce old facts.
-    - Fix: add idempotency keys, lease ownership, per-profile ordering keys and dead-letter handling.
+    - Fix: add idempotency keys, lease ownership, per-memory scope ordering keys and dead-letter handling.
 
 11. Migrations and contract versioning were not operational enough.
     - Risk: local Docker, remote server and generated clients drift silently.
@@ -300,9 +300,9 @@ Weak spots found and fixed in this pass:
     - Risk: hard-delete/export/retention can violate hold requirements or block legitimate user deletion with no audit.
     - Fix: add `LegalHold`, hold precedence rules and explicit conflict handling with hard-delete.
 
-51. Profile/thread deletion semantics were incomplete.
-    - Risk: deleting a profile leaves derived indexes, object blobs, subscriptions or connector state orphaned.
-    - Fix: add profile deletion lifecycle, cascade/deindex/orphan cleanup and verification gates.
+51. Memory scope/thread deletion semantics were incomplete.
+    - Risk: deleting a memory scope leaves derived indexes, object blobs, subscriptions or connector state orphaned.
+    - Fix: add memory scope deletion lifecycle, cascade/deindex/orphan cleanup and verification gates.
 
 52. Local-to-cloud sync was only an invariant list, not a contract.
     - Risk: future cloud sync will invent ids, cursors and conflict handling outside the domain model.
@@ -310,7 +310,7 @@ Weak spots found and fixed in this pass:
 
 53. Offline writes and remote writes had no explicit trust ordering.
     - Risk: local Docker and remote server can both accept writes, then silently pick the wrong winner.
-    - Fix: define origin, principal, trust tier, operation kind and deterministic conflict resolution inputs.
+    - Fix: define origin, user, trust tier, operation kind and deterministic conflict resolution inputs.
 
 54. Sync support could be accidentally marketed before it is safe.
     - Risk: API/schema is sync-ready, but users expect bidirectional cloud sync guarantees that v1 does not provide.
@@ -333,8 +333,8 @@ Weak spots found and fixed in this pass:
     - Fix: add `UsageRecord`, `QuotaRule`, `QuotaReservation` and `AdmissionDecision` as first-class contracts.
 
 59. Noisy-neighbor isolation was not explicit.
-    - Risk: one connector/profile can consume worker slots, vector writes or AI budget for the whole space.
-    - Fix: add fairness keys, workload classes, reserved interactive capacity and per-principal/connector/profile limits.
+    - Risk: one connector/memory scope can consume worker slots, vector writes or AI budget for the whole space.
+    - Fix: add fairness keys, workload classes, reserved interactive capacity and per-user/connector/memory scope limits.
 
 60. Quota reservation lifecycle was missing.
     - Risk: failed jobs leak reserved budget or retries double-count provider/storage usage.
@@ -378,7 +378,7 @@ Weak spots found and fixed in this pass:
 
 70. First boot/bootstrap path was under-specified.
     - Risk: local Docker starts unusable, or worse, starts with open admin creation/auth bypass semantics.
-    - Fix: add explicit bootstrap state, one-time setup token, first owner/space/profile provisioning and boot lock rules.
+    - Fix: add explicit bootstrap state, one-time setup token, first owner/space/memory scope provisioning and boot lock rules.
 
 71. Runtime configuration was treated mostly as env variables.
     - Risk: API and worker run with different config, external AI/auth mode is enabled accidentally, or diagnostics cannot explain drift.
@@ -429,8 +429,8 @@ Weak spots found and fixed in this pass:
     - Fix: add cache/freshness governance with canonical re-checks, invalidation records, bounded TTLs and forget/update/grant-change tests.
 
 83. Cache keys did not include enough policy and authorization dimensions.
-    - Risk: a context bundle cached for one principal/profile/policy state can leak into another request after grant, profile or policy changes.
-    - Fix: require cache metadata for principal/profile hash, grant version, policy version, ontology version, temporal mode and canonical commit cursor.
+    - Risk: a context bundle cached for one user/memory scope/policy state can leak into another request after grant, memory scope or policy changes.
+    - Fix: require cache metadata for user/memory scope hash, grant version, policy version, ontology version, temporal mode and canonical commit cursor.
 
 84. Embedding/rerank/token caches were not separated by sensitivity and purpose.
     - Risk: derived model artifacts can cross privacy boundaries or survive provider/policy changes that should make them unusable.
@@ -449,7 +449,7 @@ Weak spots found and fixed in this pass:
     - Fix: make backups governed artifacts with sensitivity, key versions, retention, access audit and current authorization checks.
 
 88. Read-path authorization was a rule, not an enforceable contract.
-    - Risk: one search/list/export/debug endpoint can forget the canonical visibility filter and leak cross-profile or deleted data.
+    - Risk: one search/list/export/debug endpoint can forget the canonical visibility filter and leak cross-memory-scope or deleted data.
     - Fix: add `ReadScope`, `VisibilityPredicate`, `VisibilityProof` and mandatory read-path guard checks.
 
 89. Derived retrieval candidates and canonical read models lacked a shared filter proof.
@@ -457,7 +457,7 @@ Weak spots found and fixed in this pass:
     - Fix: route every user-visible read through the same visibility guard and require proof in response diagnostics/tests.
 
 90. Denied-read behavior was not explicit enough.
-    - Risk: authorization failures reveal whether hidden memory exists, or diagnostics leak ids/text from forbidden profiles.
+    - Risk: authorization failures reveal whether hidden memory exists, or diagnostics leak ids/text from forbidden memory scopes.
     - Fix: define denial-safe errors, safe audit, zero/empty behavior and negative tests for existence leakage.
 
 91. Prompt-path latency was spread across quotas, cache and compatibility notes.
@@ -513,7 +513,7 @@ Weak spots found and fixed in this pass:
     - Fix: treat artifact creation, artifact download, backup restore, import and sync change-set apply as residency-checked use cases.
 
 104. Repository/query isolation was not first-class.
-    - Risk: one raw SQL, ORM repository method, worker scan or bulk admin action can forget `space_id`/`profile_id` and leak or mutate another memory space.
+    - Risk: one raw SQL, ORM repository method, worker scan or bulk admin action can forget `space_id`/`memory_scope_id` and leak or mutate another memory space.
     - Fix: add `RepositoryScope`, `ScopedRepositoryContext`, `QueryScopeProof` and repository contract tests for scoped reads and writes.
 
 105. Read visibility guards did not cover every write and maintenance path.
@@ -544,7 +544,7 @@ Checked in Client App on 2026-05-24:
 - The desktop bridge currently skips ingest for `AiResponse` timeline events. Universal auto-memory must preserve this unless a policy explicitly allows assistant-derived evidence.
 - The desktop bridge currently calls `/api/v1/interview-memory/ingest` and `/api/v1/interview-memory/context`, not the new `/v1/*` platform API.
 - `INTERVIEW_MEMORY_AUTH_TOKEN` is a memory-only auth override and must not change normal app auth.
-- `src-tauri/src/infrastructure/interview_memory_session_store.rs` stores a persistent active profile/session JSON with schema version `1` and default profile id `default`.
+- `src-tauri/src/infrastructure/interview_memory_session_store.rs` stores a persistent active memory scope/session JSON with schema version `1` and default memory scope id `default`.
 - `src-tauri/src/infrastructure/local_interview_memory.rs` has a local Postgres fallback path and OpenAI embeddings can be enabled through env. New platform rollout must not create a second uncontrolled local memory path.
 - Existing E2E scripts already verify canary, document recall, import and companion retrieval against `/api/v1/interview-memory/*`.
 
@@ -595,7 +595,7 @@ Use this map when implementing or reviewing a PR. A PR should explicitly state w
 | Lifecycle correctness | Fact Lifecycle, Aggregate Lifecycle State Machines, Consistency Model | deleted/superseded/disabled records are filtered by canonical status |
 | Operation/idempotency | Operation and Idempotency Model, API Contract, SDK Contract | retries and long-running operations return stable, safe, client-visible state |
 | Compatibility | API Contract, SDK Contract, Client App Compatibility Contract | legacy `/api/v1/interview-memory/*` keeps desktop behavior stable |
-| Security and tenancy | Principal, MemorySpace, ProfileGrant, AuthorizationPort, Security and Privacy | profile/space leakage is a release blocker |
+| Security and tenancy | User, MemorySpace, MemoryScopeGrant, AuthorizationPort, Security and Privacy | memory scope/space leakage is a release blocker |
 | Operations | Deployment, Observability, Rollback, CI Gates | derived indexes must be rebuildable from Postgres |
 | Release governance | Contract Version Compatibility Matrix, ADR and PR Discipline, Done Definition | breaking changes require explicit version/ADR/release note |
 
@@ -634,20 +634,20 @@ Use this map when implementing or reviewing a PR. A PR should explicitly state w
 | Connector lifecycle | makes multi-client memory manageable and revocable | `ConnectorInstallation`, `ConnectorSyncState`, connector ports | install/pause/resume/backfill/deactivate tests | stale or rogue connector keeps writing memory |
 | Event delivery and cache invalidation | keeps SDK/MCP/desktop clients from using stale context | event subscriptions, cursor, cache invalidation envelope | ordered event delivery, cursor expiry, cache bust tests | deleted/updated memory remains in client caches |
 | Cache is derived and bounded | prevents stale/deleted/forbidden context leaks from server caches | `CachePolicy`, `CacheEntryMetadata`, `CacheInvalidationRecord`, cache repository port | forget/update/grant-change/policy-change cache-bust tests | old or forbidden memory reappears from cache |
-| Read visibility is centrally guarded | prevents one endpoint from forgetting auth/status filters | `ReadScope`, `VisibilityPredicate`, `VisibilityProof`, `VisibilityGuardPort` | endpoint guard, denial leakage and export/list/context visibility tests | cross-profile or deleted data leaks from a side path |
-| Repository queries are scoped | prevents a lower-level repository, worker or admin bulk query from bypassing profile/space filters | `RepositoryScope`, `ScopedRepositoryContext`, `QueryScopeProof`, `MaintenanceScopeOverride` | unscoped SQL, bulk delete, worker scan and RLS safety tests | one missed `space_id` leaks or mutates another tenant |
+| Read visibility is centrally guarded | prevents one endpoint from forgetting auth/status filters | `ReadScope`, `VisibilityPredicate`, `VisibilityProof`, `VisibilityGuardPort` | endpoint guard, denial leakage and export/list/context visibility tests | cross-memory-scope or deleted data leaks from a side path |
+| Repository queries are scoped | prevents a lower-level repository, worker or admin bulk query from bypassing memory scope/space filters | `RepositoryScope`, `ScopedRepositoryContext`, `QueryScopeProof`, `MaintenanceScopeOverride` | unscoped SQL, bulk delete, worker scan and RLS safety tests | one missed `space_id` leaks or mutates another tenant |
 | Sync exchange is feature-gated | keeps v1 sync-ready without promising unsafe bidirectional sync | `SyncPeer`, `SyncCheckpoint`, sync ports and capabilities flag | bundle dry-run, conflict ordering, tombstone propagation tests | local and remote memory diverge silently |
 | Webhook authenticity | prevents forged/duplicated connector events | signature verifier, replay window, external sequence | signature/replay/backfill tests | fake or replayed external events create memory |
 | Coding-agent scope | keeps architecture decisions relevant to the correct repo/branch/commit | `CodeScope`, `CodeReference`, `SourceProvenance` | branch leakage tests, PR promotion tests, dirty worktree tests | wrong project/branch receives bad architectural advice |
 | Durable code references | keeps source attribution useful after code moves | code reference resolver, content hashes, symbol refs | rename/line drift/symbol move tests | memory cites the wrong code |
-| Retention lifecycle | prevents unbounded memory growth and accidental deletion | `RetentionRule`, `LegalHold`, retention jobs | dry-run, legal hold, profile delete and derived deindex tests | data is kept forever or deleted too early |
+| Retention lifecycle | prevents unbounded memory growth and accidental deletion | `RetentionRule`, `LegalHold`, retention jobs | dry-run, legal hold, memory scope delete and derived deindex tests | data is kept forever or deleted too early |
 | Legal hold precedence | preserves held evidence while keeping deletion transparent | legal hold repository, tombstone/audit/export rules | hard-delete vs hold tests, export labeling tests | compliance/security hold is violated |
 | Compatibility gateway first | lets Client App migrate without prompt-impacting regression | legacy route adapter over core use cases | existing canary, document recall, companion context, mode resolver tests | production desktop memory breaks |
-| One Qdrant collection in v1 | keeps local Docker and operations simple | Qdrant collection config and payload filters | diagnostics check missing indexes, profile isolation tests | performance cliffs or cross-profile contamination |
+| One Qdrant collection in v1 | keeps local Docker and operations simple | Qdrant collection config and payload filters | diagnostics check missing indexes, memory scope isolation tests | performance cliffs or cross-memory-scope contamination |
 | Neo4j first for Graphiti | pragmatic supported backend for v1 | Graphiti composition root and backend config | healthcheck, capability report, backend mismatch test | local stack becomes unreliable |
 | Soft delete plus optional hard delete | supports normal recall removal and privacy/legal removal | `MemoryTombstone`, delete use cases, retention jobs | tombstone, hard-delete, backup/export edge tests | deleted memory resurrects or cannot be purged |
 | Ontology is governed | keeps kinds, relations and source types portable across clients | `MemoryOntology`, ontology API, SDK enums | alias resolution, unknown enum behavior, ontology version tests | clients create incompatible memory vocabularies |
-| Connectors use scoped principals | lets agents/Slack/GitHub write safely | connector auth, `AuthorizationPort`, `SourceProvenance` | scoped token tests, self-approval block, provenance-required tests | agent or integration writes outside allowed profile |
+| Connectors use scoped users | lets agents/Slack/GitHub write safely | connector auth, `AuthorizationPort`, `SourceProvenance` | scoped token tests, self-approval block, provenance-required tests | agent or integration writes outside allowed memory scope |
 
 ### Decision 1 - Server-first with local Docker, sync-ready later
 
@@ -712,7 +712,7 @@ auto promotion is supported by policy model but conservative by default
 Future target:
 
 ```text
-auto-memory can be enabled per space/profile/source/kind
+auto-memory can be enabled per space/memory scope/source/kind
 ```
 
 Это важно: автозапоминание мощное и нужно проектировать его сразу как first-class capability, а не как будущий хак поверх ручного remember.
@@ -729,7 +729,7 @@ V1 должен иметь:
 - source refs;
 - outbox status;
 - index lag;
-- profile stats;
+- memory scope stats;
 - production-safe mode.
 
 Full Memory UI откладываем. Но без inspector вообще нельзя, иначе memory bugs станут неотлаживаемой магией.
@@ -763,7 +763,7 @@ memory_chunks
 
 ```text
 space_id
-profile_id
+memory_scope_id
 thread_id
 document_id
 chunk_id
@@ -772,7 +772,7 @@ embedding_model
 schema_version
 ```
 
-Per-space/per-profile collections возможны позже, если появится реальная проблема масштаба или isolation.
+Per-space/per-memory scope collections возможны позже, если появится реальная проблема масштаба или isolation.
 
 ### Decision 6 - Forget supports both tombstone and hard delete
 
@@ -872,8 +872,8 @@ ISP:
 FactRepositoryPort
 EpisodeRepositoryPort
 DocumentRepositoryPort
-ProfileRepositoryPort
-PrincipalRepositoryPort
+Memory ScopeRepositoryPort
+UserRepositoryPort
 AuthorizationPort
 UnitOfWorkPort
 GraphMemoryPort
@@ -902,7 +902,7 @@ Bounded contexts:
 
 ```text
 Workspace Context
-  Principal, MemorySpace, SpaceMember, ProfileGrant, MemoryProfile, MemoryThread
+  User, MemorySpace, SpaceMember, MemoryScopeGrant, MemoryScope, MemoryThread
 
 Knowledge Context
   MemoryFact, FactVersion, FactRelation, MemoryTombstone, MemorySuggestion, MemoryKind, RelationType
@@ -1224,7 +1224,7 @@ Evolution rules:
 - enum additions must be handled as opaque/unsupported values by SDKs;
 - `null`, missing field and empty list must have documented distinct meaning when all three are possible;
 - timestamps are UTC ISO 8601 strings at API boundary and timezone-aware values internally;
-- ids are opaque strings; clients must not parse ids for tenant/profile/type behavior;
+- ids are opaque strings; clients must not parse ids for tenant/memory scope/type behavior;
 - cursors are opaque and may expire with typed `memory.conflict` or cursor-expired code;
 - large text/blob fields use object storage references or chunk APIs, not inline event payloads.
 
@@ -1295,7 +1295,7 @@ deployment_id
 state: uninitialized | bootstrap_pending | bootstrapped | recovery_required | locked
 owner_principal_id?
 default_space_id?
-default_profile_id?
+default_memory_scope_id?
 bootstrap_token_hash?
 bootstrap_token_expires_at?
 recovery_token_hash?
@@ -1308,7 +1308,7 @@ metadata
 Rules:
 
 - fresh DB starts as `uninitialized`;
-- first bootstrap creates owner principal, default space, default profile, default policy and scoped local token when requested;
+- first bootstrap creates owner user, default space, default memory scope, default policy and scoped local token when requested;
 - bootstrap token is shown once, stored only as hash and expires quickly;
 - successful bootstrap deletes or invalidates the one-time bootstrap token;
 - bootstrap is idempotent only for the same request fingerprint before completion;
@@ -1372,7 +1372,7 @@ Bootstrap commands:
 
 ```text
 memo_stack_server bootstrap status
-memo_stack_server bootstrap init-local --owner-name ... --space-name ... --profile-name ...
+memo_stack_server bootstrap init-local --owner-name ... --space-name ... --memory-scope-name ...
 memo_stack_server bootstrap create-token --scope local_setup --ttl 10m
 memo_stack_server config doctor
 memo_stack_server dev seed --synthetic-only
@@ -1396,7 +1396,7 @@ Rules:
 
 Required tests:
 
-- first local bootstrap creates owner, default space, default profile, default policy and scoped token;
+- first local bootstrap creates owner, default space, default memory scope, default policy and scoped token;
 - second bootstrap attempt after success is rejected;
 - expired or reused bootstrap token is rejected;
 - team mode cannot use local bootstrap defaults;
@@ -1458,7 +1458,7 @@ Fields:
 id
 migration_run_id
 space_id?
-profile_id?
+memory_scope_id?
 backfill_type: schema_default | denormalized_field | contract_projection | ontology_alias | policy_version | projection_metadata | redaction_metadata
 status: pending | running | paused | succeeded | failed | dead
 source_watermark
@@ -1708,14 +1708,14 @@ This section covers server-side caches. Client SDK caches are covered by event d
 
 ### CachePolicy
 
-Profile or deployment-level policy that defines which cache kinds are allowed and how fresh they must be.
+Memory Scope or deployment-level policy that defines which cache kinds are allowed and how fresh they must be.
 
 Fields:
 
 ```text
 id
 space_id
-profile_id?
+memory_scope_id?
 policy_version
 cache_kind
 enabled
@@ -1763,8 +1763,8 @@ cache_kind:
   capabilities
   schema_metadata
   diagnostics_summary
-profile_ids_hash
-principal_id?
+memory_scope_ids_hash
+user_id?
 connector_id?
 grant_version
 policy_version
@@ -1800,7 +1800,7 @@ metadata
 
 Rules:
 
-- every context/search cache key includes `space_id`, profile set, principal or grant version, policy version, ontology version, temporal mode and query hash;
+- every context/search cache key includes `space_id`, memory scope set, user or grant version, policy version, ontology version, temporal mode and query hash;
 - every context/search cache entry records the canonical commit position or event cursor that it was built from;
 - every cached candidate id must be canonical-filtered again before returning user-visible text;
 - cached response-safe DTOs can be returned only if their `source_commit_position` is at or after the last relevant invalidation cursor and the DTO still passes current grant/policy/status checks;
@@ -1817,8 +1817,8 @@ Fields:
 ```text
 id
 space_id
-profile_id?
-principal_id?
+memory_scope_id?
+user_id?
 cache_kind?
 target_type:
   fact
@@ -1826,7 +1826,7 @@ target_type:
   document_chunk
   digest
   cluster
-  profile
+  memory scope
   policy
   grant
   ontology
@@ -1840,7 +1840,7 @@ reason:
   fact_deleted
   source_deleted
   source_redacted
-  profile_deleted
+  memory scope_deleted
   grant_changed
   policy_changed
   ontology_changed
@@ -1871,8 +1871,8 @@ Context bundle cache:
 
 - stores a complete response-safe context bundle or ids needed to rebuild one quickly;
 - allowed only for short TTLs;
-- must re-check fact/document/digest status, grants, profile membership and policy before return;
-- must be invalidated by forget, update, delete, policy change, grant change, profile deletion, legal hold visibility change and source redaction.
+- must re-check fact/document/digest status, grants, memory scope membership and policy before return;
+- must be invalidated by forget, update, delete, policy change, grant change, memory scope deletion, legal hold visibility change and source redaction.
 
 Search result cache:
 
@@ -1939,8 +1939,8 @@ Required freshness inputs:
 
 ```text
 space_id
-profile_ids
-principal_id
+memory_scope_ids
+user_id
 grant_version
 policy_version
 ontology_version
@@ -1955,8 +1955,8 @@ Rules:
 
 - normal `build_context` reads require fresh-enough cache or recompute;
 - admin diagnostics may show stale cache metadata, but must label it as stale;
-- `forget`, `delete`, `policy update`, `grant revoke`, `profile delete`, `legal hold`, `source redaction` and `retention apply` force invalidation before success is reported;
-- read-your-write after mutation should bypass stale context/search cache for affected profile/thread/source ids;
+- `forget`, `delete`, `policy update`, `grant revoke`, `memory scope delete`, `legal hold`, `source redaction` and `retention apply` force invalidation before success is reported;
+- read-your-write after mutation should bypass stale context/search cache for affected memory scope/thread/source ids;
 - cache stampede prevention is allowed, but waiting requests must still respect request timeout and safety filters.
 
 ### Cache Use Cases
@@ -1975,7 +1975,7 @@ RecordCacheEntryUseCase
   output: CacheEntryMetadata
 
 PurgeExpiredCacheUseCase
-  input: space/profile/cache_kind window
+  input: space/memory scope/cache_kind window
   output: safe counts
 ```
 
@@ -2036,11 +2036,11 @@ Must invalidate context/search/candidate/rerank caches when:
 - source ref visibility changes;
 - digest becomes stale, superseded or deleted;
 - cluster membership changes in a way that affects context packing;
-- profile grant, space membership, connector token or principal role changes;
+- memory scope grant, space membership, connector token or user role changes;
 - policy, ontology, retention, legal hold or redaction rule changes;
 - provider/model/prompt/schema version changes for model-derived cache kinds;
 - projection generation is rebuilt or activated;
-- profile/thread/space deletion starts or completes.
+- memory scope/thread/space deletion starts or completes.
 
 Must not rely only on TTL for:
 
@@ -2049,7 +2049,7 @@ Must not rely only on TTL for:
 - policy disable;
 - secret detection and redaction;
 - legal hold visibility changes;
-- profile or space deletion.
+- memory scope or space deletion.
 
 ### Cache Failure Modes
 
@@ -2092,7 +2092,7 @@ Cache stampede:
 
 Unit:
 
-- cache key includes principal/grant/profile/policy/ontology/temporal dimensions;
+- cache key includes user/grant/memory scope/policy/ontology/temporal dimensions;
 - `ResolveCacheFreshnessUseCase` rejects expired, invalidated and dimension-mismatched entries;
 - invalidation command is idempotent by target/reason/commit position;
 - embedding cache key changes with model, provider, purpose and redaction version;
@@ -2150,7 +2150,7 @@ Fields:
 ```text
 id
 space_id
-profile_ids[]
+memory_scope_ids[]
 thread_id?
 client_kind: client_app_desktop | sdk | mcp | agent | server_batch
 request_id
@@ -2298,7 +2298,7 @@ Recommended algorithm:
 
 ```text
 resolve budget and deadline
-resolve principal/config/policy
+resolve user/config/policy
 build ReadScope
 try safe context cache
 start graph and vector candidate retrieval in parallel with stage deadlines
@@ -2327,7 +2327,7 @@ Approx changes: `500-1000` lines.
 
 Recommended for v1. It preserves current Client App ergonomics and still lets SDK/agent clients request larger budgets explicitly.
 
-Option B - Fully configurable deadlines per profile/client from day one.
+Option B - Fully configurable deadlines per memory scope/client from day one.
 
 🎯 7   🛡️ 8   🧠 7
 Approx changes: `900-1700` lines.
@@ -2376,7 +2376,7 @@ E2E:
 
 ## Domain Model
 
-### Principal
+### User
 
 Actor that calls memo_stack_server.
 
@@ -2406,10 +2406,10 @@ metadata
 
 Rules:
 
-- authorization decisions use `Principal`, not raw API keys;
-- service tokens must be scoped to space/profile/action;
-- worker principal can process jobs but cannot bypass canonical status checks;
-- audit events always include principal id when available.
+- authorization decisions use `User`, not raw API keys;
+- service tokens must be scoped to space/memory scope/action;
+- worker user can process jobs but cannot bypass canonical status checks;
+- audit events always include user id when available.
 
 ### MemorySpace
 
@@ -2483,7 +2483,7 @@ Fields:
 ```text
 id
 space_id?
-profile_id?
+memory_scope_id?
 name
 policy_version
 home_region_id
@@ -2504,7 +2504,7 @@ metadata
 
 Rules:
 
-- policy can be deployment default, space-specific or profile-specific;
+- policy can be deployment default, space-specific or memory scope-specific;
 - child policy can be stricter than parent, not broader, unless admin override is audited;
 - `restricted` and `secret` sensitivity default to local/private processing unless explicitly relaxed;
 - backup/export/import/sync are transfer actions and must pass the same policy, not only read authorization;
@@ -2519,8 +2519,8 @@ Fields:
 ```text
 id
 space_id
-profile_id?
-principal_id?
+memory_scope_id?
+user_id?
 operation_id?
 purpose:
   store_raw
@@ -2563,7 +2563,7 @@ Fields:
 ```text
 id
 space_id
-profile_id?
+memory_scope_id?
 requested_by_principal_id
 source_region_id
 target_region_id
@@ -2591,7 +2591,7 @@ Fields:
 ```text
 id
 space_id
-principal_id
+user_id
 role: owner | admin | editor | reviewer | reader | ingestor
 created_at
 updated_at
@@ -2601,22 +2601,22 @@ status
 Rules:
 
 - `owner/admin` can manage policies and grants;
-- `editor` can remember/update/forget facts if profile grants allow;
+- `editor` can remember/update/forget facts if memory scope grants allow;
 - `reviewer` can approve/reject suggestions;
 - `reader` can search/build context;
 - `ingestor` can write source episodes/chunks but cannot approve long-term facts.
 
-### ProfileGrant
+### MemoryScopeGrant
 
-Optional finer-grained access control for profiles.
+Optional finer-grained access control for memory scopes.
 
 Fields:
 
 ```text
 id
 space_id
-profile_id
-principal_id
+memory_scope_id
+user_id
 actions: read | ingest | suggest | approve | write_fact | forget | admin
 created_at
 updated_at
@@ -2625,8 +2625,8 @@ status
 
 Rules:
 
-- profile grant can narrow but not exceed space membership;
-- every search/context request is filtered by both membership and profile grants;
+- memory scope grant can narrow but not exceed space membership;
+- every search/context request is filtered by both membership and memory scope grants;
 - lack of grant returns empty/unauthorized, never partial raw adapter data;
 - grants are checked after Graphiti/Qdrant candidate retrieval through canonical Postgres filtering.
 
@@ -2661,10 +2661,10 @@ Fields:
 id
 request_id?
 operation_id?
-principal_id?
+user_id?
 worker_id?
 space_id
-profile_ids[]
+memory_scope_ids[]
 purpose:
   read
   write
@@ -2681,7 +2681,7 @@ purpose:
 allowed_statuses[]
 include_deleted: true | false
 include_superseded: true | false
-allow_cross_profile: true | false
+allow_cross_memory scope: true | false
 allow_cross_space: false
 source: user_request | worker_job | admin_dry_run | admin_apply | migration | bootstrap_exception
 created_at
@@ -2693,7 +2693,7 @@ Rules:
 
 - `space_id` is mandatory after bootstrap;
 - `allow_cross_space=false` in v1 except explicitly reviewed deployment-level diagnostics that return counts only;
-- `profile_ids` can be empty only for space-level metadata operations that never return row content;
+- `memory_scope_ids` can be empty only for space-level metadata operations that never return row content;
 - scope expires to prevent async jobs from reusing stale grants or policy state forever;
 - `RepositoryScope` is internal and must not be returned directly to clients.
 
@@ -2719,7 +2719,7 @@ Rules:
 - every repository port method for scoped tables accepts this context or a stricter domain-specific scope;
 - `UnitOfWorkPort` binds the scope once and repositories read it from explicit context, not global mutable state;
 - raw SQL helpers require the context and compile scope predicates centrally;
-- repository methods cannot accept naked `space_id`/`profile_id` as a replacement for scope context in new code.
+- repository methods cannot accept naked `space_id`/`memory_scope_id` as a replacement for scope context in new code.
 
 #### QueryScopeProof
 
@@ -2737,7 +2737,7 @@ method_name
 table_family
 operation_type: select | insert | update | delete | upsert | count | bulk
 space_filter_applied: true | false
-profile_filter_applied: true | false
+memory scope_filter_applied: true | false
 status_filter_applied: true | false
 deleted_filter_applied: true | false
 row_count?
@@ -2763,13 +2763,13 @@ Fields:
 ```text
 id
 space_id?
-profile_ids[]
+memory_scope_ids[]
 operation_type:
   migration
   backfill
   projection_rebuild
   retention_apply
-  profile_delete
+  memory scope_delete
   restore_apply
   export_apply
   diagnostics_count
@@ -2819,15 +2819,15 @@ Required tests:
 - repository method without `RepositoryScope` fails in unit tests;
 - raw SQL helper refuses scoped table access without context;
 - search/list/context/export path records both query scope proof and visibility proof;
-- worker retention scan cannot see rows outside its scoped profiles;
-- projection rebuild for one profile cannot enumerate another profile's chunks;
+- worker retention scan cannot see rows outside its scoped memory scopes;
+- projection rebuild for one memory scope cannot enumerate another memory scope's chunks;
 - bulk delete requires dry-run count and maintenance override;
 - optional RLS smoke test denies cross-space rows when transaction setting is missing or wrong;
 - connection-pool checkout resets any previous scope settings.
 
 ### Canonical Visibility and Read-Path Guard Model
 
-Authorization answers "can this principal perform this action?". Visibility answers "which exact records may this read path return right now?". The platform needs both because memory reads are spread across search, context, list APIs, export, diagnostics, cache hits, Graphiti candidates and Qdrant candidates.
+Authorization answers "can this user perform this action?". Visibility answers "which exact records may this read path return right now?". The platform needs both because memory reads are spread across search, context, list APIs, export, diagnostics, cache hits, Graphiti candidates and Qdrant candidates.
 
 Core invariant:
 
@@ -2849,16 +2849,16 @@ This model applies to:
 
 #### ReadScope
 
-Request-scoped value object created after authentication, membership resolution and profile grant checks.
+Request-scoped value object created after authentication, membership resolution and memory scope grant checks.
 
 Fields:
 
 ```text
 id
 request_id
-principal_id
+user_id
 space_id
-profile_ids[]
+memory_scope_ids[]
 allowed_actions[]
 grant_versions[]
 membership_version
@@ -2883,11 +2883,11 @@ metadata
 Rules:
 
 - `ReadScope` is built once per request or operation step and passed explicitly into read use cases;
-- `ReadScope` cannot grant actions beyond `SpaceMember` and `ProfileGrant`;
+- `ReadScope` cannot grant actions beyond `SpaceMember` and `MemoryScopeGrant`;
 - normal context/search uses `include_deleted=false` and `include_superseded=false`;
 - raw text requires explicit purpose, sensitivity allowance and debug/export grant;
 - temporal history reads require explicit `temporal_mode` and are labeled in result DTOs;
-- `ReadScope` is response-safe only after redacting principal details and raw policy internals.
+- `ReadScope` is response-safe only after redacting user details and raw policy internals.
 
 #### VisibilityPredicate
 
@@ -2897,7 +2897,7 @@ Fields:
 
 ```text
 space_id
-profile_ids[]
+memory_scope_ids[]
 allowed_statuses[]
 excluded_statuses[]
 temporal_filter
@@ -2952,7 +2952,7 @@ Rules:
 
 #### DeniedReadPolicy
 
-Defines safe behavior when a principal asks for memory they cannot access.
+Defines safe behavior when a user asks for memory they cannot access.
 
 Modes:
 
@@ -2966,10 +2966,10 @@ admin_safe_diagnostics
 
 Rules:
 
-- default for search/context is empty or forbidden without revealing hidden profile ids;
+- default for search/context is empty or forbidden without revealing hidden memory scope ids;
 - direct `GET by id` returns not found or forbidden according to endpoint policy, but never includes hidden content;
 - diagnostics may show denied counts only with admin/debug grant;
-- denial logs use request id, principal id, space id and safe reason code, not raw memory text;
+- denial logs use request id, user id, space id and safe reason code, not raw memory text;
 - rate limits can tighten on repeated denied probes.
 
 #### Guarded Read Patterns
@@ -2977,7 +2977,7 @@ Rules:
 Search/context:
 
 ```text
-resolve principal
+resolve user
 build ReadScope
 retrieve derived candidates
 build VisibilityPredicate
@@ -2990,7 +2990,7 @@ attach VisibilityProof
 List endpoints:
 
 ```text
-resolve principal
+resolve user
 build ReadScope for list purpose
 query only through predicate-aware repository method
 cursor encodes no hidden ids
@@ -3000,7 +3000,7 @@ attach VisibilityProof or safe list diagnostics
 Export:
 
 ```text
-resolve principal with export grant
+resolve user with export grant
 build ReadScope for export purpose
 dry-run counts through predicate
 apply sensitivity/export policy
@@ -3037,20 +3037,20 @@ Application:
 
 Integration:
 
-- Graphiti/Qdrant candidate from another profile is dropped by predicate;
+- Graphiti/Qdrant candidate from another memory scope is dropped by predicate;
 - stale deleted candidate from cache is dropped and counted without exposing text;
 - list pagination cannot leak hidden ids through cursor;
 - export with reader token is denied, export with admin token still respects sensitivity and legal hold;
-- connector/MCP read cannot exceed connector principal grants.
+- connector/MCP read cannot exceed connector user grants.
 
 E2E:
 
-- same query as two users with different profile grants returns different safe context and no hidden-count leak;
+- same query as two users with different memory scope grants returns different safe context and no hidden-count leak;
 - direct request for known forbidden memory id behaves like endpoint policy says and returns no text;
 - revoked grant immediately blocks context, list and export reads;
 - debug diagnostics require explicit grant and produce audit event.
 
-### MemoryProfile
+### MemoryScope
 
 Logical memory category inside a space.
 
@@ -3073,7 +3073,7 @@ description
 retention_policy_id
 memory_policy_id
 default_importance
-default_scope: profile | thread
+default_scope: memory scope | thread
 created_at
 updated_at
 status
@@ -3081,12 +3081,12 @@ status
 
 Rules:
 
-- profile is the primary user-facing memory grouping;
-- profile carries the default memory behavior through `memory_policy_id`;
-- source/app/thread-specific policy overrides are allowed only if the default profile policy permits them;
+- memory scope is the primary user-facing memory grouping;
+- memory scope carries the default memory behavior through `memory_policy_id`;
+- source/app/thread-specific policy overrides are allowed only if the default memory scope policy permits them;
 - ingestion and classification must read policy before storing, indexing or promoting anything;
-- Graphiti `group_id` should map to `space_id + profile_id` or a stable profile namespace;
-- Qdrant payload must include `space_id`, `profile_id`, `thread_id`, `document_id`, `status`.
+- Graphiti `group_id` should map to `space_id + memory_scope_id` or a stable memory scope namespace;
+- Qdrant payload must include `space_id`, `memory_scope_id`, `thread_id`, `document_id`, `status`.
 
 ### MemoryThread
 
@@ -3104,7 +3104,7 @@ Fields:
 ```text
 id
 space_id
-profile_id
+memory_scope_id
 external_ref
 title
 started_at
@@ -3117,7 +3117,7 @@ status
 Rules:
 
 - episodes attach to a thread when available;
-- facts may be promoted from thread scope to profile scope;
+- facts may be promoted from thread scope to memory scope scope;
 - thread deletion can delete only thread-derived memories or keep promoted facts, depending on policy.
 
 ### MemoryEpisode
@@ -3138,7 +3138,7 @@ Fields:
 ```text
 id
 space_id
-profile_id
+memory_scope_id
 thread_id
 source_type: transcript | prompt | assistant_answer | document | code | slack | github | manual
 source_external_id
@@ -3152,7 +3152,7 @@ metadata
 
 Rules:
 
-- ingestion is idempotent by `(space_id, profile_id, source_external_id)` or content hash strategy;
+- ingestion is idempotent by `(space_id, memory_scope_id, source_external_id)` or content hash strategy;
 - raw episode text may be stored in Postgres for small payloads;
 - large raw payloads go to object storage with DB metadata;
 - sensitivity classification is stored with the episode and inherited by chunks/facts unless overridden by stricter policy;
@@ -3167,7 +3167,7 @@ Fields:
 ```text
 id
 space_id
-profile_id
+memory_scope_id
 thread_id
 filename
 mime_type
@@ -3203,7 +3203,7 @@ Fields:
 ```text
 id
 space_id
-profile_id
+memory_scope_id
 thread_id
 document_id
 episode_id
@@ -3242,7 +3242,7 @@ Fields:
 ```text
 id
 space_id
-profile_id?
+memory_scope_id?
 owner_principal_id?
 bucket_alias
 object_key_hash
@@ -3280,8 +3280,8 @@ Fields:
 ```text
 id
 space_id
-profile_id?
-principal_id
+memory_scope_id?
+user_id
 purpose
 expected_size_bytes?
 expected_content_hash?
@@ -3296,7 +3296,7 @@ metadata
 
 Rules:
 
-- upload session is scoped by principal, space/profile and purpose;
+- upload session is scoped by user, space/memory scope and purpose;
 - session expiry aborts untrusted temporary objects;
 - completion verifies size, checksum, mime and quota before creating dependent document/import artifact;
 - multipart upload completion is idempotent by upload session id;
@@ -3311,7 +3311,7 @@ Fields:
 ```text
 id
 space_id
-profile_id?
+memory_scope_id?
 artifact_type: export_bundle | import_report | backup_manifest | diagnostic_bundle | redaction_report
 storage_object_id
 created_by_principal_id
@@ -3364,9 +3364,9 @@ Fields:
 ```text
 id
 space_id?
-profile_id?
+memory_scope_id?
 policy_version
-scope: deployment | space | profile
+scope: deployment | space | memory scope
 backup_mode: logical_export | physical_snapshot | hybrid
 schedule_kind: manual | interval | cron_like
 include_postgres: true | false
@@ -3406,7 +3406,7 @@ Fields:
 id
 policy_id
 space_id?
-profile_id?
+memory_scope_id?
 started_by_principal_id
 status:
   queued
@@ -3494,7 +3494,7 @@ id
 manifest_id
 target_deployment_id
 target_space_id?
-target_profile_id?
+target_memory_scope_id?
 started_by_principal_id
 restore_mode:
   dry_run
@@ -3572,7 +3572,7 @@ Rules:
 New space restore:
 
 - safest default for local/personal recovery;
-- creates a new `MemorySpace` or profile and imports records with provenance linking to backup manifest;
+- creates a new `MemorySpace` or memory scope and imports records with provenance linking to backup manifest;
 - does not overwrite current memory;
 - still respects hard-delete ledger and destination policy.
 
@@ -3611,7 +3611,7 @@ Option B - Pure logical export/import only.
 🎯 7   🛡️ 8   🧠 4
 Approx changes: `300-700` lines.
 
-Simpler and portable, good for profile transfer. Weaker for disaster recovery because it may miss DB internals, audit continuity, operation ledgers and large object consistency.
+Simpler and portable, good for memory scope transfer. Weaker for disaster recovery because it may miss DB internals, audit continuity, operation ledgers and large object consistency.
 
 Option C - Physical snapshots for every backend.
 
@@ -3694,7 +3694,7 @@ E2E:
 - create facts/documents, backup, delete one fact, restore into new space and verify deleted fact policy behavior;
 - backup before hard-delete, hard-delete source document, restore and verify source chunk is not prompt-visible;
 - simulate disaster recovery from manifest and verify context stays disabled until validation passes;
-- restore profile bundle and verify Client App compatibility context still maps to correct profile/thread.
+- restore memory scope bundle and verify Client App compatibility context still maps to correct memory scope/thread.
 
 ### MemoryEntity
 
@@ -3705,7 +3705,7 @@ Fields:
 ```text
 id
 space_id
-profile_id
+memory_scope_id
 entity_key
 display_name
 entity_type: person | organization | project | repository | package | service | feature | concept | custom
@@ -3728,7 +3728,7 @@ Alias fields:
 ```text
 id
 space_id
-profile_id
+memory_scope_id
 entity_id
 alias
 alias_type: exact | normalized | former_name | external_id | model_candidate
@@ -3743,7 +3743,7 @@ Rules:
 
 - canonical entity identity lives in Postgres, not Graphiti;
 - Graphiti entity ids are candidate/mapping metadata, never canonical identity;
-- entity key must include enough scope to distinguish same names across projects/repos/profiles;
+- entity key must include enough scope to distinguish same names across projects/repos/memory scopes;
 - low-confidence entity matches create suggestions or `needs_review`, not automatic merges;
 - merge/split operations are auditable and must preserve old aliases and affected fact ids;
 - deleted/disabled entities hide associated facts unless the query explicitly asks for history.
@@ -3751,15 +3751,15 @@ Rules:
 Recommended entity key shape:
 
 ```text
-profile:{profile_id}:type:{entity_type}:scope:{scope_hash}:name:{normalized_name}
+memory scope:{memory_scope_id}:type:{entity_type}:scope:{scope_hash}:name:{normalized_name}
 ```
 
 Examples:
 
 ```text
-project "Memo Stack" in Client App architecture profile
+project "Memo Stack" in Client App architecture memory scope
 package "memo_stack_core" in repo Client App
-person "Alex" in team profile vs interview candidate profile
+person "Alex" in team memory scope vs interview candidate memory scope
 ```
 
 ### MemoryFact
@@ -3771,7 +3771,7 @@ Fields:
 ```text
 id
 space_id
-profile_id
+memory_scope_id
 thread_id
 entity_id
 entity_key
@@ -3814,7 +3814,7 @@ Only facts with current currency and no unresolved blocking conflict are eligibl
 This model applies to:
 
 - explicit `update_fact`;
-- imported profile/document facts;
+- imported memory scope/document facts;
 - auto-memory suggestions;
 - connector backfills;
 - branch/PR promotion;
@@ -3831,7 +3831,7 @@ Fields:
 ```text
 id
 space_id
-profile_id
+memory_scope_id
 fact_id
 entity_id?
 kind
@@ -3885,7 +3885,7 @@ Fields:
 ```text
 id
 space_id
-profile_id
+memory_scope_id
 entity_id?
 kind
 scope_hash
@@ -3936,7 +3936,7 @@ Fields:
 ```text
 id
 space_id
-profile_id
+memory_scope_id
 old_fact_id
 new_fact_id
 decision_type:
@@ -3976,7 +3976,7 @@ Fields:
 ```text
 id
 space_id
-profile_id
+memory_scope_id
 entity_id?
 kind
 scope_hash
@@ -4082,7 +4082,7 @@ Fields:
 ```text
 id
 space_id
-profile_id
+memory_scope_id
 fact_id
 episode_id
 document_id
@@ -4198,7 +4198,7 @@ Rules:
 - confidence can be raised automatically only by independent trusted evidence or human review;
 - confidence can be lowered automatically by contradiction, stale source, deleted source or unresolved entity;
 - auto-promotion requires confidence, source trust, entity confidence, temporal confidence and no unresolved conflict;
-- manual facts may start high confidence only when the principal is trusted for that profile;
+- manual facts may start high confidence only when the user is trusted for that memory scope;
 - classifier prompt/model version is stored with candidate facts to explain confidence changes later.
 
 Recommended confidence bands:
@@ -4287,8 +4287,8 @@ Fields:
 ```text
 id
 space_id
-profile_id
-principal_id
+memory_scope_id
+user_id
 connector_id?
 source_provenance_id?
 source_type
@@ -4332,7 +4332,7 @@ Fields:
 id
 write_intent_id
 space_id
-profile_id
+memory_scope_id
 decision:
   allow_active
   allow_source_only
@@ -4371,7 +4371,7 @@ Fields:
 id
 write_intent_id
 space_id
-profile_id
+memory_scope_id
 signal_type:
   prompt_injection
   tool_instruction
@@ -4399,7 +4399,7 @@ Rules:
 - deterministic detectors run before LLM/classifier extraction when possible;
 - classifier can add signals but cannot downgrade deterministic critical signals;
 - signals are safe diagnostics and should not store full malicious payload;
-- repeated signals can tighten connector/profile policy.
+- repeated signals can tighten connector/memory scope policy.
 
 ### QuarantinedMemoryCandidate
 
@@ -4412,7 +4412,7 @@ id
 write_intent_id
 admission_id
 space_id
-profile_id
+memory_scope_id
 status: quarantined | released_as_source | released_as_suggestion | rejected | expired
 reason_codes[]
 expires_at?
@@ -4433,7 +4433,7 @@ Rules:
 
 ```text
 create WriteIntent
-verify principal, connector and profile grant
+verify user, connector and memory scope grant
 validate SourceProvenance
 detect sensitivity and secrets
 run deterministic poisoning detectors
@@ -4448,7 +4448,7 @@ Rules:
 
 - write admission runs before Graphiti/Qdrant indexing and before auto-promotion;
 - write admission cannot be bypassed by import, restore, connector or MCP paths;
-- agent-origin writes cannot approve themselves unless explicit policy allows and a separate reviewer principal is present;
+- agent-origin writes cannot approve themselves unless explicit policy allows and a separate reviewer user is present;
 - instruction-like text can be stored as quoted source evidence but never as `is_instruction=true`;
 - low-trust writes can improve recall as source chunks while staying blocked from current constraints.
 
@@ -4489,7 +4489,7 @@ Application:
 
 - document with "ignore previous instructions" stores source chunk but no active instruction-like fact;
 - MCP write from agent cannot self-approve generated suggestion;
-- Slack/GitHub connector outside allowed profile is rejected before materialization;
+- Slack/GitHub connector outside allowed memory scope is rejected before materialization;
 - import bundle with suspicious source creates quarantined candidate;
 - explicit trusted manual correction can pass admission and proceed to fact currency resolver.
 
@@ -4574,7 +4574,7 @@ Fields:
 ```text
 id
 space_id
-profile_id
+memory_scope_id
 source_ref_id
 repo_id
 commit_sha?
@@ -4626,11 +4626,11 @@ Fields:
 ```text
 id
 space_id
-principal_id
+user_id
 source_app: client-app | codex | claude | cursor | slack | github | manual | api | mcp
 display_name
 status: active | paused | degraded | revoked | deleted
-allowed_profiles
+allowed_memory scopes
 allowed_actions
 default_policy_id
 trusted_source_types
@@ -4690,11 +4690,11 @@ Fields:
 ```text
 id
 space_id
-principal_id
+user_id
 target_type: webhook | polling | local_sdk
 target_url?
 event_types[]
-profile_filters[]
+memory scope_filters[]
 status: active | paused | failed | revoked
 delivery_secret_version?
 last_delivered_cursor
@@ -4709,7 +4709,7 @@ Rules:
 - clients must treat events as cache invalidation and refetch through authorized APIs;
 - delivery is at-least-once, so clients must dedupe by event id/cursor;
 - failed webhook delivery uses backoff and dead-letter diagnostics;
-- subscriptions cannot grant access beyond principal/profile grants.
+- subscriptions cannot grant access beyond user/memory scope grants.
 
 ### Sync Readiness Model
 
@@ -4726,7 +4726,7 @@ Fields:
 ```text
 id
 space_id
-principal_id
+user_id
 peer_type: local_docker | desktop_app | remote_server | managed_cloud | import_bundle
 display_name
 trust_tier: owner_device | team_server | imported_bundle | untrusted_external
@@ -4743,7 +4743,7 @@ metadata
 Rules:
 
 - sync peer is an identity boundary, not an authorization bypass;
-- every sync request still resolves a principal and profile grants through `AuthorizationPort`;
+- every sync request still resolves a user and memory scope grants through `AuthorizationPort`;
 - revoked peers cannot pull or push changes, but their historical provenance remains auditable;
 - peer trust tier participates in conflict scoring but never overrides explicit legal hold, tombstone or policy rules.
 
@@ -4807,7 +4807,7 @@ Rules:
 - change sets include canonical aggregate ids, versions, status, source refs and tombstones;
 - large raw documents move through export/object storage references, not inline sync payloads;
 - derived index ids are excluded;
-- dry-run must report conflicts, missing profiles, stricter destination policy and legal hold blockers;
+- dry-run must report conflicts, missing memory scopes, stricter destination policy and legal hold blockers;
 - apply is idempotent by change set id and aggregate version.
 
 #### SyncConflict
@@ -4819,7 +4819,7 @@ Fields:
 ```text
 id
 space_id
-profile_id?
+memory_scope_id?
 aggregate_type
 aggregate_id
 local_version
@@ -4828,7 +4828,7 @@ local_origin_peer_id?
 incoming_peer_id
 conflict_type: version | delete_update | policy | ontology | legal_hold | permission | duplicate_identity
 resolution_status: open | auto_resolved | needs_review | resolved | rejected
-recommended_action: keep_local | apply_incoming | create_suggestion | fork_profile | block
+recommended_action: keep_local | apply_incoming | create_suggestion | fork_memory scope | block
 safe_summary
 created_at
 resolved_at?
@@ -4915,8 +4915,8 @@ Fields:
 ```text
 id
 space_id
-profile_id
-target_type: fact | episode | document | chunk | profile | thread
+memory_scope_id
+target_type: fact | episode | document | chunk | memory scope | thread
 target_id
 reason
 created_by
@@ -4939,9 +4939,9 @@ Fields:
 ```text
 id
 space_id
-profile_id
+memory_scope_id
 name
-scope_type: profile | thread | source_app | source_type | kind
+scope_type: memory scope | thread | source_app | source_type | kind
 scope_id
 parent_policy_id
 priority
@@ -4980,14 +4980,14 @@ version
 Rules:
 
 - policy is evaluated before classifier promotion and before any external AI/embedding call;
-- effective policy is resolved by profile default plus allowed overrides, ordered by priority and specificity;
+- effective policy is resolved by memory scope default plus allowed overrides, ordered by priority and specificity;
 - `disabled` rejects memory writes except minimal audit if configured;
 - `shadow` ingests/classifies for diagnostics but does not affect retrieval/context;
 - `manual_only` stores only explicit API/user-created facts;
 - `explicit_only` stores explicit facts and explicit source chunks, but does not extract automatic facts;
 - `suggestions` stores classifier candidates as inactive `MemorySuggestion` rows;
 - `auto_safe` promotes only high-confidence allowed kinds with source refs, no conflict and no sensitive-source violation;
-- `auto_aggressive` can promote more categories, but still blocks secrets, prompt injection, profile leakage and unresolved conflicts;
+- `auto_aggressive` can promote more categories, but still blocks secrets, prompt injection, memory scope leakage and unresolved conflicts;
 - consolidation is allowed only for configured modes and must preserve source refs;
 - assistant answers are derived evidence, not primary source evidence by default;
 - external AI permission is evaluated by purpose, provider, model, sensitivity and quota;
@@ -5001,7 +5001,7 @@ Recommended v1 default:
 mode: suggestions
 explicit user facts: create active MemoryFact immediately
 classifier candidates: create MemorySuggestion
-auto-promote: disabled by default except narrow allowlist if profile opts in
+auto-promote: disabled by default except narrow allowlist if memory scope opts in
 ```
 
 ### MemorySuggestion
@@ -5013,7 +5013,7 @@ Fields:
 ```text
 id
 space_id
-profile_id
+memory_scope_id
 thread_id
 candidate_text
 kind
@@ -5051,7 +5051,7 @@ Fields:
 ```text
 id
 space_id
-profile_id
+memory_scope_id
 cluster_key
 cluster_type: duplicate_fact | recurring_preference | recurring_decision | topic | source_group | code_decision
 status: proposed | active | split | merged | archived | deleted
@@ -5074,7 +5074,7 @@ Rules:
 - cluster membership is metadata and cannot make a deleted/disabled fact visible;
 - `representative_fact_id` must point to an active canonical fact or be null;
 - low-cohesion clusters stay `proposed` and require review before they affect context packing;
-- cross-profile clusters are blocked in v1 unless a future space-level entity registry and grants allow it;
+- cross-memory-scope clusters are blocked in v1 unless a future space-level entity registry and grants allow it;
 - split/merge operations are audited and must preserve old cluster ids for traceability.
 
 #### MemoryDigest
@@ -5086,7 +5086,7 @@ Fields:
 ```text
 id
 space_id
-profile_id
+memory_scope_id
 cluster_id?
 digest_text
 digest_type: topic_summary | meeting_rollup | decision_rollup | preference_rollup | code_context_rollup
@@ -5124,7 +5124,7 @@ Fields:
 ```text
 id
 space_id
-profile_id?
+memory_scope_id?
 mode: dedupe | cluster | digest | refresh_digest | split_cluster | merge_cluster | stale_review
 status: pending | running | dry_run_ready | completed | failed | cancelled | blocked
 target_scope
@@ -5166,8 +5166,8 @@ Fields:
 ```text
 id
 space_id
-profile_id?
-principal_id?
+memory_scope_id?
+user_id?
 connector_id?
 reservation_id?
 workload_class: interactive_context | ingest_hot_path | background_indexing | background_ai | background_quality | maintenance | sync
@@ -5198,10 +5198,10 @@ Fields:
 ```text
 id
 space_id
-profile_id?
-principal_id?
+memory_scope_id?
+user_id?
 connector_id?
-scope_type: space | profile | principal | connector | workload_class | provider | purpose
+scope_type: space | memory scope | user | connector | workload_class | provider | purpose
 resource_type
 period: minute | hour | day | month | total | concurrent
 limit
@@ -5231,8 +5231,8 @@ Fields:
 ```text
 id
 space_id
-profile_id?
-principal_id?
+memory_scope_id?
+user_id?
 connector_id?
 workload_class
 resource_type
@@ -5299,7 +5299,7 @@ Fields:
 ```text
 id
 space_id
-profile_id?
+memory_scope_id?
 aggregate_type: episode | fact | document | chunk | entity | digest | cluster
 aggregate_id
 aggregate_version
@@ -5333,7 +5333,7 @@ Fields:
 ```text
 id
 space_id
-profile_id?
+memory_scope_id?
 projection_state_id
 aggregate_type
 aggregate_id
@@ -5365,7 +5365,7 @@ Fields:
 ```text
 id
 space_id
-profile_id?
+memory_scope_id?
 projection_type: graph | vector | search_metadata | all
 adapter_name?
 mode: rebuild | verify | deindex | migrate_generation
@@ -5411,8 +5411,8 @@ Fields:
 ```text
 id
 space_id
-profile_id?
-principal_id
+memory_scope_id?
+user_id
 connector_id?
 operation_type: remember_fact | update_fact | forget_fact | ingest_document | import_bundle | export_bundle | retention_apply | projection_rebuild | consolidation | sync_apply | admin_task
 status: accepted | running | waiting | succeeded | failed | cancelled | expired
@@ -5448,7 +5448,7 @@ Fields:
 ```text
 id
 space_id
-principal_id
+user_id
 idempotency_key
 request_method
 request_path
@@ -5543,7 +5543,7 @@ Redaction artifact fields:
 ```text
 id
 space_id
-profile_id
+memory_scope_id
 source_ref_id
 raw_text_hash
 redacted_text_hash
@@ -5596,8 +5596,8 @@ Fields:
 ```text
 id
 space_id
-profile_id?
-scope_type: space | profile | thread | source_type | sensitivity | kind | connector | code_scope
+memory_scope_id?
+scope_type: space | memory scope | thread | source_type | sensitivity | kind | connector | code_scope
 scope_id?
 action: downrank | archive | disable | soft_delete | hard_delete | export_then_delete
 after_days
@@ -5626,8 +5626,8 @@ Fields:
 ```text
 id
 space_id
-profile_id?
-target_type: space | profile | thread | document | episode | fact | source | connector | code_scope
+memory_scope_id?
+target_type: space | memory scope | thread | document | episode | fact | source | connector | code_scope
 target_id
 reason
 created_by
@@ -5668,14 +5668,14 @@ Rules:
 - dry-run returns counts by aggregate type, sensitivity and hold status;
 - retention execution is idempotent and resumable;
 - delete/deindex events use tombstones and outbox ordering;
-- profile/thread deletion uses retention jobs to cascade across facts, chunks, documents, subscriptions and derived indexes;
+- memory scope/thread deletion uses retention jobs to cascade across facts, chunks, documents, subscriptions and derived indexes;
 - failed retention jobs never make partially deleted data visible again.
 
 Required tests:
 
 - retention dry-run reports affected facts/chunks/documents without deleting;
 - legal hold blocks hard-delete but normal context hides forgotten records;
-- profile delete cascades to derived indexes and object storage cleanup;
+- memory scope delete cascades to derived indexes and object storage cleanup;
 - retention job crash resumes without duplicate deletes;
 - export after retention does not include hard-deleted raw content.
 
@@ -6110,7 +6110,7 @@ Required tests:
 - expired lease can be reclaimed;
 - stale upsert after delete cannot resurrect memory;
 - dead-letter appears in diagnostics with safe details;
-- per-profile ordering key prevents out-of-order graph/vector writes for the same memory.
+- per-memory scope ordering key prevents out-of-order graph/vector writes for the same memory.
 
 ### Import and Export Lifecycle
 
@@ -6193,7 +6193,7 @@ stateDiagram-v2
   active --> disabled: disable_memory
   disabled --> active: enable_memory
   superseded --> archived: retention_elapsed
-  disabled --> archived: delete_profile_or_retention
+  disabled --> archived: delete_memory scope_or_retention
   archived --> [*]
 ```
 
@@ -6293,7 +6293,7 @@ class EntityRepositoryPort:
     async def merge_entities(...)
     async def split_entity(...)
 
-class ProfileRepositoryPort:
+class Memory ScopeRepositoryPort:
     async def create(...)
     async def get(...)
     async def list(...)
@@ -6360,15 +6360,15 @@ class ScheduledTaskRepositoryPort:
     async def record_task_finished(...)
     async def mark_task_failed(...)
 
-class PrincipalRepositoryPort:
+class UserRepositoryPort:
     async def resolve_principal(...)
     async def get_membership(...)
-    async def list_profile_grants(...)
+    async def list_memory_scope_grants(...)
 
 class AuthorizationPort:
     async def require_space_action(...)
-    async def require_profile_action(...)
-    async def filter_readable_profiles(...)
+    async def require_memory scope_action(...)
+    async def filter_readable_memory scopes(...)
     async def build_read_scope(...)
 
 class VisibilityGuardPort:
@@ -6392,7 +6392,7 @@ class PromptPathBudgetPort:
     async def decide_degradation(...)
 
 class PolicyRepositoryPort:
-    async def get_for_profile(...)
+    async def get_for_memory scope(...)
     async def get_effective_policy(...)
     async def update_policy(...)
 
@@ -6788,13 +6788,13 @@ memory_retention_rules
 memory_retention_jobs
 memory_legal_holds
 memory_space_members
-memory_profile_grants
+memory_memory_scope_grants
 memory_repository_scope_proofs
 memory_maintenance_scope_overrides
 memory_read_access_audit
 memory_prompt_path_runs
 memory_prompt_path_stage_runs
-memory_profiles
+memory_scopes
 memory_threads
 memory_episodes
 memory_storage_objects
@@ -6851,21 +6851,21 @@ Sync tables are contract tables, not a promise that bidirectional sync ships in 
 Indexes:
 
 ```text
-(space_id, profile_id, status)
-(space_id, profile_id, thread_id)
-(space_id, profile_id, content_hash)
+(space_id, memory_scope_id, status)
+(space_id, memory_scope_id, thread_id)
+(space_id, memory_scope_id, content_hash)
 (deployment_id, status) on memory_deployment_instances
 (deployment_id, state) on memory_bootstrap_states
 (deployment_id, config_hash, created_at) on memory_runtime_config_snapshots
 (deployment_id, code, status) on memory_deployment_regions
-(space_id, profile_id, status, policy_version) on memory_data_residency_policies
-(space_id, profile_id, purpose, decision, created_at) on memory_processing_location_decisions
+(space_id, memory_scope_id, status, policy_version) on memory_data_residency_policies
+(space_id, memory_scope_id, purpose, decision, created_at) on memory_processing_location_decisions
 (space_id, status, purpose, created_at) on memory_cross_region_transfer_requests
 (release_version, package_name, package_version) on memory_dependency_inventory
 (release_version, severity, status) on memory_dependency_risk_findings
 (deployment_id, status) on memory_license_policies
-(space_id, profile_id, parser_family, status) on memory_parser_sandbox_policies
-(space_id, profile_id, document_id, status, started_at) on memory_parser_execution_runs
+(space_id, memory_scope_id, parser_family, status) on memory_parser_sandbox_policies
+(space_id, memory_scope_id, document_id, status, started_at) on memory_parser_execution_runs
 (release_version, artifact_type, scan_status) on memory_release_artifact_attestations
 (deployment_id, target_version, status) on memory_schema_migration_runs
 (migration_run_id, status, resume_cursor) on memory_data_backfill_jobs
@@ -6874,7 +6874,7 @@ Indexes:
 (lease_key, status, expires_at) unique where status = active on memory_worker_leases
 (task_key, enabled, next_run_at) on memory_scheduled_tasks
 (task_key, started_at, status) on memory_scheduled_task_runs
-(space_id, profile_id, purpose, content_hash) on memory_storage_objects
+(space_id, memory_scope_id, purpose, content_hash) on memory_storage_objects
 (space_id, status, expires_at) on memory_upload_sessions
 (space_id, artifact_type, status, expires_at) on memory_artifacts
 (space_id, scope, status) on memory_backup_policies
@@ -6882,67 +6882,67 @@ Indexes:
 (backup_run_id, manifest_schema_version) on memory_backup_manifests
 (target_deployment_id, status, started_at) on memory_restore_runs
 (restore_run_id, status, checked_at) on memory_restore_validation_reports
-(space_id, profile_id, entity_key) unique where status = active
-(space_id, profile_id, alias) on memory_entity_aliases
-(space_id, profile_id, entity_type, status) on memory_entities
+(space_id, memory_scope_id, entity_key) unique where status = active
+(space_id, memory_scope_id, alias) on memory_entity_aliases
+(space_id, memory_scope_id, entity_type, status) on memory_entities
 (fact_id, version)
 (entity_id, status) on memory_facts
-(space_id, profile_id, entity_id, kind, currency_status) on memory_fact_currency_states
-(space_id, profile_id, status, created_at) on memory_fact_conflicts
+(space_id, memory_scope_id, entity_id, kind, currency_status) on memory_fact_currency_states
+(space_id, memory_scope_id, status, created_at) on memory_fact_conflicts
 (space_id, target_fact_id, decision_status) on memory_supersession_decisions
-(principal_id, token_prefix, status) on memory_api_tokens
+(user_id, token_prefix, status) on memory_api_tokens
 (space_id, key_purpose, status) on memory_key_versions
 (space_id, source_app, status) on memory_connector_installations
 (connector_id, source_stream) unique on memory_connector_sync_states
-(space_id, principal_id, status) on memory_event_subscriptions
+(space_id, user_id, status) on memory_event_subscriptions
 (subscription_id, cursor, status) on memory_event_deliveries
-(space_id, cache_kind, profile_ids_hash, query_hash, expires_at) on memory_cache_entries
+(space_id, cache_kind, memory_scope_ids_hash, query_hash, expires_at) on memory_cache_entries
 (space_id, target_type, target_id, commit_position) on memory_cache_invalidations
 (space_id, cache_kind, invalidated_at, expires_at) on memory_cache_entries
-(space_id, principal_id, peer_type, status) on memory_sync_peers
+(space_id, user_id, peer_type, status) on memory_sync_peers
 (space_id, peer_id, direction, status) on memory_sync_checkpoints
 (space_id, peer_id, base_cursor, target_cursor) on memory_sync_change_sets
-(space_id, profile_id, aggregate_type, aggregate_id, resolution_status) on memory_sync_conflicts
+(space_id, memory_scope_id, aggregate_type, aggregate_id, resolution_status) on memory_sync_conflicts
 (space_id, repo_key, status) on memory_code_repositories
 (space_id, repo_id, commit_sha, file_path) on memory_code_references
 (space_id, repo_id, symbol_name, status) on memory_code_references
 (space_id, scope_type, scope_id, version) on memory_retention_rules
 (space_id, rule_id, status) on memory_retention_jobs
 (space_id, target_type, target_id, status) on memory_legal_holds
-(space_id, principal_id, purpose, created_at) on memory_read_access_audit
-(space_id, profile_id, status, started_at) on memory_prompt_path_runs
+(space_id, user_id, purpose, created_at) on memory_read_access_audit
+(space_id, memory_scope_id, status, started_at) on memory_prompt_path_runs
 (prompt_path_run_id, stage, status) on memory_prompt_path_stage_runs
 (target_type, target_id) on tombstones
-(space_id, profile_id, status, created_at) on suggestions
-(space_id, profile_id, decision, created_at) on memory_write_admissions
-(space_id, profile_id, signal_type, severity) on memory_poisoning_signals
-(space_id, profile_id, status, created_at) on memory_quarantined_candidates
-(space_id, profile_id, cluster_type, status) on memory_clusters
+(space_id, memory_scope_id, status, created_at) on suggestions
+(space_id, memory_scope_id, decision, created_at) on memory_write_admissions
+(space_id, memory_scope_id, signal_type, severity) on memory_poisoning_signals
+(space_id, memory_scope_id, status, created_at) on memory_quarantined_candidates
+(space_id, memory_scope_id, cluster_type, status) on memory_clusters
 (space_id, cluster_id, member_type, member_id) unique on memory_cluster_members
-(space_id, profile_id, cluster_id, status) on memory_digests
-(space_id, profile_id, mode, status) on memory_consolidation_jobs
+(space_id, memory_scope_id, cluster_id, status) on memory_digests
+(space_id, memory_scope_id, mode, status) on memory_consolidation_jobs
 (space_id, aggregate_type, aggregate_id, projection_type, adapter_name) on memory_projection_states
 (space_id, projection_type, adapter_name, generation, status) on memory_projection_states
 (space_id, aggregate_type, aggregate_id, adapter_name, adapter_object_id_hash) on memory_projection_mappings
 (space_id, projection_type, adapter_name, status) on memory_projection_rebuild_jobs
-(space_id, principal_id, status, created_at) on memory_client_operations
+(space_id, user_id, status, created_at) on memory_client_operations
 (space_id, operation_type, target_type, target_id, status) on memory_client_operations
-(space_id, principal_id, idempotency_key) unique on memory_idempotency_records
+(space_id, user_id, idempotency_key) unique on memory_idempotency_records
 (operation_id, created_at) on memory_operation_result_snapshots
-(space_id, profile_id, source_ref_id) on redaction_artifacts
+(space_id, memory_scope_id, source_ref_id) on redaction_artifacts
 (purpose, version, status) on prompt_templates
-(space_id, profile_id, provider, purpose, created_at) on ai_call_audit
+(space_id, memory_scope_id, provider, purpose, created_at) on ai_call_audit
 (space_id, provider, status) on provider_configs
 (space_id, sequence_no) unique on audit_chain
-(space_id, profile_id, version) on policies
-(space_id, profile_id, scope_type, scope_id, priority) on policies
+(space_id, memory_scope_id, version) on policies
+(space_id, memory_scope_id, scope_type, scope_id, priority) on policies
 (space_id, resource_type, occurred_at) on memory_usage_records
-(space_id, profile_id, workload_class, resource_type, occurred_at) on memory_usage_records
+(space_id, memory_scope_id, workload_class, resource_type, occurred_at) on memory_usage_records
 (space_id, scope_type, resource_type, priority) on memory_quota_rules
 (space_id, status, expires_at) on memory_quota_reservations
 (space_id, idempotency_key) unique on memory_quota_reservations
-(space_id, principal_id, role, status) on space_members
-(space_id, profile_id, principal_id, status) on profile_grants
+(space_id, user_id, role, status) on space_members
+(space_id, memory_scope_id, user_id, status) on memory_scope_grants
 (space_id, table_family, operation_type, created_at) on memory_repository_scope_proofs
 (space_id, operation_type, status, expires_at) on memory_maintenance_scope_overrides
 (ontology_version, canonical_kind) on ontology_versions
@@ -6957,7 +6957,7 @@ Concurrency:
 - outbox claim uses `FOR UPDATE SKIP LOCKED`;
 - delete/update returns conflict if expected version mismatches.
 - use deterministic idempotency keys for outbox events and adapter writes;
-- process ordering-sensitive events with a per-profile or per-aggregate ordering key;
+- process ordering-sensitive events with a per-memory scope or per-aggregate ordering key;
 - worker leases must expire and be safely claimable after crash.
 
 ### Graphiti Adapter
@@ -6972,7 +6972,7 @@ Use for:
 - entity relationships;
 - temporal invalidation;
 - graph-aware search;
-- profile separation by `group_id`.
+- memory scope separation by `group_id`.
 
 Do not use for:
 
@@ -6985,7 +6985,7 @@ Do not use for:
 Mapping:
 
 ```text
-MemoryProfile -> Graphiti group_id
+MemoryScope -> Graphiti group_id
 MemoryEpisode -> Graphiti episode
 MemoryEntity -> Graphiti entity candidate/mapping metadata
 MemoryFact -> Graphiti triplet/edge or episode-derived edge
@@ -6995,12 +6995,12 @@ SourceRef -> Graphiti episode metadata + Postgres canonical source ref
 Recommended `group_id`:
 
 ```text
-space:{space_id}:profile:{profile_id}
+space:{space_id}:memory scope:{memory_scope_id}
 ```
 
 Important Graphiti behavior:
 
-- process episodes sequentially per group/profile;
+- process episodes sequentially per group/memory scope;
 - use `reference_time` from source event, not wall-clock ingestion time;
 - resolve canonical `MemoryEntity` in Postgres before treating Graphiti entity matches as durable identity;
 - use Graphiti search as candidate retrieval, then canonical filter through Postgres;
@@ -7080,7 +7080,7 @@ with payload:
 
 ```text
 space_id
-profile_id
+memory_scope_id
 thread_id
 document_id
 episode_id
@@ -7107,7 +7107,7 @@ Required payload indexes:
 
 ```text
 space_id
-profile_id
+memory_scope_id
 thread_id
 document_id
 episode_id
@@ -7173,7 +7173,7 @@ Local embedding can be v1.1.
 Classifier decides:
 
 - should this item be remembered;
-- what profile/kind it belongs to;
+- what memory scope/kind it belongs to;
 - whether it is a fact, preference, decision, constraint, task, code pattern, meeting note;
 - importance;
 - confidence;
@@ -7229,8 +7229,8 @@ Provider call envelope:
 ```text
 request_id
 space_id
-profile_id
-principal_id
+memory_scope_id
+user_id
 purpose: embedding | classification | summarization | rerank | ocr | graph_indexing
 provider
 model
@@ -7326,7 +7326,7 @@ deployment_id
 bootstrap_token
 owner_display_name
 space_name
-profile_name
+memory scope_name
 requested_token_scopes
 request_fingerprint_hash
 ```
@@ -7336,9 +7336,9 @@ Steps:
 ```text
 load BootstrapState
 verify deployment mode and one-time bootstrap token
-create owner Principal
+create owner User
 create default MemorySpace and owner SpaceMember
-create default MemoryProfile and ProfileGrant
+create default MemoryScope and MemoryScopeGrant
 create default MemoryPolicy
 create scoped local API token if requested
 record audit event
@@ -7526,7 +7526,7 @@ Input:
 
 ```text
 space_id
-principal_id
+user_id
 idempotency_key?
 request_method
 request_path
@@ -7585,7 +7585,7 @@ Rules:
 - cancelled operation must state whether canonical target was committed;
 - status update is idempotent by operation id and target version.
 
-### CreateProfileUseCase
+### CreateMemory ScopeUseCase
 
 Input:
 
@@ -7599,12 +7599,12 @@ retention policy
 Output:
 
 ```text
-MemoryProfileDTO
+MemoryScopeDTO
 ```
 
 Rules:
 
-- profile name unique per space;
+- memory scope name unique per space;
 - default retention is conservative;
 - creates no Graphiti/Qdrant resources until first write unless adapter requires explicit setup.
 
@@ -7614,7 +7614,7 @@ Input:
 
 ```text
 space_id
-profile_id
+memory_scope_id
 entity_text
 entity_type?
 scope?
@@ -7649,7 +7649,7 @@ Rules:
 - Graphiti entity matches are inputs to resolution, not final identity;
 - ambiguous entity resolution blocks auto-promotion by default;
 - merge and split require reviewer/admin grant unless policy explicitly allows high-confidence automatic aliases;
-- entity decisions are profile-scoped unless a space-level ontology/entity registry is explicitly introduced later.
+- entity decisions are memory-scope-scoped unless a space-level ontology/entity registry is explicitly introduced later.
 
 ### ResolveCodeScopeUseCase
 
@@ -7692,7 +7692,7 @@ Input:
 
 ```text
 space_id
-profile_id
+memory_scope_id
 thread_id?
 text
 kind?
@@ -7713,7 +7713,7 @@ Steps:
 
 ```text
 resolve idempotency and create ClientOperation if needed
-validate profile
+validate memory scope
 normalize text
 create or validate SourceProvenance
 build WriteIntent for explicit fact
@@ -7879,7 +7879,7 @@ Input:
 
 ```text
 space_id
-profile_id
+memory_scope_id
 expected_version
 patch:
   mode?
@@ -7915,7 +7915,7 @@ Input:
 ```text
 space_id
 rule_id?
-profile_id?
+memory_scope_id?
 dry_run: true | false
 requested_by
 ```
@@ -7975,8 +7975,8 @@ Input:
 
 ```text
 space_id
-profile_ids?
-principal_id?
+memory_scope_ids?
+user_id?
 operation_id?
 worker_id?
 purpose
@@ -7988,7 +7988,7 @@ maintenance_override_id?
 Steps:
 
 ```text
-resolve principal or worker identity
+resolve user or worker identity
 load membership, grants, policy versions and override when present
 validate that requested scope fits the use-case purpose
 create RepositoryScope
@@ -8010,8 +8010,8 @@ Input:
 
 ```text
 space_id
-profile_id?
-principal_id?
+memory_scope_id?
+user_id?
 purpose
 sensitivity
 requested_region_id?
@@ -8026,7 +8026,7 @@ Steps:
 
 ```text
 load MemorySpace home region and effective DataResidencyPolicy
-load effective MemoryPolicy when profile or source kind is known
+load effective MemoryPolicy when memory scope or source kind is known
 resolve requested storage/provider/backup/export region
 compare purpose, sensitivity and provider region against allowed policy
 produce ProcessingLocationDecision
@@ -8039,7 +8039,7 @@ Rules:
 - called before raw storage placement, external AI, embedding, OCR, rerank, backup, export, import and sync apply;
 - local Docker can return a single `local` allow decision without adding cloud complexity;
 - remote/team mode must fail closed when provider region is unknown for sensitive or restricted data;
-- residency denial must not reveal raw memory text or forbidden profile existence.
+- residency denial must not reveal raw memory text or forbidden memory scope existence.
 
 ### RunParserSandboxUseCase
 
@@ -8047,7 +8047,7 @@ Input:
 
 ```text
 space_id
-profile_id
+memory_scope_id
 document_id
 storage_object_id
 mime_type
@@ -8109,8 +8109,8 @@ Input:
 
 ```text
 space_id
-profile_id?
-principal_id?
+memory_scope_id?
+user_id?
 connector_id?
 workload_class
 resource_estimates:
@@ -8127,7 +8127,7 @@ Steps:
 ```text
 load current policy and effective quota rules
 check workload priority and system health
-compute fairness key from space/profile/principal/connector/workload
+compute fairness key from space/memory scope/user/connector/workload
 reserve capacity for expensive resources
 return AdmissionDecision
 audit hard rejections and degraded modes
@@ -8147,8 +8147,8 @@ Input:
 ```text
 reservation_id?
 space_id
-profile_id?
-principal_id?
+memory_scope_id?
+user_id?
 connector_id?
 resource_type
 quantity
@@ -8190,7 +8190,7 @@ Steps:
 ```text
 load episode
 load current effective policy
-stop if episode/profile is deleted or disabled
+stop if episode/memory scope is deleted or disabled
 apply deterministic safety filters
 call classifier only if policy allows classification
 dedupe candidates
@@ -8238,7 +8238,7 @@ Steps:
 
 ```text
 load suggestion
-check profile authorization
+check memory scope authorization
 build WriteIntent for approval/edit action
 run WriteAdmissionPort for approved or edited text
 if approve, create MemoryFact from suggestion
@@ -8258,7 +8258,7 @@ Input:
 
 ```text
 space_id
-profile_id?
+memory_scope_id?
 mode: dedupe | cluster | digest | refresh_digest | stale_review
 scope:
   thread_id?
@@ -8331,7 +8331,7 @@ Input:
 
 ```text
 space_id
-profile_id
+memory_scope_id
 thread_id
 source_type
 source_external_id
@@ -8374,7 +8374,7 @@ Input:
 
 ```text
 space_id
-profile_id
+memory_scope_id
 thread_id?
 file
 filename
@@ -8426,7 +8426,7 @@ Input:
 
 ```text
 space_id
-profile_id?
+memory_scope_id?
 purpose
 expected_size_bytes?
 expected_content_hash?
@@ -8466,7 +8466,7 @@ Steps:
 
 ```text
 load UploadSession and StorageObject
-verify principal/scope
+verify user/scope
 verify object exists and checksum matches
 validate mime, size, quota and parser policy
 verify StorageObject region still satisfies current residency policy
@@ -8487,7 +8487,7 @@ Input:
 
 ```text
 artifact_id
-principal_id
+user_id
 purpose
 ```
 
@@ -8514,7 +8514,7 @@ Input:
 
 ```text
 space_id
-profile_ids
+memory_scope_ids
 query
 types?
 thread_ids?
@@ -8545,7 +8545,7 @@ Input:
 
 ```text
 space_id
-profile_ids
+memory_scope_ids
 query
 token_budget
 mode: answer | coding_agent | interview | meeting
@@ -8583,7 +8583,7 @@ Input:
 space_id
 source_app
 display_name
-allowed_profiles
+allowed_memory scopes
 allowed_actions
 default_policy_id?
 webhook_enabled?
@@ -8594,7 +8594,7 @@ Steps:
 ```text
 authorize admin/integration action
 create ConnectorInstallation
-create scoped principal/token if requested
+create scoped user/token if requested
 create webhook secret if requested
 write audit event
 return connector id, token once, webhook config
@@ -8603,7 +8603,7 @@ return connector id, token once, webhook config
 Rules:
 
 - connector token is shown once and then stored only as hash;
-- connector actions cannot exceed the installer principal's grants;
+- connector actions cannot exceed the installer user's grants;
 - webhook secret rotation must not change connector id or provenance.
 
 ### IngestConnectorEventUseCase
@@ -8654,7 +8654,7 @@ aggregate_type
 aggregate_id
 aggregate_version
 space_id
-profile_id?
+memory_scope_id?
 ```
 
 Steps:
@@ -8679,7 +8679,7 @@ Input:
 
 ```text
 space_id
-profile_id?
+memory_scope_id?
 projection_type: graph | vector | search_metadata | all
 adapter_name?
 mode: rebuild | verify | deindex | migrate_generation
@@ -8717,7 +8717,7 @@ Input:
 
 ```text
 space_id
-profile_id?
+memory_scope_id?
 projection_type?
 adapter_name?
 sample_size?
@@ -8750,18 +8750,18 @@ space_id
 peer_id
 from_cursor
 to_cursor?
-profile_filters?
+memory scope_filters?
 include_raw_documents: false by default
 ```
 
 Steps:
 
 ```text
-authorize peer and principal
+authorize peer and user
 load peer, checkpoint and capabilities
 read canonical events after from_cursor
 include tombstones before updates for the same aggregate
-filter by profile grants and export policy
+filter by memory scope grants and export policy
 resolve ProcessingLocationDecision for sync bundle transfer
 create SyncChangeSet metadata
 return safe counts and opaque change_set_id
@@ -8794,7 +8794,7 @@ Steps:
 authorize sync apply
 validate peer and change set signature/checksum
 run import-like validation
-resolve profile ids and ontology versions
+resolve memory scope ids and ontology versions
 check tombstones, legal holds and policies
 resolve ProcessingLocationDecision for destination apply
 write normal use-case commands or create SyncConflict records
@@ -9021,7 +9021,7 @@ Rules:
 - access diagnostics are admin/security only;
 - default responses expose denied counts, purpose, safe reason codes and predicate/proof hashes, not raw memory text;
 - raw debug access requires explicit debug grant and audit;
-- `check` can explain whether a principal would see a record without returning the record content.
+- `check` can explain whether a user would see a record without returning the record content.
 - query-scope proof diagnostics expose repository method, table family, operation type and filter flags, not raw SQL;
 - maintenance overrides require dry-run count, expiry, reason code and explicit audit.
 
@@ -9123,22 +9123,22 @@ GET    /v1/ontology
 GET    /v1/ontology/history
 ```
 
-Profiles:
+Memory Scopes:
 
 ```text
 POST   /v1/spaces
 GET    /v1/spaces
-POST   /v1/profiles
-GET    /v1/profiles
-PATCH  /v1/profiles/{profile_id}
-DELETE /v1/profiles/{profile_id}
+POST   /v1/memory-scopes
+GET    /v1/memory-scopes
+PATCH  /v1/memory-scopes/{memory_scope_id}
+DELETE /v1/memory-scopes/{memory_scope_id}
 ```
 
 Policies:
 
 ```text
-GET    /v1/profiles/{profile_id}/policy
-PATCH  /v1/profiles/{profile_id}/policy
+GET    /v1/memory-scopes/{memory_scope_id}/policy
+PATCH  /v1/memory-scopes/{memory_scope_id}/policy
 GET    /v1/policies/{policy_id}/history
 ```
 
@@ -9229,7 +9229,7 @@ GET    /v1/facts/{fact_id}/history
 GET    /v1/fact-conflicts
 GET    /v1/fact-conflicts/{conflict_id}
 POST   /v1/fact-conflicts/{conflict_id}/resolve
-GET    /v1/current-facts?profile_id=...
+GET    /v1/current-facts?memory_scope_id=...
 ```
 
 Rules:
@@ -9361,7 +9361,7 @@ POST   /v1/operations/{operation_id}/cancel
 GET    /v1/operations?space_id=...&status=...
 GET    /v1/jobs/{job_id}
 GET    /v1/health
-GET    /v1/diagnostics/profile/{profile_id}
+GET    /v1/diagnostics/memory-scope/{memory_scope_id}
 ```
 
 Rules:
@@ -9415,7 +9415,7 @@ Every externally visible contract must have an owner, compatibility rule and bre
 | Projection metadata | projection contract version | projection states/mappings are additive; generation activation is explicit | projection rebuild ADR, drift tests and generation migration plan |
 | Operation/idempotency | operation contract version | operation statuses and replay snapshots are additive and safe | idempotency fixture update and SDK retry compatibility test |
 | Ontology | ontology version and aliases | new kinds/relations are additive; rename uses alias/deprecation | compatibility alias, SDK enum update, eval update |
-| Memory policy | policy version per profile | old decisions keep old policy version for audit | policy migration note and pending-job behavior test |
+| Memory policy | policy version per memory scope | old decisions keep old policy version for audit | policy migration note and pending-job behavior test |
 | Usage/quota governance | quota contract version | usage events are append-only; reservations are idempotent and bounded | reservation lifecycle tests, quota fixture update and admission-control tests |
 | Consolidation and digests | consolidation contract version | clusters/digests are derived metadata and source-bound | false-merge eval, digest stale test and source-ref fixture update |
 | Retention rules | retention rule version | rule changes affect future runs, not past audit reports | dry-run fixture update and retention ADR for destructive defaults |
@@ -9456,7 +9456,7 @@ Remember fact:
 ```json
 {
   "space_id": "space_client_app",
-  "profile_id": "profile_architecture",
+  "memory_scope_id": "memory scope_architecture",
   "thread_id": "thread_123",
   "text": "Client App desktop memory defaults to active_context unless disabled by settings or env.",
   "kind": "architecture_decision",
@@ -9475,7 +9475,7 @@ Search:
 ```json
 {
   "space_id": "space_client_app",
-  "profile_ids": ["profile_architecture"],
+  "memory_scope_ids": ["memory scope_architecture"],
   "query": "как работает память интервью и какие есть rollback flags",
   "limit": 10,
   "include_sources": true
@@ -9487,7 +9487,7 @@ Context:
 ```json
 {
   "space_id": "space_client_app",
-  "profile_ids": ["profile_architecture", "profile_decisions"],
+  "memory_scope_ids": ["memory scope_architecture", "memory scope_decisions"],
   "query": "объясни текущую архитектуру memory",
   "token_budget": 4000,
   "mode": "coding_agent"
@@ -9508,19 +9508,19 @@ memory = MemoryClient(
 
 fact = await memory.remember_fact(
     space="client-app",
-    profile="architecture",
+    memory scope="architecture",
     text="Graphiti is used for temporal graph facts, Qdrant for document chunks.",
 )
 
 results = await memory.search(
     space="client-app",
-    profiles=["architecture"],
+    memory scopes=["architecture"],
     query="Graphiti Qdrant split",
 )
 
 bundle = await memory.build_context(
     space="client-app",
-    profiles=["architecture"],
+    memory scopes=["architecture"],
     query="what is our memory architecture?",
     token_budget=4000,
 )
@@ -9593,9 +9593,9 @@ Connector registration:
 ```text
 connector_id
 space_id
-principal_id
+user_id
 source_app
-allowed_profiles
+allowed_memory scopes
 allowed_actions
 default_policy_id
 trusted_source_types
@@ -9606,7 +9606,7 @@ status
 Connector rules:
 
 - connector writes require `SourceProvenance`;
-- connector token is scoped to connector id, space, profiles and actions;
+- connector token is scoped to connector id, space, memory scopes and actions;
 - connector cannot approve its own auto-generated suggestions unless policy explicitly allows;
 - connector should use stable external ids for idempotency;
 - connector must not send raw secret/restricted content unless policy and deployment allow it;
@@ -9666,7 +9666,7 @@ review:
   approve_suggestion, reject_suggestion
 
 destructive:
-  forget_fact, revoke_connector, export_profile
+  forget_fact, revoke_connector, export_memory scope
 ```
 
 MCP safety rules:
@@ -9675,15 +9675,15 @@ MCP safety rules:
 - remember/update/forget require explicit write grants;
 - approve/reject requires reviewer grant;
 - destructive actions require explicit tool grant and confirmation token;
-- agent-origin suggestions cannot be approved by the same agent principal by default;
+- agent-origin suggestions cannot be approved by the same agent user by default;
 - returned memory snippets are evidence, not instructions;
 - tools return memory ids, source refs, sensitivity and confidence;
 - no tool returns raw restricted content unless explicit debug grant allows it.
 
 Event delivery contract for MCP/SDK clients:
 
-- clients should subscribe or poll `/v1/events` for `fact.updated`, `fact.deleted`, `policy.updated`, `profile.revoked`, `connector.revoked`;
-- event payload invalidates cached context by profile/thread/source ids;
+- clients should subscribe or poll `/v1/events` for `fact.updated`, `fact.deleted`, `policy.updated`, `memory scope.revoked`, `connector.revoked`;
+- event payload invalidates cached context by memory scope/thread/source ids;
 - event delivery is at-least-once and clients must dedupe by event id/cursor;
 - clients must refetch memory through normal authorized APIs instead of trusting event payload text.
 
@@ -9726,7 +9726,7 @@ Compatibility mapping:
 
 ```text
 legacy session_id -> MemoryThread.external_ref
-legacy default profile "default" -> MemoryProfile.external_ref
+legacy default memory scope "default" -> MemoryScope.external_ref
 legacy source -> MemoryEpisode.source_type
 legacy event_id -> MemoryEpisode.source_external_id
 legacy metadata.pinned -> SourceRef/episode metadata, not active fact by itself
@@ -9812,7 +9812,7 @@ Full pipeline:
 
 ```text
 receive input
-  -> validate auth/scope/profile
+  -> validate auth/scope/memory scope
   -> normalize
   -> load effective MemoryPolicy
   -> apply source/security gates
@@ -9859,7 +9859,7 @@ auto_safe:
   high-confidence allowlisted candidates can become MemoryFact automatically
 
 auto_aggressive:
-  broader auto-promotion, still blocked by secrets/conflicts/profile/scope rules
+  broader auto-promotion, still blocked by secrets/conflicts/memory scope/scope rules
 ```
 
 Classification categories:
@@ -9883,7 +9883,7 @@ Promotion rules:
 
 - explicit user "remember this" can create fact immediately;
 - detected architecture decisions can auto-promote only when policy allows the kind, confidence is high and source exists;
-- personal preferences can auto-promote only in personal profile and only if source type is trusted;
+- personal preferences can auto-promote only in personal memory scope and only if source type is trusted;
 - secrets/credentials should be blocked or redacted;
 - conflicting facts require supersede policy or review;
 - assistant answers must not become primary evidence unless backed by source refs or explicit user confirmation.
@@ -9957,7 +9957,7 @@ source ids
 char ranges
 token count
 hash
-profile ids
+memory scope ids
 thread id
 status
 ```
@@ -10123,7 +10123,7 @@ Fields:
 ```text
 id
 space_id?
-profile_id?
+memory_scope_id?
 parser_family: text | pdf | office | archive | image_ocr | html | markdown | custom
 allowed_mime_types[]
 blocked_mime_types[]
@@ -10160,7 +10160,7 @@ id
 document_id
 storage_object_id
 space_id
-profile_id
+memory_scope_id
 parser_name
 parser_version
 sandbox_policy_id
@@ -10264,7 +10264,7 @@ collect candidates
 canonical filter
 dedupe by canonical id/source hash
 collapse low-risk duplicates by reviewed clusters
-score by relevance, code_scope match, recency, importance, confidence, profile priority
+score by relevance, code_scope match, recency, importance, confidence, memory scope priority
 bucket by kind
 pack under token budget
 ```
@@ -10314,7 +10314,7 @@ max_memory_share_of_prompt
 min_source_score
 min_fact_confidence
 max_low_confidence_items
-max_items_per_profile
+max_items_per_memory scope
 max_items_per_source_document
 ```
 
@@ -10335,7 +10335,7 @@ bundle_id
 generated_at
 source_commit_position
 event_cursor
-profile_ids
+memory_scope_ids
 query
 items[]
 source_refs[]
@@ -10376,7 +10376,7 @@ Prompt-safe rendering contract:
 - user-visible diagnostics can explain confidence/source/temporal status without leaking secret text;
 - context builder must be deterministic enough for golden eval diffs.
 - server-side context cache may return only after current canonical status, grant, policy and temporal filters pass;
-- cached bundle reuse must be disabled or bypassed for affected profile/thread/source ids immediately after forget/update/policy/grant changes.
+- cached bundle reuse must be disabled or bypassed for affected memory scope/thread/source ids immediately after forget/update/policy/grant changes.
 
 Example rendering intent:
 
@@ -10493,7 +10493,7 @@ memory.resolve_quarantine
 memory.resolve_processing_location
 memory.cross_region_transfer_request
 memory.expire_suggestion
-memory.consolidate_profile
+memory.consolidate_memory scope
 memory.refresh_digest
 memory.detect_duplicates
 prompt_path.record_stage
@@ -10532,7 +10532,7 @@ Outbox semantics:
 
 - `idempotency_key` is unique per logical side effect;
 - adapter calls must be idempotent and guarded by `ProjectionMapping`;
-- `ordering_key` serializes operations that can race, usually `space_id:profile_id` or aggregate id;
+- `ordering_key` serializes operations that can race, usually `space_id:memory_scope_id` or aggregate id;
 - worker claim sets `locked_by` and `locked_until` and creates a `WorkerLease`;
 - expired locks can be reclaimed;
 - delete/deindex events should outrank stale upserts for the same aggregate;
@@ -10581,7 +10581,7 @@ Cache/freshness semantics:
 - forget/delete/policy/grant/legal-hold/source-redaction changes write cache invalidation records before success is reported or before prompt-impacting reads can reuse old cache;
 - cache freshness uses canonical commit position or event cursor before wall-clock TTL;
 - cache payload loss or cache backend outage degrades to recompute/miss, not stale unsafe data;
-- server-side caches are scoped by space, profile set, principal or grant version, policy version, ontology version, temporal mode and source commit position.
+- server-side caches are scoped by space, memory scope set, user or grant version, policy version, ontology version, temporal mode and source commit position.
 
 Admission/backpressure semantics:
 
@@ -10723,7 +10723,7 @@ Local Docker requirements:
 ```text
 docker compose up memo_stack_server postgres qdrant neo4j object_storage worker
 docker compose ps shows health for every service
-bootstrap command creates first owner/space/profile/token
+bootstrap command creates first owner/space/memory scope/token
 dev_reset clears derived indexes and Postgres test data intentionally
 dev_seed loads synthetic golden fixtures
 diagnostics explains missing env, ports, migrations and index health
@@ -10766,8 +10766,8 @@ Runbook matrix:
 
 | Scenario | Required command/endpoint | Expected safe behavior |
 |---|---|---|
-| Rebuild Qdrant | `memo_stack_server rebuild vector --profile ...` | Postgres remains canonical, deleted chunks stay hidden |
-| Rebuild Graphiti | `memo_stack_server rebuild graph --profile ...` | facts reindexed from active canonical records only |
+| Rebuild Qdrant | `memo_stack_server rebuild vector --memory_scope ...` | Postgres remains canonical, deleted chunks stay hidden |
+| Rebuild Graphiti | `memo_stack_server rebuild graph --memory_scope ...` | facts reindexed from active canonical records only |
 | Create backup | `memo_stack_server backup create --policy ...` | manifest records commit cursor, key versions and object inventory hash |
 | Validate restore | `memo_stack_server restore validate --manifest ...` | reports key/object/tombstone blockers without mutation |
 | Restore Postgres | documented backup restore plus derived rebuild | derived indexes discarded or validated against commit position |
@@ -10817,9 +10817,9 @@ Principles:
 Required controls:
 
 - API auth token;
-- space/profile authorization;
-- principal resolution;
-- space membership and profile grants;
+- space/memory scope authorization;
+- user resolution;
+- space membership and memory scope grants;
 - redaction hooks before external LLM/embedding;
 - retention policies;
 - delete/forget endpoint;
@@ -10832,7 +10832,7 @@ Required controls:
 Authorization model:
 
 ```text
-request token -> Principal -> SpaceMember -> ProfileGrant -> allowed action
+request token -> User -> SpaceMember -> MemoryScopeGrant -> allowed action
 ```
 
 Actions:
@@ -10851,8 +10851,8 @@ hard_delete
 
 Rules:
 
-- every endpoint resolves principal before touching adapters;
-- background workers use worker principal but must still respect canonical status/policy;
+- every endpoint resolves user before touching adapters;
+- background workers use worker user but must still respect canonical status/policy;
 - service tokens should be scoped and rotatable;
 - admin/export/hard_delete require explicit grants;
 - cross-space search requires explicit multi-space authorization and must be off by default;
@@ -10951,8 +10951,8 @@ Token storage rules:
 
 - bearer tokens are shown once and then stored only as salted hash plus optional pepper;
 - diagnostics show token prefix and token id only;
-- token scopes include space, profile, action, connector id and expiry;
-- revoked tokens fail immediately without deleting principal/audit history;
+- token scopes include space, memory scope, action, connector id and expiry;
+- revoked tokens fail immediately without deleting user/audit history;
 - token rotation creates a new token id and keeps old token audit references immutable.
 
 Audit integrity rules:
@@ -10997,16 +10997,16 @@ Track sizing assumptions per deployment:
 
 ```text
 spaces_count
-profiles_per_space
-threads_per_profile
-documents_per_profile
+memory scopes_per_space
+threads_per_memory scope
+documents_per_memory scope
 chunks_per_document
-facts_per_profile
+facts_per_memory scope
 daily_ingest_events
 daily_context_requests
 embedding_tokens_per_day
 classifier_tokens_per_day
-graph_edges_per_profile
+graph_edges_per_memory scope
 ```
 
 V1 local target:
@@ -11054,7 +11054,7 @@ Rules:
 
 - secret/restricted data should not be embedded unless explicitly allowed by local-only policy;
 - redacted derived text must keep source refs to raw protected evidence;
-- object storage keys should not include user text, filenames with secrets or profile names;
+- object storage keys should not include user text, filenames with secrets or memory scope names;
 - backup/export paths inherit the strictest sensitivity level of included records.
 - backups/snapshots must include enough key metadata to restore, but not raw key material;
 - derived index snapshots are privacy-sensitive and must follow the same retention/export restrictions as live data.
@@ -11104,7 +11104,7 @@ Expected behavior:
 Expected behavior:
 
 - content hash detects duplicate;
-- if same profile, return existing document or create new source link by policy;
+- if same memory scope, return existing document or create new source link by policy;
 - do not duplicate chunks blindly;
 - if reimport with new metadata, preserve audit.
 
@@ -11148,13 +11148,13 @@ Expected behavior:
 Example:
 
 ```text
-"Alex" in an interview candidate profile vs "Alex" in a team Slack profile.
+"Alex" in an interview candidate memory scope vs "Alex" in a team Slack memory scope.
 "memo_stack_core" package in Client App vs another repo with same package name.
 ```
 
 Expected behavior:
 
-- canonical entity key includes profile and scope;
+- canonical entity key includes memory scope and scope;
 - Graphiti entity merge is treated as candidate evidence only;
 - ambiguous entity resolution blocks auto-promotion;
 - merge/split operations are audited and can be rolled back by creating corrected aliases and supersede relations;
@@ -11177,20 +11177,20 @@ Expected behavior:
 - context item includes `temporal_status`;
 - eval checks stale leakage rate separately from normal recall.
 
-### Profile Leakage
+### Memory Scope Leakage
 
 Expected behavior:
 
-- every query requires space/profile scope;
-- Graphiti group id and Qdrant payload filter include profile;
+- every query requires space/memory scope scope;
+- Graphiti group id and Qdrant payload filter include memory scope;
 - Postgres canonical filter enforces authorization;
-- tests cover cross-profile and cross-space isolation.
+- tests cover cross-memory-scope and cross-space isolation.
 
-### Thread vs Profile Scope
+### Thread vs Memory Scope Scope
 
 Expected behavior:
 
-- short-term thread context does not automatically become long-term profile fact;
+- short-term thread context does not automatically become long-term memory scope fact;
 - classifier can promote selected facts;
 - user can explicitly promote.
 
@@ -11239,13 +11239,13 @@ Expected behavior:
 - no chunks, embeddings, facts or suggestions are created from unsafe output;
 - diagnostics expose parser run id, status and safe reason code only.
 
-### Multi-App Same Profile
+### Multi-App Same Memory Scope
 
 Expected behavior:
 
 - source refs include app/source;
 - idempotency keys are namespaced by source;
-- same profile can receive data from Codex, Client App, Slack, GitHub.
+- same memory scope can receive data from Codex, Client App, Slack, GitHub.
 
 ### Offline Local Mode
 
@@ -11316,7 +11316,7 @@ job tries to promote candidate from deleted source
 
 Expected behavior:
 
-- async worker reloads current source/fact/profile status before promotion;
+- async worker reloads current source/fact/memory scope status before promotion;
 - tombstone check happens inside same transaction as promotion;
 - promotion is blocked if source is deleted, disabled or hard-deleted;
 - audit records skipped promotion reason.
@@ -11352,7 +11352,7 @@ Expected behavior:
 - coding memories can include `repo_id`, `branch`, `commit_sha`, `package`, `environment`;
 - retrieval query can ask for branch-specific or global facts;
 - branch-local facts are downranked outside their scope;
-- merge/release events can promote branch facts to project/profile facts.
+- merge/release events can promote branch facts to project/memory scope facts.
 
 ### Code Reference Line Drift
 
@@ -11377,7 +11377,7 @@ Expected behavior:
 - connector marks `worktree_state=dirty` or unknown;
 - dirty worktree facts default to thread-local or suggestion;
 - team/global promotion requires explicit approval or later clean commit/PR evidence;
-- eval covers local-only implementation note that must not affect team profile.
+- eval covers local-only implementation note that must not affect team memory scope.
 
 ### PR Abandoned After Memory Was Stored
 
@@ -11408,14 +11408,14 @@ Expected behavior:
 - audit records both user forget and hold block;
 - hold release triggers retention re-evaluation instead of automatic blind delete.
 
-### Profile Deletion Leaves Orphans
+### Memory Scope Deletion Leaves Orphans
 
 Expected behavior:
 
-- profile delete runs through retention/delete job with dry-run summary;
+- memory scope delete runs through retention/delete job with dry-run summary;
 - facts, chunks, documents, subscriptions, connector grants, Qdrant points, Graphiti group mappings and object blobs are handled;
 - failed cleanup remains visible in diagnostics;
-- profile id tombstone prevents accidental reimport resurrection.
+- memory scope id tombstone prevents accidental reimport resurrection.
 
 ### Same Entity, Different Meaning
 
@@ -11430,7 +11430,7 @@ Memory as human interview memory
 
 Expected behavior:
 
-- entity key includes profile, source domain and optional repo/package scope;
+- entity key includes memory scope, source domain and optional repo/package scope;
 - Graphiti entity merges are treated as candidates, not canonical identity truth;
 - ambiguous entity matches require canonical disambiguation before update/supersede;
 - diagnostics expose entity ids and source refs.
@@ -11463,7 +11463,7 @@ Expected behavior:
 
 Expected behavior:
 
-- connector principal cannot approve suggestions it created unless policy explicitly grants self-review;
+- connector user cannot approve suggestions it created unless policy explicitly grants self-review;
 - assistant/generated source remains low trust;
 - approval UI/API shows candidate creator and source refs;
 - tests cover generated false requirement -> cannot self-approve.
@@ -11490,7 +11490,7 @@ Expected behavior:
 
 Expected behavior:
 
-- semantically similar facts from different entities, profiles, repos or time windows remain separate;
+- semantically similar facts from different entities, memory scopes, repos or time windows remain separate;
 - false-merge guardrail uses entity, code scope, temporal and source trust signals;
 - low-cohesion candidates create proposed clusters or review items, not automatic fact merges;
 - reviewer split operation preserves original source refs and cluster history.
@@ -11527,7 +11527,7 @@ Expected behavior:
 Expected behavior:
 
 - dedupe suggestions by normalized candidate text, entity key, kind and source hash;
-- rate-limit near-duplicate suggestions per profile/thread;
+- rate-limit near-duplicate suggestions per memory scope/thread;
 - merge supporting source refs into existing pending suggestion;
 - diagnostics show suppressed duplicate count.
 
@@ -11638,7 +11638,7 @@ some workers write Qdrant generation 3 while search reads generation 2 and Graph
 
 Expected behavior:
 
-- active generation is stored per projection type/adapter/profile;
+- active generation is stored per projection type/adapter/memory scope;
 - workers read target generation from `ProjectionRebuildJob` or active projection config;
 - search includes generation diagnostics and canonical filters all candidates;
 - mismatched generation is degraded/diagnostic state, not silent success.
@@ -11674,10 +11674,10 @@ Expected behavior:
 
 Expected behavior:
 
-- cache key includes principal or grant version;
-- grant revoke makes older cache entries unusable for that principal/profile set;
-- context/search response re-checks current `ProfileGrant` before returning text;
-- shared team cache never crosses principal/profile grants unless explicitly safe and tested.
+- cache key includes user or grant version;
+- grant revoke makes older cache entries unusable for that user/memory scope set;
+- context/search response re-checks current `MemoryScopeGrant` before returning text;
+- shared team cache never crosses user/memory scope grants unless explicitly safe and tested.
 
 ### Policy Disable While Context Is Cached
 
@@ -11703,8 +11703,8 @@ Expected behavior:
 
 - repeated identical context queries use single-flight recompute per cache key;
 - waiting requests respect interactive timeout and can fall back to uncached canonical context;
-- large import invalidations are batched by profile/source without hiding forget/delete events;
-- cache recompute cannot consume reserved interactive capacity for unrelated profiles.
+- large import invalidations are batched by memory scope/source without hiding forget/delete events;
+- cache recompute cannot consume reserved interactive capacity for unrelated memory scopes.
 
 ### Client Misses Event Delivery
 
@@ -11749,18 +11749,18 @@ Expected behavior:
 
 Expected behavior:
 
-- idempotency namespace includes `source_app`, `source_type`, `source_external_id` and profile;
+- idempotency namespace includes `source_app`, `source_type`, `source_external_id` and memory scope;
 - content hash dedupe is advisory, not the only identity;
-- two apps can import same document into different profiles intentionally.
+- two apps can import same document into different memory scopes intentionally.
 
-### Profile Split or Merge
+### Memory Scope Split or Merge
 
 Expected behavior:
 
-- profile merge creates remap jobs for Postgres records, Qdrant payloads and Graphiti group ids;
-- profile split creates new profile and reindexes selected facts/chunks;
+- memory scope merge creates remap jobs for Postgres records, Qdrant payloads and Graphiti group ids;
+- memory scope split creates new memory scope and reindexes selected facts/chunks;
 - operations are auditable and resumable;
-- retrieval must not leak between old/new profiles during migration.
+- retrieval must not leak between old/new memory scopes during migration.
 
 ### Team Permission Changes
 
@@ -11769,15 +11769,15 @@ Expected behavior:
 - authorization is checked in Postgres on every API read;
 - SDK caches must expire when membership changes;
 - context bundles should not be shared across users unless explicitly allowed;
-- audit records who accessed sensitive profile memory.
+- audit records who accessed sensitive memory scope memory.
 
 ### Service Token Leak
 
 Expected behavior:
 
-- service tokens are scoped to explicit space/profile/actions;
+- service tokens are scoped to explicit space/memory scope/actions;
 - stored token verifier is salted hash, not raw token;
-- tokens can be revoked without deleting the principal history;
+- tokens can be revoked without deleting the user history;
 - diagnostics never print full tokens;
 - leaked token cannot hard-delete/export unless explicitly granted.
 
@@ -11825,7 +11825,7 @@ Expected behavior:
 - admin operations require explicit `space_id`;
 - bulk operations require dry-run count and confirmation token;
 - cross-space search/export is disabled by default;
-- tests seed two spaces with same profile names and assert isolation.
+- tests seed two spaces with same memory scope names and assert isolation.
 
 ### Unscoped Repository Query
 
@@ -11878,12 +11878,12 @@ Expected behavior:
 - overage creates safe diagnostic event and can tighten future estimates;
 - hard monthly/total limits can reject further work until reset/admin override.
 
-### Noisy Connector Starves Profile
+### Noisy Connector Starves Memory Scope
 
 Expected behavior:
 
-- fairness key includes connector/principal/profile/workload;
-- connector-specific quota can throttle one integration without disabling whole profile;
+- fairness key includes connector/user/memory scope/workload;
+- connector-specific quota can throttle one integration without disabling whole memory scope;
 - interactive context has reserved capacity;
 - diagnostics show top resource consumers by safe ids, not raw text.
 
@@ -11963,7 +11963,7 @@ graph.upsert_fact runs after graph.delete_fact for the same fact
 
 Expected behavior:
 
-- worker uses ordering key for same aggregate/profile;
+- worker uses ordering key for same aggregate/memory scope;
 - delete/deindex jobs check tombstone before any stale upsert proceeds;
 - adapter upsert reloads canonical status and skips deleted/superseded records;
 - tests simulate out-of-order delivery.
@@ -11984,7 +11984,7 @@ Expected behavior:
 - classifier model, prompt version and adapter version are stored with candidates;
 - evaluations catch changed classification behavior;
 - important reclassification runs in shadow before replacing current facts;
-- policy can pin provider/model per profile.
+- policy can pin provider/model per memory scope.
 
 ### Structured Output Schema Drift
 
@@ -12040,7 +12040,7 @@ Expected behavior:
 
 Expected behavior:
 
-- context packer enforces per-document/profile caps;
+- context packer enforces per-document/memory scope caps;
 - repeated near-duplicate chunks are collapsed;
 - active facts and critical constraints keep reserved budget;
 - diagnostics show source cap drops.
@@ -12059,7 +12059,7 @@ Portable bundle format:
 ```text
 bundle_manifest.json
 spaces.jsonl
-profiles.jsonl
+memory_scopes.jsonl
 threads.jsonl
 facts.jsonl
 fact_versions.jsonl
@@ -12135,7 +12135,7 @@ same id, same version:
   no-op
 
 same id, different version:
-  compare updated_at, principal, source trust and operation kind
+  compare updated_at, user, source trust and operation kind
 
 delete vs update:
   delete/tombstone wins unless update is explicit admin restore
@@ -12146,14 +12146,14 @@ classifier update vs manual update:
 policy conflict:
   destination stricter policy wins
 
-profile missing:
-  import/sync creates disabled profile or fails dry-run, depending mode
+memory scope missing:
+  import/sync creates disabled memory scope or fails dry-run, depending mode
 ```
 
 Sync-readiness invariants:
 
 - every mutable aggregate has stable id and version;
-- every event has commit position and principal/source metadata;
+- every event has commit position and user/source metadata;
 - tombstones are retained long enough for sync peers;
 - derived Graphiti/Qdrant ids are never sync source of truth;
 - sync is opt-in and out of v1 runtime behavior, but schema must not block it.
@@ -12171,7 +12171,7 @@ Expected behavior:
 
 Expected behavior:
 
-- both sides preserve source refs, principal ids, peer ids and operation kinds;
+- both sides preserve source refs, user ids, peer ids and operation kinds;
 - explicit user/admin update outranks classifier-generated update when safe;
 - delete/tombstone outranks generated update;
 - policy/legal hold conflicts block apply and create `SyncConflict`;
@@ -12411,7 +12411,7 @@ Expected behavior:
 Problem:
 
 ```text
-Qdrant or Graphiti returns a candidate id from a profile the user cannot access.
+Qdrant or Graphiti returns a candidate id from a memory scope the user cannot access.
 ```
 
 Expected behavior:
@@ -12567,14 +12567,14 @@ Expected behavior:
 Problem:
 
 ```text
-single Qdrant collection works at small scale but filtered search becomes slow at many profiles/documents.
+single Qdrant collection works at small scale but filtered search becomes slow at many memory scopes/documents.
 ```
 
 Expected behavior:
 
 - adapter startup checks required payload indexes;
 - diagnostics report missing indexes before large imports;
-- load tests include filtered search by profile/document/thread;
+- load tests include filtered search by memory scope/document/thread;
 - strict/dev mode can reject filtered queries on unindexed fields.
 
 ### Graph Backend Capability Mismatch
@@ -12695,7 +12695,7 @@ Domain:
 - supersede relation;
 - tombstone creation;
 - source ref requirements;
-- profile isolation.
+- memory scope isolation.
 - memory policy mode matrix;
 - suggestion lifecycle transitions;
 - auto-promotion gates.
@@ -12794,7 +12794,7 @@ Application:
 - legacy envelope mapper wraps the same result DTO as native `/v1` route;
 - null, missing field and empty list semantics stay compatible for supported clients.
 - validate runtime config rejects unsafe auth/provider/deployment combinations;
-- bootstrap local deployment creates owner/space/profile/policy/token once;
+- bootstrap local deployment creates owner/space/memory scope/policy/token once;
 - config mismatch between API and worker pauses incompatible workload classes.
 - plan migration reports expand/backfill/dual-read/cleanup phases without mutation;
 - run data backfill skips tombstoned/held records and resumes after crash;
@@ -12805,7 +12805,7 @@ Application:
 - complete upload blocks checksum/mime mismatch before document creation;
 - artifact download re-checks current grants and sensitivity policy;
 - hard-delete schedules storage object delete and artifact revoke when required.
-- resolve entity use case returns `ambiguous` instead of merging across profiles/scopes;
+- resolve entity use case returns `ambiguous` instead of merging across memory scopes/scopes;
 - remember fact records confidence explanation and temporal fields;
 - repeated remember/update/forget with same idempotency key returns stable operation/result;
 - idempotency fingerprint mismatch returns conflict with no side effect;
@@ -12819,7 +12819,7 @@ Application:
 - token scope checks block export/hard_delete without explicit grant;
 - key rotation preserves read/delete and fails safe when key version is missing;
 - audit verification detects modified/deleted/reordered high-value events.
-- register connector creates scoped principal/token and audit;
+- register connector creates scoped user/token and audit;
 - connector pause/revoke blocks new writes immediately;
 - connector event ingest rejects forged/replayed events before parsing;
 - event subscription delivery is at-least-once and cache invalidation safe.
@@ -12840,7 +12840,7 @@ Application:
 - code reference resolver marks stale refs instead of silently changing evidence.
 - apply retention policy dry-run reports target counts without mutation;
 - legal hold blocks hard-delete but allows safe retrieval hiding;
-- profile deletion runs through resumable retention/delete job.
+- memory scope deletion runs through resumable retention/delete job.
 - resolve cache freshness rejects expired, invalidated and dimension-mismatched entries;
 - forget/update/policy/grant changes invalidate affected context/search/rerank cache entries;
 - build context with cache hit still canonical-filters status, grants, policy and temporal visibility.
@@ -12874,7 +12874,7 @@ Adapters:
 - object storage fake with checksum, missing object, delete and quarantine behavior;
 - backup storage fake with manifest hash, missing object, key-missing and snapshot-mismatch behavior;
 - fact currency resolver fake for contradiction, supersession and current-set tests;
-- visibility guard fake for cross-profile, deleted, sensitivity and denial-leakage tests;
+- visibility guard fake for cross-memory-scope, deleted, sensitivity and denial-leakage tests;
 - prompt path budget fake with graph/vector/rerank timeout and fallback scenarios;
 - webhook security fake for signature/replay tests;
 - projection admin fake for rebuild/verify/generation tests;
@@ -12891,13 +12891,13 @@ Postgres + Qdrant + Graphiti backend + memo_stack_server
 
 Scenarios:
 
-- create profile;
+- create memory scope;
 - remember fact;
 - search fact;
 - update fact and verify old hidden;
 - delete fact and verify stale index filtered;
 - ingest document and retrieve chunk;
-- profile isolation;
+- memory scope isolation;
 - worker retry.
 - policy update while classification job is pending;
 - suggestion approve/reject creates correct audit and indexes only approved facts;
@@ -12916,7 +12916,7 @@ Scenarios:
 - cursor pagination remains stable across concurrent updates;
 - export/import dry-run blocks tombstone resurrection;
 - event cursor returns ordered tombstone/update events.
-- authorization denies cross-space and cross-profile reads;
+- authorization denies cross-space and cross-memory-scope reads;
 - service token with ingest-only scope cannot read/export/forget;
 - outbox duplicate delivery is idempotent;
 - outbox delete/upsert ordering race never resurrects deleted memory;
@@ -12941,7 +12941,7 @@ Scenarios:
 - upload session completion verifies checksum and creates trusted StorageObject once;
 - missing object makes document/artifact degraded and never prompt-visible;
 - artifact download after grant revoke is blocked.
-- same-name entities in different profiles remain isolated after Graphiti indexing;
+- same-name entities in different memory scopes remain isolated after Graphiti indexing;
 - `as_of` retrieval returns historical fact while normal context excludes it;
 - repeated derived summaries do not raise confidence enough for auto-promotion;
 - explicit correction supersedes old fact or creates review according to currency policy;
@@ -12991,7 +12991,7 @@ Scenarios:
 - branch-scoped facts are excluded from unrelated branch context;
 - PR merge event can promote selected facts to repo scope with audit.
 - retention dry-run and execution respect legal holds;
-- profile delete cleanup deindexes Graphiti/Qdrant and cleans object storage or reports orphans.
+- memory scope delete cleanup deindexes Graphiti/Qdrant and cleans object storage or reports orphans.
 - cache purge removes only derived payloads/metadata and never canonical records.
 
 ### E2E Tests
@@ -13005,24 +13005,24 @@ Client App:
 - verify old answer not used;
 - forget fact;
 - verify deleted fact not recalled.
-- switch profile policy from suggestions to auto_safe;
+- switch memory scope policy from suggestions to auto_safe;
 - verify new safe candidate auto-promotes and old pending suggestion remains pending;
 - verify disabling memory stops context injection.
 - run existing production-safe memory canary against compatibility gateway;
 - run existing document recall E2E against compatibility gateway;
 - verify native `/v1/context` and legacy `/api/v1/interview-memory/context` agree on safe context DTO fields;
 - verify old SDK/client fixture can read response from current memo_stack_server without crashing on additive fields;
-- verify fresh local Docker can bootstrap first owner/profile/token and then run context/remember calls;
+- verify fresh local Docker can bootstrap first owner/memory scope/token and then run context/remember calls;
 - verify unbootstrapped server cannot ingest/search memory through normal endpoints;
 - verify `INTERVIEW_MEMORY_FORCE_DISABLED=true` prevents backend calls;
 - verify Settings `interview_memory_enabled=false` disables memory without restart;
 - verify missing auth falls back instead of blocking chat.
 - verify legacy routes expose compatible capabilities during migration;
 - verify sync exchange capability is disabled by default in v1;
-- verify imported profile bundle can be searched after restart and rebuild;
+- verify imported memory scope bundle can be searched after restart and rebuild;
 - verify disabling policy while a document import is running prevents prompt-time context injection.
 - verify stale architecture decision is not injected after a newer superseding decision;
-- verify same-name entity from another profile is not used in interview/coding context.
+- verify same-name entity from another memory scope is not used in interview/coding context.
 - verify SDK/MCP client refetches context after memory update/delete event.
 - verify branch-local coding note is not used in main branch context.
 - verify retention dry-run reports stale imported document without deleting it.
@@ -13072,7 +13072,7 @@ Golden dataset format:
 ```text
 dataset_id
 space_fixture
-profiles[]
+memory scopes[]
 threads[]
 documents[]
 facts[]
@@ -13103,8 +13103,8 @@ document_recall:
 fact_lifecycle:
   update/supersede/delete/forget behavior
 
-profile_isolation:
-  same query across profiles/spaces
+memory scope_isolation:
+  same query across memory scopes/spaces
 
 source_attribution:
   returned facts cite correct source refs
@@ -13122,7 +13122,7 @@ context_budget:
   important facts survive low token budgets
 
 entity_resolution:
-  same name across profiles/repos/packages stays separate
+  same name across memory scopes/repos/packages stays separate
 
 temporal_validity:
   current/as_of/history queries return different expected facts
@@ -13137,7 +13137,7 @@ code_reference_drift:
   file rename, line drift and symbol move degrade citations safely
 
 retention_safety:
-  dry-run, legal hold and profile delete behavior are deterministic
+  dry-run, legal hold and memory scope delete behavior are deterministic
 
 sync_readiness:
   cursor windows, tombstones and conflict records are deterministic
@@ -13163,7 +13163,7 @@ precision_at_k
 source_ref_accuracy
 stale_leakage_rate
 deleted_leakage_rate
-profile_leakage_rate
+memory scope_leakage_rate
 entity_merge_error_rate
 code_scope_leakage_rate
 code_reference_stale_unlabeled_rate
@@ -13271,7 +13271,7 @@ INTERVIEW_MEMORY_AUTH_TOKEN="<token>" pnpm e2e:memory-canary -- --api-url https:
 Document import compatibility:
 
 ```bash
-pnpm memory:import-document -- --file ./profile.txt --use-companion-session --api-url http://127.0.0.1:7788
+pnpm memory:import-document -- --file ./memory-scope.txt --use-companion-session --api-url http://127.0.0.1:7788
 ```
 
 Avoid as default verification:
@@ -13337,7 +13337,7 @@ Qdrant adapter:
 Graphiti adapter:
   telemetry disabled check
   capability report
-  profile isolation test
+  memory scope isolation test
   entity candidate mapping test
   explicit provider registry configuration test
 
@@ -13370,7 +13370,7 @@ Bootstrap/config gates:
 ```text
 fresh DB bootstrap-required test
 one-time bootstrap token test
-first owner/space/profile provisioning test
+first owner/space/memory scope provisioning test
 auth mode downgrade rejection test
 API/worker config hash mismatch test
 dev seed/reset deployment guard test
@@ -13442,7 +13442,7 @@ denied read existence leakage rate
 query_scope_missing_proof_rate
 unscoped_query_blocked_count
 server cache stale/forbidden hit blocked count
-profile leakage rate
+memory scope leakage rate
 entity merge error rate
 code scope leakage rate
 code reference stale unlabeled rate
@@ -13528,7 +13528,7 @@ Minimum gates for v1:
 - deleted fact leakage: 0 in tests;
 - disputed fact leakage into current constraints: 0 in tests;
 - supersession correctness failures: 0 in curated update tests;
-- cross-profile leakage: 0 in tests;
+- cross-memory-scope leakage: 0 in tests;
 - source ref coverage for facts: 100%;
 - policy violation rate: 0 in tests;
 - authorization leakage: 0 in tests;
@@ -13566,7 +13566,7 @@ Minimum gates for v1:
 - stale code references without label: 0 in code-reference evals;
 - legal hold violations: 0 in retention tests;
 - retention hard-delete without dry-run: 0 in team/remote tests;
-- retention orphan count: 0 after successful profile delete test;
+- retention orphan count: 0 after successful memory scope delete test;
 - sync silent conflict applies: 0 in dry-run/apply tests;
 - sync checkpoint regressions: 0 in checkpoint tests;
 - sync capability disabled violations: 0 in v1 tests;
@@ -13608,8 +13608,8 @@ Minimum gates for v1:
 Logs:
 
 - request id;
-- principal id and auth mode;
-- space/profile/thread ids;
+- user id and auth mode;
+- space/memory scope/thread ids;
 - use case name;
 - outbox job id;
 - outbox idempotency key and ordering key when safe;
@@ -13771,7 +13771,7 @@ memory_ai_token_usage_total
 Diagnostics endpoint:
 
 ```text
-GET /v1/diagnostics/profile/{profile_id}
+GET /v1/diagnostics/memory-scope/{memory_scope_id}
 ```
 
 Production-safe by default:
@@ -13836,10 +13836,10 @@ Rules:
 
 | Risk | Severity | Likelihood | Mitigation |
 |---|---:|---:|---|
-| Cross-profile or cross-space leakage | 10 | 4 | canonical authz filter, profile grants, isolation tests |
+| Cross-memory-scope or cross-space leakage | 10 | 4 | canonical authz filter, memory scope grants, isolation tests |
 | Endpoint forgets visibility guard | 10 | 4 | mandatory `ReadScope`/`VisibilityProof`, endpoint contract tests, repository predicate checks |
 | Repository method forgets scope predicate | 10 | 4 | `RepositoryScope`, scoped repository context, query proof and unscoped SQL tests |
-| Maintenance/bulk job mutates wrong space/profile | 10 | 3 | maintenance scope override, dry-run counts, scoped worker payloads and bulk mutation tests |
+| Maintenance/bulk job mutates wrong space/memory scope | 10 | 3 | maintenance scope override, dry-run counts, scoped worker payloads and bulk mutation tests |
 | Denied read reveals hidden memory existence | 9 | 4 | denied-read policy, safe errors, probe tests and rate-limit metrics |
 | Deleted/superseded memory appears in context | 10 | 4 | Postgres status wins, stale index filtering, delete race tests |
 | Contradicted fact remains active | 9 | 5 | conflict records, current fact resolver, disputed-current leakage tests |
@@ -13893,7 +13893,7 @@ Rules:
 | Branch-local coding memory leaks into mainline context | 9 | 4 | CodeScope filters, promotion rules, branch leakage eval |
 | Code citation points to wrong code after refactor | 8 | 5 | CodeReference content hash, symbol resolver, stale labels |
 | Retention deletes useful or held memory | 9 | 3 | dry-run, legal hold checks, high-importance review gate |
-| Profile deletion leaves data or index orphans | 8 | 4 | retention/delete job, orphan diagnostics, derived deindex tests |
+| Memory scope deletion leaves data or index orphans | 8 | 4 | retention/delete job, orphan diagnostics, derived deindex tests |
 | Outbox duplicate delivery creates duplicate graph/vector data | 8 | 5 | idempotency keys, adapter mapping tables, duplicate delivery tests |
 | Graphiti backend behavior differs from assumptions | 8 | 5 | spike gate, capabilities, canonical filtering, backend-specific tests |
 | Qdrant filter performance degrades with scale | 7 | 5 | payload indexes, diagnostics, load tests |
@@ -13998,7 +13998,7 @@ Rules:
 - backup/restore changes require manifest, key availability, PITR and hard-delete resurrection tests;
 - residency/provider-placement changes require storage, provider, backup/export/import and sync denial tests;
 - cache/freshness changes require forget, update, grant revoke and policy change invalidation tests;
-- read-path changes require visibility proof, denial leakage and cross-profile/deleted filtering tests;
+- read-path changes require visibility proof, denial leakage and cross-memory-scope/deleted filtering tests;
 - repository/query-scope changes require unscoped query, bulk mutation, worker scan and optional RLS tests;
 - dependency/parser changes require SBOM, vulnerability/license scan, sandbox and waiver-expiry tests;
 - prompt-path changes require deadline, degraded response, fallback and stage-timeout tests;
@@ -14018,7 +14018,7 @@ memo_stack_core domain
 memo_stack_server HTTP API
 canonical Postgres fact lifecycle
 fact currency and conflict resolution
-profiles/threads/policies/principals
+memory scopes/threads/policies/users
 remember/update/forget/search basics
 outbox with idempotency and leases
 sync-ready ids, tombstones and event cursor semantics
@@ -14041,7 +14041,7 @@ full Memory Studio UI
 multi-region sync
 bidirectional local-to-cloud sync exchange
 billing/team SaaS admin
-automatic profile classification
+automatic memory scope classification
 OCR/image document extraction
 advanced graph visualization
 multi-graph-backend production support beyond Neo4j
@@ -14071,7 +14071,7 @@ Hard stop conditions:
 - no large imports/auto-memory/external AI until quota admission, storage artifact and reservation tests pass;
 - no external AI default until sensitivity, policy and quota gates are implemented;
 - no sync exchange apply mode until a sync ADR, dry-run tests and conflict-review flow exist;
-- no remote/team deployment until authz/profile grants, repository scope, key/token/audit integrity, residency guardrails, supply-chain/parser gates and backup/rebuild runbook pass tests.
+- no remote/team deployment until authz/memory scope grants, repository scope, key/token/audit integrity, residency guardrails, supply-chain/parser gates and backup/rebuild runbook pass tests.
 
 ### PR Roadmap
 
@@ -14116,7 +14116,7 @@ Recommended PR sequence:
    - repositories;
    - unit of work;
    - remember/update/forget facts;
-   - principals/profile grants;
+   - users/memory scope grants;
    - audit and outbox tables;
    - client operation and idempotency tables;
    - token hash store, key versions and audit chain.
@@ -14363,7 +14363,7 @@ Deliver:
 - `ClientOperation`, `IdempotencyRecord` and `OperationResultSnapshot` contracts;
 - `MemoryEntity` and temporal/evidence value objects;
 - `FactCurrencyState`, `FactConflictRecord` and `SupersessionDecision` contracts;
-- `Principal`, `SpaceMember`, `ProfileGrant` contracts;
+- `User`, `SpaceMember`, `MemoryScopeGrant` contracts;
 - ports;
 - OpenAPI generation config;
 - FastAPI health;
@@ -14401,7 +14401,7 @@ Deliver:
 - code repository/reference tables and value objects;
 - temporal/evidence fields and query filters;
 - fact currency, conflict and supersession tables;
-- profile/thread;
+- memory scope/thread;
 - memory policy;
 - memory suggestions;
 - memory cluster/digest/consolidation tables as dormant contracts;
@@ -14412,7 +14412,7 @@ Deliver:
 - redaction artifacts;
 - provider config, prompt template and AI call audit tables;
 - schema migration run, data backfill job and compatibility window tables;
-- principals, memberships and profile grants;
+- users, memberships and memory scope grants;
 - audit;
 - outbox table with idempotency/lease fields;
 - quota rules;
@@ -14502,7 +14502,7 @@ Exit gate:
 
 - every user-visible read path has proof or safe denial;
 - list pagination and direct get by id do not leak hidden ids;
-- cross-profile and deleted candidates from Graphiti/Qdrant/cache are dropped;
+- cross-memory-scope and deleted candidates from Graphiti/Qdrant/cache are dropped;
 - export and diagnostics use same visibility predicate as normal reads unless explicit debug grant is audited.
 
 ### Phase 1.85 - Prompt-Path SLO Guardrails
@@ -14558,11 +14558,11 @@ Estimated changes: `1200-2400` lines.
 Spike gate before implementation:
 
 ```text
-create test profile
+create test memory scope
 add episode with reference_time
 add/update/delete canonical fact
 search by entity/fact text
-verify group/profile isolation
+verify group/memory scope isolation
 verify Graphiti entity match is only a candidate unless Postgres entity is resolved
 verify telemetry disabled
 verify stale Graphiti result is filtered by Postgres
@@ -14575,7 +14575,7 @@ Deliver:
 - episode indexing;
 - fact indexing;
 - graph search;
-- group/profile mapping;
+- group/memory scope mapping;
 - entity candidate mapping into canonical `MemoryEntity`;
 - temporal `reference_time` mapping;
 - sequential processing per group.
@@ -14611,7 +14611,7 @@ Exit gate:
 - Graphiti/Qdrant/rerank timeout scenarios return degraded/fallback context within budget;
 - context budget never overflows;
 - source refs included;
-- no single document/profile monopolizes context.
+- no single document/memory scope monopolizes context.
 - forget/update/grant/policy cache invalidation blocks stale cached bundles.
 
 ### Phase 4.25 - Memory Consolidation and Digests
@@ -14633,7 +14633,7 @@ Exit gate:
 - duplicate facts create proposed clusters without mutating active facts;
 - digest has source refs and is labeled as derived;
 - stale digest is excluded after source update/delete;
-- false-merge evals pass for same-name/same-topic but different entity/repo/profile cases;
+- false-merge evals pass for same-name/same-topic but different entity/repo/memory scope cases;
 - context packer uses digests without hiding contradictory active facts.
 
 ### Phase 4.35 - Usage, Quota and Admission Control
@@ -14655,7 +14655,7 @@ Exit gate:
 - background work cannot consume reserved interactive capacity;
 - provider timeout does not leak quota reservation;
 - quota hard limit prevents provider call;
-- one connector/profile can be throttled without blocking unrelated reads/context;
+- one connector/memory scope can be throttled without blocking unrelated reads/context;
 - quota exhaustion can degrade to source_chunk_only when policy allows.
 
 ### Phase 4.5 - Policy-Gated Auto Memory
@@ -14768,10 +14768,10 @@ Use only for:
 5. Delete/forget must hide immediately.
 6. Derived indexes are rebuildable.
 7. Context bundle must be explainable through source refs.
-8. Profiles are mandatory boundaries.
+8. Memory Scopes are mandatory boundaries.
 9. Memory text is untrusted content.
 10. External AI/embedding calls are explicit policy decisions.
-11. Memory mode is policy-configured per profile/source, not hardcoded in adapters.
+11. Memory mode is policy-configured per memory scope/source, not hardcoded in adapters.
 12. Assistant answers are derived evidence, not primary evidence by default.
 13. Pending async jobs re-check canonical state and current policy before promotion.
 14. Branch/repo/environment scope is part of relevance for coding-agent memory.
@@ -14792,7 +14792,7 @@ Use only for:
 29. Mutating client calls require idempotency strategy.
 30. Import/export/sync use canonical ids, versions and tombstones, never derived index ids.
 31. Memory kinds, relation types and source types are governed ontology, not arbitrary strings.
-32. Connector writes require provenance and scoped principal permissions.
+32. Connector writes require provenance and scoped user permissions.
 33. Aggregate states change only through documented lifecycle transitions.
 34. Public contract versions must be reported by capabilities and covered by fixtures.
 35. Architecture-impacting PRs must update the decision traceability matrix or state why it is unchanged.
@@ -14816,7 +14816,7 @@ Use only for:
 53. CodeReference line ranges are hints; commit/content hash/symbol evidence is preferred.
 54. Destructive retention requires dry-run and audit before apply.
 55. Active legal hold blocks hard-delete, retention purge and sync purge until released.
-56. Profile/thread deletion is a resumable cascade job, not direct table deletion.
+56. Memory scope/thread deletion is a resumable cascade job, not direct table deletion.
 57. Sync exchange is disabled by default and must be advertised through capabilities before use.
 58. Sync uses canonical ids, versions, tombstones and commit cursors, never Graphiti/Qdrant ids.
 59. Sync conflicts become `SyncConflict` records or suggestions, never silent active mutations.
@@ -14835,7 +14835,7 @@ Use only for:
 72. Public DTOs live in `memo_stack_contracts`, not in domain entities, ORM models or adapter payloads.
 73. Every public DTO change requires schema fixture diff, mapper tests and SDK compatibility evidence.
 74. Unknown public enum values must degrade safely, never trigger unsafe default behavior.
-75. Fresh deployments must expose only bootstrap-safe endpoints until first owner/space/profile setup is complete.
+75. Fresh deployments must expose only bootstrap-safe endpoints until first owner/space/memory scope setup is complete.
 76. API and worker processes must declare compatible runtime config snapshots before processing jobs.
 77. Dev seed/reset commands require local deployment lineage confirmation and synthetic-only fixtures.
 78. Schema upgrades use expand/backfill/dual-read/contract-switch/cleanup phases, not one-shot destructive migrations.
@@ -14849,7 +14849,7 @@ Use only for:
 86. Artifact download authorization is checked at request time, not delegated to URL lifetime.
 87. Server-side cache is a derived performance layer and never bypasses canonical auth/status/policy filtering.
 88. Forget/delete/grant revoke/policy disable/source redaction invalidate affected context/search/rerank cache before prompt-impacting reuse.
-89. Cache keys for user-visible context include space, profile set, principal or grant version, policy version, ontology version, temporal mode and commit cursor.
+89. Cache keys for user-visible context include space, memory scope set, user or grant version, policy version, ontology version, temporal mode and commit cursor.
 90. Backup manifests are governed contracts with hashes, key versions, tombstone window and hard-delete ledger metadata.
 91. Restore starts as dry-run and cannot enable prompt-visible memory until validation passes.
 92. Derived index snapshots are restore accelerators only and never override canonical Postgres rows, tombstones or legal holds.
@@ -14884,9 +14884,9 @@ Use only for:
    - Recommendation: immutable versions plus active pointer/status.
    - Alternative: new fact row per update with `supersedes_fact_id`.
 
-3. Profile model UX.
-   - Recommendation: explicit profile names and API-level profile ids.
-   - Alternative: automatic profile classification later.
+3. Memory Scope model UX.
+   - Recommendation: explicit memory scope names and API-level memory scope ids.
+   - Alternative: automatic memory scope classification later.
 
 4. Auto-memory thresholds.
    - Recommendation: conservative defaults, then tune with evals.
@@ -14909,7 +14909,7 @@ Use only for:
    - Alternative: generate TS immediately for Client App bridge work.
 
 9. Entity registry scope.
-   - Recommendation: profile-scoped entities in v1, with optional space-level aliases later.
+   - Recommendation: memory-scope-scoped entities in v1, with optional space-level aliases later.
    - Alternative: shared space-level entity registry from day one, but this increases permission and merge risk.
 
 10. Temporal query default.
@@ -15009,7 +15009,7 @@ Use only for:
 
 32. Prompt-path deadline defaults.
     - Recommendation: Client App-compatible hard budget around current desktop timeout, with larger explicit SDK/agent budgets.
-    - Alternative: profile-configurable deadlines from day one, but bad config can make live interviews hang.
+    - Alternative: memory scope-configurable deadlines from day one, but bad config can make live interviews hang.
     - Alternative: best-effort context without hard deadline, but this is too risky for prompt-impacting workflows.
 
 33. Fact conflict resolution strictness.
@@ -15084,7 +15084,7 @@ The import-boundary commands should return no forbidden imports from `memo_stack
 V1 is done when:
 
 - local Docker stack starts with one command;
-- fresh local Docker reports bootstrap_required, then CLI bootstrap creates first owner, space, profile and scoped token;
+- fresh local Docker reports bootstrap_required, then CLI bootstrap creates first owner, space, memory scope and scoped token;
 - normal memory API traffic is blocked until bootstrap, migrations and runtime config validation complete;
 - API and worker config snapshots are compatible before background jobs run;
 - SDK can remember/search/update/forget facts;
@@ -15110,8 +15110,8 @@ V1 is done when:
 - Client App can connect through HTTP without Graphiti/Qdrant dependency;
 - Client App legacy `/api/v1/interview-memory/*` compatibility routes pass existing canaries;
 - existing `InterviewMemoryMode` precedence and kill switches remain compatible;
-- companion session import/read path maps to platform thread/profile correctly;
-- authorization and profile grants prevent cross-space/cross-profile leakage;
+- companion session import/read path maps to platform thread/memory scope correctly;
+- authorization and memory scope grants prevent cross-space/cross-memory-scope leakage;
 - implementation navigation map and decision traceability matrix are updated by every architecture-impacting PR;
 - aggregate lifecycle state machines are enforced by domain tests;
 - contract version compatibility matrix is reflected by capabilities, OpenAPI and SDK fixtures;
@@ -15119,13 +15119,13 @@ V1 is done when:
 - worker/scheduler execution is covered by WorkerInstance, WorkerLease, ScheduledTask, heartbeat and graceful shutdown tests;
 - storage objects, upload sessions and artifacts are governed by checksum, quarantine, revoke, expiry and delete-verification tests;
 - backup manifests, restore dry-run and disaster recovery validation cover key availability, object inventory, PITR and hard-delete safety;
-- canonical entity resolution prevents same-name cross-profile/repo merges;
+- canonical entity resolution prevents same-name cross-memory-scope/repo merges;
 - current/as_of/history temporal retrieval semantics are tested;
 - fact currency resolver prevents stale, disputed or weakly superseded facts from appearing as current constraints;
 - confidence gates block auto-promotion without trusted evidence;
 - consolidation creates proposed clusters and active digests without treating digests as primary evidence;
 - stale digests are invalidated by source/policy/redaction changes and excluded from normal context;
-- false-merge evals protect similar but distinct facts across profiles, repos, entities and time windows;
+- false-merge evals protect similar but distinct facts across memory scopes, repos, entities and time windows;
 - context bundle items are rendered as untrusted evidence with source/confidence/temporal labels;
 - outbox duplicate delivery and stale ordering cannot create duplicate or resurrected memory;
 - client operation/idempotency records prevent duplicate side effects after retries, timeouts and restarts;

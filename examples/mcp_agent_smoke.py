@@ -28,7 +28,7 @@ async def run_smoke() -> dict[str, Any]:
         os.getenv("MEMORY_SMOKE_AUTH_TOKEN", os.getenv("MEMORY_SERVICE_TOKEN", "local-dev-token")),
     )
     env.setdefault("MEMORY_MCP_DEFAULT_SPACE_SLUG", "mcp-live-smoke")
-    env.setdefault("MEMORY_MCP_DEFAULT_PROFILE_EXTERNAL_REF", "default")
+    env.setdefault("MEMORY_MCP_DEFAULT_MEMORY_SCOPE_EXTERNAL_REF", "default")
     env.setdefault("MEMORY_MCP_AGENT_NAME", "mcp-live-smoke-agent")
     env.setdefault("MEMORY_MCP_TRANSPORT", "stdio")
 
@@ -112,7 +112,7 @@ async def run_smoke() -> dict[str, Any]:
             "ok": True,
             "api_url": env["MEMORY_MCP_API_URL"],
             "space_slug": env["MEMORY_MCP_DEFAULT_SPACE_SLUG"],
-            "profile_external_ref": env["MEMORY_MCP_DEFAULT_PROFILE_EXTERNAL_REF"],
+            "memory_scope_external_ref": env["MEMORY_MCP_DEFAULT_MEMORY_SCOPE_EXTERNAL_REF"],
             "fact_id": fact["id"],
             "tool_count": len(tool_names),
         }

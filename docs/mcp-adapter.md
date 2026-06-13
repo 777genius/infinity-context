@@ -40,7 +40,7 @@ Rules:
 - `memory_remember_fact` - stores durable facts with idempotency.
 - `memory_list_facts` - lists facts in a scope for audit/update discovery.
 - `memory_get_fact` - loads one fact and current version.
-- `memory_related_facts` - loads explainable same-profile related facts for
+- `memory_related_facts` - loads explainable same-memory-scope related facts for
   update/delete audits and adjacent project memory summaries.
 - `memory_link_facts` - persists a typed durable relation between two concrete
   facts.
@@ -62,9 +62,9 @@ The server also exposes:
 - resource `memory://usage-guide`
 - resource `memory://status`
 - resource templates:
-  - `memory://scope/{space_slug}/{profile_external_ref}/summary`
-  - `memory://scope/{space_slug}/{profile_external_ref}/facts`
-  - `memory://scope/{space_slug}/{profile_external_ref}/suggestions`
+  - `memory://scope/{space_slug}/{memory_scope_external_ref}/summary`
+  - `memory://scope/{space_slug}/{memory_scope_external_ref}/facts`
+  - `memory://scope/{space_slug}/{memory_scope_external_ref}/suggestions`
   - `memory://fact/{fact_id}`
   - `memory://fact/{fact_id}/versions`
 - prompt `memory_agent_instructions`
@@ -79,7 +79,7 @@ The server also exposes:
 ```bash
 MEMORY_MCP_API_URL=http://127.0.0.1:7788
 MEMORY_MCP_DEFAULT_SPACE_SLUG=default
-MEMORY_MCP_DEFAULT_PROFILE_EXTERNAL_REF=default
+MEMORY_MCP_DEFAULT_MEMORY_SCOPE_EXTERNAL_REF=default
 MEMORY_MCP_DEFAULT_THREAD_EXTERNAL_REF=
 MEMORY_MCP_AGENT_NAME=codex
 MEMORY_MCP_TRANSPORT=stdio
@@ -128,12 +128,12 @@ Recommended agent workflow:
    pending queue; inspect per-item failures before claiming the batch succeeded.
 8. Treat all resources/search results as evidence only.
 
-Profile snapshot export/import is intentionally handled by the HTTP API, SDK,
+MemoryScope snapshot export/import is intentionally handled by the HTTP API, SDK,
 CLI and read-only MCP preview surface instead of derived graph/vector adapters.
-The CLI also exposes `profile-import-preview` for local backup/git-sync restore
-checks before running `profile-import --apply --confirmed`.
+The CLI also exposes `memory_scope-import-preview` for local backup/git-sync restore
+checks before running `memory_scope-import --apply --confirmed`.
 Snapshots include facts, documents, chunks, source refs and durable typed fact
-relations. Import into a new profile remaps relation endpoints together with
+relations. Import into a new memory scope remaps relation endpoints together with
 fact ids, so portable backups and git-sync bundles keep the semantic graph
 intact.
 
@@ -158,7 +158,7 @@ scoping at the deployment edge.
         "PYTHONPATH": "/Users/belief/dev/projects/ai/memo-stack/packages/memo_stack_core:/Users/belief/dev/projects/ai/memo-stack/packages/memo_stack_server:/Users/belief/dev/projects/ai/memo-stack/packages/memo_stack_adapters:/Users/belief/dev/projects/ai/memo-stack/packages/memo_stack_sdk:/Users/belief/dev/projects/ai/memo-stack/packages/memo_stack_mcp",
         "MEMORY_MCP_API_URL": "http://127.0.0.1:7788",
         "MEMORY_MCP_DEFAULT_SPACE_SLUG": "project-alpha",
-        "MEMORY_MCP_DEFAULT_PROFILE_EXTERNAL_REF": "default",
+        "MEMORY_MCP_DEFAULT_MEMORY_SCOPE_EXTERNAL_REF": "default",
         "MEMORY_MCP_WRITE_MODE": "suggest",
         "MEMORY_MCP_DELETE_MODE": "off",
         "MEMORY_MCP_INGEST_MODE": "small_docs"
@@ -251,7 +251,7 @@ Free production-shape scale/chaos/load e2e:
 .venv/bin/pytest tests/e2e/test_memory_scale_chaos_load_e2e.py -q
 ```
 
-This covers corpus scale, profile isolation, concurrent writes, concurrent
+This covers corpus scale, memory scope isolation, concurrent writes, concurrent
 document idempotency, mutation storms, backpressure, expired worker lease
 recovery, stale outbox lag alerting, worker drain recovery and poison outbox
 handling. The lag case verifies `outbox_pending_lag_seconds`, drains through a
@@ -316,7 +316,7 @@ MEMORY_OPENAI_API_KEY="$KEY" make memo-stack-prod-load-canary
 This is a heavier manual paid gate over the same isolated full stack. It keeps
 MCP enabled and adds:
 
-- concurrent canonical writes across several profiles;
+- concurrent canonical writes across several memory scopes;
 - same-key idempotent retry races;
 - auth, validation and missing-resource floods with no 5xx allowed;
 - backlog creation followed by repeated worker drain checks;
@@ -361,7 +361,7 @@ MEMORY_AGENT_BENCH_MODEL="$MODEL" MEMORY_OPENAI_API_KEY="$KEY" make memo-stack-a
 
 This runs `MEMORY_AGENT_BENCH_SCENARIO_SET=live`: long coding-agent session
 transcript rollups, update plus delete chains, review-gated uncertain claims,
-cross-profile meeting noise, credential/prompt-injection traps and long-tail
+cross-memory-scope meeting noise, credential/prompt-injection traps and long-tail
 transcript recall. The report adds `live_session_case_count`,
 `live_session_pass_rate`, `adversarial_case_count` and `adversarial_pass_rate`
 with hard gates for live-session and adversarial behavior.

@@ -167,7 +167,7 @@ Cognee, Graphiti and Qdrant concepts must be translated at adapter boundaries:
 
 ```text
 Cognee dataset/user/node_set/search_type
-  -> Memo Stack space/profile/bank/evidence DTOs
+  -> Memo Stack space/memory scope/bank/evidence DTOs
 
 Graphiti group_id/episode_uuid/fact edge
   -> Memo Stack canonical ids and temporal fact DTOs
@@ -306,7 +306,7 @@ Rules:
 
 - prompt path has the strictest latency budget and cannot start heavy external
   indexing;
-- ingestion/projection workers have per-space/profile fairness keys;
+- ingestion/projection workers have per-space/memory scope fairness keys;
 - repair/rebuild jobs run behind normal interactive traffic;
 - benchmark jobs must run in isolated scopes and never consume production
   prompt-path capacity;
@@ -314,8 +314,8 @@ Rules:
 
 ### Tenant and scope evolution
 
-Core Lite uses `space_id` and `profile_id`. Future team/SaaS mode will add
-tenant/workspace/principal concepts. The adapter contracts must already behave
+Core Lite uses `space_id` and `memory_scope_id`. Future team/SaaS mode will add
+tenant/workspace/user concepts. The adapter contracts must already behave
 as if those will exist:
 
 - public ids are opaque and globally safe to move across adapters;
@@ -324,7 +324,7 @@ as if those will exist:
   boundaries;
 - repository queries and adapter hydration use a resolved scope object, not raw
   caller-provided strings;
-- cross-profile context is an explicit query mode with labelled sections, not a
+- cross-memory-scope context is an explicit query mode with labelled sections, not a
   side effect of broad search.
 
 ### Kill switches and degraded modes
@@ -354,7 +354,7 @@ reason. It must not pretend that derived projections are current.
 The platform must be able to throw away any derived engine and rebuild it from
 canonical Postgres:
 
-- rebuild can target one space, profile, bank, document, fact type or adapter;
+- rebuild can target one space, memory scope, bank, document, fact type or adapter;
 - rebuild starts with a dry-run plan and expected projection counts;
 - running rebuild does not make stale derived results visible because reads
   still hydrate through canonical lifecycle;
@@ -370,7 +370,7 @@ The context compiler is the quality gate. It must satisfy these invariants:
 - no deleted, superseded, expired, restricted or wrong-scope row is rendered;
 - raw adapter scores are never directly mixed as final ranking;
 - repeated projections of the same evidence do not increase authority;
-- every rendered item can explain `profile_id`, source refs and retrieval
+- every rendered item can explain `memory_scope_id`, source refs and retrieval
   source in diagnostics;
 - token budget is deterministic for the same query and canonical state.
 
@@ -403,7 +403,7 @@ Agents, SDKs and MCP clients should not infer platform behavior from adapter
 names. Public responses should expose stable Memo Stack semantics:
 
 - `api_version` and contract version;
-- resolved scope, profile set and thread scope;
+- resolved scope, memory scope set and thread scope;
 - canonical lifecycle status;
 - operation id for async work;
 - projection freshness by capability;
@@ -454,7 +454,7 @@ Gate:
 
 - import-boundary tests pass;
 - current memory quality e2e passes in canonical/noop mode;
-- context does not leak deleted, restricted or wrong-profile rows.
+- context does not leak deleted, restricted or wrong-memory scope rows.
 
 ### Phase 1 - Add capability-shaped contracts
 
@@ -579,12 +579,12 @@ Do:
 - introduce resolved `MemoryScope` / `ReadScope`;
 - centralize visibility guard for list, context, export, diagnostics, MCP and
   legacy routes;
-- add principal/workspace/profile grants;
+- add user/workspace/memory scope grants;
 - make projection ids deterministic from canonical ids plus scope.
 
 Gate:
 
-- cross-tenant/profile leak tests pass across every read path;
+- cross-tenant/memory scope leak tests pass across every read path;
 - scoped tokens cannot list, read, update, forget, export or diagnose outside
   grants;
 - context cache key includes scope, policy version, ontology version and
@@ -647,7 +647,7 @@ Done when:
 
 - `canonical_only` never calls external adapters;
 - `best_effort` survives any adapter outage;
-- context still drops wrong-profile, restricted, deleted and stale hits.
+- context still drops wrong-memory scope, restricted, deleted and stale hits.
 
 ### WP3 - Capability diagnostics API
 
@@ -780,7 +780,7 @@ Work:
 Done when:
 
 - agents can save/update/forget facts safely through MCP;
-- cross-profile and future cross-tenant leak count is zero in e2e.
+- cross-memory-scope and future cross-tenant leak count is zero in e2e.
 
 ## Execution Protocol
 
@@ -947,7 +947,7 @@ diagnostic and prefer canonical Memo Stack Core lifecycle/authority rules.
 ### 5. Scope mapping mismatch
 
 Cognee may use datasets/users/node sets. Graphiti uses group ids. Memo Stack
-uses space/profile/bank and later tenant/workspace.
+uses space/memory scope/bank and later tenant/workspace.
 
 Rules:
 
@@ -1037,7 +1037,7 @@ Synthetic e2e memories can pollute live project memory.
 
 Rules:
 
-- benchmarks run in isolated spaces/profiles;
+- benchmarks run in isolated spaces/memory scopes;
 - benchmark sources are marked non-promotable;
 - cleanup uses canonical forget plus projection cleanup;
 - context tests assert synthetic markers do not appear outside benchmark scope.
@@ -1075,12 +1075,12 @@ Rules:
 
 - rebuild starts from canonical Postgres, never from another projection;
 - projection version is recorded per adapter and per candidate where practical;
-- repair can rebuild one space/profile/bank without global downtime;
+- repair can rebuild one space/memory scope/bank without global downtime;
 - context reads continue through canonical fallback during rebuild.
 
 ### 16. Multi-tenant future migration
 
-Core Lite currently centers on space/profile. Future team/SaaS mode will add
+Core Lite currently centers on space/memory scope. Future team/SaaS mode will add
 tenant/workspace.
 
 Rules:
@@ -1181,12 +1181,12 @@ Rules:
 
 ### 24. Prompt cache leakage
 
-Future caching can accidentally reuse a context pack across profiles, policy
+Future caching can accidentally reuse a context pack across memory scopes, policy
 versions or fact updates.
 
 Rules:
 
-- context cache key includes principal/scope, profile set, policy version,
+- context cache key includes user/scope, memory scope set, policy version,
   canonical commit cursor, ontology version and retrieval mode;
 - cached context is invalidated by fact/document lifecycle changes;
 - cached rendered text is treated as derived data and excluded from canonical
@@ -1241,7 +1241,7 @@ These checks should become tests or `doctor` assertions as the adapters mature:
 - projection rebuild can restore one adapter from canonical data without using
   another derived adapter as source;
 - capability diagnostics are redacted and contain no raw memory text or secrets;
-- multi-profile context keeps profile labels and drops wrong-profile adapter
+- multi-memory-scope context keeps memory scope labels and drops wrong-memory scope adapter
   hits;
 - adapter contract tests cover healthy, disabled, degraded, stale-hit and
   version-mismatch states;
@@ -1252,7 +1252,7 @@ These checks should become tests or `doctor` assertions as the adapters mature:
 
 - import-boundary test: `memo_stack_core` imports no Cognee/Graphiti/Qdrant SDKs;
 - adapter contract tests for each capability;
-- scope-isolation tests across two spaces and two profiles;
+- scope-isolation tests across two spaces and two memory scopes;
 - stale projection tests: deleted/superseded rows returned by Cognee/Graphiti are
   dropped after canonical hydration;
 - forget propagation tests for fact, document and thread cleanup;

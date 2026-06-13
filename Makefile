@@ -1,6 +1,8 @@
 PYTHON ?= .venv/bin/python
 RUFF ?= .venv/bin/ruff
 COMPOSE ?= docker compose
+SELFHOST_ENV ?= .env.selfhost
+SELFHOST_COMPOSE ?= $(COMPOSE) --env-file $(SELFHOST_ENV) -f docker-compose.selfhost.yml
 MEMO_STACK_PYTHONPATH ?= packages/memo_stack_core:packages/memo_stack_server:packages/memo_stack_adapters:packages/memo_stack_sdk:packages/memo_stack_obsidian:packages/memo_stack_mcp:packages/memo_stack_cli
 export PYTHONPATH := $(MEMO_STACK_PYTHONPATH)$(if $(PYTHONPATH),:$(PYTHONPATH))
 MEMORY_SERVER_ENV ?= MEMORY_AUTO_CREATE_SCHEMA=true MEMORY_SERVICE_TOKEN=local-dev-token
@@ -379,12 +381,38 @@ memo-stack-up:
 
 .PHONY: memo-stack-up-lite
 memo-stack-up-lite:
-	$(COMPOSE) --profile lite up -d memo_stack_server memo_stack_worker
+	$(COMPOSE) --profile lite up -d memo_stack_server memo_stack_worker memo_stack_extraction_worker
 
 .PHONY: memo-stack-up-full
 memo-stack-up-full:
 	@test -n "$${MEMORY_OPENAI_API_KEY:-$${OPENAI_API_KEY:-}}" || (echo "Set MEMORY_OPENAI_API_KEY or OPENAI_API_KEY before starting the full profile."; exit 1)
-	MEMORY_OPENAI_API_KEY="$${MEMORY_OPENAI_API_KEY:-$${OPENAI_API_KEY}}" OPENAI_API_KEY="$${OPENAI_API_KEY:-$${MEMORY_OPENAI_API_KEY}}" $(COMPOSE) --profile full up -d memo_stack_server_full memo_stack_worker_full
+	MEMORY_OPENAI_API_KEY="$${MEMORY_OPENAI_API_KEY:-$${OPENAI_API_KEY}}" OPENAI_API_KEY="$${OPENAI_API_KEY:-$${MEMORY_OPENAI_API_KEY}}" $(COMPOSE) --profile full up -d memo_stack_server_full memo_stack_worker_full memo_stack_extraction_worker_full
+
+.PHONY: memo-stack-selfhost-config
+memo-stack-selfhost-config:
+	@test -f "$(SELFHOST_ENV)" || (echo "Copy .env.selfhost.example to $(SELFHOST_ENV) and replace change-me values."; exit 1)
+	@! grep -Eq '^(MEMORY_SERVICE_TOKEN|MEMORY_POSTGRES_PASSWORD)=change-me' "$(SELFHOST_ENV)" || (echo "Replace MEMORY_SERVICE_TOKEN and MEMORY_POSTGRES_PASSWORD in $(SELFHOST_ENV)."; exit 1)
+	$(SELFHOST_COMPOSE) config >/dev/null
+
+.PHONY: memo-stack-selfhost-up
+memo-stack-selfhost-up:
+	@test -f "$(SELFHOST_ENV)" || (echo "Copy .env.selfhost.example to $(SELFHOST_ENV) and replace change-me values."; exit 1)
+	@! grep -Eq '^(MEMORY_SERVICE_TOKEN|MEMORY_POSTGRES_PASSWORD)=change-me' "$(SELFHOST_ENV)" || (echo "Replace MEMORY_SERVICE_TOKEN and MEMORY_POSTGRES_PASSWORD in $(SELFHOST_ENV)."; exit 1)
+	$(SELFHOST_COMPOSE) up -d --build
+
+.PHONY: memo-stack-selfhost-up-full
+memo-stack-selfhost-up-full:
+	@test -f "$(SELFHOST_ENV)" || (echo "Copy .env.selfhost.example to $(SELFHOST_ENV) and replace change-me values."; exit 1)
+	@! grep -Eq '^(MEMORY_SERVICE_TOKEN|MEMORY_POSTGRES_PASSWORD)=change-me' "$(SELFHOST_ENV)" || (echo "Replace MEMORY_SERVICE_TOKEN and MEMORY_POSTGRES_PASSWORD in $(SELFHOST_ENV)."; exit 1)
+	$(SELFHOST_COMPOSE) --profile full up -d --build
+
+.PHONY: memo-stack-selfhost-down
+memo-stack-selfhost-down:
+	$(SELFHOST_COMPOSE) down
+
+.PHONY: memo-stack-selfhost-smoke
+memo-stack-selfhost-smoke:
+	$(PYTHON) scripts/selfhost_smoke.py --env-file "$(SELFHOST_ENV)"
 
 .PHONY: memo-stack-smoke
 memo-stack-smoke:

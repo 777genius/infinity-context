@@ -39,22 +39,22 @@ First user flow:
 
 ```bash
 memo-stack up
-memo-stack-obsidian connect --vault ~/Notes --space default --profile default
-memo-stack-obsidian preview --vault ~/Notes --space default --profile default
-memo-stack-obsidian sync --vault ~/Notes --space default --profile default --apply-import
-memo-stack-obsidian watch --vault ~/Notes --space default --profile default --apply-import
+memo-stack-obsidian connect --vault ~/Notes --space default --memory_scope default
+memo-stack-obsidian preview --vault ~/Notes --space default --memory_scope default
+memo-stack-obsidian sync --vault ~/Notes --space default --memory_scope default --apply-import
+memo-stack-obsidian watch --vault ~/Notes --space default --memory_scope default --apply-import
 ```
 
 Later plugin flow:
 
 ```text
-Install Memo Stack plugin -> connect local daemon or API -> choose profile -> start sync
+Install Memo Stack plugin -> connect local daemon or API -> choose memory scope -> start sync
 ```
 
 MVP plugin flow:
 
 ```text
-memo-stack-obsidian install-plugin --vault ~/Notes --enable --space default --profile default
+memo-stack-obsidian install-plugin --vault ~/Notes --enable --space default --memory_scope default
 -> open Obsidian -> Connect this vault -> Preview sync -> Sync now
 ```
 
@@ -360,7 +360,7 @@ plugin are installed.
    Shape:
 
    - Obsidian plugin owns human UX: connect wizard, status, preview, sync now,
-     open conflicts, choose space/profile/root folder.
+     open conflicts, choose space/memory scope/root folder.
    - MCP owns agent UX: `memory_obsidian_status`, `memory_obsidian_setup`,
      `memory_obsidian_preview`, `memory_obsidian_sync`.
    - Sync remains in `memo_stack_obsidian` use cases. Plugin and MCP call the
@@ -417,7 +417,7 @@ plugin are installed.
 2. Plugin loads settings with defaults:
    - API URL: `http://127.0.0.1:7788`
    - space: `default`
-   - profile: `default`
+   - memory scope: `default`
    - root folder: `Memo Stack`
    - sync mode: preview-first
 3. Plugin runs a health check.
@@ -471,8 +471,8 @@ Recommended V2 layout:
   README.md
   spaces/
     <space slug>/
-      profiles/
-        <profile ref>/
+      memory scopes/
+        <memory scope ref>/
           generated/
             facts/*.md
           inbox/*.md
@@ -485,7 +485,7 @@ Example:
 Memo Stack/
   spaces/
     memo-stack/
-      profiles/
+      memory scopes/
         belief/
           generated/facts/fact_123.md
           inbox/project-ideas.md
@@ -494,7 +494,7 @@ Memo Stack/
 
 Why:
 
-- Users can visually separate projects and profiles.
+- Users can visually separate projects and memory scopes.
 - Multiple projects can live in one Obsidian vault without collisions.
 - The same vault can hold personal memory, project memory and team memory.
 - Backward compatibility can keep reading the current MVP path.
@@ -502,7 +502,7 @@ Why:
 Path rules:
 
 - `root_folder` must be relative to vault root.
-- `space_slug` and `profile_external_ref` must be slugified for paths.
+- `space_slug` and `memory_scope_external_ref` must be slugified for paths.
 - Original values stay in frontmatter metadata.
 - Unsafe path segments, `..`, absolute paths and empty slugs are rejected.
 - Connector writes only under the configured root folder.
@@ -514,7 +514,7 @@ User controls where knowledge goes through three settings:
 ```text
 vault path      - which Obsidian vault
 root folder     - where inside the vault, default Memo Stack
-space/profile   - which project and person/context namespace
+space/memory scope   - which project and person/context namespace
 ```
 
 Recommended UI labels:
@@ -523,10 +523,10 @@ Recommended UI labels:
 Vault: current vault
 Folder: Memo Stack
 Project: default
-Profile: default
+Memory Scope: default
 ```
 
-Avoid exposing "space/profile" as the first words in UX. Keep them as advanced
+Avoid exposing "space/memory scope" as the first words in UX. Keep them as advanced
 or API names.
 
 ### MCP Tool Surface
@@ -596,7 +596,7 @@ Add a connection panel:
 ```text
 Status: connected / backend offline / conflicts / setup needed
 Project: <space>
-Profile: <profile>
+Memory Scope: <memory scope>
 Folder: <root folder>
 Buttons: Connect, Preview, Sync now, Open conflicts
 ```
@@ -642,8 +642,8 @@ Path/layout:
 - root folder renamed;
 - old MVP layout and new V2 layout both present;
 - unsafe root folder path;
-- space/profile with spaces, unicode, slashes or very long names;
-- two profiles with same slugified path.
+- space/memory scope with spaces, unicode, slashes or very long names;
+- two memory scopes with same slugified path.
 
 Sync:
 

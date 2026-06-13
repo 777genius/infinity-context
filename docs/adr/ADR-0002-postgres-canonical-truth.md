@@ -6,7 +6,7 @@ Core Lite will later use Qdrant for document RAG and Graphiti for temporal graph
 
 ## Decision
 
-Postgres owns canonical lifecycle for spaces, profiles, threads, documents, chunks, facts, source refs, tombstones, projection state, idempotency and outbox.
+Postgres owns canonical lifecycle for spaces, memory scopes, threads, documents, chunks, facts, source refs, tombstones, projection state, idempotency and outbox.
 
 Qdrant and Graphiti are derived indexes.
 

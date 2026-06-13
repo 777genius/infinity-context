@@ -59,17 +59,18 @@ Core Lite is implemented as a reusable service/library baseline:
 
 - `memo_stack_core` owns domain entities, application use cases and ports only;
 - `memo_stack_server` owns FastAPI routes, composition root, auth, config, admin CLI, worker CLI and eval CLI;
+- `memo_stack_server` also serves the optional local memory browser at `/ui/`;
 - `memo_stack_adapters` owns Postgres, optional Qdrant/OpenAI/Graphiti adapters and disabled noop adapters;
 - `memo_stack_sdk` owns HTTP client calls and typed error handling for other apps;
 - `memo_stack_mcp` owns the agent-facing MCP adapter over the HTTP API;
 - `memo_stack_cli` owns local install/runtime UX and calls the HTTP API instead of importing server internals;
-- Postgres is canonical truth for spaces, profiles, facts, source refs, fact versions, episodes, documents, chunks, suggestions, outbox and idempotency;
+- Postgres is canonical truth for spaces, memory_scopes, facts, source refs, fact versions, episodes, documents, chunks, suggestions, outbox and idempotency;
 - Qdrant vectors and Graphiti graph memory are derived projections behind ports;
 - Qdrant adapter creates its collection on first upsert/search when enabled;
 - Graphiti adapter is optional and requires Neo4j credentials when enabled;
 - context/search hydrate graph/vector candidates through Postgres before rendering;
 - prompt memory is rendered as evidence, never as instructions.
-- prompt context is grouped by profile id and caps chunk evidence per source so
+- prompt context is grouped by memory_scope id and caps chunk evidence per source so
   one long document cannot consume the whole memory block;
 - document/chunk classification is enforced in the prompt path: `restricted`
   memory is stored canonically but excluded from context by default, and
@@ -78,7 +79,7 @@ Core Lite is implemented as a reusable service/library baseline:
 Implemented API surface:
 
 - `/v1/health`, `/v1/capabilities`;
-- `/v1/spaces`, `/v1/profiles`;
+- `/v1/spaces`, `/v1/memory-scopes`;
 - `/v1/facts` remember/list/get/versions/update/forget;
 - `/v1/documents` ingest/get/chunks/process/delete;
 - `/v1/episodes` transcript/event ingest for app or agent sessions;
@@ -86,15 +87,24 @@ Implemented API surface:
 - `/v1/digest` for source-bound Memory Digest reports;
 - `/v1/thread-memory/status`, `/v1/thread-memory` delete for thread-scoped cleanup;
 - `/v1/suggestions` create/list/approve/reject/expire for review-gated memory;
-- `/v1/diagnostics/adapters`, `/outbox`, `/profile/{profile_id}` with production-safe metadata only;
+- `/v1/diagnostics/adapters`, `/outbox`, `/memory-scope/{memory_scope_id}` with production-safe metadata only;
 - optional client-compatible `/api/v1/interview-memory/ingest`, `/context`, session status and delete routes when `MEMORY_LEGACY_CLIENT_ENABLED=true`.
+
+Local browser UI:
+
+- open `http://127.0.0.1:7788/ui/` after the server starts;
+- enter the service token from local config, for example `~/.memo-stack/.env`;
+- browse graph nodes for facts, suggestions, sources, kinds, tags and statuses;
+- review pending suggestions with approve/reject/expire actions;
+- build source-bound digest and recall results through the existing `/v1` API;
+- disable with `MEMORY_UI_ENABLED=false`.
 
 Operational pieces:
 
 - transactional outbox for derived graph/vector side effects;
 - outbox worker that re-reads canonical rows and handles disabled adapters safely;
-- idempotency keys are scoped by operation and profile/thread boundary, so
-  client-provided retry keys cannot collide across memory profiles;
+- idempotency keys are scoped by operation and memory_scope/thread boundary, so
+  client-provided retry keys cannot collide across memory scopes;
 - admin commands for doctor, invariant check, projection repair dry-run and dead-job replay;
 - admin service-token create/list/revoke stores token hashes only; raw token is printed once on creation;
 - database service tokens support expiry and last-used tracking without storing raw tokens;
@@ -103,9 +113,9 @@ Operational pieces:
   fact/document/chunk classification columns without dropping canonical data;
 - document delete hides chunks immediately and also deletes active facts whose
   current evidence only points to the deleted document or its chunks;
-- redacted profile export removes fact/chunk text and source quote previews;
+- redacted memory_scope export removes fact/chunk text and source quote previews;
 - small golden eval for prompt-impacting context behavior;
-- quality golden eval for recall, precision, stale/delete filtering, profile/thread
+- quality golden eval for recall, precision, stale/delete filtering, memory_scope/thread
   isolation, restricted-memory hiding, prompt-injection evidence handling and token budget safety;
 - import-boundary, API, worker, SDK and review-gated suggestion tests.
 
@@ -132,7 +142,7 @@ memo-stack up --lite
 memo-stack status
 memo-stack doctor
 memo-stack mcp-config --agent codex
-memo-stack digest "current architecture decisions" --space default --profile default
+memo-stack digest "current architecture decisions" --space default --memory_scope default
 ```
 
 `memo-stack mcp-config` redacts the generated local service token by default. Use
@@ -183,8 +193,12 @@ The Docker compose file has two practical profiles:
 
 ```text
 lite           Postgres + Memo Stack Server, provider adapters disabled.
-full           Postgres + Qdrant + Neo4j + Memo Stack Server + worker, with OpenAI embeddings and Graphiti enabled.
+full           Postgres + Qdrant + Neo4j + Memo Stack Server + workers, with OpenAI embeddings and Graphiti enabled.
 ```
+
+Both profiles run separate projection and extraction workers. The extraction
+worker only claims `workload_class=extraction` jobs, so file parsing can be
+scaled independently from vector, graph and auto-memory projection work.
 
 Recommended local MVP:
 
@@ -205,6 +219,18 @@ export MEMORY_OPENAI_API_KEY="$OPENAI_API_KEY"
 make memo-stack-up-full
 make memo-stack-smoke-full
 ```
+
+Small-team self-hosting uses a production-oriented Compose file with a built
+image, server deploy profile, explicit migrations and persistent volumes:
+
+```bash
+cp .env.selfhost.example .env.selfhost
+docker compose --env-file .env.selfhost -f docker-compose.selfhost.yml up -d --build
+make memo-stack-selfhost-smoke
+```
+
+See `docs/self-hosted-team-deployment.md` for the runbook, full provider mode
+and backup notes.
 
 `MEMORY_OPENAI_API_KEY` is used by the Memo Stack embeddings adapter.
 `OPENAI_API_KEY` is also required because Graphiti reads the standard OpenAI
@@ -267,13 +293,25 @@ MEMORY_AUTO_APPLY_SAFE_ENABLED=false           # separate switch for direct safe
 MEMORY_CAPTURE_EXTRACTOR_PROVIDER=rule_based   # rule_based, noop, or openai
 MEMORY_CAPTURE_EXTERNAL_AI_ENABLED=false       # external extractor egress kill switch
 MEMORY_CAPTURE_EXTRACTOR_MODEL=gpt-4.1-mini    # used only by the OpenAI extractor
-MEMORY_MAX_PENDING_CAPTURES_PER_PROFILE=5000   # hook-loop ingress guard
-MEMORY_MAX_PENDING_SUGGESTIONS_PER_PROFILE=500 # review queue ingress guard
+MEMORY_MAX_PENDING_CAPTURES_PER_MEMORY_SCOPE=5000   # hook-loop ingress guard
+MEMORY_MAX_PENDING_SUGGESTIONS_PER_MEMORY_SCOPE=500 # review queue ingress guard
 ```
 
 `MEMORY_AUTO_MEMORY_MODE` is accepted as a compatibility alias for
 `MEMORY_CAPTURE_MODE` on both Memo Stack Server and plugin hooks. When both are set,
 `MEMORY_AUTO_MEMORY_MODE` wins.
+
+Media extraction has product-plan usage guards in addition to parser limits:
+
+```text
+MEMORY_PRODUCT_PLAN_TIER=free
+MEMORY_PLAN_MEDIA_ANALYSIS_SECONDS_PER_MONTH=36000 # 10 hours
+```
+
+Audio/video uploads can pass `estimated_media_seconds` so Memo Stack can reserve
+monthly media-analysis quota before enqueueing extraction. Clients can poll
+`/v1/asset-extractions/{job_id}` for `progress` and `/v1/usage?space_slug=...`
+for the current plan meter.
 
 `rule_based` keeps consolidation local and deterministic. `openai` is available
 behind `MemoryExtractorPort`, but it requires both
@@ -300,8 +338,8 @@ Worker and operational commands:
 ```bash
 MEMORY_SERVICE_TOKEN=local-dev-token .venv/bin/python -m memo_stack_server.worker --once
 MEMORY_SERVICE_TOKEN=local-dev-token .venv/bin/python -m memo_stack_server.doctor
-MEMORY_SERVICE_TOKEN=local-dev-token .venv/bin/python -m memo_stack_server.admin repair-projections --space project-alpha --profile default --dry-run
-MEMORY_SERVICE_TOKEN=local-dev-token .venv/bin/python -m memo_stack_server.admin import-profile --space project-alpha --profile default --file profile-export.json --dry-run
+MEMORY_SERVICE_TOKEN=local-dev-token .venv/bin/python -m memo_stack_server.admin repair-projections --space project-alpha --memory_scope default --dry-run
+MEMORY_SERVICE_TOKEN=local-dev-token .venv/bin/python -m memo_stack_server.admin import-memory_scope --space project-alpha --memory_scope default --file memory_scope-export.json --dry-run
 MEMORY_SERVICE_TOKEN=local-dev-token .venv/bin/python -m memo_stack_server.eval run --suite small-golden
 MEMORY_SERVICE_TOKEN=local-dev-token .venv/bin/python -m memo_stack_server.eval run --suite quality-golden
 ```
@@ -311,7 +349,7 @@ Service tokens:
 ```bash
 MEMORY_SERVICE_TOKEN=root-token .venv/bin/python -m memo_stack_server.admin token create --description app
 MEMORY_SERVICE_TOKEN=root-token .venv/bin/python -m memo_stack_server.admin token create --space space_project_alpha --description project-alpha --expires-at 2026-12-31T23:59:59+00:00
-MEMORY_SERVICE_TOKEN=root-token .venv/bin/python -m memo_stack_server.admin token create --space space_project_alpha --profile profile_default --description project-alpha-default
+MEMORY_SERVICE_TOKEN=root-token .venv/bin/python -m memo_stack_server.admin token create --space space_project_alpha --memory_scope memory_scope_default --description project-alpha-default
 MEMORY_SERVICE_TOKEN=root-token .venv/bin/python -m memo_stack_server.admin token list
 MEMORY_SERVICE_TOKEN=root-token .venv/bin/python -m memo_stack_server.admin token revoke --token-id tok_...
 ```
@@ -319,7 +357,7 @@ MEMORY_SERVICE_TOKEN=root-token .venv/bin/python -m memo_stack_server.admin toke
 The static `MEMORY_SERVICE_TOKEN` is a root token. Database service tokens are
 stored as hashes only. A token created with `--space` is scoped to that space
 id or slug and cannot access another space or unscoped diagnostics/list routes.
-Add repeatable `--profile` values to restrict a token to specific profile ids
+Add repeatable `--memory_scope` values to restrict a token to specific memory_scope ids
 or external refs inside the allowed space.
 Expired or revoked database tokens are rejected immediately. Token list output
 contains ids, descriptions, scope, timestamps and status, never raw token values.
@@ -364,7 +402,7 @@ curl -X POST http://127.0.0.1:7788/api/v1/interview-memory/context \
 
 Other apps can use canonical ids or external scope refs. External refs are the
 recommended integration shape for app sessions because the server resolves them
-to canonical `space_id/profile_id/thread_id` behind the API boundary:
+to canonical `space_id/memory_scope_id/thread_id` behind the API boundary:
 
 ```bash
 curl -X POST http://127.0.0.1:7788/v1/episodes \
@@ -372,7 +410,7 @@ curl -X POST http://127.0.0.1:7788/v1/episodes \
   -H "Content-Type: application/json" \
   -d '{
     "space_slug": "project-alpha",
-    "profile_external_ref": "default",
+    "memory_scope_external_ref": "default",
     "thread_external_ref": "session-123",
     "source_type": "system_audio",
     "source_external_id": "event-123",
@@ -385,7 +423,7 @@ curl -X POST http://127.0.0.1:7788/v1/context \
   -H "Content-Type: application/json" \
   -d '{
     "space_slug": "project-alpha",
-    "profile_external_ref": "default",
+    "memory_scope_external_ref": "default",
     "thread_external_ref": "session-123",
     "query": "What did the candidate prefer for event processing?",
     "token_budget": 512
@@ -400,7 +438,7 @@ from memo_stack_sdk import MemoStackClient
 client = MemoStackClient(token="local-dev-token")
 client.remember_fact(
     space_id="space_project_alpha",
-    profile_id="profile_default",
+    memory_scope_id="memory_scope_default",
     text="Postgres is canonical truth.",
     kind="architecture_decision",
     source_refs=[{"source_type": "manual", "source_id": "note-1"}],
@@ -408,7 +446,7 @@ client.remember_fact(
 
 client.ingest_episode(
     space_slug="project-alpha",
-    profile_external_ref="default",
+    memory_scope_external_ref="default",
     thread_external_ref="session-123",
     source_type="system_audio",
     source_external_id="event-123",
@@ -418,7 +456,7 @@ client.ingest_episode(
 
 context = client.build_context(
     space_slug="project-alpha",
-    profile_external_ref="default",
+    memory_scope_external_ref="default",
     thread_external_ref="session-123",
     query="event processing preference",
     token_budget=512,
@@ -426,7 +464,7 @@ context = client.build_context(
 
 suggestion = client.create_suggestion(
     space_id="space_project_alpha",
-    profile_id="profile_default",
+    memory_scope_id="memory_scope_default",
     candidate_text="Qdrant is a derived index.",
     kind="architecture_decision",
     safe_reason="review_required",

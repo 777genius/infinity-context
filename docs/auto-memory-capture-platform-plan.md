@@ -152,13 +152,13 @@ Do not include these in the first auto-memory foundation:
 7. Pending suggestions are not active memory.
 8. Retrieved memory is evidence, never instruction.
 9. Direct writes require explicit user intent or approved review policy.
-10. Every write path is scoped by space/profile/thread policy.
+10. Every write path is scoped by space/memory scope/thread policy.
 11. Every replay path is idempotent.
 12. Every provider failure can be retried or dead-lettered safely.
 13. Every prompt, parser, extractor, resolver and policy version is recorded.
 14. Capture deletion/redaction is a privacy lifecycle, not a fact lifecycle.
 15. Scope is resolved before application use cases run. Adapters never get to
-    write naked profile ids.
+    write naked memory scope ids.
 16. Existing Memo Stack Core modes remain compatible. Auto-memory modes are an
     extension, not a replacement for `disabled`, `manual_only`, `suggestions`
     and `active_context`.
@@ -211,18 +211,18 @@ Use these terms consistently:
 | Fact | Canonical active/superseded/deleted memory item. |
 | Projection | Derived Graphiti/Qdrant/Cognee/index state. |
 | EvidenceRef | Safe pointer/quote proving why a candidate exists. |
-| Scope | Resolved space/profile/thread/code boundaries for read or write. |
+| Scope | Resolved space/memory scope/thread/code boundaries for read or write. |
 | Working context | Short-lived task/session memory, not a permanent fact. |
 | Procedural memory | How an agent should behave. Keep this out of auto-capture v1 unless explicit. |
 | Semantic memory | Durable fact, constraint, preference or architecture decision. |
-| Consent | User or profile policy allowing capture storage, consolidation and provider egress. |
+| Consent | User or memory scope policy allowing capture storage, consolidation and provider egress. |
 | Data egress | Sending capture-derived text to an external LLM, embedding or memory provider. |
 | Source authority | Strength of the evidence source, independent from extractor confidence. |
 | Temporal validity | When a fact is true or applicable, not just when it was captured. |
 | Agent session | Host-specific conversation/run boundary used for correlation and idempotency. |
 | Turn | Host-specific user/assistant/tool exchange boundary. |
 | Capture admission | Fast deterministic decision to store, redact, ignore or metadata-only a raw event. |
-| Category | Stable user/product-facing grouping label inside a profile, such as `architecture`, `preferences`, `tasks` or `documents`. |
+| Category | Stable user/product-facing grouping label inside a memory scope, such as `architecture`, `preferences`, `tasks` or `documents`. |
 | Tag | Small optional search/filter label. Tags do not define ownership, permissions or lifecycle by themselves. |
 | Taxonomy policy | Allowlist and mapping rules for category, tags, memory kind and TTL policy. |
 | TTL policy | Rule deciding whether a candidate is durable, temporary, task-local or expires automatically. |
@@ -446,7 +446,7 @@ Rules:
 class CanonicalCapture:
     id: CaptureId
     space_id: SpaceId
-    profile_id: ProfileId
+    memory_scope_id: MemoryScopeId
     thread_id: ThreadId | None
     code_scope: CodeScope | None
     agent_session_external_ref: str | None
@@ -792,9 +792,9 @@ Default checks:
 
 ```text
 max text chars per capture
-max captures per profile per minute
+max captures per memory scope per minute
 max captures per agent session per minute
-max pending captures per profile
+max pending captures per memory scope
 max metadata bytes
 ```
 
@@ -860,7 +860,7 @@ Request:
 ```json
 {
   "space_slug": "default",
-  "profile_external_ref": "project:hackinterview",
+  "memory_scope_external_ref": "project:hackinterview",
   "thread_external_ref": "agent-session-123",
   "agent_session_external_ref": "claude-session-123",
   "turn_external_ref": "turn-4",
@@ -978,7 +978,7 @@ Required fields:
   "server_url": "http://127.0.0.1:7788",
   "default_scope": {
     "space_slug": "personal",
-    "profile_external_ref": "hackinterview"
+    "memory_scope_external_ref": "hackinterview"
   },
   "effective_modes": {
     "capture": "suggest",
@@ -1096,7 +1096,7 @@ Fields:
 ```text
 id
 space_id
-profile_id
+memory_scope_id
 thread_id nullable
 source_agent
 source_kind
@@ -1141,11 +1141,11 @@ Indexes:
 
 ```text
 unique(space_id, idempotency_key)
-index(space_id, profile_id, status, created_at)
-index(space_id, profile_id, consolidation_status, created_at)
-index(space_id, profile_id, source_agent, event_type, created_at)
-index(space_id, profile_id, source_authority, created_at)
-index(space_id, profile_id, source_agent, agent_session_external_ref_hash, sequence_index)
+index(space_id, memory_scope_id, status, created_at)
+index(space_id, memory_scope_id, consolidation_status, created_at)
+index(space_id, memory_scope_id, source_agent, event_type, created_at)
+index(space_id, memory_scope_id, source_authority, created_at)
+index(space_id, memory_scope_id, source_agent, agent_session_external_ref_hash, sequence_index)
 index(payload_hash)
 ```
 
@@ -1177,7 +1177,7 @@ event_type = capture.consolidate
 aggregate_type = capture
 aggregate_id = cap_...
 workload_class = auto_memory
-fairness_key = profile_id
+fairness_key = memory_scope_id
 ```
 
 ### 11.4 memory_consolidation_runs
@@ -1238,9 +1238,9 @@ review_payload_json redacted/bounded
 Indexes:
 
 ```text
-unique(space_id, profile_id, candidate_fingerprint, operation, target_fact_id nullable)
-index(space_id, profile_id, status, expires_at)
-index(space_id, profile_id, candidate_category, status, created_at)
+unique(space_id, memory_scope_id, candidate_fingerprint, operation, target_fact_id nullable)
+index(space_id, memory_scope_id, status, expires_at)
+index(space_id, memory_scope_id, candidate_category, status, created_at)
 ```
 
 Rules:
@@ -1283,7 +1283,7 @@ Payload rules:
   "trace_id": "trace_...",
   "capture_id": "cap_...",
   "space_id": "space_...",
-  "profile_id": "profile_...",
+  "memory_scope_id": "memory scope_...",
   "consolidation_run_id": "run_..."
 }
 ```
@@ -1491,7 +1491,7 @@ The extractor must receive candidate-safe context only:
 - no auth tokens;
 - no unrestricted raw transcript;
 - no absolute private paths unless path sharing is policy-approved;
-- no pending suggestions from other profiles;
+- no pending suggestions from other memory scopes;
 - no memory text framed as instructions.
 
 Related facts should be supplied as quoted evidence with ids and versions. The
@@ -1546,7 +1546,7 @@ Before `MemoryExtractorPort` can send text to an external provider:
 ```text
 capture.sensitivity in {safe, private}
 data_classification allows provider egress
-profile policy allows external AI
+memory scope policy allows external AI
 effective auto-memory mode allows consolidation
 provider budget/circuit allows call
 user or workspace consent exists
@@ -1664,7 +1664,7 @@ Recommended v1 taxonomy:
 Rules:
 
 - `MemoryKind` remains the small canonical enum already used by Memo Stack Core;
-- `category` is one stable profile-level grouping label;
+- `category` is one stable memory-scope-level grouping label;
 - `tags` are optional filters, max 10 tags, normalized to lowercase slug form;
 - tags cannot grant permissions, widen scope or override retention policy;
 - extractor may suggest category/tags/TTL, but resolver validates them through
@@ -1675,7 +1675,7 @@ Rules:
   metadata rewrites;
 - task/thread/branch-local candidates default to `current_task` or
   `debug_notes`, never durable categories;
-- profile admins can later customize taxonomy through config, but v1 should
+- memory scope admins can later customize taxonomy through config, but v1 should
   ship a checked-in default taxonomy file and snapshot tests.
 
 Suggested port:
@@ -1970,21 +1970,21 @@ documents and suggestions.
 
 Rules:
 
-- external `space_slug` and `profile_external_ref` resolve to canonical ids at
+- external `space_slug` and `memory_scope_external_ref` resolve to canonical ids at
   the API boundary;
-- adapters never submit raw internal `space_id` or `profile_id` unless they are
+- adapters never submit raw internal `space_id` or `memory_scope_id` unless they are
   already authenticated internal callers;
-- if the default profile is missing, capture should fail with safe
-  `memory.capture.scope_unresolved`, not silently create a wrong profile;
+- if the default memory scope is missing, capture should fail with safe
+  `memory.capture.scope_unresolved`, not silently create a wrong memory scope;
 - `cwd`, repo path, branch and worktree metadata are treated as hints, not
   authority;
 - branch/PR scoped captures should be labeled with `code_scope` and should not
   become global facts without promotion;
-- cross-profile consolidation is disabled by default;
+- cross-memory-scope consolidation is disabled by default;
 - capture diagnostics must include resolved scope ids only when authorized.
 
 This closes a common leak: a global agent plugin installed once can serve many
-repos and profiles, so profile defaults must be explicit.
+repos and memory scopes, so memory scope defaults must be explicit.
 
 ## 17.2 Host Fixture Contracts
 
@@ -2122,7 +2122,7 @@ Required fields:
   "trust_level": "high",
   "scope": {
     "space_id": "space_...",
-    "profile_id": "profile_...",
+    "memory_scope_id": "memory scope_...",
     "code_scope": "repo:branch"
   },
   "evidence_refs": [
@@ -2153,7 +2153,7 @@ Auto-memory must not create an infinite pending queue.
 Recommended defaults:
 
 ```text
-MEMORY_SUGGESTION_MAX_PENDING_PER_PROFILE=500
+MEMORY_SUGGESTION_MAX_PENDING_PER_MEMORY_SCOPE=500
 MEMORY_SUGGESTION_MAX_PENDING_PER_THREAD=100
 MEMORY_SUGGESTION_DEFAULT_TTL_DAYS=30
 MEMORY_SUGGESTION_WORKING_CONTEXT_TTL_DAYS=3
@@ -2249,7 +2249,7 @@ Default v1 behavior:
   projections;
 - related captures remain as redacted evidence unless policy requires purge;
 - captures are not included in normal retrieval;
-- profile deletion or explicit privacy purge can redact/purge captures;
+- memory scope deletion or explicit privacy purge can redact/purge captures;
 - purged captures keep minimal idempotency tombstones so retries do not recreate
   the same private data.
 
@@ -2435,8 +2435,8 @@ max_capture_text_chars = 20000
 max_capture_metadata_bytes = 16000
 max_evidence_refs = 20
 max_evidence_quote_chars = 1000
-max_captures_per_profile_per_minute = 120
-max_pending_captures_per_profile = 5000
+max_captures_per_memory scope_per_minute = 120
+max_pending_captures_per_memory scope = 5000
 ```
 
 Behavior:
@@ -2508,7 +2508,7 @@ sha256(source_agent, source_kind, event_type, source_event_id, normalized_text)
 Suggestion idempotency:
 
 ```text
-space_id + profile_id + capture_id + candidate_fingerprint + operation_hint
+space_id + memory_scope_id + capture_id + candidate_fingerprint + operation_hint
 ```
 
 Fact update idempotency:
@@ -2587,7 +2587,7 @@ Rules:
 | Two agents update same fact | optimistic lock conflict | e2e |
 | Deleted fact appears in Graphiti | canonical filter hides it | e2e |
 | Deleted chunk appears in Qdrant | canonical filter hides it | e2e |
-| Cross-profile search attempt | denied or empty | e2e |
+| Cross-memory-scope search attempt | denied or empty | e2e |
 | Context injection in memory text | rendered as evidence | unit/e2e |
 | Large transcript | bounded tail and truncation marker | unit |
 | Provider budget exhausted | capture pending, no data loss | e2e |
@@ -2598,11 +2598,11 @@ Rules:
 | Suggest mode | suggestions pending, no active fact | e2e |
 | Auto-apply-safe mode | only strict explicit safe fact applies | gated e2e |
 | Policy changes while capture pending | worker uses latest policy and may skip | e2e |
-| Profile is deleted while capture pending | worker skips and redacts/purges by policy | e2e |
+| Memory Scope is deleted while capture pending | worker skips and redacts/purges by policy | e2e |
 | Target fact deleted before approval | approval returns conflict | unit/e2e |
 | Reviewer approves stale target version | approval returns conflict | unit |
 | Extractor prompt version changes | replay records version delta | unit |
-| Same event in different profiles | creates isolated captures | e2e |
+| Same event in different memory scopes | creates isolated captures | e2e |
 | Branch-scoped capture asks global remember | creates suggestion requiring promotion | unit |
 | Raw payload storage disabled | no raw payload can be read back | e2e |
 | Path contains username/home dir | diagnostics redact or hash path | unit |
@@ -2667,7 +2667,7 @@ stale deleted fact recall through canonical API: 0
 hook p95 latency without retrieval: <= 500ms
 hook p95 latency with retrieval: <= 2000ms
 worker replay duplicate rate: 0
-cross-profile leakage cases: 0
+cross-memory-scope leakage cases: 0
 raw private payload in diagnostics: 0
 policy-change skip accuracy: >= 0.95
 external provider call without consent: 0
@@ -2702,7 +2702,7 @@ Golden cases:
 - rejected approach is remembered;
 - working context expires;
 - same fact repeated in different wording;
-- same subject in different profiles;
+- same subject in different memory scopes;
 - transcript tail has mixed user/assistant/tool records;
 - provider returns invalid structured output.
 - pending capture processed after policy turns off;
@@ -2747,7 +2747,7 @@ Each JSONL row:
   "description": "User corrects an existing architecture decision.",
   "scope": {
     "space_slug": "personal",
-    "profile_external_ref": "memo-stack",
+    "memory_scope_external_ref": "memo-stack",
     "thread_external_ref": "fixture-thread"
   },
   "input": {
@@ -3008,7 +3008,7 @@ Rules:
 - high confidence;
 - no conflict;
 - source evidence present;
-- profile/space resolved;
+- memory scope/space resolved;
 - policy enables auto apply.
 
 Acceptance:
@@ -3155,9 +3155,9 @@ tests/e2e/test_capture_server_redaction_still_runs_after_client_minimization.py
 1. Should `Capture` store redacted text only, or also encrypted raw payload?
    Recommendation: redacted text only for v1.
 
-2. Should auto-memory suggestions attach to thread or only profile?
+2. Should auto-memory suggestions attach to thread or only memory scope?
    Recommendation: capture stores thread when available, suggestions target
-   profile-level memory unless classified as working context.
+   memory-scope-level memory unless classified as working context.
 
 3. Should working context become facts?
    Recommendation: no. Use TTL category or current-task memory type later.

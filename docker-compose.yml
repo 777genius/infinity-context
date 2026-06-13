@@ -3,6 +3,7 @@ x-memo-stack-server-common: &memo-stack-server-common
   working_dir: /app
   volumes:
     - ./:/app
+    - memo_stack_assets:/var/lib/memo-stack/assets
   depends_on:
     memo_stack_postgres:
       condition: service_healthy
@@ -17,7 +18,8 @@ x-memo-stack-server-base-env: &memo-stack-server-base-env
   MEMORY_POLICY_MODE: ${MEMORY_POLICY_MODE:-active_context}
   MEMORY_LEGACY_CLIENT_ENABLED: ${MEMORY_LEGACY_CLIENT_ENABLED:-false}
   MEMORY_DEFAULT_SPACE_SLUG: ${MEMORY_DEFAULT_SPACE_SLUG:-default}
-  MEMORY_DEFAULT_PROFILE_EXTERNAL_REF: ${MEMORY_DEFAULT_PROFILE_EXTERNAL_REF:-default}
+  MEMORY_DEFAULT_MEMORY_SCOPE_EXTERNAL_REF: ${MEMORY_DEFAULT_MEMORY_SCOPE_EXTERNAL_REF:-default}
+  MEMORY_ASSET_STORAGE_DIR: /var/lib/memo-stack/assets
   MEMORY_PROVIDER_CIRCUIT_FAILURE_THRESHOLD: "3"
   MEMORY_PROVIDER_CIRCUIT_RESET_AFTER_SECONDS: "60"
   MEMORY_COGNEE_ENABLED: ${MEMORY_COGNEE_ENABLED:-false}
@@ -94,7 +96,27 @@ services:
   memo_stack_worker:
     <<: *memo-stack-server-common
     profiles: ["lite"]
-    command: sh -c "pip install -e '.[dev]' && python -m memo_stack_server.worker --loop --sleep-seconds 2"
+    command: sh -c "pip install -e '.[dev]' && python -m memo_stack_server.worker --loop --role projection --sleep-seconds 2"
+    environment:
+      <<: *memo-stack-server-base-env
+      MEMORY_QDRANT_ENABLED: "false"
+      MEMORY_QDRANT_URL: http://memo_stack_qdrant:6333
+      MEMORY_QDRANT_COLLECTION: memo_stack_chunks_v1
+      MEMORY_EMBEDDINGS_ENABLED: "false"
+      MEMORY_EMBEDDINGS_PROVIDER: noop
+      MEMORY_GRAPHITI_ENABLED: "false"
+      MEMORY_GRAPHITI_NEO4J_URI: bolt://memo_stack_neo4j:7687
+      MEMORY_GRAPHITI_NEO4J_USER: neo4j
+      MEMORY_GRAPHITI_NEO4J_PASSWORD: memostackgraph
+      MEMORY_GRAPHITI_BUILD_INDICES: "false"
+    depends_on:
+      memo_stack_server:
+        condition: service_healthy
+
+  memo_stack_extraction_worker:
+    <<: *memo-stack-server-common
+    profiles: ["lite"]
+    command: sh -c "pip install -e '.[dev]' && python -m memo_stack_server.worker --loop --role extraction --limit 2 --sleep-seconds 2"
     environment:
       <<: *memo-stack-server-base-env
       MEMORY_QDRANT_ENABLED: "false"
@@ -145,7 +167,31 @@ services:
   memo_stack_worker_full:
     <<: *memo-stack-server-common
     profiles: ["full"]
-    command: sh -c "pip install -e '.[dev,qdrant,openai,graphiti]' && python -m memo_stack_server.worker --loop --sleep-seconds 2"
+    command: sh -c "pip install -e '.[dev,qdrant,openai,graphiti]' && python -m memo_stack_server.worker --loop --role projection --sleep-seconds 2"
+    environment:
+      <<: *memo-stack-server-base-env
+      MEMORY_QDRANT_ENABLED: "true"
+      MEMORY_QDRANT_URL: http://memo_stack_qdrant:6333
+      MEMORY_QDRANT_COLLECTION: ${MEMORY_QDRANT_COLLECTION:-memo_stack_chunks_v1}
+      MEMORY_EMBEDDINGS_ENABLED: "true"
+      MEMORY_EMBEDDINGS_PROVIDER: openai
+      MEMORY_EMBEDDINGS_MODEL: ${MEMORY_EMBEDDINGS_MODEL:-text-embedding-3-small}
+      MEMORY_EMBEDDINGS_DIMENSIONS: ${MEMORY_EMBEDDINGS_DIMENSIONS:-1536}
+      MEMORY_OPENAI_API_KEY: ${MEMORY_OPENAI_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      MEMORY_GRAPHITI_ENABLED: "true"
+      MEMORY_GRAPHITI_NEO4J_URI: bolt://memo_stack_neo4j:7687
+      MEMORY_GRAPHITI_NEO4J_USER: neo4j
+      MEMORY_GRAPHITI_NEO4J_PASSWORD: memostackgraph
+      MEMORY_GRAPHITI_BUILD_INDICES: "true"
+    depends_on:
+      memo_stack_server_full:
+        condition: service_healthy
+
+  memo_stack_extraction_worker_full:
+    <<: *memo-stack-server-common
+    profiles: ["full"]
+    command: sh -c "pip install -e '.[dev,qdrant,openai,graphiti]' && python -m memo_stack_server.worker --loop --role extraction --limit 2 --sleep-seconds 2"
     environment:
       <<: *memo-stack-server-base-env
       MEMORY_QDRANT_ENABLED: "true"
@@ -167,5 +213,6 @@ services:
         condition: service_healthy
 
 volumes:
+  memo_stack_assets:
   memo_stack_qdrant_data:
   memo_stack_neo4j_data:

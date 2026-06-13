@@ -58,7 +58,7 @@ Observed current state:
   - `memory_search`
   - fact create/update/forget tools
   - suggestion/capture tools
-  - resources including `memory://scope/{space}/{profile}/summary`
+  - resources including `memory://scope/{space}/{memory_scope}/summary`
 - The existing scope summary resource is only a preview of facts and suggestions. It is not a
   first-class digest product surface.
 
@@ -91,7 +91,7 @@ memo-stack up
 memo-stack status
 memo-stack doctor
 memo-stack mcp-config --agent codex
-memo-stack digest "current architecture decisions" --space default --profile hackinterview
+memo-stack digest "current architecture decisions" --space default --memory_scope hackinterview
 ```
 
 The first version is local-only. It does not need OAuth, hosted billing, multi-tenant cloud, remote
@@ -104,7 +104,7 @@ Target UX through CLI:
 ```bash
 memo-stack digest "Graphiti and Qdrant decisions" \
   --space hackinterview \
-  --profile engineering \
+  --memory_scope engineering \
   --format markdown
 ```
 
@@ -375,7 +375,7 @@ memo-stack status [--json]
 memo-stack doctor [--json]
 memo-stack logs [--service server|worker|postgres|qdrant|neo4j]
 memo-stack mcp-config --agent codex|claude|cursor|gemini|opencode [--print|--write]
-memo-stack digest <topic> [--space <slug>] [--profile <ref>] [--format json|markdown]
+memo-stack digest <topic> [--space <slug>] [--memory_scope <ref>] [--format json|markdown]
 ```
 
 For v1:
@@ -391,7 +391,7 @@ CLI runtime should be hidden behind a small adapter:
 
 ```python
 class RuntimePort(Protocol):
-    def up(self, profile: str) -> RuntimeResult: ...
+    def up(self, compose_profile: str) -> RuntimeResult: ...
     def down(self) -> RuntimeResult: ...
     def status(self) -> RuntimeStatus: ...
     def logs(self, service: str, tail: int) -> str: ...
@@ -419,11 +419,11 @@ home = "~/.memo-stack"
 repo_dir = "~/.memo-stack/src"
 api_url = "http://127.0.0.1:7788"
 service_token_env = "MEMORY_SERVICE_TOKEN"
-default_profile = "default"
+default_memory_scope = "default"
 
 [runtime]
 mode = "docker_compose"
-profile = "lite"
+compose_profile = "lite"
 compose_project_name = "memo_stack"
 
 [mcp]
@@ -462,7 +462,7 @@ Initial DTOs in `memo_stack_core.application.dto`:
 @dataclass(frozen=True)
 class BuildMemoryDigestQuery:
     space_id: SpaceId
-    profile_ids: tuple[ProfileId, ...]
+    memory_scope_ids: tuple[MemoryScopeId, ...]
     thread_id: ThreadId | None
     topic: str
     consistency_mode: ConsistencyMode
@@ -590,8 +590,8 @@ Request:
 ```json
 {
   "space_slug": "hackinterview",
-  "profile_external_ref": "engineering",
-  "profile_external_refs": null,
+  "memory_scope_external_ref": "engineering",
+  "memory_scope_external_refs": null,
   "thread_external_ref": null,
   "topic": "Graphiti and Qdrant decisions",
   "consistency_mode": "best_effort",
@@ -666,8 +666,8 @@ Suggested MCP args:
 ```python
 topic: str
 space_slug: str | None = None
-profile_external_ref: str | None = None
-profile_external_refs: list[str] | None = None
+memory_scope_external_ref: str | None = None
+memory_scope_external_refs: list[str] | None = None
 thread_external_ref: str | None = None
 token_budget: int = 2400
 max_facts: int = 20
@@ -688,8 +688,8 @@ MCP description must tell agents:
 ### CLI Surface
 
 ```bash
-memo-stack digest "topic" --space default --profile engineering --format markdown
-memo-stack digest "topic" --space default --profile engineering --format json
+memo-stack digest "topic" --space default --memory_scope engineering --format markdown
+memo-stack digest "topic" --space default --memory_scope engineering --format json
 ```
 
 CLI should call API, not import server internals.
@@ -893,7 +893,7 @@ Acceptance:
 curl -X POST http://127.0.0.1:7788/v1/digest \
   -H "Authorization: Bearer local-dev-token" \
   -H "Content-Type: application/json" \
-  -d '{"space_slug":"default","profile_external_ref":"default","topic":"architecture"}'
+  -d '{"space_slug":"default","memory_scope_external_ref":"default","topic":"architecture"}'
 ```
 
 ### Phase 6 - MCP Tool
@@ -1007,8 +1007,8 @@ make memo-stack-secret-scan
 - Vector result points to deleted canonical chunk.
 - Graphiti result mentions superseded fact.
 - Pending suggestion contradicts active fact.
-- Multiple profiles are requested.
-- Thread scope exists but profile scope does not.
+- Multiple memory scopes are requested.
+- Thread scope exists but memory scope does not.
 - Source refs are missing.
 - Source was hard-deleted.
 - Prompt injection is present in source text.

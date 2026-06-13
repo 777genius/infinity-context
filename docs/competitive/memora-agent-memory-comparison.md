@@ -34,7 +34,7 @@ Memo Stack local evidence:
 - `tests/unit/test_mcp_fact_relations.py`
 - `tests/unit/test_mcp_suggestion_batch_review.py`
 - `tests/unit/test_suggestions_api.py`
-- `tests/unit/test_profile_snapshot_api.py`
+- `tests/unit/test_memory scope_snapshot_api.py`
 - `tests/e2e/test_memory_quality_e2e.py`
 - `tests/e2e/test_memo_stack_agent_behavior_bench_e2e.py`
 - `tests/e2e/test_memo_stack_agent_plugin_e2e.py`
@@ -125,7 +125,7 @@ make memo-stack-compare-memora
 | Large documents and architecture notes | 9.4 | 9.1 | Memo Stack |
 | Graph relationships and temporal context | 9.5 | 8.4 | Memo Stack |
 | Agent hooks, plugins and real agent ergonomics | 9.2 | 7.8 | Memo Stack |
-| Project/team/profile isolation | 9.2 | 7.5 | Memo Stack |
+| Project/team/memory scope isolation | 9.2 | 7.5 | Memo Stack |
 | Operational confidence and benchmark evidence | 9.3 | 7.7 | Memo Stack |
 | Clean Architecture and extensibility | 9.1 | 6.8 | Memo Stack |
 
@@ -143,7 +143,7 @@ graph UI and cloud sync options.
 
 Memo Stack is stronger for the product we are building: governed project/team
 memory for coding agents. The big differences are first-class
-space/profile/thread isolation, canonical fact lifecycle, expected-version
+space/memory scope/thread isolation, canonical fact lifecycle, expected-version
 updates, review-gated suggestions, bounded batch suggestion create/review with
 per-item failures, DB-enforced race-safe pending suggestion dedupe, conservative
 semantic-equivalent duplicate suppression in core consolidation and MCP
@@ -158,7 +158,7 @@ replaceable RAG path. Memo Stack also exposes portable canonical graph export
 for facts, documents, typed fragments and evidence links. Canonical facts now
 carry category/tags/TTL and expired active facts are hidden from active
 list/context/export surfaces while staying auditable by direct id. Context/search
-now support category plus tags_any/tags_all/tags_none filters for canonical facts. Profile
+now support category plus tags_any/tags_all/tags_none filters for canonical facts. Memory Scope
 snapshot export/import is available through HTTP API, SDK, MCP and CLI with
 dry-run, explicit confirmation gates and manifest hash verification for backup
 or git-sync integrity. Snapshot import also has a dedicated read-only preview
@@ -177,9 +177,9 @@ Memo Stack now also has durable typed fact relations through API, SDK and MCP:
 `supports`, `supersedes`, `contradicts`, `duplicates`, `references`,
 `depends_on`, and `related_to`. Those links are exported through canonical
 `graph.json`, so graph visualization and git-syncable evidence do not depend on
-Graphiti/Cognee runtime state. Profile snapshot export/import also preserves
+Graphiti/Cognee runtime state. MemoryScope snapshot export/import also preserves
 those typed fact links, remapping relation endpoints when importing into a new
-profile. That closes the previous portability gap where facts could be restored
+memory scope. That closes the previous portability gap where facts could be restored
 without their durable semantic links.
 
 ## Practical recommendation
@@ -188,7 +188,7 @@ Use Memora as a competitive benchmark and inspiration for UX features:
 
 - ready ADR/notes views on top of the structured fragment contract
 - graph visualization on top of the portable graph export
-- simple import UI on top of profile snapshots
+- simple import UI on top of memory scope snapshots
 - easy local install
 
 Do not replace Memo Stack with Memora if the goal is a reusable platform behind

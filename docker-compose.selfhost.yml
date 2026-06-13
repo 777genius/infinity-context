@@ -1,0 +1,156 @@
+x-memo-stack-image: &memo-stack-image
+  image: ${MEMO_STACK_IMAGE:-memo-stack:local}
+  build:
+    context: .
+    dockerfile: Dockerfile
+    args:
+      MEMO_STACK_EXTRAS: ${MEMO_STACK_EXTRAS:-qdrant,openai,graphiti,mcp}
+
+x-memo-stack-env: &memo-stack-env
+  MEMORY_DEPLOY_PROFILE: server
+  MEMORY_DATABASE_URL: postgresql+asyncpg://memo_stack:${MEMORY_POSTGRES_PASSWORD:?Set MEMORY_POSTGRES_PASSWORD in .env.selfhost}@memo_stack_postgres:5432/memo_stack
+  MEMORY_AUTO_CREATE_SCHEMA: "false"
+  MEMORY_HOST: 0.0.0.0
+  MEMORY_PORT: "7788"
+  MEMORY_SERVICE_TOKEN: ${MEMORY_SERVICE_TOKEN:?Set MEMORY_SERVICE_TOKEN in .env.selfhost}
+  MEMORY_POLICY_MODE: ${MEMORY_POLICY_MODE:-suggestions}
+  MEMORY_CAPTURE_MODE: ${MEMORY_CAPTURE_MODE:-suggest}
+  MEMORY_CAPTURE_EXTERNAL_AI_ENABLED: ${MEMORY_CAPTURE_EXTERNAL_AI_ENABLED:-false}
+  MEMORY_CAPTURE_EXTRACTOR_PROVIDER: ${MEMORY_CAPTURE_EXTRACTOR_PROVIDER:-rule_based}
+  MEMORY_CAPTURE_EXTRACTOR_MODEL: ${MEMORY_CAPTURE_EXTRACTOR_MODEL:-gpt-4.1-mini}
+  MEMORY_CAPTURE_DEFAULT_CONSOLIDATE: ${MEMORY_CAPTURE_DEFAULT_CONSOLIDATE:-true}
+  MEMORY_ASSET_STORAGE_DIR: /var/lib/memo-stack/assets
+  MEMORY_MAX_ASSET_UPLOAD_BYTES: ${MEMORY_MAX_ASSET_UPLOAD_BYTES:-26214400}
+  MEMORY_EXTRACTION_ENABLED: ${MEMORY_EXTRACTION_ENABLED:-true}
+  MEMORY_EXTRACTION_MAX_BYTES: ${MEMORY_EXTRACTION_MAX_BYTES:-26214400}
+  MEMORY_EXTRACTION_MAX_PAGES: ${MEMORY_EXTRACTION_MAX_PAGES:-100}
+  MEMORY_EXTRACTION_MAX_MEDIA_SECONDS: ${MEMORY_EXTRACTION_MAX_MEDIA_SECONDS:-600}
+  MEMORY_EXTRACTION_MAX_OUTPUT_CHARS: ${MEMORY_EXTRACTION_MAX_OUTPUT_CHARS:-500000}
+  MEMORY_EXTRACTION_MAX_TABLES: ${MEMORY_EXTRACTION_MAX_TABLES:-100}
+  MEMORY_EXTRACTION_OCR_ENABLED: ${MEMORY_EXTRACTION_OCR_ENABLED:-true}
+  MEMORY_EXTRACTION_EXTERNAL_AI_ENABLED: ${MEMORY_EXTRACTION_EXTERNAL_AI_ENABLED:-false}
+  MEMORY_EXTRACTION_DEFAULT_PROFILE: ${MEMORY_EXTRACTION_DEFAULT_PROFILE:-standard_local}
+  MEMORY_LEGACY_CLIENT_ENABLED: ${MEMORY_LEGACY_CLIENT_ENABLED:-false}
+  MEMORY_DEFAULT_SPACE_SLUG: ${MEMORY_DEFAULT_SPACE_SLUG:-team}
+  MEMORY_DEFAULT_MEMORY_SCOPE_EXTERNAL_REF: ${MEMORY_DEFAULT_MEMORY_SCOPE_EXTERNAL_REF:-default}
+  MEMORY_QDRANT_ENABLED: ${MEMORY_QDRANT_ENABLED:-false}
+  MEMORY_QDRANT_URL: http://memo_stack_qdrant:6333
+  MEMORY_QDRANT_COLLECTION: ${MEMORY_QDRANT_COLLECTION:-memo_stack_chunks_v1}
+  MEMORY_EMBEDDINGS_ENABLED: ${MEMORY_EMBEDDINGS_ENABLED:-false}
+  MEMORY_EMBEDDINGS_PROVIDER: ${MEMORY_EMBEDDINGS_PROVIDER:-noop}
+  MEMORY_EMBEDDINGS_MODEL: ${MEMORY_EMBEDDINGS_MODEL:-text-embedding-3-small}
+  MEMORY_EMBEDDINGS_DIMENSIONS: ${MEMORY_EMBEDDINGS_DIMENSIONS:-1536}
+  MEMORY_OPENAI_API_KEY: ${MEMORY_OPENAI_API_KEY:-}
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  MEMORY_GRAPHITI_ENABLED: ${MEMORY_GRAPHITI_ENABLED:-false}
+  MEMORY_GRAPHITI_NEO4J_URI: bolt://memo_stack_neo4j:7687
+  MEMORY_GRAPHITI_NEO4J_USER: ${MEMORY_GRAPHITI_NEO4J_USER:-neo4j}
+  MEMORY_GRAPHITI_NEO4J_PASSWORD: ${MEMORY_GRAPHITI_NEO4J_PASSWORD:-}
+  MEMORY_GRAPHITI_BUILD_INDICES: ${MEMORY_GRAPHITI_BUILD_INDICES:-false}
+  MEMORY_PROVIDER_CIRCUIT_FAILURE_THRESHOLD: ${MEMORY_PROVIDER_CIRCUIT_FAILURE_THRESHOLD:-3}
+  MEMORY_PROVIDER_CIRCUIT_RESET_AFTER_SECONDS: ${MEMORY_PROVIDER_CIRCUIT_RESET_AFTER_SECONDS:-60}
+
+x-memo-stack-service: &memo-stack-service
+  <<: *memo-stack-image
+  restart: unless-stopped
+  environment:
+    <<: *memo-stack-env
+  volumes:
+    - memo_stack_assets:/var/lib/memo-stack/assets
+  depends_on:
+    memo_stack_postgres:
+      condition: service_healthy
+
+x-memo-stack-healthcheck: &memo-stack-healthcheck
+  test:
+    [
+      "CMD",
+      "python",
+      "-c",
+      "import urllib.request; urllib.request.urlopen('http://127.0.0.1:7788/v1/health', timeout=2)",
+    ]
+  interval: 10s
+  timeout: 3s
+  retries: 30
+  start_period: 20s
+
+services:
+  memo_stack_postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: memo_stack
+      POSTGRES_PASSWORD: ${MEMORY_POSTGRES_PASSWORD:?Set MEMORY_POSTGRES_PASSWORD in .env.selfhost}
+      POSTGRES_DB: memo_stack
+    volumes:
+      - memo_stack_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U memo_stack -d memo_stack"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  memo_stack_qdrant:
+    image: qdrant/qdrant:v1.18.0
+    profiles: ["full"]
+    restart: unless-stopped
+    volumes:
+      - memo_stack_qdrant_data:/qdrant/storage
+
+  memo_stack_neo4j:
+    image: neo4j:5.26-community
+    profiles: ["full"]
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: ${MEMORY_GRAPHITI_NEO4J_USER:-neo4j}/${MEMORY_GRAPHITI_NEO4J_PASSWORD:-memostackgraph}
+    volumes:
+      - memo_stack_neo4j_data:/data
+
+  memo_stack_migrate:
+    <<: *memo-stack-service
+    restart: "no"
+    command: >
+      sh -c "python -m memo_stack_server.db upgrade
+      && python -m memo_stack_server.admin seed-defaults"
+
+  memo_stack_server:
+    <<: *memo-stack-service
+    command: python -m memo_stack_server.main
+    ports:
+      - "${MEMORY_SERVER_PORT:-7788}:7788"
+    depends_on:
+      memo_stack_postgres:
+        condition: service_healthy
+      memo_stack_migrate:
+        condition: service_completed_successfully
+    healthcheck: *memo-stack-healthcheck
+
+  memo_stack_projection_worker:
+    <<: *memo-stack-service
+    command: >
+      python -m memo_stack_server.worker
+      --loop
+      --role projection
+      --limit ${MEMORY_PROJECTION_WORKER_LIMIT:-25}
+      --sleep-seconds ${MEMORY_PROJECTION_WORKER_SLEEP_SECONDS:-2}
+    depends_on:
+      memo_stack_server:
+        condition: service_healthy
+
+  memo_stack_extraction_worker:
+    <<: *memo-stack-service
+    command: >
+      python -m memo_stack_server.worker
+      --loop
+      --role extraction
+      --limit ${MEMORY_EXTRACTION_WORKER_LIMIT:-2}
+      --sleep-seconds ${MEMORY_EXTRACTION_WORKER_SLEEP_SECONDS:-2}
+    depends_on:
+      memo_stack_server:
+        condition: service_healthy
+
+volumes:
+  memo_stack_postgres_data:
+  memo_stack_assets:
+  memo_stack_qdrant_data:
+  memo_stack_neo4j_data:

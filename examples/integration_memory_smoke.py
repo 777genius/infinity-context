@@ -25,7 +25,7 @@ class SmokeConfig:
     api_url: str
     auth_token: str
     space_slug: str
-    profile_external_ref: str
+    memory_scope_external_ref: str
     thread_external_ref: str
     run_id: str
     timeout: float
@@ -40,7 +40,7 @@ class SmokeConfig:
                 os.getenv("MEMORY_SERVICE_TOKEN", "local-dev-token"),
             ),
             space_slug=os.getenv("MEMORY_SMOKE_SPACE", "memo-stack-smoke"),
-            profile_external_ref=os.getenv("MEMORY_SMOKE_PROFILE", "default"),
+            memory_scope_external_ref=os.getenv("MEMORY_SMOKE_MEMORY_SCOPE", "default"),
             thread_external_ref=os.getenv(
                 "MEMORY_SMOKE_THREAD",
                 f"smoke-{run_id}",
@@ -65,18 +65,18 @@ def run_smoke(client: Any, config: SmokeConfig) -> dict[str, Any]:
             name=f"{config.space_slug} smoke",
         )
     )
-    profile = _data(
-        client.create_profile(
+    memory_scope = _data(
+        client.create_memory_scope(
             space_id=str(space["id"]),
-            external_ref=config.profile_external_ref,
-            name=f"{config.profile_external_ref} smoke",
+            external_ref=config.memory_scope_external_ref,
+            name=f"{config.memory_scope_external_ref} smoke",
         )
     )
 
     fact = _data(
         client.remember_fact(
             space_slug=config.space_slug,
-            profile_external_ref=config.profile_external_ref,
+            memory_scope_external_ref=config.memory_scope_external_ref,
             thread_external_ref=config.thread_external_ref,
             text=f"{fact_marker}: initial smoke fact for Memo Stack.",
             kind="note",
@@ -107,7 +107,7 @@ def run_smoke(client: Any, config: SmokeConfig) -> dict[str, Any]:
     document = _data(
         client.ingest_document(
             space_slug=config.space_slug,
-            profile_external_ref=config.profile_external_ref,
+            memory_scope_external_ref=config.memory_scope_external_ref,
             thread_external_ref=config.thread_external_ref,
             title=f"Memo Stack smoke document {config.run_id}",
             text=f"{document_marker}: document recall smoke for Memo Stack.",
@@ -120,7 +120,7 @@ def run_smoke(client: Any, config: SmokeConfig) -> dict[str, Any]:
     search = _data(
         client.search(
             space_slug=config.space_slug,
-            profile_external_ref=config.profile_external_ref,
+            memory_scope_external_ref=config.memory_scope_external_ref,
             thread_external_ref=config.thread_external_ref,
             query=updated_marker,
             token_budget=512,
@@ -133,7 +133,7 @@ def run_smoke(client: Any, config: SmokeConfig) -> dict[str, Any]:
     context = _data(
         client.build_context(
             space_slug=config.space_slug,
-            profile_external_ref=config.profile_external_ref,
+            memory_scope_external_ref=config.memory_scope_external_ref,
             thread_external_ref=config.thread_external_ref,
             query=f"{updated_marker} {document_marker}",
             token_budget=768,
@@ -151,7 +151,7 @@ def run_smoke(client: Any, config: SmokeConfig) -> dict[str, Any]:
     after_forget = _data(
         client.build_context(
             space_slug=config.space_slug,
-            profile_external_ref=config.profile_external_ref,
+            memory_scope_external_ref=config.memory_scope_external_ref,
             thread_external_ref=config.thread_external_ref,
             query=updated_marker,
             token_budget=512,
@@ -166,7 +166,7 @@ def run_smoke(client: Any, config: SmokeConfig) -> dict[str, Any]:
         "ok": True,
         "api_url": config.api_url,
         "space_id": space["id"],
-        "profile_id": profile["id"],
+        "memory_scope_id": memory_scope["id"],
         "thread_external_ref": config.thread_external_ref,
         "fact_id": fact["id"],
         "updated_fact_version": updated.get("version"),

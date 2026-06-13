@@ -101,7 +101,7 @@ automatic aggressive consolidation
 3. Postgres как canonical source of truth.
 4. Qdrant для document/transcript chunks.
 5. Thin Graphiti adapter behind port для facts/entities/temporal graph.
-6. Profiles, threads, source refs.
+6. Memory Scopes, threads, source refs.
 7. Remember/update/forget facts.
 8. Document ingest, chunking, retrieval.
 9. Context builder для Client App prompt path.
@@ -228,7 +228,7 @@ Use small ports:
 ```text
 FactRepositoryPort
 DocumentRepositoryPort
-ProfileRepositoryPort
+Memory ScopeRepositoryPort
 UnitOfWorkPort
 VectorMemoryPort
 GraphMemoryPort
@@ -403,7 +403,7 @@ Bounded contexts for Core Lite:
 
 ```text
 Workspace Context
-  Principal, MemorySpace, MemoryProfile, MemoryThread
+  User, MemorySpace, MemoryScope, MemoryThread
 
 Evidence Context
   SourceRef, SourceProvenance, MemoryDocument, DocumentChunk, MemoryEpisode
@@ -423,7 +423,7 @@ Indexing Context
 
 Aggregate roots:
 
-- `MemoryProfile`
+- `MemoryScope`
 - `MemoryThread`
 - `MemoryFact`
 - `MemoryDocument`
@@ -446,7 +446,7 @@ Use these words consistently in code, API and docs.
 MemorySpace
   top-level project/application boundary
 
-MemoryProfile
+MemoryScope
   long-lived memory category inside a space
 
 MemoryThread
@@ -531,9 +531,9 @@ document status controls indexing and classification jobs
 #### MemoryThread
 
 ```text
-external_ref is unique per space/profile
+external_ref is unique per space/memory scope
 legacy Client App session maps to one active thread
-thread archive does not delete promoted profile facts
+thread archive does not delete promoted memory scope facts
 ```
 
 #### MemorySuggestion
@@ -702,7 +702,7 @@ Event payload example:
   "aggregate_id": "fact_123",
   "aggregate_version": 3,
   "space_id": "space_client_app",
-  "profile_id": "profile_default",
+  "memory_scope_id": "memory scope_default",
   "payload": {
     "fact_id": "fact_123",
     "version": 3
@@ -926,7 +926,7 @@ Search adapters return candidates, not active memory.
 class VectorCandidate:
     chunk_id: str
     space_id: str
-    profile_id: str
+    memory_scope_id: str
     score: float
     projection_version: str
     preview: str | None = None
@@ -1273,14 +1273,14 @@ Mapper rules:
 Mapper test example:
 
 ```python
-def test_remember_fact_mapper_uses_resolved_scope_not_request_profile_id():
+def test_remember_fact_mapper_uses_resolved_scope_not_request_memory_scope_id():
     request = RememberFactRequest(
         space_id="client_space",
-        profile_id="client_profile",
+        memory_scope_id="client_memory scope",
         text="Use Qdrant for document RAG.",
         source_refs=[SourceRefRequest(source_type="manual", source_id="manual_1")],
     )
-    scope = ResolvedScope(space_id="space_auth", profile_id="profile_auth")
+    scope = ResolvedScope(space_id="space_auth", memory_scope_id="memory scope_auth")
 
     command = remember_fact_request_to_command(
         request=request,
@@ -1289,7 +1289,7 @@ def test_remember_fact_mapper_uses_resolved_scope_not_request_profile_id():
     )
 
     assert command.space_id == "space_auth"
-    assert command.profile_id == "profile_auth"
+    assert command.memory_scope_id == "memory scope_auth"
 ```
 
 Required mapper tests:
@@ -1429,7 +1429,7 @@ Order:
 
 1. Add legacy DTOs.
 2. Add anti-corruption mapper.
-3. Resolve default space/profile/thread.
+3. Resolve default space/memory scope/thread.
 4. Call `BuildContextUseCase`.
 5. Map success/error to legacy response shape.
 6. Verify fallback-safe timeout.
@@ -1492,7 +1492,7 @@ Status: accepted
 ## Context
 
 Qdrant and Graphiti are powerful retrieval engines, but neither should own
-delete, profile isolation, or source-of-truth lifecycle for Client App.
+delete, memory scope isolation, or source-of-truth lifecycle for Client App.
 
 ## Decision
 
@@ -1535,7 +1535,7 @@ Core Lite rules:
 - every fact/document/thread belongs to a space;
 - cross-space search is not implemented in Core Lite.
 
-### MemoryProfile
+### MemoryScope
 
 Logical memory category inside a space.
 
@@ -1544,7 +1544,7 @@ Examples:
 - `default`
 - `interview`
 - `architecture`
-- `candidate-profile`
+- `candidate-memory scope`
 
 Fields:
 
@@ -1561,8 +1561,8 @@ status: active | archived | deleted
 Rules:
 
 - Client App legacy default maps to `external_ref=default`;
-- profile is mandatory for all write/read operations;
-- profile deletion is out of Core Lite, but soft archive is allowed.
+- memory scope is mandatory for all write/read operations;
+- memory scope deletion is out of Core Lite, but soft archive is allowed.
 
 ### MemoryThread
 
@@ -1573,7 +1573,7 @@ Fields:
 ```text
 id
 space_id
-profile_id
+memory_scope_id
 external_ref?
 title?
 created_at
@@ -1584,8 +1584,8 @@ status: active | archived | deleted
 Rules:
 
 - Client App `session_id` maps to `external_ref`;
-- facts can be thread-scoped or profile-scoped;
-- context builder can mix current thread and profile memory with budget rules.
+- facts can be thread-scoped or memory-scope-scoped;
+- context builder can mix current thread and memory scope memory with budget rules.
 
 ### SourceProvenance
 
@@ -1596,7 +1596,7 @@ Fields:
 ```text
 id
 space_id
-profile_id
+memory_scope_id
 thread_id?
 source_app: client-app | api | sdk | manual
 source_type: transcript | prompt | focus_copy | document | manual | assistant_answer
@@ -1643,7 +1643,7 @@ Fields:
 ```text
 id
 space_id
-profile_id
+memory_scope_id
 thread_id?
 kind: preference | constraint | decision | task | note | interview_context | code_context
 text
@@ -1674,7 +1674,7 @@ Fields:
 ```text
 id
 space_id
-profile_id
+memory_scope_id
 thread_id?
 filename
 mime_type
@@ -1701,7 +1701,7 @@ id
 document_id?
 episode_id?
 space_id
-profile_id
+memory_scope_id
 thread_id?
 text
 token_count
@@ -1728,7 +1728,7 @@ Fields:
 ```text
 id
 space_id
-profile_id
+memory_scope_id
 mode: disabled | manual_only | suggestions | active_context
 allow_assistant_answer_as_source: false
 allow_auto_promote: false
@@ -1865,8 +1865,8 @@ Use cases are the application layer API. Routes, CLI commands and SDK calls shou
 | Use case | Input | Output | Writes | Outbox |
 |---|---|---|---|---|
 | `CreateSpaceUseCase` | name, slug | `MemorySpace` | spaces | none |
-| `CreateProfileUseCase` | space, name, external ref | `MemoryProfile` | profiles | none |
-| `ResolveThreadUseCase` | space, profile, external ref | `MemoryThread` | threads | none |
+| `CreateMemory ScopeUseCase` | space, name, external ref | `MemoryScope` | memory scopes | none |
+| `ResolveThreadUseCase` | space, memory scope, external ref | `MemoryThread` | threads | none |
 | `IngestEpisodeUseCase` | transcript/event text | episode id | episodes/source refs | `document.process` optional |
 | `RememberFactUseCase` | fact text/source refs | fact | facts/fact versions | `graph.upsert_fact` |
 | `UpdateFactUseCase` | fact id, expected version, new text | fact | facts/fact versions/tombstones | `graph.upsert_fact` |
@@ -1883,7 +1883,7 @@ Use cases are the application layer API. Routes, CLI commands and SDK calls shou
 | Use case | Reads | Purpose |
 |---|---|---|
 | `GetFactUseCase` | facts/source refs | API detail |
-| `ListFactsUseCase` | facts | profile inspection |
+| `ListFactsUseCase` | facts | memory scope inspection |
 | `SearchMemoryUseCase` | facts/chunks/graph candidates | raw search result |
 | `BuildContextUseCase` | facts/chunks/policies | prompt-ready evidence |
 | `GetSessionStatusUseCase` | thread/projection states | Client App status |
@@ -1918,7 +1918,7 @@ Testing rule:
 
 ```text
 Every command use case has unit/application tests for success, validation failure, idempotency and rollback.
-Every query use case has tests for profile isolation, deleted data filtering and empty result behavior.
+Every query use case has tests for memory scope isolation, deleted data filtering and empty result behavior.
 ```
 
 ## Command And Query DTO Contracts
@@ -1940,7 +1940,7 @@ Command DTO example:
 @dataclass(frozen=True)
 class RememberFactCommand:
     space_id: str
-    profile_id: str
+    memory_scope_id: str
     text: str
     kind: str
     source_refs: tuple[SourceRef, ...]
@@ -1955,7 +1955,7 @@ Query DTO example:
 @dataclass(frozen=True)
 class BuildContextQuery:
     space_id: str
-    profile_ids: tuple[str, ...]
+    memory_scope_ids: tuple[str, ...]
     query: str
     token_budget: int
     thread_id: str | None = None
@@ -1990,7 +1990,7 @@ repository returns response DTO
 DTO tests:
 
 ```text
-test_route_maps_external_profile_ref_to_canonical_profile_id
+test_route_maps_external_memory scope_ref_to_canonical_memory_scope_id
 test_use_case_does_not_import_pydantic
 test_response_mapper_omits_internal_fields
 test_command_dto_is_immutable
@@ -2065,20 +2065,20 @@ ID categories:
 
 ```text
 random ids
-  memory_spaces, memory_profiles, manual facts
+  memory_spaces, memory_scopes, manual facts
 
 deterministic ids
   document chunks, projection ids, adapter side-effect ids, idempotency records
 
 external refs
-  Client App session_id, event_id, profile_id
+  Client App session_id, event_id, memory_scope_id
 ```
 
 Rules:
 
 - public ids are opaque strings;
 - source external refs are not primary keys;
-- deterministic ids are scoped by space/profile/source;
+- deterministic ids are scoped by space/memory scope/source;
 - chunk ids include document id, chunker version, index and content hash;
 - projection ids include adapter name, aggregate type and aggregate id;
 - tests use fake id generator.
@@ -2230,7 +2230,7 @@ Query use case order:
 
 ```text
 1. Validate query and budget.
-2. Resolve policy for requested space/profile/thread.
+2. Resolve policy for requested space/memory scope/thread.
 3. Ask candidate ports for ids/snippets.
 4. Hydrate every candidate through canonical repositories.
 5. Drop hidden/deleted/wrong-scope/stale candidates.
@@ -2288,20 +2288,20 @@ class SearchMemoryUseCase:
 
         vector_candidates = await self._vector.search_chunks(
             space_id=query.space_id,
-            profile_ids=query.profile_ids,
+            memory_scope_ids=query.memory_scope_ids,
             query=query.text,
             limit=query.limit,
         )
         fact_candidates = await self._facts.search_active(
             space_id=query.space_id,
-            profile_ids=query.profile_ids,
+            memory_scope_ids=query.memory_scope_ids,
             query=query.text,
             limit=query.limit,
         )
 
         hydrated = await self._hydrator.hydrate_and_filter(
             space_id=query.space_id,
-            profile_ids=query.profile_ids,
+            memory_scope_ids=query.memory_scope_ids,
             candidates=[*vector_candidates, *fact_candidates],
         )
 
@@ -2325,7 +2325,7 @@ Review tests:
 test_update_fact_enqueues_event_in_same_transaction
 test_update_fact_rolls_back_outbox_when_save_fails
 test_search_hydrates_adapter_candidates_before_return
-test_search_drops_wrong_profile_candidate_from_adapter
+test_search_drops_wrong_memory scope_candidate_from_adapter
 test_use_case_has_no_fastapi_or_adapter_imports
 ```
 
@@ -2343,7 +2343,7 @@ from enum import Enum
 from typing import NewType
 
 MemoryFactId = NewType("MemoryFactId", str)
-ProfileId = NewType("ProfileId", str)
+MemoryScopeId = NewType("MemoryScopeId", str)
 SpaceId = NewType("SpaceId", str)
 
 
@@ -2368,7 +2368,7 @@ class SourceRef:
 class MemoryFact:
     id: MemoryFactId
     space_id: SpaceId
-    profile_id: ProfileId
+    memory_scope_id: MemoryScopeId
     text: str
     kind: str
     status: FactStatus
@@ -2392,7 +2392,7 @@ class MemoryFact:
 ```python
 # packages/memo_stack_core/memo_stack_core/ports/repositories.py
 from typing import Protocol
-from memo_stack_core.domain.entities import MemoryFact, MemoryFactId, ProfileId, SpaceId
+from memo_stack_core.domain.entities import MemoryFact, MemoryFactId, MemoryScopeId, SpaceId
 
 
 class FactRepositoryPort(Protocol):
@@ -2405,7 +2405,7 @@ class FactRepositoryPort(Protocol):
     async def find_active(
         self,
         space_id: SpaceId,
-        profile_ids: list[ProfileId],
+        memory_scope_ids: list[MemoryScopeId],
         query: str,
         limit: int,
     ) -> list[MemoryFact]:
@@ -2431,7 +2431,7 @@ from memo_stack_core.ports.unit_of_work import UnitOfWorkPort
 @dataclass(frozen=True)
 class RememberFactCommand:
     space_id: str
-    profile_id: str
+    memory_scope_id: str
     text: str
     kind: str
     source_refs: list[SourceRef]
@@ -2453,7 +2453,7 @@ class RememberFactUseCase:
             fact = MemoryFact(
                 id=self._uow.new_id("fact"),
                 space_id=command.space_id,
-                profile_id=command.profile_id,
+                memory_scope_id=command.memory_scope_id,
                 thread_id=command.thread_id,
                 text=command.text.strip(),
                 kind=command.kind,
@@ -2484,7 +2484,7 @@ class VectorMemoryPort(Protocol):
     async def search_chunks(
         self,
         space_id: str,
-        profile_ids: list[str],
+        memory_scope_ids: list[str],
         query_vector: list[float],
         limit: int,
     ) -> list[dict]:
@@ -2530,10 +2530,10 @@ class BuildContextUseCase:
         self._embedder = embedder
         self._packer = packer
 
-    async def execute(self, space_id: str, profile_ids: list[str], query: str, token_budget: int) -> ContextBundle:
-        facts = await self._fact_repo.find_active(space_id, profile_ids, query, limit=20)
+    async def execute(self, space_id: str, memory_scope_ids: list[str], query: str, token_budget: int) -> ContextBundle:
+        facts = await self._fact_repo.find_active(space_id, memory_scope_ids, query, limit=20)
         query_vector = await self._embedder.embed_query(query)
-        vector_hits = await self._vector_index.search_chunks(space_id, profile_ids, query_vector, limit=30)
+        vector_hits = await self._vector_index.search_chunks(space_id, memory_scope_ids, query_vector, limit=30)
         chunks = await self._document_repo.hydrate_visible_chunks([hit["chunk_id"] for hit in vector_hits])
 
         candidates = [
@@ -2555,7 +2555,7 @@ router = APIRouter(prefix="/v1/facts", tags=["facts"])
 
 class RememberFactRequest(BaseModel):
     space_id: str
-    profile_id: str
+    memory_scope_id: str
     thread_id: str | None = None
     text: str
     kind: str = "note"
@@ -2583,12 +2583,12 @@ async def remember_fact(
 async def legacy_ingest(request: LegacyIngestRequest, container = Depends(get_container)):
     thread = await container.resolve_thread_by_external_ref.execute(
         space_slug="client-app",
-        profile_external_ref=request.profile_id or "default",
+        memory_scope_external_ref=request.memory_scope_id or "default",
         thread_external_ref=request.session_id,
     )
     await container.ingest_episode.execute(
         space_id=thread.space_id,
-        profile_id=thread.profile_id,
+        memory_scope_id=thread.memory_scope_id,
         thread_id=thread.id,
         source_type=request.source,
         source_external_id=request.event_id,
@@ -2606,7 +2606,7 @@ async def test_remember_fact_requires_source_ref(fake_uow, fake_fact_repo):
 
     command = RememberFactCommand(
         space_id="space_1",
-        profile_id="profile_1",
+        memory_scope_id="memory scope_1",
         text="We use Qdrant for document RAG.",
         kind="architecture_decision",
         source_refs=[],
@@ -2682,7 +2682,7 @@ class ResolveIdempotencyUseCase:
 Core Lite idempotency targets:
 
 - legacy ingest event id;
-- document import content hash plus profile;
+- document import content hash plus memory scope;
 - remember fact with explicit idempotency key;
 - outbox adapter side effects.
 
@@ -2694,7 +2694,7 @@ def fact_to_response(fact: MemoryFact) -> dict:
     return {
         "id": str(fact.id),
         "space_id": str(fact.space_id),
-        "profile_id": str(fact.profile_id),
+        "memory_scope_id": str(fact.memory_scope_id),
         "text": fact.text,
         "kind": fact.kind,
         "status": fact.status.value,
@@ -2728,11 +2728,11 @@ class PostgresFactRepository(FactRepositoryPort):
     def __init__(self, session) -> None:
         self._session = session
 
-    async def find_active(self, space_id, profile_ids, query, limit):
+    async def find_active(self, space_id, memory_scope_ids, query, limit):
         rows = await self._session.execute(
             select(MemoryFactRow)
             .where(MemoryFactRow.space_id == str(space_id))
-            .where(MemoryFactRow.profile_id.in_([str(p) for p in profile_ids]))
+            .where(MemoryFactRow.memory_scope_id.in_([str(p) for p in memory_scope_ids]))
             .where(MemoryFactRow.status == "active")
             .where(MemoryFactRow.text.ilike(f"%{query[:80]}%"))
             .order_by(MemoryFactRow.updated_at.desc())
@@ -2744,7 +2744,7 @@ class PostgresFactRepository(FactRepositoryPort):
 Core Lite repository rules:
 
 - every query includes `space_id`;
-- profile-scoped tables include `profile_id`;
+- memory-scope-scoped tables include `memory_scope_id`;
 - `deleted` and `superseded` are excluded by default;
 - raw SQL is allowed only inside adapters with tests.
 
@@ -2756,11 +2756,11 @@ class QdrantVectorMemoryAdapter(VectorMemoryPort):
         self._client = client
         self._collection = collection_name
 
-    async def search_chunks(self, space_id, profile_ids, query_vector, limit):
+    async def search_chunks(self, space_id, memory_scope_ids, query_vector, limit):
         filters = {
             "must": [
                 {"key": "space_id", "match": {"value": space_id}},
-                {"key": "profile_id", "match": {"any": profile_ids}},
+                {"key": "memory_scope_id", "match": {"any": memory_scope_ids}},
                 {"key": "status", "match": {"value": "active"}},
             ]
         }
@@ -2779,7 +2779,7 @@ class QdrantVectorMemoryAdapter(VectorMemoryPort):
         ]
 ```
 
-Adapter test must seed a point from another profile and verify it is not returned.
+Adapter test must seed a point from another memory scope and verify it is not returned.
 
 ### Composition Root Example
 
@@ -2887,9 +2887,9 @@ def get_container(request: Request) -> Container:
 async def build_context(
     request: BuildContextRequest,
     container: Container = Depends(get_container),
-    principal: MemoryPrincipal = Depends(authenticate_principal),
+    user: MemoryUser = Depends(authenticate_principal),
 ) -> ContextResponse:
-    scope = await container.scope_guard.resolve_request_scope(principal, request)
+    scope = await container.scope_guard.resolve_request_scope(user, request)
     query = build_context_request_to_query(request, scope)
     result = await container.build_context.execute(query)
     return context_result_to_response(result)
@@ -2905,9 +2905,9 @@ Rules:
 - no module-level singleton provider client in `memo_stack_core`;
 - no route should import `memo_stack_adapters.qdrant` or `memo_stack_adapters.graphiti`.
 
-Deploy profile wiring:
+Deploy memory scope wiring:
 
-| Profile | Postgres | Qdrant | Graphiti | Embeddings | Clock/ids |
+| Memory Scope | Postgres | Qdrant | Graphiti | Embeddings | Clock/ids |
 |---|---|---|---|---|---|
 | `test` | fake or test DB | fake/noop | noop | fake/noop | fake |
 | `local` | Docker Postgres | Docker Qdrant optional | disabled by default | disabled by default | system |
@@ -2917,8 +2917,8 @@ Deploy profile wiring:
 DI tests:
 
 ```text
-test_test_profile_uses_fake_clock_and_no_external_network
-test_server_profile_requires_database_and_service_token
+test_test_memory scope_uses_fake_clock_and_no_external_network
+test_server_memory scope_requires_database_and_service_token
 test_disabled_qdrant_wires_noop_vector_adapter
 test_routes_do_not_import_adapter_packages
 test_worker_and_api_share_same_container_builder
@@ -3030,7 +3030,7 @@ class Settings(BaseSettings):
     embeddings_enabled: bool = False
     legacy_client_enabled: bool = False
     default_space_slug: str = "default"
-    default_profile_external_ref: str = "default"
+    default_memory_scope_external_ref: str = "default"
     max_context_tokens: int = 1800
 
     class Config:
@@ -3049,7 +3049,7 @@ client = MemoryClient(
 
 await client.remember_fact(
     space_id="space_client_app",
-    profile_id="profile_default",
+    memory_scope_id="memory scope_default",
     text="Client App uses Qdrant for document RAG.",
     kind="architecture_decision",
     source_refs=[
@@ -3063,7 +3063,7 @@ await client.remember_fact(
 
 bundle = await client.build_context(
     space_id="space_client_app",
-    profile_ids=["profile_default"],
+    memory_scope_ids=["memory scope_default"],
     query="Какая память используется для документов?",
     token_budget=1800,
 )
@@ -3079,7 +3079,7 @@ Python SDK public methods:
 health()
 capabilities()
 create_space(...)
-create_profile(...)
+create_memory scope(...)
 remember_fact(...)
 update_fact(...)
 forget_fact(...)
@@ -3121,7 +3121,7 @@ Client timeout example:
 ```python
 bundle = await client.build_context(
     space_id="space_client_app",
-    profile_ids=["profile_default"],
+    memory_scope_ids=["memory scope_default"],
     query=query,
     token_budget=1800,
     timeout_ms=800,
@@ -3220,22 +3220,22 @@ async def vector_adapter_contract(adapter: VectorMemoryPort):
         {
             "chunk_id": "chunk_alpha",
             "space_id": "space_1",
-            "profile_id": "profile_a",
+            "memory_scope_id": "memory scope_a",
             "text": "Postgres is canonical truth.",
             "vector": [0.1, 0.2, 0.3],
         },
         {
             "chunk_id": "chunk_beta",
             "space_id": "space_1",
-            "profile_id": "profile_b",
-            "text": "This belongs to another profile.",
+            "memory_scope_id": "memory scope_b",
+            "text": "This belongs to another memory scope.",
             "vector": [0.1, 0.2, 0.3],
         },
     ])
 
     hits = await adapter.search_chunks(
         space_id="space_1",
-        profile_ids=["profile_a"],
+        memory_scope_ids=["memory scope_a"],
         query_vector=[0.1, 0.2, 0.3],
         limit=10,
     )
@@ -3243,7 +3243,7 @@ async def vector_adapter_contract(adapter: VectorMemoryPort):
     assert {hit["chunk_id"] for hit in hits} == {"chunk_alpha"}
 
     await adapter.delete_chunks(["chunk_alpha"])
-    hits_after_delete = await adapter.search_chunks("space_1", ["profile_a"], [0.1, 0.2, 0.3], 10)
+    hits_after_delete = await adapter.search_chunks("space_1", ["memory scope_a"], [0.1, 0.2, 0.3], 10)
     assert hits_after_delete == []
 ```
 
@@ -3259,7 +3259,7 @@ Adapter failure contract:
 async def vector_adapter_failure_contract(adapter: VectorMemoryPort):
     result = await adapter.search_chunks(
         space_id="space_1",
-        profile_ids=["profile_a"],
+        memory_scope_ids=["memory scope_a"],
         query_vector=[0.1, 0.2, 0.3],
         limit=10,
     )
@@ -3321,12 +3321,12 @@ class FakeFactRepository(FactRepositoryPort):
     async def get_by_id(self, fact_id: str) -> MemoryFact | None:
         return self.items.get(str(fact_id))
 
-    async def find_active(self, space_id, profile_ids, query, limit):
+    async def find_active(self, space_id, memory_scope_ids, query, limit):
         return [
             fact
             for fact in self.items.values()
             if fact.space_id == space_id
-            and fact.profile_id in profile_ids
+            and fact.memory_scope_id in memory_scope_ids
             and fact.status == FactStatus.ACTIVE
         ][:limit]
 ```
@@ -3375,7 +3375,7 @@ Required methods:
 create(fact)
 get_by_id(fact_id)
 get_for_update(fact_id)
-find_active(space_id, profile_ids, query, limit)
+find_active(space_id, memory_scope_ids, query, limit)
 update(fact)
 mark_deleted(fact_id, tombstone)
 list_versions(fact_id)
@@ -3401,7 +3401,7 @@ mark_processed(document_id)
 mark_failed(document_id, safe_error)
 mark_deleted(document_id, tombstone)
 create_chunks(document_id, chunks)
-hydrate_visible_chunks(chunk_ids, space_id, profile_ids)
+hydrate_visible_chunks(chunk_ids, space_id, memory_scope_ids)
 ```
 
 Rules:
@@ -3438,7 +3438,7 @@ repo.find_anything(sql: str)
 repo.session property exposed to use cases
 repo writes Qdrant after saving Postgres row
 repo returns ORM row to API mapper
-repo filters profile only in route code
+repo filters memory scope only in route code
 ```
 
 ### ORM Mapping Protocol
@@ -3475,7 +3475,7 @@ def fact_row_to_domain(row: MemoryFactRow, source_refs: list[SourceRefRow]) -> M
     return MemoryFact(
         id=MemoryFactId(row.id),
         space_id=SpaceId(row.space_id),
-        profile_id=ProfileId(row.profile_id),
+        memory_scope_id=MemoryScopeId(row.memory_scope_id),
         thread_id=ThreadId(row.thread_id) if row.thread_id else None,
         text=row.text,
         kind=MemoryKind(row.kind),
@@ -3550,12 +3550,12 @@ An item is visible in normal context/search only when all conditions are true:
 
 ```text
 space_id matches resolved scope
-profile_id is in authorized profile_ids
+memory_scope_id is in authorized memory_scope_ids
 aggregate status is active/processed
 fact status is active
 document status is processed or partially_processed by policy
 chunk status is active
-source classification is allowed by profile policy
+source classification is allowed by memory scope policy
 source trust is allowed by current memory mode
 item is not tombstoned
 item is not superseded, deleted, disputed or expired by default
@@ -3584,7 +3584,7 @@ class VisibilityPolicyService:
         policy: MemoryPolicy,
         mode: RetrievalMode,
     ) -> VisibilityDecision:
-        if fact.space_id != scope.space_id or fact.profile_id not in scope.profile_ids:
+        if fact.space_id != scope.space_id or fact.memory_scope_id not in scope.memory_scope_ids:
             return VisibilityDecision.HIDDEN_SCOPE
         if fact.status is not FactStatus.ACTIVE:
             return VisibilityDecision.HIDDEN_LIFECYCLE
@@ -3643,7 +3643,7 @@ class CandidateHydrator:
         chunks = await self._documents.hydrate_visible_chunks(
             [c.chunk_id for c in candidates if c.chunk_id],
             space_id=scope.space_id,
-            profile_ids=scope.profile_ids,
+            memory_scope_ids=scope.memory_scope_ids,
         )
 
         visible: list[ContextItem] = []
@@ -3666,7 +3666,7 @@ Hydration rules:
 - preserve candidate score and source type as features;
 - never use candidate preview as final rendered text when canonical text exists;
 - if canonical row is missing, drop candidate and record `missing_canonical_row`;
-- if profile is archived during hydration, drop profile items before render;
+- if memory scope is archived during hydration, drop memory scope items before render;
 - if source ref points to deleted document, mark evidence missing or drop by policy.
 
 Tests:
@@ -3675,8 +3675,8 @@ Tests:
 test_visibility_service_hides_deleted_fact
 test_visibility_service_hides_restricted_fact_by_default
 test_hydrator_drops_candidate_missing_canonical_row
-test_hydrator_drops_archived_profile_between_search_and_render
-test_qdrant_profile_filter_is_not_required_for_correctness
+test_hydrator_drops_archived_memory scope_between_search_and_render
+test_qdrant_memory scope_filter_is_not_required_for_correctness
 test_context_and_search_share_visibility_rules
 test_history_route_can_show_deleted_fact_without_scope_bypass
 ```
@@ -3704,20 +3704,20 @@ supported_embedding_models
 limits
 ```
 
-### Spaces and Profiles
+### Spaces and Memory Scopes
 
 ```text
 POST /v1/spaces
 GET  /v1/spaces
-POST /v1/profiles
-GET  /v1/profiles?space_id=...
+POST /v1/memory-scopes
+GET  /v1/memory-scopes?space_id=...
 ```
 
 Core Lite can auto-create:
 
 ```text
 space: client-app
-profile: default
+memory scope: default
 ```
 
 ### Facts
@@ -3727,7 +3727,7 @@ POST   /v1/facts
 PATCH  /v1/facts/{fact_id}
 DELETE /v1/facts/{fact_id}
 GET    /v1/facts/{fact_id}
-GET    /v1/facts?space_id=...&profile_id=...
+GET    /v1/facts?space_id=...&memory_scope_id=...
 GET    /v1/facts/{fact_id}/versions
 ```
 
@@ -3774,7 +3774,7 @@ test_legacy_context_never_calls_history_routes
 Suggestions keep auto-memory safe. They are candidates, not active facts.
 
 ```text
-GET    /v1/suggestions?space_id=...&profile_id=...
+GET    /v1/suggestions?space_id=...&memory_scope_id=...
 POST   /v1/suggestions
 POST   /v1/suggestions/{suggestion_id}/approve
 POST   /v1/suggestions/{suggestion_id}/reject
@@ -3787,7 +3787,7 @@ Suggestion response:
 {
   "id": "sug_123",
   "space_id": "space_client_app",
-  "profile_id": "profile_default",
+  "memory_scope_id": "memory scope_default",
   "candidate_text": "Use Qdrant for document RAG.",
   "kind": "architecture_decision",
   "status": "pending",
@@ -3843,7 +3843,7 @@ Search response:
       {
         "item_id": "fact_1",
         "item_type": "fact",
-        "profile_id": "profile_default",
+        "memory_scope_id": "memory scope_default",
         "text": "We use Qdrant for document RAG.",
         "score": 0.91,
         "source_refs": [{"source_type": "document", "source_id": "doc_1"}],
@@ -3924,7 +3924,7 @@ LegacySessionStatusRequest -> GetSessionStatusQuery
 Anti-corruption responsibilities:
 
 - resolve legacy `session_id` into `MemoryThread.external_ref`;
-- resolve legacy `profile_id` into `MemoryProfile.external_ref`;
+- resolve legacy `memory_scope_id` into `MemoryScope.external_ref`;
 - normalize missing legacy fields into safe defaults;
 - translate memory server errors into current desktop-safe fallback shape;
 - keep old response shape stable while public `/v1` evolves;
@@ -3942,7 +3942,7 @@ class LegacyClientMemoryMapper:
     ) -> IngestEpisodeCommand:
         return IngestEpisodeCommand(
             space_id=scope.space_id,
-            profile_id=scope.profile_id,
+            memory_scope_id=scope.memory_scope_id,
             thread_id=thread.id,
             source_app="client-app",
             source_type=request.source or "transcript",
@@ -4136,7 +4136,7 @@ Cursor tests:
 ```text
 test_list_facts_cursor_is_stable_under_equal_updated_at
 test_invalid_cursor_returns_validation_error
-test_cursor_cannot_bypass_profile_scope
+test_cursor_cannot_bypass_memory scope_scope
 test_cursor_does_not_contain_raw_text
 ```
 
@@ -4171,7 +4171,7 @@ document
 thread/session
   deletes thread-scoped episodes/chunks and session memory
 
-profile
+memory scope
   out of Core Lite destructive scope, archive only
 
 space
@@ -4184,7 +4184,7 @@ Cascade policy:
 delete fact -> fact tombstone, graph delete
 delete document -> document/chunk tombstones, vector delete, sourced facts handled by policy
 delete session -> thread tombstone, episode/chunk tombstones, thread-scoped facts tombstoned
-archive profile -> no context retrieval by default, no hard delete
+archive memory scope -> no context retrieval by default, no hard delete
 ```
 
 Document-sourced fact policy options:
@@ -4207,8 +4207,8 @@ Tests:
 test_delete_document_hides_chunks_immediately
 test_delete_document_marks_document_only_facts_evidence_missing
 test_delete_session_hides_thread_episodes
-test_profile_archive_excludes_context_without_hard_delete
-test_delete_scope_does_not_cross_profile
+test_memory scope_archive_excludes_context_without_hard_delete
+test_delete_scope_does_not_cross_memory scope
 ```
 
 ### API Curl Examples
@@ -4222,7 +4222,7 @@ curl -X POST http://127.0.0.1:7788/v1/facts \
   -H "Idempotency-Key: fact-qdrant-rag-001" \
   -d '{
     "space_id": "space_client_app",
-    "profile_id": "profile_default",
+    "memory_scope_id": "memory scope_default",
     "text": "Client App uses Qdrant for document RAG.",
     "kind": "architecture_decision",
     "source_refs": [
@@ -4263,7 +4263,7 @@ curl -X POST http://127.0.0.1:7788/v1/context \
   -H "Content-Type: application/json" \
   -d '{
     "space_id": "space_client_app",
-    "profile_ids": ["profile_default"],
+    "memory_scope_ids": ["memory scope_default"],
     "query": "Какая память используется для документов?",
     "token_budget": 1800
   }'
@@ -4284,7 +4284,7 @@ curl -X POST http://127.0.0.1:7788/api/v1/interview-memory/context \
   -H "Content-Type: application/json" \
   -d '{
     "session_id": "local-session-1",
-    "profile_id": "default",
+    "memory_scope_id": "default",
     "query": "memory architecture",
     "max_tokens": 1800
   }'
@@ -4405,7 +4405,7 @@ repeated delete is safe
 
 ```text
 stores document metadata
-dedupes by space/profile/content_hash
+dedupes by space/memory scope/content_hash
 queues document.process
 oversized document returns memory.validation
 unsupported type returns memory.validation or failed document status by mode
@@ -4449,7 +4449,7 @@ class SourceRefRequest(BaseModel):
 
 class RememberFactRequest(BaseModel):
     space_id: str
-    profile_id: str
+    memory_scope_id: str
     thread_id: str | None = None
     text: str = Field(min_length=1, max_length=4000)
     kind: str = "note"
@@ -4463,7 +4463,7 @@ from pydantic import BaseModel, Field
 
 class BuildContextRequest(BaseModel):
     space_id: str
-    profile_ids: list[str]
+    memory_scope_ids: list[str]
     thread_id: str | None = None
     query: str = Field(min_length=1, max_length=4000)
     token_budget: int = Field(default=1800, ge=256, le=16000)
@@ -4480,7 +4480,7 @@ def remember_fact_request_to_command(
 ) -> RememberFactCommand:
     return RememberFactCommand(
         space_id=scope.space_id,
-        profile_id=scope.profile_id,
+        memory_scope_id=scope.memory_scope_id,
         thread_id=request.thread_id,
         text=request.text,
         kind=request.kind,
@@ -4495,22 +4495,22 @@ Rules:
 - Pydantic validation handles shape, size and simple type bounds;
 - application use cases validate business policy and lifecycle;
 - route mapper resolves scope before command creation;
-- route mapper never trusts client-provided profile ids after scope resolution;
+- route mapper never trusts client-provided memory scope ids after scope resolution;
 - Pydantic models are not imported by `memo_stack_core`;
 - DTO changes require endpoint acceptance tests and SDK facade tests.
 
 ## Auth And Scope Model
 
-Core Lite auth is intentionally simple, but scope checks are non-negotiable because profile isolation is correctness, not a future enterprise feature.
+Core Lite auth is intentionally simple, but scope checks are non-negotiable because memory scope isolation is correctness, not a future enterprise feature.
 
-### Principal Model
+### User Model
 
 ```text
-MemoryPrincipal
+MemoryUser
   id
   type: service | user | system
   space_ids[]
-  profile_ids[] optional
+  memory_scope_ids[] optional
   permissions[]
   status: active | revoked
 ```
@@ -4531,17 +4531,17 @@ memory:admin
 |---|---|---|
 | health | none or token optional in local mode | server |
 | capabilities | `memory:read` | server |
-| create/list profiles | `memory:write` or `memory:admin` by deployment mode | space |
-| remember fact | `memory:write` | space/profile |
-| update fact | `memory:write` | space/profile |
-| forget fact | `memory:delete` | space/profile |
-| ingest document | `memory:write` | space/profile |
-| delete document | `memory:delete` | space/profile |
-| search/context | `memory:read` | space/profile |
-| suggestions review | `memory:write` | space/profile |
-| diagnostics | `memory:diagnostics` | space/profile |
-| repair jobs | `memory:admin` | space/profile/server |
-| export/import | `memory:admin` | space/profile/server |
+| create/list memory scopes | `memory:write` or `memory:admin` by deployment mode | space |
+| remember fact | `memory:write` | space/memory scope |
+| update fact | `memory:write` | space/memory scope |
+| forget fact | `memory:delete` | space/memory scope |
+| ingest document | `memory:write` | space/memory scope |
+| delete document | `memory:delete` | space/memory scope |
+| search/context | `memory:read` | space/memory scope |
+| suggestions review | `memory:write` | space/memory scope |
+| diagnostics | `memory:diagnostics` | space/memory scope |
+| repair jobs | `memory:admin` | space/memory scope/server |
+| export/import | `memory:admin` | space/memory scope/server |
 | local reset | `memory:admin` plus local/dev mode | server |
 
 Rules:
@@ -4556,14 +4556,14 @@ Rules:
 Core Lite local default:
 
 ```text
-service token -> principal type service -> space client-app -> profile default -> read/write/delete
+service token -> user type service -> space client-app -> memory scope default -> read/write/delete
 ```
 
 Future SaaS extension:
 
 ```text
 service token -> team/project-scoped token
-user auth -> team membership -> space/profile grants
+user auth -> team membership -> space/memory scope grants
 ```
 
 ### Scope Resolution
@@ -4574,7 +4574,7 @@ Every request resolves scope before calling use cases:
 request auth token
   -> AuthPort.authenticate
   -> ScopeGuard.resolve_space
-  -> ScopeGuard.resolve_profile
+  -> ScopeGuard.resolve_memory scope
   -> route maps DTO to command/query with resolved ids
   -> use case executes with resolved ids
 ```
@@ -4582,8 +4582,8 @@ request auth token
 Rules:
 
 - API clients may send external refs, but server resolves canonical ids;
-- use cases should receive canonical `space_id` and `profile_id`;
-- legacy Client App profile/session refs are never trusted as authorization;
+- use cases should receive canonical `space_id` and `memory_scope_id`;
+- legacy Client App memory scope/session refs are never trusted as authorization;
 - diagnostics require `memory:diagnostics`;
 - delete requires `memory:delete`;
 - admin/dev reset requires `memory:admin` and local/dev mode.
@@ -4592,33 +4592,33 @@ Scope guard example:
 
 ```python
 class ScopeGuard:
-    def __init__(self, spaces: SpaceRepositoryPort, profiles: ProfileRepositoryPort) -> None:
+    def __init__(self, spaces: SpaceRepositoryPort, memory scopes: Memory ScopeRepositoryPort) -> None:
         self._spaces = spaces
-        self._profiles = profiles
+        self._memory scopes = memory scopes
 
-    async def resolve_profile_scope(
+    async def resolve_memory scope_scope(
         self,
-        principal: MemoryPrincipal,
+        user: MemoryUser,
         space_slug: str,
-        profile_external_ref: str,
+        memory_scope_external_ref: str,
     ) -> ResolvedScope:
         space = await self._spaces.get_by_slug(space_slug)
-        if space is None or space.id not in principal.space_ids:
+        if space is None or space.id not in user.space_ids:
             raise MemoryForbiddenError()
 
-        profile = await self._profiles.get_by_external_ref(space.id, profile_external_ref)
-        if profile is None:
-            raise MemoryNotFoundError("Profile not found")
-        if principal.profile_ids and profile.id not in principal.profile_ids:
+        memory scope = await self._memory scopes.get_by_external_ref(space.id, memory_scope_external_ref)
+        if memory scope is None:
+            raise MemoryNotFoundError("Memory Scope not found")
+        if user.memory_scope_ids and memory scope.id not in user.memory_scope_ids:
             raise MemoryForbiddenError()
 
-        return ResolvedScope(space_id=space.id, profile_id=profile.id)
+        return ResolvedScope(space_id=space.id, memory_scope_id=memory scope.id)
 ```
 
 Route rule:
 
 ```text
-No route should pass user-provided space/profile ids directly into repository filters.
+No route should pass user-provided space/memory scope ids directly into repository filters.
 ```
 
 ## Core Flow Sequences
@@ -4695,7 +4695,7 @@ sequenceDiagram
   UC->>Embed: embed query if vector enabled
   UC->>Qdrant: search chunks
   UC->>Graph: search graph candidates
-  UC->>PG: hydrate candidates and filter lifecycle/profile
+  UC->>PG: hydrate candidates and filter lifecycle/memory scope
   UC->>Packer: pack evidence within budget
   API-->>Client: ContextBundle
 ```
@@ -4746,7 +4746,7 @@ MEMORY_GRAPHITI_ENABLED=false
 MEMORY_EMBEDDINGS_ENABLED=false
 MEMORY_LEGACY_CLIENT_ENABLED=false
 MEMORY_DEFAULT_SPACE_SLUG=default
-MEMORY_DEFAULT_PROFILE_EXTERNAL_REF=default
+MEMORY_DEFAULT_MEMORY_SCOPE_EXTERNAL_REF=default
 MEMORY_MAX_CONTEXT_TOKENS=1800
 ```
 
@@ -4772,9 +4772,9 @@ Config rules:
 
 ## Deploy Profiles
 
-Core Lite supports explicit deploy profiles. Do not infer profile behavior from random env combinations.
+Core Lite supports explicit deploy profiles. Do not infer memory scope behavior from random env combinations.
 
-Profiles:
+Memory Scopes:
 
 ```text
 test
@@ -4810,21 +4810,21 @@ MEMORY_DEPLOY_PROFILE=test | local | canary | server
 
 Rules:
 
-- `test` profile cannot use real provider clients;
-- `server` profile cannot start without service token and migrations;
-- `canary` profile keeps active context disabled unless explicitly enabled;
-- profile validation happens at startup in `memo_stack_server`;
+- `test` memory scope cannot use real provider clients;
+- `server` memory scope cannot start without service token and migrations;
+- `canary` memory scope keeps active context disabled unless explicitly enabled;
+- deploy profile validation happens at startup in `memo_stack_server`;
 - domain/application code never branches by deploy profile.
 
-Profile validator example:
+Memory Scope validator example:
 
 ```python
 class SettingsValidator:
     def validate(self, settings: Settings) -> None:
-        if settings.deploy_profile == "server" and not settings.service_token:
+        if settings.deploy_memory scope == "server" and not settings.service_token:
             raise RuntimeError("MEMORY_SERVICE_TOKEN is required")
-        if settings.deploy_profile == "test" and settings.embeddings_enabled:
-            raise RuntimeError("test profile cannot use external embeddings")
+        if settings.deploy_memory scope == "test" and settings.embeddings_enabled:
+            raise RuntimeError("test deploy profile cannot use external embeddings")
 ```
 
 ## Dependency Policy
@@ -4915,7 +4915,7 @@ Recommended tables:
 
 ```text
 memory_spaces
-memory_profiles
+memory_scopes
 memory_threads
 memory_principals
 memory_tokens
@@ -4941,13 +4941,13 @@ memory_audit_events
 Required indexes:
 
 ```text
-memory_profiles(space_id, external_ref)
-memory_threads(space_id, profile_id, external_ref)
-memory_episodes(space_id, profile_id, thread_id, source_external_id)
-memory_documents(space_id, profile_id, content_hash)
-memory_document_chunks(space_id, profile_id, document_id, status)
-memory_facts(space_id, profile_id, status, updated_at)
-memory_facts(space_id, profile_id, kind, status)
+memory_scopes(space_id, external_ref)
+memory_threads(space_id, memory_scope_id, external_ref)
+memory_episodes(space_id, memory_scope_id, thread_id, source_external_id)
+memory_documents(space_id, memory_scope_id, content_hash)
+memory_document_chunks(space_id, memory_scope_id, document_id, status)
+memory_facts(space_id, memory_scope_id, status, updated_at)
+memory_facts(space_id, memory_scope_id, kind, status)
 memory_outbox(status, next_attempt_at)
 memory_idempotency_records(space_id, key)
 ```
@@ -4967,7 +4967,7 @@ created_at
 updated_at
 ```
 
-`memory_profiles`:
+`memory_scopes`:
 
 ```text
 id pk
@@ -4986,14 +4986,14 @@ unique(space_id, external_ref) where status != deleted
 ```text
 id pk
 space_id fk
-profile_id fk
+memory_scope_id fk
 external_ref nullable
 title nullable
 status
 last_event_at nullable
 created_at
 updated_at
-unique(space_id, profile_id, external_ref) where status != deleted
+unique(space_id, memory_scope_id, external_ref) where status != deleted
 ```
 
 `memory_facts`:
@@ -5001,7 +5001,7 @@ unique(space_id, profile_id, external_ref) where status != deleted
 ```text
 id pk
 space_id fk
-profile_id fk
+memory_scope_id fk
 thread_id nullable
 kind
 text
@@ -5034,7 +5034,7 @@ unique(fact_id, version)
 ```text
 id pk
 space_id fk
-profile_id fk
+memory_scope_id fk
 thread_id fk
 source_provenance_id fk
 source_external_id nullable
@@ -5048,7 +5048,7 @@ status
 metadata_json
 created_at
 updated_at
-unique(space_id, profile_id, thread_id, source_external_id) where source_external_id is not null
+unique(space_id, memory_scope_id, thread_id, source_external_id) where source_external_id is not null
 ```
 
 `memory_documents`:
@@ -5056,7 +5056,7 @@ unique(space_id, profile_id, thread_id, source_external_id) where source_externa
 ```text
 id pk
 space_id fk
-profile_id fk
+memory_scope_id fk
 thread_id nullable
 filename nullable
 mime_type
@@ -5074,7 +5074,7 @@ updated_at
 ```text
 id pk
 space_id fk
-profile_id fk
+memory_scope_id fk
 document_id nullable
 episode_id nullable
 chunk_index
@@ -5154,9 +5154,9 @@ Required uniqueness:
 
 ```text
 memory_spaces(slug) unique where status != deleted
-memory_profiles(space_id, external_ref) unique where status != deleted
-memory_threads(space_id, profile_id, external_ref) unique where status != deleted
-memory_documents(space_id, profile_id, content_hash) unique where status != deleted
+memory_scopes(space_id, external_ref) unique where status != deleted
+memory_threads(space_id, memory_scope_id, external_ref) unique where status != deleted
+memory_documents(space_id, memory_scope_id, content_hash) unique where status != deleted
 memory_idempotency_records(space_id, key) unique
 memory_facts(id, version) unique
 memory_projection_states(adapter_name, aggregate_type, aggregate_id) unique
@@ -5175,9 +5175,9 @@ memory_policies.max_context_tokens between 256 and 16000
 Foreign key strategy:
 
 ```text
-profile -> space: restrict
-thread -> profile: restrict
-facts -> profile: restrict
+memory scope -> space: restrict
+thread -> memory scope: restrict
+facts -> memory scope: restrict
 chunks -> document: set null or restrict based on delete policy
 source_refs -> provenance: restrict
 outbox -> aggregate: no strict FK for polymorphic events, validate in worker
@@ -5193,15 +5193,15 @@ Use hard delete only in local reset/dev test helpers.
 Schema test examples:
 
 ```python
-async def test_profile_external_ref_unique_per_space(db):
-    await create_profile(db, space_id="space_1", external_ref="default")
+async def test_memory_scope_external_ref_unique_per_space(db):
+    await create_memory scope(db, space_id="space_1", external_ref="default")
     with pytest.raises(IntegrityError):
-        await create_profile(db, space_id="space_1", external_ref="default")
+        await create_memory scope(db, space_id="space_1", external_ref="default")
 
 
-async def test_same_profile_external_ref_allowed_in_different_spaces(db):
-    await create_profile(db, space_id="space_1", external_ref="default")
-    await create_profile(db, space_id="space_2", external_ref="default")
+async def test_same_memory_scope_external_ref_allowed_in_different_spaces(db):
+    await create_memory scope(db, space_id="space_1", external_ref="default")
+    await create_memory scope(db, space_id="space_2", external_ref="default")
 ```
 
 ## Migration Plan
@@ -5210,7 +5210,7 @@ Use Alembic or equivalent migration tooling inside `memo_stack_adapters.postgres
 
 Migration order:
 
-1. Create identity and scope tables: spaces, profiles, threads.
+1. Create identity and scope tables: spaces, memory scopes, threads.
 2. Create policy/auth tables.
 3. Create sources, episodes, documents, chunks.
 4. Create facts, fact versions, suggestions, tombstones.
@@ -5223,7 +5223,7 @@ Migration rules:
 - migrations do not import `memo_stack_core`;
 - migrations are deterministic and environment independent;
 - every table has `created_at` and `updated_at` where lifecycle matters;
-- every profile-scoped table has `space_id` and `profile_id`;
+- every memory-scope-scoped table has `space_id` and `memory_scope_id`;
 - hard deletes are reserved for local dev reset scripts only;
 - production-like delete uses tombstones.
 
@@ -5275,7 +5275,7 @@ def upgrade() -> None:
         "memory_facts",
         sa.Column("id", sa.String(), primary_key=True),
         sa.Column("space_id", sa.String(), nullable=False),
-        sa.Column("profile_id", sa.String(), nullable=False),
+        sa.Column("memory_scope_id", sa.String(), nullable=False),
         sa.Column("thread_id", sa.String(), nullable=True),
         sa.Column("text", sa.Text(), nullable=False),
         sa.Column("kind", sa.String(), nullable=False),
@@ -5289,7 +5289,7 @@ def upgrade() -> None:
     op.create_index(
         "ix_memory_facts_scope_status_updated",
         "memory_facts",
-        ["space_id", "profile_id", "status", "updated_at"],
+        ["space_id", "memory_scope_id", "status", "updated_at"],
     )
 ```
 
@@ -5754,7 +5754,7 @@ Episode fields:
 ```text
 id
 space_id
-profile_id
+memory_scope_id
 thread_id
 source_external_id
 speaker: user | interviewer | assistant | unknown
@@ -5793,7 +5793,7 @@ test_transcript_events_create_episodes_not_active_facts
 test_transcript_chunk_preserves_speaker_metadata
 test_assistant_episode_is_low_trust
 test_session_end_flushes_open_transcript_buffer
-test_recent_thread_tail_does_not_pollute_profile_facts
+test_recent_thread_tail_does_not_pollute_memory scope_facts
 ```
 
 ### Classifier And Extractor Ports
@@ -5857,8 +5857,8 @@ Derived indexes must be repairable from Postgres.
 Commands:
 
 ```bash
-python -m memo_stack_server.admin reindex-qdrant --space client-app --profile default
-python -m memo_stack_server.admin reindex-graphiti --space client-app --profile default
+python -m memo_stack_server.admin reindex-qdrant --space client-app --memory_scope default
+python -m memo_stack_server.admin reindex-graphiti --space client-app --memory_scope default
 python -m memo_stack_server.admin repair-projections --space client-app --dry-run
 python -m memo_stack_server.admin replay-outbox --status dead --limit 50
 ```
@@ -5868,7 +5868,7 @@ Repair rules:
 - repair reads canonical Postgres state;
 - repair never trusts Qdrant/Graphiti as source;
 - repair supports `--dry-run`;
-- repair is scoped by space/profile;
+- repair is scoped by space/memory scope;
 - repair output prints ids/counts/status, not raw memory text;
 - destructive repair requires explicit flag.
 
@@ -5877,7 +5877,7 @@ Repair dry-run output shape:
 ```json
 {
   "space": "client-app",
-  "profile": "default",
+  "memory scope": "default",
   "qdrant": {
     "missing_chunks": 12,
     "stale_chunks": 3,
@@ -5926,7 +5926,7 @@ Payload:
 ```json
 {
   "space_id": "space_client_app",
-  "profile_id": "profile_default",
+  "memory_scope_id": "memory scope_default",
   "thread_id": "thread_123",
   "document_id": "doc_123",
   "chunk_id": "chunk_456",
@@ -6042,7 +6042,7 @@ query
   -> embed query
   -> vector search Qdrant
   -> hydrate chunk ids through Postgres
-  -> filter space/profile/status/deleted
+  -> filter space/memory scope/status/deleted
   -> merge with facts and graph candidates
   -> pack context
 ```
@@ -6075,7 +6075,7 @@ all query terms present
 term frequency
 recency
 source trust
-profile priority
+memory scope priority
 shorter item bonus
 ```
 
@@ -6138,7 +6138,7 @@ source_external_hash
 
 Rules:
 
-- dedupe uses normalized hash plus space/profile scope;
+- dedupe uses normalized hash plus space/memory scope scope;
 - audit/debug can keep raw hash metadata without raw text;
 - chunk ids use normalized chunk text hash;
 - parser version and normalizer version are stored;
@@ -6164,8 +6164,8 @@ Tests:
 test_content_hash_stable_across_line_endings
 test_control_chars_removed_before_chunking
 test_normalizer_version_stored_on_document
-test_same_document_hash_dedupes_within_profile
-test_same_hash_different_profile_does_not_dedupe_unless_policy_allows
+test_same_document_hash_dedupes_within_memory scope
+test_same_hash_different_memory scope_does_not_dedupe_unless_policy_allows
 ```
 
 ### Parser And File Ingest Boundary
@@ -6318,7 +6318,7 @@ Mapping rules:
 
 ```text
 MemorySpace -> Graphiti group namespace prefix
-MemoryProfile -> Graphiti group id or profile namespace
+MemoryScope -> Graphiti group id or memory scope namespace
 MemoryThread -> episode metadata
 MemoryFact -> graph episode/fact node with canonical fact id
 SourceRef -> graph metadata only
@@ -6330,7 +6330,7 @@ Graph upsert payload must include:
 {
   "canonical_fact_id": "fact_123",
   "space_id": "space_client_app",
-  "profile_id": "profile_default",
+  "memory_scope_id": "memory scope_default",
   "thread_id": "thread_123",
   "fact_version": 2,
   "source_ids": ["doc_1"],
@@ -6344,14 +6344,14 @@ Graph search result handling:
 Graphiti result
   -> extract canonical_fact_id/source ids
   -> hydrate through Postgres
-  -> drop if missing/deleted/superseded/wrong profile
+  -> drop if missing/deleted/superseded/wrong memory scope
   -> convert to context candidate
 ```
 
 Rules:
 
 - no Graphiti result is rendered directly;
-- Graphiti entity merge is never trusted as profile merge;
+- Graphiti entity merge is never trusted as memory scope merge;
 - Graphiti delete lag is acceptable because Postgres filters;
 - if Graphiti cannot delete, mark projection stale and rely on hydration filter;
 - graph search is disabled if canonical id mapping is missing.
@@ -6400,7 +6400,7 @@ Pipeline:
 
 ```text
 1. Resolve authorized scope.
-2. Load profile/thread policy.
+2. Load memory scope/thread policy.
 3. Check adapter capabilities.
 4. Retrieve direct active facts from Postgres.
 5. Retrieve vector chunk candidates if Qdrant is enabled/healthy.
@@ -6410,7 +6410,7 @@ Pipeline:
 9. Normalize into ContextItem.
 10. Score with MemoryCandidateScorer.
 11. Deduplicate by canonical id, source ref and normalized text hash.
-12. Split budget by item type/profile.
+12. Split budget by item type/memory scope.
 13. Render evidence block with source labels.
 14. Return structured items and safe diagnostics.
 ```
@@ -6420,15 +6420,15 @@ Illustrative use case shape:
 ```python
 class BuildContextUseCase:
     async def execute(self, query: BuildContextQuery) -> ContextBundle:
-        scope = await self._scope_guard.ensure_profiles(
+        scope = await self._scope_guard.ensure_memory scopes(
             space_id=query.space_id,
-            profile_ids=query.profile_ids,
+            memory_scope_ids=query.memory_scope_ids,
         )
         policy = await self._policies.get_effective_policy(scope)
 
         direct_facts = await self._facts.find_active(
             space_id=scope.space_id,
-            profile_ids=scope.profile_ids,
+            memory_scope_ids=scope.memory_scope_ids,
             query=query.query,
             limit=self._limits.fact_candidate_limit,
         )
@@ -6499,16 +6499,16 @@ test_context_builder_is_read_only
 test_context_builder_does_not_create_suggestions
 ```
 
-### Multi-Profile Retrieval Semantics
+### Multi-Memory Scope Retrieval Semantics
 
-Core Lite supports multiple profiles per context request, but must keep ordering and isolation explicit.
+Core Lite supports multiple memory scopes per context request, but must keep ordering and isolation explicit.
 
 Input:
 
 ```json
 {
   "space_id": "space_client_app",
-  "profile_ids": ["profile_interview", "profile_architecture", "profile_default"],
+  "memory_scope_ids": ["memory scope_interview", "memory scope_architecture", "memory scope_default"],
   "query": "Как мы храним документы?",
   "token_budget": 1800
 }
@@ -6516,34 +6516,34 @@ Input:
 
 Rules:
 
-- every profile id must be authorized for the principal;
-- profile order is a priority hint;
+- every memory scope id must be authorized for the user;
+- memory scope order is a priority hint;
 - no cross-space retrieval in Core Lite;
-- duplicate facts/chunks across profiles are deduped by canonical id or content hash;
-- profile-specific facts outrank default profile facts when scores are close;
-- diagnostics include candidate counts per profile;
-- one noisy profile cannot consume the entire budget.
+- duplicate facts/chunks across memory scopes are deduped by canonical id or content hash;
+- memory scope-specific facts outrank default memory scope facts when scores are close;
+- diagnostics include candidate counts per memory scope;
+- one noisy memory scope cannot consume the entire budget.
 
 Budget split example:
 
 ```text
-primary profile: 60%
-secondary profiles: 30%
-default/global profile: 10%
+primary memory scope: 60%
+secondary memory scopes: 30%
+default/global memory scope: 10%
 ```
 
 Merge example:
 
 ```python
-class ProfileAwareContextMerger:
-    def merge(self, candidates: list[ContextItem], profile_priority: list[str]) -> list[ContextItem]:
-        priority = {profile_id: index for index, profile_id in enumerate(profile_priority)}
+class Memory ScopeAwareContextMerger:
+    def merge(self, candidates: list[ContextItem], memory scope_priority: list[str]) -> list[ContextItem]:
+        priority = {memory_scope_id: index for index, memory_scope_id in enumerate(memory scope_priority)}
         deduped = self._dedupe(candidates)
         return sorted(
             deduped,
             key=lambda item: (
                 -item.score,
-                priority.get(item.profile_id, 999),
+                priority.get(item.memory_scope_id, 999),
                 item.updated_at,
             ),
             reverse=False,
@@ -6553,11 +6553,11 @@ class ProfileAwareContextMerger:
 Tests:
 
 ```text
-test_primary_profile_fact_outranks_default_when_scores_close
-test_unauthorized_profile_id_is_rejected
-test_duplicate_chunk_across_profiles_is_deduped
-test_noisy_secondary_profile_cannot_consume_full_budget
-test_diagnostics_include_profile_candidate_counts
+test_primary_memory scope_fact_outranks_default_when_scores_close
+test_unauthorized_memory_scope_id_is_rejected
+test_duplicate_chunk_across_memory scopes_is_deduped
+test_noisy_secondary_memory scope_cannot_consume_full_budget
+test_diagnostics_include_memory scope_candidate_counts
 ```
 
 ### Memory Quality Scoring
@@ -6571,7 +6571,7 @@ retrieval_score
 source_trust
 fact_confidence
 recency
-profile_match
+memory scope_match
 thread_match
 source_specificity
 is_disputed
@@ -6632,7 +6632,7 @@ Contract:
 Input:
   query
   current thread/session context
-  resolved profile ids
+  resolved memory scope ids
   token budget
 
 Output:
@@ -6710,7 +6710,7 @@ Log fields:
 ```text
 request_id
 space_id
-profile_id
+memory_scope_id
 thread_id
 use_case
 adapter
@@ -6740,7 +6740,7 @@ memory_adapter_latency_ms
 Diagnostics endpoints:
 
 ```text
-GET /v1/diagnostics/profile/{profile_id}
+GET /v1/diagnostics/memory-scope/{memory_scope_id}
 GET /v1/diagnostics/outbox
 GET /v1/diagnostics/adapters
 ```
@@ -6777,7 +6777,7 @@ Span attributes:
 
 ```text
 space_id
-profile_id
+memory_scope_id
 thread_id
 use_case
 adapter
@@ -6822,11 +6822,11 @@ Core Lite is not enterprise scale, but it must have explicit local/server budget
 Local target:
 
 ```text
-profiles per space: 1-20
-threads per profile: 1-500
-facts per profile: 100-10000
-documents per profile: 1-1000
-chunks per profile: 1000-200000
+memory scopes per space: 1-20
+threads per memory scope: 1-500
+facts per memory scope: 100-10000
+documents per memory scope: 1-1000
+chunks per memory scope: 1000-200000
 context p95 without cold embedding: < 700 ms
 legacy context timeout budget in Client App: <= current bridge timeout
 ```
@@ -6835,7 +6835,7 @@ Server target for first reusable deployment:
 
 ```text
 spaces: 10-100
-profiles: 100-5000
+memory scopes: 100-5000
 chunks: 1M-20M
 facts: 100k-2M
 outbox pending normal: < 1000
@@ -7036,7 +7036,7 @@ Tests:
 ```text
 test_embedding_budget_exceeded_keeps_document_canonical
 test_query_embedding_rate_limit_degrades_to_keyword
-test_real_provider_disabled_in_test_profile
+test_real_provider_disabled_in_test_memory scope
 test_budget_diagnostics_omit_raw_text
 ```
 
@@ -7052,7 +7052,7 @@ Current Core Lite implementation:
 - `MEMORY_MAX_QUERY_EMBEDDINGS_PER_MINUTE` wraps the query embedder used by context/search,
   returning degraded `embeddings.query_rate_limited` so keyword/canonical context still
   works;
-- test profile startup validation rejects enabled real providers/adapters;
+- test memory scope startup validation rejects enabled real providers/adapters;
 - budget diagnostics expose ids/status/codes only and omit raw document/query text.
 
 ## Contract Test Matrix
@@ -7063,7 +7063,7 @@ Contract tests protect substitutability and SOLID/LSP.
 |---|---|---|
 | `FactRepositoryPort` | Postgres, fake | create/update/delete/version/source refs |
 | `DocumentRepositoryPort` | Postgres, fake | chunks, delete filtering, content hash |
-| `VectorMemoryPort` | Qdrant, noop, fake | profile filter, upsert, delete, empty degraded result |
+| `VectorMemoryPort` | Qdrant, noop, fake | memory scope filter, upsert, delete, empty degraded result |
 | `GraphMemoryPort` | Graphiti, noop, fake | canonical id mapping, delete, disabled fallback |
 | `EmbeddingPort` | noop, fake, real provider | deterministic tests, provider timeout behavior |
 | `UnitOfWorkPort` | Postgres, fake | commit/rollback/outbox atomicity |
@@ -7074,7 +7074,7 @@ Rules:
 - fake adapters are for application tests;
 - noop adapters are for disabled runtime features;
 - real adapters must pass shared contracts plus provider-specific tests;
-- contract tests must include cross-profile isolation and deleted data.
+- contract tests must include cross-memory-scope isolation and deleted data.
 
 Current Core Lite implementation:
 
@@ -7084,13 +7084,13 @@ Current Core Lite implementation:
   candidates/vectors, so disabled engines remain safe substitutes at runtime;
 - Qdrant adapter tests prove collection creation, dimension mismatch fail-closed behavior,
   empty/zero-limit behavior, unavailable SDK/server behavior, and explicit
-  `space_id + profile_id + projection_version` search filtering;
+  `space_id + memory_scope_id + projection_version` search filtering;
 - Graphiti adapter tests prove canonical fact id mapping, scoped group ids, delete support for
   legacy and modern Graphiti clients, capability mismatch handling, and disabled fallback;
 - Cognee adapter tests prove disabled-by-default behavior and scoped dataset routing when a
   runtime client is injected;
 - application/context tests prove derived candidates are hydrated through canonical Postgres
-  records before rendering, and stale/deleted/wrong-profile/wrong-thread candidates are dropped;
+  records before rendering, and stale/deleted/wrong-memory scope/wrong-thread candidates are dropped;
 - worker/admin tests prove outbox atomicity, retry/dead-letter lifecycle, scoped repair/reindex,
   and raw-text redaction in diagnostics;
 - SDK tests prove stable additive API contracts and typed transport/server error envelopes.
@@ -7135,7 +7135,7 @@ legacy Client App route tests
 ```text
 golden eval
 deleted leak count = 0
-cross-profile leak count = 0
+cross-memory-scope leak count = 0
 prompt injection promoted count = 0
 Client App fallback canary passes
 ```
@@ -7178,7 +7178,7 @@ Prompt-impacting checks:
 ci:e2e-memory
 ci:golden-eval
 ci:prompt-snapshots
-ci:cross-profile-isolation
+ci:cross-memory-scope-isolation
 ```
 
 Suggested command mapping:
@@ -7217,7 +7217,7 @@ Current Core Lite implementation:
 
 | Risk | Impact | Likelihood | Mitigation | Owner layer |
 |---|---:|---:|---|---|
-| profile isolation leak | 10 | 4 | scope guard, repository filters, E2E leak tests | server/application/adapters |
+| memory scope isolation leak | 10 | 4 | scope guard, repository filters, E2E leak tests | server/application/adapters |
 | stale adapter result appears in prompt | 9 | 5 | Postgres hydration, delete E2E | application |
 | Graphiti adapter complexity grows | 7 | 6 | keep thin, capability flags, disable fallback | adapters |
 | document parsing becomes product inside product | 8 | 5 | parser port, text/markdown first, optional adapters | adapters |
@@ -7281,7 +7281,7 @@ Deliver:
 - Postgres migrations;
 - SQLAlchemy or asyncpg repositories;
 - unit of work;
-- spaces/profiles/threads;
+- spaces/memory scopes/threads;
 - remember/update/forget facts;
 - source refs;
 - tombstones;
@@ -7289,7 +7289,7 @@ Deliver:
 
 Use cases:
 
-- `CreateProfileUseCase`
+- `CreateMemory ScopeUseCase`
 - `ResolveThreadUseCase`
 - `RememberFactUseCase`
 - `UpdateFactUseCase`
@@ -7301,7 +7301,7 @@ Tests:
 - fact requires source refs;
 - update creates new version;
 - forget hides fact immediately;
-- cross-profile facts are not returned;
+- cross-memory-scope facts are not returned;
 - idempotent remember does not duplicate.
 
 Exit gate:
@@ -7434,7 +7434,7 @@ Deliver:
 Spike first:
 
 ```text
-create profile group
+create memory scope group
 add episode
 upsert fact
 search fact/entity
@@ -7448,7 +7448,7 @@ Tests:
 - Graphiti down does not fail remember fact;
 - graph candidate maps to canonical fact;
 - deleted Postgres fact is filtered even if Graphiti returns it;
-- profile/group isolation works.
+- memory scope/group isolation works.
 
 Exit gate:
 
@@ -7493,7 +7493,7 @@ Deliver:
 - Python SDK;
 - `.env.example`;
 - Docker compose: memo_stack_server, Postgres, Qdrant, Neo4j if Graphiti phase enabled;
-- seed default space/profile;
+- seed default space/memory scope;
 - runbook.
 
 SDK methods:
@@ -7529,7 +7529,7 @@ Current Core Lite implementation:
   the SDK smoke path;
 - `make memo-stack-api-smoke` runs `examples/integration_memory_smoke.py` against
   `http://127.0.0.1:7788` by default;
-- the smoke script uses only the Memo Stack SDK client and verifies health, space/profile
+- the smoke script uses only the Memo Stack SDK client and verifies health, space/memory scope
   creation, remember, update, document ingest, search, context and forget;
 - smoke output is production-safe ids/counts/status only and does not print the auth token or
   raw memory text.
@@ -7564,7 +7564,7 @@ Compatibility mapping:
 | Client App field | Memo Stack field |
 |---|---|
 | `session_id` | `MemoryThread.external_ref` |
-| `profile_id` | `MemoryProfile.external_ref` |
+| `memory_scope_id` | `MemoryScope.external_ref` |
 | current user/app | `MemorySpace.slug=client-app` |
 | transcript event | `MemoryEpisode` |
 | memory context response | `ContextBundle.rendered_text` |
@@ -7613,7 +7613,7 @@ Suggested rollout:
 
 1. Run memo_stack_server in shadow ingest.
 2. Enable shadow retrieve and compare diagnostics.
-3. Enable active context for one local profile.
+3. Enable active context for one local memory scope.
 4. Enable active context behind settings switch.
 5. Keep local fallback enabled permanently.
 
@@ -7952,7 +7952,7 @@ Stop if:
 
 - rendered context changes without an intentional golden eval update;
 - provider candidates bypass hydration;
-- restricted/deleted/wrong-profile data can render.
+- restricted/deleted/wrong-memory scope data can render.
 
 ### Commit E - outbox projection lifecycle hardening
 
@@ -8248,23 +8248,23 @@ Stop if:
 
 Current Core Lite implementation:
 
-- `memo_stack_core.ports.auth` defines `MemoryPrincipal`, `MemoryScope` and `ReadScope`
+- `memo_stack_core.ports.auth` defines `MemoryUser`, `MemoryScope` and `ReadScope`
   with optional additive `tenant_id` and `workspace_id` fields for future SaaS
   migration;
-- v1 route scope resolution validates canonical single-profile scopes through
-  `MemoryScope` and context/multi-profile scopes through `ReadScope`;
-- context/search rejects duplicate canonical `profile_ids` before use cases run;
-- scoped service tokens are checked against requested space/profile refs, including
+- v1 route scope resolution validates canonical single-memory scope scopes through
+  `MemoryScope` and context/multi-memory-scope scopes through `ReadScope`;
+- context/search rejects duplicate canonical `memory_scope_ids` before use cases run;
+- scoped service tokens are checked against requested space/memory scope refs, including
   canonical ids, external refs and path resources;
-- profile-scoped tokens cannot access cross-profile facts, suggestions, diagnostics,
+- memory-scope-scoped tokens cannot access cross-memory-scope facts, suggestions, diagnostics,
   context, documents or legacy Client App scopes;
 - the SDK exposes typed `MemoryScope` and `ReadScope` DTOs while keeping the existing
   kwargs API backward compatible;
-- the MCP adapter uses a dedicated read scope for search/context so multi-profile
-  `profile_external_refs` are sent to Memo Stack Server instead of being silently reduced
-  to one profile;
-- MCP read scope rejects `thread_external_ref` with multiple profiles because the
-  server contract allows thread-scoped context only for one profile.
+- the MCP adapter uses a dedicated read scope for search/context so multi-memory-scope
+  `memory_scope_external_refs` are sent to Memo Stack Server instead of being silently reduced
+  to one memory scope;
+- MCP read scope rejects `thread_external_ref` with multiple memory scopes because the
+  server contract allows thread-scoped context only for one memory scope.
 
 ### Always keep these invariants
 
@@ -8301,7 +8301,7 @@ remember/update/forget fact E2E pass
 source refs required
 idempotency conflict test pass
 delete-wins concurrency test pass
-cross-profile leak count = 0
+cross-memory-scope leak count = 0
 ```
 
 ### Gate C - Retrieval Ready
@@ -8376,7 +8376,7 @@ Core Lite security is practical, not enterprise.
 Must include:
 
 - service token auth;
-- per-space/profile filtering;
+- per-space/memory scope filtering;
 - source refs;
 - source trust levels;
 - no raw restricted text in logs;
@@ -8446,7 +8446,7 @@ Current Core Lite implementation:
 - restricted facts/chunks are excluded from normal context/search hydration by default;
 - diagnostics and admin/doctor output expose ids/counts/status/safe codes only, not raw
   restricted text or previews;
-- redacted profile export removes raw fact text, chunk text, normalized text and source
+- redacted memory scope export removes raw fact text, chunk text, normalized text and source
   quote previews.
 
 Postponed:
@@ -8466,7 +8466,7 @@ Token model:
 
 ```text
 token_id
-principal_id
+user_id
 token_hash
 status: active | revoked
 created_at
@@ -8511,7 +8511,7 @@ Current Core Lite implementation:
 - several active tokens can work during rotation and revoking one token does not break the
   replacement token;
 - expired and revoked tokens are rejected and do not update `last_used_at`;
-- scoped service tokens enforce space/profile restrictions and memory permissions across
+- scoped service tokens enforce space/memory scope restrictions and memory permissions across
   public `/v1`, diagnostics, suggestions, documents, facts and legacy routes.
 
 ### Threat Model Lite
@@ -8520,7 +8520,7 @@ Core Lite must explicitly defend against these practical threats.
 
 | Threat | Example | Core Lite defense |
 |---|---|---|
-| cross-profile data leak | profile A sees profile B chunks | mandatory `space_id/profile_id` filters plus Postgres hydration |
+| cross-memory-scope data leak | memory scope A sees memory scope B chunks | mandatory `space_id/memory_scope_id` filters plus Postgres hydration |
 | prompt injection | document says "ignore previous instructions" | render as evidence, never instruction |
 | stale adapter result | Qdrant returns deleted chunk | hydration filters deleted/superseded rows |
 | assistant feedback loop | assistant repeats false fact until trusted | assistant source stays low trust |
@@ -8528,18 +8528,18 @@ Core Lite must explicitly defend against these practical threats.
 | raw text log leak | production logs include document chunks | safe diagnostics by default |
 | replayed ingest request | duplicate transcript events | idempotency key/source external id |
 | provider outage | embedding/Graphiti down | canonical write succeeds, projection pending |
-| rogue client scope | client passes another profile id | auth/scope check before use case |
+| rogue client scope | client passes another memory scope id | auth/scope check before use case |
 | dependency behavior change | adapter returns unexpected payload | adapter mapper validates response |
 
 Security tests:
 
 ```text
-test_cross_profile_context_leak_is_zero
+test_cross_memory scope_context_leak_is_zero
 test_deleted_fact_never_renders
 test_prompt_injection_rendered_as_evidence
 test_logs_do_not_include_raw_text
 test_wrong_service_token_rejected
-test_legacy_route_respects_profile_scope
+test_legacy_route_respects_memory scope_scope
 ```
 
 ## Retention And Redaction Lite
@@ -8550,7 +8550,7 @@ Retention scopes:
 
 ```text
 thread/session memory
-profile facts
+memory scope facts
 documents
 chunks
 source provenance
@@ -8561,7 +8561,7 @@ Default retention:
 
 ```text
 thread/session memory: keep until explicit session delete
-profile facts: keep until explicit forget/update/delete
+memory scope facts: keep until explicit forget/update/delete
 documents: keep until explicit document delete
 chunks: follow document lifecycle
 outbox done jobs: compact after configurable local interval
@@ -8738,19 +8738,19 @@ Expected:
 | same idempotency key, different body | hidden data corruption | return `memory.conflict` | API test |
 | worker retries after server restart | duplicated adapter writes | deterministic adapter ids make upsert safe | integration test |
 | stale graph upsert after fact delete | deleted fact resurrects | handler re-reads Postgres and skips deleted fact | adapter test |
-| Qdrant payload filter missing | cross-profile leak | Postgres hydration enforces profile filter | e2e test |
+| Qdrant payload filter missing | cross-memory-scope leak | Postgres hydration enforces memory scope filter | e2e test |
 | Graphiti entity false merge | wrong memory association | graph result is candidate only, canonical ids required | integration test |
 | embedding provider timeout | ingest blocked | canonical document stored, vector projection pending | application test |
 | embedding dimension changes | invalid Qdrant collection | capability check fails closed, create versioned collection later | adapter test |
 | chunking algorithm changes | unstable chunk ids | store chunker version and content hash | unit test |
-| document reimport same hash | duplicate chunks | reuse or no-op by `(space_id, profile_id, content_hash)` | repository test |
-| document reimport same hash different profile | cross-profile dedupe bug | dedupe is scoped by profile or explicit shared source | repository test |
+| document reimport same hash | duplicate chunks | reuse or no-op by `(space_id, memory_scope_id, content_hash)` | repository test |
+| document reimport same hash different memory scope | cross-memory-scope dedupe bug | dedupe is scoped by memory scope or explicit shared source | repository test |
 | source document deleted | orphan active facts | mark facts `evidence_missing` or delete by policy | application test |
 | long transcript stream | excessive context | batch ingest and pack by budget | e2e test |
 | prompt injection in document | memory becomes instruction | render as quoted evidence with `is_instruction=false` | golden eval |
 | assistant repeats false claim | confidence inflation | assistant source stays low trust | policy test |
 | user correction contradicts old fact | stale answer | new fact supersedes old fact with version history | lifecycle test |
-| profile mismatch from client | data leak | reject or resolve profile through authorized space | API test |
+| memory scope mismatch from client | data leak | reject or resolve memory scope through authorized space | API test |
 | session delete while worker runs | stale chunks returned | Postgres tombstone hides immediately | e2e test |
 | clock skew in imported events | wrong temporal order | store `occurred_at` and `ingested_at`, use stable tie-breaker | unit test |
 | partial migration failure | inconsistent schema | migration transaction or explicit repair command | integration test |
@@ -8767,7 +8767,7 @@ Expected:
 | concurrent document process workers | duplicate chunks | deterministic chunk ids and job claim lock | worker test |
 | partial Qdrant batch upsert | missing chunks | projection remains partial/pending for retry | adapter test |
 | Graphiti schema/API mismatch | adapter crash | capability check disables graph and reports diagnostic | integration test |
-| profile archived during context build | stale access | policy/profile rechecked before render | application test |
+| memory scope archived during context build | stale access | policy/memory scope rechecked before render | application test |
 | token estimator undercounts | prompt overflow | hard max item count and rendered char cap | unit test |
 | huge single chunk | budget blowup | chunker enforces max chunk size | unit test |
 | non-UTF text import | parser failure | mark document failed with safe error | document test |
@@ -8779,7 +8779,7 @@ Expected:
 | outbox backlog grows | stale recall | diagnostics and worker lag metric | integration test |
 | memory source contains secret | sensitive context leak | source trust/policy can exclude restricted source types | policy test |
 | malicious source ref id | SQL/payload injection | repository parameterization and DTO validation | adapter test |
-| repair command run on wrong profile | destructive cleanup leak | require resolved scope and dry-run first | admin test |
+| repair command run on wrong memory scope | destructive cleanup leak | require resolved scope and dry-run first | admin test |
 | reindex while document is deleted | stale vector resurrected | reindex reloads canonical state and skips deleted chunks | repair test |
 | done outbox compaction removes needed debug | observability loss | keep aggregate ids/counts, remove raw payload only | diagnostics test |
 | legacy mapper receives unknown source type | trust escalation | map unknown source to low trust | mapper test |
@@ -8815,7 +8815,7 @@ Implementation rule:
 
 ```text
 Do not cache hydrated ContextBundle across requests in Core Lite.
-If a future cache is added, cache key must include profile version or invalidation token.
+If a future cache is added, cache key must include memory scope version or invalidation token.
 ```
 
 Tests:
@@ -8834,55 +8834,55 @@ Current Core Lite implementation:
 - Core Lite does not cache `ContextBundle` responses on the prompt path, so the same query
   after `forget` gets a fresh bundle and cannot reuse stale rendered memory.
 
-#### Multi-Profile Context Collision
+#### Multi-Memory Scope Context Collision
 
 Risk:
 
 ```text
-Same document/fact appears in several profiles and context mixes wrong ownership.
+Same document/fact appears in several memory scopes and context mixes wrong ownership.
 ```
 
 Required behavior:
 
 ```text
-Every retrieved item keeps profile_id.
+Every retrieved item keeps memory_scope_id.
 Deduping can merge display text only after preserving all source refs.
-Higher-priority profile wins only by explicit query/profile order policy.
-Wrong-profile ids are dropped during hydration.
+Higher-priority memory scope wins only by explicit query/memory scope order policy.
+Wrong-memory scope ids are dropped during hydration.
 ```
 
 Policy options:
 
 ```text
-profile_order_wins
+memory scope_order_wins
 highest_score_wins_with_scope_label
-separate_sections_per_profile
+separate_sections_per_memory scope
 ```
 
 Core Lite default:
 
 ```text
-separate_sections_per_profile for prompt context
-profile_order_wins for structured search when caller provides profile order
+separate_sections_per_memory scope for prompt context
+memory scope_order_wins for structured search when caller provides memory scope order
 ```
 
 Tests:
 
 ```text
-test_multi_profile_context_keeps_profile_labels
-test_multi_profile_dedupe_preserves_source_refs
-test_wrong_profile_vector_hit_is_dropped
+test_multi_memory scope_context_keeps_memory scope_labels
+test_multi_memory scope_dedupe_preserves_source_refs
+test_wrong_memory scope_vector_hit_is_dropped
 ```
 
 Current Core Lite implementation:
 
-- prompt context keeps explicit profile sections and profile ids on API item DTOs;
+- prompt context keeps explicit memory scope sections and memory scope ids on API item DTOs;
 - context ranking dedupes by canonical `item_type/item_id`, keeps the highest-score
   display item, and merges/deduplicates all source refs from duplicate candidates before
   packing;
-- derived vector candidates are never trusted by payload profile alone: chunk ids are
-  hydrated through canonical Postgres with the requested space/profile/thread filter, so a
-  wrong-profile vector hit is counted as stale and cannot render.
+- derived vector candidates are never trusted by payload memory scope alone: chunk ids are
+  hydrated through canonical Postgres with the requested space/memory scope/thread filter, so a
+  wrong-memory scope vector hit is counted as stale and cannot render.
 
 #### Graph Relation Outlives Canonical Fact
 
@@ -8921,7 +8921,7 @@ Current Core Lite implementation:
 - graph search returns only `GraphCandidate` canonical ids and safe relation diagnostics,
   never prompt-ready graph text;
 - graph candidates are hydrated through canonical Postgres facts before prompt packing;
-- deleted, superseded, disputed, wrong-profile and wrong-thread graph fact ids are counted
+- deleted, superseded, disputed, wrong-memory scope and wrong-thread graph fact ids are counted
   as stale and dropped;
 - graph candidates without canonical source ids are dropped and counted as stale;
 - graph adapter schema/search mismatch degrades graph retrieval only, while canonical
@@ -8951,7 +8951,7 @@ Core Lite policy:
 classification: public | internal | restricted
 default classification: internal
 restricted requires explicit request field or classifier result
-restricted excluded from Client App context unless profile policy allows
+restricted excluded from Client App context unless memory scope policy allows
 ```
 
 Tests:
@@ -8973,7 +8973,7 @@ Current Core Lite implementation:
   the request explicitly sets `classification=restricted`;
 - diagnostics endpoints expose counts/status/safe diagnostic codes only, not fact text,
   chunk text, source quote previews or outbox payloads;
-- redacted profile export omits fact text, chunk text, normalized chunk text and source
+- redacted memory scope export omits fact text, chunk text, normalized chunk text and source
   quote previews.
 
 #### Provider Version Drift
@@ -9018,7 +9018,7 @@ Current Core Lite implementation:
 Fact quality:
 
 - fact text should be atomic, not a full paragraph dump;
-- fact has kind, profile, source refs, confidence, trust level;
+- fact has kind, memory scope, source refs, confidence, trust level;
 - fact update requires an explicit reason or source;
 - conflicting facts are not silently merged.
 
@@ -9120,7 +9120,7 @@ memo_stack/tests/e2e/test_fact_update.py
 memo_stack/tests/e2e/test_forget.py
 memo_stack/tests/e2e/test_legacy_client_context.py
 memo_stack/tests/e2e/test_prompt_injection.py
-memo_stack/tests/e2e/test_cross_profile_isolation.py
+memo_stack/tests/e2e/test_cross_memory scope_isolation.py
 ```
 
 Naming rule:
@@ -9142,7 +9142,7 @@ Bad: test_delete_sets_status_deleted
 | worker crashes after adapter upsert | raise before mark_done | retry is idempotent | integration |
 | worker lease expires | set expired lease | another worker can claim safely | integration |
 | stale Qdrant point | seed point for deleted chunk | hydration drops it | e2e |
-| wrong profile token | principal lacks profile | memory.forbidden | API |
+| wrong memory scope token | user lacks memory scope | memory.forbidden | API |
 | legacy mapper unknown source | source=random | low trust source | unit |
 | parser empty output | fake parser returns empty | document failed safe | application |
 | idempotency replay different body | same key, different fingerprint | memory.conflict | API |
@@ -9172,12 +9172,12 @@ Core Lite should measure memory quality before it changes Client App prompts.
 Minimal eval set:
 
 ```text
-10 factual questions from a seeded profile
+10 factual questions from a seeded memory scope
 10 document-specific questions
 5 stale/update questions
 5 forget/delete questions
 5 prompt-injection questions
-5 cross-profile isolation questions
+5 cross-memory-scope isolation questions
 ```
 
 Metrics:
@@ -9187,7 +9187,7 @@ recall_at_5
 precision_at_5
 stale_memory_rate
 deleted_memory_leak_count
-cross_profile_leak_count
+cross_memory scope_leak_count
 prompt_injection_promoted_count
 context_token_overflow_count
 fallback_success_rate
@@ -9197,7 +9197,7 @@ Initial gates:
 
 ```text
 deleted_memory_leak_count = 0
-cross_profile_leak_count = 0
+cross_memory scope_leak_count = 0
 prompt_injection_promoted_count = 0
 fallback_success_rate = 100%
 recall_at_5 >= 0.85 on seeded deterministic fixtures
@@ -9215,12 +9215,12 @@ Current Core Lite implementation:
 
 - `python -m memo_stack_server eval run --suite small-golden` seeds deterministic
   local SQLite fixtures with facts, documents, update/delete, prompt-injection
-  and cross-profile cases;
+  and cross-memory-scope cases;
 - `--api-url` runs the same suite against a live Memo Stack HTTP server;
 - `--report-out` writes the same redacted JSON report to disk;
 - the report includes `recall_at_5`, `precision_at_5`,
   `stale_memory_rate`, `deleted_memory_leak_count`,
-  `cross_profile_leak_count`, `prompt_injection_promoted_count`,
+  `cross_memory scope_leak_count`, `prompt_injection_promoted_count`,
   `context_token_overflow_count` and `fallback_success_rate`;
 - gates fail the command when recall/precision drop or safety leak counts become non-zero;
 - failures include case ids, categories and item ids only, not raw fixture text.
@@ -9238,7 +9238,7 @@ facts_plus_chunks
 deleted_fact_filtered
 prompt_injection_quoted
 instruction_flag_dropped
-cross_profile_isolation
+cross_memory scope_isolation
 degraded_qdrant
 degraded_graphiti
 token_budget_truncated
@@ -9274,7 +9274,7 @@ Snapshot review checklist:
 header still says evidence, not instruction
 source labels are present
 deleted/superseded items absent
-profile ids do not leak across cases
+memory scope ids do not leak across cases
 degraded diagnostics are safe
 token budget is respected
 ```
@@ -9286,8 +9286,8 @@ Fixtures should be small, deterministic and intentionally adversarial.
 Fixture groups:
 
 ```text
-profile_alpha_basic_facts
-profile_beta_isolation
+memory scope_alpha_basic_facts
+memory scope_beta_isolation
 documents_architecture_notes
 documents_prompt_injection
 documents_long_transcript
@@ -9300,7 +9300,7 @@ Example fixture:
 ```json
 {
   "space_slug": "client-app",
-  "profile_external_ref": "alpha",
+  "memory_scope_external_ref": "alpha",
   "documents": [
     {
       "external_id": "doc_arch_plan",
@@ -9329,7 +9329,7 @@ Fixture rules:
 
 - never depend on live external services;
 - use fake embeddings or deterministic small vectors where possible;
-- include another profile with similar terms to catch leaks;
+- include another memory scope with similar terms to catch leaks;
 - include one malicious document with prompt-injection text;
 - include deleted and superseded facts.
 
@@ -9347,7 +9347,7 @@ Eval runner flow:
 
 ```text
 load fixture
-reset local test profile
+reset local test memory scope
 seed documents/facts
 wait for worker or run worker --once until projections settle
 run context queries
@@ -9367,7 +9367,7 @@ Report shape:
     "recall_at_5": 0.86,
     "precision_at_5": 0.74,
     "deleted_memory_leak_count": 0,
-    "cross_profile_leak_count": 0,
+    "cross_memory scope_leak_count": 0,
     "prompt_injection_promoted_count": 0
   },
   "failures": [
@@ -9514,7 +9514,7 @@ Before enabling `active_context`, verify:
 health endpoint returns ok
 capabilities show expected adapters
 migrations applied
-default space/profile exists
+default space/memory scope exists
 worker is running or explicitly disabled
 outbox pending is not growing
 outbox dead count is zero
@@ -9575,7 +9575,7 @@ adapter circuit state
 outbox pending/dead count
 worker job duration
 stale hydration drops
-cross-profile leak count from eval
+cross-memory-scope leak count from eval
 deleted memory leak count from eval
 prompt injection promoted count from eval
 ```
@@ -9587,7 +9587,7 @@ outbox_dead_count > 0 -> warning
 outbox_pending_count above threshold for 10 min -> warning
 context_degraded_rate > 20% for 10 min -> warning
 deleted_memory_leak_count > 0 -> critical
-cross_profile_leak_count > 0 -> critical
+cross_memory scope_leak_count > 0 -> critical
 prompt_injection_promoted_count > 0 -> critical
 postgres_health_fail -> critical
 ```
@@ -9595,8 +9595,8 @@ postgres_health_fail -> critical
 Rules:
 
 - alerts use counts/status, not raw text;
-- local profile can print warnings instead of paging;
-- server profile should expose metrics endpoint or structured logs;
+- local memory scope can print warnings instead of paging;
+- server memory scope should expose metrics endpoint or structured logs;
 - critical eval leak blocks active context rollout;
 - every alert has a playbook link or command.
 
@@ -9625,8 +9625,8 @@ admin repair-projections
 admin reindex-qdrant
 admin reindex-graphiti
 admin replay-outbox
-admin export-profile
-admin import-profile
+admin export-memory_scope
+admin import-memory_scope
 admin reset-local
 eval run
 doctor
@@ -9636,7 +9636,7 @@ worker --once/--loop
 Command rules:
 
 - every destructive command requires explicit confirmation flag;
-- every profile-scoped command resolves scope through the same scope guard;
+- every memory-scope-scoped command resolves scope through the same scope guard;
 - commands print ids/counts/status, not raw text by default;
 - commands return non-zero on failed checks;
 - `--dry-run` is required for repair/import before destructive mode;
@@ -9645,7 +9645,7 @@ Command rules:
 Admin command test examples:
 
 ```text
-test_reset_local_refuses_server_profile
+test_reset_local_refuses_server_memory scope
 test_repair_requires_scope
 test_import_dry_run_returns_nonzero_on_conflict
 test_token_list_does_not_print_raw_token
@@ -9659,8 +9659,8 @@ Health checks say whether the service responds. Invariant checks say whether mem
 Command:
 
 ```bash
-python -m memo_stack_server.admin check-invariants --space client-app --profile default
-python -m memo_stack_server.admin check-invariants --space client-app --profile default --include-projections
+python -m memo_stack_server.admin check-invariants --space client-app --memory_scope default
+python -m memo_stack_server.admin check-invariants --space client-app --memory_scope default --include-projections
 ```
 
 Checks:
@@ -9669,7 +9669,7 @@ Checks:
 active facts have at least one source ref
 deleted facts do not appear in active indexes
 chunks belong to existing document or episode
-profile-scoped rows have matching space_id/profile_id
+memory-scope-scoped rows have matching space_id/memory_scope_id
 outbox dead jobs are visible
 projection state references existing aggregate where possible
 idempotency records point to existing result rows
@@ -9712,7 +9712,7 @@ Tests:
 
 ```text
 test_invariant_checker_detects_active_fact_without_source
-test_invariant_checker_detects_chunk_wrong_profile
+test_invariant_checker_detects_chunk_wrong_memory scope
 test_invariant_checker_omits_raw_text
 test_invariant_checker_projection_mode_detects_stale_qdrant
 ```
@@ -9726,15 +9726,15 @@ Use cases:
 ```text
 move local memory to another machine
 seed deterministic test fixtures
-debug a profile with redacted data
+debug a memory scope with redacted data
 prepare future SaaS migration
 ```
 
 Commands:
 
 ```bash
-python -m memo_stack_server.admin export-profile --space client-app --profile default --out profile-export.json
-python -m memo_stack_server.admin import-profile --space client-app --profile default --file profile-export.json --dry-run
+python -m memo_stack_server.admin export-memory_scope --space client-app --memory_scope default --out memory_scope-export.json
+python -m memo_stack_server.admin import-memory_scope --space client-app --memory_scope default --file memory_scope-export.json --dry-run
 ```
 
 Export format:
@@ -9743,7 +9743,7 @@ Export format:
 {
   "schema_version": 1,
   "space": {"slug": "client-app"},
-  "profile": {"external_ref": "default"},
+  "memory scope": {"external_ref": "default"},
   "facts": [],
   "documents": [],
   "chunks": [],
@@ -9765,7 +9765,7 @@ Merge strategies:
 
 ```text
 skip_existing
-create_new_profile
+create_new_memory scope
 supersede_matching_facts
 fail_on_conflict
 ```
@@ -9782,22 +9782,22 @@ test_redacted_export_has_no_raw_chunk_text
 
 Current Core Lite implementation:
 
-- `export-profile` reads canonical Postgres facts, documents, chunks and source refs only;
+- `export-memory_scope` reads canonical Postgres facts, documents, chunks and source refs only;
 - `--redacted` omits raw fact text, chunk text and source quote previews;
-- `import-profile --dry-run` reports counts/conflicts without creating target scope rows;
+- `import-memory_scope --dry-run` reports counts/conflicts without creating target scope rows;
 - non-dry-run import requires `--i-understand-this-writes-canonical-memory`;
 - `fail_on_conflict` blocks canonical overwrite on existing ids or active document/chunk
   uniqueness conflicts;
 - `skip_existing` skips conflicting incoming facts/documents/chunks and cascades skipped
   documents to their chunks;
-- `create_new_profile` creates a new active target profile and rewrites imported canonical ids
-  so the original profile is not overwritten;
+- `create_new_memory scope` creates a new active target memory scope and rewrites imported canonical ids
+  so the original memory scope is not overwritten;
 - `supersede_matching_facts` marks matching active facts as `superseded`, imports the incoming
   fact under a new id and enqueues graph delete/upsert projection events;
 - import enqueues `vector.upsert_chunk` and `graph.upsert_fact` projection jobs for imported
   active chunks/facts;
 - imported active facts always receive at least one source ref, falling back to a synthetic
-  `profile-import:*` source ref if the bundle refs are skipped.
+  `memory_scope-import:*` source ref if the bundle refs are skipped.
 
 ## Incident Playbooks
 
@@ -9832,8 +9832,8 @@ repair can rebuild Qdrant from Postgres chunks
 Operator steps:
 
 ```bash
-python -m memo_stack_server.admin repair-projections --space client-app --profile default --dry-run
-python -m memo_stack_server.admin reindex-qdrant --space client-app --profile default
+python -m memo_stack_server.admin repair-projections --space client-app --memory_scope default --dry-run
+python -m memo_stack_server.admin reindex-qdrant --space client-app --memory_scope default
 ```
 
 ### Graphiti Corrupt Or Slow
@@ -9850,7 +9850,7 @@ Operator steps:
 
 ```bash
 MEMORY_GRAPHITI_ENABLED=false python -m memo_stack_server.main
-python -m memo_stack_server.admin reindex-graphiti --space client-app --profile default --dry-run
+python -m memo_stack_server.admin reindex-graphiti --space client-app --memory_scope default --dry-run
 ```
 
 ### Bad Memory Appears In Prompt
@@ -10215,8 +10215,8 @@ Are idempotency and version conflicts handled?
 Scope and security:
 
 ```text
-Does every query filter space_id and profile_id?
-Can a legacy route leak another profile?
+Does every query filter space_id and memory_scope_id?
+Can a legacy route leak another memory scope?
 Are raw memory texts absent from logs?
 Does prompt-injection text stay evidence only?
 Does delete require explicit permission?
@@ -10284,7 +10284,7 @@ Approx changes: `1600-2800` lines.
 
 Steps:
 
-1. Add Postgres models/migrations for spaces, profiles, facts, source refs, outbox, idempotency.
+1. Add Postgres models/migrations for spaces, memory scopes, facts, source refs, outbox, idempotency.
 2. Implement `PostgresUnitOfWork`.
 3. Implement `FactRepositoryPort`.
 4. Implement `RememberFactUseCase`, `UpdateFactUseCase`, `ForgetFactUseCase`.

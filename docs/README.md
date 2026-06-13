@@ -10,6 +10,7 @@ This folder contains the platform planning documents moved out of Client App.
 4. [Auto-memory capture platform plan](auto-memory-capture-platform-plan.md)
 5. [Client compatibility notes](client-integration/interview-memo-stack-clean-architecture-plan.md)
 6. [Client integration run notes](client-integration/current-integration-run-notes.md)
+7. [Self-hosted team deployment](self-hosted-team-deployment.md)
 
 ## Architecture Decisions
 
@@ -38,9 +39,9 @@ make memo-stack-up-lite
 make memo-stack-up-full
 ```
 
-`lite` runs Postgres plus the Memo Stack Server and worker with provider adapters
-disabled. `full` also runs Qdrant, Neo4j and the outbox worker, and requires
-`OPENAI_API_KEY` plus `MEMORY_OPENAI_API_KEY`.
+`lite` runs Postgres plus the Memo Stack Server, projection worker and extraction
+worker with provider adapters disabled. `full` also runs Qdrant, Neo4j and full
+provider workers, and requires `OPENAI_API_KEY` plus `MEMORY_OPENAI_API_KEY`.
 
 Local smokes:
 
@@ -60,7 +61,7 @@ make memo-stack-plugin-test
 
 `quality-golden` is the prompt-impacting memory benchmark. It checks recall,
 precision, stale update filtering, delete filtering, restricted-memory hiding,
-profile and thread isolation, document chunk recall, prompt-injection evidence rendering
+memory scope and thread isolation, document chunk recall, prompt-injection evidence rendering
 and tiny token-budget safety. Reports are redacted and contain case ids,
 item ids, gates and aggregate metrics, not raw memory text.
 
@@ -129,7 +130,7 @@ MEMORY_SMOKE_AUTH_TOKEN=(set via environment; Makefile supplies local dev fallba
 ```
 
 The smoke script uses only the public SDK and verifies the Phase 7 path:
-health, space/profile creation, remember, update, document ingest, search,
+health, space/memory-scope creation, remember, update, document ingest, search,
 context and forget.
 
 The MCP smoke starts a real stdio MCP client and verifies status, search,
@@ -245,7 +246,7 @@ MEMORY_OPENAI_API_KEY="$KEY" make memo-stack-prod-load-canary
 ```
 
 This uses the same clean Docker full stack, then adds concurrent fact writes,
-idempotent retry races, multi-profile corpus growth, document ingest, auth and
+idempotent retry races, multi-memory-scope corpus growth, document ingest, auth and
 validation floods, worker drain checks, API and stdio MCP retrieval, update,
 delete, Qdrant/Graphiti recall and context latency p95. The regular free e2e
 gate also covers concurrent document idempotency, outbox backpressure, mutation
@@ -269,8 +270,8 @@ not run in `make memo-stack-test-quality`.
 
 Useful knobs for larger runs:
 
-- `MEMORY_CLEAN_SMOKE_LOAD_PROFILES` - default `3`, max `12`.
-- `MEMORY_CLEAN_SMOKE_LOAD_FACTS_PER_PROFILE` - default `8`, max `100`.
+- `MEMORY_CLEAN_SMOKE_LOAD_MEMORY_SCOPES` - default `3`, max `12`.
+- `MEMORY_CLEAN_SMOKE_LOAD_FACTS_PER_MEMORY_SCOPE` - default `8`, max `100`.
 - `MEMORY_CLEAN_SMOKE_LOAD_DOCUMENTS` - default `3`, max `30`.
 - `MEMORY_CLEAN_SMOKE_LOAD_LARGE_DOC_SECTIONS` - default `18`, max `80`.
 - `MEMORY_CLEAN_SMOKE_LOAD_CONCURRENCY` - default `6`, max `24`.
@@ -309,7 +310,7 @@ MEMORY_AGENT_BENCH_MODEL="$MODEL" MEMORY_OPENAI_API_KEY="$KEY" make memo-stack-a
 ```
 
 The live suite covers long transcript rollups, update plus delete chains,
-review-gated uncertain claims, cross-profile meeting noise, credential traps and
+review-gated uncertain claims, cross-memory-scope meeting noise, credential traps and
 long-tail transcript recall. The report includes `live_session_pass_rate` and
 `adversarial_pass_rate`.
 

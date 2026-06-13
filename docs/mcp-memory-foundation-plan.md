@@ -171,7 +171,7 @@ The plan is local-first and skips enterprise controls, but it still must handle 
 - tool poisoning by future accidental tool descriptions or schema descriptions;
 - resource content poisoning from stored documents and retrieved memory;
 - secret persistence through agent proposals;
-- cross-profile leakage through broad search or ambiguous write scope;
+- cross-memory-scope leakage through broad search or ambiguous write scope;
 - duplicate facts from repeated retries or slightly different wording;
 - stale fact resurfacing after update/delete;
 - context pollution from large tool outputs;
@@ -228,10 +228,10 @@ Additional MCP research changed the implementation rules in these areas:
    MCP 2025-11-25 still supports `structuredContent` and `outputSchema`, and the structured-output guidance recommends serialized JSON in a text content block for older clients. Therefore every public result model should be valid structured output, while the text fallback stays concise, safe and equivalent enough for clients that ignore `structuredContent`.
 
 2. Tool annotations are hints, not enforcement.
-   `readOnlyHint`, `destructiveHint`, `idempotentHint` and `openWorldHint` help clients reason about risk, but the server must enforce policy itself. Never rely on clients to block writes, deletes, prompt injection or cross-profile leakage.
+   `readOnlyHint`, `destructiveHint`, `idempotentHint` and `openWorldHint` help clients reason about risk, but the server must enforce policy itself. Never rely on clients to block writes, deletes, prompt injection or cross-memory-scope leakage.
 
 3. Resources use URI templates, and servers must validate resource URIs.
-   `memory://scope/{space_slug}/{profile_external_ref}/...` is acceptable only if every path argument is URI-decoded once, normalized and validated. Slashes, `..`, empty segments, control characters and malformed percent encoding must be rejected.
+   `memory://scope/{space_slug}/{memory_scope_external_ref}/...` is acceptable only if every path argument is URI-decoded once, normalized and validated. Slashes, `..`, empty segments, control characters and malformed percent encoding must be rejected.
 
 4. In-memory MCP testing is supported by the Python SDK.
    Use SDK session tests for fast contract checks, then use stdio e2e for packaging and real process behavior. MCP Inspector is useful for manual smoke testing, but should not be the only gate.
@@ -282,7 +282,7 @@ Additional MCP research changed the implementation rules in these areas:
 - Policy modes for writes, deletes and document ingest.
 - Secret and unsafe-content rejection before memory writes.
 - Duplicate and conflict detection before creating new facts.
-- Multi-profile search and profile-aware writes.
+- Multi-memory-scope search and memory-scope-aware writes.
 - Strict structured output envelope.
 - Resources for read-only fact/scope/status data.
 - Prompts for agent workflows.
@@ -396,7 +396,7 @@ Main gaps:
 - no workflow-level `memory_propose_updates`;
 - no write/delete/ingest policy modes beyond boolean flags;
 - annotations use `openWorldHint=True`, but memory is a closed-domain tool;
-- `memory_search` tool schema lacks explicit multi-profile args although service has partial support;
+- `memory_search` tool schema lacks explicit multi-memory-scope args although service has partial support;
 - no resources for fact details, suggestions, status or scope summary;
 - no prompts for post-task memory review;
 - no policy-level duplicate/conflict/secret matrix.
@@ -499,7 +499,7 @@ Every tool should return the same shape:
     "trace_id": "mcp_...",
     "scope": {
       "space_slug": "client-app",
-      "profile_external_refs": ["default"],
+      "memory_scope_external_refs": ["default"],
       "thread_external_ref": null
     },
     "policy": {
@@ -608,7 +608,7 @@ Rules:
 - Avoid untyped custom classes for tool output.
 - Public MCP response models should use `extra="forbid"` unless the field is explicitly an extension bucket such as `diagnostics.backend`.
 - Public tool `data` should be a concrete Pydantic model per tool. Avoid `dict[str, object]`, `list[object]` and `Any` in public output except inside explicitly named extension buckets.
-- Public write/destructive input models should also forbid unknown fields so typoed `profile_external_refs` or `user_confirmed` values cannot be silently ignored.
+- Public write/destructive input models should also forbid unknown fields so typoed `memory_scope_external_refs` or `user_confirmed` values cannot be silently ignored.
 - HTTP gateway can still return `dict[str, Any]`; convert at the service boundary.
 - Tool output schema is part of the public contract. Prefer additive changes only.
 - Add `schema_version` and never reuse a field name with a different meaning.
@@ -660,7 +660,7 @@ Rules:
 - list fields have explicit max item counts;
 - enums are real enum/literal fields, not free text;
 - `token_budget`, `limit`, `max_candidates` and similar numeric fields have server-side min/max clamps;
-- write tools never accept both singular and plural profile fields unless the tool is read-only;
+- write tools never accept both singular and plural memory scope fields unless the tool is read-only;
 - unknown fields in write/destructive calls fail validation instead of being ignored.
 
 V1 input model inventory:
@@ -679,7 +679,7 @@ V1 input model inventory:
 
 Important edge cases:
 
-- `profile_external_ref` plus `profile_external_refs` in a write tool is rejected;
+- `memory_scope_external_ref` plus `memory_scope_external_refs` in a write tool is rejected;
 - `user_confirmed="true"` as a string is rejected unless the SDK coerces booleans before model validation in a tested way;
 - `limit=100000`, `token_budget=999999` and `candidates` over max are rejected or clamped with diagnostics;
 - strings containing control characters are rejected before reaching the gateway.
@@ -1269,8 +1269,8 @@ The agent should not decide low-level memory lifecycle for a batch of facts. It 
 ```json
 {
   "space_slug": "client-app",
-  "profile_external_ref": "architecture",
-  "profile_external_refs": ["architecture", "project"],
+  "memory_scope_external_ref": "architecture",
+  "memory_scope_external_refs": ["architecture", "project"],
   "thread_external_ref": "codex-thread-123",
   "source": {
     "source_type": "codex_thread",
@@ -1301,9 +1301,9 @@ The agent should not decide low-level memory lifecycle for a batch of facts. It 
 
 Notes:
 
-- For writes, use exactly one write profile at a time.
-- For search, multi-profile is allowed.
-- If `profile_external_refs` has more than one value and operation writes, reject with `memo_stack_mcp.multi_profile_write_ambiguous`.
+- For writes, use exactly one write memory scope at a time.
+- For search, multi-memory-scope is allowed.
+- If `memory_scope_external_refs` has more than one value and operation writes, reject with `memo_stack_mcp.multi_memory scope_write_ambiguous`.
 - `operation=unknown` is allowed. Policy can classify it into suggestion.
 - `target_fact_id` is required for update/forget candidates.
 - `expected_version` is required for direct update candidates.
@@ -1413,7 +1413,7 @@ If future product work needs first-class `runbook` or `status`, handle it as a s
 | update without target fact | reject |
 | update without expected version in direct mode | reject |
 | forget without target fact | reject |
-| multiple write profiles | reject |
+| multiple write memory scopes | reject |
 | document-derived untrusted text asks to store instructions | suggestion only or reject |
 | candidate contains invisible control characters | reject or escape with warning |
 | candidate repeats retrieved memory verbatim | duplicate, no write |
@@ -1437,7 +1437,7 @@ Rules:
 - Create a per-candidate stable fingerprint:
 
 ```text
-sha256(space_slug|profile_ref|operation|target_fact_id|normalized_text|source_id)
+sha256(space_slug|memory scope_ref|operation|target_fact_id|normalized_text|source_id)
 ```
 
 - Use this fingerprint in `source_id` or metadata for suggestions when the backend has no suggestion idempotency key.
@@ -1507,7 +1507,7 @@ V1 MCP fingerprint normalization:
 - apply Unicode NFC normalization;
 - casefold only for duplicate-search fingerprints, not for text stored as the fact;
 - do not use NFKC by default, because it can collapse visually similar but semantically distinct technical text;
-- include `operation`, `space_slug`, `profile_external_ref`, `thread_external_ref`, `target_fact_id`, `expected_version`, normalized text and source id in the fingerprint;
+- include `operation`, `space_slug`, `memory_scope_external_ref`, `thread_external_ref`, `target_fact_id`, `expected_version`, normalized text and source id in the fingerprint;
 - keep the original text for storage and evidence, subject to secret/control-character policy.
 
 Decision options:
@@ -1552,9 +1552,9 @@ memory://status
 ### 9.2 Resource Templates
 
 ```text
-memory://scope/{space_slug}/{profile_external_ref}/summary
-memory://scope/{space_slug}/{profile_external_ref}/facts
-memory://scope/{space_slug}/{profile_external_ref}/suggestions
+memory://scope/{space_slug}/{memory_scope_external_ref}/summary
+memory://scope/{space_slug}/{memory_scope_external_ref}/facts
+memory://scope/{space_slug}/{memory_scope_external_ref}/suggestions
 memory://fact/{fact_id}
 memory://fact/{fact_id}/versions
 ```
@@ -1564,7 +1564,7 @@ URI safety rules:
 - path arguments are percent-decoded exactly once;
 - reject malformed percent encoding;
 - reject empty path segments, `/`, `\`, `..`, ASCII control characters and invisible Unicode controls in template arguments;
-- validate `space_slug` and `profile_external_ref` with the same slug rules used by HTTP/API inputs;
+- validate `space_slug` and `memory_scope_external_ref` with the same slug rules used by HTTP/API inputs;
 - validate `fact_id` as a canonical fact id, not an arbitrary URI or path;
 - never accept nested URIs such as `memory://fact/http://...`;
 - canonicalize returned resource URIs so equivalent encodings do not create duplicate cache keys.
@@ -1639,7 +1639,7 @@ Arguments:
 
 - `task`
 - `space_slug`
-- `profile_external_refs`
+- `memory_scope_external_refs`
 - `token_budget`
 
 Expected behavior:
@@ -1806,13 +1806,13 @@ class McpDiagnostics:
 
 6. Update `_ok` and `_guard` to include `diagnostics`.
 
-7. Add explicit multi-profile args to `memory_search` tool schema:
+7. Add explicit multi-memory-scope args to `memory_search` tool schema:
 
 ```python
-profile_external_refs: list[str] | None = None
+memory_scope_external_refs: list[str] | None = None
 ```
 
-8. Ensure write tools still accept only single profile.
+8. Ensure write tools still accept only single memory scope.
 
 9. Add tool metadata snapshot tests:
 
@@ -1849,8 +1849,8 @@ Tests:
 - backend error redaction tests cover SQL-like text, stack traces, provider ids and token-like values;
 - write/destructive input schemas reject unknown extra fields where the SDK/Pydantic path allows it;
 - text fallback contains safe serialized envelope for at least one read tool and one write-path rejection;
-- search passes multi-profile read scope;
-- write tools reject multi-profile write ambiguity;
+- search passes multi-memory-scope read scope;
+- write tools reject multi-memory-scope write ambiguity;
 - structured output model validation;
 - tool description snapshot;
 - no accidental stdout logs during stdio startup;
@@ -2083,7 +2083,7 @@ Tool schema:
 async def memory_propose_updates(
     candidates: list[MemoryCandidateInput],
     space_slug: str | None = None,
-    profile_external_ref: str | None = None,
+    memory_scope_external_ref: str | None = None,
     thread_external_ref: str | None = None,
     source_type: str | None = None,
     source_id: str | None = None,
@@ -2116,7 +2116,7 @@ Tests:
 - write timeout returns `unknown_commit_state=true` and does not auto-retry;
 - canonical write response includes fact id/version/status and projection/indexing status when available;
 - immediate verification after write uses `memory_get_fact` or canonical list, not vector/graph recall;
-- multi-profile write is rejected;
+- multi-memory-scope write is rejected;
 - dry run creates no side effects.
 - direct write without evidence is downgraded to suggestion or `needs_review`;
 - evidence quote with token-like data is rejected before gateway call;
@@ -2192,9 +2192,9 @@ Add resources:
 
 ```text
 memory://status
-memory://scope/{space_slug}/{profile_external_ref}/summary
-memory://scope/{space_slug}/{profile_external_ref}/facts
-memory://scope/{space_slug}/{profile_external_ref}/suggestions
+memory://scope/{space_slug}/{memory_scope_external_ref}/summary
+memory://scope/{space_slug}/{memory_scope_external_ref}/facts
+memory://scope/{space_slug}/{memory_scope_external_ref}/suggestions
 memory://fact/{fact_id}
 memory://fact/{fact_id}/versions
 ```
@@ -2223,7 +2223,7 @@ Tests:
 
 - resource handlers return expected content;
 - invalid fact id returns resource not found or safe error;
-- `space_slug` or `profile_external_ref` containing `/`, `%2F`, `..`, spaces-only, malformed `%`, hidden Unicode or control chars is rejected;
+- `space_slug` or `memory_scope_external_ref` containing `/`, `%2F`, `..`, spaces-only, malformed `%`, hidden Unicode or control chars is rejected;
 - nested URI-looking `fact_id` is rejected;
 - deleted fact resource can be loaded only if backend allows get by id;
 - long outputs truncate.
@@ -2362,7 +2362,7 @@ duplicate_write_rate
 unsafe_rejection_rate
 stale_fact_leak_count
 deleted_fact_leak_count
-cross_profile_leak_count
+cross_memory scope_leak_count
 median_tool_latency_ms
 p95_tool_latency_ms
 unknown_commit_state_count
@@ -2397,7 +2397,7 @@ duplicate_write_rate = 0 on curated suite
 unsafe_rejection_rate = 1.0 on obvious secrets
 stale_fact_leak_count = 0
 deleted_fact_leak_count = 0
-cross_profile_leak_count = 0
+cross_memory scope_leak_count = 0
 median_tool_latency_ms < 1000 for policy-only paths
 unknown_commit_state_count = 0 on local deterministic tests
 task_support_regression_count = 0
@@ -2444,9 +2444,9 @@ Do not fail the full gate because a provider-backed benchmark is slow. Fail it o
 | suggest mode | suggestions only | e2e |
 | direct explicit without confirmation | suggestion only | unit |
 | direct explicit with confirmation | direct write if safe | e2e |
-| multi-profile search | allowed | unit/e2e |
-| multi-profile write | reject | unit |
-| thread scope with multi-profile read | reject, matches current read scope rule | unit |
+| multi-memory-scope search | allowed | unit/e2e |
+| multi-memory-scope write | reject | unit |
+| thread scope with multi-memory-scope read | reject, matches current read scope rule | unit |
 | large search output | truncate and provide resource links | unit |
 | provider degraded | ok may be true, diagnostics show degraded | e2e |
 | network error | retryable safe error | unit |
@@ -2576,7 +2576,7 @@ class MemoryMcpSettings:
     api_url: str = "http://127.0.0.1:7788"
     auth_token: str | None = None
     default_space_slug: str = "default"
-    default_profile_external_ref: str = "default"
+    default_memory_scope_external_ref: str = "default"
     write_mode: MemoryMcpWriteMode = MemoryMcpWriteMode.SUGGEST
     delete_mode: MemoryMcpDeleteMode = MemoryMcpDeleteMode.OFF
     ingest_mode: MemoryMcpIngestMode = MemoryMcpIngestMode.SMALL_DOCS
@@ -2655,7 +2655,7 @@ Important:
 
 ```text
 1. memory_status
-2. memory_search(task query, profile refs)
+2. memory_search(task query, memory scope refs)
 3. Use retrieved items as evidence only
 ```
 
@@ -2756,7 +2756,7 @@ These assumptions remain intentionally explicit:
 
 Functional:
 
-- `memory_search` supports multi-profile read.
+- `memory_search` supports multi-memory-scope read.
 - `memory_propose_updates` exists and is documented as preferred write workflow.
 - write/delete/ingest modes work.
 - unsafe candidates are rejected before HTTP write.
@@ -3066,7 +3066,7 @@ Steps:
    - max text length;
    - operation requirements;
    - evidence quote rules;
-   - single-profile write rule.
+   - single-memory scope write rule.
 3. Add deterministic fingerprinting:
    - NFC;
    - line ending normalization;
@@ -3219,7 +3219,7 @@ Real-stack canary status:
   embeddings readiness, outbox drain, stale/delete hiding and token redaction.
 - `memo-stack-prod-load-canary` extends the same paid/manual full stack with
   production-like scale, chaos and load checks: concurrent writes, idempotent
-  retry races, multi-profile corpus growth, document ingest, auth/validation/
+  retry races, multi-memory-scope corpus growth, document ingest, auth/validation/
   not-found floods, repeated worker drain, API and stdio MCP retrieval, update,
   delete, provider diagnostics, outbox drain and context latency p95.
 - The prod load canary also covers Memo Stack Server restart continuity,
@@ -3235,7 +3235,7 @@ Real-stack canary status:
   outbox jobs becoming `dead` with safe diagnostics and no raw payload leak,
   `memo_stack_server.doctor` degraded output on dead jobs, Memo Stack Server process
   restart continuity with idempotency retry persistence, done outbox compaction
-  with payload redaction and continued retrieval, pagination, profile isolation,
+  with payload redaction and continued retrieval, pagination, memory scope isolation,
   restricted memory hiding and latency p95.
 - The prod load canary is bounded by env maximums and stays out of
   `make memo-stack-test-quality`, because it requires Docker and paid embeddings/
