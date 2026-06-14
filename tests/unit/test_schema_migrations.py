@@ -262,6 +262,13 @@ def test_create_schema_adds_asset_and_context_link_tables(tmp_path: Path) -> Non
                     "usage_indexes": {
                         index["name"] for index in inspector.get_indexes("memory_usage_records")
                     },
+                    "user_indexes": {
+                        index["name"] for index in inspector.get_indexes("memory_users")
+                    },
+                    "space_membership_indexes": {
+                        index["name"]
+                        for index in inspector.get_indexes("memory_space_memberships")
+                    },
                 }
 
             async with engine.connect() as connection:
@@ -278,6 +285,8 @@ def test_create_schema_adds_asset_and_context_link_tables(tmp_path: Path) -> Non
     assert "memory_context_link_suggestions" in result["tables"]
     assert "memory_anchors" in result["tables"]
     assert "memory_usage_records" in result["tables"]
+    assert "memory_users" in result["tables"]
+    assert "memory_space_memberships" in result["tables"]
     assert "ix_memory_assets_scope_status" in result["asset_indexes"]
     assert "ix_memory_assets_hash_scope" in result["asset_indexes"]
     assert "ix_asset_extraction_jobs_asset_status" in result["asset_extraction_job_indexes"]
@@ -303,6 +312,11 @@ def test_create_schema_adds_asset_and_context_link_tables(tmp_path: Path) -> Non
     assert "ix_memory_anchors_scope_kind" in result["anchor_indexes"]
     assert "uq_memory_usage_idempotency" in result["usage_indexes"]
     assert "ix_memory_usage_subject_window" in result["usage_indexes"]
+    assert "uq_memory_user_external_ref" in result["user_indexes"]
+    assert "ix_memory_users_status" in result["user_indexes"]
+    assert "uq_memory_space_membership_active_user" in result["space_membership_indexes"]
+    assert "ix_memory_space_memberships_space" in result["space_membership_indexes"]
+    assert "ix_memory_space_memberships_user" in result["space_membership_indexes"]
 
 
 def test_create_schema_dedupes_pending_suggestions_before_unique_indexes(

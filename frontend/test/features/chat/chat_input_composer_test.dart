@@ -8,6 +8,7 @@ import 'package:frontend/src/features/chat/domain/entities/chat_message.dart';
 import 'package:frontend/src/features/chat/domain/entities/connection_status.dart';
 import 'package:frontend/src/features/chat/domain/entities/cost_usage.dart';
 import 'package:frontend/src/features/chat/domain/entities/document_chunk.dart';
+import 'package:frontend/src/features/chat/domain/entities/memory_browser.dart';
 import 'package:frontend/src/features/chat/domain/entities/memory_capture.dart';
 import 'package:frontend/src/features/chat/domain/entities/memory_context_link.dart';
 import 'package:frontend/src/features/chat/domain/entities/memory_operations_console.dart';
@@ -208,6 +209,11 @@ class _RecordingChatRepository implements ChatRepository {
       contextLinkSuggestions: const <MemoryContextLinkSuggestion>[],
       diagnostics: const <String, dynamic>{},
     );
+  }
+
+  @override
+  Future<MemoryBrowserSnapshot> getMemoryBrowser({int limit = 50}) async {
+    return MemoryBrowserSnapshot.empty();
   }
 
   @override

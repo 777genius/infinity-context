@@ -23,6 +23,7 @@ from memo_stack_core.ports.repositories import (
     IdempotencyRepositoryPort,
     ScopeRepositoryPort,
     SuggestionRepositoryPort,
+    UserRepositoryPort,
 )
 from memo_stack_core.ports.usage import UsageRepositoryPort
 
@@ -34,6 +35,7 @@ class OutboxPort(Protocol):
 
 class UnitOfWorkPort(Protocol):
     scope: ScopeRepositoryPort
+    users: UserRepositoryPort
     facts: FactRepositoryPort
     fact_relations: FactRelationRepositoryPort
     assets: AssetRepositoryPort

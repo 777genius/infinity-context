@@ -406,6 +406,30 @@ class PostgresContextLinkRepository(ContextLinkRepositoryPort):
         ).scalars()
         return [context_link_row_to_domain(row) for row in rows]
 
+    async def list_for_scope(
+        self,
+        *,
+        space_id: str,
+        memory_scope_id: str,
+        status: str | None,
+        limit: int,
+    ) -> list[MemoryContextLink]:
+        conditions = [
+            MemoryContextLinkRow.space_id == space_id,
+            MemoryContextLinkRow.memory_scope_id == memory_scope_id,
+        ]
+        if status:
+            conditions.append(MemoryContextLinkRow.status == status)
+        rows = (
+            await self._session.execute(
+                select(MemoryContextLinkRow)
+                .where(*conditions)
+                .order_by(MemoryContextLinkRow.updated_at.desc(), MemoryContextLinkRow.id.desc())
+                .limit(limit)
+            )
+        ).scalars()
+        return [context_link_row_to_domain(row) for row in rows]
+
 
 class PostgresContextLinkSuggestionRepository(ContextLinkSuggestionRepositoryPort):
     def __init__(self, session: AsyncSession) -> None:

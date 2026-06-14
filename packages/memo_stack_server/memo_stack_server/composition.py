@@ -21,18 +21,23 @@ from memo_stack_adapters.postgres import (
 )
 from memo_stack_core.application import (
     ApproveSuggestionUseCase,
+    BackfillAnchorsUseCase,
     BuildContextUseCase,
+    BuildMemoryBrowserUseCase,
     BuildMemoryDigestUseCase,
     BuildMemoryInsightsUseCase,
     BuildMemoryOperationsConsoleUseCase,
     CancelAssetExtractionUseCase,
+    CheckSpaceAccessUseCase,
     ConsolidateCaptureUseCase,
     CreateAssetUseCase,
     CreateContextLinkUseCase,
     CreateMemoryScopeUseCase,
+    CreateSpaceMembershipUseCase,
     CreateSpaceUseCase,
     CreateSuggestionsBatchUseCase,
     CreateSuggestionUseCase,
+    CreateUserUseCase,
     DeleteAssetUseCase,
     DeleteContextLinkUseCase,
     DeleteDocumentUseCase,
@@ -54,6 +59,7 @@ from memo_stack_core.application import (
     IngestDocumentUseCase,
     IngestEpisodeUseCase,
     LinkFactsUseCase,
+    ListAnchorsUseCase,
     ListAssetExtractionsUseCase,
     ListAssetsUseCase,
     ListCapturesUseCase,
@@ -64,8 +70,11 @@ from memo_stack_core.application import (
     ListFactsUseCase,
     ListFactVersionsUseCase,
     ListMemoryScopesUseCase,
+    ListSpaceMembershipsUseCase,
     ListSpacesUseCase,
     ListSuggestionsUseCase,
+    ListUsersUseCase,
+    MergeAnchorsUseCase,
     ProcessDocumentUseCase,
     PurgeCaptureUseCase,
     ReadAssetBytesUseCase,
@@ -79,6 +88,8 @@ from memo_stack_core.application import (
     ReviewContextLinkSuggestionUseCase,
     ReviewSuggestionsBatchUseCase,
     RunAssetExtractionUseCase,
+    SplitAnchorUseCase,
+    SuggestAnchorMergesUseCase,
     SuggestContextLinksUseCase,
     UnlinkFactRelationUseCase,
     UpdateFactUseCase,
@@ -141,6 +152,11 @@ class Container:
     list_memory_scopes: ListMemoryScopesUseCase
     update_memory_scope: UpdateMemoryScopeUseCase
     delete_memory_scope: DeleteMemoryScopeUseCase
+    create_user: CreateUserUseCase
+    list_users: ListUsersUseCase
+    create_space_membership: CreateSpaceMembershipUseCase
+    list_space_memberships: ListSpaceMembershipsUseCase
+    check_space_access: CheckSpaceAccessUseCase
     remember_fact: RememberFactUseCase
     list_facts: ListFactsUseCase
     get_fact: GetFactUseCase
@@ -161,6 +177,11 @@ class Container:
     retry_asset_extraction: RetryAssetExtractionUseCase
     cancel_asset_extraction: CancelAssetExtractionUseCase
     run_asset_extraction: RunAssetExtractionUseCase
+    list_anchors: ListAnchorsUseCase
+    suggest_anchor_merges: SuggestAnchorMergesUseCase
+    merge_anchors: MergeAnchorsUseCase
+    split_anchor: SplitAnchorUseCase
+    backfill_anchors: BackfillAnchorsUseCase
     suggest_context_links: SuggestContextLinksUseCase
     create_context_link: CreateContextLinkUseCase
     list_context_links: ListContextLinksUseCase
@@ -179,6 +200,7 @@ class Container:
     build_context: BuildContextUseCase
     build_memory_digest: BuildMemoryDigestUseCase
     build_memory_insights: BuildMemoryInsightsUseCase
+    build_memory_browser: BuildMemoryBrowserUseCase
     build_memory_operations_console: BuildMemoryOperationsConsoleUseCase
     export_graph: ExportGraphUseCase
     delete_thread_memory: DeleteThreadMemoryUseCase
@@ -246,9 +268,7 @@ def build_container(settings: Settings | None = None) -> Container:
     blob_storage = LocalBlobStorage(root_dir=resolved_settings.asset_storage_dir)
     product_plan = ProductPlan.create(
         tier=resolved_settings.product_plan_tier,
-        media_analysis_seconds_per_month=(
-            resolved_settings.plan_media_analysis_seconds_per_month
-        ),
+        media_analysis_seconds_per_month=(resolved_settings.plan_media_analysis_seconds_per_month),
     )
     cognee = _build_cognee_adapter(resolved_settings)
     adapters: tuple[MemoryAdapterPort, ...] = (vector, graph, embeddings, cognee)
@@ -271,9 +291,7 @@ def build_container(settings: Settings | None = None) -> Container:
             "max_pending_suggestions_per_memory_scope": (
                 resolved_settings.max_pending_suggestions_per_memory_scope
             ),
-            "media_analysis_seconds_per_month": (
-                product_plan.media_analysis_seconds_per_month
-            ),
+            "media_analysis_seconds_per_month": (product_plan.media_analysis_seconds_per_month),
         },
     )
     create_space = CreateSpaceUseCase(uow_factory=uow_factory, clock=clock, ids=ids)
@@ -282,6 +300,15 @@ def build_container(settings: Settings | None = None) -> Container:
     list_memory_scopes = ListMemoryScopesUseCase(uow_factory=uow_factory)
     update_memory_scope = UpdateMemoryScopeUseCase(uow_factory=uow_factory, clock=clock)
     delete_memory_scope = DeleteMemoryScopeUseCase(uow_factory=uow_factory, clock=clock)
+    create_user = CreateUserUseCase(uow_factory=uow_factory, clock=clock, ids=ids)
+    list_users = ListUsersUseCase(uow_factory=uow_factory)
+    create_space_membership = CreateSpaceMembershipUseCase(
+        uow_factory=uow_factory,
+        clock=clock,
+        ids=ids,
+    )
+    list_space_memberships = ListSpaceMembershipsUseCase(uow_factory=uow_factory)
+    check_space_access = CheckSpaceAccessUseCase(uow_factory=uow_factory)
     remember_fact = RememberFactUseCase(uow_factory=uow_factory, clock=clock, ids=ids)
     list_facts = ListFactsUseCase(uow_factory=uow_factory)
     get_fact = GetFactUseCase(uow_factory=uow_factory)
@@ -387,6 +414,11 @@ def build_container(settings: Settings | None = None) -> Container:
         limits=extraction_limits,
         execution_lease_seconds=resolved_settings.extraction_execution_lease_seconds,
     )
+    list_anchors = ListAnchorsUseCase(uow_factory=uow_factory)
+    suggest_anchor_merges = SuggestAnchorMergesUseCase(uow_factory=uow_factory)
+    merge_anchors = MergeAnchorsUseCase(uow_factory=uow_factory, clock=clock)
+    split_anchor = SplitAnchorUseCase(uow_factory=uow_factory, clock=clock, ids=ids)
+    backfill_anchors = BackfillAnchorsUseCase(uow_factory=uow_factory, clock=clock, ids=ids)
     get_document = GetDocumentUseCase(uow_factory=uow_factory)
     list_document_chunks = ListDocumentChunksUseCase(uow_factory=uow_factory)
     process_document = ProcessDocumentUseCase(uow_factory=uow_factory)
@@ -410,6 +442,10 @@ def build_container(settings: Settings | None = None) -> Container:
         uow_factory=uow_factory,
         clock=clock,
         ids=ids,
+    )
+    build_memory_browser = BuildMemoryBrowserUseCase(
+        uow_factory=uow_factory,
+        clock=clock,
     )
     build_memory_operations_console = BuildMemoryOperationsConsoleUseCase(
         uow_factory=uow_factory,
@@ -487,6 +523,11 @@ def build_container(settings: Settings | None = None) -> Container:
         list_memory_scopes=list_memory_scopes,
         update_memory_scope=update_memory_scope,
         delete_memory_scope=delete_memory_scope,
+        create_user=create_user,
+        list_users=list_users,
+        create_space_membership=create_space_membership,
+        list_space_memberships=list_space_memberships,
+        check_space_access=check_space_access,
         remember_fact=remember_fact,
         list_facts=list_facts,
         get_fact=get_fact,
@@ -507,6 +548,11 @@ def build_container(settings: Settings | None = None) -> Container:
         retry_asset_extraction=retry_asset_extraction,
         cancel_asset_extraction=cancel_asset_extraction,
         run_asset_extraction=run_asset_extraction,
+        list_anchors=list_anchors,
+        suggest_anchor_merges=suggest_anchor_merges,
+        merge_anchors=merge_anchors,
+        split_anchor=split_anchor,
+        backfill_anchors=backfill_anchors,
         suggest_context_links=suggest_context_links,
         create_context_link=create_context_link,
         list_context_links=list_context_links,
@@ -525,6 +571,7 @@ def build_container(settings: Settings | None = None) -> Container:
         build_context=build_context,
         build_memory_digest=build_memory_digest,
         build_memory_insights=build_memory_insights,
+        build_memory_browser=build_memory_browser,
         build_memory_operations_console=build_memory_operations_console,
         export_graph=export_graph,
         delete_thread_memory=delete_thread_memory,

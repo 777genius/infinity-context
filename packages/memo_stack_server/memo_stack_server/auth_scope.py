@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from memo_stack_adapters.postgres.models import (
+    MemoryAnchorRow,
     MemoryAssetExtractionArtifactRow,
     MemoryAssetExtractionJobRow,
     MemoryAssetRow,
@@ -29,6 +30,8 @@ from memo_stack_server.composition import Container
 
 @dataclass(frozen=True)
 class PathResourceRefs:
+    space_id: str | None = None
+    anchor_id: str | None = None
     fact_id: str | None = None
     document_id: str | None = None
     suggestion_id: str | None = None
@@ -273,7 +276,13 @@ async def _add_space_from_path_resource(
     refs: set[str],
     path_refs: PathResourceRefs,
 ) -> None:
+    if path_refs.space_id:
+        refs.add(path_refs.space_id)
+
     async with AsyncSession(container.engine) as session:
+        if path_refs.anchor_id:
+            await _add_row_space(session, refs, MemoryAnchorRow, path_refs.anchor_id)
+
         if path_refs.fact_id:
             await _add_row_space(session, refs, MemoryFactRow, path_refs.fact_id)
 
@@ -317,6 +326,9 @@ async def _add_memory_scope_from_path_resource(
     path_refs: PathResourceRefs,
 ) -> None:
     async with AsyncSession(container.engine) as session:
+        if path_refs.anchor_id:
+            await _add_row_memory_scope(session, refs, MemoryAnchorRow, path_refs.anchor_id)
+
         if path_refs.fact_id:
             await _add_row_memory_scope(session, refs, MemoryFactRow, path_refs.fact_id)
 
@@ -360,6 +372,7 @@ async def _add_row_space(
     session: AsyncSession,
     refs: set[str],
     model: type[MemoryFactRow]
+    | type[MemoryAnchorRow]
     | type[MemoryDocumentRow]
     | type[MemorySuggestionRow]
     | type[MemoryAssetRow]
@@ -378,6 +391,7 @@ async def _add_row_memory_scope(
     session: AsyncSession,
     refs: set[str],
     model: type[MemoryFactRow]
+    | type[MemoryAnchorRow]
     | type[MemoryDocumentRow]
     | type[MemorySuggestionRow]
     | type[MemoryAssetRow]

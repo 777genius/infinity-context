@@ -7,6 +7,7 @@ import 'package:frontend/src/features/chat/application/stores/chat_store.dart';
 import 'package:frontend/src/features/chat/domain/entities/asset_extraction.dart';
 import 'package:frontend/src/features/chat/domain/entities/memory_context_link.dart';
 import 'package:frontend/src/features/chat/domain/entities/memory_operations_console.dart';
+import 'package:frontend/src/features/chat/presentation/widgets/memory_browser_tab.dart';
 import 'package:frontend/src/features/chat/presentation/widgets/memory_operations_link_review_tab.dart';
 import 'package:frontend/src/features/chat/presentation/widgets/sidebar_formatters.dart';
 import 'package:frontend/src/presentation/theme/app_theme.dart';
@@ -165,7 +166,7 @@ class _MemoryOperationsConsoleDialog extends StatelessWidget {
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 880, maxHeight: 720),
         child: DefaultTabController(
-          length: 2,
+          length: 3,
           child: Padding(
             padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
             child: Observer(
@@ -238,6 +239,7 @@ class _MemoryOperationsConsoleDialog extends StatelessWidget {
                       tabs: [
                         Tab(text: 'Ingestion jobs'),
                         Tab(text: 'Link suggestions'),
+                        Tab(text: 'Browser'),
                       ],
                     ),
                     Expanded(
@@ -248,6 +250,7 @@ class _MemoryOperationsConsoleDialog extends StatelessWidget {
                             suggestions: suggestions.toList(growable: false),
                             console: console,
                           ),
+                          MemoryBrowserTab(store: store),
                         ],
                       ),
                     ),

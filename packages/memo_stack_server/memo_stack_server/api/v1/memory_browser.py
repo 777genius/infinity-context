@@ -1,0 +1,126 @@
+"""Memory browser read model API."""
+
+from __future__ import annotations
+
+from typing import Annotated, Any
+
+from fastapi import APIRouter, Depends, Query
+from memo_stack_core.application import MemoryBrowserQuery
+from memo_stack_core.domain.entities import MemoryThread
+
+from memo_stack_server.api.auth import require_service_token
+from memo_stack_server.api.dependencies import get_container
+from memo_stack_server.api.v1.anchors import anchor_to_response
+from memo_stack_server.api.v1.assets import asset_to_response
+from memo_stack_server.api.v1.captures import capture_to_response
+from memo_stack_server.api.v1.context_links import (
+    context_link_suggestion_to_response,
+    context_link_to_response,
+)
+from memo_stack_server.api.v1.scope_resolution import resolve_existing_single_scope
+from memo_stack_server.api.v1.spaces_memory_scopes import memory_scope_to_response
+from memo_stack_server.composition import Container
+
+router = APIRouter(
+    tags=["memory-browser"],
+    dependencies=[Depends(require_service_token)],
+)
+
+
+@router.get("/memory-browser")
+async def get_memory_browser(
+    container: Annotated[Container, Depends(get_container)],
+    space_id: Annotated[str | None, Query(min_length=1, max_length=80)] = None,
+    memory_scope_id: Annotated[str | None, Query(min_length=1, max_length=80)] = None,
+    space_slug: Annotated[str | None, Query(min_length=1, max_length=160)] = None,
+    memory_scope_external_ref: Annotated[str | None, Query(min_length=1, max_length=200)] = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    thread_status: Annotated[str | None, Query(max_length=40)] = "active",
+    capture_status: Annotated[str | None, Query(max_length=40)] = None,
+    asset_status: Annotated[str | None, Query(max_length=40)] = "stored",
+    anchor_status: Annotated[str | None, Query(max_length=40)] = "active",
+    link_status: Annotated[str | None, Query(max_length=40)] = None,
+    suggestion_status: Annotated[str | None, Query(max_length=40)] = None,
+) -> dict[str, Any]:
+    scope = await resolve_existing_single_scope(
+        container,
+        space_id=space_id,
+        memory_scope_id=memory_scope_id,
+        thread_id=None,
+        space_slug=space_slug,
+        memory_scope_external_ref=memory_scope_external_ref,
+        thread_external_ref=None,
+        thread_required=False,
+    )
+    if scope is None:
+        return {"data": _empty_browser_response(limit=limit)}
+    result = await container.build_memory_browser.execute(
+        MemoryBrowserQuery(
+            space_id=scope.space_id,
+            memory_scope_id=scope.memory_scope_id,
+            limit=limit,
+            thread_status=thread_status,
+            capture_status=capture_status,
+            asset_status=asset_status,
+            anchor_status=anchor_status,
+            link_status=link_status,
+            suggestion_status=suggestion_status,
+        )
+    )
+    return {
+        "data": {
+            "generated_at": result.generated_at.isoformat(),
+            "memory_scope": memory_scope_to_response(result.memory_scope),
+            "threads": [thread_to_response(thread) for thread in result.threads],
+            "captures": [capture_to_response(capture) for capture in result.captures],
+            "assets": [asset_to_response(asset) for asset in result.assets],
+            "anchors": [anchor_to_response(anchor) for anchor in result.anchors],
+            "context_links": [context_link_to_response(link) for link in result.context_links],
+            "context_link_suggestions": [
+                context_link_suggestion_to_response(suggestion)
+                for suggestion in result.context_link_suggestions
+            ],
+            "stats": result.stats,
+            "diagnostics": result.diagnostics,
+        }
+    }
+
+
+def thread_to_response(thread: MemoryThread) -> dict[str, Any]:
+    return {
+        "id": str(thread.id),
+        "space_id": str(thread.space_id),
+        "memory_scope_id": str(thread.memory_scope_id),
+        "external_ref": thread.external_ref,
+        "status": thread.status.value,
+        "created_at": thread.created_at.isoformat(),
+        "updated_at": thread.updated_at.isoformat(),
+    }
+
+
+def _empty_browser_response(*, limit: int) -> dict[str, Any]:
+    return {
+        "generated_at": None,
+        "memory_scope": None,
+        "threads": [],
+        "captures": [],
+        "assets": [],
+        "anchors": [],
+        "context_links": [],
+        "context_link_suggestions": [],
+        "stats": {
+            "threads": 0,
+            "captures": 0,
+            "assets": 0,
+            "anchors": 0,
+            "context_links": 0,
+            "context_link_suggestions": 0,
+            "pending_context_link_suggestions": 0,
+            "active_context_links": 0,
+        },
+        "diagnostics": {
+            "scope_not_found": True,
+            "browser_version": "memory-browser-v1",
+            "limit": limit,
+        },
+    }

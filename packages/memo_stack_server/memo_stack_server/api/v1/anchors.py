@@ -1,0 +1,235 @@
+"""Semantic anchor lifecycle API."""
+
+from __future__ import annotations
+
+from typing import Annotated, Any
+
+from fastapi import APIRouter, Depends, Query
+from memo_stack_core.application import (
+    AnchorMergeCandidate,
+    AnchorMergeSuggestionsQuery,
+    BackfillAnchorsCommand,
+    ListAnchorsQuery,
+    MergeAnchorsCommand,
+    SplitAnchorCommand,
+)
+from memo_stack_core.domain.entities import MemoryAnchor
+from pydantic import BaseModel, ConfigDict, Field
+
+from memo_stack_server.api.auth import require_service_token
+from memo_stack_server.api.dependencies import get_container
+from memo_stack_server.api.policy import ensure_server_writes_enabled
+from memo_stack_server.api.v1.scope_resolution import resolve_existing_single_scope
+from memo_stack_server.composition import Container
+
+router = APIRouter(
+    tags=["anchors"],
+    dependencies=[Depends(require_service_token)],
+)
+
+
+class AnchorScopeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    space_id: str | None = Field(default=None, min_length=1, max_length=80)
+    memory_scope_id: str | None = Field(default=None, min_length=1, max_length=80)
+    space_slug: str | None = Field(default=None, min_length=1, max_length=160)
+    memory_scope_external_ref: str | None = Field(default=None, min_length=1, max_length=200)
+
+
+class BackfillAnchorsRequest(AnchorScopeRequest):
+    limit_per_source: int = Field(default=100, ge=1, le=500)
+
+
+class MergeAnchorsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    target_anchor_id: str = Field(min_length=1, max_length=80)
+    reason: str = Field(min_length=1, max_length=320)
+
+
+class SplitAnchorRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    alias: str = Field(min_length=1, max_length=240)
+    new_label: str | None = Field(default=None, min_length=1, max_length=240)
+    reason: str = Field(default="manual split", min_length=1, max_length=320)
+
+
+@router.get("/anchors")
+async def list_anchors(
+    container: Annotated[Container, Depends(get_container)],
+    space_id: Annotated[str | None, Query(min_length=1, max_length=80)] = None,
+    memory_scope_id: Annotated[str | None, Query(min_length=1, max_length=80)] = None,
+    space_slug: Annotated[str | None, Query(min_length=1, max_length=160)] = None,
+    memory_scope_external_ref: Annotated[str | None, Query(min_length=1, max_length=200)] = None,
+    kind: Annotated[str | None, Query(max_length=40)] = None,
+    status_filter: Annotated[str | None, Query(alias="status", max_length=40)] = "active",
+    limit: Annotated[int, Query(ge=1, le=500)] = 100,
+) -> dict[str, Any]:
+    scope = await resolve_existing_single_scope(
+        container,
+        space_id=space_id,
+        memory_scope_id=memory_scope_id,
+        thread_id=None,
+        space_slug=space_slug,
+        memory_scope_external_ref=memory_scope_external_ref,
+        thread_external_ref=None,
+        thread_required=False,
+    )
+    if scope is None:
+        return {"data": []}
+    result = await container.list_anchors.execute(
+        ListAnchorsQuery(
+            space_id=scope.space_id,
+            memory_scope_id=scope.memory_scope_id,
+            kind=kind,
+            status=status_filter,
+            limit=limit,
+        )
+    )
+    return {"data": [anchor_to_response(anchor) for anchor in result.anchors]}
+
+
+@router.get("/anchors/merge-suggestions")
+async def suggest_anchor_merges(
+    container: Annotated[Container, Depends(get_container)],
+    space_id: Annotated[str | None, Query(min_length=1, max_length=80)] = None,
+    memory_scope_id: Annotated[str | None, Query(min_length=1, max_length=80)] = None,
+    space_slug: Annotated[str | None, Query(min_length=1, max_length=160)] = None,
+    memory_scope_external_ref: Annotated[str | None, Query(min_length=1, max_length=200)] = None,
+    kind: Annotated[str | None, Query(max_length=40)] = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+) -> dict[str, Any]:
+    scope = await resolve_existing_single_scope(
+        container,
+        space_id=space_id,
+        memory_scope_id=memory_scope_id,
+        thread_id=None,
+        space_slug=space_slug,
+        memory_scope_external_ref=memory_scope_external_ref,
+        thread_external_ref=None,
+        thread_required=False,
+    )
+    if scope is None:
+        return {"data": {"candidates": [], "diagnostics": {"scope_not_found": True}}}
+    result = await container.suggest_anchor_merges.execute(
+        AnchorMergeSuggestionsQuery(
+            space_id=scope.space_id,
+            memory_scope_id=scope.memory_scope_id,
+            kind=kind,
+            limit=limit,
+        )
+    )
+    return {
+        "data": {
+            "candidates": [merge_candidate_to_response(item) for item in result.candidates],
+            "diagnostics": result.diagnostics,
+        }
+    }
+
+
+@router.post("/anchors/backfill")
+async def backfill_anchors(
+    request: BackfillAnchorsRequest,
+    container: Annotated[Container, Depends(get_container)],
+) -> dict[str, Any]:
+    ensure_server_writes_enabled(container)
+    scope = await resolve_existing_single_scope(
+        container,
+        space_id=request.space_id,
+        memory_scope_id=request.memory_scope_id,
+        thread_id=None,
+        space_slug=request.space_slug,
+        memory_scope_external_ref=request.memory_scope_external_ref,
+        thread_external_ref=None,
+        thread_required=False,
+    )
+    if scope is None:
+        return {"data": {"anchors": [], "created": 0, "updated": 0, "scope_not_found": True}}
+    result = await container.backfill_anchors.execute(
+        BackfillAnchorsCommand(
+            space_id=scope.space_id,
+            memory_scope_id=scope.memory_scope_id,
+            limit_per_source=request.limit_per_source,
+        )
+    )
+    return {
+        "data": {
+            "anchors": [anchor_to_response(anchor) for anchor in result.anchors],
+            "created": result.created,
+            "updated": result.updated,
+            "sources": [
+                {
+                    "source_type": item.source_type,
+                    "scanned": item.scanned,
+                    "observed": item.observed,
+                }
+                for item in result.sources
+            ],
+            "diagnostics": result.diagnostics,
+        }
+    }
+
+
+@router.post("/anchors/{source_anchor_id}/merge")
+async def merge_anchor(
+    source_anchor_id: str,
+    request: MergeAnchorsRequest,
+    container: Annotated[Container, Depends(get_container)],
+) -> dict[str, Any]:
+    ensure_server_writes_enabled(container)
+    result = await container.merge_anchors.execute(
+        MergeAnchorsCommand(
+            source_anchor_id=source_anchor_id,
+            target_anchor_id=request.target_anchor_id,
+            reason=request.reason,
+        )
+    )
+    return {"data": anchor_to_response(result.anchor)}
+
+
+@router.post("/anchors/{anchor_id}/split")
+async def split_anchor(
+    anchor_id: str,
+    request: SplitAnchorRequest,
+    container: Annotated[Container, Depends(get_container)],
+) -> dict[str, Any]:
+    ensure_server_writes_enabled(container)
+    result = await container.split_anchor.execute(
+        SplitAnchorCommand(
+            anchor_id=anchor_id,
+            alias=request.alias,
+            new_label=request.new_label,
+            reason=request.reason,
+        )
+    )
+    return {"data": anchor_to_response(result.anchor)}
+
+
+def merge_candidate_to_response(candidate: AnchorMergeCandidate) -> dict[str, Any]:
+    return {
+        "source_anchor": anchor_to_response(candidate.source_anchor),
+        "target_anchor": anchor_to_response(candidate.target_anchor),
+        "confidence": candidate.confidence,
+        "score": candidate.score,
+        "reasons": list(candidate.reasons),
+        "metadata": candidate.metadata,
+    }
+
+
+def anchor_to_response(anchor: MemoryAnchor) -> dict[str, Any]:
+    return {
+        "id": str(anchor.id),
+        "space_id": str(anchor.space_id),
+        "memory_scope_id": str(anchor.memory_scope_id),
+        "kind": anchor.kind.value,
+        "normalized_key": anchor.normalized_key,
+        "label": anchor.label,
+        "aliases": list(anchor.aliases),
+        "description": anchor.description,
+        "status": anchor.status.value,
+        "metadata": dict(anchor.metadata),
+        "created_at": anchor.created_at.isoformat(),
+        "updated_at": anchor.updated_at.isoformat(),
+    }

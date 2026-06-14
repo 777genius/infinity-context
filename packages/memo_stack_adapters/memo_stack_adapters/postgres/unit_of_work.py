@@ -40,6 +40,7 @@ from memo_stack_adapters.postgres.repositories import (
 )
 from memo_stack_adapters.postgres.scope_repositories import PostgresScopeRepository
 from memo_stack_adapters.postgres.usage_repositories import PostgresUsageRepository
+from memo_stack_adapters.postgres.user_repositories import PostgresUserRepository
 
 
 def build_async_engine(database_url: str) -> AsyncEngine:
@@ -626,6 +627,7 @@ class PostgresUnitOfWork:
         self._session = self._session_factory()
         now = self._clock.now()
         self.scope = PostgresScopeRepository(self._session)
+        self.users = PostgresUserRepository(self._session)
         self.facts = PostgresFactRepository(self._session, now=now)
         self.fact_relations = PostgresFactRelationRepository(self._session)
         self.assets = PostgresAssetRepository(self._session)

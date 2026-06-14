@@ -45,6 +45,23 @@ class MemoryServiceTokenRow(Base):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class MemoryUserRow(Base):
+    __tablename__ = "memory_users"
+    __table_args__ = (
+        Index("uq_memory_user_external_ref", "external_ref", unique=True),
+        Index("ix_memory_users_status", "status", "updated_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    external_ref: Mapped[str] = mapped_column(String(200), nullable=False)
+    display_name: Mapped[str] = mapped_column(String(240), nullable=False)
+    email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="active")
+    metadata_json: Mapped[dict[str, object]] = mapped_column(json_type(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class MemorySpaceRow(Base):
     __tablename__ = "memory_spaces"
 
@@ -54,6 +71,38 @@ class MemorySpaceRow(Base):
     status: Mapped[str] = mapped_column(String(40), nullable=False, default="active")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class MemorySpaceMembershipRow(Base):
+    __tablename__ = "memory_space_memberships"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    space_id: Mapped[str] = mapped_column(
+        String(80),
+        ForeignKey("memory_spaces.id"),
+        nullable=False,
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(80),
+        ForeignKey("memory_users.id"),
+        nullable=False,
+    )
+    role: Mapped[str] = mapped_column(String(40), nullable=False)
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="active")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    __table_args__ = (
+        Index(
+            "uq_memory_space_membership_active_user",
+            "space_id",
+            "user_id",
+            unique=True,
+            sqlite_where=status == "active",
+            postgresql_where=status == "active",
+        ),
+        Index("ix_memory_space_memberships_space", "space_id", "status", "updated_at"),
+        Index("ix_memory_space_memberships_user", "user_id", "status", "updated_at"),
+    )
 
 
 class MemoryScopeRow(Base):

@@ -53,11 +53,17 @@ from memo_stack_core.domain.entities import (
     MemoryThread,
     SourceRef,
     SpaceId,
+    SpaceMembership,
+    SpaceMembershipId,
+    SpaceMembershipRole,
     SpeakerRole,
     SuggestionOperation,
     SuggestionStatus,
     ThreadId,
     TrustLevel,
+    User,
+    UserId,
+    UserStatus,
 )
 from memo_stack_core.domain.extraction import (
     AssetExtractionJob,
@@ -84,9 +90,11 @@ from memo_stack_adapters.postgres.models import (
     MemoryFactRow,
     MemoryScopeRow,
     MemorySourceRefRow,
+    MemorySpaceMembershipRow,
     MemorySpaceRow,
     MemorySuggestionRow,
     MemoryThreadRow,
+    MemoryUserRow,
 )
 
 
@@ -103,6 +111,78 @@ def source_ref_row_to_domain(row: MemorySourceRefRow) -> SourceRef:
         char_end=row.char_end,
         quote_preview=row.quote_preview,
     )
+
+
+def user_to_row(user: User) -> MemoryUserRow:
+    return MemoryUserRow(
+        id=str(user.id),
+        external_ref=user.external_ref,
+        display_name=user.display_name,
+        email=user.email,
+        status=user.status.value,
+        metadata_json=dict(user.metadata),
+        created_at=user.created_at,
+        updated_at=user.updated_at,
+    )
+
+
+def user_row_to_domain(row: MemoryUserRow) -> User:
+    return User(
+        id=UserId(row.id),
+        external_ref=row.external_ref,
+        display_name=row.display_name,
+        email=row.email,
+        status=UserStatus(row.status),
+        metadata=dict(row.metadata_json or {}),
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def apply_user_to_row(user: User, row: MemoryUserRow) -> None:
+    row.external_ref = user.external_ref
+    row.display_name = user.display_name
+    row.email = user.email
+    row.status = user.status.value
+    row.metadata_json = dict(user.metadata)
+    row.created_at = user.created_at
+    row.updated_at = user.updated_at
+
+
+def space_membership_to_row(membership: SpaceMembership) -> MemorySpaceMembershipRow:
+    return MemorySpaceMembershipRow(
+        id=str(membership.id),
+        space_id=str(membership.space_id),
+        user_id=str(membership.user_id),
+        role=membership.role.value,
+        status=membership.status.value,
+        created_at=membership.created_at,
+        updated_at=membership.updated_at,
+    )
+
+
+def space_membership_row_to_domain(row: MemorySpaceMembershipRow) -> SpaceMembership:
+    return SpaceMembership(
+        id=SpaceMembershipId(row.id),
+        space_id=SpaceId(row.space_id),
+        user_id=UserId(row.user_id),
+        role=SpaceMembershipRole(row.role),
+        status=LifecycleStatus(row.status),
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def apply_space_membership_to_row(
+    membership: SpaceMembership,
+    row: MemorySpaceMembershipRow,
+) -> None:
+    row.space_id = str(membership.space_id)
+    row.user_id = str(membership.user_id)
+    row.role = membership.role.value
+    row.status = membership.status.value
+    row.created_at = membership.created_at
+    row.updated_at = membership.updated_at
 
 
 def anchor_to_row(anchor: MemoryAnchor) -> MemoryAnchorRow:

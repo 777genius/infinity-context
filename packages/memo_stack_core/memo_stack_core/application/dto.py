@@ -12,6 +12,7 @@ from memo_stack_core.domain.assets import (
 )
 from memo_stack_core.domain.capture import CanonicalCapture
 from memo_stack_core.domain.entities import (
+    MemoryAnchor,
     MemoryChunk,
     MemoryChunkKind,
     MemoryDocument,
@@ -23,11 +24,14 @@ from memo_stack_core.domain.entities import (
     MemoryScopeId,
     MemorySpace,
     MemorySuggestion,
+    MemoryThread,
     SourceRef,
     SpaceId,
+    SpaceMembership,
     SpeakerRole,
     ThreadId,
     TrustLevel,
+    User,
 )
 from memo_stack_core.domain.extraction import AssetExtractionJob, ExtractionArtifact
 from memo_stack_core.domain.usage import ProductPlan, UsageQuotaSnapshot
@@ -69,6 +73,70 @@ class SpaceResult:
 class MemoryScopeResult:
     memory_scope: MemoryScope
     created: bool = True
+
+
+@dataclass(frozen=True)
+class CreateUserCommand:
+    external_ref: str
+    display_name: str
+    email: str | None = None
+    metadata: dict[str, object] | None = None
+
+
+@dataclass(frozen=True)
+class ListUsersQuery:
+    status: str | None = "active"
+    limit: int = 100
+
+
+@dataclass(frozen=True)
+class UserResult:
+    user: User
+    created: bool = True
+
+
+@dataclass(frozen=True)
+class UsersResult:
+    users: tuple[User, ...]
+
+
+@dataclass(frozen=True)
+class CreateSpaceMembershipCommand:
+    space_id: SpaceId
+    user_id: str
+    role: str
+
+
+@dataclass(frozen=True)
+class ListSpaceMembershipsQuery:
+    space_id: SpaceId
+    status: str | None = "active"
+    limit: int = 100
+
+
+@dataclass(frozen=True)
+class CheckSpaceAccessQuery:
+    space_id: SpaceId
+    user_id: str
+    required_role: str = "viewer"
+
+
+@dataclass(frozen=True)
+class SpaceMembershipResult:
+    membership: SpaceMembership
+    created: bool = True
+
+
+@dataclass(frozen=True)
+class SpaceMembershipsResult:
+    memberships: tuple[SpaceMembership, ...]
+
+
+@dataclass(frozen=True)
+class SpaceAccessResult:
+    allowed: bool
+    membership: SpaceMembership | None
+    required_role: str
 
 
 @dataclass(frozen=True)
@@ -189,6 +257,33 @@ class MemoryOperationsConsoleResult:
 
 
 @dataclass(frozen=True)
+class MemoryBrowserQuery:
+    space_id: SpaceId
+    memory_scope_id: MemoryScopeId
+    limit: int = 50
+    thread_status: str | None = "active"
+    capture_status: str | None = None
+    asset_status: str | None = "stored"
+    anchor_status: str | None = "active"
+    link_status: str | None = None
+    suggestion_status: str | None = None
+
+
+@dataclass(frozen=True)
+class MemoryBrowserResult:
+    generated_at: datetime
+    memory_scope: MemoryScope
+    threads: tuple[MemoryThread, ...]
+    captures: tuple[CanonicalCapture, ...]
+    assets: tuple[MemoryAsset, ...]
+    anchors: tuple[MemoryAnchor, ...]
+    context_links: tuple[MemoryContextLink, ...]
+    context_link_suggestions: tuple[MemoryContextLinkSuggestion, ...]
+    stats: dict[str, int]
+    diagnostics: dict[str, object]
+
+
+@dataclass(frozen=True)
 class ExtractionArtifactBytesResult:
     artifact: ExtractionArtifact
     content: bytes
@@ -235,6 +330,87 @@ class UsageSummaryResult:
                 for snapshot in snapshots
             ),
         )
+
+
+@dataclass(frozen=True)
+class ListAnchorsQuery:
+    space_id: SpaceId
+    memory_scope_id: MemoryScopeId
+    kind: str | None = None
+    status: str | None = "active"
+    limit: int = 100
+
+
+@dataclass(frozen=True)
+class AnchorResult:
+    anchor: MemoryAnchor
+
+
+@dataclass(frozen=True)
+class AnchorsResult:
+    anchors: tuple[MemoryAnchor, ...]
+
+
+@dataclass(frozen=True)
+class AnchorMergeCandidate:
+    source_anchor: MemoryAnchor
+    target_anchor: MemoryAnchor
+    confidence: str
+    score: float
+    reasons: tuple[str, ...]
+    metadata: dict[str, object]
+
+
+@dataclass(frozen=True)
+class AnchorMergeSuggestionsQuery:
+    space_id: SpaceId
+    memory_scope_id: MemoryScopeId
+    kind: str | None = None
+    limit: int = 50
+
+
+@dataclass(frozen=True)
+class AnchorMergeSuggestionsResult:
+    candidates: tuple[AnchorMergeCandidate, ...]
+    diagnostics: dict[str, object]
+
+
+@dataclass(frozen=True)
+class MergeAnchorsCommand:
+    source_anchor_id: str
+    target_anchor_id: str
+    reason: str
+
+
+@dataclass(frozen=True)
+class SplitAnchorCommand:
+    anchor_id: str
+    alias: str
+    new_label: str | None = None
+    reason: str = "manual split"
+
+
+@dataclass(frozen=True)
+class BackfillAnchorsCommand:
+    space_id: SpaceId
+    memory_scope_id: MemoryScopeId
+    limit_per_source: int = 100
+
+
+@dataclass(frozen=True)
+class AnchorBackfillSourceSummary:
+    source_type: str
+    scanned: int
+    observed: int
+
+
+@dataclass(frozen=True)
+class BackfillAnchorsResult:
+    anchors: tuple[MemoryAnchor, ...]
+    created: int
+    updated: int
+    sources: tuple[AnchorBackfillSourceSummary, ...]
+    diagnostics: dict[str, object]
 
 
 @dataclass(frozen=True)

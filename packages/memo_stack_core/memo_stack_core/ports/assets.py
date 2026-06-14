@@ -99,6 +99,16 @@ class ContextLinkRepositoryPort(Protocol):
     ) -> list[MemoryContextLink]:
         """List links from one source object."""
 
+    async def list_for_scope(
+        self,
+        *,
+        space_id: str,
+        memory_scope_id: str,
+        status: str | None,
+        limit: int,
+    ) -> list[MemoryContextLink]:
+        """List relation history for one memory scope."""
+
 
 class ContextLinkSuggestionRepositoryPort(Protocol):
     async def create(

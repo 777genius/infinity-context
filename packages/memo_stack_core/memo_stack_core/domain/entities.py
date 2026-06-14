@@ -15,6 +15,8 @@ from typing import NewType
 from memo_stack_core.domain.errors import MemoryConflictError, MemoryValidationError
 
 SpaceId = NewType("SpaceId", str)
+UserId = NewType("UserId", str)
+SpaceMembershipId = NewType("SpaceMembershipId", str)
 MemoryScopeId = NewType("MemoryScopeId", str)
 ThreadId = NewType("ThreadId", str)
 MemoryFactId = NewType("MemoryFactId", str)
@@ -46,6 +48,19 @@ class FactRelationType(StrEnum):
 class LifecycleStatus(StrEnum):
     ACTIVE = "active"
     DELETED = "deleted"
+
+
+class UserStatus(StrEnum):
+    ACTIVE = "active"
+    DISABLED = "disabled"
+    DELETED = "deleted"
+
+
+class SpaceMembershipRole(StrEnum):
+    OWNER = "owner"
+    ADMIN = "admin"
+    MEMBER = "member"
+    VIEWER = "viewer"
 
 
 class SuggestionStatus(StrEnum):
@@ -158,6 +173,132 @@ class MemorySpace:
             status=LifecycleStatus.ACTIVE,
             created_at=now,
             updated_at=now,
+        )
+
+
+@dataclass(frozen=True)
+class User:
+    id: UserId
+    external_ref: str
+    display_name: str
+    email: str | None
+    status: UserStatus
+    metadata: Mapping[str, object]
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        user_id: UserId,
+        external_ref: str,
+        display_name: str,
+        now: datetime,
+        email: str | None = None,
+        metadata: Mapping[str, object] | None = None,
+    ) -> User:
+        safe_ref = external_ref.strip()
+        safe_name = display_name.strip()
+        if not safe_ref:
+            raise MemoryValidationError("User external_ref is required")
+        if not safe_name:
+            raise MemoryValidationError("User display_name is required")
+        return cls(
+            id=user_id,
+            external_ref=safe_ref[:200],
+            display_name=safe_name[:240],
+            email=_optional_str(email),
+            status=UserStatus.ACTIVE,
+            metadata=dict(metadata or {}),
+            created_at=now,
+            updated_at=now,
+        )
+
+    def update_details(
+        self,
+        *,
+        display_name: str | None = None,
+        email: str | None = None,
+        metadata: Mapping[str, object] | None = None,
+        now: datetime,
+    ) -> User:
+        if self.status == UserStatus.DELETED:
+            raise MemoryConflictError("Deleted user cannot be updated")
+        next_name = self.display_name if display_name is None else display_name.strip()
+        if not next_name:
+            raise MemoryValidationError("User display_name is required")
+        return replace(
+            self,
+            display_name=next_name[:240],
+            email=self.email if email is None else _optional_str(email),
+            metadata={**dict(self.metadata), **dict(metadata or {})},
+            updated_at=now,
+        )
+
+    def disable(self, *, now: datetime) -> User:
+        if self.status == UserStatus.DISABLED:
+            return self
+        return replace(self, status=UserStatus.DISABLED, updated_at=now)
+
+    def delete(self, *, now: datetime) -> User:
+        if self.status == UserStatus.DELETED:
+            return self
+        return replace(self, status=UserStatus.DELETED, updated_at=now)
+
+
+@dataclass(frozen=True)
+class SpaceMembership:
+    id: SpaceMembershipId
+    space_id: SpaceId
+    user_id: UserId
+    role: SpaceMembershipRole
+    status: LifecycleStatus
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        membership_id: SpaceMembershipId,
+        space_id: SpaceId,
+        user_id: UserId,
+        role: SpaceMembershipRole,
+        now: datetime,
+    ) -> SpaceMembership:
+        return cls(
+            id=membership_id,
+            space_id=space_id,
+            user_id=user_id,
+            role=role,
+            status=LifecycleStatus.ACTIVE,
+            created_at=now,
+            updated_at=now,
+        )
+
+    def update_role(self, *, role: SpaceMembershipRole, now: datetime) -> SpaceMembership:
+        if self.status == LifecycleStatus.DELETED:
+            raise MemoryConflictError("Deleted space membership cannot be updated")
+        if self.role == role:
+            return self
+        return replace(self, role=role, updated_at=now)
+
+    def delete(self, *, now: datetime) -> SpaceMembership:
+        if self.status == LifecycleStatus.DELETED:
+            return self
+        return replace(self, status=LifecycleStatus.DELETED, updated_at=now)
+
+    def allows(self, required_role: SpaceMembershipRole) -> bool:
+        role_rank = {
+            SpaceMembershipRole.VIEWER: 1,
+            SpaceMembershipRole.MEMBER: 2,
+            SpaceMembershipRole.ADMIN: 3,
+            SpaceMembershipRole.OWNER: 4,
+        }
+        return (
+            self.status == LifecycleStatus.ACTIVE
+            and role_rank[self.role] >= role_rank[required_role]
         )
 
 
@@ -350,6 +491,109 @@ class MemoryAnchor:
             updated_at=now,
         )
 
+    def merge_source(
+        self,
+        *,
+        source: MemoryAnchor,
+        reason: str,
+        now: datetime,
+    ) -> MemoryAnchor:
+        if self.status != LifecycleStatus.ACTIVE or source.status != LifecycleStatus.ACTIVE:
+            raise MemoryValidationError("Only active memory anchors can be merged")
+        if self.id == source.id:
+            raise MemoryValidationError("Cannot merge a memory anchor into itself")
+        if self.space_id != source.space_id or self.memory_scope_id != source.memory_scope_id:
+            raise MemoryValidationError("Memory anchors must belong to the same scope")
+        if self.kind != source.kind:
+            raise MemoryValidationError("Memory anchors must have the same kind")
+        audit = {
+            "source_anchor_id": str(source.id),
+            "source_label": source.label,
+            "reason": reason.strip()[:320],
+            "merged_at": now.isoformat(),
+        }
+        return replace(
+            self,
+            aliases=_unique_aliases((*self.aliases, source.label, *source.aliases)),
+            metadata=_append_anchor_audit(
+                self.metadata,
+                key="merge_events",
+                event=audit,
+                extra={
+                    "resolver_version": "anchor-lifecycle-v2",
+                    "merged_anchor_ids": list(
+                        _unique_strings(
+                            (
+                                *tuple(
+                                    str(item)
+                                    for item in self.metadata.get("merged_anchor_ids", ())
+                                ),
+                                str(source.id),
+                            )
+                        )
+                    ),
+                },
+            ),
+            updated_at=now,
+        )
+
+    def mark_merged_into(
+        self,
+        *,
+        target_anchor_id: MemoryAnchorId,
+        reason: str,
+        now: datetime,
+    ) -> MemoryAnchor:
+        if self.status != LifecycleStatus.ACTIVE:
+            raise MemoryValidationError("Only active memory anchors can be merged")
+        if self.id == target_anchor_id:
+            raise MemoryValidationError("Cannot merge a memory anchor into itself")
+        return replace(
+            self,
+            status=LifecycleStatus.DELETED,
+            metadata={
+                **dict(self.metadata),
+                "resolver_version": "anchor-lifecycle-v2",
+                "merged_into_anchor_id": str(target_anchor_id),
+                "merge_reason": reason.strip()[:320],
+                "merged_at": now.isoformat(),
+            },
+            updated_at=now,
+        )
+
+    def remove_alias(
+        self,
+        *,
+        alias: str,
+        reason: str,
+        now: datetime,
+    ) -> MemoryAnchor:
+        safe_alias = alias.strip()
+        if self.status != LifecycleStatus.ACTIVE:
+            raise MemoryValidationError("Only active memory anchors can be split")
+        if not safe_alias:
+            raise MemoryValidationError("Split alias is required")
+        if safe_alias.lower() == self.label.lower():
+            raise MemoryValidationError("Anchor label cannot be split as an alias")
+        remaining = tuple(item for item in self.aliases if item.lower() != safe_alias.lower())
+        if len(remaining) == len(self.aliases):
+            raise MemoryValidationError("Split alias does not belong to anchor")
+        return replace(
+            self,
+            aliases=_unique_aliases((self.label, *remaining)),
+            metadata=_append_anchor_audit(
+                self.metadata,
+                key="split_events",
+                event={
+                    "alias": safe_alias[:240],
+                    "reason": reason.strip()[:320],
+                    "split_at": now.isoformat(),
+                },
+                extra={"resolver_version": "anchor-lifecycle-v2"},
+            ),
+            updated_at=now,
+        )
+
 
 def _unique_aliases(values: tuple[str, ...]) -> tuple[str, ...]:
     seen: set[str] = set()
@@ -364,6 +608,42 @@ def _unique_aliases(values: tuple[str, ...]) -> tuple[str, ...]:
         if len(aliases) >= 20:
             break
     return tuple(aliases)
+
+
+def _optional_str(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
+def _unique_strings(values: tuple[str, ...]) -> tuple[str, ...]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        safe = value.strip()
+        if not safe or safe in seen:
+            continue
+        seen.add(safe)
+        result.append(safe)
+        if len(result) >= 50:
+            break
+    return tuple(result)
+
+
+def _append_anchor_audit(
+    metadata: Mapping[str, object],
+    *,
+    key: str,
+    event: Mapping[str, object],
+    extra: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    next_metadata = {**dict(metadata), **dict(extra or {})}
+    existing = metadata.get(key)
+    events = list(existing) if isinstance(existing, list) else []
+    events.append(dict(event))
+    next_metadata[key] = events[-20:]
+    return next_metadata
 
 
 @dataclass(frozen=True)

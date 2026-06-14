@@ -17,6 +17,8 @@ from memo_stack_core.domain.entities import (
     MemorySpace,
     MemorySuggestion,
     MemoryThread,
+    SpaceMembership,
+    User,
 )
 from memo_stack_core.domain.idempotency import IdempotencyRecord
 
@@ -110,6 +112,47 @@ class ScopeRepositoryPort(Protocol):
         thread_id: str,
     ) -> SessionStatus:
         """Return safe thread memory counts."""
+
+
+class UserRepositoryPort(Protocol):
+    async def create_user(self, user: User) -> User:
+        """Persist or return an existing active user by external ref."""
+
+    async def get_user(self, user_id: str) -> User | None:
+        """Load a user by canonical id."""
+
+    async def list_users(self, *, status: str | None, limit: int) -> list[User]:
+        """List canonical users."""
+
+    async def create_space_membership(
+        self,
+        membership: SpaceMembership,
+    ) -> SpaceMembership:
+        """Persist or reactivate a user membership in a space."""
+
+    async def get_space_membership(
+        self,
+        *,
+        space_id: str,
+        user_id: str,
+        status: str | None,
+    ) -> SpaceMembership | None:
+        """Load a space membership by user and space."""
+
+    async def list_space_memberships(
+        self,
+        *,
+        space_id: str,
+        status: str | None,
+        limit: int,
+    ) -> list[SpaceMembership]:
+        """List memberships for a space."""
+
+    async def save_space_membership(
+        self,
+        membership: SpaceMembership,
+    ) -> SpaceMembership:
+        """Persist changed membership details."""
 
 
 class FactRepositoryPort(Protocol):

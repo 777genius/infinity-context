@@ -187,6 +187,22 @@ class BackendRestClient {
     return _data(resp.data);
   }
 
+  Future<Map<String, dynamic>> getMemoryBrowser({
+    required String spaceSlug,
+    required String memoryScopeExternalRef,
+    int limit = 50,
+  }) async {
+    final resp = await _dio.get<Map<String, dynamic>>(
+      '/v1/memory-browser',
+      queryParameters: {
+        'space_slug': spaceSlug,
+        'memory_scope_external_ref': memoryScopeExternalRef,
+        'limit': limit,
+      },
+    );
+    return _data(resp.data);
+  }
+
   Future<List<int>> downloadExtractionArtifact(String artifactId) async {
     final resp = await _dio.get<List<int>>(
       '/v1/extraction-artifacts/$artifactId/download',

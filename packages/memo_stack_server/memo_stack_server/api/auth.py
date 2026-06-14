@@ -99,6 +99,9 @@ def _required_permission(request: Request) -> str | None:
     if path == "/v1/link-suggestions":
         return MEMORY_PERMISSION_WRITE
 
+    if path.startswith("/v1/anchors"):
+        return MEMORY_PERMISSION_READ if method == "GET" else MEMORY_PERMISSION_WRITE
+
     if path.startswith("/v1/thread-memory"):
         if method == "DELETE" or path.endswith("/delete"):
             return MEMORY_PERMISSION_DELETE
@@ -114,6 +117,12 @@ def _required_permission(request: Request) -> str | None:
         return _suggestion_required_permission(method)
 
     if path == "/v1/spaces":
+        return MEMORY_PERMISSION_WRITE if method == "POST" else MEMORY_PERMISSION_READ
+
+    if path.startswith("/v1/users"):
+        return MEMORY_PERMISSION_WRITE if method == "POST" else MEMORY_PERMISSION_READ
+
+    if path.startswith("/v1/spaces/") and "/memberships" in path:
         return MEMORY_PERMISSION_WRITE if method == "POST" else MEMORY_PERMISSION_READ
 
     if path.startswith("/v1/memory-scopes"):
@@ -236,6 +245,10 @@ async def _requested_space_refs(container: Container, request: Request) -> set[s
             and body_slug
             and (
                 request.url.path == "/v1/spaces"
+                or (
+                    request.url.path.startswith("/v1/spaces/")
+                    and "/memberships" in request.url.path
+                )
                 or request.url.path in {"/v1/context", "/v1/search", "/v1/episodes"}
                 or request.url.path.startswith("/v1/facts")
                 or request.url.path.startswith("/v1/assets")
@@ -245,6 +258,7 @@ async def _requested_space_refs(container: Container, request: Request) -> set[s
                 or request.url.path.startswith("/v1/context-links")
                 or request.url.path.startswith("/v1/context-link-suggestions")
                 or request.url.path.startswith("/v1/documents")
+                or request.url.path.startswith("/v1/anchors")
                 or request.url.path == "/v1/link-suggestions"
                 or request.url.path.startswith("/v1/suggestions")
                 or request.url.path.startswith("/v1/thread-memory")
@@ -252,6 +266,11 @@ async def _requested_space_refs(container: Container, request: Request) -> set[s
             else None
         ),
         path_refs=PathResourceRefs(
+            space_id=_path_param(path_params, "space_id"),
+            anchor_id=(
+                _path_param(path_params, "anchor_id")
+                or _path_param(path_params, "source_anchor_id")
+            ),
             fact_id=_path_param(path_params, "fact_id"),
             document_id=_path_param(path_params, "document_id"),
             suggestion_id=_path_param(path_params, "suggestion_id"),
@@ -302,6 +321,10 @@ async def _requested_memory_scope_refs(container: Container, request: Request) -
             body_memory_scope_external_ref
             if (
                 request.url.path == "/v1/memory-scopes"
+                or (
+                    request.url.path.startswith("/v1/spaces/")
+                    and "/memberships" in request.url.path
+                )
                 or request.url.path in {"/v1/context", "/v1/search", "/v1/episodes"}
                 or request.url.path.startswith("/v1/facts")
                 or request.url.path.startswith("/v1/assets")
@@ -311,6 +334,7 @@ async def _requested_memory_scope_refs(container: Container, request: Request) -
                 or request.url.path.startswith("/v1/context-links")
                 or request.url.path.startswith("/v1/context-link-suggestions")
                 or request.url.path.startswith("/v1/documents")
+                or request.url.path.startswith("/v1/anchors")
                 or request.url.path == "/v1/link-suggestions"
                 or request.url.path.startswith("/v1/suggestions")
                 or request.url.path.startswith("/v1/thread-memory")
@@ -325,6 +349,11 @@ async def _requested_memory_scope_refs(container: Container, request: Request) -
             else ()
         ),
         path_refs=PathResourceRefs(
+            space_id=_path_param(path_params, "space_id"),
+            anchor_id=(
+                _path_param(path_params, "anchor_id")
+                or _path_param(path_params, "source_anchor_id")
+            ),
             fact_id=_path_param(path_params, "fact_id"),
             document_id=_path_param(path_params, "document_id"),
             suggestion_id=_path_param(path_params, "suggestion_id"),

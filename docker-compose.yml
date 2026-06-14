@@ -1,5 +1,11 @@
 x-memo-stack-server-common: &memo-stack-server-common
-  image: python:3.12-slim
+  build:
+    context: .
+    args:
+      MEMO_STACK_EXTRAS: dev,qdrant,openai,graphiti,mcp,docling
+      MEMO_STACK_PREINSTALL_TORCH_CPU: ${MEMO_STACK_PREINSTALL_TORCH_CPU:-true}
+      MEMO_STACK_TORCH_INDEX_URL: ${MEMO_STACK_TORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}
+  image: memo-stack:local
   working_dir: /app
   volumes:
     - ./:/app
@@ -25,6 +31,8 @@ x-memo-stack-server-base-env: &memo-stack-server-base-env
   MEMORY_EXTRACTION_PARSER_TIMEOUT_SECONDS: ${MEMORY_EXTRACTION_PARSER_TIMEOUT_SECONDS:-300}
   MEMORY_EXTRACTION_SUBPROCESS_TIMEOUT_SECONDS: ${MEMORY_EXTRACTION_SUBPROCESS_TIMEOUT_SECONDS:-60}
   MEMORY_EXTRACTION_MAX_IMAGE_PIXELS: ${MEMORY_EXTRACTION_MAX_IMAGE_PIXELS:-50000000}
+  MEMORY_TRANSCRIPTION_PROVIDER: ${MEMORY_TRANSCRIPTION_PROVIDER:-openai}
+  MEMORY_TRANSCRIPTION_OPENAI_MODEL: ${MEMORY_TRANSCRIPTION_OPENAI_MODEL:-gpt-4o-mini-transcribe}
   MEMORY_PROVIDER_CIRCUIT_FAILURE_THRESHOLD: "3"
   MEMORY_PROVIDER_CIRCUIT_RESET_AFTER_SECONDS: "60"
   MEMORY_COGNEE_ENABLED: ${MEMORY_COGNEE_ENABLED:-false}
@@ -81,7 +89,7 @@ services:
   memo_stack_server:
     <<: *memo-stack-server-common
     profiles: ["lite"]
-    command: sh -c "pip install -e '.[dev]' && python -m memo_stack_server.db upgrade && python -m memo_stack_server.admin seed-defaults && python -m memo_stack_server.main"
+    command: sh -c "pip install -e '.[dev,docling]' && python -m memo_stack_server.db upgrade && python -m memo_stack_server.admin seed-defaults && python -m memo_stack_server.main"
     environment:
       <<: *memo-stack-server-base-env
       MEMORY_QDRANT_ENABLED: "false"
@@ -101,7 +109,7 @@ services:
   memo_stack_worker:
     <<: *memo-stack-server-common
     profiles: ["lite"]
-    command: sh -c "pip install -e '.[dev]' && python -m memo_stack_server.worker --loop --role projection --sleep-seconds 2"
+    command: sh -c "pip install -e '.[dev,docling]' && python -m memo_stack_server.worker --loop --role projection --sleep-seconds 2"
     environment:
       <<: *memo-stack-server-base-env
       MEMORY_QDRANT_ENABLED: "false"
@@ -121,7 +129,7 @@ services:
   memo_stack_extraction_worker:
     <<: *memo-stack-server-common
     profiles: ["lite"]
-    command: sh -c "pip install -e '.[dev]' && python -m memo_stack_server.worker --loop --role extraction --limit 2 --sleep-seconds 2"
+    command: sh -c "pip install -e '.[dev,docling]' && python -m memo_stack_server.worker --loop --role extraction --limit 2 --sleep-seconds 2"
     environment:
       <<: *memo-stack-server-base-env
       MEMORY_QDRANT_ENABLED: "false"
@@ -141,7 +149,7 @@ services:
   memo_stack_server_full:
     <<: *memo-stack-server-common
     profiles: ["full"]
-    command: sh -c "pip install -e '.[dev,qdrant,openai,graphiti]' && python -m memo_stack_server.db upgrade && python -m memo_stack_server.admin seed-defaults && python -m memo_stack_server.main"
+    command: sh -c "pip install -e '.[dev,qdrant,openai,graphiti,docling]' && python -m memo_stack_server.db upgrade && python -m memo_stack_server.admin seed-defaults && python -m memo_stack_server.main"
     environment:
       <<: *memo-stack-server-base-env
       MEMORY_QDRANT_ENABLED: "true"
@@ -172,7 +180,7 @@ services:
   memo_stack_worker_full:
     <<: *memo-stack-server-common
     profiles: ["full"]
-    command: sh -c "pip install -e '.[dev,qdrant,openai,graphiti]' && python -m memo_stack_server.worker --loop --role projection --sleep-seconds 2"
+    command: sh -c "pip install -e '.[dev,qdrant,openai,graphiti,docling]' && python -m memo_stack_server.worker --loop --role projection --sleep-seconds 2"
     environment:
       <<: *memo-stack-server-base-env
       MEMORY_QDRANT_ENABLED: "true"
@@ -196,7 +204,7 @@ services:
   memo_stack_extraction_worker_full:
     <<: *memo-stack-server-common
     profiles: ["full"]
-    command: sh -c "pip install -e '.[dev,qdrant,openai,graphiti]' && python -m memo_stack_server.worker --loop --role extraction --limit 2 --sleep-seconds 2"
+    command: sh -c "pip install -e '.[dev,qdrant,openai,graphiti,docling]' && python -m memo_stack_server.worker --loop --role extraction --limit 2 --sleep-seconds 2"
     environment:
       <<: *memo-stack-server-base-env
       MEMORY_QDRANT_ENABLED: "true"

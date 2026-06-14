@@ -6,6 +6,7 @@ import 'package:frontend/src/features/chat/domain/entities/cost_usage.dart';
 import 'package:frontend/src/features/chat/domain/entities/chat_session.dart';
 import 'package:frontend/src/features/chat/domain/entities/asset_extraction.dart';
 import 'package:frontend/src/features/chat/domain/entities/document_chunk.dart';
+import 'package:frontend/src/features/chat/domain/entities/memory_browser.dart';
 import 'package:frontend/src/features/chat/domain/entities/memory_capture.dart';
 import 'package:frontend/src/features/chat/domain/entities/memory_context_link.dart';
 import 'package:frontend/src/features/chat/domain/entities/memory_operations_console.dart';
@@ -31,6 +32,7 @@ abstract class ChatStoreBase with Store {
   Timer? _assetExtractionPollTimer;
   bool _assetExtractionRefreshInFlight = false;
   bool _operationsConsoleRefreshInFlight = false;
+  bool _memoryBrowserRefreshInFlight = false;
   bool _disposed = false;
 
   ChatStoreBase(
@@ -195,6 +197,12 @@ abstract class ChatStoreBase with Store {
 
   final Observable<String?> operationsConsoleError = Observable(null);
 
+  final Observable<MemoryBrowserSnapshot?> memoryBrowser = Observable(null);
+
+  final Observable<bool> memoryBrowserLoading = Observable(false);
+
+  final Observable<String?> memoryBrowserError = Observable(null);
+
   final ObservableMap<String, ObservableList<ChatMessage>> _messagesByChat =
       ObservableMap.of({});
 
@@ -245,6 +253,7 @@ abstract class ChatStoreBase with Store {
     } finally {
       await refreshMemoryCaptures();
       await refreshOperationsConsole();
+      await refreshMemoryBrowser(showLoading: false);
     }
   }
 
@@ -323,6 +332,7 @@ abstract class ChatStoreBase with Store {
       }
       unawaited(refreshMemoryCaptures(showLoading: false));
       unawaited(refreshOperationsConsole(showLoading: false));
+      unawaited(refreshMemoryBrowser(showLoading: false));
     } catch (e) {
       _appendMessageTo(
         activeChatId,
@@ -384,6 +394,7 @@ abstract class ChatStoreBase with Store {
     }
     await refreshMemoryCaptures();
     await refreshOperationsConsole();
+    await refreshMemoryBrowser();
   }
 
   @action
@@ -511,6 +522,32 @@ abstract class ChatStoreBase with Store {
     }
   }
 
+  Future<void> refreshMemoryBrowser({bool showLoading = true}) async {
+    if (_disposed || _memoryBrowserRefreshInFlight) return;
+    _memoryBrowserRefreshInFlight = true;
+    if (showLoading) {
+      runInAction(() => memoryBrowserLoading.value = true);
+    }
+    runInAction(() => memoryBrowserError.value = null);
+    try {
+      final snapshot = await repo.getMemoryBrowser(limit: 100);
+      if (_disposed) return;
+      runInAction(() {
+        memoryBrowser.value = snapshot;
+      });
+    } catch (e) {
+      if (_disposed) return;
+      runInAction(() {
+        memoryBrowserError.value = 'Memory browser unavailable: $e';
+      });
+    } finally {
+      _memoryBrowserRefreshInFlight = false;
+      if (showLoading && !_disposed) {
+        runInAction(() => memoryBrowserLoading.value = false);
+      }
+    }
+  }
+
   Future<void> reviewContextLinkSuggestion(
     MemoryContextLinkSuggestion suggestion, {
     required bool approve,
@@ -536,6 +573,7 @@ abstract class ChatStoreBase with Store {
         unawaited(refreshMemoryCaptures(showLoading: false));
       }
       unawaited(refreshOperationsConsole(showLoading: false));
+      unawaited(refreshMemoryBrowser(showLoading: false));
     } catch (e) {
       runInAction(() {
         contextLinkSuggestionError.value = 'Review failed: $e';
@@ -586,6 +624,7 @@ abstract class ChatStoreBase with Store {
       }
       unawaited(refreshMemoryCaptures(showLoading: false));
       unawaited(refreshOperationsConsole(showLoading: false));
+      unawaited(refreshMemoryBrowser(showLoading: false));
       return true;
     } catch (e) {
       runInAction(() {
@@ -774,6 +813,7 @@ abstract class ChatStoreBase with Store {
     createNewChat(memoryScopeExternalRef: ref);
     unawaited(refreshMemoryCaptures());
     unawaited(refreshOperationsConsole());
+    unawaited(refreshMemoryBrowser());
   }
 
   @action
@@ -808,6 +848,7 @@ abstract class ChatStoreBase with Store {
     } catch (_) {}
     unawaited(refreshMemoryCaptures());
     unawaited(refreshOperationsConsole());
+    unawaited(refreshMemoryBrowser());
     return id;
   }
 
@@ -816,6 +857,7 @@ abstract class ChatStoreBase with Store {
     if (id == activeChatId) {
       await refreshMemoryCaptures();
       await refreshOperationsConsole();
+      await refreshMemoryBrowser();
       return;
     }
     final session = _sessionById(id);
@@ -853,6 +895,7 @@ abstract class ChatStoreBase with Store {
     _restoreContext(id, loaded);
     await refreshMemoryCaptures();
     await refreshOperationsConsole();
+    await refreshMemoryBrowser();
   }
 
   @action

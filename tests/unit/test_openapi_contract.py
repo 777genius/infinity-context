@@ -30,6 +30,7 @@ def test_openapi_contains_stable_v1_fields() -> None:
     assert "/v1/search" in paths
     assert "/v1/digest" in paths
     assert "/v1/operations-console" in paths
+    assert "/v1/memory-browser" in paths
     assert "/v1/export/graph.json" in paths
     assert "/v1/export/memory_scope-snapshot/preview" in paths
 
