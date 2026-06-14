@@ -172,9 +172,7 @@ def test_asset_upload_download_dedupe_and_context_link_flow(tmp_path: Path) -> N
     assert candidate["target_id"] == fact.json()["data"]["id"]
     assert "matching text" in candidate["reasons"]
     assert "text_match" in candidate["metadata"]["reason_codes"]
-    assert {"alex", "frontend", "capture"}.issubset(
-        set(candidate["metadata"]["matched_terms"])
-    )
+    assert {"alex", "frontend", "capture"}.issubset(set(candidate["metadata"]["matched_terms"]))
     assert link.status_code == 200
     assert link.json()["data"]["duplicate"] is False
     assert listed_links.status_code == 200
@@ -256,7 +254,7 @@ def test_persisted_context_link_suggestions_can_be_reviewed(tmp_path: Path) -> N
         )
         approved = client.post(
             f"/v1/context-link-suggestions/{suggestion_id}/review",
-            json={"action": "approve", "reason": "reviewed by user"},
+            json={"action": "approve", "reason": "  reviewed by user  "},
             headers=auth_headers(),
         )
         approve_again = client.post(
@@ -290,7 +288,10 @@ def test_persisted_context_link_suggestions_can_be_reviewed(tmp_path: Path) -> N
     assert pending.json()["data"][0]["status"] == "pending"
     assert approved.status_code == 200
     assert approved.json()["data"]["suggestion"]["status"] == "approved"
+    assert approved.json()["data"]["suggestion"]["review_reason"] == "reviewed by user"
+    assert approved.json()["data"]["suggestion"]["reviewed_at"]
     assert approved.json()["data"]["link"]["target_id"] == fact.json()["data"]["id"]
+    assert approved.json()["data"]["link"]["reason"] == "reviewed by user"
     assert approved.json()["data"]["duplicate_link"] is False
     assert approve_again.status_code == 200
     assert approve_again.json()["data"]["duplicate_link"] is True
@@ -384,6 +385,9 @@ def test_operations_console_summarizes_ingestion_and_link_review(tmp_path: Path)
         assert data["diagnostics"]["extraction_retryable_count"] == 1
         assert data["diagnostics"]["link_suggestion_pending_count"] >= 1
         assert "no_suggestion_note" in data["diagnostics"]["link_suggestion_explainability"]
+        stored_fields = data["diagnostics"]["link_suggestion_explainability"]["stored_fields"]
+        assert "review_reason" in stored_fields
+        assert "metadata.matched_terms" in stored_fields
         no_suggestion_reasons = data["diagnostics"]["link_suggestion_explainability"][
             "no_suggestion_reasons"
         ]
@@ -404,6 +408,32 @@ def test_operations_console_summarizes_ingestion_and_link_review(tmp_path: Path)
             set(saved_suggestion["metadata"]["matched_terms"])
         )
         assert saved_suggestion["reason"]
+
+        reviewed = client.post(
+            f"/v1/context-link-suggestions/{suggestion_id}/review",
+            json={"action": "approve", "reason": "approved from operations console"},
+            headers=auth_headers(),
+        )
+        assert reviewed.status_code == 200, reviewed.text
+
+        after_review = client.get(
+            "/v1/operations-console",
+            params={
+                "space_slug": "quick-capture",
+                "memory_scope_external_ref": "default",
+            },
+            headers=auth_headers(),
+        )
+        assert after_review.status_code == 200, after_review.text
+        review_data = after_review.json()["data"]
+        assert review_data["link_suggestion_status_counts"]["approved"] >= 1
+        assert review_data["diagnostics"]["link_suggestion_reviewed_count"] >= 1
+        reviewed_suggestion = next(
+            item for item in review_data["context_link_suggestions"] if item["id"] == suggestion_id
+        )
+        assert reviewed_suggestion["status"] == "approved"
+        assert reviewed_suggestion["review_reason"] == "approved from operations console"
+        assert reviewed_suggestion["reviewed_at"]
 
         retry = client.post(
             f"/v1/asset-extractions/{extraction_id}/retry",

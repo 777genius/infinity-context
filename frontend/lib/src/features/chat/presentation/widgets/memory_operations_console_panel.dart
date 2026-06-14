@@ -682,6 +682,12 @@ class _ConsoleSuggestionTile extends StatelessWidget {
             runSpacing: 6,
             children: [
               _DetailChip(label: 'reason: ${suggestion.reason}'),
+              if (suggestion.reviewReason != null)
+                _DetailChip(label: 'review: ${suggestion.reviewReason}'),
+              if (suggestion.reviewedAt != null)
+                _DetailChip(
+                  label: 'reviewed: ${_timeLabel(suggestion.reviewedAt!)}',
+                ),
               if (matchedTerms.isNotEmpty)
                 _DetailChip(
                   label: 'matched: ${matchedTerms.take(4).join(', ')}',

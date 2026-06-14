@@ -26,6 +26,7 @@ MAX_ASSET_CONTENT_TYPE_CHARS = 120
 MAX_ASSET_STORAGE_KEY_CHARS = 500
 MAX_ASSET_METADATA_KEYS = 80
 MAX_CONTEXT_LINK_METADATA_KEYS = 80
+MAX_CONTEXT_LINK_REVIEW_REASON_CHARS = 320
 
 
 class AssetStatus(StrEnum):
@@ -274,12 +275,16 @@ class MemoryContextLinkSuggestion:
             return self
         if self.status != ContextLinkSuggestionStatus.PENDING:
             raise MemoryValidationError("Only pending context link suggestions can be approved")
+        review_reason = _optional_text(
+            reason,
+            max_chars=MAX_CONTEXT_LINK_REVIEW_REASON_CHARS,
+        )
         return replace(
             self,
             status=ContextLinkSuggestionStatus.APPROVED,
             updated_at=now,
             reviewed_at=now,
-            review_reason=(reason or self.review_reason),
+            review_reason=review_reason or self.review_reason,
         )
 
     def reject(self, *, now: datetime, reason: str | None = None) -> MemoryContextLinkSuggestion:
@@ -292,7 +297,10 @@ class MemoryContextLinkSuggestion:
             status=ContextLinkSuggestionStatus.REJECTED,
             updated_at=now,
             reviewed_at=now,
-            review_reason=reason,
+            review_reason=_optional_text(
+                reason,
+                max_chars=MAX_CONTEXT_LINK_REVIEW_REASON_CHARS,
+            ),
         )
 
     def expire(self, *, now: datetime, reason: str | None = None) -> MemoryContextLinkSuggestion:
@@ -305,7 +313,10 @@ class MemoryContextLinkSuggestion:
             status=ContextLinkSuggestionStatus.EXPIRED,
             updated_at=now,
             reviewed_at=now,
-            review_reason=reason,
+            review_reason=_optional_text(
+                reason,
+                max_chars=MAX_CONTEXT_LINK_REVIEW_REASON_CHARS,
+            ),
         )
 
 
@@ -342,3 +353,10 @@ def _safe_metadata(
             if items:
                 safe[key_text] = items
     return safe
+
+
+def _optional_text(value: str | None, *, max_chars: int) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    return normalized[:max_chars] or None

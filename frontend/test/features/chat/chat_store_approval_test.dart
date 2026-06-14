@@ -197,6 +197,10 @@ void main() {
       );
 
       expect(repo.reviewedSuggestions, ['ctxlinksug-1:approve']);
+      expect(
+        repo.reviewedSuggestionReasons['ctxlinksug-1'],
+        'approved by user from review queue',
+      );
       expect(store.contextLinkSuggestions, isEmpty);
     });
   });
@@ -227,6 +231,7 @@ class _FakeChatRepository implements ChatRepository {
   };
   List<MemoryContextLinkSuggestion> contextLinkSuggestions = const [];
   final reviewedSuggestions = <String>[];
+  final reviewedSuggestionReasons = <String, String?>{};
 
   void emitMessage(ChatMessage message) {
     _messages.add(message);
@@ -430,6 +435,7 @@ class _FakeChatRepository implements ChatRepository {
     String? reason,
   }) async {
     reviewedSuggestions.add('$suggestionId:$action');
+    reviewedSuggestionReasons[suggestionId] = reason;
     final suggestion = contextLinkSuggestions.firstWhere(
       (item) => item.id == suggestionId,
     );

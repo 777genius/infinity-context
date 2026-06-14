@@ -19,6 +19,9 @@ part 'chat_store.g.dart';
 
 class ChatStore = ChatStoreBase with _$ChatStore;
 
+const _approvedContextLinkReviewReason = 'approved by user from review queue';
+const _rejectedContextLinkReviewReason = 'rejected by user from review queue';
+
 abstract class ChatStoreBase with Store {
   final ChatRepository repo;
   final ChatCache? cache;
@@ -520,7 +523,9 @@ abstract class ChatStoreBase with Store {
       final reviewed = await repo.reviewContextLinkSuggestion(
         suggestionId: suggestion.id,
         action: action,
-        reason: approve ? 'accepted from review inbox' : 'rejected from inbox',
+        reason: approve
+            ? _approvedContextLinkReviewReason
+            : _rejectedContextLinkReviewReason,
       );
       runInAction(() {
         _removeContextLinkSuggestion(suggestion.id);

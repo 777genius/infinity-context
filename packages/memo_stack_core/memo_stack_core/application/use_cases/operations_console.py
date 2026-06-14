@@ -40,11 +40,9 @@ class BuildMemoryOperationsConsoleUseCase:
                 memory_scope_id=str(query.memory_scope_id),
                 thread_id=thread_id,
             )
-            link_suggestion_counts = (
-                await uow.context_link_suggestions.count_by_status_for_scope(
-                    space_id=str(query.space_id),
-                    memory_scope_id=str(query.memory_scope_id),
-                )
+            link_suggestion_counts = await uow.context_link_suggestions.count_by_status_for_scope(
+                space_id=str(query.space_id),
+                memory_scope_id=str(query.memory_scope_id),
             )
             extraction_jobs = await uow.asset_extractions.list_for_scope(
                 space_id=str(query.space_id),
@@ -96,22 +94,30 @@ def _diagnostics(
         for status in (AssetExtractionStatus.PENDING.value, AssetExtractionStatus.RUNNING.value)
     )
     pending_suggestions = link_suggestion_status_counts.get("pending", 0)
+    reviewed_suggestions = sum(
+        link_suggestion_status_counts.get(status, 0) for status in ("approved", "rejected")
+    )
     return {
         "console_version": "memory-operations-console-v1",
         "extraction_active_count": active_count,
         "extraction_retryable_count": retryable_count,
         "extraction_returned_count": extraction_job_count,
         "link_suggestion_pending_count": pending_suggestions,
+        "link_suggestion_reviewed_count": reviewed_suggestions,
         "link_suggestion_returned_count": suggestion_count,
         "link_suggestion_explainability": {
             "stored_fields": (
                 "reason",
                 "score",
                 "confidence",
+                "reviewed_at",
+                "review_reason",
                 "metadata.target_label",
                 "metadata.target_preview",
                 "metadata.target_tier",
                 "metadata.resolver_version",
+                "metadata.reason_codes",
+                "metadata.matched_terms",
             ),
             "no_suggestion_note": (
                 "Suggestions are stored only when persisted link discovery finds visible "
@@ -123,15 +129,13 @@ def _diagnostics(
                 {
                     "code": "no_visible_same_scope_candidate",
                     "label": (
-                        "No visible same-scope memory matched the source text "
-                        "strongly enough."
+                        "No visible same-scope memory matched the source text strongly enough."
                     ),
                 },
                 {
                     "code": "source_not_persisted",
                     "label": (
-                        "The source capture or asset may not be persisted with a "
-                        "stable id yet."
+                        "The source capture or asset may not be persisted with a stable id yet."
                     ),
                 },
                 {

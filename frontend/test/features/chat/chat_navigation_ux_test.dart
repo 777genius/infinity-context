@@ -277,6 +277,46 @@ void main() {
     expect(find.textContaining('matched: alex, q3'), findsOneWidget);
   });
 
+  testWidgets('operations console shows reviewed suggestion feedback', (
+    tester,
+  ) async {
+    final repo = _UxFakeChatRepository();
+    repo.contextLinkSuggestions = [
+      _suggestion(
+        'ctxlinksug-1',
+        status: 'rejected',
+        reviewReason: 'not relevant',
+        reviewedAt: DateTime(2026, 1, 2, 3, 4),
+      ),
+    ];
+    final store = ChatStore(repo, null);
+    addTearDown(store.dispose);
+    addTearDown(repo.close);
+
+    await store.refreshOperationsConsole();
+    await _pumpWithStore(
+      tester,
+      store: store,
+      child: const Scaffold(
+        body: SizedBox(width: 340, height: 620, child: ChatListSidebar()),
+      ),
+    );
+
+    await tester
+        .tap(find.byKey(const ValueKey('memory_operations_open_button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Link suggestions'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('status: rejected'), findsOneWidget);
+    expect(find.textContaining('review: not relevant'), findsOneWidget);
+    expect(find.textContaining('reviewed: 2026-01-02 03:04'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('memory_operations_approve_ctxlinksug_1')),
+      findsNothing,
+    );
+  });
+
   testWidgets('sidebar reviews pending context link suggestions', (
     tester,
   ) async {
@@ -307,6 +347,10 @@ void main() {
     await tester.pump();
 
     expect(repo.reviewedSuggestions, ['ctxlinksug-1:approve']);
+    expect(
+      repo.reviewedSuggestionReasons['ctxlinksug-1'],
+      'approved by user from review queue',
+    );
     expect(store.contextLinkSuggestions, isEmpty);
   });
 
@@ -651,6 +695,7 @@ class _UxFakeChatRepository implements ChatRepository {
   int listExtractionCalls = 0;
   final downloadedArtifactIds = <String>[];
   final reviewedSuggestions = <String>[];
+  final reviewedSuggestionReasons = <String, String?>{};
   final Map<String, MemoryScope> scopesByRef = {
     'default': _scope('scope-default', 'default', 'Default'),
   };
@@ -904,6 +949,7 @@ class _UxFakeChatRepository implements ChatRepository {
     String? reason,
   }) async {
     reviewedSuggestions.add('$suggestionId:$action');
+    reviewedSuggestionReasons[suggestionId] = reason;
     final suggestion = contextLinkSuggestions.firstWhere(
       (item) => item.id == suggestionId,
     );
@@ -1033,7 +1079,12 @@ MemoryContextLink _link(String id, {required String sourceId}) {
   });
 }
 
-MemoryContextLinkSuggestion _suggestion(String id) {
+MemoryContextLinkSuggestion _suggestion(
+  String id, {
+  String status = 'pending',
+  String? reviewReason,
+  DateTime? reviewedAt,
+}) {
   final now = DateTime.now();
   return MemoryContextLinkSuggestion(
     id: id,
@@ -1047,7 +1098,7 @@ MemoryContextLinkSuggestion _suggestion(String id) {
     confidence: 'high',
     reason: 'matching text',
     score: 88,
-    status: 'pending',
+    status: status,
     metadata: const {
       'target_label': 'Q3 roadmap',
       'target_preview': 'Alex confirmed Q3 rollout.',
@@ -1055,6 +1106,8 @@ MemoryContextLinkSuggestion _suggestion(String id) {
     },
     createdAt: now,
     updatedAt: now,
+    reviewedAt: reviewedAt,
+    reviewReason: reviewReason,
   );
 }
 
