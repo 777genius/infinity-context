@@ -409,6 +409,30 @@ def test_operations_console_summarizes_ingestion_and_link_review(tmp_path: Path)
         assert retry_data["diagnostics"]["extraction_active_count"] == 1
 
 
+def test_operations_console_reports_missing_scope_as_empty_diagnostic(
+    tmp_path: Path,
+) -> None:
+    with make_client(tmp_path) as client:
+        response = client.get(
+            "/v1/operations-console",
+            params={
+                "space_slug": "quick-capture",
+                "memory_scope_external_ref": "missing-scope",
+            },
+            headers=auth_headers(),
+        )
+
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    assert data["generated_at"] is None
+    assert data["scope"] is None
+    assert data["extraction_status_counts"] == {}
+    assert data["link_suggestion_status_counts"] == {}
+    assert data["extraction_jobs"] == []
+    assert data["context_link_suggestions"] == []
+    assert data["diagnostics"] == {"scope_not_found": True}
+
+
 def test_asset_upload_limit_uses_ingress_error(tmp_path: Path) -> None:
     with make_client(tmp_path, max_asset_upload_bytes=4) as client:
         response = client.post(

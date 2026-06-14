@@ -223,6 +223,32 @@ void main() {
     expect(find.textContaining('backend offline'), findsWidgets);
   });
 
+  testWidgets('operations console explains empty link suggestions', (
+    tester,
+  ) async {
+    final repo = _UxFakeChatRepository();
+    final store = ChatStore(repo, null);
+    addTearDown(store.dispose);
+    addTearDown(repo.close);
+
+    await store.refreshOperationsConsole();
+    await _pumpWithStore(
+      tester,
+      store: store,
+      child: const Scaffold(
+        body: SizedBox(width: 340, height: 620, child: ChatListSidebar()),
+      ),
+    );
+
+    await tester
+        .tap(find.byKey(const ValueKey('memory_operations_open_button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Link suggestions'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('No pending links'), findsOneWidget);
+  });
+
   testWidgets('sidebar reviews pending context link suggestions', (
     tester,
   ) async {
