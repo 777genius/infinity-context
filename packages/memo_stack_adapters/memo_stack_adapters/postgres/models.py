@@ -126,6 +126,43 @@ class MemoryThreadRow(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class MemoryAnchorRow(Base):
+    __tablename__ = "memory_anchors"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    space_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    memory_scope_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    kind: Mapped[str] = mapped_column(String(40), nullable=False)
+    normalized_key: Mapped[str] = mapped_column(String(160), nullable=False)
+    label: Mapped[str] = mapped_column(String(240), nullable=False)
+    aliases_json: Mapped[list[str]] = mapped_column(json_type(), nullable=False, default=list)
+    description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="active")
+    metadata_json: Mapped[dict[str, object]] = mapped_column(json_type(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    __table_args__ = (
+        Index(
+            "uq_memory_anchor_active_key",
+            "space_id",
+            "memory_scope_id",
+            "kind",
+            "normalized_key",
+            unique=True,
+            sqlite_where=status == "active",
+            postgresql_where=status == "active",
+        ),
+        Index(
+            "ix_memory_anchors_scope_kind",
+            "space_id",
+            "memory_scope_id",
+            "kind",
+            "status",
+            "updated_at",
+        ),
+    )
+
+
 class MemoryFactRow(Base):
     __tablename__ = "memory_facts"
     __table_args__ = (

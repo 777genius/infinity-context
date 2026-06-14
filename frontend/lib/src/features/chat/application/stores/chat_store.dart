@@ -21,6 +21,7 @@ class ChatStore = ChatStoreBase with _$ChatStore;
 
 const _approvedContextLinkReviewReason = 'approved by user from review queue';
 const _rejectedContextLinkReviewReason = 'rejected by user from review queue';
+const _manualContextLinkReviewReason = 'replaced by manual link';
 
 abstract class ChatStoreBase with Store {
   final ChatRepository repo;
@@ -539,6 +540,58 @@ abstract class ChatStoreBase with Store {
       runInAction(() {
         contextLinkSuggestionError.value = 'Review failed: $e';
       });
+    } finally {
+      runInAction(() {
+        contextLinkSuggestionReviewing.remove(suggestion.id);
+      });
+    }
+  }
+
+  Future<bool> createManualContextLinkFromSuggestion(
+    MemoryContextLinkSuggestion suggestion, {
+    required String targetType,
+    required String targetId,
+    required String relationType,
+    required String confidence,
+    required String reason,
+  }) async {
+    runInAction(() {
+      contextLinkSuggestionReviewing[suggestion.id] = true;
+      contextLinkSuggestionError.value = null;
+    });
+    try {
+      await repo.createContextLink(
+        sourceType: suggestion.sourceType,
+        sourceId: suggestion.sourceId,
+        targetType: targetType.trim(),
+        targetId: targetId.trim(),
+        relationType: relationType.trim().isEmpty
+            ? suggestion.relationType
+            : relationType.trim(),
+        confidence: confidence.trim().isEmpty
+            ? suggestion.confidence
+            : confidence.trim(),
+        reason: reason.trim().isEmpty ? 'selected by user' : reason.trim(),
+      );
+      if (suggestion.isPending) {
+        final reviewed = await repo.reviewContextLinkSuggestion(
+          suggestionId: suggestion.id,
+          action: 'reject',
+          reason: _manualContextLinkReviewReason,
+        );
+        runInAction(() {
+          _removeContextLinkSuggestion(suggestion.id);
+          if (reviewed.isPending) _upsertContextLinkSuggestion(reviewed);
+        });
+      }
+      unawaited(refreshMemoryCaptures(showLoading: false));
+      unawaited(refreshOperationsConsole(showLoading: false));
+      return true;
+    } catch (e) {
+      runInAction(() {
+        contextLinkSuggestionError.value = 'Manual link failed: $e';
+      });
+      return false;
     } finally {
       runInAction(() {
         contextLinkSuggestionReviewing.remove(suggestion.id);

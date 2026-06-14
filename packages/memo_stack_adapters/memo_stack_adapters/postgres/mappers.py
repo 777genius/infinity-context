@@ -30,6 +30,9 @@ from memo_stack_core.domain.entities import (
     FactRelationType,
     FactStatus,
     LifecycleStatus,
+    MemoryAnchor,
+    MemoryAnchorId,
+    MemoryAnchorKind,
     MemoryChunk,
     MemoryChunkId,
     MemoryChunkKind,
@@ -67,6 +70,7 @@ from memo_stack_core.domain.extraction import (
 )
 
 from memo_stack_adapters.postgres.models import (
+    MemoryAnchorRow,
     MemoryAssetExtractionArtifactRow,
     MemoryAssetExtractionJobRow,
     MemoryAssetRow,
@@ -98,6 +102,54 @@ def source_ref_row_to_domain(row: MemorySourceRefRow) -> SourceRef:
         char_start=row.char_start,
         char_end=row.char_end,
         quote_preview=row.quote_preview,
+    )
+
+
+def anchor_to_row(anchor: MemoryAnchor) -> MemoryAnchorRow:
+    return MemoryAnchorRow(
+        id=str(anchor.id),
+        space_id=str(anchor.space_id),
+        memory_scope_id=str(anchor.memory_scope_id),
+        kind=anchor.kind.value,
+        normalized_key=anchor.normalized_key,
+        label=anchor.label,
+        aliases_json=list(anchor.aliases),
+        description=anchor.description,
+        status=anchor.status.value,
+        metadata_json=dict(anchor.metadata),
+        created_at=anchor.created_at,
+        updated_at=anchor.updated_at,
+    )
+
+
+def apply_anchor_to_row(anchor: MemoryAnchor, row: MemoryAnchorRow) -> None:
+    row.space_id = str(anchor.space_id)
+    row.memory_scope_id = str(anchor.memory_scope_id)
+    row.kind = anchor.kind.value
+    row.normalized_key = anchor.normalized_key
+    row.label = anchor.label
+    row.aliases_json = list(anchor.aliases)
+    row.description = anchor.description
+    row.status = anchor.status.value
+    row.metadata_json = dict(anchor.metadata)
+    row.created_at = anchor.created_at
+    row.updated_at = anchor.updated_at
+
+
+def anchor_row_to_domain(row: MemoryAnchorRow) -> MemoryAnchor:
+    return MemoryAnchor(
+        id=MemoryAnchorId(row.id),
+        space_id=SpaceId(row.space_id),
+        memory_scope_id=MemoryScopeId(row.memory_scope_id),
+        kind=MemoryAnchorKind(row.kind),
+        normalized_key=row.normalized_key,
+        label=row.label,
+        aliases=tuple(row.aliases_json or ()),
+        description=row.description,
+        status=LifecycleStatus(row.status),
+        metadata=dict(row.metadata_json or {}),
+        created_at=row.created_at,
+        updated_at=row.updated_at,
     )
 
 

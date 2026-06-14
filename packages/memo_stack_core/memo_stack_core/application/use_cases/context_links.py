@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from math import log
 
@@ -25,7 +25,12 @@ from memo_stack_core.domain.assets import (
     MemoryContextLinkSuggestion,
     MemoryContextLinkSuggestionId,
 )
-from memo_stack_core.domain.entities import MemoryChunk
+from memo_stack_core.domain.entities import (
+    MemoryAnchor,
+    MemoryAnchorId,
+    MemoryAnchorKind,
+    MemoryChunk,
+)
 from memo_stack_core.domain.errors import MemoryNotFoundError, MemoryValidationError
 from memo_stack_core.ports.clock import ClockPort
 from memo_stack_core.ports.ids import IdGeneratorPort
@@ -34,6 +39,7 @@ from memo_stack_core.ports.unit_of_work import UnitOfWorkFactoryPort, UnitOfWork
 _TERM_PATTERN = re.compile(r"[\w.@:/#-]+", re.UNICODE)
 _MAX_CANDIDATE_PREVIEW = 220
 _ALLOWED_ENDPOINT_STATUSES: dict[str, set[str]] = {
+    "anchor": {"active"},
     "asset": {"stored"},
     "capture": {"accepted"},
     "chunk": {"active"},
@@ -42,6 +48,77 @@ _ALLOWED_ENDPOINT_STATUSES: dict[str, set[str]] = {
     "suggestion": {"pending", "approved", "rejected"},
     "thread": {"active"},
 }
+_PERSON_PATTERN = re.compile(r"\b([A-Z][a-z][A-Za-z]{1,40})(?:\s+([A-Z][a-z][A-Za-z]{1,40}))?\b")
+_CYRILLIC_PERSON_PATTERN = re.compile(r"\b([А-ЯЁ][а-яё]{2,40})(?:\s+([А-ЯЁ][а-яё]{2,40}))?\b")
+_PROJECT_PATTERN = re.compile(
+    r"\b(?:project|проект|repo|repository|service|сервис)\s+([A-Za-zА-Яа-яЁё0-9][\w.-]{1,80})",
+    re.IGNORECASE,
+)
+_EVENT_PATTERN = re.compile(
+    r"\b("
+    r"call|meeting|review|sync|demo|chat|message|conversation|"
+    r"звонок|созвон|встреча|ревью|демо|переписка|переписывался"
+    r")"
+    r"(?:\s+(?:with|about|с|по|об|про|[A-Za-zА-Яа-яЁё0-9][\w.-]{1,40})){0,5}?"
+    r"(?:\s+("
+    r"last week|yesterday|today|tomorrow|an hour ago|hour ago|"
+    r"неделю назад|вчера|сегодня|завтра|час назад"
+    r"))?",
+    re.IGNORECASE,
+)
+_TEMPORAL_PATTERN = re.compile(
+    r"\b("
+    r"last week|yesterday|today|tomorrow|an hour ago|hour ago|"
+    r"неделю назад|вчера|сегодня|завтра|час назад"
+    r")\b",
+    re.IGNORECASE,
+)
+_PERSON_STOP_WORDS = {
+    "api",
+    "e2e",
+    "frontend",
+    "backend",
+    "docker",
+    "flutter",
+    "memo",
+    "memory",
+    "project",
+    "chat",
+    "message",
+    "conversation",
+    "quick",
+    "capture",
+    "context",
+    "screenshot",
+    "stack",
+    "qdrant",
+    "graphiti",
+    "docling",
+    "скриншот",
+    "проект",
+    "встреча",
+    "звонок",
+}
+_PROJECT_HINTS = {
+    "qdrant",
+    "graphiti",
+    "docling",
+    "memo",
+    "memo stack",
+    "frontend",
+    "backend",
+}
+
+
+@dataclass(frozen=True)
+class _ObservedAnchor:
+    kind: MemoryAnchorKind
+    normalized_key: str
+    label: str
+    aliases: tuple[str, ...]
+    reason: str
+    score_boost: float
+    metadata: dict[str, object]
 
 
 class CreateContextLinkUseCase:
@@ -225,10 +302,75 @@ class SuggestContextLinksUseCase:
                 status="active",
                 limit=max(command.limit, 8),
             )
+            anchors = await uow.anchors.list_for_scope(
+                space_id=str(command.space_id),
+                memory_scope_id=str(command.memory_scope_id),
+                kind=None,
+                status="active",
+                limit=max(command.limit * 3, 24),
+            )
+            if command.persist:
+                observed_anchors = await self._upsert_observed_anchors(
+                    uow,
+                    command=command,
+                    text=query_text,
+                )
+                anchors_by_id = {str(anchor.id): anchor for anchor in anchors}
+                for anchor in observed_anchors:
+                    anchors_by_id[str(anchor.id)] = anchor
+                anchors = list(anchors_by_id.values())
+                await uow.commit()
 
         terms = _terms(query_text)
+        observed_by_key = {
+            (anchor.kind.value, anchor.normalized_key): anchor
+            for anchor in _extract_observed_anchors(query_text)
+        }
         candidates: list[ContextLinkCandidate] = []
         seen: set[tuple[str, str]] = set()
+        for anchor in anchors:
+            key = ("anchor", str(anchor.id))
+            if key in seen or _is_same_source(key, command):
+                continue
+            seen.add(key)
+            target_text = " ".join(
+                part
+                for part in (
+                    anchor.kind.value,
+                    anchor.label,
+                    " ".join(anchor.aliases),
+                    anchor.description or "",
+                )
+                if part
+            )
+            score, reasons, matched_terms = _score_text_candidate(
+                query_terms=terms,
+                target_text=target_text,
+                updated_at=anchor.updated_at,
+                now=self._clock.now(),
+                base=26,
+            )
+            observed = observed_by_key.get((anchor.kind.value, anchor.normalized_key))
+            if observed is not None:
+                score += observed.score_boost
+                reasons.append(observed.reason)
+            candidates.append(
+                _candidate(
+                    target_type="anchor",
+                    target_id=str(anchor.id),
+                    label=f"{anchor.kind.value}: {anchor.label}",
+                    preview=anchor.description or anchor.label,
+                    score=score,
+                    reasons=reasons,
+                    metadata={
+                        "anchor_kind": anchor.kind.value,
+                        "normalized_key": anchor.normalized_key,
+                        "aliases": list(anchor.aliases),
+                        "matched_terms": list(matched_terms),
+                        **(observed.metadata if observed is not None else {}),
+                    },
+                )
+            )
         for fact in [*facts, *recent_facts]:
             key = ("fact", str(fact.id))
             if key in seen or _is_same_source(key, command):
@@ -453,6 +595,55 @@ class SuggestContextLinksUseCase:
             diagnostics=diagnostics,
         )
 
+    async def _upsert_observed_anchors(
+        self,
+        uow: UnitOfWorkPort,
+        *,
+        command: SuggestContextLinksCommand,
+        text: str,
+    ) -> list[MemoryAnchor]:
+        now = self._clock.now()
+        anchors: list[MemoryAnchor] = []
+        for observed in _extract_observed_anchors(text):
+            existing = await uow.anchors.find_active_by_key(
+                space_id=str(command.space_id),
+                memory_scope_id=str(command.memory_scope_id),
+                kind=observed.kind.value,
+                normalized_key=observed.normalized_key,
+            )
+            metadata = {
+                **observed.metadata,
+                "last_observed_source_type": command.source_type,
+                "last_observed_source_id": command.source_id,
+                "resolver_version": "context-link-rule-v1",
+            }
+            if existing is not None:
+                saved = await uow.anchors.save(
+                    existing.merge_observation(
+                        label=observed.label,
+                        aliases=observed.aliases,
+                        metadata=metadata,
+                        now=now,
+                    )
+                )
+            else:
+                saved = await uow.anchors.create(
+                    MemoryAnchor.create(
+                        anchor_id=MemoryAnchorId(self._ids.new_id("anchor")),
+                        space_id=command.space_id,
+                        memory_scope_id=command.memory_scope_id,
+                        kind=observed.kind,
+                        normalized_key=observed.normalized_key,
+                        label=observed.label,
+                        aliases=observed.aliases,
+                        description=f"Observed {observed.kind.value} anchor from memory evidence.",
+                        metadata=metadata,
+                        now=now,
+                    )
+                )
+            anchors.append(saved)
+        return anchors
+
     async def _persist_candidates(
         self,
         command: SuggestContextLinksCommand,
@@ -660,12 +851,155 @@ async def _assert_endpoint_visible(
         raise MemoryValidationError(f"Context link {role} status is not linkable")
 
 
+def _extract_observed_anchors(text: str) -> tuple[_ObservedAnchor, ...]:
+    seen: set[tuple[str, str]] = set()
+    anchors: list[_ObservedAnchor] = []
+    for raw in _explicit_project_labels(text):
+        _append_anchor(
+            anchors,
+            seen,
+            kind=MemoryAnchorKind.PROJECT,
+            label=raw,
+            reason="explicit project reference",
+            score_boost=24,
+        )
+    for raw in _project_hint_labels(text):
+        _append_anchor(
+            anchors,
+            seen,
+            kind=MemoryAnchorKind.PROJECT,
+            label=raw,
+            reason="known project/tool reference",
+            score_boost=18,
+        )
+    for raw in _event_labels(text):
+        _append_anchor(
+            anchors,
+            seen,
+            kind=MemoryAnchorKind.EVENT,
+            label=raw,
+            reason="event phrase",
+            score_boost=20,
+        )
+    for raw in _person_labels(text):
+        _append_anchor(
+            anchors,
+            seen,
+            kind=MemoryAnchorKind.PERSON,
+            label=raw,
+            reason="person name",
+            score_boost=22,
+        )
+    return tuple(anchors[:12])
+
+
+def _append_anchor(
+    anchors: list[_ObservedAnchor],
+    seen: set[tuple[str, str]],
+    *,
+    kind: MemoryAnchorKind,
+    label: str,
+    reason: str,
+    score_boost: float,
+) -> None:
+    normalized_key = _normalize_anchor_key(label)
+    key = (kind.value, normalized_key)
+    if not normalized_key or key in seen:
+        return
+    seen.add(key)
+    anchors.append(
+        _ObservedAnchor(
+            kind=kind,
+            normalized_key=normalized_key,
+            label=label.strip()[:120],
+            aliases=(label.strip()[:120],),
+            reason=reason,
+            score_boost=score_boost,
+            metadata={
+                "extraction_reason": reason,
+                "extractor": "anchor-rule-v1",
+            },
+        )
+    )
+
+
+def _explicit_project_labels(text: str) -> tuple[str, ...]:
+    labels: list[str] = []
+    for match in _PROJECT_PATTERN.finditer(text):
+        value = match.group(1).strip(".,:;()[]{}")
+        if len(value) >= 2:
+            labels.append(value)
+    return tuple(labels)
+
+
+def _project_hint_labels(text: str) -> tuple[str, ...]:
+    lowered = text.lower()
+    terms = set(_terms(text))
+    labels: list[str] = []
+    for hint in sorted(_PROJECT_HINTS, key=len, reverse=True):
+        if (" " in hint and hint in lowered) or (" " not in hint and hint in terms):
+            labels.append(" ".join(part.capitalize() for part in hint.split()))
+    return tuple(labels)
+
+
+def _event_labels(text: str) -> tuple[str, ...]:
+    labels: list[str] = []
+    for match in _EVENT_PATTERN.finditer(text):
+        event = match.group(1).strip()
+        temporal = (match.group(2) or _nearby_temporal(text, match.end())).strip()
+        label = f"{event} {temporal}".strip()
+        labels.append(label)
+    return tuple(labels)
+
+
+def _person_labels(text: str) -> tuple[str, ...]:
+    labels: list[str] = []
+    for pattern in (_PERSON_PATTERN, _CYRILLIC_PERSON_PATTERN):
+        for match in pattern.finditer(text):
+            if _is_project_qualified_person_match(text, match.start()):
+                continue
+            parts = tuple(part for part in match.groups() if part)
+            if len(parts) > 1 and _normalize_anchor_key(parts[1]) in _PERSON_STOP_WORDS:
+                parts = (parts[0],)
+            label = " ".join(parts).strip()
+            if _is_probable_person_label(label):
+                labels.append(label)
+    return tuple(labels)
+
+
+def _nearby_temporal(text: str, start: int) -> str:
+    match = _TEMPORAL_PATTERN.search(text[start : start + 80])
+    return match.group(1) if match else ""
+
+
+def _is_project_qualified_person_match(text: str, start: int) -> bool:
+    prefix = text[max(0, start - 24) : start].lower()
+    return bool(re.search(r"(?:project|проект)\s+$", prefix))
+
+
+def _is_probable_person_label(label: str) -> bool:
+    if len(label) < 3 or len(label) > 80:
+        return False
+    normalized = _normalize_anchor_key(label)
+    if normalized in _PERSON_STOP_WORDS:
+        return False
+    first = normalized.split()[0]
+    return first not in _PERSON_STOP_WORDS
+
+
+def _normalize_anchor_key(label: str) -> str:
+    parts = [part.strip("._-:/#()[]{}").lower() for part in _TERM_PATTERN.findall(label)]
+    return " ".join(part for part in parts if part)
+
+
 async def _load_endpoint(
     uow: UnitOfWorkPort,
     *,
     endpoint_type: str,
     endpoint_id: str,
 ) -> object | None:
+    if endpoint_type == "anchor":
+        return await uow.anchors.get_by_id(endpoint_id)
     if endpoint_type == "asset":
         return await uow.assets.get_by_id(endpoint_id)
     if endpoint_type == "capture":

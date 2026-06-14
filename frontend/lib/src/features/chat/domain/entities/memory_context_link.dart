@@ -144,6 +144,17 @@ class MemoryContextLinkSuggestion extends Equatable {
     return '$targetType $targetId';
   }
 
+  String? get anchorKind {
+    final value = metadata['anchor_kind']?.toString().trim();
+    return value == null || value.isEmpty ? null : value;
+  }
+
+  String get targetTypeLabel {
+    final kind = anchorKind;
+    if (targetType == 'anchor' && kind != null) return '$kind anchor';
+    return targetType;
+  }
+
   String get targetPreview {
     final preview = metadata['target_preview']?.toString().trim();
     return preview == null || preview.isEmpty ? reason : preview;

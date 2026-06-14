@@ -14,6 +14,7 @@ from memo_stack_core.ports.assets import (
 from memo_stack_core.ports.captures import CaptureRepositoryPort
 from memo_stack_core.ports.extraction import AssetExtractionRepositoryPort
 from memo_stack_core.ports.repositories import (
+    AnchorRepositoryPort,
     ChunkRepositoryPort,
     DocumentRepositoryPort,
     EpisodeRepositoryPort,
@@ -39,6 +40,7 @@ class UnitOfWorkPort(Protocol):
     asset_extractions: AssetExtractionRepositoryPort
     context_links: ContextLinkRepositoryPort
     context_link_suggestions: ContextLinkSuggestionRepositoryPort
+    anchors: AnchorRepositoryPort
     episodes: EpisodeRepositoryPort
     documents: DocumentRepositoryPort
     chunks: ChunkRepositoryPort

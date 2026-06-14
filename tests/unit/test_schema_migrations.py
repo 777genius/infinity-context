@@ -256,6 +256,9 @@ def test_create_schema_adds_asset_and_context_link_tables(tmp_path: Path) -> Non
                         index["name"]
                         for index in inspector.get_indexes("memory_context_link_suggestions")
                     },
+                    "anchor_indexes": {
+                        index["name"] for index in inspector.get_indexes("memory_anchors")
+                    },
                     "usage_indexes": {
                         index["name"] for index in inspector.get_indexes("memory_usage_records")
                     },
@@ -273,6 +276,7 @@ def test_create_schema_adds_asset_and_context_link_tables(tmp_path: Path) -> Non
     assert "memory_asset_extraction_artifacts" in result["tables"]
     assert "memory_context_links" in result["tables"]
     assert "memory_context_link_suggestions" in result["tables"]
+    assert "memory_anchors" in result["tables"]
     assert "memory_usage_records" in result["tables"]
     assert "ix_memory_assets_scope_status" in result["asset_indexes"]
     assert "ix_memory_assets_hash_scope" in result["asset_indexes"]
@@ -295,6 +299,8 @@ def test_create_schema_adds_asset_and_context_link_tables(tmp_path: Path) -> Non
     assert "uq_context_link_suggestion_pending" in result["context_link_suggestion_indexes"]
     assert "ix_context_link_suggestions_source" in result["context_link_suggestion_indexes"]
     assert "ix_context_link_suggestions_status" in result["context_link_suggestion_indexes"]
+    assert "uq_memory_anchor_active_key" in result["anchor_indexes"]
+    assert "ix_memory_anchors_scope_kind" in result["anchor_indexes"]
     assert "uq_memory_usage_idempotency" in result["usage_indexes"]
     assert "ix_memory_usage_subject_window" in result["usage_indexes"]
 

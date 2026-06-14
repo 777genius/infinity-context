@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Protocol
 
 from memo_stack_core.domain.entities import (
+    MemoryAnchor,
     MemoryChunk,
     MemoryDocument,
     MemoryEpisode,
@@ -167,6 +168,38 @@ class FactRepositoryPort(Protocol):
         now: datetime,
     ) -> tuple[tuple[str, int], ...]:
         """Delete active facts whose current evidence only points to a deleted document."""
+
+
+class AnchorRepositoryPort(Protocol):
+    async def create(self, anchor: MemoryAnchor) -> MemoryAnchor:
+        """Persist a semantic anchor."""
+
+    async def get_by_id(self, anchor_id: str) -> MemoryAnchor | None:
+        """Load a semantic anchor by canonical id."""
+
+    async def find_active_by_key(
+        self,
+        *,
+        space_id: str,
+        memory_scope_id: str,
+        kind: str,
+        normalized_key: str,
+    ) -> MemoryAnchor | None:
+        """Find an active anchor by scoped normalized key."""
+
+    async def list_for_scope(
+        self,
+        *,
+        space_id: str,
+        memory_scope_id: str,
+        kind: str | None,
+        status: str | None,
+        limit: int,
+    ) -> list[MemoryAnchor]:
+        """List semantic anchors in a memory_scope."""
+
+    async def save(self, anchor: MemoryAnchor) -> MemoryAnchor:
+        """Persist changed anchor details."""
 
 
 class FactRelationRepositoryPort(Protocol):

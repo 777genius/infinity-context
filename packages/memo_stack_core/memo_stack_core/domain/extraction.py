@@ -360,6 +360,14 @@ class AssetExtractionJob:
             status=AssetExtractionStatus.PENDING,
             safe_error_code=None,
             safe_error_message=None,
+            metadata=_safe_metadata(
+                {
+                    **dict(self.metadata),
+                    "processing_stage": "queued",
+                    "progress_percent": 0,
+                    "progress_message": "Waiting for extraction worker",
+                }
+            ),
             started_at=None,
             finished_at=None,
             lease_owner=None,

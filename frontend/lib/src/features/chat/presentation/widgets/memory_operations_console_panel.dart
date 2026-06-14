@@ -7,6 +7,7 @@ import 'package:frontend/src/features/chat/application/stores/chat_store.dart';
 import 'package:frontend/src/features/chat/domain/entities/asset_extraction.dart';
 import 'package:frontend/src/features/chat/domain/entities/memory_context_link.dart';
 import 'package:frontend/src/features/chat/domain/entities/memory_operations_console.dart';
+import 'package:frontend/src/features/chat/presentation/widgets/memory_operations_link_review_tab.dart';
 import 'package:frontend/src/features/chat/presentation/widgets/sidebar_formatters.dart';
 import 'package:frontend/src/presentation/theme/app_theme.dart';
 
@@ -243,7 +244,7 @@ class _MemoryOperationsConsoleDialog extends StatelessWidget {
                       child: TabBarView(
                         children: [
                           _JobsTab(jobs: jobs.toList(growable: false)),
-                          _LinksTab(
+                          MemoryOperationsLinkReviewTab(
                             suggestions: suggestions.toList(growable: false),
                             console: console,
                           ),
@@ -314,75 +315,6 @@ class _JobsTab extends StatelessWidget {
       itemCount: jobs.length,
       separatorBuilder: (_, __) => const SizedBox(height: 8),
       itemBuilder: (_, index) => _ConsoleJobTile(job: jobs[index]),
-    );
-  }
-}
-
-class _LinksTab extends StatelessWidget {
-  final List<MemoryContextLinkSuggestion> suggestions;
-  final MemoryOperationsConsole? console;
-
-  const _LinksTab({required this.suggestions, required this.console});
-
-  @override
-  Widget build(BuildContext context) {
-    if (suggestions.isEmpty) {
-      final note = _noSuggestionNote(console);
-      final reasons = _noSuggestionReasons(console);
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                note,
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-              ),
-              if (reasons.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                for (final reason in reasons)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Icon(
-                          Icons.info_outline,
-                          size: 14,
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Text(
-                            reason,
-                            style:
-                                Theme.of(context).textTheme.bodySmall?.copyWith(
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .onSurfaceVariant,
-                                    ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-              ],
-            ],
-          ),
-        ),
-      );
-    }
-    return ListView.separated(
-      padding: const EdgeInsets.only(top: 12),
-      itemCount: suggestions.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 8),
-      itemBuilder: (_, index) =>
-          _ConsoleSuggestionTile(suggestion: suggestions[index]),
     );
   }
 }
@@ -639,78 +571,6 @@ class _ConsoleSuggestionRow extends StatelessWidget {
   }
 }
 
-class _ConsoleSuggestionTile extends StatelessWidget {
-  final MemoryContextLinkSuggestion suggestion;
-
-  const _ConsoleSuggestionTile({required this.suggestion});
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final matchedTerms = _metadataList(suggestion.metadata['matched_terms']);
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        border: Border.all(color: scheme.outlineVariant),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(_iconFor(suggestion.targetType),
-                  size: 17, color: scheme.primary),
-              const SizedBox(width: 8),
-              Expanded(child: _SuggestionTitle(suggestion: suggestion)),
-              if (suggestion.isPending)
-                _SuggestionActions(suggestion: suggestion),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            suggestion.targetPreview,
-            maxLines: 4,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: scheme.onSurfaceVariant,
-                ),
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: [
-              _DetailChip(label: 'reason: ${suggestion.reason}'),
-              if (suggestion.reviewReason != null)
-                _DetailChip(label: 'review: ${suggestion.reviewReason}'),
-              if (suggestion.reviewedAt != null)
-                _DetailChip(
-                  label: 'reviewed: ${_timeLabel(suggestion.reviewedAt!)}',
-                ),
-              if (matchedTerms.isNotEmpty)
-                _DetailChip(
-                  label: 'matched: ${matchedTerms.take(4).join(', ')}',
-                ),
-              _DetailChip(
-                  label: 'score: ${suggestion.score.toStringAsFixed(0)}'),
-              _DetailChip(label: 'confidence: ${suggestion.confidence}'),
-              _DetailChip(label: 'status: ${suggestion.status}'),
-              if (suggestion.metadata['target_tier'] != null)
-                _DetailChip(
-                    label: 'tier: ${suggestion.metadata['target_tier']}'),
-              if (suggestion.metadata['resolver_version'] != null)
-                _DetailChip(
-                  label: 'resolver: ${suggestion.metadata['resolver_version']}',
-                ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _SuggestionTitle extends StatelessWidget {
   final MemoryContextLinkSuggestion suggestion;
   final bool dense;
@@ -875,38 +735,6 @@ String _consoleSubtitle(ChatStore store, MemoryOperationsConsole? console) {
   final generated = console?.generatedAt;
   if (generated == null) return store.activeMemoryScopeExternalRef;
   return '${store.activeMemoryScopeExternalRef} - refreshed ${_timeLabel(generated)}';
-}
-
-String _noSuggestionNote(MemoryOperationsConsole? console) {
-  final explainability = console?.diagnostics['link_suggestion_explainability'];
-  if (explainability is Map) {
-    final note = explainability['no_suggestion_note']?.toString().trim();
-    if (note != null && note.isNotEmpty) return note;
-  }
-  return 'No pending links. New suggestions appear after saved captures or files are matched to visible same-scope memories.';
-}
-
-List<String> _noSuggestionReasons(MemoryOperationsConsole? console) {
-  final explainability = console?.diagnostics['link_suggestion_explainability'];
-  if (explainability is! Map) return const <String>[];
-  final raw = explainability['no_suggestion_reasons'];
-  if (raw is! List) return const <String>[];
-  return raw
-      .map((item) {
-        if (item is Map) return item['label']?.toString().trim() ?? '';
-        return item.toString().trim();
-      })
-      .where((item) => item.isNotEmpty)
-      .take(4)
-      .toList(growable: false);
-}
-
-List<String> _metadataList(Object? value) {
-  if (value is! List) return const <String>[];
-  return value
-      .map((item) => item?.toString().trim() ?? '')
-      .where((item) => item.isNotEmpty)
-      .toList(growable: false);
 }
 
 String _timeLabel(DateTime value) {

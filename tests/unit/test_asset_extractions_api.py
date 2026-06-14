@@ -247,6 +247,48 @@ def test_pending_asset_extraction_can_be_canceled_before_worker(tmp_path: Path) 
         assert extracted["artifacts"] == []
 
 
+def test_canceled_asset_extraction_retry_resets_progress(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        upload = client.post(
+            "/v1/assets",
+            params={
+                "space_slug": "quick-capture",
+                "memory_scope_external_ref": "frontend",
+                "thread_external_ref": "alex-call",
+                "filename": "retry-canceled.txt",
+                "extract": "true",
+            },
+            content=b"This extraction is canceled first, then queued again.",
+            headers=auth_headers({"Content-Type": "text/plain"}),
+        )
+        assert upload.status_code == 201, upload.text
+        extraction_id = upload.json()["data"]["extraction"]["id"]
+
+        canceled = client.post(
+            f"/v1/asset-extractions/{extraction_id}/cancel",
+            headers=auth_headers(),
+        )
+        assert canceled.status_code == 202, canceled.text
+        assert canceled.json()["data"]["progress"]["stage"] == "canceled"
+
+        retry = client.post(
+            f"/v1/asset-extractions/{extraction_id}/retry",
+            headers=auth_headers(),
+        )
+        assert retry.status_code == 202, retry.text
+        retried = retry.json()["data"]
+        assert retried["status"] == "pending"
+        assert retried["safe_error_code"] is None
+        assert retried["progress"] == {
+            "stage": "queued",
+            "percent": 0,
+            "message": "Waiting for extraction worker",
+            "terminal": False,
+        }
+        assert retried["execution"]["cancellation_requested_at"] is None
+        assert retried["execution"]["retry_disposition"] is None
+
+
 def test_pdf_asset_extraction_indexes_pdf_text_and_artifacts(tmp_path: Path) -> None:
     marker = "PDF_MEMORY_SCOPE_DECISION"
     with make_client(tmp_path) as client:
@@ -621,9 +663,7 @@ def test_video_asset_extraction_stores_keyframe_artifact(tmp_path: Path) -> None
         assert extracted["metadata"]["duration_seconds"] > 0
         assert extracted["metadata"]["keyframe_status"] == "extracted"
         artifact_types = {item["artifact_type"] for item in extracted["artifacts"]}
-        assert {"extracted_json", "keyframe", "markdown", "media_manifest"}.issubset(
-            artifact_types
-        )
+        assert {"extracted_json", "keyframe", "markdown", "media_manifest"}.issubset(artifact_types)
         assert "video_frame_timeline" in artifact_types
         assert extracted["metadata"]["video_keyframe_count"] >= 1
 

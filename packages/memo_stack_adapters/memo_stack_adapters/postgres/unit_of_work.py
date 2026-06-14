@@ -29,6 +29,7 @@ from memo_stack_adapters.postgres.fact_repositories import (
 )
 from memo_stack_adapters.postgres.models import Base
 from memo_stack_adapters.postgres.repositories import (
+    PostgresAnchorRepository,
     PostgresCaptureRepository,
     PostgresChunkRepository,
     PostgresDocumentRepository,
@@ -631,6 +632,7 @@ class PostgresUnitOfWork:
         self.asset_extractions = PostgresAssetExtractionRepository(self._session)
         self.context_links = PostgresContextLinkRepository(self._session)
         self.context_link_suggestions = PostgresContextLinkSuggestionRepository(self._session)
+        self.anchors = PostgresAnchorRepository(self._session)
         self.episodes = PostgresEpisodeRepository(self._session)
         self.documents = PostgresDocumentRepository(self._session)
         self.chunks = PostgresChunkRepository(self._session)

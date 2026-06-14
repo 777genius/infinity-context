@@ -317,6 +317,167 @@ void main() {
     );
   });
 
+  testWidgets('operations console filters review history by status and type', (
+    tester,
+  ) async {
+    final repo = _UxFakeChatRepository();
+    repo.contextLinkSuggestions = [
+      _suggestion('ctxlinksug-pending'),
+      _suggestion(
+        'ctxlinksug-anchor',
+        status: 'rejected',
+        targetType: 'anchor',
+        targetId: 'anchor-alex',
+        metadata: const {
+          'target_label': 'Alex',
+          'target_preview': 'Person anchor observed from capture text.',
+          'anchor_kind': 'person',
+          'normalized_key': 'alex',
+          'matched_terms': ['alex'],
+        },
+      ),
+      _suggestion(
+        'ctxlinksug-approved',
+        status: 'approved',
+        targetType: 'document',
+        targetId: 'doc-1',
+        metadata: const {
+          'target_label': 'Architecture notes',
+          'target_preview': 'Document about memory architecture.',
+        },
+      ),
+    ];
+    final store = ChatStore(repo, null);
+    addTearDown(store.dispose);
+    addTearDown(repo.close);
+
+    await store.refreshOperationsConsole();
+    await _pumpWithStore(
+      tester,
+      store: store,
+      child: const Scaffold(
+        body: SizedBox(width: 340, height: 620, child: ChatListSidebar()),
+      ),
+    );
+
+    await tester
+        .tap(find.byKey(const ValueKey('memory_operations_open_button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Link suggestions'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('All 3'), findsOneWidget);
+    expect(find.text('Pending 1'), findsOneWidget);
+    expect(find.text('Rejected 1'), findsOneWidget);
+    expect(find.text('person anchor 1'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey('memory_link_status_filter_rejected')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Alex'), findsOneWidget);
+    expect(
+      find.byKey(
+          const ValueKey('memory_operations_suggestion_ctxlinksug_pending')),
+      findsNothing,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('memory_link_type_filter_person_anchor')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('anchor: person'), findsOneWidget);
+    expect(find.textContaining('key: alex'), findsOneWidget);
+  });
+
+  testWidgets('operations console opens suggestion evidence modal', (
+    tester,
+  ) async {
+    final repo = _UxFakeChatRepository();
+    repo.contextLinkSuggestions = [_suggestion('ctxlinksug-1')];
+    final store = ChatStore(repo, null);
+    addTearDown(store.dispose);
+    addTearDown(repo.close);
+
+    await store.refreshOperationsConsole();
+    await _pumpWithStore(
+      tester,
+      store: store,
+      child: const Scaffold(
+        body: SizedBox(width: 340, height: 620, child: ChatListSidebar()),
+      ),
+    );
+
+    await tester
+        .tap(find.byKey(const ValueKey('memory_operations_open_button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Link suggestions'));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('memory_operations_evidence_ctxlinksug_1')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('memory_link_evidence_dialog')),
+        findsOneWidget);
+    expect(find.text('Link evidence'), findsOneWidget);
+    expect(find.text('capture capture-1'), findsOneWidget);
+    expect(find.textContaining('matched_terms: alex, q3'), findsOneWidget);
+  });
+
+  testWidgets('operations console creates edited manual link from suggestion', (
+    tester,
+  ) async {
+    final repo = _UxFakeChatRepository();
+    repo.contextLinkSuggestions = [_suggestion('ctxlinksug-1')];
+    final store = ChatStore(repo, null);
+    addTearDown(store.dispose);
+    addTearDown(repo.close);
+
+    await store.refreshOperationsConsole();
+    await _pumpWithStore(
+      tester,
+      store: store,
+      child: const Scaffold(
+        body: SizedBox(width: 340, height: 620, child: ChatListSidebar()),
+      ),
+    );
+
+    await tester
+        .tap(find.byKey(const ValueKey('memory_operations_open_button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Link suggestions'));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('memory_operations_edit_ctxlinksug_1')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('memory_manual_link_dialog')),
+        findsOneWidget);
+    await tester.enterText(
+      find.byKey(const ValueKey('memory_manual_link_target_id_field')),
+      'fact-edited',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('memory_manual_link_reason_field')),
+      'manual override',
+    );
+    await tester
+        .tap(find.byKey(const ValueKey('memory_manual_link_save_button')));
+    await tester.pumpAndSettle();
+
+    expect(repo.createdContextLinks.single['targetId'], 'fact-edited');
+    expect(repo.createdContextLinks.single['reason'], 'manual override');
+    expect(repo.reviewedSuggestions, ['ctxlinksug-1:reject']);
+    expect(
+      repo.reviewedSuggestionReasons['ctxlinksug-1'],
+      'replaced by manual link',
+    );
+  });
+
   testWidgets('sidebar reviews pending context link suggestions', (
     tester,
   ) async {
@@ -694,6 +855,7 @@ class _UxFakeChatRepository implements ChatRepository {
   Object? operationsConsoleError;
   int listExtractionCalls = 0;
   final downloadedArtifactIds = <String>[];
+  final createdContextLinks = <Map<String, String>>[];
   final reviewedSuggestions = <String>[];
   final reviewedSuggestionReasons = <String, String?>{};
   final Map<String, MemoryScope> scopesByRef = {
@@ -804,7 +966,17 @@ class _UxFakeChatRepository implements ChatRepository {
     required String relationType,
     required String confidence,
     required String reason,
-  }) async {}
+  }) async {
+    createdContextLinks.add({
+      'sourceType': sourceType,
+      'sourceId': sourceId,
+      'targetType': targetType,
+      'targetId': targetId,
+      'relationType': relationType,
+      'confidence': confidence,
+      'reason': reason,
+    });
+  }
 
   @override
   Future<String> uploadFile(
@@ -1082,6 +1254,9 @@ MemoryContextLink _link(String id, {required String sourceId}) {
 MemoryContextLinkSuggestion _suggestion(
   String id, {
   String status = 'pending',
+  String targetType = 'fact',
+  String targetId = 'fact-1',
+  Map<String, dynamic>? metadata,
   String? reviewReason,
   DateTime? reviewedAt,
 }) {
@@ -1092,18 +1267,19 @@ MemoryContextLinkSuggestion _suggestion(
     memoryScopeId: 'scope-default',
     sourceType: 'capture',
     sourceId: 'capture-1',
-    targetType: 'fact',
-    targetId: 'fact-1',
+    targetType: targetType,
+    targetId: targetId,
     relationType: 'related_to',
     confidence: 'high',
     reason: 'matching text',
     score: 88,
     status: status,
-    metadata: const {
-      'target_label': 'Q3 roadmap',
-      'target_preview': 'Alex confirmed Q3 rollout.',
-      'matched_terms': ['alex', 'q3'],
-    },
+    metadata: metadata ??
+        const {
+          'target_label': 'Q3 roadmap',
+          'target_preview': 'Alex confirmed Q3 rollout.',
+          'matched_terms': ['alex', 'q3'],
+        },
     createdAt: now,
     updatedAt: now,
     reviewedAt: reviewedAt,

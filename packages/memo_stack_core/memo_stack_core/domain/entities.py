@@ -6,6 +6,7 @@ and persistence models belong outside memo_stack_core.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime
 from enum import StrEnum
@@ -22,6 +23,7 @@ MemoryEpisodeId = NewType("MemoryEpisodeId", str)
 MemoryDocumentId = NewType("MemoryDocumentId", str)
 MemoryChunkId = NewType("MemoryChunkId", str)
 MemorySuggestionId = NewType("MemorySuggestionId", str)
+MemoryAnchorId = NewType("MemoryAnchorId", str)
 
 
 class FactStatus(StrEnum):
@@ -112,6 +114,12 @@ class MemoryChunkKind(StrEnum):
     DOCUMENT_REFERENCE = "document_reference"
     FACT_EVIDENCE = "fact_evidence"
     AI_RESPONSE = "ai_response"
+
+
+class MemoryAnchorKind(StrEnum):
+    PERSON = "person"
+    EVENT = "event"
+    PROJECT = "project"
 
 
 class SpeakerRole(StrEnum):
@@ -272,6 +280,90 @@ class MemoryThread:
             created_at=now,
             updated_at=now,
         )
+
+
+@dataclass(frozen=True)
+class MemoryAnchor:
+    id: MemoryAnchorId
+    space_id: SpaceId
+    memory_scope_id: MemoryScopeId
+    kind: MemoryAnchorKind
+    normalized_key: str
+    label: str
+    aliases: tuple[str, ...]
+    description: str | None
+    status: LifecycleStatus
+    metadata: Mapping[str, object]
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        anchor_id: MemoryAnchorId,
+        space_id: SpaceId,
+        memory_scope_id: MemoryScopeId,
+        kind: MemoryAnchorKind,
+        normalized_key: str,
+        label: str,
+        now: datetime,
+        aliases: tuple[str, ...] = (),
+        description: str | None = None,
+        metadata: Mapping[str, object] | None = None,
+    ) -> MemoryAnchor:
+        safe_key = normalized_key.strip().lower()
+        safe_label = label.strip()
+        if not safe_key:
+            raise MemoryValidationError("MemoryAnchor normalized_key is required")
+        if not safe_label:
+            raise MemoryValidationError("MemoryAnchor label is required")
+        return cls(
+            id=anchor_id,
+            space_id=space_id,
+            memory_scope_id=memory_scope_id,
+            kind=kind,
+            normalized_key=safe_key[:160],
+            label=safe_label[:240],
+            aliases=_unique_aliases((safe_label, *aliases)),
+            description=description.strip()[:500] if description and description.strip() else None,
+            status=LifecycleStatus.ACTIVE,
+            metadata=dict(metadata or {}),
+            created_at=now,
+            updated_at=now,
+        )
+
+    def merge_observation(
+        self,
+        *,
+        label: str | None = None,
+        aliases: tuple[str, ...] = (),
+        metadata: Mapping[str, object] | None = None,
+        now: datetime,
+    ) -> MemoryAnchor:
+        next_label = self.label if label is None or not label.strip() else label.strip()[:240]
+        return replace(
+            self,
+            label=next_label,
+            aliases=_unique_aliases((*self.aliases, next_label, *aliases)),
+            metadata={**dict(self.metadata), **dict(metadata or {})},
+            updated_at=now,
+        )
+
+
+def _unique_aliases(values: tuple[str, ...]) -> tuple[str, ...]:
+    seen: set[str] = set()
+    aliases: list[str] = []
+    for value in values:
+        alias = value.strip()
+        key = alias.lower()
+        if not alias or key in seen:
+            continue
+        seen.add(key)
+        aliases.append(alias[:240])
+        if len(aliases) >= 20:
+            break
+    return tuple(aliases)
 
 
 @dataclass(frozen=True)

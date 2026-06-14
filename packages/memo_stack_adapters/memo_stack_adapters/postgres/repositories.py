@@ -6,6 +6,7 @@ from datetime import datetime
 
 from memo_stack_core.domain.capture import CanonicalCapture
 from memo_stack_core.domain.entities import (
+    MemoryAnchor,
     MemoryChunk,
     MemoryDocument,
     MemoryEpisode,
@@ -16,6 +17,7 @@ from memo_stack_core.domain.events import OutboxEvent
 from memo_stack_core.domain.idempotency import IdempotencyRecord
 from memo_stack_core.ports.captures import CaptureRepositoryPort
 from memo_stack_core.ports.repositories import (
+    AnchorRepositoryPort,
     ChunkRepositoryPort,
     DocumentRepositoryPort,
     EpisodeRepositoryPort,
@@ -29,6 +31,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from memo_stack_adapters.postgres.mappers import (
+    anchor_row_to_domain,
+    anchor_to_row,
+    apply_anchor_to_row,
     apply_capture_to_row,
     apply_suggestion_to_row,
     capture_row_to_domain,
@@ -42,6 +47,7 @@ from memo_stack_adapters.postgres.mappers import (
     suggestion_to_row,
 )
 from memo_stack_adapters.postgres.models import (
+    MemoryAnchorRow,
     MemoryCaptureRow,
     MemoryChunkRow,
     MemoryDocumentRow,
@@ -63,6 +69,82 @@ class PostgresEpisodeRepository(EpisodeRepositoryPort):
     async def create(self, episode: MemoryEpisode) -> MemoryEpisode:
         self._session.add(episode_to_row(episode))
         return episode
+
+
+class PostgresAnchorRepository(AnchorRepositoryPort):
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def create(self, anchor: MemoryAnchor) -> MemoryAnchor:
+        self._session.add(anchor_to_row(anchor))
+        try:
+            await self._session.flush()
+        except IntegrityError as exc:
+            await self._session.rollback()
+            raise MemoryConflictError("Semantic anchor conflicted with existing data") from exc
+        return anchor
+
+    async def get_by_id(self, anchor_id: str) -> MemoryAnchor | None:
+        row = await self._session.get(MemoryAnchorRow, anchor_id)
+        return anchor_row_to_domain(row) if row is not None else None
+
+    async def find_active_by_key(
+        self,
+        *,
+        space_id: str,
+        memory_scope_id: str,
+        kind: str,
+        normalized_key: str,
+    ) -> MemoryAnchor | None:
+        row = (
+            await self._session.execute(
+                select(MemoryAnchorRow)
+                .where(
+                    MemoryAnchorRow.space_id == space_id,
+                    MemoryAnchorRow.memory_scope_id == memory_scope_id,
+                    MemoryAnchorRow.kind == kind,
+                    MemoryAnchorRow.normalized_key == normalized_key,
+                    MemoryAnchorRow.status == "active",
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        return anchor_row_to_domain(row) if row is not None else None
+
+    async def list_for_scope(
+        self,
+        *,
+        space_id: str,
+        memory_scope_id: str,
+        kind: str | None,
+        status: str | None,
+        limit: int,
+    ) -> list[MemoryAnchor]:
+        conditions = [
+            MemoryAnchorRow.space_id == space_id,
+            MemoryAnchorRow.memory_scope_id == memory_scope_id,
+        ]
+        if kind:
+            conditions.append(MemoryAnchorRow.kind == kind)
+        if status:
+            conditions.append(MemoryAnchorRow.status == status)
+        rows = (
+            await self._session.execute(
+                select(MemoryAnchorRow)
+                .where(*conditions)
+                .order_by(MemoryAnchorRow.updated_at.desc(), MemoryAnchorRow.id.desc())
+                .limit(limit)
+            )
+        ).scalars()
+        return [anchor_row_to_domain(row) for row in rows]
+
+    async def save(self, anchor: MemoryAnchor) -> MemoryAnchor:
+        row = await self._session.get(MemoryAnchorRow, str(anchor.id))
+        if row is None:
+            raise MemoryConflictError("Semantic anchor was deleted before save")
+        apply_anchor_to_row(anchor, row)
+        await self._session.flush()
+        return anchor
 
 
 class PostgresDocumentRepository(DocumentRepositoryPort):

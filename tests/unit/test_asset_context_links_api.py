@@ -441,6 +441,217 @@ def test_persisted_context_link_suggestions_can_be_reviewed(tmp_path: Path) -> N
     assert links.json()["data"][0]["target_id"] == fact.json()["data"]["id"]
 
 
+def test_persisted_context_link_suggestions_create_semantic_anchors(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        capture = client.post(
+            "/v1/captures",
+            json={
+                "space_slug": "quick-capture",
+                "memory_scope_external_ref": "default",
+                "thread_external_ref": "anchor-thread",
+                "source_agent": "memo-frontend",
+                "source_kind": "manual",
+                "event_type": "QuickCapture",
+                "actor_role": "user",
+                "source_event_id": "capture-anchor-review",
+                "text": (
+                    "Alex shared Project Atlas notes from meeting last week "
+                    "about Qdrant document memory."
+                ),
+                "source_authority": "user_statement",
+            },
+            headers=auth_headers(),
+        )
+        assert capture.status_code == 201, capture.text
+
+        suggestions = client.post(
+            "/v1/link-suggestions",
+            json={
+                "space_slug": "quick-capture",
+                "memory_scope_external_ref": "default",
+                "thread_external_ref": "anchor-thread",
+                "source_type": "capture",
+                "source_id": capture.json()["data"]["id"],
+                "text": "Alex Project Atlas meeting last week Qdrant",
+                "persist": True,
+                "limit": 10,
+            },
+            headers=auth_headers(),
+        )
+        assert suggestions.status_code == 200, suggestions.text
+        candidates = suggestions.json()["data"]["candidates"]
+        anchor_candidates = [item for item in candidates if item["target_type"] == "anchor"]
+        anchor_kinds = {item["metadata"]["anchor_kind"] for item in anchor_candidates}
+
+        assert {"person", "project", "event"} <= anchor_kinds
+        assert any(item["metadata"]["normalized_key"] == "alex" for item in anchor_candidates)
+        assert any(
+            item["metadata"]["normalized_key"] == "atlas"
+            and item["metadata"]["anchor_kind"] == "project"
+            for item in anchor_candidates
+        )
+        assert any(
+            item["metadata"]["normalized_key"] == "meeting last week"
+            and item["metadata"]["anchor_kind"] == "event"
+            for item in anchor_candidates
+        )
+
+        person_suggestion = next(
+            item for item in anchor_candidates if item["metadata"]["normalized_key"] == "alex"
+        )
+        approved = client.post(
+            f"/v1/context-link-suggestions/{person_suggestion['suggestion_id']}/review",
+            json={"action": "approve", "reason": "confirmed person anchor"},
+            headers=auth_headers(),
+        )
+        assert approved.status_code == 200, approved.text
+        review_data = approved.json()["data"]
+        assert review_data["suggestion"]["target_type"] == "anchor"
+        assert review_data["suggestion"]["status"] == "approved"
+        assert review_data["link"]["target_type"] == "anchor"
+        assert review_data["link"]["metadata"]["anchor_kind"] == "person"
+
+
+def test_context_linking_quality_golden_handles_people_events_projects_and_decoys(
+    tmp_path: Path,
+) -> None:
+    with make_client(tmp_path) as client:
+        right_fact = client.post(
+            "/v1/facts",
+            json={
+                "space_slug": "linking-quality",
+                "memory_scope_external_ref": "default",
+                "thread_external_ref": "atlas-review",
+                "text": (
+                    "Project Atlas uses Qdrant chunks for screenshot memory. "
+                    "Alex owns the follow-up from the meeting last week."
+                ),
+                "kind": "architecture_decision",
+                "source_refs": [{"source_type": "manual", "source_id": "atlas-right"}],
+                "category": "project_context",
+                "tags": ["project-atlas", "alex", "qdrant"],
+            },
+            headers=auth_headers({"Idempotency-Key": "linking-quality-right"}),
+        )
+        decoy_fact = client.post(
+            "/v1/facts",
+            json={
+                "space_slug": "linking-quality",
+                "memory_scope_external_ref": "default",
+                "thread_external_ref": "atlas-review",
+                "text": (
+                    "Project Atlas Mobile tracks onboarding copy and unrelated "
+                    "launch checklist work."
+                ),
+                "kind": "note",
+                "source_refs": [{"source_type": "manual", "source_id": "atlas-decoy"}],
+                "category": "project_context",
+                "tags": ["project-atlas-mobile"],
+            },
+            headers=auth_headers({"Idempotency-Key": "linking-quality-decoy"}),
+        )
+        capture = client.post(
+            "/v1/captures",
+            json={
+                "space_slug": "linking-quality",
+                "memory_scope_external_ref": "default",
+                "thread_external_ref": "atlas-review",
+                "source_agent": "memo-frontend",
+                "source_kind": "manual",
+                "event_type": "QuickCapture",
+                "actor_role": "user",
+                "source_event_id": "linking-quality-capture",
+                "text": (
+                    "Screenshot from Alex after Project Atlas meeting last week "
+                    "about Qdrant chunks. Chat with Alex an hour ago confirmed it."
+                ),
+                "source_authority": "user_statement",
+            },
+            headers=auth_headers(),
+        )
+        assert right_fact.status_code == 201, right_fact.text
+        assert decoy_fact.status_code == 201, decoy_fact.text
+        assert capture.status_code == 201, capture.text
+
+        suggestions = client.post(
+            "/v1/link-suggestions",
+            json={
+                "space_slug": "linking-quality",
+                "memory_scope_external_ref": "default",
+                "thread_external_ref": "atlas-review",
+                "source_type": "capture",
+                "source_id": capture.json()["data"]["id"],
+                "text": (
+                    "Alex Project Atlas meeting last week Qdrant chunks chat with Alex an hour ago"
+                ),
+                "persist": True,
+                "limit": 12,
+            },
+            headers=auth_headers(),
+        )
+        assert suggestions.status_code == 200, suggestions.text
+        candidates = suggestions.json()["data"]["candidates"]
+        fact_candidates = [item for item in candidates if item["target_type"] == "fact"]
+        anchor_candidates = [item for item in candidates if item["target_type"] == "anchor"]
+
+        assert fact_candidates, candidates
+        assert fact_candidates[0]["target_id"] == right_fact.json()["data"]["id"]
+        assert fact_candidates[0]["target_id"] != decoy_fact.json()["data"]["id"]
+        assert {"alex", "project", "atlas", "qdrant"}.issubset(
+            set(fact_candidates[0]["metadata"]["matched_terms"])
+        )
+
+        anchor_keys = {
+            (item["metadata"]["anchor_kind"], item["metadata"]["normalized_key"])
+            for item in anchor_candidates
+        }
+        assert ("person", "alex") in anchor_keys
+        assert ("project", "atlas") in anchor_keys
+        assert ("event", "meeting last week") in anchor_keys
+        assert ("event", "chat an hour ago") in anchor_keys or (
+            "event",
+            "chat hour ago",
+        ) in anchor_keys
+
+
+def test_context_linking_quality_golden_empty_scope_returns_no_candidates(
+    tmp_path: Path,
+) -> None:
+    with make_client(tmp_path) as client:
+        space = client.post(
+            "/v1/spaces",
+            json={"slug": "empty-linking-quality", "name": "Empty linking quality"},
+            headers=auth_headers(),
+        )
+        assert space.status_code == 201, space.text
+        scope = client.post(
+            "/v1/memory-scopes",
+            json={
+                "space_id": space.json()["data"]["id"],
+                "external_ref": "default",
+                "name": "Default",
+            },
+            headers=auth_headers(),
+        )
+        assert scope.status_code == 201, scope.text
+
+        suggestions = client.post(
+            "/v1/link-suggestions",
+            json={
+                "space_slug": "empty-linking-quality",
+                "memory_scope_external_ref": "default",
+                "text": "No existing candidate should match this isolated note.",
+                "limit": 10,
+            },
+            headers=auth_headers(),
+        )
+
+    assert suggestions.status_code == 200, suggestions.text
+    payload = suggestions.json()["data"]
+    assert payload["candidates"] == []
+    assert payload["diagnostics"]["candidate_count"] == 0
+
+
 def test_operations_console_summarizes_ingestion_and_link_review(tmp_path: Path) -> None:
     with make_client(tmp_path) as client:
         upload = client.post(
