@@ -13,7 +13,7 @@ ARG MEMO_STACK_TORCH_INDEX_URL="https://download.pytorch.org/whl/cpu"
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl ffmpeg tesseract-ocr \
+    && apt-get install -y --no-install-recommends ca-certificates curl ffmpeg gosu tesseract-ocr \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml README.md ./
@@ -37,7 +37,11 @@ RUN useradd --create-home --home-dir /home/memo --shell /usr/sbin/nologin memo \
     && mkdir -p /var/lib/memo-stack/assets \
     && chown -R memo:memo /var/lib/memo-stack /home/memo
 
-USER memo
+COPY docker/memo-stack-entrypoint.sh /usr/local/bin/memo-stack-entrypoint
+
+RUN chmod 0755 /usr/local/bin/memo-stack-entrypoint
+
+ENTRYPOINT ["memo-stack-entrypoint"]
 
 EXPOSE 7788
 

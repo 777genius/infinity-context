@@ -51,7 +51,11 @@ def test_selfhost_compose_has_team_deployment_contract() -> None:
 
     assert "FROM python:3.12-slim" in dockerfile
     assert 'CMD ["python", "-m", "memo_stack_server.main"]' in dockerfile
-    assert "USER memo" in dockerfile
+    assert 'ENTRYPOINT ["memo-stack-entrypoint"]' in dockerfile
+    assert 'exec gosu memo "$@"' in dockerfile or (
+        'exec gosu memo "$@"'
+        in (ROOT / "docker" / "memo-stack-entrypoint.sh").read_text(encoding="utf-8")
+    )
     assert "MEMORY_DEPLOY_PROFILE: server" in compose
     assert 'MEMORY_AUTO_CREATE_SCHEMA: "false"' in compose
     assert "memo_stack_migrate:" in compose
