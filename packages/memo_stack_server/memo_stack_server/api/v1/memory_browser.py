@@ -18,6 +18,7 @@ from memo_stack_server.api.v1.context_links import (
     context_link_to_response,
 )
 from memo_stack_server.api.v1.documents import chunk_to_response, document_to_response
+from memo_stack_server.api.v1.episodes import episode_to_response
 from memo_stack_server.api.v1.facts import fact_to_response
 from memo_stack_server.api.v1.scope_resolution import resolve_existing_single_scope
 from memo_stack_server.api.v1.spaces_memory_scopes import memory_scope_to_response
@@ -38,6 +39,7 @@ async def get_memory_browser(
     memory_scope_external_ref: Annotated[str | None, Query(min_length=1, max_length=200)] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     fact_status: Annotated[str | None, Query(max_length=40)] = "active",
+    episode_status: Annotated[str | None, Query(max_length=40)] = "active",
     document_status: Annotated[str | None, Query(max_length=40)] = "active",
     chunk_status: Annotated[str | None, Query(max_length=40)] = "active",
     extraction_status: Annotated[str | None, Query(max_length=40)] = None,
@@ -66,6 +68,7 @@ async def get_memory_browser(
             memory_scope_id=scope.memory_scope_id,
             limit=limit,
             fact_status=fact_status,
+            episode_status=episode_status,
             document_status=document_status,
             chunk_status=chunk_status,
             extraction_status=extraction_status,
@@ -82,6 +85,7 @@ async def get_memory_browser(
             "generated_at": result.generated_at.isoformat(),
             "memory_scope": memory_scope_to_response(result.memory_scope),
             "facts": [fact_to_response(fact) for fact in result.facts],
+            "episodes": [episode_to_response(episode) for episode in result.episodes],
             "documents": [document_to_response(document) for document in result.documents],
             "chunks": [chunk_to_response(chunk) for chunk in result.chunks],
             "extraction_jobs": [
@@ -119,6 +123,7 @@ def _empty_browser_response(*, limit: int) -> dict[str, Any]:
         "generated_at": None,
         "memory_scope": None,
         "facts": [],
+        "episodes": [],
         "documents": [],
         "chunks": [],
         "extraction_jobs": [],
@@ -130,6 +135,7 @@ def _empty_browser_response(*, limit: int) -> dict[str, Any]:
         "context_link_suggestions": [],
         "stats": {
             "facts": 0,
+            "episodes": 0,
             "documents": 0,
             "chunks": 0,
             "extraction_jobs": 0,

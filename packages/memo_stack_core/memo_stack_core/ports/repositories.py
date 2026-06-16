@@ -278,6 +278,17 @@ class EpisodeRepositoryPort(Protocol):
     async def create(self, episode: MemoryEpisode) -> MemoryEpisode:
         """Persist a canonical transcript/interview episode."""
 
+    async def list_for_scope(
+        self,
+        *,
+        space_id: str,
+        memory_scope_id: str,
+        thread_id: str | None,
+        status: str | None,
+        limit: int,
+    ) -> list[MemoryEpisode]:
+        """List episodes for a single scope."""
+
 
 class DocumentRepositoryPort(Protocol):
     async def create(self, document: MemoryDocument) -> MemoryDocument:

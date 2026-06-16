@@ -672,6 +672,7 @@ def test_sdk_supports_assets_and_extraction_contract() -> None:
         "memory_scope_external_ref": "default",
         "limit": "30",
         "fact_status": "active",
+        "episode_status": "active",
         "document_status": "active",
         "chunk_status": "active",
         "extraction_status": "pending",

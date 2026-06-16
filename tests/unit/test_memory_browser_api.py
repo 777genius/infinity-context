@@ -64,6 +64,22 @@ def test_memory_browser_returns_scope_threads_evidence_anchors_and_links(
         )
         assert document.status_code == 201, document.text
 
+        episode = client.post(
+            "/v1/episodes",
+            json={
+                "space_slug": "browser",
+                "memory_scope_external_ref": "project-atlas",
+                "thread_external_ref": "alex-call",
+                "source_type": "transcript",
+                "source_external_id": "atlas-call-episode",
+                "text": "Alex call episode captured Project Atlas memory requirements.",
+                "speaker": "user",
+            },
+            headers=auth_headers(),
+        )
+        assert episode.status_code == 200, episode.text
+        episode_id = episode.json()["data"]["episode_id"]
+
         asset = client.post(
             "/v1/assets",
             params={
@@ -158,11 +174,17 @@ def test_memory_browser_returns_scope_threads_evidence_anchors_and_links(
     data = browser.json()["data"]
     assert data["memory_scope"]["external_ref"] == "project-atlas"
     assert {item["id"] for item in data["facts"]} == {fact.json()["data"]["id"]}
+    assert {item["id"] for item in data["episodes"]} == {episode_id}
     assert {item["id"] for item in data["documents"]} == {document.json()["data"]["id"]}
-    assert {item["document_id"] for item in data["chunks"]} == {document.json()["data"]["id"]}
-    assert (
-        data["chunks"][0]["text"]
-        == "Project Atlas document memory should appear in the browser."
+    assert any(
+        item["document_id"] == document.json()["data"]["id"]
+        and item["text"] == "Project Atlas document memory should appear in the browser."
+        for item in data["chunks"]
+    )
+    assert any(
+        item["episode_id"] == episode_id
+        and item["text"] == "Alex call episode captured Project Atlas memory requirements."
+        for item in data["chunks"]
     )
     assert {item["id"] for item in data["extraction_jobs"]} == {extraction_id}
     assert {item["external_ref"] for item in data["threads"]} == {"alex-call"}
@@ -173,10 +195,12 @@ def test_memory_browser_returns_scope_threads_evidence_anchors_and_links(
     assert {item["id"] for item in data["context_links"]} == {link.json()["data"]["id"]}
     assert data["context_link_suggestions"]
     assert data["stats"]["facts"] == 1
+    assert data["stats"]["episodes"] == 1
     assert data["stats"]["documents"] == 1
-    assert data["stats"]["chunks"] == 1
+    assert data["stats"]["chunks"] == 2
     assert data["stats"]["extraction_jobs"] == 1
     assert data["stats"]["threads"] == 1
     assert data["stats"]["active_context_links"] == 1
     assert data["diagnostics"]["browser_version"] == "memory-browser-v1"
+    assert data["diagnostics"]["statuses"]["episode"] == "active"
     assert data["diagnostics"]["statuses"]["chunk"] == "active"

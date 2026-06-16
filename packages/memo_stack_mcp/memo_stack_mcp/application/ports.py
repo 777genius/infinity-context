@@ -199,6 +199,7 @@ class MemoryGatewayPort(Protocol):
         scope: MemoryScope,
         limit: int,
         fact_status: str | None,
+        episode_status: str | None,
         document_status: str | None,
         chunk_status: str | None,
         extraction_status: str | None,

@@ -78,6 +78,7 @@ ContextLinkSuggestionStatus = Literal["pending", "approved", "rejected", "expire
 ContextLinkReviewAction = Literal["approve", "reject", "expire"]
 CaptureStatus = Literal["accepted", "rejected", "redacted", "purged"]
 MemoryBrowserThreadStatus = Literal["active", "deleted"]
+MemoryBrowserEpisodeStatus = Literal["active", "deleted"]
 MemoryBrowserDocumentStatus = Literal["active", "deleted"]
 MemoryBrowserChunkStatus = Literal["active", "deleted"]
 MemoryBrowserExtractionStatus = Literal[
@@ -1681,9 +1682,9 @@ def create_mcp_server(
         name="memory_browse_scope",
         title="Browse Memory Scope",
         description=(
-            "Load a read-only browser snapshot for one MemoryScope: durable facts, documents, "
-            "document chunks, asset extraction jobs, threads, captures, assets, semantic "
-            "anchors, approved "
+            "Load a read-only browser snapshot for one MemoryScope: durable facts, episodes, "
+            "documents, document chunks, asset extraction jobs, threads, captures, assets, "
+            "semantic anchors, approved "
             "context links, pending or reviewed link suggestions, stats, and diagnostics. Use "
             "this when the user wants to navigate what has been saved in a project/scope or "
             "inspect review state before approving links."
@@ -1704,6 +1705,10 @@ def create_mcp_server(
         ] = None,
         limit: Annotated[int, Field(default=50, ge=1, le=200)] = 50,
         fact_status: Annotated[FactStatus | None, Field(default="active")] = "active",
+        episode_status: Annotated[
+            MemoryBrowserEpisodeStatus | None,
+            Field(default="active"),
+        ] = "active",
         document_status: Annotated[
             MemoryBrowserDocumentStatus | None,
             Field(default="active"),
@@ -1741,6 +1746,7 @@ def create_mcp_server(
                 memory_scope_external_ref=memory_scope_external_ref,
                 limit=limit,
                 fact_status=fact_status,
+                episode_status=episode_status,
                 document_status=document_status,
                 chunk_status=chunk_status,
                 extraction_status=extraction_status,

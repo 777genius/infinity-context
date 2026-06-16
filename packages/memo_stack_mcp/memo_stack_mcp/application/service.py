@@ -39,6 +39,7 @@ from memo_stack_mcp.application.service_constants import (
     MEMORY_BROWSER_ASSET_STATUSES,
     MEMORY_BROWSER_CHUNK_STATUSES,
     MEMORY_BROWSER_DOCUMENT_STATUSES,
+    MEMORY_BROWSER_EPISODE_STATUSES,
     MEMORY_BROWSER_EXTRACTION_STATUSES,
     MEMORY_BROWSER_THREAD_STATUSES,
     MEMORY_KINDS,
@@ -599,6 +600,7 @@ class MemoryToolService(
         memory_scope_external_ref: str | None = None,
         limit: int = 50,
         fact_status: str | None = "active",
+        episode_status: str | None = "active",
         document_status: str | None = "active",
         chunk_status: str | None = "active",
         extraction_status: str | None = None,
@@ -611,6 +613,11 @@ class MemoryToolService(
     ) -> dict[str, Any]:
         async def action() -> dict[str, Any]:
             _ensure_optional_choice("fact_status", fact_status, FACT_STATUSES)
+            _ensure_optional_choice(
+                "episode_status",
+                episode_status,
+                MEMORY_BROWSER_EPISODE_STATUSES,
+            )
             _ensure_optional_choice(
                 "document_status",
                 document_status,
@@ -646,6 +653,7 @@ class MemoryToolService(
                 scope=self._scope(space_slug, memory_scope_external_ref, None),
                 limit=effective_limit,
                 fact_status=fact_status,
+                episode_status=episode_status,
                 document_status=document_status,
                 chunk_status=chunk_status,
                 extraction_status=extraction_status,

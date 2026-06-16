@@ -42,6 +42,7 @@ from memo_stack_adapters.postgres.mappers import (
     chunk_to_row,
     document_row_to_domain,
     document_to_row,
+    episode_row_to_domain,
     episode_to_row,
     suggestion_row_to_domain,
     suggestion_to_row,
@@ -51,6 +52,7 @@ from memo_stack_adapters.postgres.models import (
     MemoryCaptureRow,
     MemoryChunkRow,
     MemoryDocumentRow,
+    MemoryEpisodeRow,
     MemoryIdempotencyRecordRow,
     MemoryOutboxRow,
     MemorySuggestionRow,
@@ -69,6 +71,33 @@ class PostgresEpisodeRepository(EpisodeRepositoryPort):
     async def create(self, episode: MemoryEpisode) -> MemoryEpisode:
         self._session.add(episode_to_row(episode))
         return episode
+
+    async def list_for_scope(
+        self,
+        *,
+        space_id: str,
+        memory_scope_id: str,
+        thread_id: str | None,
+        status: str | None,
+        limit: int,
+    ) -> list[MemoryEpisode]:
+        conditions = [
+            MemoryEpisodeRow.space_id == space_id,
+            MemoryEpisodeRow.memory_scope_id == memory_scope_id,
+        ]
+        if thread_id is not None:
+            conditions.append(MemoryEpisodeRow.thread_id == thread_id)
+        if status is not None:
+            conditions.append(MemoryEpisodeRow.status == status)
+        rows = (
+            await self._session.execute(
+                select(MemoryEpisodeRow)
+                .where(*conditions)
+                .order_by(MemoryEpisodeRow.occurred_at.desc(), MemoryEpisodeRow.id.desc())
+                .limit(limit)
+            )
+        ).scalars()
+        return [episode_row_to_domain(row) for row in rows]
 
 
 class PostgresAnchorRepository(AnchorRepositoryPort):

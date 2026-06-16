@@ -268,6 +268,10 @@ def test_mcp_tool_annotations_are_closed_domain_and_typed() -> None:
             "disputed",
             "deleted",
         }
+        assert set(browse.inputSchema["properties"]["episode_status"]["anyOf"][0]["enum"]) == {
+            "active",
+            "deleted",
+        }
         assert set(browse.inputSchema["properties"]["document_status"]["anyOf"][0]["enum"]) == {
             "active",
             "deleted",

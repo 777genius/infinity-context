@@ -33,6 +33,16 @@ def test_memory_browser_and_operations_console_sdk_e2e(tmp_path: Path) -> None:
             source_external_id="browser-ops-sdk-document",
             idempotency_key="browser-ops-sdk-document",
         )
+        episode = client.ingest_episode(
+            space_slug="browser-ops-sdk-e2e",
+            memory_scope_external_ref="project-atlas",
+            thread_external_ref="alex-call",
+            source_type="transcript",
+            source_external_id="browser-ops-sdk-episode",
+            text="Alex call episode confirms screenshot memory review.",
+            speaker="user",
+            idempotency_key="browser-ops-sdk-episode",
+        )
         asset = client.upload_asset(
             space_slug="browser-ops-sdk-e2e",
             memory_scope_external_ref="project-atlas",
@@ -95,6 +105,7 @@ def test_memory_browser_and_operations_console_sdk_e2e(tmp_path: Path) -> None:
             memory_scope_external_ref="project-atlas",
             limit=100,
             fact_status="active",
+            episode_status="active",
             document_status="active",
             link_status="active",
             suggestion_status="approved",
@@ -117,8 +128,10 @@ def test_memory_browser_and_operations_console_sdk_e2e(tmp_path: Path) -> None:
     data = browser["data"]
     assert data["memory_scope"]["external_ref"] == "project-atlas"
     assert {item["id"] for item in data["facts"]} == {fact["data"]["id"]}
+    assert {item["id"] for item in data["episodes"]} == {episode["data"]["episode_id"]}
     assert {item["id"] for item in data["documents"]} == {document["data"]["id"]}
-    assert {item["document_id"] for item in data["chunks"]} == {document["data"]["id"]}
+    assert any(item["document_id"] == document["data"]["id"] for item in data["chunks"])
+    assert any(item["episode_id"] == episode["data"]["episode_id"] for item in data["chunks"])
     assert {item["id"] for item in data["extraction_jobs"]} == {extraction_id}
     assert {item["external_ref"] for item in data["threads"]} == {"alex-call"}
     assert {item["id"] for item in data["captures"]} == {capture["data"]["id"]}
@@ -130,8 +143,9 @@ def test_memory_browser_and_operations_console_sdk_e2e(tmp_path: Path) -> None:
     assert any(item["label"] == "Alex" for item in data["anchors"])
     assert any(item["label"] == "Atlas" for item in data["anchors"])
     assert data["stats"]["facts"] == 1
+    assert data["stats"]["episodes"] == 1
     assert data["stats"]["documents"] == 1
-    assert data["stats"]["chunks"] == 1
+    assert data["stats"]["chunks"] == 2
     assert data["stats"]["extraction_jobs"] == 1
     assert data["stats"]["active_context_links"] == 1
     assert data["stats"]["pending_context_link_suggestions"] == 0

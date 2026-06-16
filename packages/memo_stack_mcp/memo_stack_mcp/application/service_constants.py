@@ -18,6 +18,7 @@ FACT_RELATION_STATUSES = {"active", "deleted"}
 SUGGESTION_STATUSES = {"pending", "approved", "rejected", "expired"}
 SUGGESTION_OPERATIONS = {"add", "update", "delete", "review"}
 MEMORY_BROWSER_THREAD_STATUSES = {"active", "deleted"}
+MEMORY_BROWSER_EPISODE_STATUSES = {"active", "deleted"}
 MEMORY_BROWSER_DOCUMENT_STATUSES = {"active", "deleted"}
 MEMORY_BROWSER_CHUNK_STATUSES = {"active", "deleted"}
 MEMORY_BROWSER_EXTRACTION_STATUSES = {

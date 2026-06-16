@@ -7,7 +7,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
 from memo_stack_core.application import IngestEpisodeCommand
-from memo_stack_core.domain.entities import MemoryChunkKind, SpeakerRole, TrustLevel
+from memo_stack_core.domain.entities import MemoryChunkKind, MemoryEpisode, SpeakerRole, TrustLevel
 from memo_stack_core.domain.errors import MemoryValidationError
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -39,6 +39,24 @@ class IngestEpisodeRequest(BaseModel):
     language: str | None = Field(default=None, max_length=40)
     metadata: dict[str, Any] | None = None
     idempotency_key: str | None = Field(default=None, max_length=240)
+
+
+def episode_to_response(episode: MemoryEpisode) -> dict[str, Any]:
+    return {
+        "id": str(episode.id),
+        "space_id": str(episode.space_id),
+        "memory_scope_id": str(episode.memory_scope_id),
+        "thread_id": str(episode.thread_id),
+        "source_type": episode.source_type,
+        "source_external_id": episode.source_external_id,
+        "text": episode.text,
+        "speaker": episode.speaker.value,
+        "trust_level": episode.trust_level.value,
+        "status": episode.status.value,
+        "occurred_at": episode.occurred_at.isoformat(),
+        "created_at": episode.created_at.isoformat(),
+        "metadata": episode.metadata,
+    }
 
 
 @router.post("/episodes")

@@ -24,6 +24,7 @@ class MemoryBrowserGateway:
                     "external_ref": kwargs["scope"].memory_scope_external_ref,
                 },
                 "facts": [{"id": "fact_1", "text": "Alex confirmed Project Atlas."}],
+                "episodes": [{"id": "episode_1", "source_type": "transcript"}],
                 "documents": [{"id": "doc_1", "title": "Project Atlas notes"}],
                 "chunks": [{"id": "chunk_1", "document_id": "doc_1"}],
                 "extraction_jobs": [{"id": "extract_1", "status": "pending"}],
@@ -55,6 +56,7 @@ def test_service_browses_memory_scope_with_bounded_filters() -> None:
         assert result["ok"] is True
         assert result["data"]["memory_scope"]["external_ref"] == "project-atlas"
         assert result["data"]["facts"][0]["id"] == "fact_1"
+        assert result["data"]["episodes"][0]["id"] == "episode_1"
         assert result["data"]["documents"][0]["id"] == "doc_1"
         assert result["data"]["chunks"][0]["id"] == "chunk_1"
         assert result["data"]["extraction_jobs"][0]["id"] == "extract_1"
@@ -66,6 +68,7 @@ def test_service_browses_memory_scope_with_bounded_filters() -> None:
         assert payload["scope"].memory_scope_external_ref == "project-atlas"
         assert payload["limit"] == 200
         assert payload["fact_status"] == "active"
+        assert payload["episode_status"] == "active"
         assert payload["document_status"] == "active"
         assert payload["chunk_status"] == "active"
         assert payload["extraction_status"] is None
@@ -101,6 +104,7 @@ def test_http_gateway_requests_memory_browser_read_model() -> None:
             ),
             limit=25,
             fact_status="active",
+            episode_status="active",
             document_status="active",
             chunk_status="active",
             extraction_status="pending",
@@ -125,6 +129,7 @@ def test_http_gateway_requests_memory_browser_read_model() -> None:
                 "memory_scope_external_ref": "project-atlas",
                 "limit": "25",
                 "fact_status": "active",
+                "episode_status": "active",
                 "document_status": "active",
                 "chunk_status": "active",
                 "extraction_status": "pending",

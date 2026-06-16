@@ -262,6 +262,7 @@ class MemoryBrowserQuery:
     memory_scope_id: MemoryScopeId
     limit: int = 50
     fact_status: str | None = "active"
+    episode_status: str | None = "active"
     document_status: str | None = "active"
     chunk_status: str | None = "active"
     extraction_status: str | None = None
@@ -278,6 +279,7 @@ class MemoryBrowserResult:
     generated_at: datetime
     memory_scope: MemoryScope
     facts: tuple[MemoryFact, ...]
+    episodes: tuple[MemoryEpisode, ...]
     documents: tuple[MemoryDocument, ...]
     chunks: tuple[MemoryChunk, ...]
     extraction_jobs: tuple[AssetExtractionJob, ...]
