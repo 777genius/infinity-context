@@ -804,6 +804,13 @@ def test_sdk_supports_anchor_lifecycle_contract() -> None:
         status="active",
         limit=25,
     )
+    client.update_anchor(
+        "anchor_target",
+        label="Alexander",
+        aliases=["Alex"],
+        description="Edited person anchor.",
+    )
+    client.delete_anchor("anchor_obsolete", reason="obsolete anchor")
     client.backfill_anchors(
         space_slug="client-app",
         memory_scope_external_ref="default",
@@ -821,6 +828,8 @@ def test_sdk_supports_anchor_lifecycle_contract() -> None:
     assert [f"{method} {path}" for method, path, _params, _body in seen] == [
         "POST /v1/anchors",
         "GET /v1/anchors",
+        "PATCH /v1/anchors/anchor_target",
+        "DELETE /v1/anchors/anchor_obsolete",
         "POST /v1/anchors/backfill",
         "GET /v1/anchors/merge-suggestions",
         "POST /v1/anchors/anchor_source/merge",
@@ -843,21 +852,28 @@ def test_sdk_supports_anchor_lifecycle_contract() -> None:
         "limit": "25",
     }
     assert seen[2][3] == {
+        "label": "Alexander",
+        "aliases": ["Alex"],
+        "description": "Edited person anchor.",
+        "metadata": {},
+    }
+    assert seen[3][3] == {"reason": "obsolete anchor"}
+    assert seen[4][3] == {
         "space_slug": "client-app",
         "memory_scope_external_ref": "default",
         "limit_per_source": 20,
     }
-    assert seen[3][2] == {
+    assert seen[5][2] == {
         "space_slug": "client-app",
         "memory_scope_external_ref": "default",
         "kind": "person",
         "limit": "10",
     }
-    assert seen[4][3] == {
+    assert seen[6][3] == {
         "target_anchor_id": "anchor_target",
         "reason": "same person",
     }
-    assert seen[5][3] == {
+    assert seen[7][3] == {
         "alias": "Alex",
         "new_label": "Alexander",
         "reason": "split alias",

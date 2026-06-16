@@ -10,9 +10,11 @@ from memo_stack_core.application import (
     AnchorMergeSuggestionsQuery,
     BackfillAnchorsCommand,
     CreateAnchorCommand,
+    DeleteAnchorCommand,
     ListAnchorsQuery,
     MergeAnchorsCommand,
     SplitAnchorCommand,
+    UpdateAnchorCommand,
 )
 from memo_stack_core.domain.entities import MemoryAnchor
 from pydantic import BaseModel, ConfigDict, Field
@@ -48,6 +50,21 @@ class CreateAnchorRequest(AnchorScopeRequest):
     aliases: list[str] = Field(default_factory=list, max_length=20)
     description: str | None = Field(default=None, max_length=500)
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class UpdateAnchorRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    label: str | None = Field(default=None, min_length=1, max_length=240)
+    aliases: list[str] = Field(default_factory=list, max_length=20)
+    description: str | None = Field(default=None, max_length=500)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class DeleteAnchorRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(default="manual delete", min_length=1, max_length=320)
 
 
 class MergeAnchorsRequest(BaseModel):
@@ -128,6 +145,38 @@ async def create_anchor(
             description=request.description,
             metadata=request.metadata,
         )
+    )
+    return {"data": anchor_to_response(result.anchor)}
+
+
+@router.patch("/anchors/{anchor_id}")
+async def update_anchor(
+    anchor_id: str,
+    request: UpdateAnchorRequest,
+    container: Annotated[Container, Depends(get_container)],
+) -> dict[str, Any]:
+    ensure_server_writes_enabled(container)
+    result = await container.update_anchor.execute(
+        UpdateAnchorCommand(
+            anchor_id=anchor_id,
+            label=request.label,
+            aliases=tuple(request.aliases),
+            description=request.description,
+            metadata=request.metadata,
+        )
+    )
+    return {"data": anchor_to_response(result.anchor)}
+
+
+@router.delete("/anchors/{anchor_id}")
+async def delete_anchor(
+    anchor_id: str,
+    request: DeleteAnchorRequest,
+    container: Annotated[Container, Depends(get_container)],
+) -> dict[str, Any]:
+    ensure_server_writes_enabled(container)
+    result = await container.delete_anchor.execute(
+        DeleteAnchorCommand(anchor_id=anchor_id, reason=request.reason)
     )
     return {"data": anchor_to_response(result.anchor)}
 

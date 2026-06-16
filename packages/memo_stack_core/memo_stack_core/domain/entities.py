@@ -494,6 +494,7 @@ class MemoryAnchor:
     def update_details(
         self,
         *,
+        normalized_key: str | None = None,
         label: str | None = None,
         aliases: tuple[str, ...] = (),
         description: str | None = None,
@@ -503,8 +504,12 @@ class MemoryAnchor:
         if self.status != LifecycleStatus.ACTIVE:
             raise MemoryValidationError("Only active memory anchors can be updated")
         next_label = self.label if label is None or not label.strip() else label.strip()[:240]
+        next_key = self.normalized_key if normalized_key is None else normalized_key.strip().lower()
+        if not next_key:
+            raise MemoryValidationError("MemoryAnchor normalized_key is required")
         return replace(
             self,
+            normalized_key=next_key[:160],
             label=next_label,
             aliases=_unique_aliases((next_label, *self.aliases, *aliases)),
             description=(
@@ -513,6 +518,21 @@ class MemoryAnchor:
                 else description.strip()[:500] if description.strip() else None
             ),
             metadata={**dict(self.metadata), **dict(metadata or {})},
+            updated_at=now,
+        )
+
+    def delete(self, *, reason: str, now: datetime) -> MemoryAnchor:
+        if self.status == LifecycleStatus.DELETED:
+            return self
+        return replace(
+            self,
+            status=LifecycleStatus.DELETED,
+            metadata={
+                **dict(self.metadata),
+                "resolver_version": "anchor-lifecycle-v2",
+                "delete_reason": reason.strip()[:320] or "manual delete",
+                "deleted_at": now.isoformat(),
+            },
             updated_at=now,
         )
 

@@ -41,6 +41,10 @@ def test_web_ui_serves_browser_without_openapi_noise(tmp_path) -> None:
     assert "/v1/anchors" in js.text
     assert "createAnchor" in js.text
     assert "splitCsv" in js.text
+    assert "editAnchor" in js.text
+    assert "deleteAnchor" in js.text
+    assert "Edit Anchor" in js.text
+    assert "Delete Anchor" in js.text
     assert "/v1/anchors/merge-suggestions" in js.text
     assert "backfillAnchors" in js.text
     assert "mergeAnchorSuggestion" in js.text

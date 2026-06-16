@@ -22,9 +22,11 @@ from memo_stack_core.application.dto import (
     BackfillAnchorsCommand,
     BackfillAnchorsResult,
     CreateAnchorCommand,
+    DeleteAnchorCommand,
     ListAnchorsQuery,
     MergeAnchorsCommand,
     SplitAnchorCommand,
+    UpdateAnchorCommand,
 )
 from memo_stack_core.domain.entities import (
     LifecycleStatus,
@@ -34,7 +36,11 @@ from memo_stack_core.domain.entities import (
     MemoryScopeId,
     SpaceId,
 )
-from memo_stack_core.domain.errors import MemoryNotFoundError, MemoryValidationError
+from memo_stack_core.domain.errors import (
+    MemoryConflictError,
+    MemoryNotFoundError,
+    MemoryValidationError,
+)
 from memo_stack_core.ports.clock import ClockPort
 from memo_stack_core.ports.ids import IdGeneratorPort
 from memo_stack_core.ports.unit_of_work import UnitOfWorkFactoryPort, UnitOfWorkPort
@@ -125,6 +131,72 @@ class CreateAnchorUseCase:
                 )
             await uow.commit()
         return AnchorResult(anchor=anchor)
+
+
+class UpdateAnchorUseCase:
+    def __init__(
+        self,
+        *,
+        uow_factory: UnitOfWorkFactoryPort,
+        clock: ClockPort,
+    ) -> None:
+        self._uow_factory = uow_factory
+        self._clock = clock
+
+    async def execute(self, command: UpdateAnchorCommand) -> AnchorResult:
+        label = command.label.strip() if command.label is not None else None
+        if command.label is not None and not label:
+            raise MemoryValidationError("Anchor label is required")
+        normalized_key = normalize_anchor_key(label) if label else None
+        now = self._clock.now()
+        async with self._uow_factory() as uow:
+            anchor = await _get_anchor(uow, command.anchor_id, role="anchor")
+            if normalized_key and normalized_key != anchor.normalized_key:
+                conflict = await uow.anchors.find_active_by_key(
+                    space_id=str(anchor.space_id),
+                    memory_scope_id=str(anchor.memory_scope_id),
+                    kind=anchor.kind.value,
+                    normalized_key=normalized_key,
+                )
+                if conflict is not None and conflict.id != anchor.id:
+                    raise MemoryConflictError(
+                        "Anchor label conflicts with an existing active anchor"
+                    )
+            saved = await uow.anchors.save(
+                anchor.update_details(
+                    normalized_key=normalized_key,
+                    label=label,
+                    aliases=command.aliases,
+                    description=command.description,
+                    metadata={
+                        **dict(command.metadata or {}),
+                        "resolver_version": _ANCHOR_RESOLVER_VERSION,
+                        "last_edit_source": "manual",
+                    },
+                    now=now,
+                )
+            )
+            await uow.commit()
+        return AnchorResult(anchor=saved)
+
+
+class DeleteAnchorUseCase:
+    def __init__(
+        self,
+        *,
+        uow_factory: UnitOfWorkFactoryPort,
+        clock: ClockPort,
+    ) -> None:
+        self._uow_factory = uow_factory
+        self._clock = clock
+
+    async def execute(self, command: DeleteAnchorCommand) -> AnchorResult:
+        now = self._clock.now()
+        async with self._uow_factory() as uow:
+            anchor = await _get_anchor(uow, command.anchor_id, role="anchor")
+            deleted = await uow.anchors.save(anchor.delete(reason=command.reason, now=now))
+            await uow.commit()
+        return AnchorResult(anchor=deleted)
 
 
 class SuggestAnchorMergesUseCase:

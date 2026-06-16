@@ -353,6 +353,21 @@ class CreateAnchorCommand:
 
 
 @dataclass(frozen=True)
+class UpdateAnchorCommand:
+    anchor_id: str
+    label: str | None = None
+    aliases: tuple[str, ...] = ()
+    description: str | None = None
+    metadata: dict[str, object] | None = None
+
+
+@dataclass(frozen=True)
+class DeleteAnchorCommand:
+    anchor_id: str
+    reason: str = "manual delete"
+
+
+@dataclass(frozen=True)
 class AnchorResult:
     anchor: MemoryAnchor
 

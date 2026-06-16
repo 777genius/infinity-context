@@ -102,6 +102,34 @@ def test_anchor_backfill_merge_and_split_lifecycle(tmp_path: Path) -> None:
         assert "Atlas roadmap" in duplicate_data["aliases"]
         assert duplicate_data["description"] == "Updated manual project anchor."
 
+        edited_anchor = client.patch(
+            f"/v1/anchors/{manual_anchor_data['id']}",
+            json={
+                "label": "Atlas Roadmap",
+                "aliases": ["Project Atlas", "Atlas delivery"],
+                "description": "Edited manual project anchor.",
+            },
+            headers=auth_headers(),
+        )
+        assert edited_anchor.status_code == 200, edited_anchor.text
+        edited_data = edited_anchor.json()["data"]
+        assert edited_data["id"] == manual_anchor_data["id"]
+        assert edited_data["normalized_key"] == "atlas roadmap"
+        assert "Atlas delivery" in edited_data["aliases"]
+        assert edited_data["description"] == "Edited manual project anchor."
+        assert edited_data["metadata"]["last_edit_source"] == "manual"
+
+        deleted_anchor = client.request(
+            "DELETE",
+            f"/v1/anchors/{manual_anchor_data['id']}",
+            json={"reason": "obsolete manual project anchor"},
+            headers=auth_headers(),
+        )
+        assert deleted_anchor.status_code == 200, deleted_anchor.text
+        deleted_anchor_data = deleted_anchor.json()["data"]
+        assert deleted_anchor_data["status"] == "deleted"
+        assert deleted_anchor_data["metadata"]["delete_reason"] == "obsolete manual project anchor"
+
         document = client.post(
             "/v1/documents",
             json={
@@ -150,6 +178,7 @@ def test_anchor_backfill_merge_and_split_lifecycle(tmp_path: Path) -> None:
         assert ("person", "alex") in keys
         assert ("person", "алекс") in keys
         assert ("project", "atlas") in keys
+        assert ("project", "atlas roadmap") not in keys
         assert ("event", "meeting last week") in keys
 
         merge_suggestions = client.get(

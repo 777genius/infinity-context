@@ -487,6 +487,63 @@
     }
   }
 
+  async function editAnchor(anchor) {
+    const label = window.prompt("anchor label", anchor.label || "");
+    if (label === null) {
+      return;
+    }
+    const cleanLabel = label.trim();
+    if (!cleanLabel) {
+      setError("Anchor label is required.");
+      return;
+    }
+    const aliasesInput = window.prompt(
+      "aliases, comma separated",
+      aliasesWithoutLabel(anchor).join(", "),
+    );
+    if (aliasesInput === null) {
+      return;
+    }
+    const description = window.prompt("description", anchor.description || "");
+    if (description === null) {
+      return;
+    }
+    setError("");
+    try {
+      await apiJson(`/v1/anchors/${encodeURIComponent(anchor.id)}`, {
+        method: "PATCH",
+        body: withoutEmpty({
+          label: cleanLabel,
+          aliases: splitCsv(aliasesInput),
+          description: description.trim(),
+          metadata: { ui_edited: true },
+        }),
+      });
+      await refreshAll();
+      selectNode(`anchor:${anchor.id}`);
+    } catch (error) {
+      setError(error.message);
+    }
+  }
+
+  async function deleteAnchor(anchor) {
+    const reason = window.prompt("delete reason", "deleted in Memo Stack Browser");
+    if (reason === null) {
+      return;
+    }
+    setError("");
+    try {
+      await apiJson(`/v1/anchors/${encodeURIComponent(anchor.id)}`, {
+        method: "DELETE",
+        body: { reason: reason || "deleted in Memo Stack Browser" },
+      });
+      await refreshAll();
+      selectNode(null);
+    } catch (error) {
+      setError(error.message);
+    }
+  }
+
   async function mergeAnchorSuggestion(candidate) {
     const reason = window.prompt("merge reason", "same anchor confirmed in Memo Stack Browser");
     if (reason === null) {
@@ -510,9 +567,7 @@
 
   async function splitAnchorAlias(anchor) {
     const aliases = anchor.aliases || [];
-    const defaultAlias =
-      aliases.find((item) => item.toLowerCase() !== String(anchor.label || "").toLowerCase()) ||
-      "";
+    const defaultAlias = aliasesWithoutLabel(anchor)[0] || "";
     const alias = window.prompt("alias to split", defaultAlias);
     if (alias === null) {
       return;
@@ -1327,8 +1382,12 @@
     }
     if (node.type === "anchor" && node.data?.status === "active" && (node.data?.aliases || []).length) {
       const actions = document.createElement("div");
-      actions.className = "action-row one-action";
-      actions.append(actionButton("Split Alias", () => splitAnchorAlias(node.data)));
+      actions.className = "action-row";
+      actions.append(
+        actionButton("Edit Anchor", () => editAnchor(node.data), "primary-button"),
+        actionButton("Split Alias", () => splitAnchorAlias(node.data)),
+        actionButton("Delete Anchor", () => deleteAnchor(node.data)),
+      );
       panel.append(actions);
     }
     if (node.type === "context_link_suggestion") {
@@ -2039,6 +2098,11 @@
 
   function arrayOf(value) {
     return Array.isArray(value) ? value : [];
+  }
+
+  function aliasesWithoutLabel(anchor) {
+    const label = String(anchor?.label || "").toLowerCase();
+    return arrayOf(anchor?.aliases).filter((item) => String(item).toLowerCase() !== label);
   }
 
   function splitCsv(value) {

@@ -52,6 +52,19 @@ def test_anchor_lifecycle_sdk_e2e(tmp_path: Path) -> None:
         )
         assert manual_anchor_duplicate["data"]["id"] == manual_anchor["data"]["id"]
         assert "Atlas roadmap" in manual_anchor_duplicate["data"]["aliases"]
+        edited_manual_anchor = client.update_anchor(
+            manual_anchor["data"]["id"],
+            label="Atlas Roadmap",
+            aliases=["Project Atlas", "Atlas delivery"],
+            description="Edited manual project anchor in sdk e2e.",
+        )
+        assert edited_manual_anchor["data"]["normalized_key"] == "atlas roadmap"
+        assert "Atlas delivery" in edited_manual_anchor["data"]["aliases"]
+        deleted_manual_anchor = client.delete_anchor(
+            manual_anchor["data"]["id"],
+            reason="obsolete manual project anchor in sdk e2e",
+        )
+        assert deleted_manual_anchor["data"]["status"] == "deleted"
 
         backfill = client.backfill_anchors(
             space_slug="anchor-sdk-e2e",

@@ -74,6 +74,40 @@ class MemoStackAnchorsMixin:
             ),
         )
 
+    def update_anchor(
+        self,
+        anchor_id: str,
+        *,
+        label: str | None = None,
+        aliases: list[str] | None = None,
+        description: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self._request(
+            "PATCH",
+            f"/v1/anchors/{anchor_id}",
+            json=_payloads.without_none(
+                {
+                    "label": label,
+                    "aliases": aliases or [],
+                    "description": description,
+                    "metadata": metadata or {},
+                }
+            ),
+        )
+
+    def delete_anchor(
+        self,
+        anchor_id: str,
+        *,
+        reason: str = "manual delete",
+    ) -> dict[str, Any]:
+        return self._request(
+            "DELETE",
+            f"/v1/anchors/{anchor_id}",
+            json={"reason": reason},
+        )
+
     def backfill_anchors(
         self,
         *,

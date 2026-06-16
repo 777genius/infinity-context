@@ -39,6 +39,7 @@ from memo_stack_core.application import (
     CreateSuggestionsBatchUseCase,
     CreateSuggestionUseCase,
     CreateUserUseCase,
+    DeleteAnchorUseCase,
     DeleteAssetUseCase,
     DeleteContextLinkUseCase,
     DeleteDocumentUseCase,
@@ -93,6 +94,7 @@ from memo_stack_core.application import (
     SuggestAnchorMergesUseCase,
     SuggestContextLinksUseCase,
     UnlinkFactRelationUseCase,
+    UpdateAnchorUseCase,
     UpdateFactUseCase,
     UpdateMemoryScopeUseCase,
 )
@@ -179,6 +181,8 @@ class Container:
     cancel_asset_extraction: CancelAssetExtractionUseCase
     run_asset_extraction: RunAssetExtractionUseCase
     create_anchor: CreateAnchorUseCase
+    update_anchor: UpdateAnchorUseCase
+    delete_anchor: DeleteAnchorUseCase
     list_anchors: ListAnchorsUseCase
     suggest_anchor_merges: SuggestAnchorMergesUseCase
     merge_anchors: MergeAnchorsUseCase
@@ -417,6 +421,8 @@ def build_container(settings: Settings | None = None) -> Container:
         execution_lease_seconds=resolved_settings.extraction_execution_lease_seconds,
     )
     create_anchor = CreateAnchorUseCase(uow_factory=uow_factory, clock=clock, ids=ids)
+    update_anchor = UpdateAnchorUseCase(uow_factory=uow_factory, clock=clock)
+    delete_anchor = DeleteAnchorUseCase(uow_factory=uow_factory, clock=clock)
     list_anchors = ListAnchorsUseCase(uow_factory=uow_factory)
     suggest_anchor_merges = SuggestAnchorMergesUseCase(uow_factory=uow_factory)
     merge_anchors = MergeAnchorsUseCase(uow_factory=uow_factory, clock=clock)
@@ -552,6 +558,8 @@ def build_container(settings: Settings | None = None) -> Container:
         cancel_asset_extraction=cancel_asset_extraction,
         run_asset_extraction=run_asset_extraction,
         create_anchor=create_anchor,
+        update_anchor=update_anchor,
+        delete_anchor=delete_anchor,
         list_anchors=list_anchors,
         suggest_anchor_merges=suggest_anchor_merges,
         merge_anchors=merge_anchors,
