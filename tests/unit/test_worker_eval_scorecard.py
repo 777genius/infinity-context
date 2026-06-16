@@ -57,14 +57,16 @@ def _scorecard_fixture_results() -> dict[str, dict[str, Any]]:
             "ok": True,
             "status": "ok",
             "metrics": {
-                "case_count": 2,
+                "case_count": 3,
                 "ranking_accuracy": 1.0,
+                "event_linking_accuracy": 1.0,
                 "anchor_recall_rate": 1.0,
                 "review_approval_rate": 1.0,
                 "false_positive_count": 0,
             },
             "checks": {
                 "top_fact_beats_distractor": True,
+                "event_call_beats_recent_chat": True,
                 "person_and_project_anchors_suggested": True,
                 "top_suggestion_approves_to_link": True,
                 "unrelated_capture_has_no_candidates": True,
@@ -438,7 +440,7 @@ def test_memory_quality_scorecard_policy_snapshot_documents_top_evidence_floors(
 
     assert policy["require_top_evidence"] is True
     assert "semantic-linking-golden" in policy["required_suites"]
-    assert policy["min_case_counts"]["semantic-linking-golden"] == 2
+    assert policy["min_case_counts"]["semantic-linking-golden"] == 3
     assert policy["full_provider"]["required_adapters"] == [
         "qdrant",
         "graphiti",
@@ -1433,6 +1435,7 @@ def test_memory_quality_scorecard_fails_on_semantic_linking_regression() -> None
     suite_results["semantic-linking-golden"]["metrics"].update(
         {
             "ranking_accuracy": 0.0,
+            "event_linking_accuracy": 0.0,
             "anchor_recall_rate": 0.5,
             "review_approval_rate": 0.0,
             "false_positive_count": 1,
@@ -1445,11 +1448,13 @@ def test_memory_quality_scorecard_fails_on_semantic_linking_regression() -> None
     assert result["capabilities"]["semantic_linking"]["ok"] is False
     assert result["capabilities"]["semantic_linking"]["failed_checks"] == [
         "anchor_recall_rate",
+        "event_linking_accuracy",
         "false_positive_count",
         "ranking_accuracy",
         "review_approval_rate",
     ]
     assert result["metrics"]["semantic_linking_ranking_accuracy"] == 0.0
+    assert result["metrics"]["semantic_linking_event_linking_accuracy"] == 0.0
     assert result["metrics"]["semantic_linking_false_positive_count"] == 1
     assert result["gates"]["all_capabilities_ok"] is False
 

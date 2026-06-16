@@ -142,6 +142,81 @@ def _execute_semantic_linking_golden(client: Any, headers: dict[str, str]) -> di
     if not checks["top_suggestion_approves_to_link"]:
         failures.append(_failure("top_suggestion_approves_to_link", "review", "approval_failed"))
 
+    call_fact = _remember_fact(
+        client,
+        headers,
+        text=(
+            "Alex Project Atlas call from last week covered migration rollback "
+            "window ownership and production risk handoff."
+        ),
+        source_id="atlas-migration-call",
+    )
+    chat_distractor_fact = _remember_fact(
+        client,
+        headers,
+        text=(
+            "Alex Project Atlas chat from an hour ago covered billing dashboard "
+            "copy and button icons."
+        ),
+        source_id="atlas-billing-chat",
+    )
+    call_capture = _capture(
+        client,
+        headers,
+        source_event_id="atlas-migration-call-capture",
+        text=(
+            "Please link this note to the Alex Project Atlas call last week "
+            "about migration rollback window and production risk handoff."
+        ),
+        thread_external_ref="quality-review",
+    )
+    event_suggestions = _suggest(
+        client,
+        headers,
+        source_id=str(call_capture.get("id", "")),
+        text="Alex Project Atlas call last week migration rollback production risk handoff",
+        thread_external_ref="quality-review",
+    )
+    event_fact_candidates = [
+        item
+        for item in event_suggestions.get("candidates", [])
+        if item.get("target_type") == "fact"
+    ]
+    top_event_fact = event_fact_candidates[0] if event_fact_candidates else {}
+    chat_distractor_score = _candidate_score(
+        event_fact_candidates,
+        str(chat_distractor_fact.get("id", "")),
+    )
+    checks["event_call_beats_recent_chat"] = (
+        bool(call_fact)
+        and bool(chat_distractor_fact)
+        and bool(call_capture)
+        and top_event_fact.get("target_id") == call_fact["id"]
+        and float(top_event_fact.get("score", 0.0)) > chat_distractor_score
+    )
+    cases.append(
+        {
+            "case_id": "event_call_beats_recent_chat",
+            "ok": checks["event_call_beats_recent_chat"],
+            "target_type": top_event_fact.get("target_type"),
+            "target_id": top_event_fact.get("target_id"),
+            "score": top_event_fact.get("score"),
+            "distractor_score": chat_distractor_score,
+        }
+    )
+    if not checks["event_call_beats_recent_chat"]:
+        failures.append(
+            _failure(
+                "event_call_beats_recent_chat",
+                "ranking",
+                "event_call_did_not_beat_recent_chat",
+                item_ids=[
+                    str(call_fact.get("id", "")),
+                    str(chat_distractor_fact.get("id", "")),
+                ],
+            )
+        )
+
     unrelated_capture = _capture(
         client,
         headers,
@@ -284,6 +359,7 @@ def _report(
     metrics = {
         "case_count": len(cases),
         "ranking_accuracy": 1.0 if checks.get("top_fact_beats_distractor") else 0.0,
+        "event_linking_accuracy": 1.0 if checks.get("event_call_beats_recent_chat") else 0.0,
         "anchor_recall_rate": 1.0 if checks.get("person_and_project_anchors_suggested") else 0.0,
         "review_approval_rate": 1.0 if checks.get("top_suggestion_approves_to_link") else 0.0,
         "false_positive_count": 0 if checks.get("unrelated_capture_has_no_candidates") else 1,
@@ -291,6 +367,7 @@ def _report(
     gates = {
         "case_count": metrics["case_count"] >= 2,
         "ranking_accuracy": metrics["ranking_accuracy"] == 1.0,
+        "event_linking_accuracy": metrics["event_linking_accuracy"] == 1.0,
         "anchor_recall_rate": metrics["anchor_recall_rate"] == 1.0,
         "review_approval_rate": metrics["review_approval_rate"] == 1.0,
         "false_positive_count": metrics["false_positive_count"] == 0,

@@ -1106,13 +1106,16 @@ def test_semantic_linking_golden_eval_passes(tmp_path: Path) -> None:
     assert result["status"] == "ok"
     assert result["suite"] == "semantic-linking-golden"
     assert result["checks"]["top_fact_beats_distractor"] is True
+    assert result["checks"]["event_call_beats_recent_chat"] is True
     assert result["checks"]["person_and_project_anchors_suggested"] is True
     assert result["checks"]["top_suggestion_approves_to_link"] is True
     assert result["checks"]["unrelated_capture_has_no_candidates"] is True
+    assert result["metrics"]["event_linking_accuracy"] == 1.0
     assert result["metrics"]["false_positive_count"] == 0
     assert payload["suite"] == "semantic-linking-golden"
     assert "Project Atlas" not in report_text
     assert "invoice threshold" not in report_text
+    assert "migration rollback" not in report_text
 
 
 def test_long_memory_golden_eval_passes() -> None:
