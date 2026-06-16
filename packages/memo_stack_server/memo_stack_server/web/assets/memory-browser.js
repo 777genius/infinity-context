@@ -33,6 +33,7 @@
     facts: [],
     suggestions: [],
     anchors: [],
+    anchorMergeSuggestions: [],
     contextLinkSuggestions: [],
     contextLinks: [],
     nodes: [],
@@ -214,10 +215,19 @@
       state.health = health;
       state.capabilities = capabilities;
       await refreshSpacesAndMemoryScopes();
-      const [facts, suggestions, anchors, contextLinkSuggestions, contextLinks, diagnostics] = await Promise.all([
+      const [
+        facts,
+        suggestions,
+        anchors,
+        anchorMergeSuggestions,
+        contextLinkSuggestions,
+        contextLinks,
+        diagnostics,
+      ] = await Promise.all([
         fetchFacts(),
         fetchSuggestions(),
         fetchAnchors(),
+        fetchAnchorMergeSuggestions(),
         fetchContextLinkSuggestions(),
         fetchContextLinks(),
         apiGet("/v1/diagnostics/adapters").catch(() => null),
@@ -225,6 +235,7 @@
       state.facts = facts;
       state.suggestions = suggestions;
       state.anchors = anchors;
+      state.anchorMergeSuggestions = anchorMergeSuggestions;
       state.contextLinkSuggestions = contextLinkSuggestions;
       state.contextLinks = contextLinks;
       state.adapterDiagnostics = diagnostics ? diagnostics.data : null;
@@ -325,6 +336,16 @@
     return [...byId.values()].sort(compareUpdatedDesc);
   }
 
+  async function fetchAnchorMergeSuggestions() {
+    const response = await apiGet("/v1/anchors/merge-suggestions", {
+      params: {
+        ...scopeParams(),
+        limit: "100",
+      },
+    }).catch(() => ({ data: { candidates: [] } }));
+    return response.data?.candidates || [];
+  }
+
   async function fetchContextLinkSuggestions() {
     const statuses = ["pending", "approved", "rejected", "expired"];
     const batches = await Promise.all(
@@ -412,6 +433,27 @@
       if (firstAnchor) {
         selectNode(`anchor:${firstAnchor.id}`);
       }
+    } catch (error) {
+      setError(error.message);
+    }
+  }
+
+  async function mergeAnchorSuggestion(candidate) {
+    const reason = window.prompt("merge reason", "same anchor confirmed in Memo Stack Browser");
+    if (reason === null) {
+      return;
+    }
+    setError("");
+    try {
+      await apiJson(`/v1/anchors/${encodeURIComponent(candidate.source_anchor.id)}/merge`, {
+        method: "POST",
+        body: {
+          target_anchor_id: candidate.target_anchor.id,
+          reason: reason || "same anchor confirmed in Memo Stack Browser",
+        },
+      });
+      await refreshAll();
+      selectNode(`anchor:${candidate.target_anchor.id}`);
     } catch (error) {
       setError(error.message);
     }
@@ -1473,9 +1515,27 @@
   function renderSuggestionList() {
     els.suggestionList.replaceChildren();
     els.suggestionList.append(manualContextLinkForm());
-    if (!state.contextLinkSuggestions.length && !state.suggestions.length) {
+    if (!state.anchorMergeSuggestions.length && !state.contextLinkSuggestions.length && !state.suggestions.length) {
       els.suggestionList.append(emptyItem("No review items."));
       return;
+    }
+    if (state.anchorMergeSuggestions.length) {
+      els.suggestionList.append(sectionLabel("Anchor merge reviews"));
+    }
+    for (const candidate of state.anchorMergeSuggestions.slice(0, 80)) {
+      const item = listItem({
+        title: `${candidate.source_anchor.label} -> ${candidate.target_anchor.label} / ${candidate.confidence}`,
+        text: (candidate.reasons || []).join(", ") || "possible duplicate anchor",
+        meta: `${scoreLabel(candidate.score)} ${candidate.source_anchor.kind}`,
+        onClick: () => selectNode(`anchor:${candidate.source_anchor.id}`),
+      });
+      const actions = document.createElement("div");
+      actions.className = "action-row one-action";
+      actions.append(
+        actionButton("Merge", () => mergeAnchorSuggestion(candidate), "primary-button"),
+      );
+      item.append(actions);
+      els.suggestionList.append(item);
     }
     if (state.contextLinkSuggestions.length) {
       els.suggestionList.append(sectionLabel("Link reviews"));

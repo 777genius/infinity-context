@@ -38,7 +38,10 @@ def test_web_ui_serves_browser_without_openapi_noise(tmp_path) -> None:
     assert "Backfill Anchors" in index.text
     assert '<option value="anchor">Anchors</option>' in index.text
     assert "/v1/anchors" in js.text
+    assert "/v1/anchors/merge-suggestions" in js.text
     assert "backfillAnchors" in js.text
+    assert "mergeAnchorSuggestion" in js.text
+    assert "Anchor merge reviews" in js.text
     assert "contextLinkCount" in index.text
     assert "context_link" in index.text
     assert "/v1/context-links" in js.text
