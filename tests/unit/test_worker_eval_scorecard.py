@@ -1428,6 +1428,47 @@ def test_memory_quality_scorecard_fails_on_undercovered_suite() -> None:
     assert result["gates"]["all_capabilities_ok"] is False
 
 
+def test_memory_quality_scorecard_fails_on_semantic_linking_regression() -> None:
+    suite_results = _scorecard_fixture_results()
+    suite_results["semantic-linking-golden"]["metrics"].update(
+        {
+            "ranking_accuracy": 0.0,
+            "anchor_recall_rate": 0.5,
+            "review_approval_rate": 0.0,
+            "false_positive_count": 1,
+        }
+    )
+
+    result = build_memory_quality_scorecard(suite_results)
+
+    assert result["ok"] is False
+    assert result["capabilities"]["semantic_linking"]["ok"] is False
+    assert result["capabilities"]["semantic_linking"]["failed_checks"] == [
+        "anchor_recall_rate",
+        "false_positive_count",
+        "ranking_accuracy",
+        "review_approval_rate",
+    ]
+    assert result["metrics"]["semantic_linking_ranking_accuracy"] == 0.0
+    assert result["metrics"]["semantic_linking_false_positive_count"] == 1
+    assert result["gates"]["all_capabilities_ok"] is False
+
+
+def test_memory_quality_scorecard_fails_on_undercovered_semantic_linking_suite() -> None:
+    suite_results = _scorecard_fixture_results()
+    suite_results["semantic-linking-golden"]["metrics"]["case_count"] = 1
+
+    result = build_memory_quality_scorecard(suite_results)
+
+    assert result["ok"] is False
+    assert result["capabilities"]["coverage_floors"]["ok"] is False
+    assert (
+        "semantic-linking-golden_case_count"
+        in result["capabilities"]["coverage_floors"]["failed_checks"]
+    )
+    assert result["gates"]["all_capabilities_ok"] is False
+
+
 def test_memory_quality_scorecard_rejects_duplicate_suite_reports(tmp_path: Path) -> None:
     first = tmp_path / "small-one.json"
     second = tmp_path / "small-two.json"
