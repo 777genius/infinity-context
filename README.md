@@ -87,7 +87,7 @@ Implemented API surface:
 - `/v1/digest` for source-bound Memory Digest reports;
 - `/v1/thread-memory/status`, `/v1/thread-memory` delete for thread-scoped cleanup;
 - `/v1/suggestions` create/list/approve/reject/expire for review-gated memory;
-- `/v1/link-suggestions`, `/v1/context-link-suggestions`, `/v1/context-links` for reviewable memory relations and status-filtered review history;
+- `/v1/link-suggestions`, `/v1/context-link-suggestions`, `/v1/context-link-suggestions/review-batch`, `/v1/context-links` for reviewable memory relations and status-filtered review history;
 - `/v1/diagnostics/adapters`, `/outbox`, `/memory-scope/{memory_scope_id}` with production-safe metadata only;
 - optional client-compatible `/api/v1/interview-memory/ingest`, `/context`, session status and delete routes when `MEMORY_LEGACY_CLIENT_ENABLED=true`.
 

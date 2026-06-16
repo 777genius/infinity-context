@@ -11,6 +11,8 @@ from memo_stack_core.application import (
     ListContextLinksQuery,
     ListContextLinkSuggestionsQuery,
     ReviewContextLinkSuggestionCommand,
+    ReviewContextLinkSuggestionBatchItemCommand,
+    ReviewContextLinkSuggestionsBatchCommand,
     SuggestContextLinksCommand,
     UpdateContextLinkCommand,
 )
@@ -75,6 +77,20 @@ class ReviewContextLinkSuggestionRequest(BaseModel):
     relation_type: str | None = Field(default=None, min_length=1, max_length=80)
     confidence: str | None = Field(default=None, min_length=1, max_length=40)
     link_reason: str | None = Field(default=None, min_length=1, max_length=320)
+
+
+class ReviewContextLinkSuggestionBatchItemRequest(ReviewContextLinkSuggestionRequest):
+    suggestion_id: str = Field(min_length=1, max_length=160)
+
+
+class ReviewContextLinkSuggestionsBatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[ReviewContextLinkSuggestionBatchItemRequest] = Field(
+        min_length=1,
+        max_length=50,
+    )
+    continue_on_error: bool = False
 
 
 class UpdateContextLinkRequest(BaseModel):
@@ -277,6 +293,33 @@ async def update_context_link(
     return {"data": context_link_to_response(result.link)}
 
 
+@router.post("/context-link-suggestions/review-batch")
+async def review_context_link_suggestions_batch(
+    request: ReviewContextLinkSuggestionsBatchRequest,
+    container: Annotated[Container, Depends(get_container)],
+) -> dict[str, Any]:
+    ensure_server_writes_enabled(container)
+    result = await container.review_context_link_suggestions_batch.execute(
+        ReviewContextLinkSuggestionsBatchCommand(
+            items=tuple(
+                ReviewContextLinkSuggestionBatchItemCommand(
+                    suggestion_id=item.suggestion_id,
+                    action=item.action,
+                    reason=item.reason,
+                    target_type=item.target_type,
+                    target_id=item.target_id,
+                    relation_type=item.relation_type,
+                    confidence=item.confidence,
+                    link_reason=item.link_reason,
+                )
+                for item in request.items
+            ),
+            continue_on_error=request.continue_on_error,
+        )
+    )
+    return {"data": _review_context_link_batch_to_response(result)}
+
+
 @router.post("/context-link-suggestions/{context_link_suggestion_id}/review")
 async def review_context_link_suggestion(
     context_link_suggestion_id: str,
@@ -315,6 +358,36 @@ async def delete_context_link(
         DeleteContextLinkCommand(context_link_id=context_link_id)
     )
     return {"data": context_link_to_response(result.link)}
+
+
+def _review_context_link_batch_to_response(result: Any) -> dict[str, Any]:
+    return {
+        "applied": result.applied,
+        "failed": result.failed,
+        "stopped": result.stopped,
+        "results": [
+            {
+                "suggestion_id": item.suggestion_id,
+                "action": item.action,
+                "status": item.status,
+                **_review_context_link_batch_item_payload(item),
+            }
+            for item in result.results
+        ],
+    }
+
+
+def _review_context_link_batch_item_payload(item: Any) -> dict[str, Any]:
+    if item.result is None:
+        return {
+            "error_code": item.error_code,
+            "error_message": item.error_message,
+        }
+    return {
+        "suggestion": context_link_suggestion_to_response(item.result.suggestion),
+        "link": context_link_to_response(item.result.link) if item.result.link else None,
+        "duplicate_link": item.result.duplicate_link,
+    }
 
 
 def context_link_to_response(link: MemoryContextLink) -> dict[str, Any]:

@@ -551,6 +551,42 @@ class ReviewContextLinkSuggestionCommand:
 
 
 @dataclass(frozen=True)
+class ReviewContextLinkSuggestionBatchItemCommand:
+    suggestion_id: str
+    action: str
+    reason: str | None = None
+    target_type: str | None = None
+    target_id: str | None = None
+    relation_type: str | None = None
+    confidence: str | None = None
+    link_reason: str | None = None
+
+
+@dataclass(frozen=True)
+class ReviewContextLinkSuggestionsBatchCommand:
+    items: tuple[ReviewContextLinkSuggestionBatchItemCommand, ...]
+    continue_on_error: bool = False
+
+
+@dataclass(frozen=True)
+class ReviewContextLinkSuggestionBatchItemResult:
+    suggestion_id: str
+    action: str
+    status: str
+    result: ContextLinkSuggestionResult | None = None
+    error_code: str | None = None
+    error_message: str | None = None
+
+
+@dataclass(frozen=True)
+class ReviewContextLinkSuggestionsBatchResult:
+    applied: int
+    failed: int
+    stopped: bool
+    results: tuple[ReviewContextLinkSuggestionBatchItemResult, ...]
+
+
+@dataclass(frozen=True)
 class RememberFactCommand:
     space_id: SpaceId
     memory_scope_id: MemoryScopeId

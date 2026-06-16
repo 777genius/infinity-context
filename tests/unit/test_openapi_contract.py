@@ -33,6 +33,7 @@ def test_openapi_contains_stable_v1_fields() -> None:
     assert "/v1/memory-browser" in paths
     assert "/v1/export/graph.json" in paths
     assert "/v1/export/memory_scope-snapshot/preview" in paths
+    assert "/v1/context-link-suggestions/review-batch" in paths
     context_link_query_params = {
         item["name"] for item in paths["/v1/context-links"]["get"]["parameters"]
     }

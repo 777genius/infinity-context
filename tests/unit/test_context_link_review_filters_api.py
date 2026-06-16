@@ -142,6 +142,114 @@ def test_context_link_suggestions_support_all_and_multi_status_filters(
     assert link_history.json()["data"][0]["status"] == "active"
 
 
+def test_context_link_suggestions_batch_review_applies_mixed_actions(
+    tmp_path: Path,
+) -> None:
+    with make_client(tmp_path) as client:
+        fact = client.post(
+            "/v1/facts",
+            json={
+                "space_slug": "review-history",
+                "memory_scope_external_ref": "default",
+                "thread_external_ref": "atlas-review",
+                "text": "Alex Project Atlas review links should support batch actions.",
+                "kind": "note",
+                "source_refs": [{"source_type": "manual", "source_id": "batch-review"}],
+                "tags": ["alex", "atlas"],
+            },
+            headers=auth_headers({"Idempotency-Key": "review-history-batch-fact"}),
+        )
+        assert fact.status_code == 201, fact.text
+        approved_capture = _create_capture(
+            client,
+            source_event_id="batch-approved-link-source",
+            text="Batch approved Project Atlas capture from Alex review.",
+        )
+        rejected_capture = _create_capture(
+            client,
+            source_event_id="batch-rejected-link-source",
+            text="Batch rejected Project Atlas capture from Alex review.",
+        )
+        approved_suggestion_id = _persist_first_suggestion(
+            client,
+            source_id=approved_capture.json()["data"]["id"],
+            text="Alex Project Atlas batch approved capture",
+        )
+        rejected_suggestion_id = _persist_first_suggestion(
+            client,
+            source_id=rejected_capture.json()["data"]["id"],
+            text="Alex Project Atlas batch rejected capture",
+        )
+
+        batch = client.post(
+            "/v1/context-link-suggestions/review-batch",
+            json={
+                "items": [
+                    {
+                        "suggestion_id": approved_suggestion_id,
+                        "action": "approve",
+                        "reason": "batch confirmed",
+                        "link_reason": "batch confirmed link",
+                    },
+                    {
+                        "suggestion_id": rejected_suggestion_id,
+                        "action": "reject",
+                        "reason": "batch rejected",
+                    },
+                ],
+            },
+            headers=auth_headers(),
+        )
+        duplicate_approve = client.post(
+            "/v1/context-link-suggestions/review-batch",
+            json={
+                "items": [
+                    {
+                        "suggestion_id": approved_suggestion_id,
+                        "action": "approve",
+                    },
+                ],
+            },
+            headers=auth_headers(),
+        )
+        review_history = client.get(
+            "/v1/context-link-suggestions",
+            params={
+                "space_slug": "review-history",
+                "memory_scope_external_ref": "default",
+                "statuses": "approved,rejected",
+                "limit": "50",
+            },
+            headers=auth_headers(),
+        )
+
+    assert batch.status_code == 200, batch.text
+    data = batch.json()["data"]
+    assert data["applied"] == 2
+    assert data["failed"] == 0
+    assert data["stopped"] is False
+    approved_item, rejected_item = data["results"]
+    assert approved_item["suggestion_id"] == approved_suggestion_id
+    assert approved_item["status"] == "applied"
+    assert approved_item["suggestion"]["status"] == "approved"
+    assert approved_item["suggestion"]["review_reason"] == "batch confirmed"
+    assert approved_item["link"]["reason"] == "batch confirmed link"
+    assert approved_item["duplicate_link"] is False
+    assert rejected_item["suggestion_id"] == rejected_suggestion_id
+    assert rejected_item["status"] == "applied"
+    assert rejected_item["suggestion"]["status"] == "rejected"
+    assert rejected_item["suggestion"]["review_reason"] == "batch rejected"
+    assert rejected_item["link"] is None
+    assert duplicate_approve.status_code == 200, duplicate_approve.text
+    duplicate_item = duplicate_approve.json()["data"]["results"][0]
+    assert duplicate_item["status"] == "applied"
+    assert duplicate_item["duplicate_link"] is True
+    assert review_history.status_code == 200, review_history.text
+    assert {approved_suggestion_id, rejected_suggestion_id}.issubset(
+        {item["id"] for item in review_history.json()["data"]}
+    )
+
+
 def _create_capture(
     client: TestClient,
     *,

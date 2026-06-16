@@ -87,6 +87,7 @@ from memo_stack_core.application import (
     RememberFactUseCase,
     RequestAssetExtractionUseCase,
     RetryAssetExtractionUseCase,
+    ReviewContextLinkSuggestionsBatchUseCase,
     ReviewContextLinkSuggestionUseCase,
     ReviewSuggestionsBatchUseCase,
     RunAssetExtractionUseCase,
@@ -194,6 +195,7 @@ class Container:
     list_context_links: ListContextLinksUseCase
     list_context_link_suggestions: ListContextLinkSuggestionsUseCase
     review_context_link_suggestion: ReviewContextLinkSuggestionUseCase
+    review_context_link_suggestions_batch: ReviewContextLinkSuggestionsBatchUseCase
     update_context_link: UpdateContextLinkUseCase
     delete_context_link: DeleteContextLinkUseCase
     update_fact: UpdateFactUseCase
@@ -355,6 +357,9 @@ def build_container(settings: Settings | None = None) -> Container:
         uow_factory=uow_factory,
         clock=clock,
         ids=ids,
+    )
+    review_context_link_suggestions_batch = ReviewContextLinkSuggestionsBatchUseCase(
+        review_context_link_suggestion=review_context_link_suggestion,
     )
     update_context_link = UpdateContextLinkUseCase(uow_factory=uow_factory, clock=clock)
     delete_context_link = DeleteContextLinkUseCase(uow_factory=uow_factory, clock=clock)
@@ -573,6 +578,7 @@ def build_container(settings: Settings | None = None) -> Container:
         list_context_links=list_context_links,
         list_context_link_suggestions=list_context_link_suggestions,
         review_context_link_suggestion=review_context_link_suggestion,
+        review_context_link_suggestions_batch=review_context_link_suggestions_batch,
         update_context_link=update_context_link,
         delete_context_link=delete_context_link,
         update_fact=update_fact,

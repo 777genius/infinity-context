@@ -18,6 +18,10 @@ from memo_stack_core.application.dto import (
     ListContextLinksQuery,
     ListContextLinkSuggestionsQuery,
     ReviewContextLinkSuggestionCommand,
+    ReviewContextLinkSuggestionBatchItemCommand,
+    ReviewContextLinkSuggestionBatchItemResult,
+    ReviewContextLinkSuggestionsBatchCommand,
+    ReviewContextLinkSuggestionsBatchResult,
     SuggestContextLinksCommand,
     UpdateContextLinkCommand,
 )
@@ -34,6 +38,7 @@ from memo_stack_core.domain.entities import (
     MemoryChunk,
 )
 from memo_stack_core.domain.errors import (
+    MemoryError,
     MemoryConflictError,
     MemoryNotFoundError,
     MemoryValidationError,
@@ -909,6 +914,78 @@ class ReviewContextLinkSuggestionUseCase:
             suggestion=saved,
             link=link,
             duplicate_link=duplicate_link,
+        )
+
+
+class ReviewContextLinkSuggestionsBatchUseCase:
+    def __init__(
+        self,
+        *,
+        review_context_link_suggestion: ReviewContextLinkSuggestionUseCase,
+    ) -> None:
+        self._review_context_link_suggestion = review_context_link_suggestion
+
+    async def execute(
+        self,
+        command: ReviewContextLinkSuggestionsBatchCommand,
+    ) -> ReviewContextLinkSuggestionsBatchResult:
+        if not command.items:
+            raise MemoryValidationError("Context link batch review requires at least one item")
+        if len(command.items) > 50:
+            raise MemoryValidationError("Context link batch review supports at most 50 items")
+
+        results: list[ReviewContextLinkSuggestionBatchItemResult] = []
+        stopped = False
+        for item in command.items:
+            if item.action.strip().lower() not in {"approve", "reject"}:
+                raise MemoryValidationError("Unknown context link suggestion review action")
+            try:
+                result = await self._review_one(item)
+                results.append(
+                    ReviewContextLinkSuggestionBatchItemResult(
+                        suggestion_id=item.suggestion_id,
+                        action=item.action,
+                        status="applied",
+                        result=result,
+                    )
+                )
+            except MemoryError as exc:
+                results.append(
+                    ReviewContextLinkSuggestionBatchItemResult(
+                        suggestion_id=item.suggestion_id,
+                        action=item.action,
+                        status="failed",
+                        error_code=exc.code,
+                        error_message=str(exc),
+                    )
+                )
+                if not command.continue_on_error:
+                    stopped = True
+                    break
+
+        failed = sum(1 for result in results if result.status == "failed")
+        return ReviewContextLinkSuggestionsBatchResult(
+            applied=len(results) - failed,
+            failed=failed,
+            stopped=stopped,
+            results=tuple(results),
+        )
+
+    async def _review_one(
+        self,
+        item: ReviewContextLinkSuggestionBatchItemCommand,
+    ) -> ContextLinkSuggestionResult:
+        return await self._review_context_link_suggestion.execute(
+            ReviewContextLinkSuggestionCommand(
+                suggestion_id=item.suggestion_id,
+                action=item.action,
+                reason=item.reason,
+                target_type=item.target_type,
+                target_id=item.target_id,
+                relation_type=item.relation_type,
+                confidence=item.confidence,
+                link_reason=item.link_reason,
+            )
         )
 
 
