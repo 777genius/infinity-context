@@ -494,6 +494,12 @@ class MemoStackAssetsMixin:
             raise ValueError("Context link batch review requires at least one item")
         if len(items) > 50:
             raise ValueError("Context link batch review supports at most 50 items")
+        seen_suggestion_ids: set[str] = set()
+        for item in items:
+            suggestion_id = str(item.get("suggestion_id", "")).strip()
+            if suggestion_id in seen_suggestion_ids:
+                raise ValueError("Context link batch review requires unique suggestion_id values")
+            seen_suggestion_ids.add(suggestion_id)
         return self._request(
             "POST",
             "/v1/context-link-suggestions/review-batch",

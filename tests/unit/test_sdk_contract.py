@@ -1306,6 +1306,35 @@ def test_sdk_rejects_oversized_context_link_batch_review() -> None:
     assert calls == 0
 
 
+def test_sdk_rejects_duplicate_context_link_batch_review_ids() -> None:
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, json={"data": {"ok": True}})
+
+    client = MemoStackClient(
+        base_url="http://memory.test",
+        token="test-token",
+        transport=httpx.MockTransport(handler),
+    )
+
+    try:
+        client.review_context_link_suggestions_batch(
+            [
+                {"suggestion_id": "ctxlinksug_duplicate", "action": "approve"},
+                {"suggestion_id": " ctxlinksug_duplicate ", "action": "reject"},
+            ]
+        )
+    except ValueError as exc:
+        assert "unique suggestion_id" in str(exc)
+    else:
+        raise AssertionError("Expected duplicate context link batch review to fail")
+
+    assert calls == 0
+
+
 def test_sdk_supports_context_link_statuses_filters() -> None:
     seen: list[tuple[str, str, dict[str, str]]] = []
 
