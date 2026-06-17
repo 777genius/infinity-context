@@ -29,6 +29,17 @@ MAX_CONTEXT_LINK_METADATA_KEYS = 80
 MAX_CONTEXT_LINK_REVIEW_REASON_CHARS = 320
 MAX_CONTEXT_LINK_AUDIT_EVENTS = 20
 MAX_CONTEXT_LINK_REVIEW_EVENTS = 20
+_AUDIT_SECRET_MARKERS = (
+    "api_key",
+    "apikey",
+    "authorization:",
+    "bearer ",
+    "password",
+    "private_key",
+    "secret",
+    "sk-",
+    "token",
+)
 
 
 class AssetStatus(StrEnum):
@@ -560,8 +571,16 @@ def _context_link_review_event(
     if isinstance(policy_version, str) and policy_version.strip():
         event["policy_version"] = policy_version[:120]
     if reason:
-        event["reason"] = reason
+        event["reason"] = _safe_audit_reason(reason)
     return event
+
+
+def _safe_audit_reason(reason: str) -> str:
+    normalized = reason.strip()[:MAX_CONTEXT_LINK_REVIEW_REASON_CHARS]
+    lowered = normalized.lower()
+    if any(marker in lowered for marker in _AUDIT_SECRET_MARKERS):
+        return "[redacted]"
+    return normalized
 
 
 def _optional_text(value: str | None, *, max_chars: int) -> str | None:
