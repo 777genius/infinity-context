@@ -90,7 +90,8 @@ def test_agent_install_verifier_redacts_provider_tokens_without_env() -> None:
                     "ghp_abcdefghijklmnopqrstuvwxyz "
                     "AKIAIOSFODNN7EXAMPLE "
                     "token=plain-provider-token-value "
-                    "password=hunter2-secret-value"
+                    "password=hunter2-secret-value "
+                    "-----BEGIN PRIVATE KEY-----\nabc123\n-----END PRIVATE KEY-----"
                 ),
             }
         )
@@ -100,6 +101,7 @@ def test_agent_install_verifier_redacts_provider_tokens_without_env() -> None:
     assert "AKIAIOSFODNN7EXAMPLE" not in rendered
     assert "plain-provider-token-value" not in rendered
     assert "hunter2-secret-value" not in rendered
+    assert "PRIVATE KEY" not in rendered
     assert "<redacted>" in rendered
 
 

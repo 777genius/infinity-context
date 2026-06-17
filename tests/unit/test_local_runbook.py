@@ -783,6 +783,18 @@ def test_clean_full_smoke_mcp_text_secret_check_catches_generic_tokens() -> None
     assert not module._mcp_text_has_no_secrets(Result(), env={})
 
 
+def test_clean_full_smoke_redacts_private_key_blocks() -> None:
+    module = _load_clean_full_smoke(ROOT / "scripts" / "clean_full_smoke.py")
+
+    rendered = module._redact_text(
+        "-----BEGIN PRIVATE KEY-----\nabc123\n-----END PRIVATE KEY-----",
+        env={},
+    )
+
+    assert "PRIVATE KEY" not in rendered
+    assert rendered == "<redacted>"
+
+
 def test_clean_full_smoke_redacts_agent_benchmark_secret_markers() -> None:
     module = _load_clean_full_smoke(ROOT / "scripts" / "clean_full_smoke.py")
     result = {

@@ -62,6 +62,11 @@ SENSITIVE_TEXT_PATTERNS = (
     re.compile(r"\bAKIA[0-9A-Z]{12,}\b"),
     re.compile(r"\bbench-secret-[A-Za-z0-9_.:-]+\b", re.IGNORECASE),
     re.compile(
+        r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----",
+        re.DOTALL,
+    ),
+    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
+    re.compile(
         r"(?i)\b(api[_-]?key|secret|token|password|passwd|credential)\s*[:=]\s*['\"]?"
         r"[A-Za-z0-9_./+=-]{8,}"
     ),
