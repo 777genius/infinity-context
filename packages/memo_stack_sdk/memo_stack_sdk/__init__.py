@@ -248,6 +248,11 @@ class MemoStackClient(
             "adapters": payload.get("adapters", {}),
             "enabled_adapters": payload.get("enabled_adapters", []),
             "policy_mode": payload.get("policy_mode"),
+            "limits": payload.get("limits", {}),
+            "captures": payload.get("captures", {}),
+            "suggestions": payload.get("suggestions", {}),
+            "extraction": payload.get("extraction", {}),
+            "plans": payload.get("plans", {}),
         }
 
     def diagnostics_adapters(self) -> dict[str, Any]:

@@ -145,6 +145,22 @@ def test_sdk_exposes_capability_diagnostics_facade() -> None:
                 "policy_mode": "active_context",
                 "adapters": {"qdrant": {"enabled": False}},
                 "enabled_adapters": [],
+                "limits": {
+                    "max_asset_upload_bytes": 12345,
+                    "max_capture_text_chars": 20000,
+                },
+                "captures": {"enabled": True},
+                "suggestions": {"review_tool_supported": True},
+                "extraction": {
+                    "enabled": True,
+                    "limits": {"max_bytes": 12345},
+                },
+                "plans": {
+                    "current": "free",
+                    "resources": {
+                        "media_analysis_seconds": {"limit_per_month": 36000},
+                    },
+                },
                 "capabilities": [
                     {
                         "adapter_name": "qdrant",
@@ -175,6 +191,22 @@ def test_sdk_exposes_capability_diagnostics_facade() -> None:
         "adapters": {"qdrant": {"enabled": False}},
         "enabled_adapters": [],
         "policy_mode": "active_context",
+        "limits": {
+            "max_asset_upload_bytes": 12345,
+            "max_capture_text_chars": 20000,
+        },
+        "captures": {"enabled": True},
+        "suggestions": {"review_tool_supported": True},
+        "extraction": {
+            "enabled": True,
+            "limits": {"max_bytes": 12345},
+        },
+        "plans": {
+            "current": "free",
+            "resources": {
+                "media_analysis_seconds": {"limit_per_month": 36000},
+            },
+        },
     }
 
 
