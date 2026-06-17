@@ -27,6 +27,18 @@ MemoryChunkId = NewType("MemoryChunkId", str)
 MemorySuggestionId = NewType("MemorySuggestionId", str)
 MemoryAnchorId = NewType("MemoryAnchorId", str)
 
+_AUDIT_SECRET_MARKERS = (
+    "api_key",
+    "apikey",
+    "authorization:",
+    "bearer ",
+    "password",
+    "private_key",
+    "secret",
+    "sk-",
+    "token",
+)
+
 
 class FactStatus(StrEnum):
     ACTIVE = "active"
@@ -577,7 +589,7 @@ class MemoryAnchor:
             metadata={
                 **dict(self.metadata),
                 "resolver_version": "anchor-lifecycle-v2",
-                "delete_reason": reason.strip()[:320] or "manual delete",
+                "delete_reason": _safe_audit_text(reason, max_chars=320) or "manual delete",
                 "deleted_at": now.isoformat(),
             },
             updated_at=now,
@@ -601,7 +613,7 @@ class MemoryAnchor:
         audit = {
             "source_anchor_id": str(source.id),
             "source_label": source.label,
-            "reason": reason.strip()[:320],
+            "reason": _safe_audit_text(reason, max_chars=320),
             "merged_at": now.isoformat(),
         }
         next_valid_from, next_valid_to = _merge_temporal_window(
@@ -659,7 +671,7 @@ class MemoryAnchor:
                 **dict(self.metadata),
                 "resolver_version": "anchor-lifecycle-v2",
                 "merged_into_anchor_id": str(target_anchor_id),
-                "merge_reason": reason.strip()[:320],
+                "merge_reason": _safe_audit_text(reason, max_chars=320),
                 "merged_at": now.isoformat(),
             },
             updated_at=now,
@@ -690,7 +702,7 @@ class MemoryAnchor:
                 key="split_events",
                 event={
                     "alias": safe_alias[:240],
-                    "reason": reason.strip()[:320],
+                    "reason": _safe_audit_text(reason, max_chars=320),
                     "split_at": now.isoformat(),
                 },
                 extra={"resolver_version": "anchor-lifecycle-v2"},
@@ -811,6 +823,14 @@ def _append_anchor_audit(
     events.append(dict(event))
     next_metadata[key] = events[-20:]
     return next_metadata
+
+
+def _safe_audit_text(value: str, *, max_chars: int) -> str:
+    normalized = value.strip()[:max_chars]
+    lowered = normalized.lower()
+    if any(marker in lowered for marker in _AUDIT_SECRET_MARKERS):
+        return "[redacted]"
+    return normalized
 
 
 @dataclass(frozen=True)
