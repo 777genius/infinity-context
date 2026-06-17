@@ -233,12 +233,27 @@ def test_context_link_suggestions_batch_review_applies_mixed_actions(
     assert approved_item["status"] == "applied"
     assert approved_item["suggestion"]["status"] == "approved"
     assert approved_item["suggestion"]["review_reason"] == "batch confirmed"
+    approved_review_event = approved_item["suggestion"]["metadata"]["review_events"][-1]
+    assert approved_review_event["event_type"] == "context_link_suggestion_reviewed"
+    assert approved_review_event["action"] == "approve"
+    assert approved_review_event["previous_status"] == "pending"
+    assert approved_review_event["new_status"] == "approved"
+    assert approved_review_event["source_type"] == "capture"
+    assert approved_review_event["target_type"] == approved_item["suggestion"]["target_type"]
+    assert approved_review_event["target_id"] == approved_item["suggestion"]["target_id"]
+    assert approved_review_event["policy_version"] == "context-link-policy-v1"
+    assert approved_review_event["reason"] == "batch confirmed"
     assert approved_item["link"]["reason"] == "batch confirmed link"
     assert approved_item["duplicate_link"] is False
     assert rejected_item["suggestion_id"] == rejected_suggestion_id
     assert rejected_item["status"] == "applied"
     assert rejected_item["suggestion"]["status"] == "rejected"
     assert rejected_item["suggestion"]["review_reason"] == "batch rejected"
+    rejected_review_event = rejected_item["suggestion"]["metadata"]["review_events"][-1]
+    assert rejected_review_event["action"] == "reject"
+    assert rejected_review_event["previous_status"] == "pending"
+    assert rejected_review_event["new_status"] == "rejected"
+    assert rejected_review_event["reason"] == "batch rejected"
     assert rejected_item["link"] is None
     assert duplicate_approve.status_code == 200, duplicate_approve.text
     duplicate_item = duplicate_approve.json()["data"]["results"][0]
@@ -369,11 +384,7 @@ def test_context_link_suggestions_batch_review_validates_request_shape(
         )
         invalid_action = client.post(
             "/v1/context-link-suggestions/review-batch",
-            json={
-                "items": [
-                    {"suggestion_id": "ctxlinksug_invalid_action", "action": "archive"}
-                ]
-            },
+            json={"items": [{"suggestion_id": "ctxlinksug_invalid_action", "action": "archive"}]},
             headers=auth_headers(),
         )
 

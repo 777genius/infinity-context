@@ -28,6 +28,7 @@ MAX_ASSET_METADATA_KEYS = 80
 MAX_CONTEXT_LINK_METADATA_KEYS = 80
 MAX_CONTEXT_LINK_REVIEW_REASON_CHARS = 320
 MAX_CONTEXT_LINK_AUDIT_EVENTS = 20
+MAX_CONTEXT_LINK_REVIEW_EVENTS = 20
 
 
 class AssetStatus(StrEnum):
@@ -375,9 +376,21 @@ class MemoryContextLinkSuggestion:
             reason,
             max_chars=MAX_CONTEXT_LINK_REVIEW_REASON_CHARS,
         )
+        next_metadata = _append_context_link_review_audit(
+            self.metadata,
+            event=_context_link_review_event(
+                suggestion=self,
+                action="approve",
+                previous_status=self.status.value,
+                new_status=ContextLinkSuggestionStatus.APPROVED.value,
+                reviewed_at=now,
+                reason=review_reason,
+            ),
+        )
         return replace(
             self,
             status=ContextLinkSuggestionStatus.APPROVED,
+            metadata=next_metadata,
             updated_at=now,
             reviewed_at=now,
             review_reason=review_reason or self.review_reason,
@@ -388,15 +401,28 @@ class MemoryContextLinkSuggestion:
             return self
         if self.status != ContextLinkSuggestionStatus.PENDING:
             raise MemoryValidationError("Only pending context link suggestions can be rejected")
+        review_reason = _optional_text(
+            reason,
+            max_chars=MAX_CONTEXT_LINK_REVIEW_REASON_CHARS,
+        )
+        next_metadata = _append_context_link_review_audit(
+            self.metadata,
+            event=_context_link_review_event(
+                suggestion=self,
+                action="reject",
+                previous_status=self.status.value,
+                new_status=ContextLinkSuggestionStatus.REJECTED.value,
+                reviewed_at=now,
+                reason=review_reason,
+            ),
+        )
         return replace(
             self,
             status=ContextLinkSuggestionStatus.REJECTED,
+            metadata=next_metadata,
             updated_at=now,
             reviewed_at=now,
-            review_reason=_optional_text(
-                reason,
-                max_chars=MAX_CONTEXT_LINK_REVIEW_REASON_CHARS,
-            ),
+            review_reason=review_reason,
         )
 
     def expire(self, *, now: datetime, reason: str | None = None) -> MemoryContextLinkSuggestion:
@@ -404,15 +430,28 @@ class MemoryContextLinkSuggestion:
             return self
         if self.status != ContextLinkSuggestionStatus.PENDING:
             raise MemoryValidationError("Only pending context link suggestions can be expired")
+        review_reason = _optional_text(
+            reason,
+            max_chars=MAX_CONTEXT_LINK_REVIEW_REASON_CHARS,
+        )
+        next_metadata = _append_context_link_review_audit(
+            self.metadata,
+            event=_context_link_review_event(
+                suggestion=self,
+                action="expire",
+                previous_status=self.status.value,
+                new_status=ContextLinkSuggestionStatus.EXPIRED.value,
+                reviewed_at=now,
+                reason=review_reason,
+            ),
+        )
         return replace(
             self,
             status=ContextLinkSuggestionStatus.EXPIRED,
+            metadata=next_metadata,
             updated_at=now,
             reviewed_at=now,
-            review_reason=_optional_text(
-                reason,
-                max_chars=MAX_CONTEXT_LINK_REVIEW_REASON_CHARS,
-            ),
+            review_reason=review_reason,
         )
 
 
@@ -474,6 +513,55 @@ def _append_context_link_audit(
     events.append(dict(event))
     next_metadata["edit_events"] = events[-MAX_CONTEXT_LINK_AUDIT_EVENTS:]
     return next_metadata
+
+
+def _append_context_link_review_audit(
+    metadata: Mapping[str, object],
+    *,
+    event: Mapping[str, object],
+) -> dict[str, object]:
+    next_metadata = dict(metadata)
+    existing = metadata.get("review_events")
+    events = (
+        [item for item in existing if isinstance(item, Mapping)]
+        if isinstance(existing, list)
+        else []
+    )
+    events.append(dict(event))
+    next_metadata["review_events"] = events[-MAX_CONTEXT_LINK_REVIEW_EVENTS:]
+    return next_metadata
+
+
+def _context_link_review_event(
+    *,
+    suggestion: MemoryContextLinkSuggestion,
+    action: str,
+    previous_status: str,
+    new_status: str,
+    reviewed_at: datetime,
+    reason: str | None,
+) -> dict[str, object]:
+    event: dict[str, object] = {
+        "event_type": "context_link_suggestion_reviewed",
+        "suggestion_id": str(suggestion.id),
+        "space_id": str(suggestion.space_id),
+        "memory_scope_id": str(suggestion.memory_scope_id),
+        "source_type": suggestion.source_type,
+        "source_id": suggestion.source_id,
+        "target_type": suggestion.target_type,
+        "target_id": suggestion.target_id,
+        "relation_type": suggestion.relation_type,
+        "action": action,
+        "previous_status": previous_status,
+        "new_status": new_status,
+        "reviewed_at": reviewed_at.isoformat(),
+    }
+    policy_version = suggestion.metadata.get("suggestion_policy_version")
+    if isinstance(policy_version, str) and policy_version.strip():
+        event["policy_version"] = policy_version[:120]
+    if reason:
+        event["reason"] = reason
+    return event
 
 
 def _optional_text(value: str | None, *, max_chars: int) -> str | None:
