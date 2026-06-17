@@ -22,6 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from memo_stack_server.api.auth import require_service_token
 from memo_stack_server.api.dependencies import get_container
 from memo_stack_server.api.policy import ensure_server_writes_enabled
+from memo_stack_server.api.public_payload import safe_public_metadata
 from memo_stack_server.api.v1.scope_resolution import resolve_existing_single_scope
 from memo_stack_server.composition import Container
 
@@ -304,7 +305,7 @@ def merge_candidate_to_response(candidate: AnchorMergeCandidate) -> dict[str, An
         "confidence": candidate.confidence,
         "score": candidate.score,
         "reasons": list(candidate.reasons),
-        "metadata": candidate.metadata,
+        "metadata": safe_public_metadata(candidate.metadata),
     }
 
 
@@ -319,7 +320,7 @@ def anchor_to_response(anchor: MemoryAnchor) -> dict[str, Any]:
         "aliases": list(anchor.aliases),
         "description": anchor.description,
         "status": anchor.status.value,
-        "metadata": dict(anchor.metadata),
+        "metadata": safe_public_metadata(anchor.metadata),
         "created_at": anchor.created_at.isoformat(),
         "updated_at": anchor.updated_at.isoformat(),
     }

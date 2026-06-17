@@ -18,7 +18,6 @@ from memo_stack_core.application import (
     RequestAssetExtractionCommand,
     RetryAssetExtractionCommand,
 )
-from memo_stack_core.application.sensitive_text import redact_sensitive_text
 from memo_stack_core.domain.assets import AssetStatus, MemoryAsset
 from memo_stack_core.domain.errors import (
     MemoryIngressLimitError,
@@ -30,6 +29,7 @@ from memo_stack_core.domain.extraction import AssetExtractionJob, ExtractionArti
 from memo_stack_server.api.auth import require_service_token
 from memo_stack_server.api.dependencies import get_container
 from memo_stack_server.api.policy import ensure_server_writes_enabled
+from memo_stack_server.api.public_payload import safe_public_metadata, safe_public_text
 from memo_stack_server.api.v1.scope_resolution import (
     resolve_existing_single_scope,
     resolve_single_scope,
@@ -353,7 +353,7 @@ def asset_extraction_to_response(job: AssetExtractionJob) -> dict[str, Any]:
         "status": job.status.value,
         "attempt_count": job.attempt_count,
         "safe_error_code": job.safe_error_code,
-        "safe_error_message": _safe_public_text(job.safe_error_message)
+        "safe_error_message": safe_public_text(job.safe_error_message)
         if job.safe_error_message
         else None,
         "parser_name": job.parser_name,
@@ -398,8 +398,8 @@ def _extraction_progress(job: AssetExtractionJob) -> dict[str, Any]:
         "stale": 0,
     }.get(job.status.value, 0)
     percent = _progress_int(metadata.get("progress_percent"), fallback=fallback_percent)
-    stage = _safe_public_text(str(metadata.get("processing_stage") or job.status.value), limit=120)
-    message = _safe_public_text(
+    stage = safe_public_text(str(metadata.get("processing_stage") or job.status.value), limit=120)
+    message = safe_public_text(
         str(metadata.get("progress_message") or _progress_message(job.status.value))
     )
     return {
@@ -549,18 +549,8 @@ def _ensure_extraction_enabled(container: Container) -> None:
 
 
 def _safe_metadata(metadata: Any) -> dict[str, Any]:
-    if not isinstance(metadata, dict):
-        return {}
-    return {
-        str(key): _safe_public_text(value) if isinstance(value, str) else value
-        for key, value in metadata.items()
-        if isinstance(value, (str, int, float, bool, type(None)))
-    }
-
-
-def _safe_public_text(value: str, *, limit: int = 500) -> str:
-    return redact_sensitive_text(value)[:limit]
+    return safe_public_metadata(metadata)
 
 
 def _safe_public_error_message(error: Exception) -> str:
-    return _safe_public_text(str(error).strip() or error.__class__.__name__)
+    return safe_public_text(str(error).strip() or error.__class__.__name__)

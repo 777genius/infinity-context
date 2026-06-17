@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from memo_stack_server.api.auth import require_service_token
 from memo_stack_server.api.dependencies import get_container
 from memo_stack_server.api.policy import ensure_server_writes_enabled
+from memo_stack_server.api.public_payload import safe_public_metadata
 from memo_stack_server.composition import Container
 
 router = APIRouter(
@@ -145,7 +146,7 @@ def user_to_response(user: User) -> dict[str, Any]:
         "display_name": user.display_name,
         "email": user.email,
         "status": user.status.value,
-        "metadata": dict(user.metadata),
+        "metadata": safe_public_metadata(user.metadata),
         "created_at": user.created_at.isoformat(),
         "updated_at": user.updated_at.isoformat(),
     }

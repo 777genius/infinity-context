@@ -34,6 +34,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from memo_stack_server.api.auth import require_service_token
 from memo_stack_server.api.dependencies import get_container
 from memo_stack_server.api.policy import ensure_server_writes_enabled
+from memo_stack_server.api.public_payload import safe_public_text
 from memo_stack_server.api.v1.scope_resolution import (
     resolve_existing_single_scope,
     resolve_single_scope,
@@ -136,7 +137,9 @@ def fact_to_response(fact: MemoryFact, indexing_status: str | None = None) -> di
                 "chunk_id": ref.chunk_id,
                 "char_start": ref.char_start,
                 "char_end": ref.char_end,
-                "quote_preview": ref.quote_preview,
+                "quote_preview": safe_public_text(ref.quote_preview)
+                if ref.quote_preview
+                else None,
             }
             for ref in fact.source_refs
         ],

@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from memo_stack_server.api.auth import require_service_token
 from memo_stack_server.api.dependencies import get_container
 from memo_stack_server.api.policy import ensure_server_writes_enabled
+from memo_stack_server.api.public_payload import safe_public_metadata
 from memo_stack_server.api.v1.scope_resolution import resolve_single_scope
 from memo_stack_server.backpressure import document_ingest_backpressure_response
 from memo_stack_server.composition import Container
@@ -104,7 +105,7 @@ def chunk_to_response(chunk: MemoryChunk) -> dict[str, Any]:
         "status": chunk.status.value,
         "classification": chunk.classification,
         "source_refs": _source_refs_from_metadata(chunk.metadata),
-        "metadata": chunk.metadata,
+        "metadata": safe_public_metadata(chunk.metadata),
     }
 
 
@@ -112,7 +113,7 @@ def _source_refs_from_metadata(metadata: dict[str, object]) -> list[dict[str, An
     refs = metadata.get("source_refs")
     if not isinstance(refs, list):
         return []
-    return [dict(item) for item in refs if isinstance(item, dict)]
+    return [safe_public_metadata(item) for item in refs if isinstance(item, dict)]
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)

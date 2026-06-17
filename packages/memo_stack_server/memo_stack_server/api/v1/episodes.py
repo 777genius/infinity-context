@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from memo_stack_server.api.auth import require_service_token
 from memo_stack_server.api.dependencies import get_container
 from memo_stack_server.api.policy import should_ingest_legacy_transcript
+from memo_stack_server.api.public_payload import safe_public_metadata
 from memo_stack_server.api.v1.scope_resolution import resolve_single_scope
 from memo_stack_server.composition import Container
 
@@ -55,7 +56,7 @@ def episode_to_response(episode: MemoryEpisode) -> dict[str, Any]:
         "status": episode.status.value,
         "occurred_at": episode.occurred_at.isoformat(),
         "created_at": episode.created_at.isoformat(),
-        "metadata": episode.metadata,
+        "metadata": safe_public_metadata(episode.metadata),
     }
 
 

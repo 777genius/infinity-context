@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from memo_stack_server.api.auth import require_service_token
 from memo_stack_server.api.dependencies import get_container
 from memo_stack_server.api.policy import should_retrieve
+from memo_stack_server.api.public_payload import safe_public_metadata
 from memo_stack_server.api.v1.scope_resolution import resolve_existing_context_scope
 from memo_stack_server.composition import Container
 
@@ -140,7 +141,7 @@ def _action_item_to_response(item: MemoryInsightActionItem) -> dict[str, Any]:
         "memory_scope_id": item.memory_scope_id,
         "reason": item.reason,
         "preview": item.preview,
-        "metadata": item.metadata or {},
+        "metadata": safe_public_metadata(item.metadata),
     }
 
 
@@ -155,7 +156,7 @@ def _activity_item_to_response(item: MemoryActivityItem) -> dict[str, Any]:
         "thread_id": item.thread_id,
         "status": item.status,
         "preview": item.preview,
-        "metadata": item.metadata or {},
+        "metadata": safe_public_metadata(item.metadata),
     }
 
 
@@ -170,7 +171,7 @@ def _consolidation_plan_item_to_response(item: MemoryConsolidationPlanItem) -> d
         "recommended_steps": list(item.recommended_steps),
         "reason": item.reason,
         "preview": item.preview,
-        "metadata": item.metadata or {},
+        "metadata": safe_public_metadata(item.metadata),
     }
 
 

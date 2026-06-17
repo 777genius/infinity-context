@@ -24,6 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from memo_stack_server.api.auth import require_service_token
 from memo_stack_server.api.dependencies import get_container
 from memo_stack_server.api.policy import ensure_server_writes_enabled, should_capture
+from memo_stack_server.api.public_payload import safe_public_metadata, safe_public_text
 from memo_stack_server.api.v1.facts import SourceRefRequest, map_source_ref
 from memo_stack_server.api.v1.scope_resolution import (
     resolve_existing_single_scope,
@@ -289,7 +290,9 @@ def capture_to_response(capture: CanonicalCapture) -> dict[str, Any]:
                 "chunk_id": ref.chunk_id,
                 "char_start": ref.char_start,
                 "char_end": ref.char_end,
-                "quote_preview": ref.quote_preview,
+                "quote_preview": safe_public_text(ref.quote_preview)
+                if ref.quote_preview
+                else None,
             }
             for ref in capture.evidence_refs
         ],
@@ -314,19 +317,7 @@ def capture_to_response(capture: CanonicalCapture) -> dict[str, Any]:
 
 
 def _safe_metadata(metadata: Any) -> dict[str, Any]:
-    if not isinstance(metadata, dict):
-        return {}
-    return {
-        str(key): value
-        for key, value in metadata.items()
-        if not _looks_sensitive_key(str(key))
-        and isinstance(value, (str, int, float, bool, type(None)))
-    }
-
-
-def _looks_sensitive_key(key: str) -> bool:
-    lowered = key.lower()
-    return any(marker in lowered for marker in ("token", "secret", "key", "password"))
+    return safe_public_metadata(metadata)
 
 
 def _validate_status(status_value: str | None, consolidation_value: str | None) -> None:
