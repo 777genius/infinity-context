@@ -57,6 +57,7 @@ from memo_stack_core.domain.extraction import (
     AssetExtractionStatus,
     ExtractionArtifact,
     ExtractionArtifactId,
+    ExtractionRetryDisposition,
 )
 from memo_stack_core.domain.usage import (
     USAGE_RECONCILIATION_SOURCE_TYPE,
@@ -420,12 +421,14 @@ class RunAssetExtractionUseCase:
                 unsupported = await self._mark_unsupported(job, result=result)
                 return AssetExtractionResult(job=unsupported, indexing_status="unsupported")
             if result.status != "succeeded":
-                await self._mark_failed(
+                failed = await self._mark_failed(
                     job,
                     code=result.safe_error_code or "asset_extraction.invalid_status",
                     message=result.safe_error_message or "Extractor returned invalid status",
                     metadata=result.technical_metadata,
                 )
+                if failed.retry_disposition == ExtractionRetryDisposition.PERMANENT:
+                    return AssetExtractionResult(job=failed, indexing_status="failed")
                 raise MemoryInfrastructureError("Asset extraction returned invalid status")
 
             extracted_text_value = extracted_text(result)

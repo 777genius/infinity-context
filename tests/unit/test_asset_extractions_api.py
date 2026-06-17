@@ -12,6 +12,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 from memo_stack_adapters.extraction.openai_vision import OpenAIVisionImageExtractionEngine
+from memo_stack_adapters.postgres.models import MemoryOutboxRow
 from memo_stack_core.application.dto import (
     CancelAssetExtractionCommand,
     RunAssetExtractionCommand,
@@ -23,12 +24,15 @@ from memo_stack_core.domain.assets import MemoryAssetId
 from memo_stack_core.domain.entities import MemoryScopeId, SpaceId
 from memo_stack_core.domain.errors import MemoryQuotaExceededError
 from memo_stack_core.domain.extraction import AssetExtractionJob, AssetExtractionJobId
+from memo_stack_core.ports.extraction import ExtractionResult
 from memo_stack_server.admin import token_create
 from memo_stack_server.api.v1.assets import asset_extraction_to_response
 from memo_stack_server.config import CaptureMode, DeployProfile, Settings
 from memo_stack_server.db import upgrade
 from memo_stack_server.main import create_app
 from memo_stack_server.worker import OutboxWorker
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 def make_client(tmp_path: Path, **overrides: Any) -> TestClient:
@@ -171,6 +175,20 @@ class _QuotaFailureExtractionRequest:
     async def execute(self, command: Any) -> Any:
         raise MemoryQuotaExceededError(
             "quota blocked by provider token sk-proj-secretvalue1234567890"
+        )
+
+
+class _PermanentFailureExtractor:
+    async def extract(self, request: Any) -> ExtractionResult:
+        return ExtractionResult(
+            status="failed",
+            normalized_content_type=request.detected_content_type,
+            title=request.filename,
+            safe_error_code="asset_extraction.missing_api_key",
+            safe_error_message="External AI key is not configured",
+            technical_metadata={"provider": "test"},
+            parser_name="permanent_failure_test",
+            parser_version="v1",
         )
 
 
@@ -753,6 +771,71 @@ def test_asset_extraction_marks_failed_and_cleans_blobs_on_artifact_storage_erro
         ]
         assert len(matching_documents) == 1
         assert len(matching_chunks) == 1
+
+
+def test_permanent_asset_extraction_failure_completes_outbox_without_retry(
+    tmp_path: Path,
+) -> None:
+    async def asset_outbox_state(client: TestClient) -> tuple[str, int, str | None, str | None]:
+        async with AsyncSession(client.app.state.container.engine) as session:
+            row = (
+                await session.execute(
+                    select(MemoryOutboxRow).where(MemoryOutboxRow.event_type == "asset.extract")
+                )
+            ).scalar_one()
+            return (
+                row.status,
+                row.attempt_count,
+                row.last_safe_error,
+                row.last_safe_diagnostic_code,
+            )
+
+    with make_client(tmp_path) as client:
+        upload = client.post(
+            "/v1/assets",
+            params={
+                "space_slug": "quick-capture",
+                "memory_scope_external_ref": "frontend",
+                "thread_external_ref": "alex-call",
+                "filename": "permanent-failure.txt",
+                "extract": "true",
+            },
+            content=b"Permanent extractor failure should not burn outbox retries.",
+            headers=auth_headers({"Content-Type": "text/plain"}),
+        )
+        assert upload.status_code == 201, upload.text
+        extraction_id = upload.json()["data"]["extraction"]["id"]
+
+        run_use_case = client.app.state.container.run_asset_extraction
+        original_extractor = run_use_case._extractor
+        run_use_case._extractor = _PermanentFailureExtractor()
+        try:
+            processed = asyncio.run(OutboxWorker(client.app.state.container).run_once(limit=10))
+        finally:
+            run_use_case._extractor = original_extractor
+        outbox_status, outbox_attempt_count, outbox_error, outbox_diagnostic = asyncio.run(
+            asset_outbox_state(client)
+        )
+
+        fetched = client.get(
+            f"/v1/asset-extractions/{extraction_id}",
+            headers=auth_headers(),
+        )
+        assert fetched.status_code == 200, fetched.text
+        extracted = fetched.json()["data"]
+
+    assert processed == 1
+    assert outbox_status == "done"
+    assert outbox_attempt_count == 0
+    assert outbox_error is None
+    assert outbox_diagnostic is None
+    assert extracted["status"] == "failed"
+    assert extracted["safe_error_code"] == "asset_extraction.missing_api_key"
+    assert extracted["execution"]["retry_disposition"] == "permanent"
+    assert extracted["execution"]["retry_after_at"] is None
+    assert extracted["attempt_count"] == 1
+    assert extracted["result_document_ids"] == []
+    assert extracted["artifacts"] == []
 
 
 def test_asset_extraction_redacts_secret_failure_messages(tmp_path: Path) -> None:
