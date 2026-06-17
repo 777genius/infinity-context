@@ -24,7 +24,11 @@ from memo_stack_core.domain.assets import MemoryAssetId
 from memo_stack_core.domain.entities import MemoryScopeId, SpaceId
 from memo_stack_core.domain.errors import MemoryQuotaExceededError
 from memo_stack_core.domain.extraction import AssetExtractionJob, AssetExtractionJobId
-from memo_stack_core.ports.extraction import ExtractionResult
+from memo_stack_core.ports.extraction import (
+    ExtractedElement,
+    ExtractionArtifactCandidate,
+    ExtractionResult,
+)
 from memo_stack_server.admin import token_create
 from memo_stack_server.api.v1.assets import asset_extraction_to_response
 from memo_stack_server.config import CaptureMode, DeployProfile, Settings
@@ -188,6 +192,37 @@ class _PermanentFailureExtractor:
             safe_error_message="External AI key is not configured",
             technical_metadata={"provider": "test"},
             parser_name="permanent_failure_test",
+            parser_version="v1",
+        )
+
+
+class _OversizedArtifactExtractor:
+    async def extract(self, request: Any) -> ExtractionResult:
+        raw_secret = "sk-proj-oversized-artifact-secret-value"
+        return ExtractionResult(
+            status="succeeded",
+            normalized_content_type=request.detected_content_type,
+            title=request.filename,
+            markdown="Oversized provider artifact should be bounded.",
+            elements=(
+                ExtractedElement(
+                    kind="text",
+                    text="Oversized provider artifact should be bounded.",
+                    metadata={"source": "oversized_artifact_test"},
+                ),
+            ),
+            artifacts=(
+                ExtractionArtifactCandidate(
+                    artifact_type="normalized_json",
+                    filename="provider-large.json",
+                    content_type="application/json",
+                    content=(
+                        f'{{"secret":"{raw_secret}","payload":"' + ("x" * 20_000) + '"}'
+                    ).encode("utf-8"),
+                    metadata={"provider": "oversized_artifact_test"},
+                ),
+            ),
+            parser_name="oversized_artifact_test",
             parser_version="v1",
         )
 
@@ -794,6 +829,62 @@ def test_asset_extraction_marks_failed_and_cleans_blobs_on_artifact_storage_erro
         ]
         assert len(matching_documents) == 1
         assert len(matching_chunks) == 1
+
+
+def test_asset_extraction_truncates_oversized_provider_artifacts(tmp_path: Path) -> None:
+    with make_client(tmp_path, extraction_max_output_chars=1000) as client:
+        upload = client.post(
+            "/v1/assets",
+            params={
+                "space_slug": "quick-capture",
+                "memory_scope_external_ref": "frontend",
+                "thread_external_ref": "alex-call",
+                "filename": "oversized-artifact.txt",
+                "extract": "true",
+            },
+            content=b"Provider artifact should be bounded even when extraction succeeds.",
+            headers=auth_headers({"Content-Type": "text/plain"}),
+        )
+        assert upload.status_code == 201, upload.text
+        extraction_id = upload.json()["data"]["extraction"]["id"]
+
+        run_use_case = client.app.state.container.run_asset_extraction
+        original_extractor = run_use_case._extractor
+        run_use_case._extractor = _OversizedArtifactExtractor()
+        try:
+            processed = asyncio.run(OutboxWorker(client.app.state.container).run_once(limit=10))
+        finally:
+            run_use_case._extractor = original_extractor
+
+        assert processed == 1
+        fetched = client.get(
+            f"/v1/asset-extractions/{extraction_id}",
+            headers=auth_headers(),
+        )
+        assert fetched.status_code == 200, fetched.text
+        extracted = fetched.json()["data"]
+        assert extracted["status"] == "succeeded"
+        artifact = next(
+            item for item in extracted["artifacts"] if item["artifact_type"] == "normalized_json"
+        )
+        assert artifact["byte_size"] < 2_000
+        assert artifact["metadata"]["artifact_truncated"] is True
+        assert artifact["metadata"]["artifact_original_byte_size"] > 20_000
+        assert artifact["metadata"]["artifact_byte_limit"] == 16_384
+        assert artifact["metadata"]["content_type"] == "application/json"
+        assert artifact["metadata"]["filename"] == "provider-large.json.truncated.json"
+
+        downloaded = client.get(
+            f"/v1/extraction-artifacts/{artifact['id']}/download",
+            headers=auth_headers(),
+        )
+        assert downloaded.status_code == 200, downloaded.text
+        payload = downloaded.json()
+        assert payload["truncated"] is True
+        assert payload["reason"] == "artifact_byte_limit"
+        assert payload["byte_limit"] == 16_384
+        assert "sk-proj-oversized-artifact-secret-value" not in downloaded.text
+        assert "[redacted]" in downloaded.text
 
 
 def test_permanent_asset_extraction_failure_completes_outbox_without_retry(

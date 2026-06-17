@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from contextlib import suppress
 from datetime import datetime, timedelta
 from hashlib import sha256
@@ -82,6 +83,10 @@ from memo_stack_core.ports.extraction import (
 )
 from memo_stack_core.ports.ids import IdGeneratorPort
 from memo_stack_core.ports.unit_of_work import UnitOfWorkFactoryPort
+
+_MIN_ARTIFACT_BYTE_LIMIT = 16_384
+_MAX_ARTIFACT_BYTE_LIMIT = 5_000_000
+_ARTIFACT_PREVIEW_CHARS = 1_000
 
 
 class RequestAssetExtractionUseCase:
@@ -645,11 +650,16 @@ class RunAssetExtractionUseCase:
             ),
             *result.artifacts,
         ]
+        byte_limit = _artifact_byte_limit(self._limits)
         stored: list[ExtractionArtifact] = []
         written_storage_keys: list[str] = []
         now = self._clock.now()
         try:
-            for candidate in candidates:
+            for raw_candidate in candidates:
+                candidate = _bounded_artifact_candidate(
+                    raw_candidate,
+                    byte_limit=byte_limit,
+                )
                 if not candidate.content:
                     continue
                 digest = sha256(candidate.content).hexdigest()
@@ -672,6 +682,7 @@ class RunAssetExtractionUseCase:
                     metadata={
                         "content_type": candidate.content_type,
                         "filename": candidate.filename,
+                        "artifact_byte_limit": byte_limit,
                         **candidate.metadata,
                     },
                 )
@@ -908,3 +919,71 @@ def _datetime_after(value: datetime, reference: datetime) -> bool:
     elif value.tzinfo is not None and reference.tzinfo is None:
         value = value.replace(tzinfo=None)
     return value > reference
+
+
+def _artifact_byte_limit(limits: ExtractionLimits) -> int:
+    requested = max(1, int(limits.max_output_chars)) * 4
+    return min(max(requested, _MIN_ARTIFACT_BYTE_LIMIT), _MAX_ARTIFACT_BYTE_LIMIT)
+
+
+def _bounded_artifact_candidate(
+    candidate: ExtractionArtifactCandidate,
+    *,
+    byte_limit: int,
+) -> ExtractionArtifactCandidate:
+    if len(candidate.content) <= byte_limit:
+        return candidate
+    original_size = len(candidate.content)
+    return ExtractionArtifactCandidate(
+        artifact_type=candidate.artifact_type,
+        filename=_truncated_artifact_filename(candidate.filename),
+        content_type="application/json",
+        content=_artifact_summary_bytes(
+            candidate,
+            original_size=original_size,
+            byte_limit=byte_limit,
+        ),
+        metadata={
+            **candidate.metadata,
+            "artifact_truncated": True,
+            "artifact_original_byte_size": original_size,
+            "artifact_original_content_type": candidate.content_type,
+            "artifact_original_filename": candidate.filename,
+        },
+    )
+
+
+def _artifact_summary_bytes(
+    candidate: ExtractionArtifactCandidate,
+    *,
+    original_size: int,
+    byte_limit: int,
+) -> bytes:
+    preview = safe_metadata_text(
+        candidate.content[: min(original_size, _ARTIFACT_PREVIEW_CHARS * 4)].decode(
+            "utf-8",
+            errors="replace",
+        ),
+        limit=_ARTIFACT_PREVIEW_CHARS,
+    )
+    payload = {
+        "truncated": True,
+        "reason": "artifact_byte_limit",
+        "original_byte_size": original_size,
+        "byte_limit": byte_limit,
+        "original_filename": safe_metadata_text(candidate.filename),
+        "original_content_type": safe_metadata_text(candidate.content_type),
+        "preview": preview,
+    }
+    content = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    if len(content) <= byte_limit:
+        return content
+    payload["preview"] = ""
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+
+
+def _truncated_artifact_filename(filename: str) -> str:
+    safe_name = filename.strip() or "artifact"
+    if safe_name.endswith(".truncated.json"):
+        return safe_name
+    return f"{safe_name}.truncated.json"
