@@ -1,10 +1,12 @@
 import asyncio
 import json
 from io import BytesIO
+from pathlib import Path
 
 import pytest
 from memo_stack_adapters.extraction.docling_engine import DoclingDocumentExtractionEngine
 from memo_stack_core.ports.extraction import ExtractionLimits, ExtractionRequest
+from resource_guards import apply_stable_ml_env, skip_if_low_temp_space
 
 pytest.importorskip("docling")
 pytest.importorskip("docx")
@@ -13,7 +15,9 @@ pytest.importorskip("PIL")
 pytest.importorskip("pptx")
 
 
-def test_real_docling_extracts_document_evidence_and_artifacts() -> None:
+def test_real_docling_extracts_document_evidence_and_artifacts(tmp_path: Path) -> None:
+    apply_stable_ml_env(tmp_path / "tmp")
+    skip_if_low_temp_space(tmp_path, label="Real Docling extraction e2e")
     cases = (
         _case(
             filename="docling-e2e.pdf",

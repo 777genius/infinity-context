@@ -1,5 +1,3 @@
-import os
-import shutil
 import subprocess
 import sys
 from io import BytesIO
@@ -8,15 +6,14 @@ from pathlib import Path
 import httpx
 import pytest
 from memo_stack_server_harness import run_memo_stack_server
+from resource_guards import docling_worker_timeout_seconds, skip_if_low_temp_space
 
 pytest.importorskip("docling")
 pytest.importorskip("docx")
 
-_DEFAULT_DOCLING_MIN_TEMP_BYTES = 1_000_000_000
-
 
 def test_docling_asset_extraction_persists_structured_artifacts(tmp_path: Path) -> None:
-    _skip_if_low_temp_space(tmp_path)
+    skip_if_low_temp_space(tmp_path, label="Docling asset e2e")
     content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     with (
         run_memo_stack_server(
@@ -60,7 +57,7 @@ def test_docling_asset_extraction_persists_structured_artifacts(tmp_path: Path) 
             env=server.env,
             text=True,
             capture_output=True,
-            timeout=_worker_timeout_seconds(server.env),
+            timeout=docling_worker_timeout_seconds(server.env),
             check=False,
         )
         assert worker.returncode == 0, worker.stdout + worker.stderr
@@ -118,24 +115,3 @@ def _sample_docx_bytes() -> bytes:
     buffer = BytesIO()
     document.save(buffer)
     return buffer.getvalue()
-
-
-def _skip_if_low_temp_space(tmp_path: Path) -> None:
-    threshold = int(
-        os.environ.get(
-            "MEMO_STACK_DOCLING_E2E_MIN_TEMP_BYTES",
-            str(_DEFAULT_DOCLING_MIN_TEMP_BYTES),
-        )
-    )
-    available = shutil.disk_usage(tmp_path).free
-    if available < threshold:
-        pytest.skip(
-            "Docling asset e2e needs enough temp disk for ML/OpenMP and SQLite "
-            f"artifacts: available={available}, required={threshold}"
-        )
-
-
-def _worker_timeout_seconds(env: dict[str, str]) -> int:
-    parser_timeout = int(float(env.get("MEMORY_EXTRACTION_PARSER_TIMEOUT_SECONDS", "300")))
-    configured = int(os.environ.get("MEMO_STACK_DOCLING_E2E_WORKER_TIMEOUT_SECONDS", "0"))
-    return max(configured, parser_timeout + 120, 180)
