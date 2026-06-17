@@ -40,6 +40,26 @@ class FakeMarionetteChatRepository implements ChatRepository {
   int _assetSeq = 0;
   int _extractionSeq = 0;
 
+  AssetExtractionJob seedAssetExtraction({
+    required String status,
+    String? id,
+    String? assetId,
+    String? filename,
+  }) {
+    final resolvedAssetId = assetId ?? 'file-${++_assetSeq}';
+    final job = _extractionJob(
+      id: id ?? 'extract-${++_extractionSeq}',
+      assetId: resolvedAssetId,
+      memoryScopeId:
+          scopesByRef[activeMemoryScopeExternalRef]?.id ?? 'scope-default',
+      threadId: activeChatId,
+      filename: filename ?? '$resolvedAssetId.txt',
+      status: status,
+    );
+    extractions.insert(0, job);
+    return job;
+  }
+
   Future<void> close() async {
     await _messages.close();
     await _usage.close();
@@ -261,12 +281,54 @@ class FakeMarionetteChatRepository implements ChatRepository {
 
   @override
   Future<AssetExtractionJob> retryAssetExtraction(String jobId) async {
-    throw UnimplementedError();
+    final index = _extractionIndex(jobId);
+    final current = extractions[index];
+    final updated = _copyExtractionJob(
+      current,
+      status: 'pending',
+      attemptCount: current.attemptCount + 1,
+      resultDocumentIds: const <String>[],
+      artifacts: const <ExtractionArtifact>[],
+      parserName: null,
+      parserVersion: null,
+      safeErrorCode: null,
+      safeErrorMessage: null,
+      progressStage: 'queued',
+      progressPercent: 0,
+      progressMessage: 'Extraction retry queued',
+      progressTerminal: false,
+      startedAt: null,
+      finishedAt: null,
+    );
+    extractions[index] = updated;
+    return updated;
   }
 
   @override
   Future<AssetExtractionJob> cancelAssetExtraction(String jobId) async {
-    throw UnimplementedError();
+    final index = _extractionIndex(jobId);
+    final current = extractions[index];
+    final updated = _copyExtractionJob(
+      current,
+      status: 'canceled',
+      safeErrorCode: null,
+      safeErrorMessage: null,
+      progressStage: 'canceled',
+      progressPercent: current.progress.percent,
+      progressMessage: 'Extraction canceled',
+      progressTerminal: true,
+      finishedAt: DateTime.now(),
+    );
+    extractions[index] = updated;
+    return updated;
+  }
+
+  int _extractionIndex(String jobId) {
+    final index = extractions.indexWhere((job) => job.id == jobId);
+    if (index == -1) {
+      throw StateError('Asset extraction not found: $jobId');
+    }
+    return index;
   }
 
   @override
@@ -654,8 +716,12 @@ AssetExtractionJob _extractionJob({
   required String memoryScopeId,
   required String? threadId,
   required String filename,
+  String status = 'succeeded',
 }) {
   final now = DateTime.now().toIso8601String();
+  final succeeded = status == 'succeeded';
+  final failed = status == 'failed' || status == 'unsupported';
+  final running = status == 'pending' || status == 'running';
   return AssetExtractionJob.fromMap({
     'id': id,
     'asset_id': assetId,
@@ -665,40 +731,99 @@ AssetExtractionJob _extractionJob({
     'parser_profile': 'standard_local',
     'parser_config_hash': 'fake-parser-config',
     'source_sha256_hex': 'fake-source-sha',
-    'status': 'succeeded',
-    'attempt_count': 1,
-    'parser_name': 'fake_text_parser',
-    'parser_version': '1',
+    'status': status,
+    'attempt_count': running ? 0 : 1,
+    'safe_error_code': failed ? 'fake_parser_error' : null,
+    'safe_error_message': failed ? 'Fake parser failure' : null,
+    'parser_name': succeeded ? 'fake_text_parser' : null,
+    'parser_version': succeeded ? '1' : null,
     'model_version': null,
-    'result_document_ids': ['doc-$assetId'],
-    'artifacts': [
-      {
-        'id': 'artifact-$assetId-markdown',
-        'job_id': id,
-        'asset_id': assetId,
-        'artifact_type': 'markdown',
-        'storage_backend': 'memory',
-        'storage_key': 'artifacts/$assetId/extracted.md',
-        'sha256_hex': 'fake-artifact-sha',
-        'byte_size': 64,
-        'metadata': {'filename': '$filename.md'},
-        'created_at': now,
-      },
-    ],
+    'result_document_ids': succeeded ? ['doc-$assetId'] : const <String>[],
+    'artifacts': succeeded
+        ? [
+            {
+              'id': 'artifact-$assetId-markdown',
+              'job_id': id,
+              'asset_id': assetId,
+              'artifact_type': 'markdown',
+              'storage_backend': 'memory',
+              'storage_key': 'artifacts/$assetId/extracted.md',
+              'sha256_hex': 'fake-artifact-sha',
+              'byte_size': 64,
+              'metadata': {'filename': '$filename.md'},
+              'created_at': now,
+            },
+          ]
+        : const <Map<String, dynamic>>[],
     'metadata': {'filename': filename},
     'progress': {
-      'stage': 'succeeded',
-      'percent': 100,
-      'message': 'Extraction complete',
-      'terminal': true,
+      'stage': status,
+      'percent': succeeded ? 100 : 0,
+      'message': succeeded
+          ? 'Extraction complete'
+          : failed
+              ? 'Extraction failed'
+              : 'Extraction $status',
+      'terminal': !running,
     },
     'execution': const <String, dynamic>{},
     'usage': const <String, dynamic>{},
     'created_at': now,
     'updated_at': now,
-    'started_at': now,
-    'finished_at': now,
+    'started_at': running ? null : now,
+    'finished_at': running ? null : now,
   });
+}
+
+AssetExtractionJob _copyExtractionJob(
+  AssetExtractionJob current, {
+  String? status,
+  int? attemptCount,
+  String? safeErrorCode,
+  String? safeErrorMessage,
+  String? parserName,
+  String? parserVersion,
+  List<String>? resultDocumentIds,
+  List<ExtractionArtifact>? artifacts,
+  String? progressStage,
+  int? progressPercent,
+  String? progressMessage,
+  bool? progressTerminal,
+  DateTime? startedAt,
+  DateTime? finishedAt,
+}) {
+  return AssetExtractionJob(
+    id: current.id,
+    assetId: current.assetId,
+    spaceId: current.spaceId,
+    memoryScopeId: current.memoryScopeId,
+    threadId: current.threadId,
+    parserProfile: current.parserProfile,
+    parserConfigHash: current.parserConfigHash,
+    sourceSha256Hex: current.sourceSha256Hex,
+    status: status ?? current.status,
+    attemptCount: attemptCount ?? current.attemptCount,
+    safeErrorCode: safeErrorCode,
+    safeErrorMessage: safeErrorMessage,
+    parserName: parserName,
+    parserVersion: parserVersion,
+    modelVersion: current.modelVersion,
+    resultDocumentIds: resultDocumentIds ?? current.resultDocumentIds,
+    artifacts: artifacts ?? current.artifacts,
+    metadata: current.metadata,
+    progress: ExtractionProgress(
+      stage: progressStage ?? current.progress.stage,
+      percent: progressPercent ?? current.progress.percent,
+      message: progressMessage ?? current.progress.message,
+      terminal: progressTerminal ?? current.progress.terminal,
+    ),
+    execution: current.execution,
+    usage: current.usage,
+    createdAt: current.createdAt,
+    updatedAt: DateTime.now(),
+    startedAt: startedAt,
+    finishedAt: finishedAt,
+  );
 }
 
 MemoryContextLink _contextLink({

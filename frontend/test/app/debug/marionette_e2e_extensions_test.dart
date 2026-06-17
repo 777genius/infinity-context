@@ -76,6 +76,39 @@ void main() {
       expect(extraction['artifactTypes'], contains('markdown'));
     });
 
+    test('controls retry and cancel for asset extraction jobs', () async {
+      final failed = repo.seedAssetExtraction(
+        id: 'extract-failed',
+        assetId: 'file-failed',
+        status: 'failed',
+      );
+
+      var result = await handler.retryAssetExtraction({
+        'jobId': failed.id,
+      });
+
+      expect(result['retried'], true);
+      var extraction = result['assetExtraction'] as Map<String, dynamic>;
+      expect(extraction['id'], failed.id);
+      expect(extraction['status'], 'pending');
+      expect(extraction['progressPercent'], 0);
+
+      final running = repo.seedAssetExtraction(
+        id: 'extract-running',
+        assetId: 'file-running',
+        status: 'running',
+      );
+
+      result = await handler.cancelAssetExtraction({
+        'assetId': running.assetId,
+      });
+
+      expect(result['canceled'], true);
+      extraction = result['assetExtraction'] as Map<String, dynamic>;
+      expect(extraction['id'], running.id);
+      expect(extraction['status'], 'canceled');
+    });
+
     test('reviews the first pending link suggestion', () async {
       await handler.submitCapture({
         'text': 'Alex confirmed the Project Atlas launch timing.',

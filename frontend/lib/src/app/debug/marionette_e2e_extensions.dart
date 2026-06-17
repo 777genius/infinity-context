@@ -93,6 +93,14 @@ class _MemoStackMarionetteE2eBridgeState
       (handler, params) => handler.submitAttachmentCapture(params),
     );
     _register(
+      'memoStack.retryAssetExtraction',
+      (handler, params) => handler.retryAssetExtraction(params),
+    );
+    _register(
+      'memoStack.cancelAssetExtraction',
+      (handler, params) => handler.cancelAssetExtraction(params),
+    );
+    _register(
       'memoStack.reviewFirstPendingLinkSuggestion',
       (handler, params) => handler.reviewFirstPendingLinkSuggestion(params),
     );
@@ -288,6 +296,54 @@ class MemoStackMarionetteE2eCommandHandler {
     return {
       ..._state(store),
       'uploadedAssetIds': uploadedAssetIds,
+    };
+  }
+
+  Future<Map<String, dynamic>> retryAssetExtraction(
+    Map<String, String> params,
+  ) async {
+    final store = _store();
+    final job = await _findAssetExtraction(
+      store,
+      params,
+      canUse: (item) => item.canRetry,
+      actionName: 'retry',
+    );
+    await store.retryAssetExtraction(job);
+    final error = store.assetExtractionError;
+    if (error != null) {
+      throw StateError(error);
+    }
+    await _refreshEvidence(store);
+    final updated = await _findAssetExtractionById(store, job.id);
+    return {
+      ..._state(store),
+      'retried': true,
+      'assetExtraction': _extractionToMap(updated),
+    };
+  }
+
+  Future<Map<String, dynamic>> cancelAssetExtraction(
+    Map<String, String> params,
+  ) async {
+    final store = _store();
+    final job = await _findAssetExtraction(
+      store,
+      params,
+      canUse: (item) => item.canCancel,
+      actionName: 'cancel',
+    );
+    await store.cancelAssetExtraction(job);
+    final error = store.assetExtractionError;
+    if (error != null) {
+      throw StateError(error);
+    }
+    await _refreshEvidence(store);
+    final updated = await _findAssetExtractionById(store, job.id);
+    return {
+      ..._state(store),
+      'canceled': true,
+      'assetExtraction': _extractionToMap(updated),
     };
   }
 
@@ -549,6 +605,44 @@ class MemoStackMarionetteE2eCommandHandler {
       store.refreshMemoryBrowser(showLoading: false),
     ]);
     await store.refreshAssetExtractions(showLoading: false);
+  }
+
+  Future<AssetExtractionJob> _findAssetExtraction(
+    ChatStore store,
+    Map<String, String> params, {
+    required bool Function(AssetExtractionJob job) canUse,
+    required String actionName,
+  }) async {
+    await store.refreshAssetExtractions(showLoading: false);
+    final jobId = _optional(params, 'jobId');
+    final assetId = _optional(params, 'assetId');
+    final status = _optional(params, 'status');
+    final matches = store.assetExtractions.where((job) {
+      if (jobId != null && job.id != jobId) return false;
+      if (assetId != null && job.assetId != assetId) return false;
+      if (status != null && job.status != status) return false;
+      return canUse(job);
+    }).toList(growable: false);
+    if (matches.isNotEmpty) return matches.first;
+    final selector = {
+      if (jobId != null) 'jobId': jobId,
+      if (assetId != null) 'assetId': assetId,
+      if (status != null) 'status': status,
+    };
+    throw StateError(
+      'No asset extraction can $actionName for selector $selector',
+    );
+  }
+
+  Future<AssetExtractionJob> _findAssetExtractionById(
+    ChatStore store,
+    String jobId,
+  ) async {
+    await store.refreshAssetExtractions(showLoading: false);
+    return store.assetExtractions.firstWhere(
+      (job) => job.id == jobId,
+      orElse: () => throw StateError('Asset extraction not found: $jobId'),
+    );
   }
 
   List<MemoryContextLinkSuggestion> _matchingPendingLinkSuggestions(
