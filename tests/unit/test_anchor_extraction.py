@@ -23,3 +23,13 @@ def test_anchor_extraction_keeps_real_people_projects_and_events() -> None:
     assert ("project", "atlas") in keys
     assert ("project", "qdrant") in keys
     assert ("event", "meeting last week") in keys
+
+
+def test_anchor_extraction_keeps_numeric_temporal_event_labels() -> None:
+    anchors = extract_observed_anchors(
+        "Сохрани заметку из разговора 5 часов назад и chat 2 days ago."
+    )
+
+    keys = {(anchor.kind.value, anchor.normalized_key) for anchor in anchors}
+    assert ("event", "разговора 5 часов назад") in keys
+    assert ("event", "chat 2 days ago") in keys

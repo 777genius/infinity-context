@@ -14,23 +14,26 @@ _PROJECT_PATTERN = re.compile(
     r"\b(?:project|проект|repo|repository|service|сервис)\s+([A-Za-zА-Яа-яЁё0-9][\w.-]{1,80})",
     re.IGNORECASE,
 )
+_TEMPORAL_PHRASE = (
+    r"last week|yesterday|today|tomorrow|an hour ago|hour ago|"
+    r"\d{1,3}\s+hours?\s+ago|\d{1,3}\s+days?\s+ago|\d{1,2}\s+weeks?\s+ago|"
+    r"неделю назад|вчера|сегодня|завтра|час назад|"
+    r"\d{1,3}\s+час(?:а|ов)?\s+назад|"
+    r"\d{1,3}\s+д(?:ень|ня|ней)\s+назад|"
+    r"\d{1,2}\s+недел[юи]\s+назад"
+)
 _EVENT_PATTERN = re.compile(
     r"\b("
     r"call|meeting|review|sync|demo|chat|message|conversation|"
-    r"звонок|созвон|встреча|ревью|демо|переписка|переписывался"
+    r"звонок|созвон|встреча|ревью|демо|переписка|переписывался|"
+    r"разговор(?:а|е|ом)?|чат"
     r")"
     r"(?:\s+(?:with|about|с|по|об|про|[A-Za-zА-Яа-яЁё0-9][\w.-]{1,40})){0,5}?"
-    r"(?:\s+("
-    r"last week|yesterday|today|tomorrow|an hour ago|hour ago|"
-    r"неделю назад|вчера|сегодня|завтра|час назад"
-    r"))?",
+    rf"(?:\s+({_TEMPORAL_PHRASE}))?",
     re.IGNORECASE,
 )
 _TEMPORAL_PATTERN = re.compile(
-    r"\b("
-    r"last week|yesterday|today|tomorrow|an hour ago|hour ago|"
-    r"неделю назад|вчера|сегодня|завтра|час назад"
-    r")\b",
+    rf"\b({_TEMPORAL_PHRASE})\b",
     re.IGNORECASE,
 )
 _PERSON_STOP_WORDS = {
