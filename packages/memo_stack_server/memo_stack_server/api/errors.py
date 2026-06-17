@@ -3,6 +3,7 @@
 from fastapi import Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from memo_stack_core.application.sensitive_text import redact_sensitive_text
 from memo_stack_core.domain.errors import (
     MemoryConflictError,
     MemoryError,
@@ -57,7 +58,7 @@ async def memory_error_handler(_request: Request, exc: MemoryError) -> JSONRespo
         content={
             "error": {
                 "code": exc.code,
-                "message": str(exc),
+                "message": redact_sensitive_text(str(exc)),
                 "retryable": exc.retryable,
             }
         },
