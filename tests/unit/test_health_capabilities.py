@@ -1,6 +1,9 @@
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+from memo_stack_adapters.extraction.transcription.openai_adapter import (
+    OPENAI_TRANSCRIPTION_MAX_UPLOAD_BYTES,
+)
 from memo_stack_core.domain.entities import SourceRef
 from memo_stack_core.domain.errors import MemoryInfrastructureError, MemoryInvariantError
 from memo_stack_core.ports import (
@@ -124,6 +127,12 @@ def test_capabilities_return_noop_adapters() -> None:
         body["extraction"]["optional_extras"]["transcription_api"]["model"]
         == "gpt-4o-mini-transcribe"
     )
+    assert (
+        body["extraction"]["optional_extras"]["transcription_api"][
+            "max_provider_upload_bytes"
+        ]
+        == OPENAI_TRANSCRIPTION_MAX_UPLOAD_BYTES
+    )
     assert isinstance(
         body["extraction"]["optional_extras"]["transcription_local"]["installed"], bool
     )
@@ -161,6 +170,7 @@ def test_capabilities_expose_configured_external_media_extraction(tmp_path: Path
             extraction_vision_detail="low",
             transcription_provider="openai",
             transcription_openai_model="gpt-4o-transcribe",
+            transcription_openai_max_upload_bytes=12_345,
             openai_api_key="sk-capabilities-secret",
             plan_media_analysis_seconds_per_month=3_600,
         )
@@ -181,6 +191,10 @@ def test_capabilities_expose_configured_external_media_extraction(tmp_path: Path
     assert (
         extraction["optional_extras"]["transcription_api"]["model"]
         == "gpt-4o-transcribe"
+    )
+    assert (
+        extraction["optional_extras"]["transcription_api"]["max_provider_upload_bytes"]
+        == 12_345
     )
     assert extraction["limits"] == {
         "max_bytes": 123_456,

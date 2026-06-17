@@ -43,11 +43,13 @@ class OpenAISpeechTranscriptionAdapter(SpeechTranscriptionPort):
         model: str = "gpt-4o-mini-transcribe",
         client_factory: Any | None = None,
         prompt: str | None = None,
+        max_upload_bytes: int = OPENAI_TRANSCRIPTION_MAX_UPLOAD_BYTES,
     ) -> None:
         self._api_key = api_key
         self._model = model
         self._client_factory = client_factory
         self._prompt = prompt
+        self._max_upload_bytes = max(1, int(max_upload_bytes))
 
     async def transcribe(
         self,
@@ -64,13 +66,13 @@ class OpenAISpeechTranscriptionAdapter(SpeechTranscriptionPort):
                 code="asset_extraction.transcription_missing_api_key",
                 message="OpenAI API key is missing for speech transcription",
             )
-        if request.byte_size > OPENAI_TRANSCRIPTION_MAX_UPLOAD_BYTES:
+        if request.byte_size > self._max_upload_bytes:
             return self._unsupported(
                 code="asset_extraction.transcription_file_too_large",
                 message="Media exceeds OpenAI speech transcription upload limit",
                 diagnostics={
                     "byte_size": request.byte_size,
-                    "max_provider_upload_bytes": OPENAI_TRANSCRIPTION_MAX_UPLOAD_BYTES,
+                    "max_provider_upload_bytes": self._max_upload_bytes,
                 },
             )
 

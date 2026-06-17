@@ -73,6 +73,11 @@ class Settings(BaseSettings):
     extraction_vision_detail: str = "high"
     transcription_provider: str = "openai"
     transcription_openai_model: str = "gpt-4o-mini-transcribe"
+    transcription_openai_max_upload_bytes: int = Field(
+        default=25 * 1024 * 1024,
+        ge=1,
+        le=500 * 1024 * 1024,
+    )
     extraction_asr_model: str = "base"
     extraction_asr_device: str = "auto"
     extraction_asr_compute_type: str = "default"

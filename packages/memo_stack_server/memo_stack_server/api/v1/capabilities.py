@@ -98,6 +98,9 @@ async def capabilities(
                     "provider": container.settings.transcription_provider,
                     "profiles": ["media_api", "standard_asr", "standard_full"],
                     "model": container.settings.transcription_openai_model,
+                    "max_provider_upload_bytes": (
+                        container.settings.transcription_openai_max_upload_bytes
+                    ),
                 },
                 "transcription_local": {
                     "installed": _module_available("faster_whisper"),

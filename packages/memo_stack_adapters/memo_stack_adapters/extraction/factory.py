@@ -15,6 +15,7 @@ from memo_stack_adapters.extraction.content import (
 from memo_stack_adapters.extraction.docling_engine import DoclingDocumentExtractionEngine
 from memo_stack_adapters.extraction.openai_vision import OpenAIVisionImageExtractionEngine
 from memo_stack_adapters.extraction.transcription.openai_adapter import (
+    OPENAI_TRANSCRIPTION_MAX_UPLOAD_BYTES,
     OpenAISpeechTranscriptionAdapter,
 )
 from memo_stack_adapters.extraction.transcription_engine import (
@@ -30,6 +31,7 @@ def build_standard_extractor(
     vision_detail: str = "high",
     transcription_provider: str = "openai",
     transcription_model: str = "gpt-4o-mini-transcribe",
+    transcription_max_upload_bytes: int = OPENAI_TRANSCRIPTION_MAX_UPLOAD_BYTES,
     asr_model: str = "base",
     asr_device: str = "auto",
     asr_compute_type: str = "default",
@@ -38,6 +40,7 @@ def build_standard_extractor(
         transcription=OpenAISpeechTranscriptionAdapter(
             api_key=openai_api_key if transcription_provider == "openai" else None,
             model=transcription_model,
+            max_upload_bytes=transcription_max_upload_bytes,
         )
     )
     return StandardExtractionRouter(

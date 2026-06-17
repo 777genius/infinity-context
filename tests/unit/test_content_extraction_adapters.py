@@ -333,6 +333,7 @@ def test_openai_speech_transcription_adapter_rejects_provider_upload_over_limit(
         api_key=None,
         model="gpt-4o-mini-transcribe",
         client_factory=client_factory,
+        max_upload_bytes=10,
     )
 
     result = asyncio.run(
@@ -342,7 +343,7 @@ def test_openai_speech_transcription_adapter_rejects_provider_upload_over_limit(
                 asset_id="asset_1",
                 filename="voice-note.wav",
                 content_type="audio/wav",
-                byte_size=OPENAI_TRANSCRIPTION_MAX_UPLOAD_BYTES + 1,
+                byte_size=11,
                 sha256_hex="0" * 64,
                 content=b"small test fixture",
                 max_output_chars=1000,
@@ -354,8 +355,8 @@ def test_openai_speech_transcription_adapter_rejects_provider_upload_over_limit(
     assert result.status == "unsupported"
     assert result.safe_error_code == "asset_extraction.transcription_file_too_large"
     assert result.diagnostics == {
-        "byte_size": OPENAI_TRANSCRIPTION_MAX_UPLOAD_BYTES + 1,
-        "max_provider_upload_bytes": OPENAI_TRANSCRIPTION_MAX_UPLOAD_BYTES,
+        "byte_size": 11,
+        "max_provider_upload_bytes": 10,
     }
 
 

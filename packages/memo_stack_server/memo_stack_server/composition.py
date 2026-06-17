@@ -418,6 +418,9 @@ def build_container(settings: Settings | None = None) -> Container:
             vision_detail=resolved_settings.extraction_vision_detail,
             transcription_provider=resolved_settings.transcription_provider,
             transcription_model=resolved_settings.transcription_openai_model,
+            transcription_max_upload_bytes=(
+                resolved_settings.transcription_openai_max_upload_bytes
+            ),
             asr_model=resolved_settings.extraction_asr_model,
             asr_device=resolved_settings.extraction_asr_device,
             asr_compute_type=resolved_settings.extraction_asr_compute_type,
