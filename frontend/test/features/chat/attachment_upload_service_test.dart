@@ -77,6 +77,42 @@ void main() {
       expect(progress.completed, ['note.txt']);
       expect(progress.failures, isEmpty);
     });
+
+    test('uses accepted file count for mixed batch metadata', () async {
+      final repo = _RecordingUploadRepository();
+      final limits = _StaticUploadLimits(3);
+      final progress = _RecordingUploadProgress();
+      final service = AttachmentUploadService(repo: repo, limits: limits);
+
+      final uploaded = await service.uploadAll(
+        [
+          AttachmentUploadDraft.file(
+            name: 'first.txt',
+            bytes: [1, 2],
+            mime: 'text/plain',
+          ),
+          AttachmentUploadDraft.file(
+            name: 'too-large.txt',
+            bytes: [1, 2, 3, 4],
+            mime: 'text/plain',
+          ),
+          AttachmentUploadDraft.file(
+            name: 'second.txt',
+            bytes: [3],
+            mime: 'text/plain',
+          ),
+        ],
+        progress: progress,
+      );
+
+      expect(uploaded, ['file-1', 'file-2']);
+      expect(repo.uploadedNames, ['first.txt', 'second.txt']);
+      expect(repo.batchSizes, [2, 2]);
+      expect(repo.batchIndexes, [1, 2]);
+      expect(repo.batchIds.toSet(), hasLength(1));
+      expect(progress.failures.single, startsWith('too-large.txt:'));
+      expect(progress.completed, ['first.txt', 'second.txt']);
+    });
   });
 }
 
@@ -134,6 +170,9 @@ class _RecordingUploadProgress implements AttachmentUploadProgress {
 
 class _RecordingUploadRepository implements ChatRepository {
   final uploadedNames = <String>[];
+  final batchIds = <String?>[];
+  final batchSizes = <int?>[];
+  final batchIndexes = <int?>[];
   var _seq = 0;
 
   @override
@@ -149,6 +188,9 @@ class _RecordingUploadRepository implements ChatRepository {
     int? batchIndex,
   }) async {
     uploadedNames.add(name);
+    batchIds.add(batchId);
+    batchSizes.add(batchSize);
+    batchIndexes.add(batchIndex);
     onProgress?.call(bytes.length, bytes.length);
     return 'file-${++_seq}';
   }

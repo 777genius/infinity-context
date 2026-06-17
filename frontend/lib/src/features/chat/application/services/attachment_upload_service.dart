@@ -24,12 +24,11 @@ class AttachmentUploadService {
   }) async {
     if (drafts.isEmpty) return const [];
     final batchId = DateTime.now().microsecondsSinceEpoch.toString();
-    final total = drafts.length;
     final uploaded = <String>[];
     final maxBytes = await _maxBytes();
+    final prepared = <_PreparedUpload>[];
 
-    for (var index = 0; index < drafts.length; index += 1) {
-      final draft = drafts[index];
+    for (final draft in drafts) {
       final result = await _prepare(draft);
       final bytes = result.bytes;
       if (bytes.length > maxBytes) {
@@ -37,6 +36,15 @@ class AttachmentUploadService {
         progress?.fail(draft.name, _tooLargeMessage(bytes.length, maxBytes));
         continue;
       }
+      prepared.add(_PreparedUpload(draft: draft, attachment: result));
+    }
+
+    final total = prepared.length;
+    for (var index = 0; index < prepared.length; index += 1) {
+      final item = prepared[index];
+      final draft = item.draft;
+      final result = item.attachment;
+      final bytes = result.bytes;
 
       var canceled = false;
       void Function()? cancelNetwork;
@@ -131,5 +139,15 @@ class _PreparedAttachment {
     required this.bytes,
     required this.mime,
     this.previewBase64,
+  });
+}
+
+class _PreparedUpload {
+  final AttachmentUploadDraft draft;
+  final _PreparedAttachment attachment;
+
+  const _PreparedUpload({
+    required this.draft,
+    required this.attachment,
   });
 }
