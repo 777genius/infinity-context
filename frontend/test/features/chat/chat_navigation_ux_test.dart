@@ -163,7 +163,14 @@ void main() {
         status: 'succeeded',
         artifacts: [_artifact('artifact-ready', 'extract-ready')],
       ),
-      _job(id: 'extract-failed', status: 'failed'),
+      _job(
+        id: 'extract-failed',
+        status: 'failed',
+        metadata: const {
+          'cancellation_status': 'ignored_after_document_commit',
+          'cancellation_message': 'finalizing extraction',
+        },
+      ),
     ];
     final store = ChatStore(repo, null);
     addTearDown(store.dispose);
@@ -190,6 +197,8 @@ void main() {
         .tap(find.byKey(const ValueKey('memory_operations_open_button')));
     await tester.pumpAndSettle();
     expect(find.textContaining('Ready'), findsOneWidget);
+    expect(find.text('cancel: ignored_after_document_commit'), findsOneWidget);
+    expect(find.text('cancel note: finalizing extraction'), findsOneWidget);
     expect(find.byKey(const ValueKey('asset_extraction_open_artifact_ready')),
         findsOneWidget);
   });
@@ -1298,6 +1307,7 @@ AssetExtractionJob _job({
   required String status,
   List<ExtractionArtifact> artifacts = const <ExtractionArtifact>[],
   String? threadId,
+  Map<String, dynamic> metadata = const <String, dynamic>{},
 }) {
   final now = DateTime.now();
   return AssetExtractionJob(
@@ -1318,7 +1328,7 @@ AssetExtractionJob _job({
     modelVersion: null,
     resultDocumentIds: status == 'succeeded' ? const ['doc-1'] : const [],
     artifacts: artifacts,
-    metadata: const <String, dynamic>{},
+    metadata: metadata,
     progress: ExtractionProgress.fromMap(
       const <String, dynamic>{},
       status: status,

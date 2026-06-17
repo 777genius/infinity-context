@@ -525,6 +525,10 @@ class _JobDetails extends StatelessWidget {
     final details = <String>[
       'progress: ${job.progress.stage} ${job.progress.percent}%',
       if (job.safeErrorCode != null) 'error: ${job.safeErrorCode}',
+      if (_metadataText(job, 'cancellation_status') != null)
+        'cancel: ${_metadataText(job, 'cancellation_status')}',
+      if (_metadataText(job, 'cancellation_message') != null)
+        'cancel note: ${_metadataText(job, 'cancellation_message')}',
       if (job.execution.retryDisposition != null)
         'retry: ${job.execution.retryDisposition}',
       if (job.execution.retryAfterAt != null)
@@ -545,6 +549,11 @@ class _JobDetails extends StatelessWidget {
       runSpacing: 6,
       children: details.map((item) => _DetailChip(label: item)).toList(),
     );
+  }
+
+  String? _metadataText(AssetExtractionJob job, String key) {
+    final value = job.metadata[key]?.toString().trim();
+    return value == null || value.isEmpty ? null : value;
   }
 }
 
