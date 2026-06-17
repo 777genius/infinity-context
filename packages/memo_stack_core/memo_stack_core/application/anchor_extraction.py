@@ -208,6 +208,14 @@ def canonical_anchor_key(label: str) -> str:
     )
 
 
+def canonical_anchor_key_for_kind(kind: MemoryAnchorKind, label: str) -> str:
+    if kind == MemoryAnchorKind.PERSON:
+        return _canonical_person_key(label)
+    if kind == MemoryAnchorKind.EVENT:
+        return _canonical_event_key(label)
+    return canonical_anchor_key(label)
+
+
 def _append_anchor(
     anchors: list[ObservedAnchor],
     seen: set[tuple[str, str]],
@@ -234,7 +242,7 @@ def _append_anchor(
             metadata={
                 "extraction_reason": reason,
                 "extractor": "anchor-rule-v2",
-                "canonical_key": _canonical_key_for(kind, label),
+                "canonical_key": canonical_anchor_key_for_kind(kind, label),
             },
         )
     )
@@ -330,16 +338,26 @@ def _is_probable_person_label(label: str) -> bool:
     return first not in _PERSON_STOP_WORDS
 
 
-def _canonical_key_for(kind: MemoryAnchorKind, label: str) -> str:
-    if kind == MemoryAnchorKind.PERSON:
-        return _canonical_person_key(label)
-    return canonical_anchor_key(label)
-
-
 def _canonical_person_key(label: str) -> str:
     normalized = normalize_anchor_key(label)
     parts = [_normalize_cyrillic_person_case(part) for part in normalized.split()]
     return " ".join(part.translate(_CYRILLIC_TO_LATIN).replace("x", "ks") for part in parts if part)
+
+
+def _canonical_event_key(label: str) -> str:
+    normalized_parts: list[str] = []
+    normalize_next_person = False
+    for part in normalize_anchor_key(label).split():
+        if normalize_next_person:
+            normalized_parts.append(_normalize_cyrillic_person_case(part))
+            normalize_next_person = False
+        else:
+            normalized_parts.append(part)
+        if part in {"with", "from", "с", "от"}:
+            normalize_next_person = True
+    return " ".join(
+        part.translate(_CYRILLIC_TO_LATIN).replace("x", "ks") for part in normalized_parts if part
+    )
 
 
 def _normalize_cyrillic_person_case(part: str) -> str:

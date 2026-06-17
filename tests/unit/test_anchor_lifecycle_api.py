@@ -328,3 +328,81 @@ def test_anchor_backfill_collapses_russian_person_case_variants(tmp_path: Path) 
         assert person_anchors[0]["label"] == "Алекс"
         assert {"Алекс", "Алексом"}.issubset(set(person_anchors[0]["aliases"]))
         assert person_anchors[0]["metadata"]["canonical_key"] == "aleks"
+
+
+def test_anchor_backfill_preserves_manual_event_label_for_case_variants(
+    tmp_path: Path,
+) -> None:
+    with make_client(tmp_path) as client:
+        capture = client.post(
+            "/v1/captures",
+            json={
+                "space_slug": "anchor-event-case-variants",
+                "memory_scope_external_ref": "default",
+                "thread_external_ref": "review",
+                "source_agent": "memo-frontend",
+                "source_kind": "manual",
+                "event_type": "QuickCapture",
+                "actor_role": "user",
+                "source_event_id": "capture-maria-event-variant",
+                "text": "Созвон с Мария вчера подтвердил Project Atlas.",
+                "source_authority": "user_statement",
+            },
+            headers=auth_headers(),
+        )
+        assert capture.status_code == 201, capture.text
+
+        manual_anchor = client.post(
+            "/v1/anchors",
+            json={
+                "space_slug": "anchor-event-case-variants",
+                "memory_scope_external_ref": "default",
+                "kind": "event",
+                "label": "Созвон с Марией вчера",
+                "aliases": ["Вчерашний созвон с Марией"],
+                "description": "Reviewer-confirmed event anchor.",
+            },
+            headers=auth_headers(),
+        )
+        assert manual_anchor.status_code == 200, manual_anchor.text
+        manual_anchor_data = manual_anchor.json()["data"]
+        assert manual_anchor_data["metadata"]["canonical_key"] == "sozvon s mariya vchera"
+
+        backfill = client.post(
+            "/v1/anchors/backfill",
+            json={
+                "space_slug": "anchor-event-case-variants",
+                "memory_scope_external_ref": "default",
+                "limit_per_source": 20,
+            },
+            headers=auth_headers(),
+        )
+        assert backfill.status_code == 200, backfill.text
+
+        anchors = client.get(
+            "/v1/anchors",
+            params={
+                "space_slug": "anchor-event-case-variants",
+                "memory_scope_external_ref": "default",
+                "kind": "event",
+                "limit": 100,
+            },
+            headers=auth_headers(),
+        )
+        assert anchors.status_code == 200, anchors.text
+        event_anchors = anchors.json()["data"]
+        participant_events = [
+            item
+            for item in event_anchors
+            if item["metadata"]["canonical_key"] == "sozvon s mariya vchera"
+        ]
+        assert len(participant_events) == 1
+        event_anchor = participant_events[0]
+        assert event_anchor["id"] == manual_anchor_data["id"]
+        assert event_anchor["label"] == "Созвон с Марией вчера"
+        assert event_anchor["normalized_key"] == "созвон с марией вчера"
+        assert {
+            "Созвон с Марией вчера",
+            "Созвон с Мария вчера",
+        }.issubset(set(event_anchor["aliases"]))
+        assert any(item["normalized_key"] == "созвон вчера" for item in event_anchors)

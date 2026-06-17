@@ -9,6 +9,7 @@ from difflib import SequenceMatcher
 from memo_stack_core.application.anchor_extraction import (
     ObservedAnchor,
     canonical_anchor_key,
+    canonical_anchor_key_for_kind,
     extract_observed_anchors,
     normalize_anchor_key,
 )
@@ -95,7 +96,7 @@ class CreateAnchorUseCase:
             **dict(command.metadata or {}),
             "resolver_version": _ANCHOR_RESOLVER_VERSION,
             "creation_source": "manual",
-            "canonical_key": canonical_anchor_key(label),
+            "canonical_key": canonical_anchor_key_for_kind(kind, label),
         }
         async with self._uow_factory() as uow:
             existing = await uow.anchors.find_active_by_key(
@@ -172,6 +173,11 @@ class UpdateAnchorUseCase:
                         **dict(command.metadata or {}),
                         "resolver_version": _ANCHOR_RESOLVER_VERSION,
                         "last_edit_source": "manual",
+                        **(
+                            {"canonical_key": canonical_anchor_key_for_kind(anchor.kind, label)}
+                            if label
+                            else {}
+                        ),
                     },
                     now=now,
                 )
@@ -287,7 +293,7 @@ class SplitAnchorUseCase:
                         "resolver_version": _ANCHOR_RESOLVER_VERSION,
                         "split_from_anchor_id": str(anchor.id),
                         "split_reason": reason,
-                        "canonical_key": canonical_anchor_key(label),
+                        "canonical_key": canonical_anchor_key_for_kind(anchor.kind, label),
                     },
                     now=now,
                 )
@@ -306,7 +312,7 @@ class SplitAnchorUseCase:
                         "resolver_version": _ANCHOR_RESOLVER_VERSION,
                         "split_from_anchor_id": str(anchor.id),
                         "split_reason": reason,
-                        "canonical_key": canonical_anchor_key(label),
+                        "canonical_key": canonical_anchor_key_for_kind(anchor.kind, label),
                     },
                     now=now,
                 )
@@ -539,6 +545,12 @@ def _preferred_observed_label(anchor: MemoryAnchor, observed: ObservedAnchor) ->
     if (
         observed_key
         and observed_key in _canonical_anchor_keys(anchor)
+        and anchor.kind != MemoryAnchorKind.PERSON
+    ):
+        return None
+    if (
+        observed_key
+        and observed_key in _canonical_anchor_keys(anchor)
         and len(normalize_anchor_key(anchor.label)) <= len(normalize_anchor_key(observed.label))
     ):
         return None
@@ -548,7 +560,9 @@ def _preferred_observed_label(anchor: MemoryAnchor, observed: ObservedAnchor) ->
 def _should_promote_observed_key(anchor: MemoryAnchor, observed: ObservedAnchor) -> bool:
     observed_key = _observed_canonical_key(observed)
     return bool(
-        observed_key
+        anchor.kind == MemoryAnchorKind.PERSON
+        and observed.kind == MemoryAnchorKind.PERSON
+        and observed_key
         and observed_key in _canonical_anchor_keys(anchor)
         and _same_script_family(anchor.label, observed.label)
         and anchor.normalized_key != observed.normalized_key

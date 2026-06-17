@@ -41,9 +41,15 @@ def test_anchor_extraction_keeps_event_participants() -> None:
     )
 
     keys = {(anchor.kind.value, anchor.normalized_key) for anchor in anchors}
+    canonical_keys = {
+        anchor.normalized_key: anchor.metadata.get("canonical_key")
+        for anchor in anchors
+        if anchor.kind.value == "event"
+    }
     assert ("event", "call with alex") in keys
     assert ("event", "созвон с марией вчера") in keys
     assert ("event", "созвон вчера") in keys
+    assert canonical_keys["созвон с марией вчера"] == "sozvon s mariya vchera"
 
 
 def test_anchor_extraction_handles_russian_temporal_person_cases() -> None:
