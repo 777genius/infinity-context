@@ -36,6 +36,14 @@ _EVENT_PARTICIPANT_PATTERN = re.compile(
     r"\b(?P<prep>with|from|с|от)\s+"
     r"(?P<label>[A-Z][a-z][A-Za-z]{1,40}|[А-ЯЁ][а-яё]{2,40})\b"
 )
+_EVENT_KEYWORD_PATTERN = re.compile(
+    r"\b("
+    r"call|meeting|review|sync|demo|chat|message|conversation|"
+    r"звонок|созвон|встреча|ревью|демо|переписка|переписывался|"
+    r"разговор(?:а|е|ом)?|чат"
+    r")\b",
+    re.IGNORECASE,
+)
 _TEMPORAL_PATTERN = re.compile(
     rf"\b({_TEMPORAL_PHRASE})\b",
     re.IGNORECASE,
@@ -308,6 +316,8 @@ def _nearby_temporal_after(text: str, start: int) -> str:
 
 def _nearby_event_participant(text: str, start: int) -> str:
     tail = re.split(r"[.!?\n]", text[start : start + 80], maxsplit=1)[0]
+    if next_event := _EVENT_KEYWORD_PATTERN.search(tail):
+        tail = tail[: next_event.start()]
     match = _EVENT_PARTICIPANT_PATTERN.search(tail)
     if not match:
         return ""

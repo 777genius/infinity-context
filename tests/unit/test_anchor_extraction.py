@@ -52,6 +52,17 @@ def test_anchor_extraction_keeps_event_participants() -> None:
     assert canonical_keys["созвон с марией вчера"] == "sozvon s mariya vchera"
 
 
+def test_anchor_extraction_does_not_attach_next_event_participant() -> None:
+    anchors = extract_observed_anchors(
+        "Meeting last week and chat with Alex an hour ago covered Project Atlas."
+    )
+
+    event_keys = {anchor.normalized_key for anchor in anchors if anchor.kind.value == "event"}
+    assert "meeting last week" in event_keys
+    assert "meeting with alex last week" not in event_keys
+    assert "chat with alex an hour ago" in event_keys
+
+
 def test_anchor_extraction_handles_russian_temporal_person_cases() -> None:
     anchors = extract_observed_anchors(
         "Час назад я переписывался с Алексом по Project Atlas. Созвон с Марией вчера про backend."
