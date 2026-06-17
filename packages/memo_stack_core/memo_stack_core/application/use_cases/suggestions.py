@@ -20,6 +20,7 @@ from memo_stack_core.application.dto import (
     ReviewSuggestionsBatchResult,
     SuggestionResult,
 )
+from memo_stack_core.application.sensitive_text import redact_sensitive_text
 from memo_stack_core.domain.entities import (
     Confidence,
     MemoryFact,
@@ -173,7 +174,7 @@ class CreateSuggestionsBatchUseCase:
                         index=index,
                         status="failed",
                         error_code=exc.code,
-                        error_message=str(exc),
+                        error_message=_safe_batch_error_message(exc),
                     )
                 )
                 if not command.continue_on_error:
@@ -382,7 +383,7 @@ class ReviewSuggestionsBatchUseCase:
                         action=item.action,
                         status="failed",
                         error_code=exc.code,
-                        error_message=str(exc),
+                        error_message=_safe_batch_error_message(exc),
                     )
                 )
                 if not command.continue_on_error:
@@ -465,3 +466,8 @@ def _batch_candidate_key(command: CreateSuggestionCommand) -> tuple[object, ...]
         command.category or "",
         tuple(command.tags),
     )
+
+
+def _safe_batch_error_message(value: object) -> str:
+    text = str(value).strip() or value.__class__.__name__
+    return redact_sensitive_text(text)[:320]
