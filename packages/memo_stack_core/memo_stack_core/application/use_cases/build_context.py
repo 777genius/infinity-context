@@ -16,6 +16,7 @@ from memo_stack_core.application.context_hydration import ContextHydrator
 from memo_stack_core.application.context_packer import ContextPacker
 from memo_stack_core.application.context_policy import is_context_fact_visible
 from memo_stack_core.application.context_ranking import dedupe_rank_items
+from memo_stack_core.application.context_relevance import QueryRelevance, score_query_relevance
 from memo_stack_core.application.document_text import document_chunk_retrieval_text
 from memo_stack_core.application.dto import (
     BuildContextQuery,
@@ -125,12 +126,16 @@ class BuildContextUseCase:
                 text=chunk.text,
                 metadata=chunk.metadata,
             )
+            relevance = score_query_relevance(query=query.query, text=chunk_text)
+            score = min(0.87, round(0.75 + relevance.score_boost, 4))
             items.append(
                 _chunk_context_item(
                     chunk=chunk,
                     text=chunk_text,
                     retrieval_source="keyword_chunks",
-                    score=0.75,
+                    base_score=0.75,
+                    score=score,
+                    relevance=relevance,
                 )
             )
         for chunk in vector_chunks:
@@ -143,7 +148,9 @@ class BuildContextUseCase:
                     chunk=chunk,
                     text=chunk_text,
                     retrieval_source="vector_chunks",
+                    base_score=0.82,
                     score=0.82,
+                    relevance=None,
                 )
             )
         items.extend(graph_items)
@@ -510,8 +517,26 @@ def _chunk_context_item(
     chunk: MemoryChunk,
     text: str,
     retrieval_source: str,
+    base_score: float,
     score: float,
+    relevance: QueryRelevance | None,
 ) -> ContextItem:
+    score_signals = {
+        "base_score": base_score,
+        "final_score": score,
+        "retrieval_channel": retrieval_source,
+        "source_type": chunk.source_type,
+    }
+    if relevance is not None:
+        score_signals.update(
+            {
+                "query_term_count": relevance.query_term_count,
+                "unique_term_hits": relevance.unique_term_hits,
+                "capped_frequency_hits": relevance.capped_frequency_hits,
+                "hit_ratio": relevance.hit_ratio,
+                "query_relevance_boost": relevance.score_boost,
+            }
+        )
     return ContextItem(
         item_id=str(chunk.id),
         item_type="chunk",
@@ -532,18 +557,22 @@ def _chunk_context_item(
             "retrieval_source": retrieval_source,
             "retrieval_sources": [retrieval_source],
             "ranking_reason": f"matched via {retrieval_source}",
-            "score_signals": {
-                "base_score": score,
-                "retrieval_channel": retrieval_source,
-                "source_type": chunk.source_type,
-            },
+            "score_signals": score_signals,
             "provenance": {
                 "retrieval_sources": [retrieval_source],
                 "source_ref_count": 1,
                 "source_type": chunk.source_type,
                 "source_id": chunk.source_external_id,
                 "chunk_id": str(chunk.id),
+                "sequence": chunk.sequence,
+                "char_start": chunk.char_start,
+                "char_end": chunk.char_end,
             },
+            "source_type": chunk.source_type,
+            "source_id": chunk.source_external_id,
+            "chunk_sequence": chunk.sequence,
+            "char_start": chunk.char_start,
+            "char_end": chunk.char_end,
         },
     )
 

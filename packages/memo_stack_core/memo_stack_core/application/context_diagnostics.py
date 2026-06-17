@@ -48,8 +48,17 @@ _BUNDLE_COUNTER_DEFAULTS = {
 }
 
 
-def context_rank_key(item: ContextItem) -> tuple[float, str, str, str]:
-    return (-round(item.score, 8), item.item_type, item.item_id, _updated_at(item))
+def context_rank_key(item: ContextItem) -> tuple[float, str, str, str, int, int, str, str]:
+    return (
+        -round(item.score, 8),
+        item.item_type,
+        _memory_scope_id(item),
+        _source_key(item),
+        _chunk_sequence(item),
+        _char_start(item),
+        _updated_at(item),
+        item.item_id,
+    )
 
 
 def normalize_context_item_diagnostics(item: ContextItem) -> ContextItem:
@@ -288,6 +297,48 @@ def _updated_at(item: ContextItem) -> str:
         return ""
     value = diagnostics.get("updated_at") or diagnostics.get("created_at") or ""
     return str(value)
+
+
+def _memory_scope_id(item: ContextItem) -> str:
+    diagnostics = _as_dict(item.diagnostics)
+    return str(diagnostics.get("memory_scope_id") or "")
+
+
+def _source_key(item: ContextItem) -> str:
+    diagnostics = _as_dict(item.diagnostics)
+    provenance = _as_dict(diagnostics.get("provenance"))
+    source_type = diagnostics.get("source_type") or provenance.get("source_type")
+    source_id = diagnostics.get("source_id") or provenance.get("source_id")
+    if (source_type is None or source_id is None) and item.source_refs:
+        ref = item.source_refs[0]
+        source_type = source_type or ref.source_type
+        source_id = source_id or ref.source_id
+    return f"{source_type or ''}:{source_id or ''}"
+
+
+def _chunk_sequence(item: ContextItem) -> int:
+    diagnostics = _as_dict(item.diagnostics)
+    provenance = _as_dict(diagnostics.get("provenance"))
+    return _rank_int(diagnostics.get("chunk_sequence") or provenance.get("sequence"))
+
+
+def _char_start(item: ContextItem) -> int:
+    diagnostics = _as_dict(item.diagnostics)
+    provenance = _as_dict(diagnostics.get("provenance"))
+    value = diagnostics.get("char_start") or provenance.get("char_start")
+    if value is None and item.source_refs:
+        value = item.source_refs[0].char_start
+    return _rank_int(value)
+
+
+def _rank_int(value: object) -> int:
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return max(0, value)
+    if isinstance(value, float):
+        return max(0, int(value))
+    return 2_147_483_647
 
 
 def _as_dict(value: object) -> dict[str, Any]:

@@ -374,6 +374,55 @@ def test_context_ranking_orders_tied_scores_deterministically() -> None:
     assert [item.item_id for item in result] == ["fact_a", "fact_b"]
 
 
+def test_context_ranking_orders_tied_chunks_by_document_position_before_id() -> None:
+    late_random_id = ContextItem(
+        item_id="chunk_a_random_id",
+        item_type="chunk",
+        text="late chunk",
+        score=0.8,
+        source_refs=(
+            SourceRef(
+                source_type="document",
+                source_id="runbook",
+                chunk_id="chunk_a_random_id",
+                char_start=900,
+            ),
+        ),
+        diagnostics={
+            "memory_scope_id": "memory_scope_default",
+            "source_type": "document",
+            "source_id": "runbook",
+            "chunk_sequence": 9,
+            "char_start": 900,
+        },
+    )
+    early_random_id = ContextItem(
+        item_id="chunk_z_random_id",
+        item_type="chunk",
+        text="early chunk",
+        score=0.8,
+        source_refs=(
+            SourceRef(
+                source_type="document",
+                source_id="runbook",
+                chunk_id="chunk_z_random_id",
+                char_start=100,
+            ),
+        ),
+        diagnostics={
+            "memory_scope_id": "memory_scope_default",
+            "source_type": "document",
+            "source_id": "runbook",
+            "chunk_sequence": 1,
+            "char_start": 100,
+        },
+    )
+
+    result = dedupe_rank_items((late_random_id, early_random_id))
+
+    assert [item.item_id for item in result] == ["chunk_z_random_id", "chunk_a_random_id"]
+
+
 def test_context_packer_returns_normalized_item_diagnostics() -> None:
     secret = "sk-proj-secretvalue1234567890"
     result = ContextPacker().pack(
