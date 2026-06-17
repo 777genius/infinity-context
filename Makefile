@@ -80,6 +80,17 @@ memo-stack-frontend-marionette-memory-e2e: memo-stack-up-lite
 .PHONY: memo-stack-frontend-marionette-anchor-e2e
 memo-stack-frontend-marionette-anchor-e2e: memo-stack-frontend-marionette-memory-e2e
 
+.PHONY: memo-stack-desktop-confidence
+memo-stack-desktop-confidence:
+	@set -e; \
+	cleanup() { $(MAKE) memo-stack-down >/dev/null || true; }; \
+	trap cleanup EXIT INT TERM; \
+	$(MAKE) memo-stack-test-quality; \
+	$(MAKE) memo-stack-frontend-check; \
+	$(MAKE) memo-stack-frontend-marionette-memory-e2e; \
+	git diff --check; \
+	$(MAKE) memo-stack-secret-scan
+
 .PHONY: memo-stack-scale-chaos-load-e2e
 memo-stack-scale-chaos-load-e2e:
 	$(PYTHON) -m pytest tests/e2e/test_memory_scale_chaos_load_e2e.py -q
@@ -216,6 +227,7 @@ memo-stack-secret-scan:
 	@! rg -n '\bsk-(proj-)?[A-Za-z0-9_-]{40,}\b' . \
 		-g '!**/__pycache__/**' \
 		-g '!tests/**' \
+		-g '!frontend/test/**' \
 		-g '!*.lock' \
 		-g '!uv.lock' \
 		-g '!poetry.lock'

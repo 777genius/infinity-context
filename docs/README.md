@@ -60,6 +60,7 @@ Quality gates:
 
 ```bash
 make memo-stack-test-quality
+make memo-stack-desktop-confidence
 make memo-stack-plugin-test
 .venv/bin/python -m memo_stack_server.eval run --suite quality-golden
 .venv/bin/python -m memo_stack_server.eval run --suite semantic-linking-golden
@@ -79,6 +80,11 @@ the local Docker backend and validates the frontend memory save/review path
 through VM service extensions: create scope, save capture, approve a context-link
 suggestion, upload attachment evidence, wait for asset extraction,
 create/update/split anchors, merge duplicate anchors and cleanup.
+`memo-stack-desktop-confidence` is the local desktop product gate. It combines
+the deterministic backend quality suite, Flutter analyze/tests, the live
+Marionette frontend memory E2E, `git diff --check` and the repository secret
+scan. It starts the lite Docker stack for the live E2E and runs `memo-stack-down`
+on exit.
 
 Fresh full-provider canary with isolated Docker volumes:
 
