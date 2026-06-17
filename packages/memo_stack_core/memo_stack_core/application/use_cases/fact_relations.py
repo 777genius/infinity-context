@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from memo_stack_core.application.dto import (
     FactRelationItem,
     FactRelationResult,
@@ -56,6 +58,7 @@ class LinkFactsUseCase:
                 relation_type=relation_type.value,
             )
             if existing is not None:
+                _assert_existing_relation_temporal_compatible(existing, command)
                 if (
                     relation_type == FactRelationType.CONTRADICTS
                     and target.status == FactStatus.ACTIVE
@@ -152,3 +155,36 @@ def _ensure_linkable(*, source, target) -> None:
         raise MemoryConflictError("Deleted facts cannot be linked")
     if source.classification == "restricted" or target.classification == "restricted":
         raise MemoryConflictError("Restricted facts cannot be linked")
+
+
+def _assert_existing_relation_temporal_compatible(
+    existing: MemoryFactRelation,
+    command: LinkFactsCommand,
+) -> None:
+    mismatched_fields = [
+        field
+        for field in ("observed_at", "valid_from", "valid_to")
+        if not _optional_datetime_matches(
+            getattr(existing, field),
+            getattr(command, field),
+        )
+    ]
+    if mismatched_fields:
+        fields = ", ".join(mismatched_fields)
+        raise MemoryConflictError(
+            f"Active fact relation already exists with different temporal fields: {fields}"
+        )
+
+
+def _optional_datetime_matches(existing: datetime | None, requested: datetime | None) -> bool:
+    if requested is None:
+        return True
+    if existing is None:
+        return False
+    comparable_existing = existing
+    comparable_requested = requested
+    if comparable_existing.tzinfo is None and comparable_requested.tzinfo is not None:
+        comparable_existing = comparable_existing.replace(tzinfo=comparable_requested.tzinfo)
+    elif comparable_existing.tzinfo is not None and comparable_requested.tzinfo is None:
+        comparable_requested = comparable_requested.replace(tzinfo=comparable_existing.tzinfo)
+    return comparable_existing == comparable_requested

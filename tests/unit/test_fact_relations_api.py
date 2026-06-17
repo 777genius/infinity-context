@@ -135,6 +135,50 @@ def test_fact_relations_reject_invalid_temporal_range(tmp_path: Path) -> None:
     assert response.status_code == 400
 
 
+def test_fact_relations_reject_duplicate_with_different_temporal_window(
+    tmp_path: Path,
+) -> None:
+    with make_client(tmp_path) as client:
+        source_id = create_fact(client, "RELATION_TEMPORAL_DUPLICATE: current fact.")
+        target_id = create_fact(client, "RELATION_TEMPORAL_DUPLICATE: previous fact.")
+        linked = client.post(
+            f"/v1/facts/{source_id}/relations",
+            json={
+                "target_fact_id": target_id,
+                "relation_type": "supersedes",
+                "reason": "Current fact supersedes previous fact in January.",
+                "valid_from": "2026-01-01T00:00:00+00:00",
+            },
+            headers=auth_headers(),
+        )
+        repeated_same_window = client.post(
+            f"/v1/facts/{source_id}/relations",
+            json={
+                "target_fact_id": target_id,
+                "relation_type": "supersedes",
+                "reason": "Duplicate request with the same temporal window.",
+                "valid_from": "2026-01-01T00:00:00+00:00",
+            },
+            headers=auth_headers(),
+        )
+        conflicting_window = client.post(
+            f"/v1/facts/{source_id}/relations",
+            json={
+                "target_fact_id": target_id,
+                "relation_type": "supersedes",
+                "reason": "Duplicate request with a different temporal window.",
+                "valid_from": "2026-02-01T00:00:00+00:00",
+            },
+            headers=auth_headers(),
+        )
+
+    assert linked.status_code == 201, linked.text
+    assert repeated_same_window.status_code == 201, repeated_same_window.text
+    assert repeated_same_window.json()["data"]["id"] == linked.json()["data"]["id"]
+    assert conflicting_window.status_code == 409, conflicting_window.text
+    assert "different temporal fields" in conflicting_window.text
+
+
 def test_contradicts_relation_marks_target_disputed_and_context_hides_it(
     tmp_path: Path,
 ) -> None:
