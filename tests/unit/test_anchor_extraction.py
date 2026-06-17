@@ -25,6 +25,21 @@ def test_anchor_extraction_keeps_real_people_projects_and_events() -> None:
     assert ("event", "meeting last week") in keys
 
 
+def test_anchor_extraction_keeps_organizations_separate_from_people() -> None:
+    anchors = extract_observed_anchors(
+        "Alex shared OpenAI notes with company Acme Corp and GitHub team updates."
+    )
+
+    keys = {(anchor.kind.value, anchor.normalized_key) for anchor in anchors}
+    person_keys = {anchor.normalized_key for anchor in anchors if anchor.kind.value == "person"}
+    assert ("person", "alex") in keys
+    assert ("organization", "openai") in keys
+    assert ("organization", "github") in keys
+    assert ("organization", "acme corp") in keys
+    assert "openai" not in person_keys
+    assert "github" not in person_keys
+
+
 def test_anchor_extraction_keeps_numeric_temporal_event_labels() -> None:
     anchors = extract_observed_anchors(
         "Сохрани заметку из разговора 5 часов назад и chat 2 days ago."

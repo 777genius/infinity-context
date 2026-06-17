@@ -181,6 +181,11 @@ def anchor_to_json(row: MemoryAnchorRow) -> dict[str, Any]:
         "aliases": list(row.aliases_json or []),
         "description": row.description,
         "status": row.status,
+        "confidence": row.confidence,
+        "evidence_refs": _anchor_evidence_refs_to_json(row.evidence_refs_json or []),
+        "observed_at": row.observed_at.isoformat() if row.observed_at else None,
+        "valid_from": row.valid_from.isoformat() if row.valid_from else None,
+        "valid_to": row.valid_to.isoformat() if row.valid_to else None,
         "metadata_json": safe_metadata(row.metadata_json),
         "created_at": row.created_at.isoformat(),
         "updated_at": row.updated_at.isoformat(),
@@ -406,6 +411,11 @@ def anchor_from_json(
         aliases_json=_bounded_string_list(item.get("aliases"), limit=20, item_limit=120),
         description=bounded_optional_text(item.get("description"), 500),
         status=str(item.get("status", "active")),
+        confidence=str(item.get("confidence", "medium")),
+        evidence_refs_json=_anchor_evidence_refs_from_json(item.get("evidence_refs")),
+        observed_at=_parse_optional_dt(item.get("observed_at")),
+        valid_from=_parse_optional_dt(item.get("valid_from")),
+        valid_to=_parse_optional_dt(item.get("valid_to")),
         metadata_json=safe_metadata(item.get("metadata_json") or item.get("metadata") or {}),
         created_at=_parse_dt(item.get("created_at"), now),
         updated_at=_parse_dt(item.get("updated_at"), now),
@@ -435,6 +445,44 @@ def context_link_from_json(
         created_at=_parse_dt(item.get("created_at"), now),
         updated_at=_parse_dt(item.get("updated_at"), now),
     )
+
+
+def _anchor_evidence_refs_to_json(items: list[dict[str, object]]) -> list[dict[str, object]]:
+    refs: list[dict[str, object]] = []
+    for item in items[:20]:
+        if not isinstance(item, dict):
+            continue
+        refs.append(
+            {
+                "source_type": bounded_optional_text(item.get("source_type"), 80) or "unknown",
+                "source_id": bounded_optional_text(item.get("source_id"), 160) or "unknown",
+                "chunk_id": bounded_optional_text(item.get("chunk_id"), 160),
+                "char_start": item.get("char_start"),
+                "char_end": item.get("char_end"),
+                "quote_preview": safe_bounded_optional_text(item.get("quote_preview"), 240),
+            }
+        )
+    return refs
+
+
+def _anchor_evidence_refs_from_json(value: object) -> list[dict[str, object]]:
+    if not isinstance(value, list):
+        return []
+    refs: list[dict[str, object]] = []
+    for item in value[:20]:
+        if not isinstance(item, dict):
+            continue
+        refs.append(
+            {
+                "source_type": bounded_optional_text(item.get("source_type"), 80) or "unknown",
+                "source_id": bounded_optional_text(item.get("source_id"), 160) or "unknown",
+                "chunk_id": bounded_optional_text(item.get("chunk_id"), 160),
+                "char_start": item.get("char_start"),
+                "char_end": item.get("char_end"),
+                "quote_preview": safe_bounded_optional_text(item.get("quote_preview"), 240),
+            }
+        )
+    return refs
 
 
 def bounded_optional_text(value: object, limit: int) -> str | None:

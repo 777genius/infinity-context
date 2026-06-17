@@ -56,7 +56,7 @@ from memo_stack_core.domain.assets import (
     MemoryContextLinkSuggestion,
     MemoryContextLinkSuggestionId,
 )
-from memo_stack_core.domain.entities import MemoryAnchor, MemoryAnchorId
+from memo_stack_core.domain.entities import Confidence, MemoryAnchor, MemoryAnchorId, SourceRef
 from memo_stack_core.domain.errors import MemoryValidationError
 from memo_stack_core.ports.clock import ClockPort
 from memo_stack_core.ports.ids import IdGeneratorPort
@@ -566,12 +566,21 @@ class SuggestContextLinksUseCase:
                 "last_observed_source_id": command.source_id,
                 "resolver_version": "context-link-rule-v1",
             }
+            confidence = _confidence_for_observed_anchor(observed.score_boost)
+            evidence_refs = (
+                (SourceRef(source_type=command.source_type, source_id=command.source_id),)
+                if command.source_type and command.source_id
+                else ()
+            )
             if existing is not None:
                 merged = (
                     existing.update_details(
                         normalized_key=observed.normalized_key,
                         label=observed.label,
                         aliases=observed.aliases,
+                        confidence=confidence,
+                        evidence_refs=evidence_refs,
+                        observed_at=now,
                         metadata=metadata,
                         now=now,
                     )
@@ -579,6 +588,9 @@ class SuggestContextLinksUseCase:
                     else existing.merge_observation(
                         label=preferred_observed_label(existing, observed),
                         aliases=observed.aliases,
+                        confidence=confidence,
+                        evidence_refs=evidence_refs,
+                        observed_at=now,
                         metadata=metadata,
                         now=now,
                     )
@@ -595,6 +607,9 @@ class SuggestContextLinksUseCase:
                         label=observed.label,
                         aliases=observed.aliases,
                         description=f"Observed {observed.kind.value} anchor from memory evidence.",
+                        confidence=confidence,
+                        evidence_refs=evidence_refs,
+                        observed_at=now,
                         metadata=metadata,
                         now=now,
                     )
@@ -688,6 +703,14 @@ class SuggestContextLinksUseCase:
         diagnostics["skipped_reviewed_suggestion_count"] = skipped_reviewed_suggestions
         diagnostics["skipped_reviewed_suggestion_status_counts"] = skipped_reviewed_by_status
         return persisted
+
+
+def _confidence_for_observed_anchor(score_boost: int) -> Confidence:
+    if score_boost >= 22:
+        return Confidence.HIGH
+    if score_boost <= 8:
+        return Confidence.LOW
+    return Confidence.MEDIUM
 
 
 def _same_scope(entity: object, command: SuggestContextLinksCommand) -> bool:

@@ -245,6 +245,53 @@ def test_multi_memory_scope_dedupe_preserves_source_refs() -> None:
     )
 
 
+def test_context_ranking_merges_hybrid_retrieval_provenance() -> None:
+    keyword = ContextItem(
+        item_id="chunk_1",
+        item_type="chunk",
+        text="keyword match",
+        score=0.75,
+        source_refs=(SourceRef(source_type="document", source_id="doc", chunk_id="chunk_1"),),
+        diagnostics={
+            "memory_scope_id": "memory_scope_default",
+            "retrieval_source": "keyword_chunks",
+            "retrieval_sources": ["keyword_chunks"],
+            "score_signals": {"base_score": 0.75},
+            "provenance": {"source_ref_count": 1},
+        },
+    )
+    vector = ContextItem(
+        item_id="chunk_1",
+        item_type="chunk",
+        text="vector match",
+        score=0.82,
+        source_refs=(SourceRef(source_type="document", source_id="doc", chunk_id="chunk_1"),),
+        diagnostics={
+            "memory_scope_id": "memory_scope_default",
+            "retrieval_source": "vector_chunks",
+            "retrieval_sources": ["vector_chunks"],
+            "score_signals": {"base_score": 0.82},
+            "provenance": {"source_ref_count": 1},
+        },
+    )
+
+    result = dedupe_rank_items((keyword, vector))
+
+    assert len(result) == 1
+    assert result[0].text == "vector match"
+    assert result[0].score > 0.82
+    diagnostics = result[0].diagnostics or {}
+    assert diagnostics["retrieval_source"] == "vector_chunks"
+    assert diagnostics["retrieval_sources"] == ["vector_chunks", "keyword_chunks"]
+    assert diagnostics["merged_candidate_count"] == 2
+    assert diagnostics["ranking_reason"] == "hybrid match via vector_chunks, keyword_chunks"
+    assert diagnostics["score_signals"]["hybrid_source_count"] == 2
+    assert diagnostics["provenance"]["retrieval_sources"] == [
+        "vector_chunks",
+        "keyword_chunks",
+    ]
+
+
 def test_context_policy_thread_visibility() -> None:
     assert thread_is_visible(None, "thread-1") is True
     assert thread_is_visible("thread-1", "thread-1") is True

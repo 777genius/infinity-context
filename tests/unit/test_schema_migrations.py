@@ -93,6 +93,24 @@ def test_create_schema_adds_classification_to_existing_memory_tables(tmp_path: P
                         """
                     )
                 )
+                await connection.execute(
+                    text(
+                        """
+                        CREATE TABLE memory_fact_relations (
+                            id VARCHAR(80) PRIMARY KEY,
+                            space_id VARCHAR(80) NOT NULL,
+                            memory_scope_id VARCHAR(80) NOT NULL,
+                            source_fact_id VARCHAR(80) NOT NULL,
+                            target_fact_id VARCHAR(80) NOT NULL,
+                            relation_type VARCHAR(80) NOT NULL,
+                            reason VARCHAR(320) NOT NULL,
+                            status VARCHAR(40) NOT NULL DEFAULT 'active',
+                            created_at DATETIME NOT NULL,
+                            updated_at DATETIME NOT NULL
+                        )
+                        """
+                    )
+                )
 
             await create_schema(engine)
 
@@ -117,12 +135,18 @@ def test_create_schema_adds_classification_to_existing_memory_tables(tmp_path: P
                     for column in inspector.get_columns("memory_facts")
                     if column["name"] in {"category", "tags_json", "ttl_policy", "expires_at"}
                 }
+                fact_relation_temporal_columns = {
+                    column["name"]: column
+                    for column in inspector.get_columns("memory_fact_relations")
+                    if column["name"] in {"observed_at", "valid_from", "valid_to"}
+                }
                 document_indexes = {
                     index["name"]: index for index in inspector.get_indexes("memory_documents")
                 }
                 return {
                     **classification_columns,
                     "memory_fact_taxonomy": fact_taxonomy_columns,
+                    "memory_fact_relation_temporal": fact_relation_temporal_columns,
                     "memory_service_tokens": token_columns,
                     "memory_document_indexes": document_indexes,
                 }
@@ -142,6 +166,11 @@ def test_create_schema_adds_classification_to_existing_memory_tables(tmp_path: P
         "tags_json",
         "ttl_policy",
         "expires_at",
+    }
+    assert set(columns["memory_fact_relation_temporal"]) == {
+        "observed_at",
+        "valid_from",
+        "valid_to",
     }
     assert set(columns["memory_service_tokens"]) == {
         "memory_scope_ids_json",
@@ -259,6 +288,9 @@ def test_create_schema_adds_asset_and_context_link_tables(tmp_path: Path) -> Non
                     "anchor_indexes": {
                         index["name"] for index in inspector.get_indexes("memory_anchors")
                     },
+                    "anchor_columns": {
+                        column["name"] for column in inspector.get_columns("memory_anchors")
+                    },
                     "usage_indexes": {
                         index["name"] for index in inspector.get_indexes("memory_usage_records")
                     },
@@ -310,6 +342,13 @@ def test_create_schema_adds_asset_and_context_link_tables(tmp_path: Path) -> Non
     assert "ix_context_link_suggestions_status" in result["context_link_suggestion_indexes"]
     assert "uq_memory_anchor_active_key" in result["anchor_indexes"]
     assert "ix_memory_anchors_scope_kind" in result["anchor_indexes"]
+    assert {
+        "confidence",
+        "evidence_refs_json",
+        "observed_at",
+        "valid_from",
+        "valid_to",
+    }.issubset(result["anchor_columns"])
     assert "uq_memory_usage_idempotency" in result["usage_indexes"]
     assert "ix_memory_usage_subject_window" in result["usage_indexes"]
     assert "uq_memory_user_external_ref" in result["user_indexes"]
@@ -317,6 +356,105 @@ def test_create_schema_adds_asset_and_context_link_tables(tmp_path: Path) -> Non
     assert "uq_memory_space_membership_active_user" in result["space_membership_indexes"]
     assert "ix_memory_space_memberships_space" in result["space_membership_indexes"]
     assert "ix_memory_space_memberships_user" in result["space_membership_indexes"]
+
+
+def test_create_schema_adds_anchor_evidence_columns_to_existing_table(
+    tmp_path: Path,
+) -> None:
+    async def run() -> dict[str, object]:
+        engine = build_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'anchor-upgrade.db'}")
+        try:
+            async with engine.begin() as connection:
+                await connection.execute(
+                    text(
+                        """
+                        CREATE TABLE memory_anchors (
+                            id VARCHAR(80) PRIMARY KEY,
+                            space_id VARCHAR(80) NOT NULL,
+                            memory_scope_id VARCHAR(80) NOT NULL,
+                            kind VARCHAR(40) NOT NULL,
+                            normalized_key VARCHAR(160) NOT NULL,
+                            label VARCHAR(240) NOT NULL,
+                            aliases_json JSON NOT NULL DEFAULT '[]',
+                            description VARCHAR(500),
+                            status VARCHAR(40) NOT NULL DEFAULT 'active',
+                            metadata_json JSON NOT NULL DEFAULT '{}',
+                            created_at DATETIME NOT NULL,
+                            updated_at DATETIME NOT NULL
+                        )
+                        """
+                    )
+                )
+                await connection.execute(
+                    text(
+                        """
+                        INSERT INTO memory_anchors (
+                            id,
+                            space_id,
+                            memory_scope_id,
+                            kind,
+                            normalized_key,
+                            label,
+                            aliases_json,
+                            status,
+                            metadata_json,
+                            created_at,
+                            updated_at
+                        )
+                        VALUES (
+                            'anchor_1',
+                            'space_1',
+                            'scope_1',
+                            'person',
+                            'alex',
+                            'Alex',
+                            '[]',
+                            'active',
+                            '{}',
+                            '2026-05-25T10:00:00+00:00',
+                            '2026-05-25T10:00:00+00:00'
+                        )
+                        """
+                    )
+                )
+
+            await create_schema(engine)
+
+            def inspect_schema(connection) -> dict[str, object]:
+                inspector = inspect(connection)
+                row = connection.execute(
+                    text(
+                        """
+                        SELECT confidence, evidence_refs_json, observed_at, valid_from, valid_to
+                        FROM memory_anchors
+                        WHERE id = 'anchor_1'
+                        """
+                    )
+                ).one()
+                return {
+                    "columns": {
+                        column["name"] for column in inspector.get_columns("memory_anchors")
+                    },
+                    "row": tuple(row),
+                }
+
+            async with engine.connect() as connection:
+                return await connection.run_sync(inspect_schema)
+        finally:
+            await engine.dispose()
+
+    result = asyncio.run(run())
+
+    assert {
+        "confidence",
+        "evidence_refs_json",
+        "observed_at",
+        "valid_from",
+        "valid_to",
+    }.issubset(result["columns"])
+    assert result["row"][0] == "medium"
+    assert result["row"][1] == "[]"
+    assert result["row"][2:] == (None, None, None)
 
 
 def test_create_schema_dedupes_pending_suggestions_before_unique_indexes(

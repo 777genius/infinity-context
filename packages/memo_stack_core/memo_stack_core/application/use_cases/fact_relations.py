@@ -56,7 +56,14 @@ class LinkFactsUseCase:
                 relation_type=relation_type.value,
             )
             if existing is not None:
+                if (
+                    relation_type == FactRelationType.CONTRADICTS
+                    and target.status == FactStatus.ACTIVE
+                ):
+                    await uow.facts.save(target.mark_disputed(now=self._clock.now()))
+                    await uow.commit()
                 return FactRelationResult(relation=existing)
+            now = self._clock.now()
             relation = MemoryFactRelation.create(
                 relation_id=MemoryFactRelationId(self._ids.new_id("relation")),
                 space_id=source.space_id,
@@ -65,9 +72,14 @@ class LinkFactsUseCase:
                 target_fact_id=MemoryFactId(command.target_fact_id),
                 relation_type=relation_type,
                 reason=command.reason,
-                now=self._clock.now(),
+                now=now,
+                observed_at=command.observed_at,
+                valid_from=command.valid_from,
+                valid_to=command.valid_to,
             )
             saved = await uow.fact_relations.create(relation)
+            if relation_type == FactRelationType.CONTRADICTS and target.status == FactStatus.ACTIVE:
+                await uow.facts.save(target.mark_disputed(now=now))
             await uow.commit()
             return FactRelationResult(relation=saved)
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, Query, Response, status
@@ -93,6 +94,9 @@ class LinkFactRequest(BaseModel):
     target_fact_id: str = Field(min_length=1, max_length=160)
     relation_type: str = Field(default=FactRelationType.RELATED_TO.value, max_length=80)
     reason: str = Field(min_length=1, max_length=320)
+    observed_at: datetime | None = None
+    valid_from: datetime | None = None
+    valid_to: datetime | None = None
 
 
 def map_source_ref(request: SourceRefRequest) -> SourceRef:
@@ -168,6 +172,9 @@ def fact_relation_to_response(relation: MemoryFactRelation) -> dict[str, Any]:
         "relation_type": relation.relation_type.value,
         "reason": relation.reason,
         "status": relation.status.value,
+        "observed_at": relation.observed_at.isoformat(),
+        "valid_from": relation.valid_from.isoformat() if relation.valid_from else None,
+        "valid_to": relation.valid_to.isoformat() if relation.valid_to else None,
         "created_at": relation.created_at.isoformat(),
         "updated_at": relation.updated_at.isoformat(),
     }
@@ -331,6 +338,9 @@ async def link_fact_relation(
             target_fact_id=request.target_fact_id,
             relation_type=request.relation_type,
             reason=request.reason,
+            observed_at=request.observed_at,
+            valid_from=request.valid_from,
+            valid_to=request.valid_to,
         )
     )
     return {"data": fact_relation_to_response(result.relation)}

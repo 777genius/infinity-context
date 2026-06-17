@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+from datetime import datetime
+
 from memo_stack_core.application.context_collectors import (
     CanonicalContextCollector,
     GraphContextCollector,
@@ -10,6 +13,7 @@ from memo_stack_core.application.context_collectors import (
 )
 from memo_stack_core.application.context_hydration import ContextHydrator
 from memo_stack_core.application.context_packer import ContextPacker
+from memo_stack_core.application.context_policy import is_context_fact_visible
 from memo_stack_core.application.context_ranking import dedupe_rank_items
 from memo_stack_core.application.document_text import document_chunk_retrieval_text
 from memo_stack_core.application.dto import (
@@ -18,7 +22,7 @@ from memo_stack_core.application.dto import (
     ContextBundle,
     ContextItem,
 )
-from memo_stack_core.domain.entities import SourceRef
+from memo_stack_core.domain.entities import MemoryChunk, MemoryFact, MemoryFactRelation, SourceRef
 from memo_stack_core.ports.adapters import EmbeddingPort, GraphMemoryPort, VectorMemoryPort
 from memo_stack_core.ports.capabilities import RagRecallPort
 from memo_stack_core.ports.clock import ClockPort
@@ -44,6 +48,7 @@ class BuildContextUseCase:
         self._vector_index = vector_index
         self._graph_index = graph_index
         self._embedder = embedder
+        self._clock = clock
         self._packer = packer or ContextPacker()
         self._hydrator = ContextHydrator(uow_factory=uow_factory, clock=clock)
         self._canonical_collector = CanonicalContextCollector(uow_factory=uow_factory)
@@ -68,6 +73,7 @@ class BuildContextUseCase:
         )
 
         diagnostics: dict[str, object] = {
+            "context_assembly_version": "context-v2-hybrid-explainable",
             "consistency_mode": query.consistency_mode.value,
             "facts_considered": len(canonical.facts),
             "keyword_chunks_considered": len(canonical.keyword_chunks),
@@ -110,46 +116,33 @@ class BuildContextUseCase:
             )
 
         items: list[ContextItem] = []
+        now = self._clock.now() if self._clock is not None else None
         for fact in canonical.facts:
-            items.append(
-                ContextItem(
-                    item_id=str(fact.id),
-                    item_type="fact",
-                    text=fact.text,
-                    score=0.95,
-                    source_refs=fact.source_refs,
-                    diagnostics={
-                        "memory_scope_id": str(fact.memory_scope_id),
-                        "retrieval_source": "postgres_facts",
-                    },
-                )
-            )
-        keyword_chunk_ids = {str(chunk.id) for chunk in canonical.keyword_chunks}
-        for chunk in (*canonical.keyword_chunks, *vector_chunks):
+            items.append(_fact_context_item(fact, now=now))
+        for chunk in canonical.keyword_chunks:
             chunk_text = document_chunk_retrieval_text(
                 text=chunk.text,
                 metadata=chunk.metadata,
             )
             items.append(
-                ContextItem(
-                    item_id=str(chunk.id),
-                    item_type="chunk",
+                _chunk_context_item(
+                    chunk=chunk,
                     text=chunk_text,
-                    score=0.75 if str(chunk.id) in keyword_chunk_ids else 0.82,
-                    source_refs=(
-                        SourceRef(
-                            source_type=chunk.source_type,
-                            source_id=chunk.source_external_id,
-                            chunk_id=str(chunk.id),
-                            char_start=chunk.char_start,
-                            char_end=chunk.char_end,
-                            quote_preview=chunk_text[:200],
-                        ),
-                    ),
-                    diagnostics={
-                        "memory_scope_id": str(chunk.memory_scope_id),
-                        "retrieval_source": "chunks",
-                    },
+                    retrieval_source="keyword_chunks",
+                    score=0.75,
+                )
+            )
+        for chunk in vector_chunks:
+            chunk_text = document_chunk_retrieval_text(
+                text=chunk.text,
+                metadata=chunk.metadata,
+            )
+            items.append(
+                _chunk_context_item(
+                    chunk=chunk,
+                    text=chunk_text,
+                    retrieval_source="vector_chunks",
+                    score=0.82,
                 )
             )
         items.extend(graph_items)
@@ -160,18 +153,31 @@ class BuildContextUseCase:
             query=query,
             memory_scope_ids=memory_scope_ids,
         )
+        temporal_items, temporal_diagnostics = await self._apply_temporal_relation_signals(
+            items=deduped,
+            query=query,
+            memory_scope_ids=memory_scope_ids,
+        )
         pending_conflicts = await self._pending_conflict_items(
             query=query,
-            visible_fact_ids=tuple(item.item_id for item in deduped if item.item_type == "fact"),
+            visible_fact_ids=tuple(
+                item.item_id for item in temporal_items if item.item_type == "fact"
+            ),
         )
         result = self._packer.pack(
             bundle_id=self._ids.new_id("ctx"),
-            items=dedupe_rank_items((*deduped, *pending_conflicts)),
+            items=dedupe_rank_items((*temporal_items, *pending_conflicts)),
             token_budget=query.token_budget,
             max_rendered_chars=query.max_rendered_chars,
         )
+        diagnostics.update(temporal_diagnostics)
         diagnostics.update(result.bundle.diagnostics)
         diagnostics["pending_conflict_suggestions_considered"] = len(pending_conflicts)
+        diagnostics["hybrid_items_used"] = sum(
+            1
+            for item in result.bundle.items
+            if len((item.diagnostics or {}).get("retrieval_sources") or ()) > 1
+        )
         return ContextBundle(
             bundle_id=result.bundle.bundle_id,
             rendered_text=result.bundle.rendered_text,
@@ -179,6 +185,88 @@ class BuildContextUseCase:
             token_estimate=result.bundle.token_estimate,
             diagnostics=diagnostics,
         )
+
+    async def _apply_temporal_relation_signals(
+        self,
+        *,
+        items: tuple[ContextItem, ...],
+        query: BuildContextQuery,
+        memory_scope_ids: tuple[str, ...],
+    ) -> tuple[tuple[ContextItem, ...], dict[str, object]]:
+        fact_items = [item for item in items if item.item_type == "fact"]
+        if not fact_items:
+            return items, {
+                "temporal_relations_considered": 0,
+                "temporal_replacements_applied": 0,
+                "temporal_contradictions_considered": 0,
+            }
+
+        now = self._clock.now() if self._clock is not None else None
+        by_fact_id = {item.item_id: item for item in items}
+        invalidated_fact_ids: set[str] = set()
+        replacement_items: dict[str, ContextItem] = {}
+        relations_considered = 0
+        contradictions_considered = 0
+        async with self._uow_factory() as uow:
+            for item in fact_items:
+                relations = await uow.fact_relations.list_for_fact(
+                    fact_id=item.item_id,
+                    status="active",
+                    limit=50,
+                )
+                for relation in relations:
+                    relation_type = relation.relation_type.value
+                    if relation_type == "supersedes":
+                        relations_considered += 1
+                        if str(relation.target_fact_id) == item.item_id:
+                            source = await uow.facts.get_by_id(str(relation.source_fact_id))
+                            if source is not None and is_context_fact_visible(
+                                source,
+                                query=query,
+                                memory_scope_ids=memory_scope_ids,
+                                now=now,
+                            ):
+                                invalidated_fact_ids.add(item.item_id)
+                                replacement_items[str(source.id)] = _temporal_replacement_item(
+                                    source,
+                                    relation=relation,
+                                    now=now,
+                                )
+                        elif str(relation.source_fact_id) == item.item_id:
+                            by_fact_id[item.item_id] = _annotate_temporal_relation(
+                                item,
+                                relation=relation,
+                                role="supersedes",
+                                score_delta=0.025,
+                            )
+                    elif relation_type == "contradicts":
+                        contradictions_considered += 1
+                        by_fact_id[item.item_id] = _annotate_temporal_relation(
+                            by_fact_id[item.item_id],
+                            relation=relation,
+                            role="contradicts",
+                            score_delta=0.01,
+                        )
+
+        for fact_id, replacement_item in replacement_items.items():
+            existing_item = by_fact_id.get(fact_id)
+            if existing_item is None or replacement_item.score >= existing_item.score:
+                by_fact_id[fact_id] = replacement_item
+
+        next_items = [
+            by_fact_id.get(item.item_id, item)
+            for item in items
+            if item.item_id not in invalidated_fact_ids
+        ]
+        existing_ids = {item.item_id for item in next_items}
+        next_items.extend(
+            item for fact_id, item in replacement_items.items() if fact_id not in existing_ids
+        )
+        return tuple(next_items), {
+            "temporal_relations_considered": relations_considered,
+            "temporal_replacements_applied": len(invalidated_fact_ids),
+            "temporal_contradictions_considered": contradictions_considered,
+        }
 
     async def _pending_conflict_items(
         self,
@@ -223,6 +311,20 @@ class BuildContextUseCase:
                             diagnostics={
                                 "memory_scope_id": str(suggestion.memory_scope_id),
                                 "retrieval_source": "pending_conflict_suggestion",
+                                "retrieval_sources": ["pending_conflict_suggestion"],
+                                "ranking_reason": (
+                                    "pending suggestion contradicts visible active fact"
+                                ),
+                                "score_signals": {
+                                    "base_score": 0.94,
+                                    "review_status_boost": 0.0,
+                                    "canonical": False,
+                                },
+                                "provenance": {
+                                    "retrieval_sources": ["pending_conflict_suggestion"],
+                                    "source_ref_count": len(suggestion.source_refs),
+                                    "conflicting_fact_id": conflict_fact_id,
+                                },
                                 "status": suggestion.status.value,
                                 "operation": suggestion.operation.value,
                                 "canonical": False,
@@ -256,3 +358,214 @@ def _conflict_suggestion_text(
         f"Pending review {operation} suggestion for active fact {conflict_fact_id}: "
         f"{candidate_text}"
     )
+
+
+def _fact_context_item(
+    fact: MemoryFact,
+    *,
+    now: datetime | None,
+) -> ContextItem:
+    fact_score, fact_signals = _fact_score_signals(fact, now=now)
+    return ContextItem(
+        item_id=str(fact.id),
+        item_type="fact",
+        text=fact.text,
+        score=fact_score,
+        source_refs=fact.source_refs,
+        diagnostics={
+            "memory_scope_id": str(fact.memory_scope_id),
+            "retrieval_source": "postgres_facts",
+            "retrieval_sources": ["postgres_facts"],
+            "ranking_reason": "canonical active fact matched query and filters",
+            "score_signals": fact_signals,
+            "provenance": {
+                "retrieval_sources": ["postgres_facts"],
+                "source_ref_count": len(fact.source_refs),
+                "fact_status": fact.status.value,
+                "fact_version": fact.version,
+            },
+            "confidence": fact.confidence.value,
+            "trust_level": fact.trust_level.value,
+            "updated_at": fact.updated_at.isoformat(),
+        },
+    )
+
+
+def _temporal_replacement_item(
+    fact: MemoryFact,
+    *,
+    relation: MemoryFactRelation,
+    now: datetime | None,
+) -> ContextItem:
+    item = _fact_context_item(fact, now=now)
+    diagnostics = dict(item.diagnostics or {})
+    diagnostics["retrieval_source"] = "temporal_supersedes_relation"
+    diagnostics["retrieval_sources"] = [
+        "temporal_supersedes_relation",
+        *[
+            source
+            for source in diagnostics.get("retrieval_sources", [])
+            if source != "temporal_supersedes_relation"
+        ],
+    ]
+    diagnostics["ranking_reason"] = "active fact supersedes a matched older fact"
+    diagnostics["temporal_replacement_for_fact_id"] = str(relation.target_fact_id)
+    diagnostics["temporal_relation_id"] = str(relation.id)
+    diagnostics["score_signals"] = {
+        **_score_signals(diagnostics),
+        "temporal_supersedes_boost": 0.04,
+    }
+    diagnostics["provenance"] = {
+        **_provenance(diagnostics),
+        "temporal_relation_id": str(relation.id),
+        "supersedes_fact_id": str(relation.target_fact_id),
+        "observed_at": relation.observed_at.isoformat(),
+        "valid_from": relation.valid_from.isoformat() if relation.valid_from else None,
+        "valid_to": relation.valid_to.isoformat() if relation.valid_to else None,
+    }
+    return replace(
+        item,
+        score=min(0.99, round(item.score + 0.04, 4)),
+        diagnostics=diagnostics,
+    )
+
+
+def _annotate_temporal_relation(
+    item: ContextItem,
+    *,
+    relation: MemoryFactRelation,
+    role: str,
+    score_delta: float,
+) -> ContextItem:
+    diagnostics = dict(item.diagnostics or {})
+    temporal_relations = list(diagnostics.get("temporal_relations") or [])
+    temporal_relations.append(
+        {
+            "relation_id": str(relation.id),
+            "relation_type": relation.relation_type.value,
+            "role": role,
+            "source_fact_id": str(relation.source_fact_id),
+            "target_fact_id": str(relation.target_fact_id),
+            "observed_at": relation.observed_at.isoformat(),
+            "valid_from": relation.valid_from.isoformat() if relation.valid_from else None,
+            "valid_to": relation.valid_to.isoformat() if relation.valid_to else None,
+        }
+    )
+    diagnostics["temporal_relations"] = temporal_relations[-8:]
+    diagnostics["score_signals"] = {
+        **_score_signals(diagnostics),
+        f"temporal_{role}_boost": score_delta,
+    }
+    diagnostics["provenance"] = {
+        **_provenance(diagnostics),
+        "temporal_relation_count": len(temporal_relations),
+    }
+    return replace(
+        item,
+        score=min(0.99, round(item.score + score_delta, 4)),
+        diagnostics=diagnostics,
+    )
+
+
+def _chunk_context_item(
+    *,
+    chunk: MemoryChunk,
+    text: str,
+    retrieval_source: str,
+    score: float,
+) -> ContextItem:
+    return ContextItem(
+        item_id=str(chunk.id),
+        item_type="chunk",
+        text=text,
+        score=score,
+        source_refs=(
+            SourceRef(
+                source_type=chunk.source_type,
+                source_id=chunk.source_external_id,
+                chunk_id=str(chunk.id),
+                char_start=chunk.char_start,
+                char_end=chunk.char_end,
+                quote_preview=text[:200],
+            ),
+        ),
+        diagnostics={
+            "memory_scope_id": str(chunk.memory_scope_id),
+            "retrieval_source": retrieval_source,
+            "retrieval_sources": [retrieval_source],
+            "ranking_reason": f"matched via {retrieval_source}",
+            "score_signals": {
+                "base_score": score,
+                "retrieval_channel": retrieval_source,
+                "source_type": chunk.source_type,
+            },
+            "provenance": {
+                "retrieval_sources": [retrieval_source],
+                "source_ref_count": 1,
+                "source_type": chunk.source_type,
+                "source_id": chunk.source_external_id,
+                "chunk_id": str(chunk.id),
+            },
+        },
+    )
+
+
+def _score_signals(diagnostics: dict[str, object]) -> dict[str, object]:
+    value = diagnostics.get("score_signals")
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _provenance(diagnostics: dict[str, object]) -> dict[str, object]:
+    value = diagnostics.get("provenance")
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _fact_score_signals(
+    fact: MemoryFact,
+    *,
+    now: datetime | None,
+) -> tuple[float, dict[str, object]]:
+    confidence_boost = _level_boost(fact.confidence.value, low=0.012, medium=0.03, high=0.05)
+    trust_boost = _level_boost(fact.trust_level.value, low=0.01, medium=0.03, high=0.045)
+    freshness_boost = _freshness_boost(fact.updated_at, now=now)
+    ttl_penalty = -0.015 if fact.expires_at is not None else 0.0
+    score = min(
+        0.99,
+        max(0.0, round(0.88 + confidence_boost + trust_boost + freshness_boost + ttl_penalty, 4)),
+    )
+    return score, {
+        "base_score": 0.88,
+        "confidence_boost": round(confidence_boost, 4),
+        "trust_boost": round(trust_boost, 4),
+        "freshness_boost": round(freshness_boost, 4),
+        "ttl_penalty": round(ttl_penalty, 4),
+        "classification": fact.classification,
+        "category": fact.category,
+    }
+
+
+def _level_boost(value: str, *, low: float, medium: float, high: float) -> float:
+    if value == "high":
+        return high
+    if value == "low":
+        return low
+    return medium
+
+
+def _freshness_boost(updated_at: datetime, *, now: datetime | None) -> float:
+    if now is None:
+        return 0.0
+    comparable_updated_at = updated_at
+    comparable_now = now
+    if comparable_updated_at.tzinfo is None and comparable_now.tzinfo is not None:
+        comparable_updated_at = comparable_updated_at.replace(tzinfo=comparable_now.tzinfo)
+    elif comparable_updated_at.tzinfo is not None and comparable_now.tzinfo is None:
+        comparable_now = comparable_now.replace(tzinfo=comparable_updated_at.tzinfo)
+    age_days = max(0.0, (comparable_now - comparable_updated_at).total_seconds() / 86400)
+    if age_days <= 7:
+        return 0.02
+    if age_days <= 30:
+        return 0.012
+    if age_days <= 180:
+        return 0.006
+    return 0.0

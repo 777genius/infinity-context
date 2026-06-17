@@ -8,6 +8,11 @@ CREATE TABLE IF NOT EXISTS memory_anchors (
     aliases_json JSON NOT NULL DEFAULT '[]',
     description VARCHAR(500),
     status VARCHAR(40) NOT NULL DEFAULT 'active',
+    confidence VARCHAR(40) NOT NULL DEFAULT 'medium',
+    evidence_refs_json JSON NOT NULL DEFAULT '[]',
+    observed_at TIMESTAMPTZ,
+    valid_from TIMESTAMPTZ,
+    valid_to TIMESTAMPTZ,
     metadata_json JSON NOT NULL DEFAULT '{}',
     created_at TIMESTAMPTZ NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL

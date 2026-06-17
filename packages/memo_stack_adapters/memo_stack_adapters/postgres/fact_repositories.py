@@ -423,6 +423,9 @@ class PostgresFactRelationRepository(FactRelationRepositoryPort):
             raise MemoryNotFoundError("Fact relation not found")
         row.status = relation.status.value
         row.reason = relation.reason
+        row.observed_at = relation.observed_at
+        row.valid_from = relation.valid_from
+        row.valid_to = relation.valid_to
         row.updated_at = relation.updated_at
         return relation
 

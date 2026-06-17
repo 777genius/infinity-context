@@ -354,6 +354,18 @@ def _rag_chunk_item(candidate: CapabilityRecallCandidate, chunk: MemoryChunk) ->
         diagnostics={
             "memory_scope_id": str(chunk.memory_scope_id),
             "retrieval_source": "rag_recall",
+            "retrieval_sources": ["rag_recall"],
+            "ranking_reason": "matched via external RAG recall and canonical hydration",
+            "score_signals": {
+                "base_score": candidate.score,
+                "retrieval_channel": "rag_recall",
+            },
+            "provenance": {
+                "retrieval_sources": ["rag_recall"],
+                "source_ref_count": 1,
+                "adapter_name": _safe_adapter_name(candidate.adapter_name),
+                "chunk_id": str(chunk.id),
+            },
             "adapter_name": _safe_adapter_name(candidate.adapter_name),
             **_safe_recall_metadata(candidate.metadata),
         },

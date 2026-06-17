@@ -68,6 +68,19 @@ class ContextHydrator:
                             diagnostics={
                                 "memory_scope_id": str(fact.memory_scope_id),
                                 "retrieval_source": "graph_hydrated",
+                                "retrieval_sources": ["graph_hydrated"],
+                                "ranking_reason": "graph candidate resolved to visible active fact",
+                                "score_signals": {
+                                    "base_score": 0.78,
+                                    "retrieval_channel": "graph_hydrated",
+                                    "fact_status": fact.status.value,
+                                },
+                                "provenance": {
+                                    "retrieval_sources": ["graph_hydrated"],
+                                    "source_ref_count": len(fact.source_refs),
+                                    "fact_status": fact.status.value,
+                                    "fact_version": fact.version,
+                                },
                             },
                         )
                     )

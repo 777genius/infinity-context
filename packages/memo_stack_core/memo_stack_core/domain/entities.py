@@ -135,6 +135,7 @@ class MemoryAnchorKind(StrEnum):
     PERSON = "person"
     EVENT = "event"
     PROJECT = "project"
+    ORGANIZATION = "organization"
 
 
 class SpeakerRole(StrEnum):
@@ -434,6 +435,11 @@ class MemoryAnchor:
     aliases: tuple[str, ...]
     description: str | None
     status: LifecycleStatus
+    confidence: Confidence
+    evidence_refs: tuple[SourceRef, ...]
+    observed_at: datetime
+    valid_from: datetime | None
+    valid_to: datetime | None
     metadata: Mapping[str, object]
     created_at: datetime
     updated_at: datetime
@@ -451,6 +457,11 @@ class MemoryAnchor:
         now: datetime,
         aliases: tuple[str, ...] = (),
         description: str | None = None,
+        confidence: Confidence = Confidence.MEDIUM,
+        evidence_refs: tuple[SourceRef, ...] = (),
+        observed_at: datetime | None = None,
+        valid_from: datetime | None = None,
+        valid_to: datetime | None = None,
         metadata: Mapping[str, object] | None = None,
     ) -> MemoryAnchor:
         safe_key = normalized_key.strip().lower()
@@ -459,6 +470,7 @@ class MemoryAnchor:
             raise MemoryValidationError("MemoryAnchor normalized_key is required")
         if not safe_label:
             raise MemoryValidationError("MemoryAnchor label is required")
+        _validate_temporal_range(valid_from=valid_from, valid_to=valid_to)
         return cls(
             id=anchor_id,
             space_id=space_id,
@@ -469,6 +481,11 @@ class MemoryAnchor:
             aliases=_unique_aliases((safe_label, *aliases)),
             description=description.strip()[:500] if description and description.strip() else None,
             status=LifecycleStatus.ACTIVE,
+            confidence=confidence,
+            evidence_refs=_unique_source_refs(evidence_refs),
+            observed_at=observed_at or now,
+            valid_from=valid_from,
+            valid_to=valid_to,
             metadata=dict(metadata or {}),
             created_at=now,
             updated_at=now,
@@ -479,14 +496,31 @@ class MemoryAnchor:
         *,
         label: str | None = None,
         aliases: tuple[str, ...] = (),
+        confidence: Confidence | None = None,
+        evidence_refs: tuple[SourceRef, ...] = (),
+        observed_at: datetime | None = None,
+        valid_from: datetime | None = None,
+        valid_to: datetime | None = None,
         metadata: Mapping[str, object] | None = None,
         now: datetime,
     ) -> MemoryAnchor:
         next_label = self.label if label is None or not label.strip() else label.strip()[:240]
+        next_valid_from, next_valid_to = _merge_temporal_window(
+            current_from=self.valid_from,
+            current_to=self.valid_to,
+            observed_from=valid_from,
+            observed_to=valid_to,
+        )
+        _validate_temporal_range(valid_from=next_valid_from, valid_to=next_valid_to)
         return replace(
             self,
             label=next_label,
             aliases=_unique_aliases((*self.aliases, next_label, *aliases)),
+            confidence=_max_confidence(self.confidence, confidence),
+            evidence_refs=_unique_source_refs((*self.evidence_refs, *evidence_refs)),
+            observed_at=_latest_datetime(self.observed_at, observed_at),
+            valid_from=next_valid_from,
+            valid_to=next_valid_to,
             metadata={**dict(self.metadata), **dict(metadata or {})},
             updated_at=now,
         )
@@ -498,6 +532,11 @@ class MemoryAnchor:
         label: str | None = None,
         aliases: tuple[str, ...] = (),
         description: str | None = None,
+        confidence: Confidence | None = None,
+        evidence_refs: tuple[SourceRef, ...] = (),
+        observed_at: datetime | None = None,
+        valid_from: datetime | None = None,
+        valid_to: datetime | None = None,
         metadata: Mapping[str, object] | None = None,
         now: datetime,
     ) -> MemoryAnchor:
@@ -507,6 +546,9 @@ class MemoryAnchor:
         next_key = self.normalized_key if normalized_key is None else normalized_key.strip().lower()
         if not next_key:
             raise MemoryValidationError("MemoryAnchor normalized_key is required")
+        next_valid_from = self.valid_from if valid_from is None else valid_from
+        next_valid_to = self.valid_to if valid_to is None else valid_to
+        _validate_temporal_range(valid_from=next_valid_from, valid_to=next_valid_to)
         return replace(
             self,
             normalized_key=next_key[:160],
@@ -517,6 +559,11 @@ class MemoryAnchor:
                 if description is None
                 else description.strip()[:500] if description.strip() else None
             ),
+            confidence=_max_confidence(self.confidence, confidence),
+            evidence_refs=_unique_source_refs((*self.evidence_refs, *evidence_refs)),
+            observed_at=_latest_datetime(self.observed_at, observed_at),
+            valid_from=next_valid_from,
+            valid_to=next_valid_to,
             metadata={**dict(self.metadata), **dict(metadata or {})},
             updated_at=now,
         )
@@ -557,9 +604,21 @@ class MemoryAnchor:
             "reason": reason.strip()[:320],
             "merged_at": now.isoformat(),
         }
+        next_valid_from, next_valid_to = _merge_temporal_window(
+            current_from=self.valid_from,
+            current_to=self.valid_to,
+            observed_from=source.valid_from,
+            observed_to=source.valid_to,
+        )
+        _validate_temporal_range(valid_from=next_valid_from, valid_to=next_valid_to)
         return replace(
             self,
             aliases=_unique_aliases((*self.aliases, source.label, *source.aliases)),
+            confidence=_max_confidence(self.confidence, source.confidence),
+            evidence_refs=_unique_source_refs((*self.evidence_refs, *source.evidence_refs)),
+            observed_at=_latest_datetime(self.observed_at, source.observed_at),
+            valid_from=next_valid_from,
+            valid_to=next_valid_to,
             metadata=_append_anchor_audit(
                 self.metadata,
                 key="merge_events",
@@ -653,6 +712,69 @@ def _unique_aliases(values: tuple[str, ...]) -> tuple[str, ...]:
         if len(aliases) >= 20:
             break
     return tuple(aliases)
+
+
+def _source_ref_key(ref: SourceRef) -> tuple[object, ...]:
+    return (
+        ref.source_type,
+        ref.source_id,
+        ref.chunk_id,
+        ref.char_start,
+        ref.char_end,
+        ref.quote_preview,
+    )
+
+
+def _unique_source_refs(values: tuple[SourceRef, ...], *, limit: int = 20) -> tuple[SourceRef, ...]:
+    seen: set[tuple[object, ...]] = set()
+    refs: list[SourceRef] = []
+    for ref in values:
+        key = _source_ref_key(ref)
+        if key in seen:
+            continue
+        seen.add(key)
+        refs.append(ref)
+        if len(refs) >= limit:
+            break
+    return tuple(refs)
+
+
+def _max_confidence(current: Confidence, observed: Confidence | None) -> Confidence:
+    if observed is None:
+        return current
+    rank = {
+        Confidence.LOW: 0,
+        Confidence.MEDIUM: 1,
+        Confidence.HIGH: 2,
+    }
+    return observed if rank[observed] > rank[current] else current
+
+
+def _latest_datetime(current: datetime, observed: datetime | None) -> datetime:
+    if observed is None:
+        return current
+    comparable_current = current
+    comparable_observed = observed
+    if comparable_current.tzinfo is None and comparable_observed.tzinfo is not None:
+        comparable_current = comparable_current.replace(tzinfo=comparable_observed.tzinfo)
+    elif comparable_current.tzinfo is not None and comparable_observed.tzinfo is None:
+        comparable_observed = comparable_observed.replace(tzinfo=comparable_current.tzinfo)
+    return observed if comparable_observed > comparable_current else current
+
+
+def _merge_temporal_window(
+    *,
+    current_from: datetime | None,
+    current_to: datetime | None,
+    observed_from: datetime | None,
+    observed_to: datetime | None,
+) -> tuple[datetime | None, datetime | None]:
+    if observed_from is None and observed_to is None:
+        return current_from, current_to
+    starts = tuple(item for item in (current_from, observed_from) if item is not None)
+    next_from = min(starts) if starts else None
+    next_to = None if current_to is None or observed_to is None else max(current_to, observed_to)
+    return next_from, next_to
 
 
 def _optional_str(value: str | None) -> str | None:
@@ -800,6 +922,15 @@ class MemoryFact:
             return self
         return replace(self, status=FactStatus.DELETED, version=self.version + 1, updated_at=now)
 
+    def mark_disputed(self, *, now: datetime) -> MemoryFact:
+        if self.status == FactStatus.DELETED:
+            raise MemoryConflictError("Deleted fact cannot be disputed")
+        if self.status == FactStatus.DISPUTED:
+            return self
+        if self.status == FactStatus.SUPERSEDED:
+            return self
+        return replace(self, status=FactStatus.DISPUTED, version=self.version + 1, updated_at=now)
+
 
 @dataclass(frozen=True)
 class MemoryFactRelation:
@@ -811,6 +942,9 @@ class MemoryFactRelation:
     relation_type: FactRelationType
     reason: str
     status: LifecycleStatus
+    observed_at: datetime
+    valid_from: datetime | None
+    valid_to: datetime | None
     created_at: datetime
     updated_at: datetime
 
@@ -826,11 +960,15 @@ class MemoryFactRelation:
         relation_type: FactRelationType,
         reason: str,
         now: datetime,
+        observed_at: datetime | None = None,
+        valid_from: datetime | None = None,
+        valid_to: datetime | None = None,
     ) -> MemoryFactRelation:
         if source_fact_id == target_fact_id:
             raise MemoryValidationError("Fact relation requires two distinct facts")
         if not reason.strip():
             raise MemoryValidationError("Fact relation reason is required")
+        _validate_temporal_range(valid_from=valid_from, valid_to=valid_to)
         return cls(
             id=relation_id,
             space_id=space_id,
@@ -840,6 +978,9 @@ class MemoryFactRelation:
             relation_type=relation_type,
             reason=reason.strip(),
             status=LifecycleStatus.ACTIVE,
+            observed_at=observed_at or now,
+            valid_from=valid_from,
+            valid_to=valid_to,
             created_at=now,
             updated_at=now,
         )
@@ -1060,6 +1201,23 @@ def _validate_taxonomy(*, tags: tuple[str, ...], ttl_policy: str | None) -> None
         raise MemoryValidationError("Fact tag exceeds max length")
     if ttl_policy is not None and len(ttl_policy) > 80:
         raise MemoryValidationError("Fact ttl_policy exceeds max length")
+
+
+def _validate_temporal_range(
+    *,
+    valid_from: datetime | None,
+    valid_to: datetime | None,
+) -> None:
+    if valid_from is None or valid_to is None:
+        return
+    comparable_from = valid_from
+    comparable_to = valid_to
+    if comparable_from.tzinfo is None and comparable_to.tzinfo is not None:
+        comparable_from = comparable_from.replace(tzinfo=comparable_to.tzinfo)
+    elif comparable_from.tzinfo is not None and comparable_to.tzinfo is None:
+        comparable_to = comparable_to.replace(tzinfo=comparable_from.tzinfo)
+    if comparable_to <= comparable_from:
+        raise MemoryValidationError("Temporal valid_to must be after valid_from")
 
 
 @dataclass(frozen=True)

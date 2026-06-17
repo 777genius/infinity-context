@@ -51,6 +51,9 @@ def test_fact_relations_link_list_unlink_and_relink(tmp_path: Path) -> None:
     with make_client(tmp_path) as client:
         source_id = create_fact(client, "RELATION_SOURCE: Postgres is canonical truth.")
         target_id = create_fact(client, "RELATION_TARGET: Graphiti is derived temporal graph.")
+        observed_at = "2026-01-02T12:00:00+00:00"
+        valid_from = "2026-01-01T00:00:00+00:00"
+        valid_to = "2026-02-01T00:00:00+00:00"
 
         linked = client.post(
             f"/v1/facts/{source_id}/relations",
@@ -58,6 +61,9 @@ def test_fact_relations_link_list_unlink_and_relink(tmp_path: Path) -> None:
                 "target_fact_id": target_id,
                 "relation_type": "supports",
                 "reason": "ADR says Graphiti remains a derived adapter.",
+                "observed_at": observed_at,
+                "valid_from": valid_from,
+                "valid_to": valid_to,
             },
             headers=auth_headers(),
         )
@@ -92,9 +98,15 @@ def test_fact_relations_link_list_unlink_and_relink(tmp_path: Path) -> None:
     assert linked.status_code == 201
     assert repeated.status_code == 201
     assert repeated.json()["data"]["id"] == linked.json()["data"]["id"]
+    assert linked.json()["data"]["observed_at"] == observed_at
+    assert linked.json()["data"]["valid_from"] == valid_from
+    assert linked.json()["data"]["valid_to"] == valid_to
     assert listed.status_code == 200
     assert listed.json()["data"]["items"][0]["direction"] == "outgoing"
     assert listed.json()["data"]["items"][0]["relation"]["relation_type"] == "supports"
+    assert listed.json()["data"]["items"][0]["relation"]["valid_to"].startswith(
+        "2026-02-01T00:00:00"
+    )
     assert listed.json()["data"]["items"][0]["related_fact"]["id"] == target_id
     assert deleted.status_code == 200
     assert deleted.json()["data"]["status"] == "deleted"
@@ -102,6 +114,70 @@ def test_fact_relations_link_list_unlink_and_relink(tmp_path: Path) -> None:
     assert deleted_list.json()["data"]["items"][0]["relation"]["status"] == "deleted"
     assert relinked.status_code == 201
     assert relinked.json()["data"]["id"] != linked.json()["data"]["id"]
+
+
+def test_fact_relations_reject_invalid_temporal_range(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        source_id = create_fact(client, "RELATION_TEMPORAL: current fact.")
+        target_id = create_fact(client, "RELATION_TEMPORAL: previous fact.")
+        response = client.post(
+            f"/v1/facts/{source_id}/relations",
+            json={
+                "target_fact_id": target_id,
+                "relation_type": "supersedes",
+                "reason": "New fact replaces the old fact.",
+                "valid_from": "2026-02-01T00:00:00+00:00",
+                "valid_to": "2026-01-01T00:00:00+00:00",
+            },
+            headers=auth_headers(),
+        )
+
+    assert response.status_code == 400
+
+
+def test_contradicts_relation_marks_target_disputed_and_context_hides_it(
+    tmp_path: Path,
+) -> None:
+    with make_client(tmp_path) as client:
+        old_id = create_fact(
+            client,
+            "CONTRADICTED_OLD_FACT: legacy billing owner is Alex.",
+        )
+        new_id = create_fact(
+            client,
+            "CONTRADICTING_NEW_FACT: billing owner is Dana, not legacy Alex.",
+        )
+        linked = client.post(
+            f"/v1/facts/{new_id}/relations",
+            json={
+                "target_fact_id": old_id,
+                "relation_type": "contradicts",
+                "reason": "New owner evidence contradicts the old owner fact.",
+                "observed_at": "2026-01-02T12:00:00+00:00",
+            },
+            headers=auth_headers(),
+        )
+        old_fact = client.get(f"/v1/facts/{old_id}", headers=auth_headers())
+        context = client.post(
+            "/v1/context",
+            json={
+                "space_id": "space_client_app",
+                "memory_scope_ids": ["memory_scope_default"],
+                "query": "legacy billing owner Alex",
+                "token_budget": 512,
+                "max_facts": 5,
+                "max_chunks": 0,
+            },
+            headers=auth_headers(),
+        )
+
+    assert linked.status_code == 201
+    assert old_fact.status_code == 200
+    assert old_fact.json()["data"]["status"] == "disputed"
+    assert context.status_code == 200
+    rendered = context.json()["data"]["rendered_text"]
+    assert "CONTRADICTING_NEW_FACT" in rendered
+    assert "CONTRADICTED_OLD_FACT" not in rendered
 
 
 def test_fact_relations_reject_cross_memory_scope_and_restricted_links(tmp_path: Path) -> None:

@@ -93,6 +93,18 @@ _ADDITIVE_SCHEMA_COLUMNS = {
         ("cancellation_requested_at", "TIMESTAMPTZ"),
         ("retry_disposition", "VARCHAR(40)"),
     ),
+    "memory_fact_relations": (
+        ("observed_at", "TIMESTAMPTZ"),
+        ("valid_from", "TIMESTAMPTZ"),
+        ("valid_to", "TIMESTAMPTZ"),
+    ),
+    "memory_anchors": (
+        ("confidence", "VARCHAR(40) NOT NULL DEFAULT 'medium'"),
+        ("evidence_refs_json", "JSON NOT NULL DEFAULT '[]'"),
+        ("observed_at", "TIMESTAMPTZ"),
+        ("valid_from", "TIMESTAMPTZ"),
+        ("valid_to", "TIMESTAMPTZ"),
+    ),
 }
 
 _LEGACY_PROFILE_ID_TABLES = (

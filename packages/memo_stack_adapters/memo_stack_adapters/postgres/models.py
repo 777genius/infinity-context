@@ -187,6 +187,15 @@ class MemoryAnchorRow(Base):
     aliases_json: Mapped[list[str]] = mapped_column(json_type(), nullable=False, default=list)
     description: Mapped[str | None] = mapped_column(String(500), nullable=True)
     status: Mapped[str] = mapped_column(String(40), nullable=False, default="active")
+    confidence: Mapped[str] = mapped_column(String(40), nullable=False, default="medium")
+    evidence_refs_json: Mapped[list[dict[str, object]]] = mapped_column(
+        json_type(),
+        nullable=False,
+        default=list,
+    )
+    observed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    valid_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    valid_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     metadata_json: Mapped[dict[str, object]] = mapped_column(json_type(), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -496,6 +505,9 @@ class MemoryFactRelationRow(Base):
     relation_type: Mapped[str] = mapped_column(String(80), nullable=False)
     reason: Mapped[str] = mapped_column(String(320), nullable=False)
     status: Mapped[str] = mapped_column(String(40), nullable=False, default="active")
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    valid_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    valid_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     __table_args__ = (

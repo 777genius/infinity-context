@@ -75,6 +75,20 @@ def test_browser_serializers_redact_metadata_and_quote_previews() -> None:
             aliases=(),
             description=None,
             status=enum(value="active"),
+            confidence=enum(value="high"),
+            evidence_refs=[
+                SimpleNamespace(
+                    source_type="manual",
+                    source_id="anchor-note",
+                    chunk_id=None,
+                    char_start=None,
+                    char_end=None,
+                    quote_preview=f"Bearer {raw_secret}",
+                )
+            ],
+            observed_at=now,
+            valid_from=None,
+            valid_to=None,
             metadata={"debug": f"Bearer {raw_secret}", "token": raw_secret},
             created_at=now,
             updated_at=now,
@@ -132,5 +146,6 @@ def test_browser_serializers_redact_metadata_and_quote_previews() -> None:
     assert raw_secret not in rendered
     assert "[redacted]" in rendered
     assert "token" not in anchor["metadata"]
+    assert "[redacted]" in anchor["evidence_refs"][0]["quote_preview"]
     assert "[redacted]" in chunk["source_refs"][0]["quote_preview"]
     assert "[redacted]" in context_item["source_refs"][0]["quote_preview"]

@@ -42,11 +42,13 @@ from memo_stack_core.application.observed_anchor_resolution import (
     should_promote_observed_key as _should_promote_observed_key,
 )
 from memo_stack_core.domain.entities import (
+    Confidence,
     LifecycleStatus,
     MemoryAnchor,
     MemoryAnchorId,
     MemoryAnchorKind,
     MemoryScopeId,
+    SourceRef,
     SpaceId,
 )
 from memo_stack_core.domain.errors import (
@@ -103,6 +105,7 @@ class CreateAnchorUseCase:
         normalized_key = normalize_anchor_key(label)
         if not normalized_key:
             raise MemoryValidationError("Anchor normalized key is required")
+        confidence = _parse_anchor_confidence(command.confidence)
         now = self._clock.now()
         metadata = {
             **dict(command.metadata or {}),
@@ -123,6 +126,11 @@ class CreateAnchorUseCase:
                         label=label,
                         aliases=command.aliases,
                         description=command.description,
+                        confidence=confidence,
+                        evidence_refs=command.evidence_refs,
+                        observed_at=command.observed_at,
+                        valid_from=command.valid_from,
+                        valid_to=command.valid_to,
                         metadata=metadata,
                         now=now,
                     )
@@ -138,6 +146,11 @@ class CreateAnchorUseCase:
                         label=label,
                         aliases=command.aliases,
                         description=command.description,
+                        confidence=confidence,
+                        evidence_refs=command.evidence_refs,
+                        observed_at=command.observed_at,
+                        valid_from=command.valid_from,
+                        valid_to=command.valid_to,
                         metadata=metadata,
                         now=now,
                     )
@@ -161,6 +174,7 @@ class UpdateAnchorUseCase:
         if command.label is not None and not label:
             raise MemoryValidationError("Anchor label is required")
         normalized_key = normalize_anchor_key(label) if label else None
+        confidence = _parse_optional_anchor_confidence(command.confidence)
         now = self._clock.now()
         async with self._uow_factory() as uow:
             anchor = await _get_anchor(uow, command.anchor_id, role="anchor")
@@ -181,6 +195,11 @@ class UpdateAnchorUseCase:
                     label=label,
                     aliases=command.aliases,
                     description=command.description,
+                    confidence=confidence,
+                    evidence_refs=command.evidence_refs,
+                    observed_at=command.observed_at,
+                    valid_from=command.valid_from,
+                    valid_to=command.valid_to,
                     metadata={
                         **dict(command.metadata or {}),
                         "resolver_version": _ANCHOR_RESOLVER_VERSION,
@@ -301,6 +320,11 @@ class SplitAnchorUseCase:
                 new_anchor = existing.merge_observation(
                     label=label,
                     aliases=(alias,),
+                    evidence_refs=anchor.evidence_refs,
+                    confidence=anchor.confidence,
+                    observed_at=anchor.observed_at,
+                    valid_from=anchor.valid_from,
+                    valid_to=anchor.valid_to,
                     metadata={
                         "resolver_version": _ANCHOR_RESOLVER_VERSION,
                         "split_from_anchor_id": str(anchor.id),
@@ -320,6 +344,11 @@ class SplitAnchorUseCase:
                     label=label,
                     aliases=(alias,),
                     description=f"Split from {anchor.kind.value} anchor {anchor.label}.",
+                    confidence=anchor.confidence,
+                    evidence_refs=anchor.evidence_refs,
+                    observed_at=anchor.observed_at,
+                    valid_from=anchor.valid_from,
+                    valid_to=anchor.valid_to,
                     metadata={
                         "resolver_version": _ANCHOR_RESOLVER_VERSION,
                         "split_from_anchor_id": str(anchor.id),
@@ -490,12 +519,17 @@ async def _upsert_observed_anchor(
         "last_backfill_source_id": source_id,
         "resolver_version": _ANCHOR_RESOLVER_VERSION,
     }
+    confidence = _confidence_for_observed_anchor(observed)
+    evidence_refs = (SourceRef(source_type=source_type, source_id=source_id),)
     if existing is not None:
         merged = (
             existing.update_details(
                 normalized_key=observed.normalized_key,
                 label=observed.label,
                 aliases=observed.aliases,
+                confidence=confidence,
+                evidence_refs=evidence_refs,
+                observed_at=now,
                 metadata=metadata,
                 now=now,
             )
@@ -503,6 +537,9 @@ async def _upsert_observed_anchor(
             else existing.merge_observation(
                 label=_preferred_observed_label(existing, observed),
                 aliases=observed.aliases,
+                confidence=confidence,
+                evidence_refs=evidence_refs,
+                observed_at=now,
                 metadata=metadata,
                 now=now,
             )
@@ -519,11 +556,40 @@ async def _upsert_observed_anchor(
             label=observed.label,
             aliases=observed.aliases,
             description=f"Observed {observed.kind.value} anchor from memory backfill.",
+            confidence=confidence,
+            evidence_refs=evidence_refs,
+            observed_at=now,
             metadata=metadata,
             now=now,
         )
     )
     return saved, True
+
+
+def _parse_anchor_confidence(value: str | None) -> Confidence:
+    if value is None:
+        return Confidence.MEDIUM
+    return _parse_optional_anchor_confidence(value) or Confidence.MEDIUM
+
+
+def _parse_optional_anchor_confidence(value: str | None) -> Confidence | None:
+    if value is None:
+        return None
+    try:
+        return Confidence(value.strip().lower())
+    except ValueError as exc:
+        supported = ", ".join(item.value for item in Confidence)
+        raise MemoryValidationError(
+            f"Unsupported anchor confidence. Supported: {supported}"
+        ) from exc
+
+
+def _confidence_for_observed_anchor(observed: ObservedAnchor) -> Confidence:
+    if observed.score_boost >= 22:
+        return Confidence.HIGH
+    if observed.score_boost <= 8:
+        return Confidence.LOW
+    return Confidence.MEDIUM
 
 
 def _rank_merge_candidates(anchors: list[MemoryAnchor]) -> list[AnchorMergeCandidate]:

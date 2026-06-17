@@ -14,6 +14,17 @@ _PROJECT_PATTERN = re.compile(
     r"\b(?:project|проект|repo|repository|service|сервис)\s+([A-Za-zА-Яа-яЁё0-9][\w.-]{1,80})",
     re.IGNORECASE,
 )
+_ORGANIZATION_PATTERN = re.compile(
+    r"\b(?:company|org|organization|team|customer|client|vendor|"
+    r"компания|организация|команда|клиент|заказчик|вендор)\s+"
+    r"([A-Za-zА-Яа-яЁё0-9][\w.&-]{1,80}(?:\s+[A-Za-zА-Яа-яЁё0-9][\w.&-]{1,80}){0,3})",
+    re.IGNORECASE,
+)
+_ORGANIZATION_SUFFIX_PATTERN = re.compile(
+    r"\b([A-ZА-ЯЁ][A-Za-zА-Яа-яЁё0-9&.-]{1,60}"
+    r"(?:\s+[A-ZА-ЯЁ][A-Za-zА-Яа-яЁё0-9&.-]{1,60}){0,3})\s+"
+    r"(?:Inc|LLC|Ltd|Corp|Corporation|GmbH|AG|SAS|ООО|АО|ЗАО)\b"
+)
 _TEMPORAL_PHRASE = (
     r"last week|yesterday|today|tomorrow|an hour ago|hour ago|"
     r"\d{1,3}\s+hours?\s+ago|\d{1,3}\s+days?\s+ago|\d{1,2}\s+weeks?\s+ago|"
@@ -80,6 +91,26 @@ _PERSON_STOP_WORDS = {
     "qdrant",
     "graphiti",
     "docling",
+    "company",
+    "corp",
+    "corporation",
+    "inc",
+    "llc",
+    "ltd",
+    "gmbh",
+    "organization",
+    "org",
+    "team",
+    "openai",
+    "anthropic",
+    "github",
+    "google",
+    "microsoft",
+    "notion",
+    "linear",
+    "slack",
+    "stripe",
+    "figma",
     "скриншот",
     "проект",
     "час",
@@ -97,6 +128,20 @@ _PERSON_STOP_WORDS = {
     "встреча",
     "звонок",
 }
+_ORGANIZATION_SUFFIX_WORDS = {
+    "ag",
+    "ao",
+    "corp",
+    "corporation",
+    "gmbh",
+    "inc",
+    "llc",
+    "ltd",
+    "sas",
+    "ао",
+    "зао",
+    "ооо",
+}
 _PROJECT_HINTS = {
     "qdrant",
     "graphiti",
@@ -105,6 +150,18 @@ _PROJECT_HINTS = {
     "memo stack",
     "frontend",
     "backend",
+}
+_ORGANIZATION_HINTS = {
+    "openai": "OpenAI",
+    "anthropic": "Anthropic",
+    "github": "GitHub",
+    "google": "Google",
+    "microsoft": "Microsoft",
+    "notion": "Notion",
+    "linear": "Linear",
+    "slack": "Slack",
+    "stripe": "Stripe",
+    "figma": "Figma",
 }
 _CYRILLIC_TO_LATIN = str.maketrans(
     {
@@ -159,6 +216,15 @@ class ObservedAnchor:
 def extract_observed_anchors(text: str) -> tuple[ObservedAnchor, ...]:
     seen: set[tuple[str, str]] = set()
     anchors: list[ObservedAnchor] = []
+    for raw in _organization_labels(text):
+        _append_anchor(
+            anchors,
+            seen,
+            kind=MemoryAnchorKind.ORGANIZATION,
+            label=raw,
+            reason="organization reference",
+            score_boost=21,
+        )
     for raw in _explicit_project_labels(text):
         _append_anchor(
             anchors,
@@ -259,6 +325,23 @@ def _explicit_project_labels(text: str) -> tuple[str, ...]:
     return tuple(labels)
 
 
+def _organization_labels(text: str) -> tuple[str, ...]:
+    labels: list[str] = []
+    terms = set(_terms(text))
+    for normalized, label in sorted(_ORGANIZATION_HINTS.items(), key=lambda item: item[0]):
+        if normalized in terms:
+            labels.append(label)
+    for match in _ORGANIZATION_PATTERN.finditer(text):
+        value = _clean_organization_label(match.group(1))
+        if _is_probable_organization_label(value):
+            labels.append(value)
+    for match in _ORGANIZATION_SUFFIX_PATTERN.finditer(text):
+        value = _clean_organization_label(match.group(0))
+        if _is_probable_organization_label(value):
+            labels.append(value)
+    return tuple(labels)
+
+
 def _project_hint_labels(text: str) -> tuple[str, ...]:
     lowered = text.lower()
     terms = set(_terms(text))
@@ -294,7 +377,10 @@ def _person_labels(text: str) -> tuple[str, ...]:
             if _is_project_qualified_person_match(text, match.start()):
                 continue
             parts = tuple(part for part in match.groups() if part)
-            if len(parts) > 1 and normalize_anchor_key(parts[1]) in _PERSON_STOP_WORDS:
+            normalized_parts = tuple(normalize_anchor_key(part) for part in parts)
+            if any(part in _ORGANIZATION_SUFFIX_WORDS for part in normalized_parts[1:]):
+                continue
+            if len(parts) > 1 and normalized_parts[1] in _PERSON_STOP_WORDS:
                 parts = (parts[0],)
             label = " ".join(parts).strip()
             if _is_probable_person_label(label):
@@ -340,6 +426,21 @@ def _is_probable_person_label(label: str) -> bool:
         return False
     first = normalized.split()[0]
     return first not in _PERSON_STOP_WORDS
+
+
+def _is_probable_organization_label(label: str) -> bool:
+    normalized = normalize_anchor_key(label)
+    if len(normalized) < 2 or len(normalized) > 120:
+        return False
+    return normalized not in _PERSON_STOP_WORDS
+
+
+def _clean_organization_label(label: str) -> str:
+    value = label.strip(".,:;()[]{}")
+    value = re.split(r"\b(?:and|with|и|с|по|про|about)\b", value, maxsplit=1, flags=re.IGNORECASE)[
+        0
+    ]
+    return value.strip(".,:;()[]{} ")
 
 
 def _canonical_person_key(label: str) -> str:

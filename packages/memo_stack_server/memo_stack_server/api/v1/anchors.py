@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query
@@ -16,13 +17,13 @@ from memo_stack_core.application import (
     SplitAnchorCommand,
     UpdateAnchorCommand,
 )
-from memo_stack_core.domain.entities import MemoryAnchor
+from memo_stack_core.domain.entities import MemoryAnchor, SourceRef
 from pydantic import BaseModel, ConfigDict, Field
 
 from memo_stack_server.api.auth import require_service_token
 from memo_stack_server.api.dependencies import get_container
 from memo_stack_server.api.policy import ensure_server_writes_enabled
-from memo_stack_server.api.public_payload import safe_public_metadata
+from memo_stack_server.api.public_payload import safe_public_metadata, safe_public_text
 from memo_stack_server.api.v1.scope_resolution import resolve_existing_single_scope
 from memo_stack_server.composition import Container
 
@@ -45,11 +46,27 @@ class BackfillAnchorsRequest(AnchorScopeRequest):
     limit_per_source: int = Field(default=100, ge=1, le=500)
 
 
+class AnchorEvidenceRefRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_type: str = Field(min_length=1, max_length=80)
+    source_id: str = Field(min_length=1, max_length=160)
+    chunk_id: str | None = Field(default=None, max_length=160)
+    char_start: int | None = Field(default=None, ge=0)
+    char_end: int | None = Field(default=None, ge=0)
+    quote_preview: str | None = Field(default=None, max_length=240)
+
+
 class CreateAnchorRequest(AnchorScopeRequest):
     kind: str = Field(min_length=1, max_length=40)
     label: str = Field(min_length=1, max_length=240)
     aliases: list[str] = Field(default_factory=list, max_length=20)
     description: str | None = Field(default=None, max_length=500)
+    confidence: str | None = Field(default=None, max_length=40)
+    evidence_refs: list[AnchorEvidenceRefRequest] = Field(default_factory=list, max_length=20)
+    observed_at: datetime | None = None
+    valid_from: datetime | None = None
+    valid_to: datetime | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -59,6 +76,11 @@ class UpdateAnchorRequest(BaseModel):
     label: str | None = Field(default=None, min_length=1, max_length=240)
     aliases: list[str] = Field(default_factory=list, max_length=20)
     description: str | None = Field(default=None, max_length=500)
+    confidence: str | None = Field(default=None, max_length=40)
+    evidence_refs: list[AnchorEvidenceRefRequest] = Field(default_factory=list, max_length=20)
+    observed_at: datetime | None = None
+    valid_from: datetime | None = None
+    valid_to: datetime | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -144,6 +166,11 @@ async def create_anchor(
             label=request.label,
             aliases=tuple(request.aliases),
             description=request.description,
+            confidence=request.confidence,
+            evidence_refs=tuple(_map_anchor_evidence_ref(ref) for ref in request.evidence_refs),
+            observed_at=request.observed_at,
+            valid_from=request.valid_from,
+            valid_to=request.valid_to,
             metadata=request.metadata,
         )
     )
@@ -163,6 +190,11 @@ async def update_anchor(
             label=request.label,
             aliases=tuple(request.aliases),
             description=request.description,
+            confidence=request.confidence,
+            evidence_refs=tuple(_map_anchor_evidence_ref(ref) for ref in request.evidence_refs),
+            observed_at=request.observed_at,
+            valid_from=request.valid_from,
+            valid_to=request.valid_to,
             metadata=request.metadata,
         )
     )
@@ -320,7 +352,34 @@ def anchor_to_response(anchor: MemoryAnchor) -> dict[str, Any]:
         "aliases": list(anchor.aliases),
         "description": anchor.description,
         "status": anchor.status.value,
+        "confidence": anchor.confidence.value,
+        "evidence_refs": [_anchor_evidence_ref_to_response(ref) for ref in anchor.evidence_refs],
+        "observed_at": anchor.observed_at.isoformat(),
+        "valid_from": anchor.valid_from.isoformat() if anchor.valid_from else None,
+        "valid_to": anchor.valid_to.isoformat() if anchor.valid_to else None,
         "metadata": safe_public_metadata(anchor.metadata),
         "created_at": anchor.created_at.isoformat(),
         "updated_at": anchor.updated_at.isoformat(),
+    }
+
+
+def _map_anchor_evidence_ref(request: AnchorEvidenceRefRequest) -> SourceRef:
+    return SourceRef(
+        source_type=request.source_type,
+        source_id=request.source_id,
+        chunk_id=request.chunk_id,
+        char_start=request.char_start,
+        char_end=request.char_end,
+        quote_preview=request.quote_preview,
+    )
+
+
+def _anchor_evidence_ref_to_response(ref: SourceRef) -> dict[str, Any]:
+    return {
+        "source_type": ref.source_type,
+        "source_id": ref.source_id,
+        "chunk_id": ref.chunk_id,
+        "char_start": ref.char_start,
+        "char_end": ref.char_end,
+        "quote_preview": safe_public_text(ref.quote_preview) if ref.quote_preview else None,
     }

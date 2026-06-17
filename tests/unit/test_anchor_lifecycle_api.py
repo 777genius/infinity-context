@@ -74,6 +74,17 @@ def test_anchor_backfill_merge_and_split_lifecycle(tmp_path: Path) -> None:
                 "label": "Atlas",
                 "aliases": ["Project Atlas"],
                 "description": "Manual project anchor created by reviewer.",
+                "confidence": "high",
+                "evidence_refs": [
+                    {
+                        "source_type": "manual",
+                        "source_id": "manual-anchor-atlas",
+                        "quote_preview": "Reviewer confirmed Atlas is the canonical project.",
+                    }
+                ],
+                "observed_at": "2026-01-02T03:04:05+00:00",
+                "valid_from": "2026-01-01T00:00:00+00:00",
+                "valid_to": "2026-12-31T23:59:59+00:00",
             },
             headers=auth_headers(),
         )
@@ -82,6 +93,20 @@ def test_anchor_backfill_merge_and_split_lifecycle(tmp_path: Path) -> None:
         assert manual_anchor_data["kind"] == "project"
         assert manual_anchor_data["normalized_key"] == "atlas"
         assert "Project Atlas" in manual_anchor_data["aliases"]
+        assert manual_anchor_data["confidence"] == "high"
+        assert manual_anchor_data["evidence_refs"] == [
+            {
+                "source_type": "manual",
+                "source_id": "manual-anchor-atlas",
+                "chunk_id": None,
+                "char_start": None,
+                "char_end": None,
+                "quote_preview": "Reviewer confirmed Atlas is the canonical project.",
+            }
+        ]
+        assert manual_anchor_data["observed_at"] == "2026-01-02T03:04:05+00:00"
+        assert manual_anchor_data["valid_from"] == "2026-01-01T00:00:00+00:00"
+        assert manual_anchor_data["valid_to"] == "2026-12-31T23:59:59+00:00"
         assert manual_anchor_data["metadata"]["creation_source"] == "manual"
 
         manual_anchor_duplicate = client.post(
@@ -108,6 +133,15 @@ def test_anchor_backfill_merge_and_split_lifecycle(tmp_path: Path) -> None:
                 "label": "Atlas Roadmap",
                 "aliases": ["Project Atlas", "Atlas delivery"],
                 "description": "Edited manual project anchor.",
+                "confidence": "medium",
+                "evidence_refs": [
+                    {
+                        "source_type": "document",
+                        "source_id": "atlas-roadmap-doc",
+                        "chunk_id": "chunk-1",
+                    }
+                ],
+                "observed_at": "2026-01-03T00:00:00+00:00",
             },
             headers=auth_headers(),
         )
@@ -117,6 +151,12 @@ def test_anchor_backfill_merge_and_split_lifecycle(tmp_path: Path) -> None:
         assert edited_data["normalized_key"] == "atlas roadmap"
         assert "Atlas delivery" in edited_data["aliases"]
         assert edited_data["description"] == "Edited manual project anchor."
+        assert edited_data["confidence"] == "high"
+        assert {ref["source_id"] for ref in edited_data["evidence_refs"]} == {
+            "manual-anchor-atlas",
+            "atlas-roadmap-doc",
+        }
+        assert edited_data["observed_at"] == "2026-01-03T00:00:00+00:00"
         assert edited_data["metadata"]["last_edit_source"] == "manual"
 
         deleted_anchor = client.request(
@@ -180,6 +220,11 @@ def test_anchor_backfill_merge_and_split_lifecycle(tmp_path: Path) -> None:
         assert ("project", "atlas") in keys
         assert ("project", "atlas roadmap") not in keys
         assert ("event", "meeting last week") in keys
+        alex_anchor = next(item for item in active_anchors if item["normalized_key"] == "alex")
+        assert alex_anchor["confidence"] in {"high", "medium"}
+        assert any(
+            ref["source_type"] in {"capture", "fact"} for ref in alex_anchor["evidence_refs"]
+        )
 
         merge_suggestions = client.get(
             "/v1/anchors/merge-suggestions",
@@ -219,6 +264,7 @@ def test_anchor_backfill_merge_and_split_lifecycle(tmp_path: Path) -> None:
             "Алекс",
         }.issubset(set(merged_anchor["aliases"]))
         assert merged_anchor["metadata"]["merged_anchor_ids"]
+        assert merged_anchor["evidence_refs"]
 
         deleted_source = client.get(
             "/v1/anchors",

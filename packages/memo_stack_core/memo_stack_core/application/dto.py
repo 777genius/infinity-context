@@ -359,6 +359,11 @@ class CreateAnchorCommand:
     label: str
     aliases: tuple[str, ...] = ()
     description: str | None = None
+    confidence: str | None = None
+    evidence_refs: tuple[SourceRef, ...] = ()
+    observed_at: datetime | None = None
+    valid_from: datetime | None = None
+    valid_to: datetime | None = None
     metadata: dict[str, object] | None = None
 
 
@@ -368,6 +373,11 @@ class UpdateAnchorCommand:
     label: str | None = None
     aliases: tuple[str, ...] = ()
     description: str | None = None
+    confidence: str | None = None
+    evidence_refs: tuple[SourceRef, ...] = ()
+    observed_at: datetime | None = None
+    valid_from: datetime | None = None
+    valid_to: datetime | None = None
     metadata: dict[str, object] | None = None
 
 
@@ -692,6 +702,9 @@ class LinkFactsCommand:
     target_fact_id: str
     relation_type: str
     reason: str
+    observed_at: datetime | None = None
+    valid_from: datetime | None = None
+    valid_to: datetime | None = None
 
 
 @dataclass(frozen=True)

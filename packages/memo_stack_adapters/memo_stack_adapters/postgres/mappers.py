@@ -196,6 +196,10 @@ def anchor_to_row(anchor: MemoryAnchor) -> MemoryAnchorRow:
         aliases_json=list(anchor.aliases),
         description=anchor.description,
         status=anchor.status.value,
+        confidence=anchor.confidence.value,
+        evidence_refs_json=[source_ref_to_json(ref) for ref in anchor.evidence_refs],
+        observed_at=anchor.observed_at,
+        valid_from=anchor.valid_from, valid_to=anchor.valid_to,
         metadata_json=dict(anchor.metadata),
         created_at=anchor.created_at,
         updated_at=anchor.updated_at,
@@ -211,6 +215,11 @@ def apply_anchor_to_row(anchor: MemoryAnchor, row: MemoryAnchorRow) -> None:
     row.aliases_json = list(anchor.aliases)
     row.description = anchor.description
     row.status = anchor.status.value
+    row.confidence = anchor.confidence.value
+    row.evidence_refs_json = [source_ref_to_json(ref) for ref in anchor.evidence_refs]
+    row.observed_at = anchor.observed_at
+    row.valid_from = anchor.valid_from
+    row.valid_to = anchor.valid_to
     row.metadata_json = dict(anchor.metadata)
     row.created_at = anchor.created_at
     row.updated_at = anchor.updated_at
@@ -227,6 +236,13 @@ def anchor_row_to_domain(row: MemoryAnchorRow) -> MemoryAnchor:
         aliases=tuple(row.aliases_json or ()),
         description=row.description,
         status=LifecycleStatus(row.status),
+        confidence=Confidence(getattr(row, "confidence", None) or Confidence.MEDIUM.value),
+        evidence_refs=tuple(
+            source_ref_from_json(ref) for ref in (getattr(row, "evidence_refs_json", None) or ())
+        ),
+        observed_at=getattr(row, "observed_at", None) or row.created_at,
+        valid_from=getattr(row, "valid_from", None),
+        valid_to=getattr(row, "valid_to", None),
         metadata=dict(row.metadata_json or {}),
         created_at=row.created_at,
         updated_at=row.updated_at,
@@ -266,6 +282,8 @@ def fact_relation_to_row(relation: MemoryFactRelation) -> MemoryFactRelationRow:
         relation_type=relation.relation_type.value,
         reason=relation.reason,
         status=relation.status.value,
+        observed_at=relation.observed_at,
+        valid_from=relation.valid_from, valid_to=relation.valid_to,
         created_at=relation.created_at,
         updated_at=relation.updated_at,
     )
@@ -281,6 +299,9 @@ def fact_relation_row_to_domain(row: MemoryFactRelationRow) -> MemoryFactRelatio
         relation_type=FactRelationType(row.relation_type),
         reason=row.reason,
         status=LifecycleStatus(row.status),
+        observed_at=getattr(row, "observed_at", None) or row.created_at,
+        valid_from=getattr(row, "valid_from", None),
+        valid_to=getattr(row, "valid_to", None),
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
