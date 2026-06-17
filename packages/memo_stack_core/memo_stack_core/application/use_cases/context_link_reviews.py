@@ -26,6 +26,9 @@ from memo_stack_core.ports.clock import ClockPort
 from memo_stack_core.ports.ids import IdGeneratorPort
 from memo_stack_core.ports.unit_of_work import UnitOfWorkFactoryPort
 
+MAX_CONTEXT_LINK_BATCH_REVIEW_ITEMS = 50
+MAX_SAFE_BATCH_ERROR_CHARS = 320
+
 
 class ListContextLinkSuggestionsUseCase:
     def __init__(self, *, uow_factory: UnitOfWorkFactoryPort) -> None:
@@ -177,7 +180,7 @@ class ReviewContextLinkSuggestionsBatchUseCase:
     ) -> ReviewContextLinkSuggestionsBatchResult:
         if not command.items:
             raise MemoryValidationError("Context link batch review requires at least one item")
-        if len(command.items) > 50:
+        if len(command.items) > MAX_CONTEXT_LINK_BATCH_REVIEW_ITEMS:
             raise MemoryValidationError("Context link batch review supports at most 50 items")
 
         results: list[ReviewContextLinkSuggestionBatchItemResult] = []
@@ -289,4 +292,4 @@ def _review_override_metadata(
 
 def _safe_batch_error_message(value: object) -> str:
     text = str(value).strip() or value.__class__.__name__
-    return redact_sensitive_text(text)[:320]
+    return redact_sensitive_text(text)[:MAX_SAFE_BATCH_ERROR_CHARS]

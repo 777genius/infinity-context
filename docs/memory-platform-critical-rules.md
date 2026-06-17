@@ -118,6 +118,57 @@ of relying on database or adapter return order.
 Diagnostics must never include raw provider payloads, secrets, stack traces, hidden
 prompt text, full document bodies, or unrestricted metadata blobs.
 
+## Bounded payload budgets
+
+These limits are product contracts. Implementations may use smaller limits for a
+specific route, but must not exceed these values without a new ADR and regression
+tests.
+
+| Surface | Hard budget |
+| --- | --- |
+| `ContextItem.retrieval_sources` | max 8 ordered unique source names |
+| diagnostic mapping | max 24 keys per object, depth max 3 |
+| diagnostic list value | max 8 items |
+| diagnostic key | max 80 chars |
+| diagnostic string value | max 240 chars |
+| `ranking_reason` | max 240 chars |
+| denied link-candidate diagnostics | max 8 sampled denied candidates |
+| persisted context-link suggestions per source request | max 10 |
+| context-link batch review | max 50 review items |
+| safe batch error text | max 320 chars after redaction |
+
+Payload budgets are safety controls, not presentation preferences. If a provider
+or adapter returns more detail, adapter/application code must summarize or drop
+it before it reaches public API, SDK, MCP or UI payloads.
+
+## Review and audit event contract
+
+Every approve/reject/edit action for memory suggestions, context-link
+suggestions, anchor merges/splits and temporal relation changes must leave a
+canonical audit trail. The audit trail can be represented as outbox rows,
+domain events, reviewed suggestion rows, context-link metadata or a future
+dedicated audit table, but it must preserve these non-sensitive fields:
+
+```text
+event_type
+space_id
+memory_scope_id
+actor_user_id or service_token_id when available
+source_type / source_id
+target_type / target_id when available
+action: approve | reject | edit | merge | split | expire
+reason or safe_reason
+previous_status
+new_status
+created_at / reviewed_at
+policy_version when a policy decision was involved
+```
+
+Audit payloads must not store raw provider payloads, prompt text, full document
+content, unrestricted file paths, API keys, tokens or stack traces. When a user
+edits a suggested target/relation, preserve the original suggested target and
+relation as safe ids/types so future debugging can explain why AI was overridden.
+
 ## Scoring and provenance policy
 
 Score signals are explanations, not the source of truth. Postgres visibility checks and
