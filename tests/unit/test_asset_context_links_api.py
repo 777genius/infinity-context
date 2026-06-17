@@ -1310,6 +1310,90 @@ def test_context_linking_quality_golden_links_last_week_intent_without_text_matc
         assert thread_candidate["suggestion_id"]
 
 
+def test_context_linking_quality_golden_links_numeric_hours_intent_without_text_match(
+    tmp_path: Path,
+) -> None:
+    with make_client(tmp_path) as client:
+        fact = client.post(
+            "/v1/facts",
+            json={
+                "space_slug": "numeric-hours-intent-linking-quality",
+                "memory_scope_external_ref": "default",
+                "thread_external_ref": "alex-chat-five-hours-ago",
+                "text": "Payment exception window was confirmed for Atlas cutoff.",
+                "kind": "note",
+                "source_refs": [{"source_type": "manual", "source_id": "five-hour-review"}],
+                "tags": ["atlas", "payment"],
+            },
+            headers=auth_headers({"Idempotency-Key": "numeric-hours-intent-linking-fact"}),
+        )
+        assert fact.status_code == 201, fact.text
+        asyncio.run(
+            _age_fact_and_thread(
+                client,
+                fact_id=fact.json()["data"]["id"],
+                thread_external_ref="alex-chat-five-hours-ago",
+                age=timedelta(hours=5),
+            )
+        )
+
+        capture = client.post(
+            "/v1/captures",
+            json={
+                "space_slug": "numeric-hours-intent-linking-quality",
+                "memory_scope_external_ref": "default",
+                "thread_external_ref": "quick-save",
+                "source_agent": "memo-frontend",
+                "source_kind": "manual",
+                "event_type": "QuickCapture",
+                "actor_role": "user",
+                "source_event_id": "numeric-hours-intent-linking-capture",
+                "text": "Сохрани заметку и привяжи к разговору 5 часов назад.",
+                "source_authority": "user_statement",
+            },
+            headers=auth_headers(),
+        )
+        assert capture.status_code == 201, capture.text
+
+        suggestions = client.post(
+            "/v1/link-suggestions",
+            json={
+                "space_slug": "numeric-hours-intent-linking-quality",
+                "memory_scope_external_ref": "default",
+                "thread_external_ref": "quick-save",
+                "source_type": "capture",
+                "source_id": capture.json()["data"]["id"],
+                "text": "привяжи к разговору 5 часов назад",
+                "persist": True,
+                "limit": 16,
+            },
+            headers=auth_headers(),
+        )
+        assert suggestions.status_code == 200, suggestions.text
+        payload = suggestions.json()["data"]
+        candidates = payload["candidates"]
+
+        assert payload["diagnostics"]["temporal_hints"] == ["5_hours_ago"]
+        fact_candidate = next(
+            item
+            for item in candidates
+            if item["target_type"] == "fact"
+            and item["target_id"] == fact.json()["data"]["id"]
+        )
+        thread_candidate = next(
+            item
+            for item in candidates
+            if item["target_type"] == "thread"
+            and item["metadata"]["external_ref"] == "alex-chat-five-hours-ago"
+        )
+        assert fact_candidate["metadata"]["matched_terms"] == []
+        assert thread_candidate["metadata"]["matched_terms"] == []
+        assert "temporal intent match" in fact_candidate["reasons"]
+        assert "temporal_intent_match" in fact_candidate["metadata"]["reason_codes"]
+        assert fact_candidate["suggestion_id"]
+        assert thread_candidate["suggestion_id"]
+
+
 def test_context_link_suggestions_redact_public_diagnostics(tmp_path: Path) -> None:
     raw_secret = "sk-proj-secretvalue1234567890"
     with make_client(tmp_path) as client:

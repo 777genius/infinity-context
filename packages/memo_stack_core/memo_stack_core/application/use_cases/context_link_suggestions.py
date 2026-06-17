@@ -34,8 +34,10 @@ _LINK_STOP_TERMS = {
     "again",
     "ago",
     "and",
+    "days",
     "from",
     "hour",
+    "hours",
     "last",
     "note",
     "screenshot",
@@ -45,15 +47,20 @@ _LINK_STOP_TERMS = {
     "today",
     "with",
     "week",
+    "weeks",
     "what",
     "when",
     "where",
     "which",
     "yesterday",
     "вчера",
+    "день",
+    "дней",
+    "дня",
     "когда",
     "назад",
     "неделю",
+    "недели",
     "неделе",
     "прошлой",
     "прошлую",
@@ -62,13 +69,71 @@ _LINK_STOP_TERMS = {
     "сегодня",
     "что",
     "час",
+    "часа",
+    "часов",
 }
+_NUMERIC_TEMPORAL_HINT_PATTERNS: tuple[tuple[str, re.Pattern[str], float, int], ...] = (
+    (
+        "hours",
+        re.compile(
+            r"\b(?:(?:about|around)\s+)?(?P<count>\d{1,3})\s+hours?\s+ago\b",
+            re.IGNORECASE,
+        ),
+        1.0,
+        24 * 14,
+    ),
+    (
+        "hours",
+        re.compile(
+            r"\b(?:около\s+)?(?P<count>\d{1,3})\s+час(?:а|ов)?\s+назад\b",
+            re.IGNORECASE,
+        ),
+        1.0,
+        24 * 14,
+    ),
+    (
+        "days",
+        re.compile(
+            r"\b(?:(?:about|around)\s+)?(?P<count>\d{1,3})\s+days?\s+ago\b",
+            re.IGNORECASE,
+        ),
+        24.0,
+        365,
+    ),
+    (
+        "days",
+        re.compile(
+            r"\b(?:около\s+)?(?P<count>\d{1,3})\s+д(?:ень|ня|ней)\s+назад\b",
+            re.IGNORECASE,
+        ),
+        24.0,
+        365,
+    ),
+    (
+        "weeks",
+        re.compile(
+            r"\b(?:(?:about|around)\s+)?(?P<count>\d{1,2})\s+weeks?\s+ago\b",
+            re.IGNORECASE,
+        ),
+        24.0 * 7,
+        52,
+    ),
+    (
+        "weeks",
+        re.compile(
+            r"\b(?:около\s+)?(?P<count>\d{1,2})\s+недел[юи]\s+назад\b",
+            re.IGNORECASE,
+        ),
+        24.0 * 7,
+        52,
+    ),
+)
 _TEMPORAL_HINT_PATTERNS: tuple[tuple[str, re.Pattern[str], float, float], ...] = (
     (
         "hour_ago",
         re.compile(
             r"\b(?:an?\s+hour\s+ago|1\s+hour\s+ago|last\s+hour|"
-            r"(?:около\s+)?час(?:а|ов)?\s+назад)\b",
+            r"(?<!\d\s)(?:около\s+)?час(?:а|ов)?\s+назад)\b",
             re.IGNORECASE,
         ),
         0.0,
@@ -778,12 +843,42 @@ def _has_link_signal(*, matched_terms: tuple[str, ...], reasons: list[str]) -> b
 def _temporal_hints(text: str) -> tuple[_TemporalHint, ...]:
     hints: list[_TemporalHint] = []
     seen: set[str] = set()
+    for hint in _numeric_temporal_hints(text):
+        seen.add(hint.code)
+        hints.append(hint)
     for code, pattern, min_hours, max_hours in _TEMPORAL_HINT_PATTERNS:
         if code in seen or not pattern.search(text):
             continue
         seen.add(code)
         hints.append(_TemporalHint(code=code, min_hours=min_hours, max_hours=max_hours))
     return tuple(hints)
+
+
+def _numeric_temporal_hints(text: str) -> tuple[_TemporalHint, ...]:
+    hints: list[_TemporalHint] = []
+    seen: set[str] = set()
+    for unit, pattern, unit_hours, max_count in _NUMERIC_TEMPORAL_HINT_PATTERNS:
+        for match in pattern.finditer(text):
+            count = int(match.group("count"))
+            if count <= 0 or count > max_count:
+                continue
+            code = f"{count}_{unit}_ago"
+            if code in seen:
+                continue
+            seen.add(code)
+            min_hours, max_hours = _numeric_temporal_window(count * unit_hours)
+            hints.append(_TemporalHint(code=code, min_hours=min_hours, max_hours=max_hours))
+    return tuple(hints)
+
+
+def _numeric_temporal_window(target_hours: float) -> tuple[float, float]:
+    if target_hours <= 24:
+        tolerance = max(1.0, target_hours * 0.3)
+    elif target_hours <= 24 * 7:
+        tolerance = max(6.0, target_hours * 0.2)
+    else:
+        tolerance = max(24.0, target_hours * 0.15)
+    return max(0.0, target_hours - tolerance), target_hours + tolerance
 
 
 def _matches_temporal_hint(hints: tuple[_TemporalHint, ...], age_hours: float) -> bool:
