@@ -112,6 +112,39 @@ def test_capabilities_return_noop_adapters() -> None:
         "standard_asr",
         "standard_full",
     ]
+    profile_states = {
+        profile["name"]: profile
+        for profile in body["extraction"]["profiles_v2"]
+    }
+    assert set(profile_states) == set(body["extraction"]["profiles"])
+    assert profile_states["standard_local"]["status"] == "ok"
+    assert profile_states["standard_local"]["enabled"] is True
+    assert profile_states["standard_local"]["external_provider_egress"] is False
+    assert profile_states["standard_vision"]["requires_explicit_external_ai"] is True
+    assert profile_states["standard_vision"]["memory_promotion"] == "review_required"
+    assert profile_states["standard_vision"]["source_text_policy"] == "untrusted_evidence"
+    assert profile_states["standard_vision"]["artifact_payloads_bounded"] is True
+    assert profile_states["standard_asr"]["deprecated"] is True
+    assert body["extraction"]["providers"]["openai_vision"]["status"] in {
+        "blocked",
+        "unavailable",
+    }
+    assert body["extraction"]["providers"]["transcription_api"]["status"] in {
+        "blocked",
+        "unavailable",
+    }
+    assert body["extraction"]["policy"] == {
+        "schema_version": 2,
+        "external_ai_allowed": False,
+        "external_ai_requires_explicit_profile": True,
+        "local_asr_default": False,
+        "memory_promotion": "review_required",
+        "source_text_policy": "untrusted_evidence",
+        "provider_payloads_bounded": True,
+        "sensitive_data_in_diagnostics": False,
+        "canonical_store": "postgres",
+        "derived_indexes": ["qdrant", "graphiti"],
+    }
     assert isinstance(body["extraction"]["optional_extras"]["docling"]["installed"], bool)
     assert isinstance(body["extraction"]["optional_extras"]["vision"]["installed"], bool)
     assert body["extraction"]["optional_extras"]["vision"]["configured"] is False
@@ -186,14 +219,23 @@ def test_capabilities_expose_configured_external_media_extraction(tmp_path: Path
     assert extraction["optional_extras"]["transcription_api"]["provider"] == "openai"
     assert extraction["optional_extras"]["transcription_api"]["model"] == "gpt-4o-transcribe"
     assert extraction["optional_extras"]["transcription_api"]["max_provider_upload_bytes"] == 12_345
-    assert extraction["limits"] == {
-        "max_bytes": 123_456,
-        "max_pages": 7,
-        "max_media_seconds": 42,
-        "max_output_chars": 10_000,
-        "max_tables": 3,
-        "ocr_enabled": False,
-    }
+    assert extraction["limits"]["max_bytes"] == 123_456
+    assert extraction["limits"]["max_pages"] == 7
+    assert extraction["limits"]["max_media_seconds"] == 42
+    assert extraction["limits"]["max_output_chars"] == 10_000
+    assert extraction["limits"]["max_tables"] == 3
+    assert extraction["limits"]["ocr_enabled"] is False
+    assert extraction["limits"]["max_image_pixels"] == 50_000_000
+    assert extraction["limits"]["parser_timeout_seconds"] == 5 * 60
+    assert extraction["limits"]["subprocess_timeout_seconds"] == 60
+    assert extraction["providers"]["openai_vision"]["enabled"] is True
+    assert extraction["providers"]["openai_vision"]["status"] == "ok"
+    assert extraction["providers"]["transcription_api"]["enabled"] is True
+    assert extraction["providers"]["transcription_api"]["status"] == "ok"
+    assert extraction["policy"]["external_ai_allowed"] is True
+    profile_states = {profile["name"]: profile for profile in extraction["profiles_v2"]}
+    assert profile_states["media_api"]["status"] == "ok"
+    assert profile_states["standard_vision"]["status"] == "ok"
     assert body["limits"]["max_asset_upload_bytes"] == 77_777
     assert body["plans"]["resources"]["media_analysis_seconds"]["limit_per_month"] == 3_600
     assert "sk-capabilities-secret" not in response.text
@@ -225,6 +267,11 @@ def test_capabilities_keep_transcription_disabled_when_provider_is_disabled(
     assert extraction["optional_extras"]["vision"]["configured"] is True
     assert extraction["optional_extras"]["transcription_api"]["configured"] is False
     assert extraction["optional_extras"]["transcription_api"]["provider"] == "disabled"
+    assert extraction["providers"]["transcription_api"]["status"] == "blocked"
+    assert extraction["providers"]["transcription_api"]["reason"] == "provider_disabled"
+    profile_states = {profile["name"]: profile for profile in extraction["profiles_v2"]}
+    assert profile_states["media_api"]["status"] == "blocked"
+    assert profile_states["media_api"]["reason"] == "provider_disabled"
     assert "sk-unused-transcription-secret" not in response.text
 
 

@@ -1,6 +1,5 @@
 """Capabilities API."""
 
-import importlib.util
 from dataclasses import asdict
 from typing import Annotated, Any
 
@@ -10,6 +9,7 @@ from memo_stack_server.api.auth import require_service_token
 from memo_stack_server.api.dependencies import get_container
 from memo_stack_server.api.policy import should_capture
 from memo_stack_server.composition import Container
+from memo_stack_server.extraction_capabilities import build_extraction_capability_payload
 
 router = APIRouter(tags=["capabilities"], dependencies=[Depends(require_service_token)])
 
@@ -61,70 +61,7 @@ async def capabilities(
                 container.settings.max_pending_suggestions_per_memory_scope
             ),
         },
-        "extraction": {
-            "enabled": container.settings.extraction_enabled,
-            "default_profile": container.settings.extraction_default_profile,
-            "profiles": [
-                "standard_local",
-                "standard_docling",
-                "standard_vision",
-                "media_api",
-                "media_local_asr",
-                "standard_asr",
-                "standard_full",
-            ],
-            "optional_extras": {
-                "docling": {
-                    "installed": _module_available("docling"),
-                    "profiles": ["standard_docling", "standard_full"],
-                },
-                "vision": {
-                    "installed": _module_available("openai"),
-                    "configured": (
-                        container.settings.extraction_external_ai_enabled
-                        and bool(container.settings.openai_api_key)
-                    ),
-                    "profiles": ["standard_vision", "standard_full"],
-                    "model": container.settings.extraction_vision_model,
-                    "detail": container.settings.extraction_vision_detail,
-                },
-                "transcription_api": {
-                    "installed": _module_available("openai"),
-                    "configured": (
-                        container.settings.transcription_provider == "openai"
-                        and container.settings.extraction_external_ai_enabled
-                        and bool(container.settings.openai_api_key)
-                    ),
-                    "provider": container.settings.transcription_provider,
-                    "profiles": ["media_api", "standard_asr", "standard_full"],
-                    "model": container.settings.transcription_openai_model,
-                    "max_provider_upload_bytes": (
-                        container.settings.transcription_openai_max_upload_bytes
-                    ),
-                },
-                "transcription_local": {
-                    "installed": _module_available("faster_whisper"),
-                    "profiles": ["media_local_asr", "asr:<model>", "faster_whisper:<model>"],
-                    "model": container.settings.extraction_asr_model,
-                    "device": container.settings.extraction_asr_device,
-                    "compute_type": container.settings.extraction_asr_compute_type,
-                    "default": False,
-                },
-                "asr": {
-                    "deprecated": True,
-                    "replacement_profiles": ["media_api", "media_local_asr"],
-                },
-            },
-            "external_provider_egress": container.settings.extraction_external_ai_enabled,
-            "limits": {
-                "max_bytes": container.settings.extraction_max_bytes,
-                "max_pages": container.settings.extraction_max_pages,
-                "max_media_seconds": container.settings.extraction_max_media_seconds,
-                "max_output_chars": container.settings.extraction_max_output_chars,
-                "max_tables": container.settings.extraction_max_tables,
-                "ocr_enabled": container.settings.extraction_ocr_enabled,
-            },
-        },
+        "extraction": build_extraction_capability_payload(container.settings),
         "plans": {
             "current": container.settings.product_plan_tier,
             "resources": {
@@ -152,7 +89,3 @@ def _capability_payload(capability: Any) -> dict[str, Any]:
     payload["projection_freshness"] = str(payload["projection_freshness"])
     payload["healthy"] = status == "ok"
     return payload
-
-
-def _module_available(module_name: str) -> bool:
-    return importlib.util.find_spec(module_name) is not None
