@@ -173,6 +173,7 @@ def capture_to_json(row: MemoryCaptureRow, *, redacted: bool) -> dict[str, Any]:
 
 
 def anchor_to_json(row: MemoryAnchorRow) -> dict[str, Any]:
+    observed_at = row.observed_at or row.created_at
     return {
         "id": row.id,
         "kind": row.kind,
@@ -183,7 +184,7 @@ def anchor_to_json(row: MemoryAnchorRow) -> dict[str, Any]:
         "status": row.status,
         "confidence": row.confidence,
         "evidence_refs": _anchor_evidence_refs_to_json(row.evidence_refs_json or []),
-        "observed_at": row.observed_at.isoformat() if row.observed_at else None,
+        "observed_at": observed_at.isoformat(),
         "valid_from": row.valid_from.isoformat() if row.valid_from else None,
         "valid_to": row.valid_to.isoformat() if row.valid_to else None,
         "metadata_json": safe_metadata(row.metadata_json),
@@ -401,6 +402,7 @@ def anchor_from_json(
     memory_scope_id: str,
     now: datetime,
 ) -> MemoryAnchorRow:
+    created_at = _parse_dt(item.get("created_at"), now)
     return MemoryAnchorRow(
         id=str(item["id"]),
         space_id=space_id,
@@ -413,11 +415,11 @@ def anchor_from_json(
         status=str(item.get("status", "active")),
         confidence=str(item.get("confidence", "medium")),
         evidence_refs_json=_anchor_evidence_refs_from_json(item.get("evidence_refs")),
-        observed_at=_parse_optional_dt(item.get("observed_at")),
+        observed_at=_parse_optional_dt(item.get("observed_at")) or created_at,
         valid_from=_parse_optional_dt(item.get("valid_from")),
         valid_to=_parse_optional_dt(item.get("valid_to")),
         metadata_json=safe_metadata(item.get("metadata_json") or item.get("metadata") or {}),
-        created_at=_parse_dt(item.get("created_at"), now),
+        created_at=created_at,
         updated_at=_parse_dt(item.get("updated_at"), now),
     )
 

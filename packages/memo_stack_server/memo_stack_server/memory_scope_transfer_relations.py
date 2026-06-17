@@ -9,6 +9,7 @@ from memo_stack_adapters.postgres.models import MemoryFactRelationRow
 
 
 def relation_to_json(row: MemoryFactRelationRow) -> dict[str, Any]:
+    observed_at = row.observed_at or row.created_at
     return {
         "id": row.id,
         "source_fact_id": row.source_fact_id,
@@ -16,7 +17,7 @@ def relation_to_json(row: MemoryFactRelationRow) -> dict[str, Any]:
         "relation_type": row.relation_type,
         "reason": row.reason,
         "status": row.status,
-        "observed_at": row.observed_at.isoformat() if row.observed_at else None,
+        "observed_at": observed_at.isoformat(),
         "valid_from": row.valid_from.isoformat() if row.valid_from else None,
         "valid_to": row.valid_to.isoformat() if row.valid_to else None,
         "created_at": row.created_at.isoformat(),
