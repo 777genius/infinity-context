@@ -503,6 +503,9 @@ class _EvidenceArtifactButton extends StatelessWidget {
   IconData _artifactIcon(ExtractionArtifact artifact) {
     return switch (artifact.artifactType) {
       'transcript' => Icons.subtitles_outlined,
+      'transcript_json' => Icons.closed_caption_outlined,
+      'media_manifest' => Icons.perm_media_outlined,
+      'video_frame_timeline' => Icons.video_library_outlined,
       'table_markdown' || 'table_html' => Icons.table_chart_outlined,
       'extracted_json' ||
       'normalized_json' ||

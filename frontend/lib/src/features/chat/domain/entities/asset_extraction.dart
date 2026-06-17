@@ -50,6 +50,9 @@ class ExtractionArtifact extends Equatable {
       'vision_json' => 'vision.json',
       'image_regions' => 'image-regions.json',
       'transcript' => 'transcript.txt',
+      'transcript_json' => 'transcript.json',
+      'media_manifest' => 'media-manifest.json',
+      'video_frame_timeline' => 'video-frame-timeline.json',
       'table_markdown' => 'table.md',
       'table_html' => 'table.html',
       'keyframe' => 'keyframe.bin',
@@ -64,6 +67,9 @@ class ExtractionArtifact extends Equatable {
       artifactType == 'normalized_json' ||
       artifactType == 'vision_json' ||
       artifactType == 'image_regions' ||
+      artifactType == 'transcript_json' ||
+      artifactType == 'media_manifest' ||
+      artifactType == 'video_frame_timeline' ||
       artifactType == 'table_markdown' ||
       artifactType == 'table_html';
 
