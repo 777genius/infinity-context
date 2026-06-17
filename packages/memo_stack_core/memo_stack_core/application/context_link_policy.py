@@ -10,6 +10,7 @@ POLICY_VERSION = "context-link-policy-v1"
 MAX_SUGGESTIONS_PER_SOURCE = 10
 MIN_REVIEW_SCORE = 40.0
 AUTO_APPROVE_ELIGIBLE_SCORE = 92.0
+MAX_DENIED_DIAGNOSTIC_ITEMS = 8
 
 _AUTO_APPROVE_TARGET_TYPES = frozenset({"anchor", "fact", "episode", "document", "chunk"})
 _REVIEW_BLOCKED_TARGET_TYPES = frozenset({"suggestion"})
@@ -45,6 +46,7 @@ def apply_context_link_policy(
     auto_eligible_count = 0
     needs_review_count = 0
     denied_reason_counts: dict[str, int] = {}
+    denied_candidates: list[dict[str, object]] = []
 
     for candidate in candidates:
         decision = decide_context_link_candidate(candidate)
@@ -52,6 +54,15 @@ def apply_context_link_policy(
             denied_count += 1
             for code in decision.reason_codes:
                 denied_reason_counts[code] = denied_reason_counts.get(code, 0) + 1
+            if len(denied_candidates) < MAX_DENIED_DIAGNOSTIC_ITEMS:
+                denied_candidates.append(
+                    {
+                        "target_type": candidate.target_type,
+                        "target_id": candidate.target_id,
+                        "score": candidate.score,
+                        "reason_codes": list(decision.reason_codes),
+                    }
+                )
             continue
         key = (candidate.target_type, candidate.target_id, decision.relation_type)
         if key in seen:
@@ -78,6 +89,7 @@ def apply_context_link_policy(
             "link_policy_needs_review_count": needs_review_count,
             "link_policy_max_suggestions_per_source": max_suggestions,
             "link_policy_denied_reason_counts": denied_reason_counts,
+            "link_policy_denied_candidates": denied_candidates,
         },
     )
 

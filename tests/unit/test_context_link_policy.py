@@ -26,14 +26,22 @@ def _candidate(
 
 
 def test_policy_denies_weak_recent_only_candidate() -> None:
-    decision = decide_context_link_candidate(
-        _candidate(target_id="recent", score=39.9, reason_codes=["recent_context"])
-    )
+    candidate = _candidate(target_id="recent", score=39.9, reason_codes=["recent_context"])
+    decision = decide_context_link_candidate(candidate)
+    result = apply_context_link_policy((candidate,), limit=10, persist=False)
 
     assert decision.outcome == "deny"
     assert "score_below_review_threshold" in decision.reason_codes
     assert "recent_context_only" in decision.reason_codes
     assert decision.auto_approve_eligible is False
+    assert result.diagnostics["link_policy_denied_candidates"] == [
+        {
+            "target_type": "fact",
+            "target_id": "recent",
+            "score": 39.9,
+            "reason_codes": ["score_below_review_threshold", "recent_context_only"],
+        }
+    ]
 
 
 def test_policy_marks_strong_text_match_as_auto_approve_eligible_but_review_gated() -> None:
