@@ -491,6 +491,12 @@ def create_mcp_server(
                 default=100, ge=0, le=500, description="Maximum documents sampled per memory_scope."
             ),
         ] = 100,
+        max_episodes: Annotated[
+            int,
+            Field(
+                default=100, ge=0, le=500, description="Maximum episodes sampled per memory_scope."
+            ),
+        ] = 100,
         max_suggestions: Annotated[
             int,
             Field(
@@ -524,6 +530,7 @@ def create_mcp_server(
                 thread_external_ref=thread_external_ref,
                 max_facts=max_facts,
                 max_documents=max_documents,
+                max_episodes=max_episodes,
                 max_suggestions=max_suggestions,
                 max_captures=max_captures,
                 max_activity=max_activity,

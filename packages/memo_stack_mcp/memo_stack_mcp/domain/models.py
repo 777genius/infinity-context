@@ -273,7 +273,7 @@ class MemoryInsightCountData(McpDataModel):
     count: int | None = None
 
 
-class MemoryInsightFactsMetricsData(McpDataModel):
+class InsightFactsMetricsData(McpDataModel):
     total_sampled: int | None = None
     active: int | None = None
     expired_active: int | None = None
@@ -282,38 +282,39 @@ class MemoryInsightFactsMetricsData(McpDataModel):
     by_status: dict[str, int] = Field(default_factory=dict)
 
 
-class MemoryInsightDocumentMetricsData(McpDataModel):
+class InsightDocumentMetricsData(McpDataModel):
     active: int | None = None
     chunks_sampled: int | None = None
     without_chunks: int | None = None
 
 
-class MemoryInsightSuggestionMetricsData(McpDataModel):
+class InsightEpisodeMetricsData(McpDataModel):
+    active: int | None = None
+    chunks_sampled: int | None = None
+    without_chunks: int | None = None
+    by_status: dict[str, int] = Field(default_factory=dict)
+
+
+class InsightSuggestionMetricsData(McpDataModel):
     total_sampled: int | None = None
     pending: int | None = None
     by_status: dict[str, int] = Field(default_factory=dict)
     by_operation: dict[str, int] = Field(default_factory=dict)
 
 
-class MemoryInsightCaptureMetricsData(McpDataModel):
+class InsightCaptureMetricsData(McpDataModel):
     attention_needed: int | None = None
     by_consolidation_status: dict[str, int] = Field(default_factory=dict)
 
 
 class MemoryInsightsMetricsData(McpDataModel):
     memory_scopes: int | None = None
-    facts: MemoryInsightFactsMetricsData = Field(
-        default_factory=MemoryInsightFactsMetricsData
-    )
-    documents: MemoryInsightDocumentMetricsData = Field(
-        default_factory=MemoryInsightDocumentMetricsData
-    )
-    suggestions: MemoryInsightSuggestionMetricsData = Field(
-        default_factory=MemoryInsightSuggestionMetricsData
-    )
-    captures: MemoryInsightCaptureMetricsData = Field(
-        default_factory=MemoryInsightCaptureMetricsData
-    )
+    facts: InsightFactsMetricsData = Field(default_factory=InsightFactsMetricsData)
+    documents: InsightDocumentMetricsData = Field(default_factory=InsightDocumentMetricsData)
+    episodes: InsightEpisodeMetricsData = Field(default_factory=InsightEpisodeMetricsData)
+    chunks: dict[str, int] = Field(default_factory=dict)
+    suggestions: InsightSuggestionMetricsData = Field(default_factory=InsightSuggestionMetricsData)
+    captures: InsightCaptureMetricsData = Field(default_factory=InsightCaptureMetricsData)
 
 
 class MemoryInsightsTaxonomyData(McpDataModel):
@@ -322,7 +323,7 @@ class MemoryInsightsTaxonomyData(McpDataModel):
     ttl_policies: list[MemoryInsightCountData] = Field(default_factory=list)
 
 
-class MemoryInsightsDiagnosticsData(McpDataModel):
+class InsightsDiagnosticsData(McpDataModel):
     evidence_only: bool | None = None
     read_only: bool | None = None
     sample_limited: bool | None = None
@@ -331,6 +332,7 @@ class MemoryInsightsDiagnosticsData(McpDataModel):
     policy_mode: str | None = None
     max_facts_per_memory_scope: int | None = None
     max_documents_per_memory_scope: int | None = None
+    max_episodes_per_memory_scope: int | None = None
     max_suggestions_per_memory_scope: int | None = None
     max_captures_per_memory_scope: int | None = None
     max_activity: int | None = None
@@ -347,14 +349,14 @@ class MemoryInsightsData(McpDataModel):
     action_items: list[MemoryInsightActionItemData] = Field(default_factory=list)
     recent_activity: list[MemoryActivityItemData] = Field(default_factory=list)
     consolidation_plan: list[MemoryConsolidationPlanItemData] = Field(default_factory=list)
-    diagnostics: MemoryInsightsDiagnosticsData = Field(
-        default_factory=MemoryInsightsDiagnosticsData
-    )
+    diagnostics: InsightsDiagnosticsData = Field(default_factory=InsightsDiagnosticsData)
     requested_memory_scope_external_refs: list[str] = Field(default_factory=list)
     requested_max_facts: int | None = None
     effective_max_facts: int | None = None
     requested_max_documents: int | None = None
     effective_max_documents: int | None = None
+    requested_max_episodes: int | None = None
+    effective_max_episodes: int | None = None
     requested_max_suggestions: int | None = None
     effective_max_suggestions: int | None = None
     requested_max_captures: int | None = None

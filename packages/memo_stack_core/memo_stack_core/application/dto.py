@@ -960,6 +960,7 @@ class BuildMemoryInsightsQuery:
     thread_id: ThreadId | None = None
     max_facts: int = 200
     max_documents: int = 100
+    max_episodes: int = 100
     max_suggestions: int = 100
     max_captures: int = 100
     max_activity: int = 50

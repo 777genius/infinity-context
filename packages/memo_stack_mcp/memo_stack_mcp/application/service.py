@@ -363,6 +363,7 @@ class MemoryToolService(
         thread_external_ref: str | None = None,
         max_facts: int = 200,
         max_documents: int = 100,
+        max_episodes: int = 100,
         max_suggestions: int = 100,
         max_captures: int = 100,
         max_activity: int = 50,
@@ -377,6 +378,12 @@ class MemoryToolService(
             effective_max_documents, document_warnings = clamp_int(
                 name="max_documents",
                 value=max_documents,
+                minimum=0,
+                maximum=500,
+            )
+            effective_max_episodes, episode_warnings = clamp_int(
+                name="max_episodes",
+                value=max_episodes,
                 minimum=0,
                 maximum=500,
             )
@@ -401,6 +408,7 @@ class MemoryToolService(
             warnings = (
                 fact_warnings
                 + document_warnings
+                + episode_warnings
                 + suggestion_warnings
                 + capture_warnings
                 + activity_warnings
@@ -415,6 +423,7 @@ class MemoryToolService(
                 scope=scope,
                 max_facts=effective_max_facts,
                 max_documents=effective_max_documents,
+                max_episodes=effective_max_episodes,
                 max_suggestions=effective_max_suggestions,
                 max_captures=effective_max_captures,
                 max_activity=effective_max_activity,
@@ -430,6 +439,8 @@ class MemoryToolService(
             data.setdefault("effective_max_facts", effective_max_facts)
             data.setdefault("requested_max_documents", max_documents)
             data.setdefault("effective_max_documents", effective_max_documents)
+            data.setdefault("requested_max_episodes", max_episodes)
+            data.setdefault("effective_max_episodes", effective_max_episodes)
             data.setdefault("requested_max_suggestions", max_suggestions)
             data.setdefault("effective_max_suggestions", effective_max_suggestions)
             data.setdefault("requested_max_captures", max_captures)

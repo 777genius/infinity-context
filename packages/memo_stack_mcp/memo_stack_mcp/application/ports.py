@@ -46,6 +46,7 @@ class MemoryGatewayPort(Protocol):
         scope: MemoryReadScope,
         max_facts: int,
         max_documents: int,
+        max_episodes: int,
         max_suggestions: int,
         max_captures: int,
         max_activity: int,

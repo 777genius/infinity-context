@@ -19,6 +19,7 @@ from memo_stack_core.domain.capture import CanonicalCapture, ConsolidationStatus
 from memo_stack_core.domain.entities import (
     FactStatus,
     MemoryDocument,
+    MemoryEpisode,
     MemoryFact,
     MemoryScopeId,
     MemorySuggestion,
@@ -50,7 +51,9 @@ class _MemoryScopeSample:
     memory_scope_id: str
     facts: tuple[MemoryFact, ...]
     documents: tuple[MemoryDocument, ...]
+    episodes: tuple[MemoryEpisode, ...]
     document_chunk_counts: dict[str, int]
+    episode_chunk_counts: dict[str, int]
     suggestions: tuple[MemorySuggestion, ...]
     captures: tuple[CanonicalCapture, ...]
     capture_status_counts: dict[str, int]
@@ -100,6 +103,7 @@ class BuildMemoryInsightsUseCase:
                 "sample_limited": True,
                 "max_facts_per_memory_scope": query.max_facts,
                 "max_documents_per_memory_scope": query.max_documents,
+                "max_episodes_per_memory_scope": query.max_episodes,
                 "max_suggestions_per_memory_scope": query.max_suggestions,
                 "max_captures_per_memory_scope": query.max_captures,
                 "max_activity": query.max_activity,
@@ -124,10 +128,23 @@ class BuildMemoryInsightsUseCase:
                         limit=query.max_documents,
                     )
                 )
-                chunk_counts: dict[str, int] = {}
+                episodes = tuple(
+                    await uow.episodes.list_for_scope(
+                        space_id=str(query.space_id),
+                        memory_scope_id=str(memory_scope_id),
+                        thread_id=str(query.thread_id) if query.thread_id else None,
+                        status=None,
+                        limit=query.max_episodes,
+                    )
+                )
+                document_chunk_counts: dict[str, int] = {}
                 for document in documents:
                     chunks = await uow.documents.list_chunks(str(document.id), limit=501)
-                    chunk_counts[str(document.id)] = min(len(chunks), 500)
+                    document_chunk_counts[str(document.id)] = min(len(chunks), 500)
+                episode_chunk_counts: dict[str, int] = {}
+                for episode in episodes:
+                    chunks = await uow.chunks.list_for_episode(str(episode.id), limit=501)
+                    episode_chunk_counts[str(episode.id)] = min(len(chunks), 500)
                 suggestions = await self._load_suggestions(
                     query, memory_scope_id=memory_scope_id, uow=uow
                 )
@@ -141,7 +158,9 @@ class BuildMemoryInsightsUseCase:
                         memory_scope_id=str(memory_scope_id),
                         facts=tuple(facts),
                         documents=documents,
-                        document_chunk_counts=chunk_counts,
+                        episodes=episodes,
+                        document_chunk_counts=document_chunk_counts,
+                        episode_chunk_counts=episode_chunk_counts,
                         suggestions=tuple(suggestions),
                         captures=captures,
                         capture_status_counts=capture_counts,
@@ -225,6 +244,7 @@ def _metrics(*, samples: tuple[_MemoryScopeSample, ...], now: datetime) -> dict[
     suggestion_status_counts: Counter[str] = Counter()
     suggestion_operation_counts: Counter[str] = Counter()
     capture_status_counts: Counter[str] = Counter()
+    episode_status_counts: Counter[str] = Counter()
     active_facts = 0
     expired_active_facts = 0
     uncategorized_active_facts = 0
@@ -232,6 +252,9 @@ def _metrics(*, samples: tuple[_MemoryScopeSample, ...], now: datetime) -> dict[
     active_documents = 0
     documents_without_chunks = 0
     total_document_chunks = 0
+    active_episodes = 0
+    episodes_without_chunks = 0
+    total_episode_chunks = 0
 
     for sample in samples:
         for fact in sample.facts:
@@ -251,6 +274,14 @@ def _metrics(*, samples: tuple[_MemoryScopeSample, ...], now: datetime) -> dict[
                 total_document_chunks += chunk_count
                 if chunk_count == 0:
                     documents_without_chunks += 1
+        for episode in sample.episodes:
+            episode_status_counts[episode.status.value] += 1
+            if episode.status.value == "active":
+                active_episodes += 1
+                chunk_count = sample.episode_chunk_counts.get(str(episode.id), 0)
+                total_episode_chunks += chunk_count
+                if chunk_count == 0:
+                    episodes_without_chunks += 1
         for suggestion in sample.suggestions:
             suggestion_status_counts[suggestion.status.value] += 1
             suggestion_operation_counts[suggestion.operation.value] += 1
@@ -275,6 +306,17 @@ def _metrics(*, samples: tuple[_MemoryScopeSample, ...], now: datetime) -> dict[
             "active": active_documents,
             "chunks_sampled": total_document_chunks,
             "without_chunks": documents_without_chunks,
+        },
+        "episodes": {
+            "active": active_episodes,
+            "chunks_sampled": total_episode_chunks,
+            "without_chunks": episodes_without_chunks,
+            "by_status": dict(sorted(episode_status_counts.items())),
+        },
+        "chunks": {
+            "sampled": total_document_chunks + total_episode_chunks,
+            "document_chunks_sampled": total_document_chunks,
+            "episode_chunks_sampled": total_episode_chunks,
         },
         "suggestions": {
             "total_sampled": sum(suggestion_status_counts.values()),
@@ -398,6 +440,26 @@ def _action_items(
                         memory_scope_id=sample.memory_scope_id,
                         reason="Active document has no indexed chunks.",
                         preview=_preview(document.title),
+                    )
+                )
+        for episode in sample.episodes:
+            if (
+                episode.status.value == "active"
+                and sample.episode_chunk_counts.get(str(episode.id), 0) == 0
+            ):
+                items.append(
+                    _item(
+                        severity="warning",
+                        action="process_episode",
+                        target_type="episode",
+                        target_id=str(episode.id),
+                        memory_scope_id=sample.memory_scope_id,
+                        reason="Active episode has no indexed transcript chunks.",
+                        preview=_preview(episode.text),
+                        metadata={
+                            "source_type": episode.source_type,
+                            "source_external_id": episode.source_external_id,
+                        },
                     )
                 )
         dead_captures = sample.capture_status_counts.get(ConsolidationStatus.DEAD.value, 0)
@@ -603,6 +665,29 @@ def _recent_activity(
                     },
                 )
             )
+        for episode in sample.episodes:
+            event_type = (
+                "episode_deleted" if episode.status.value == "deleted" else "episode_ingested"
+            )
+            items.append(
+                _activity_item(
+                    occurred_at=episode.created_at,
+                    event_type=event_type,
+                    entity_type="episode",
+                    entity_id=str(episode.id),
+                    memory_scope_id=sample.memory_scope_id,
+                    thread_id=str(episode.thread_id),
+                    status=episode.status.value,
+                    preview=_preview(episode.text),
+                    metadata={
+                        "source_type": episode.source_type,
+                        "source_external_id": episode.source_external_id,
+                        "speaker": episode.speaker.value,
+                        "trust_level": episode.trust_level.value,
+                        "occurred_at": episode.occurred_at.isoformat(),
+                    },
+                )
+            )
         for capture in sample.captures:
             event_type = _capture_activity_type(capture)
             items.append(
@@ -685,6 +770,7 @@ def _consolidation_plan(
 def _health_score(metrics: dict[str, object]) -> float:
     facts = metrics["facts"]
     documents = metrics["documents"]
+    episodes = metrics["episodes"]
     suggestions = metrics["suggestions"]
     captures = metrics["captures"]
     penalty = 0.0
@@ -692,6 +778,7 @@ def _health_score(metrics: dict[str, object]) -> float:
     penalty += min(20.0, float(facts["expired_active"]) * 2.0)
     penalty += min(15.0, float(captures["attention_needed"]) * 1.5)
     penalty += min(12.0, float(documents["without_chunks"]) * 2.0)
+    penalty += min(8.0, float(episodes["without_chunks"]) * 2.0)
     if facts["active"]:
         uncategorized_ratio = float(facts["uncategorized_active"]) / float(facts["active"])
         penalty += min(10.0, uncategorized_ratio * 10.0)

@@ -210,6 +210,7 @@ def test_sdk_sends_memory_insights_scope_and_limits() -> None:
             "memory_scope_external_refs": ["engineering", "product"],
             "max_facts": 50,
             "max_documents": 100,
+            "max_episodes": 100,
             "max_suggestions": 25,
             "max_captures": 100,
             "max_activity": 12,

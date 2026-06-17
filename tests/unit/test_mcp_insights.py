@@ -87,6 +87,7 @@ def test_mcp_insights_structured_output_and_scope() -> None:
             "similar_fact_review"
         )
         assert gateway.calls[0][0] == "build_insights"
+        assert gateway.calls[0][1]["max_episodes"] == 100
         assert gateway.calls[0][1]["max_suggestions"] == 25
         assert gateway.calls[0][1]["max_activity"] == 7
         assert gateway.calls[0][1]["scope"].memory_scope_external_refs == (

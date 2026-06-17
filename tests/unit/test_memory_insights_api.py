@@ -161,3 +161,45 @@ def test_memory_insights_reports_review_and_taxonomy_state(tmp_path: Path) -> No
     assert {"fact_created", "suggestion_created"} <= activity_types
     assert all(item["preview"] for item in data["recent_activity"])
     assert data["diagnostics"]["max_activity"] == 10
+
+
+def test_memory_insights_reports_episode_metrics_and_activity(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        episode = client.post(
+            "/v1/episodes",
+            json={
+                "space_slug": "insights-episodes",
+                "memory_scope_external_ref": "default",
+                "thread_external_ref": "episode-thread",
+                "source_type": "system_audio",
+                "source_external_id": "insights-episode-source",
+                "text": "Insights episode marker should appear in operational metrics.",
+                "speaker": "user",
+                "trust_level": "high",
+            },
+            headers=auth_headers(),
+        )
+        insights = client.post(
+            "/v1/insights",
+            json={
+                "space_slug": "insights-episodes",
+                "memory_scope_external_ref": "default",
+                "thread_external_ref": "episode-thread",
+                "max_episodes": 10,
+                "max_activity": 10,
+            },
+            headers=auth_headers(),
+        )
+
+    assert episode.status_code == 200, episode.text
+    assert insights.status_code == 200, insights.text
+    data = insights.json()["data"]
+    assert data["metrics"]["episodes"]["active"] == 1
+    assert data["metrics"]["episodes"]["chunks_sampled"] == 1
+    assert data["metrics"]["episodes"]["without_chunks"] == 0
+    assert data["metrics"]["chunks"]["episode_chunks_sampled"] == 1
+    assert data["diagnostics"]["max_episodes_per_memory_scope"] == 10
+    assert any(
+        item["event_type"] == "episode_ingested" and item["entity_type"] == "episode"
+        for item in data["recent_activity"]
+    )
