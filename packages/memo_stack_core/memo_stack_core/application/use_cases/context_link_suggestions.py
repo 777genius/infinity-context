@@ -118,7 +118,15 @@ class SuggestContextLinksUseCase:
                 if episode is not None and _same_scope(episode, command):
                     query_text = _join_text(query_text, episode.text)
                     source_thread_id = str(episode.thread_id)
-            source_risk_metadata = _source_text_risk_metadata(query_text)
+            source_risk_metadata = dict(_source_text_risk_metadata(query_text))
+            if command.source_type == "asset_extraction" and command.source_id:
+                extraction_job = await uow.asset_extractions.get_by_id(command.source_id)
+                if extraction_job is not None and _same_scope(extraction_job, command):
+                    if extraction_job.thread_id:
+                        source_thread_id = str(extraction_job.thread_id)
+                    source_risk_metadata.update(
+                        _source_extraction_risk_metadata(extraction_job.metadata)
+                    )
             if source_risk_metadata:
                 diagnostics.update(source_risk_metadata)
             facts = await uow.facts.find_active(
@@ -205,7 +213,7 @@ class SuggestContextLinksUseCase:
                 await uow.commit()
             elif command.persist and source_risk_metadata:
                 diagnostics["observed_anchor_upsert_skipped_reason"] = (
-                    "prompt_injection_evidence"
+                    _source_risk_skip_reason(source_risk_metadata)
                 )
 
         terms = _terms(query_text)
@@ -797,3 +805,29 @@ def _with_source_text_risk_metadata(
     metadata = dict(candidate.metadata or {})
     metadata.update(source_risk_metadata)
     return replace(candidate, metadata=metadata)
+
+
+def _source_extraction_risk_metadata(metadata: dict[str, object]) -> dict[str, object]:
+    if metadata.get("mime_content_type_mismatch") is not True:
+        return {}
+    risk_metadata: dict[str, object] = {"mime_content_type_mismatch": True}
+    for key in (
+        "mime_declared_content_type",
+        "mime_detected_content_type",
+        "mime_magic_content_type",
+        "mime_extension_content_type",
+        "mime_detector_reason",
+        "detector_confidence",
+    ):
+        value = metadata.get(key)
+        if isinstance(value, (str, int, float, bool)) or value is None:
+            risk_metadata[key] = value
+    return risk_metadata
+
+
+def _source_risk_skip_reason(source_risk_metadata: dict[str, object]) -> str:
+    if source_risk_metadata.get("prompt_injection_signals_detected") is True:
+        return "prompt_injection_evidence"
+    if source_risk_metadata.get("mime_content_type_mismatch") is True:
+        return "mime_content_type_mismatch"
+    return "source_risk_evidence"

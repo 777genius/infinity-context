@@ -161,6 +161,36 @@ def test_policy_caps_prompt_injection_evidence_and_blocks_auto_approve() -> None
     assert metadata["policy_confidence"] == "medium"
     assert metadata["auto_approve_eligible"] is False
     assert metadata["review_gate_reason"] == "prompt_injection_evidence"
+    assert metadata["review_gate_reasons"] == ["prompt_injection_evidence"]
+    assert result.diagnostics["link_policy_auto_approve_eligible_count"] == 0
+    assert result.diagnostics["link_policy_source_risk_review_count"] == 1
+
+
+def test_policy_gates_mime_mismatch_evidence_from_auto_approve() -> None:
+    candidate = _candidate(
+        target_id="mime-mismatch-source",
+        score=96,
+        reason_codes=["text_match", "explicit_project_reference"],
+        metadata={
+            "mime_content_type_mismatch": True,
+            "mime_declared_content_type": "image/png",
+            "mime_detected_content_type": "text/plain",
+        },
+    )
+
+    decision = decide_context_link_candidate(candidate)
+    result = apply_context_link_policy((candidate,), limit=10, persist=True)
+
+    assert decision.outcome == "needs_review"
+    assert decision.confidence == "medium"
+    assert decision.auto_approve_eligible is False
+    assert "source_mime_mismatch_review_required" in decision.reason_codes
+    metadata = result.candidates[0].metadata
+    assert metadata["policy_decision"] == "needs_review"
+    assert metadata["policy_confidence"] == "medium"
+    assert metadata["auto_approve_eligible"] is False
+    assert metadata["review_gate_reason"] == "mime_content_type_mismatch"
+    assert metadata["review_gate_reasons"] == ["mime_content_type_mismatch"]
     assert result.diagnostics["link_policy_auto_approve_eligible_count"] == 0
     assert result.diagnostics["link_policy_source_risk_review_count"] == 1
 

@@ -245,8 +245,8 @@ def decide_context_link_candidate(candidate: ContextLinkCandidate) -> ContextLin
         decision_codes.append("auto_approve_eligible")
     else:
         decision_codes.append("review_required")
-    if source_risk_review:
-        decision_codes.append("prompt_injection_evidence_review_required")
+    for review_reason in _source_review_gate_reasons(candidate):
+        decision_codes.append(_source_review_reason_code(review_reason))
     return ContextLinkPolicyDecision(
         outcome=outcome,
         relation_type=relation_type,
@@ -284,8 +284,10 @@ def _with_policy_metadata(
         "review_gate": "required",
         "auto_approve_eligible": decision.auto_approve_eligible,
     }
-    if _requires_source_risk_review(candidate):
-        policy_metadata["review_gate_reason"] = "prompt_injection_evidence"
+    review_gate_reasons = _source_review_gate_reasons(candidate)
+    if review_gate_reasons:
+        policy_metadata["review_gate_reason"] = review_gate_reasons[0]
+        policy_metadata["review_gate_reasons"] = list(review_gate_reasons)
     metadata.update(policy_metadata)
     return replace(candidate, metadata=metadata)
 
@@ -362,8 +364,24 @@ def _has_evidence_relation_signal(
 
 
 def _requires_source_risk_review(candidate: ContextLinkCandidate) -> bool:
+    return bool(_source_review_gate_reasons(candidate))
+
+
+def _source_review_gate_reasons(candidate: ContextLinkCandidate) -> tuple[str, ...]:
     metadata = candidate.metadata or {}
-    return metadata.get("prompt_injection_signals_detected") is True
+    reasons: list[str] = []
+    if metadata.get("prompt_injection_signals_detected") is True:
+        reasons.append("prompt_injection_evidence")
+    if metadata.get("mime_content_type_mismatch") is True:
+        reasons.append("mime_content_type_mismatch")
+    return tuple(reasons)
+
+
+def _source_review_reason_code(review_reason: str) -> str:
+    return {
+        "prompt_injection_evidence": "prompt_injection_evidence_review_required",
+        "mime_content_type_mismatch": "source_mime_mismatch_review_required",
+    }.get(review_reason, "source_risk_review_required")
 
 
 def _auto_approve_signal_count(reason_codes: tuple[str, ...]) -> int:

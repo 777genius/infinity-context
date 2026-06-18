@@ -10,6 +10,7 @@ from memo_stack_server.admin import token_create
 from memo_stack_server.config import CaptureMode, DeployProfile, Settings
 from memo_stack_server.db import upgrade
 from memo_stack_server.main import create_app
+from memo_stack_server.worker import OutboxWorker
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -1120,6 +1121,85 @@ def test_prompt_injection_like_capture_text_is_review_gated_without_anchor_upser
         assert "prompt_injection_evidence_review_required" in metadata["policy_reason_codes"]
         assert "ignore" not in data["diagnostics"]["query_terms"]
         assert "instructions" not in data["diagnostics"]["query_terms"]
+
+
+def test_mime_mismatch_asset_extraction_source_is_review_gated(
+    tmp_path: Path,
+) -> None:
+    with make_client(tmp_path) as client:
+        fact = client.post(
+            "/v1/facts",
+            json={
+                "space_slug": "quick-capture",
+                "memory_scope_external_ref": "default",
+                "thread_external_ref": "mime-review",
+                "text": "Project Atlas launch checklist belongs to the review workflow.",
+                "kind": "note",
+                "source_refs": [{"source_type": "manual", "source_id": "atlas-review"}],
+                "category": "project_context",
+                "tags": ["atlas", "review"],
+            },
+            headers=auth_headers({"Idempotency-Key": "atlas-mime-risk-fact"}),
+        )
+        assert fact.status_code == 201, fact.text
+
+        upload = client.post(
+            "/v1/assets",
+            params={
+                "space_slug": "quick-capture",
+                "memory_scope_external_ref": "default",
+                "thread_external_ref": "mime-review",
+                "filename": "atlas-checklist.png",
+                "extract": "true",
+            },
+            content=b"Project Atlas launch checklist captured as mislabeled text.",
+            headers=auth_headers({"Content-Type": "image/png"}),
+        )
+        assert upload.status_code == 201, upload.text
+        extraction_id = upload.json()["data"]["extraction"]["id"]
+        processed = asyncio.run(OutboxWorker(client.app.state.container).run_once(limit=10))
+        assert processed >= 1
+
+        suggestions = client.post(
+            "/v1/link-suggestions",
+            json={
+                "space_slug": "quick-capture",
+                "memory_scope_external_ref": "default",
+                "thread_external_ref": "mime-review",
+                "source_type": "asset_extraction",
+                "source_id": extraction_id,
+                "text": "Project Atlas launch checklist",
+                "persist": True,
+                "limit": 10,
+            },
+            headers=auth_headers(),
+        )
+        assert suggestions.status_code == 200, suggestions.text
+        data = suggestions.json()["data"]
+        fact_candidate = next(
+            item
+            for item in data["candidates"]
+            if item["target_type"] == "fact" and item["target_id"] == fact.json()["data"]["id"]
+        )
+
+        assert data["diagnostics"]["mime_content_type_mismatch"] is True
+        assert data["diagnostics"]["mime_declared_content_type"] == "image/png"
+        assert data["diagnostics"]["mime_detected_content_type"] == "text/plain"
+        assert (
+            data["diagnostics"]["observed_anchor_upsert_skipped_reason"]
+            == "mime_content_type_mismatch"
+        )
+        assert data["diagnostics"]["link_policy_source_risk_review_count"] >= 1
+        metadata = fact_candidate["metadata"]
+        assert metadata["mime_content_type_mismatch"] is True
+        assert metadata["mime_declared_content_type"] == "image/png"
+        assert metadata["mime_detected_content_type"] == "text/plain"
+        assert metadata["review_gate_reason"] == "mime_content_type_mismatch"
+        assert metadata["review_gate_reasons"] == ["mime_content_type_mismatch"]
+        assert metadata["policy_decision"] == "needs_review"
+        assert metadata["policy_confidence"] == "medium"
+        assert metadata["auto_approve_eligible"] is False
+        assert "source_mime_mismatch_review_required" in metadata["policy_reason_codes"]
 
 
 def test_persisted_context_link_suggestions_merge_observed_anchor_case_variants(
