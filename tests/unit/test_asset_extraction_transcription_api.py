@@ -16,6 +16,8 @@ from memo_stack_server.config import CaptureMode, DeployProfile, Settings
 from memo_stack_server.main import create_app
 from memo_stack_server.worker import OutboxWorker
 
+_PROVIDER_SECRET = "sk-proj-transcript-secret-value1234567890"
+
 
 def make_client(tmp_path: Path, **overrides: Any) -> TestClient:
     app = create_app(
@@ -84,11 +86,16 @@ class _FakeTranscriptionResponse:
     duration = 1.0
     segments = [
         {
+            "id": f"segment Bearer {_PROVIDER_SECRET}",
             "start": 0.0,
             "end": 1.0,
             "text": "Alex discussed memory scopes from a voice note.",
         }
     ]
+    usage = {
+        "debug": f"provider token {_PROVIDER_SECRET}",
+        "api_key": _PROVIDER_SECRET,
+    }
 
 
 class _FakeAudioTranscriptions:
@@ -225,6 +232,9 @@ def test_audio_asset_extraction_uses_api_first_transcription(
         assert transcript_payload["schema_name"] == "memo_stack.transcript"
         assert transcript_payload["segments"][0]["start_ms"] == 0
         assert transcript_payload["segments"][0]["end_ms"] == 1000
+        assert _PROVIDER_SECRET not in transcript_download.text
+        assert "api_key" not in transcript_payload["provider"]["diagnostics"]
+        assert "[redacted]" in json.dumps(transcript_payload, ensure_ascii=False)
 
         chunks = client.get(
             f"/v1/documents/{extracted['result_document_ids'][0]}/chunks",

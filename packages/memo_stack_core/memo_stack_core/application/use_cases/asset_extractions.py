@@ -690,10 +690,10 @@ class RunAssetExtractionUseCase:
                     byte_size=len(candidate.content),
                     now=now,
                     metadata={
-                        "content_type": candidate.content_type,
-                        "filename": candidate.filename,
+                        "content_type": safe_metadata_text(candidate.content_type),
+                        "filename": safe_metadata_text(candidate.filename),
                         "artifact_byte_limit": byte_limit,
-                        **candidate.metadata,
+                        **safe_metadata(candidate.metadata),
                     },
                 )
                 await self._blob_storage.write_bytes(

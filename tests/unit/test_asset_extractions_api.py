@@ -219,7 +219,11 @@ class _OversizedArtifactExtractor:
                     content=(
                         f'{{"secret":"{raw_secret}","payload":"' + ("x" * 20_000) + '"}'
                     ).encode("utf-8"),
-                    metadata={"provider": "oversized_artifact_test"},
+                    metadata={
+                        "provider": "oversized_artifact_test",
+                        "debug": f"Bearer {raw_secret}",
+                        "api_key": raw_secret,
+                    },
                 ),
             ),
             parser_name="oversized_artifact_test",
@@ -873,6 +877,12 @@ def test_asset_extraction_truncates_oversized_provider_artifacts(tmp_path: Path)
         assert artifact["metadata"]["artifact_byte_limit"] == 16_384
         assert artifact["metadata"]["content_type"] == "application/json"
         assert artifact["metadata"]["filename"] == "provider-large.json.truncated.json"
+        assert "api_key" not in artifact["metadata"]
+        assert "sk-proj-oversized-artifact-secret-value" not in json.dumps(
+            artifact["metadata"],
+            ensure_ascii=False,
+        )
+        assert "[redacted]" in json.dumps(artifact["metadata"], ensure_ascii=False)
 
         downloaded = client.get(
             f"/v1/extraction-artifacts/{artifact['id']}/download",

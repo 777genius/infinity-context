@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import replace
 
+from memo_stack_core.application.safe_payload import safe_metadata, safe_metadata_text
 from memo_stack_core.ports.extraction import (
     ExtractedElement,
     ExtractionArtifactCandidate,
@@ -130,10 +131,16 @@ class SpeechTranscriptionExtractionEngine(ExtractionEngine):
                 confidence=segment.confidence,
                 metadata={
                     "source": self.name,
-                    "transcription_provider": result.provider_name,
-                    "transcription_model": result.provider_model,
-                    **({"speaker": segment.speaker} if segment.speaker else {}),
-                    **segment.metadata,
+                    "transcription_provider": safe_metadata_text(result.provider_name),
+                    "transcription_model": safe_metadata_text(result.provider_model)
+                    if result.provider_model
+                    else None,
+                    **(
+                        {"speaker": safe_metadata_text(segment.speaker, limit=120)}
+                        if segment.speaker
+                        else {}
+                    ),
+                    **safe_metadata(segment.metadata),
                 },
             )
             for segment in segments
@@ -193,8 +200,10 @@ class SpeechTranscriptionExtractionEngine(ExtractionEngine):
                     metadata={
                         "parser": self.name,
                         "segment_count": len(segments),
-                        "transcription_provider": result.provider_name,
-                        "transcription_model": result.provider_model,
+                        "transcription_provider": safe_metadata_text(result.provider_name),
+                        "transcription_model": safe_metadata_text(result.provider_model)
+                        if result.provider_model
+                        else None,
                     },
                 ),
                 ExtractionArtifactCandidate(
@@ -206,8 +215,10 @@ class SpeechTranscriptionExtractionEngine(ExtractionEngine):
                         "parser": self.name,
                         "segment_count": len(segments),
                         "word_count": len(result.words),
-                        "transcription_provider": result.provider_name,
-                        "transcription_model": result.provider_model,
+                        "transcription_provider": safe_metadata_text(result.provider_name),
+                        "transcription_model": safe_metadata_text(result.provider_model)
+                        if result.provider_model
+                        else None,
                     },
                 ),
                 *(frame.to_artifact() for frame in keyframes),
@@ -231,7 +242,7 @@ class SpeechTranscriptionExtractionEngine(ExtractionEngine):
             },
             diagnostics={
                 "engine": self.name,
-                "provider_diagnostics": result.diagnostics,
+                "provider_diagnostics": safe_metadata(result.diagnostics),
             },
             language=result.language,
             parser_name=self.name,
@@ -279,16 +290,20 @@ def _transcript_json_bytes(
     payload = {
         "schema_name": "memo_stack.transcript",
         "schema_version": 1,
-        "asset_id": request.asset_id,
-        "filename": request.filename,
-        "content_type": request.detected_content_type,
+        "asset_id": safe_metadata_text(request.asset_id, limit=120),
+        "filename": safe_metadata_text(request.filename, limit=240),
+        "content_type": safe_metadata_text(request.detected_content_type, limit=120),
         "duration_seconds": duration_seconds,
-        "language": result.language,
+        "language": safe_metadata_text(result.language, limit=80) if result.language else None,
         "provider": {
-            "name": result.provider_name,
-            "model": result.provider_model,
-            "version": result.provider_version,
-            "diagnostics": result.diagnostics,
+            "name": safe_metadata_text(result.provider_name, limit=120),
+            "model": safe_metadata_text(result.provider_model, limit=120)
+            if result.provider_model
+            else None,
+            "version": safe_metadata_text(result.provider_version, limit=120)
+            if result.provider_version
+            else None,
+            "diagnostics": safe_metadata(result.diagnostics),
         },
         "text": result.text,
         "segments": [_segment_payload(segment) for segment in segments],
@@ -303,8 +318,8 @@ def _segment_payload(segment: SpeechTranscriptSegment) -> dict[str, object]:
         "start_ms": segment.start_ms,
         "end_ms": segment.end_ms,
         "confidence": segment.confidence,
-        "speaker": segment.speaker,
-        "metadata": segment.metadata,
+        "speaker": safe_metadata_text(segment.speaker, limit=120) if segment.speaker else None,
+        "metadata": safe_metadata(segment.metadata),
     }
 
 
@@ -314,8 +329,8 @@ def _word_payload(word: SpeechTranscriptWord) -> dict[str, object]:
         "start_ms": word.start_ms,
         "end_ms": word.end_ms,
         "confidence": word.confidence,
-        "speaker": word.speaker,
-        "metadata": word.metadata,
+        "speaker": safe_metadata_text(word.speaker, limit=120) if word.speaker else None,
+        "metadata": safe_metadata(word.metadata),
     }
 
 
