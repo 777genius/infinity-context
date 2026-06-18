@@ -112,6 +112,49 @@ Promotion gates:
 - When evidence trust conflicts, the lower-trust source determines the default
   review requirement.
 
+## Multimodal Evidence Contract
+
+Uploaded files remain canonical assets. Parser, OCR, vision, ASR and video
+outputs are provider-derived evidence stored as documents, chunks and extraction
+artifacts. They are not canonical truth until review or another promotion policy
+accepts them.
+
+Every structured extraction with page, region, timestamp or media artifact
+evidence must expose a normalized `media_manifest` artifact unless the provider
+adapter already returned a `media_manifest` for the same extraction result.
+Plain text-only extractions may skip the manifest.
+
+Locked manifest schema:
+
+```text
+schema_version: memo_stack.multimodal_manifest.v1
+asset: id, filename, content_type, normalized_content_type, byte_size, sha256, classification
+extraction: job_id, parser_profile, parser_name, parser_version, model_version, language, status
+modalities: bounded ordered list of text, document, image, audio, video
+evidence_items[]: id, source refs, kind, modality, text_preview, page_number, bbox, time_range, confidence, safe metadata
+artifacts[]: artifact_type, filename, content_type, byte_size, sha256, safe metadata
+```
+
+Provider rules:
+
+- Docling, local parsers, OpenAI, Gemini, OCR, ASR and ffmpeg-style adapters
+  must map provider output into the common `ExtractionResult` element/artifact
+  model before storage.
+- Core never imports provider SDKs. Provider-specific payloads stay in adapters,
+  bounded diagnostics or raw blob storage only when explicitly intended.
+- Image evidence should use `bbox` when a region is known.
+- Document evidence should use `page_number` when a page is known.
+- Audio transcript evidence should use `time_range` in milliseconds.
+- Video evidence should split audio-track transcript segments from visual
+  keyframes/timelines, both using time ranges.
+- Manifest metadata is scalar-only and bounded. It must not include raw provider
+  payloads, base64 file data, unrestricted paths, tokens, secrets, prompts,
+  stack traces or nested private metadata.
+
+The manifest is retrieval and review evidence. It does not replace canonical
+chunk source refs, context-link review, anchor identity checks or temporal
+validity.
+
 ## Canonical Anchors vs Tags
 
 Canonical anchors are durable entities:

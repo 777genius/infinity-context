@@ -188,6 +188,24 @@ Ranking must penalize or exclude:
 - weak entity-only matches without supporting evidence;
 - cross-scope/thread matches unless explicitly requested.
 
+## Multimodal evidence policy
+
+Structured document, image, audio and video extraction must preserve bounded
+evidence coordinates instead of flattening everything into plain text.
+
+Required normalized evidence:
+
+- documents: page refs;
+- images and screenshots: image regions or bbox when known;
+- audio: transcript segments with millisecond ranges when known;
+- video: keyframe or timeline refs plus audio-track transcript ranges when
+  available.
+
+`media_manifest` is the normalized extraction artifact for this evidence. It is
+safe review/retrieval metadata, not canonical truth. It must not contain raw
+provider payloads, base64 file content, unrestricted paths, prompts, tokens,
+stack traces or nested private metadata.
+
 ## Semantic linking policy
 
 Context-link suggestions must be explainable and bounded.
