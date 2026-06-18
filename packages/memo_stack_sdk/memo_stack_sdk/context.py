@@ -36,6 +36,10 @@ class ContextSourceRef:
     char_start: int | None = None
     char_end: int | None = None
     quote_preview: str | None = None
+    page_number: int | None = None
+    time_start_ms: int | None = None
+    time_end_ms: int | None = None
+    bbox: tuple[float, float, float, float] | None = None
 
 
 @dataclass(frozen=True)
@@ -97,6 +101,11 @@ class ContextBundleDiagnostics:
     temporal_relations_considered: int = 0
     temporal_contradictions_considered: int = 0
     pending_conflict_suggestions_considered: int = 0
+    multimodal_source_ref_count: int = 0
+    items_with_multimodal_source_refs: int = 0
+    source_refs_with_page_count: int = 0
+    source_refs_with_bbox_count: int = 0
+    source_refs_with_time_range_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -151,6 +160,10 @@ def _source_ref_from_payload(payload: Mapping[str, object]) -> ContextSourceRef:
         char_start=_optional_int(payload.get("char_start")),
         char_end=_optional_int(payload.get("char_end")),
         quote_preview=_optional_text(payload.get("quote_preview")),
+        page_number=_optional_int(payload.get("page_number")),
+        time_start_ms=_optional_int(payload.get("time_start_ms")),
+        time_end_ms=_optional_int(payload.get("time_end_ms")),
+        bbox=_optional_bbox(payload.get("bbox")),
     )
 
 
@@ -243,6 +256,15 @@ def _bundle_diagnostics_from_payload(value: object) -> ContextBundleDiagnostics:
         ),
         pending_conflict_suggestions_considered=_non_negative_int(
             raw.get("pending_conflict_suggestions_considered")
+        ),
+        multimodal_source_ref_count=_non_negative_int(raw.get("multimodal_source_ref_count")),
+        items_with_multimodal_source_refs=_non_negative_int(
+            raw.get("items_with_multimodal_source_refs")
+        ),
+        source_refs_with_page_count=_non_negative_int(raw.get("source_refs_with_page_count")),
+        source_refs_with_bbox_count=_non_negative_int(raw.get("source_refs_with_bbox_count")),
+        source_refs_with_time_range_count=_non_negative_int(
+            raw.get("source_refs_with_time_range_count")
         ),
     )
 
@@ -341,6 +363,17 @@ def _optional_int(value: object) -> int | None:
     if isinstance(value, float):
         return int(value)
     return None
+
+
+def _optional_bbox(value: object) -> tuple[float, float, float, float] | None:
+    if not isinstance(value, list | tuple) or len(value) != 4:
+        return None
+    parsed: list[float] = []
+    for item in value:
+        if not isinstance(item, int | float):
+            return None
+        parsed.append(float(item))
+    return (parsed[0], parsed[1], parsed[2], parsed[3])
 
 
 def _safe_float(value: object) -> float:

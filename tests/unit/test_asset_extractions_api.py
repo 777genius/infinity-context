@@ -1060,6 +1060,24 @@ def test_pdf_asset_extraction_indexes_pdf_text_and_artifacts(tmp_path: Path) -> 
         assert source_refs
         assert source_refs[0]["page_number"] == 1
         assert source_refs[0]["kind"] == "page_text"
+        context = client.post(
+            "/v1/context",
+            json={
+                "space_slug": "quick-capture",
+                "memory_scope_external_ref": "frontend",
+                "query": marker,
+                "token_budget": 1200,
+            },
+            headers=auth_headers(),
+        )
+        assert context.status_code == 200, context.text
+        context_data = context.json()["data"]
+        context_refs = [
+            ref for item in context_data["items"] for ref in item.get("source_refs", [])
+        ]
+        assert any(ref.get("page_number") == 1 for ref in context_refs)
+        assert context_data["diagnostics"]["source_refs_with_page_count"] >= 1
+        assert context_data["diagnostics"]["items_with_multimodal_source_refs"] >= 1
 
 
 def test_image_asset_extraction_indexes_image_evidence(tmp_path: Path) -> None:
@@ -1128,6 +1146,24 @@ def test_image_asset_extraction_indexes_image_evidence(tmp_path: Path) -> None:
         assert "120x40" in chunk_text
         source_refs = [ref for chunk in chunks.json()["data"] for ref in chunk["source_refs"]]
         assert source_refs[0]["bbox"] == [0.0, 0.0, 120.0, 40.0]
+        context = client.post(
+            "/v1/context",
+            json={
+                "space_slug": "quick-capture",
+                "memory_scope_external_ref": "frontend",
+                "query": "Image asset evidence",
+                "token_budget": 1200,
+            },
+            headers=auth_headers(),
+        )
+        assert context.status_code == 200, context.text
+        context_data = context.json()["data"]
+        context_refs = [
+            ref for item in context_data["items"] for ref in item.get("source_refs", [])
+        ]
+        assert any(ref.get("bbox") == [0.0, 0.0, 120.0, 40.0] for ref in context_refs)
+        assert context_data["diagnostics"]["source_refs_with_bbox_count"] >= 1
+        assert context_data["diagnostics"]["multimodal_source_ref_count"] >= 1
 
 
 def test_standard_vision_profile_falls_back_to_local_image_metadata(

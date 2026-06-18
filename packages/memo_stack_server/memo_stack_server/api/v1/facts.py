@@ -59,6 +59,10 @@ class SourceRefRequest(BaseModel):
     char_start: int | None = Field(default=None, ge=0)
     char_end: int | None = Field(default=None, ge=0)
     quote_preview: str | None = Field(default=None, max_length=240)
+    page_number: int | None = Field(default=None, ge=1)
+    time_start_ms: int | None = Field(default=None, ge=0)
+    time_end_ms: int | None = Field(default=None, ge=0)
+    bbox: tuple[float, float, float, float] | None = None
 
 
 class RememberFactRequest(BaseModel):
@@ -107,6 +111,10 @@ def map_source_ref(request: SourceRefRequest) -> SourceRef:
         char_start=request.char_start,
         char_end=request.char_end,
         quote_preview=request.quote_preview,
+        page_number=request.page_number,
+        time_start_ms=request.time_start_ms,
+        time_end_ms=request.time_end_ms,
+        bbox=request.bbox,
     )
 
 

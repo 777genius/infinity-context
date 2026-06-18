@@ -802,7 +802,20 @@ def source_ref_from_json(ref: dict[str, object]) -> SourceRef:
         char_start=int(ref["char_start"]) if ref.get("char_start") is not None else None,
         char_end=int(ref["char_end"]) if ref.get("char_end") is not None else None,
         quote_preview=str(ref["quote_preview"]) if ref.get("quote_preview") is not None else None,
+        page_number=int(ref["page_number"]) if ref.get("page_number") is not None else None,
+        time_start_ms=(
+            int(ref["time_start_ms"]) if ref.get("time_start_ms") is not None else None
+        ),
+        time_end_ms=int(ref["time_end_ms"]) if ref.get("time_end_ms") is not None else None,
+        bbox=_source_ref_bbox(ref.get("bbox")),
     )
+
+
+def _source_ref_bbox(value: object) -> tuple[float, float, float, float] | None:
+    if not isinstance(value, (list, tuple)) or len(value) != 4:
+        return None
+    items = tuple(float(item) for item in value)
+    return (items[0], items[1], items[2], items[3])
 
 
 def suggestion_to_row(suggestion: MemorySuggestion) -> MemorySuggestionRow:

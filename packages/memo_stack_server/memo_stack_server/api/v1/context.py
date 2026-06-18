@@ -72,6 +72,10 @@ def context_item_to_response(item) -> dict[str, Any]:
                 "quote_preview": safe_public_text(ref.quote_preview)
                 if ref.quote_preview
                 else None,
+                "page_number": ref.page_number,
+                "time_start_ms": ref.time_start_ms,
+                "time_end_ms": ref.time_end_ms,
+                "bbox": list(ref.bbox) if ref.bbox is not None else None,
             }
             for ref in public_source_refs
         ],

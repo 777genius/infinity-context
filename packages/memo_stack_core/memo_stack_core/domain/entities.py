@@ -10,6 +10,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime
 from enum import StrEnum
+from math import isfinite
 from typing import NewType
 
 from memo_stack_core.domain.errors import MemoryConflictError, MemoryValidationError
@@ -386,6 +387,10 @@ class SourceRef:
     char_start: int | None = None
     char_end: int | None = None
     quote_preview: str | None = None
+    page_number: int | None = None
+    time_start_ms: int | None = None
+    time_end_ms: int | None = None
+    bbox: tuple[float, float, float, float] | None = None
 
     def __post_init__(self) -> None:
         if not self.source_type:
@@ -402,6 +407,22 @@ class SourceRef:
             and self.char_end < self.char_start
         ):
             raise MemoryValidationError("SourceRef.char_end must be >= char_start")
+        if self.page_number is not None and self.page_number < 1:
+            raise MemoryValidationError("SourceRef.page_number must be positive")
+        if self.time_start_ms is not None and self.time_start_ms < 0:
+            raise MemoryValidationError("SourceRef.time_start_ms must be non-negative")
+        if self.time_end_ms is not None and self.time_end_ms < 0:
+            raise MemoryValidationError("SourceRef.time_end_ms must be non-negative")
+        if (
+            self.time_start_ms is not None
+            and self.time_end_ms is not None
+            and self.time_end_ms < self.time_start_ms
+        ):
+            raise MemoryValidationError("SourceRef.time_end_ms must be >= time_start_ms")
+        if self.bbox is not None and (
+            len(self.bbox) != 4 or not all(isfinite(float(value)) for value in self.bbox)
+        ):
+            raise MemoryValidationError("SourceRef.bbox must contain four finite numbers")
 
 
 @dataclass(frozen=True)
@@ -735,6 +756,10 @@ def _source_ref_key(ref: SourceRef) -> tuple[object, ...]:
         ref.char_start,
         ref.char_end,
         ref.quote_preview,
+        ref.page_number,
+        ref.time_start_ms,
+        ref.time_end_ms,
+        ref.bbox,
     )
 
 

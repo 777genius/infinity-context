@@ -42,6 +42,11 @@ _BUNDLE_COUNTER_KEYS = (
     "dropped_by_budget",
     "dropped_by_source_cap",
     "dropped_by_char_cap",
+    "multimodal_source_ref_count",
+    "items_with_multimodal_source_refs",
+    "source_refs_with_page_count",
+    "source_refs_with_bbox_count",
+    "source_refs_with_time_range_count",
     "rendered_chars",
     "max_rendered_chars",
 )
@@ -54,6 +59,11 @@ _BUNDLE_COUNTER_DEFAULTS = {
     "superseded_facts_used": 0,
     "pending_conflict_suggestions_considered": 0,
     "hybrid_items_used": 0,
+    "multimodal_source_ref_count": 0,
+    "items_with_multimodal_source_refs": 0,
+    "source_refs_with_page_count": 0,
+    "source_refs_with_bbox_count": 0,
+    "source_refs_with_time_range_count": 0,
 }
 _RETRIEVAL_SOURCE_PRIORITY = {
     "vector_chunks": 0,
@@ -169,6 +179,7 @@ def normalize_context_bundle_diagnostics(
                 raw.get(key),
                 default=_BUNDLE_COUNTER_DEFAULTS.get(key, 0),
             )
+    normalized.update(_multimodal_source_ref_counts(items))
     return normalized
 
 
@@ -336,6 +347,35 @@ def _bundle_retrieval_sources(items: tuple[ContextItem, ...]) -> tuple[str, ...]
         tuple(source for item in items for source in diagnostic_retrieval_sources(item.diagnostics))
     )
     return _prioritized_retrieval_sources(sources)
+
+
+def _multimodal_source_ref_counts(items: tuple[ContextItem, ...]) -> dict[str, int]:
+    refs = tuple(ref for item in items for ref in item.source_refs)
+    page_count = sum(1 for ref in refs if ref.page_number is not None)
+    bbox_count = sum(1 for ref in refs if ref.bbox is not None)
+    time_count = sum(
+        1
+        for ref in refs
+        if ref.time_start_ms is not None or ref.time_end_ms is not None
+    )
+    return {
+        "multimodal_source_ref_count": sum(1 for ref in refs if _is_multimodal_source_ref(ref)),
+        "items_with_multimodal_source_refs": sum(
+            1 for item in items if any(_is_multimodal_source_ref(ref) for ref in item.source_refs)
+        ),
+        "source_refs_with_page_count": page_count,
+        "source_refs_with_bbox_count": bbox_count,
+        "source_refs_with_time_range_count": time_count,
+    }
+
+
+def _is_multimodal_source_ref(ref: Any) -> bool:
+    return (
+        ref.page_number is not None
+        or ref.bbox is not None
+        or ref.time_start_ms is not None
+        or ref.time_end_ms is not None
+    )
 
 
 def _prioritized_retrieval_sources(sources: tuple[str, ...]) -> tuple[str, ...]:

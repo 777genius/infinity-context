@@ -505,6 +505,11 @@ def test_sdk_build_typed_context_returns_bounded_safe_diagnostics() -> None:
                         "dropped_by_budget": 2,
                         "dropped_by_source_cap": 3,
                         "dropped_by_char_cap": 4,
+                        "multimodal_source_ref_count": 5,
+                        "items_with_multimodal_source_refs": 2,
+                        "source_refs_with_page_count": 3,
+                        "source_refs_with_bbox_count": 1,
+                        "source_refs_with_time_range_count": 2,
                         "api_key": raw_secret,
                     },
                     "items": [
@@ -521,6 +526,10 @@ def test_sdk_build_typed_context_returns_bounded_safe_diagnostics() -> None:
                                     "source_id": f"doc_{index}",
                                     "chunk_id": f"chunk_{index}",
                                     "quote_preview": f"preview {index}",
+                                    "page_number": index + 1,
+                                    "time_start_ms": index * 1000,
+                                    "time_end_ms": index * 1000 + 500,
+                                    "bbox": [0, 1, 120, 40],
                                 }
                                 for index in range(25)
                             ],
@@ -614,12 +623,21 @@ def test_sdk_build_typed_context_returns_bounded_safe_diagnostics() -> None:
     assert bundle.diagnostics.dropped_by_budget == 2
     assert bundle.diagnostics.dropped_by_source_cap == 3
     assert bundle.diagnostics.dropped_by_char_cap == 4
+    assert bundle.diagnostics.multimodal_source_ref_count == 5
+    assert bundle.diagnostics.items_with_multimodal_source_refs == 2
+    assert bundle.diagnostics.source_refs_with_page_count == 3
+    assert bundle.diagnostics.source_refs_with_bbox_count == 1
+    assert bundle.diagnostics.source_refs_with_time_range_count == 2
     assert "api_key" not in bundle.diagnostics.raw
 
     item = bundle.items[0]
     assert item.memory_scope_id == "memory_scope_default"
     assert len(item.source_refs) == 20
     assert item.source_refs[0].source_id == "doc_0"
+    assert item.source_refs[0].page_number == 1
+    assert item.source_refs[0].time_start_ms == 0
+    assert item.source_refs[0].time_end_ms == 500
+    assert item.source_refs[0].bbox == (0.0, 1.0, 120.0, 40.0)
     assert item.diagnostics.retrieval_source == "vector_chunks"
     assert item.diagnostics.retrieval_sources == ("vector_chunks", "keyword_chunks")
     assert item.diagnostics.ranking_reason == "hybrid match via vector_chunks, keyword_chunks"

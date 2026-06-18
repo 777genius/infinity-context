@@ -8,7 +8,8 @@ from memo_stack_core.application.context_policy import (
 )
 from memo_stack_core.application.document_text import document_chunk_retrieval_text
 from memo_stack_core.application.dto import BuildContextQuery, ContextItem
-from memo_stack_core.domain.entities import MemoryChunk, SourceRef
+from memo_stack_core.application.source_refs import chunk_source_refs
+from memo_stack_core.domain.entities import MemoryChunk
 from memo_stack_core.ports.clock import ClockPort
 from memo_stack_core.ports.unit_of_work import UnitOfWorkFactoryPort
 
@@ -153,16 +154,7 @@ class ContextHydrator:
                         item_type=item.item_type,
                         text=chunk_text,
                         score=item.score,
-                        source_refs=(
-                            SourceRef(
-                                source_type=chunk.source_type,
-                                source_id=chunk.source_external_id,
-                                chunk_id=str(chunk.id),
-                                char_start=chunk.char_start,
-                                char_end=chunk.char_end,
-                                quote_preview=chunk_text[:200],
-                            ),
-                        ),
+                        source_refs=chunk_source_refs(chunk, text_preview=chunk_text),
                         is_instruction=item.is_instruction,
                         diagnostics=item.diagnostics,
                     )

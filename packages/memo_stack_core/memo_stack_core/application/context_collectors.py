@@ -7,7 +7,8 @@ from dataclasses import dataclass
 from memo_stack_core.application.context_hydration import ContextHydrator
 from memo_stack_core.application.document_text import document_chunk_retrieval_text
 from memo_stack_core.application.dto import BuildContextQuery, ContextItem
-from memo_stack_core.domain.entities import MemoryChunk, MemoryFact, SourceRef
+from memo_stack_core.application.source_refs import chunk_source_refs
+from memo_stack_core.domain.entities import MemoryChunk, MemoryFact
 from memo_stack_core.ports.adapters import (
     EmbeddingPort,
     GraphMemoryPort,
@@ -341,16 +342,7 @@ def _rag_chunk_item(candidate: CapabilityRecallCandidate, chunk: MemoryChunk) ->
         item_type="chunk",
         text=chunk_text,
         score=candidate.score,
-        source_refs=(
-            SourceRef(
-                source_type=chunk.source_type,
-                source_id=chunk.source_external_id,
-                chunk_id=str(chunk.id),
-                char_start=chunk.char_start,
-                char_end=chunk.char_end,
-                quote_preview=chunk_text[:200],
-            ),
-        ),
+        source_refs=chunk_source_refs(chunk, text_preview=chunk_text),
         diagnostics={
             "memory_scope_id": str(chunk.memory_scope_id),
             "retrieval_source": "rag_recall",
