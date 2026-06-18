@@ -57,16 +57,22 @@ def test_multimodal_live_provider_canary_reports_missing_key_without_secret_leak
         "message": (
             "Set MEMORY_OPENAI_API_KEY or OPENAI_API_KEY before running the live provider canary"
         ),
+        "operator_action": "configure_provider_credential",
         "reason": "provider_credential_missing",
         "status": "degraded",
+        "user_retryable": False,
     }
     assert file_report["components"]["vision"] == {
+        "operator_action": "configure_provider_credential",
         "reason": "provider_credential_missing",
         "status": "skipped",
+        "user_retryable": False,
     }
     assert file_report["components"]["transcription"] == {
+        "operator_action": "configure_provider_credential",
         "reason": "provider_credential_missing",
         "status": "skipped",
+        "user_retryable": False,
     }
     combined_output = result.stdout + result.stderr + report_path.read_text(encoding="utf-8")
     assert sentinel not in combined_output
@@ -110,8 +116,10 @@ def test_multimodal_live_provider_canary_requires_strong_synthetic_transcript() 
     assert weak == {
         "message": "Synthetic speech transcript missed expected canary terms",
         "missing_terms": ["canary", "stack"],
+        "operator_action": "inspect_provider_canary",
         "reason": "synthetic_transcript_mismatch",
         "status": "failed",
+        "user_retryable": False,
     }
     assert strong == {"status": "succeeded"}
     assert explicit_fixture == {"status": "succeeded"}
@@ -149,6 +157,7 @@ def test_multimodal_live_provider_canary_rejects_empty_vision_evidence(
     assert result == {
         "diagnostics": {"request_timeout_seconds": 1},
         "message": "Provider returned no visible text or image summary",
+        "operator_action": "inspect_provider_canary",
         "payload_status": "parsed",
         "provider_model": "fake-model",
         "provider_name": "fake_vision",
@@ -156,6 +165,7 @@ def test_multimodal_live_provider_canary_rejects_empty_vision_evidence(
         "reason": "vision_empty_evidence",
         "status": "failed",
         "summary_chars": 0,
+        "user_retryable": False,
         "visible_text_count": 0,
     }
 

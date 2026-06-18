@@ -113,9 +113,14 @@ def run_multimodal_docker_live_proof(
             "reason": exc.reason,
             "message": _safe_text(exc.message, env=env),
             "degraded": exc.degraded,
+            **_recovery_policy(status="degraded" if exc.degraded else "failed", reason=exc.reason),
         }
-        _mark_component(report, exc.component, "degraded" if exc.degraded else "failed")
-        report["components"][exc.component]["reason"] = exc.reason
+        _mark_component(
+            report,
+            exc.component,
+            "degraded" if exc.degraded else "failed",
+            reason=exc.reason,
+        )
     finally:
         if stack_started and not args.keep_stack:
             _cleanup_stack(args, project_name, run_cmd=run_cmd, report=report, env=env)
@@ -701,11 +706,58 @@ def _free_port() -> int:
 def _component(status: str, **values: Any) -> dict[str, Any]:
     payload: dict[str, Any] = {"status": status}
     payload.update({key: value for key, value in values.items() if value is not None})
+    reason = payload.get("reason")
+    payload.update(
+        _recovery_policy(
+            status=status,
+            reason=reason if isinstance(reason, str) else None,
+        )
+    )
     return payload
 
 
 def _mark_component(report: dict[str, Any], name: str, status: str, **values: Any) -> None:
     report["components"][name] = _component(status, **values)
+
+
+def _recovery_policy(*, status: str, reason: str | None) -> dict[str, Any]:
+    if status in {"running", "succeeded", "unknown"}:
+        return {}
+    normalized = (reason or status).strip().lower()
+    if normalized in {"docker_daemon_timeout", "docker_daemon_unavailable"}:
+        return {
+            "user_retryable": True,
+            "operator_action": "start_docker_daemon",
+        }
+    if normalized == "docker_cli_unavailable":
+        return {
+            "user_retryable": False,
+            "operator_action": "install_docker_cli",
+        }
+    if "compose" in normalized:
+        return {
+            "user_retryable": False,
+            "operator_action": "inspect_compose_stack",
+        }
+    if "health" in normalized or "startup" in normalized:
+        return {
+            "user_retryable": True,
+            "operator_action": "inspect_service_logs",
+        }
+    if "extraction_timeout" in normalized:
+        return {
+            "user_retryable": True,
+            "operator_action": "inspect_worker_logs",
+        }
+    if "extraction_" in normalized:
+        return {
+            "user_retryable": False,
+            "operator_action": "inspect_extraction_diagnostics",
+        }
+    return {
+        "user_retryable": False,
+        "operator_action": "inspect_docker_proof",
+    }
 
 
 def _safe_completed(result: subprocess.CompletedProcess[str], *, env: dict[str, str]) -> str:

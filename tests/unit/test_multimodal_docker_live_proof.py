@@ -201,7 +201,11 @@ def test_docker_live_proof_degrades_on_daemon_timeout() -> None:
     assert report["failure"]["component"] == "docker_daemon"
     assert report["failure"]["reason"] == "docker_daemon_timeout"
     assert report["failure"]["degraded"] is True
+    assert report["failure"]["user_retryable"] is True
+    assert report["failure"]["operator_action"] == "start_docker_daemon"
     assert report["components"]["docker_daemon"]["status"] == "degraded"
+    assert report["components"]["docker_daemon"]["user_retryable"] is True
+    assert report["components"]["docker_daemon"]["operator_action"] == "start_docker_daemon"
     assert report["components"]["cleanup"]["status"] == "unknown"
 
 

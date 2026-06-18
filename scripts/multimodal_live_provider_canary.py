@@ -325,7 +325,48 @@ def _component(status: str, **values: object) -> dict[str, object]:
     for key, value in values.items():
         if value is not None:
             component[key] = value
+    component.update(
+        _recovery_policy(
+            status=status,
+            reason=component.get("reason") if isinstance(component.get("reason"), str) else None,
+        )
+    )
     return component
+
+
+def _recovery_policy(*, status: str, reason: str | None) -> dict[str, object]:
+    if status in {"configured", "succeeded", "unknown"}:
+        return {}
+    normalized = (reason or status).strip().lower()
+    if "missing_api_key" in normalized or "credential_missing" in normalized:
+        return {
+            "user_retryable": False,
+            "operator_action": "configure_provider_credential",
+        }
+    if "invalid_api_key" in normalized:
+        return {
+            "user_retryable": False,
+            "operator_action": "replace_provider_credential",
+        }
+    if "quota_exceeded" in normalized or "insufficient_quota" in normalized:
+        return {
+            "user_retryable": False,
+            "operator_action": "check_provider_billing",
+        }
+    if "rate_limited" in normalized or "timeout" in normalized or "unavailable" in normalized:
+        return {
+            "user_retryable": True,
+            "operator_action": "retry_later",
+        }
+    if normalized == "audio_fixture_missing":
+        return {
+            "user_retryable": False,
+            "operator_action": "provide_audio_fixture",
+        }
+    return {
+        "user_retryable": False,
+        "operator_action": "inspect_provider_canary",
+    }
 
 
 def _write_report(report: dict[str, object], report_out: str | None) -> None:
