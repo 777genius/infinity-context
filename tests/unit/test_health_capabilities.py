@@ -133,15 +133,37 @@ def test_capabilities_return_noop_adapters() -> None:
         "bbox",
         "time_range_ms",
     ]
+    assert profile_states["standard_local"]["document_features"] == [
+        "plain_text",
+        "pdf_text",
+        "basic_metadata",
+    ]
+    assert profile_states["standard_local"]["transcript_features"] == [
+        "timed_text_segments",
+        "time_ranges",
+    ]
     assert profile_states["standard_local"]["external_provider_egress"] is False
     assert profile_states["standard_local"]["may_run_local_asr"] is False
     assert profile_states["standard_docling"]["primary_artifact_types"] == [
         "normalized_json",
         "table_html",
     ]
+    assert profile_states["standard_docling"]["document_features"] == [
+        "layout",
+        "reading_order",
+        "tables",
+        "ocr_when_enabled",
+        "normalized_json",
+    ]
     assert profile_states["standard_vision"]["requires_explicit_external_ai"] is True
     assert profile_states["standard_vision"]["input_modalities"] == ["image"]
     assert profile_states["standard_vision"]["evidence_coordinates"] == ["bbox"]
+    assert profile_states["standard_vision"]["vision_features"] == [
+        "structured_image_summary",
+        "detected_text",
+        "region_coordinates",
+        "provider_payload_bounding",
+    ]
     assert profile_states["standard_vision"]["memory_promotion"] == "review_required"
     assert profile_states["standard_vision"]["source_text_policy"] == "untrusted_evidence"
     assert profile_states["standard_vision"]["artifact_payloads_bounded"] is True
@@ -153,10 +175,30 @@ def test_capabilities_return_noop_adapters() -> None:
         "keyframe",
         "video_frame_timeline",
     ]
+    assert profile_states["media_api"]["transcript_features"] == [
+        "segments",
+        "time_ranges",
+        "transcript_json",
+        "optional_speaker_labels",
+        "optional_word_timestamps",
+    ]
+    assert profile_states["media_api"]["video_features"] == [
+        "ffprobe_metadata",
+        "sampled_keyframes",
+        "frame_timeline",
+    ]
     assert profile_states["media_api"]["may_run_local_asr"] is False
     assert profile_states["media_local_asr"]["may_run_local_asr"] is True
     assert profile_states["media_local_asr"]["external_provider_egress"] is False
     assert profile_states["media_local_asr"]["evidence_coordinates"] == ["time_range_ms"]
+    assert profile_states["media_local_asr"]["transcript_features"] == [
+        "segments",
+        "time_ranges",
+        "transcript_json",
+    ]
+    assert "optional_speaker_labels" not in profile_states["media_local_asr"][
+        "transcript_features"
+    ]
     assert profile_states["standard_asr"]["deprecated"] is True
     assert profile_states["standard_asr"]["may_run_local_asr"] is False
     assert profile_states["standard_asr"]["fallback_profiles"] == ["standard_local"]
@@ -205,6 +247,19 @@ def test_capabilities_return_noop_adapters() -> None:
         "source_refs_are_bounded": True,
         "memory_promotion": "review_required",
         "source_text_policy": "untrusted_evidence",
+    }
+    assert body["extraction"]["feature_contract"] == {
+        "schema_version": "memo_stack.extraction_feature_contract.v1",
+        "profile_feature_fields": [
+            "document_features",
+            "vision_features",
+            "transcript_features",
+            "video_features",
+        ],
+        "feature_values_are_capabilities_not_guarantees": True,
+        "actual_artifact_metadata_is_authoritative": True,
+        "external_ai_features_require_explicit_profile": True,
+        "local_asr_does_not_provide_speaker_labels": True,
     }
     assert isinstance(body["extraction"]["optional_extras"]["docling"]["installed"], bool)
     assert isinstance(body["extraction"]["optional_extras"]["vision"]["installed"], bool)

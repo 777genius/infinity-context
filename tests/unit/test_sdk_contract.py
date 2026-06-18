@@ -285,6 +285,17 @@ def test_sdk_exposes_typed_extraction_capability_diagnostics() -> None:
                                 "keyframe",
                                 "video_frame_timeline",
                             ],
+                            "transcript_features": [
+                                "segments",
+                                "time_ranges",
+                                "transcript_json",
+                                "optional_speaker_labels",
+                            ],
+                            "video_features": [
+                                "ffprobe_metadata",
+                                "sampled_keyframes",
+                                "frame_timeline",
+                            ],
                             "external_provider_egress": True,
                             "requires_explicit_external_ai": True,
                             "fallback_profiles": ["standard_local"],
@@ -306,6 +317,12 @@ def test_sdk_exposes_typed_extraction_capability_diagnostics() -> None:
                                 "transcript",
                                 "transcript_json",
                             ],
+                            "transcript_features": [
+                                "segments",
+                                "time_ranges",
+                                "transcript_json",
+                            ],
+                            "video_features": ["ffprobe_metadata"],
                             "external_provider_egress": False,
                             "requires_explicit_external_ai": False,
                             "fallback_profiles": ["standard_local"],
@@ -327,6 +344,17 @@ def test_sdk_exposes_typed_extraction_capability_diagnostics() -> None:
                                 "transcript_json",
                                 "keyframe",
                                 "video_frame_timeline",
+                            ],
+                            "transcript_features": [
+                                "segments",
+                                "time_ranges",
+                                "transcript_json",
+                                "optional_speaker_labels",
+                            ],
+                            "video_features": [
+                                "ffprobe_metadata",
+                                "sampled_keyframes",
+                                "frame_timeline",
                             ],
                             "external_provider_egress": True,
                             "requires_explicit_external_ai": True,
@@ -354,6 +382,15 @@ def test_sdk_exposes_typed_extraction_capability_diagnostics() -> None:
                             "time_end_ms",
                         ],
                     },
+                    "feature_contract": {
+                        "schema_version": "memo_stack.extraction_feature_contract.v1",
+                        "profile_feature_fields": [
+                            "document_features",
+                            "vision_features",
+                            "transcript_features",
+                            "video_features",
+                        ],
+                    },
                     "limits": {"max_media_seconds": 600},
                 }
             },
@@ -379,6 +416,9 @@ def test_sdk_exposes_typed_extraction_capability_diagnostics() -> None:
         "time_start_ms",
         "time_end_ms",
     ]
+    assert diagnostics.feature_contract["schema_version"] == (
+        "memo_stack.extraction_feature_contract.v1"
+    )
     assert diagnostics.limits["max_media_seconds"] == 600
     assert diagnostics.provider_status("transcription_api") == "ok"
     media_api = diagnostics.profile("media_api")
@@ -393,6 +433,17 @@ def test_sdk_exposes_typed_extraction_capability_diagnostics() -> None:
         "keyframe",
         "video_frame_timeline",
     )
+    assert media_api.transcript_features == (
+        "segments",
+        "time_ranges",
+        "transcript_json",
+        "optional_speaker_labels",
+    )
+    assert media_api.video_features == (
+        "ffprobe_metadata",
+        "sampled_keyframes",
+        "frame_timeline",
+    )
     assert media_api.external_provider_egress is True
     assert media_api.memory_promotion == "review_required"
     assert media_api.may_run_local_asr is False
@@ -400,6 +451,8 @@ def test_sdk_exposes_typed_extraction_capability_diagnostics() -> None:
     assert local_asr is not None
     assert local_asr.reason == "provider_package_missing"
     assert local_asr.evidence_coordinates == ("time_range_ms",)
+    assert local_asr.transcript_features == ("segments", "time_ranges", "transcript_json")
+    assert "optional_speaker_labels" not in local_asr.transcript_features
     assert local_asr.may_run_local_asr is True
     standard_asr = diagnostics.profile("standard_asr")
     assert standard_asr is not None
@@ -452,6 +505,10 @@ def test_sdk_defaults_legacy_extraction_capability_contract_fields() -> None:
     assert standard_local.input_modalities == ()
     assert standard_local.evidence_coordinates == ()
     assert standard_local.primary_artifact_types == ()
+    assert standard_local.document_features == ()
+    assert standard_local.vision_features == ()
+    assert standard_local.transcript_features == ()
+    assert standard_local.video_features == ()
     assert standard_local.raw is not None
     assert "input_modalities" not in standard_local.raw
 

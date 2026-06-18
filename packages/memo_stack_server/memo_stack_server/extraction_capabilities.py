@@ -40,16 +40,33 @@ _PROFILE_CONTRACTS: dict[str, dict[str, tuple[str, ...]]] = {
             "keyframe",
             "video_frame_timeline",
         ),
+        "document_features": ("plain_text", "pdf_text", "basic_metadata"),
+        "vision_features": ("image_metadata", "ocr_regions_when_available"),
+        "transcript_features": ("timed_text_segments", "time_ranges"),
+        "video_features": ("ffprobe_metadata", "sampled_keyframes", "frame_timeline"),
     },
     "standard_docling": {
         "input_modalities": ("document",),
         "evidence_coordinates": ("char_range", "page_number", "bbox"),
         "primary_artifact_types": ("normalized_json", "table_html"),
+        "document_features": (
+            "layout",
+            "reading_order",
+            "tables",
+            "ocr_when_enabled",
+            "normalized_json",
+        ),
     },
     "standard_vision": {
         "input_modalities": ("image",),
         "evidence_coordinates": ("bbox",),
         "primary_artifact_types": ("vision_json", "image_regions"),
+        "vision_features": (
+            "structured_image_summary",
+            "detected_text",
+            "region_coordinates",
+            "provider_payload_bounding",
+        ),
     },
     "media_api": {
         "input_modalities": ("audio", "video"),
@@ -60,6 +77,14 @@ _PROFILE_CONTRACTS: dict[str, dict[str, tuple[str, ...]]] = {
             "keyframe",
             "video_frame_timeline",
         ),
+        "transcript_features": (
+            "segments",
+            "time_ranges",
+            "transcript_json",
+            "optional_speaker_labels",
+            "optional_word_timestamps",
+        ),
+        "video_features": ("ffprobe_metadata", "sampled_keyframes", "frame_timeline"),
     },
     "media_local_asr": {
         "input_modalities": ("audio", "video"),
@@ -69,6 +94,8 @@ _PROFILE_CONTRACTS: dict[str, dict[str, tuple[str, ...]]] = {
             "transcript",
             "transcript_json",
         ),
+        "transcript_features": ("segments", "time_ranges", "transcript_json"),
+        "video_features": ("ffprobe_metadata",),
     },
     "standard_asr": {
         "input_modalities": ("audio", "video"),
@@ -79,6 +106,14 @@ _PROFILE_CONTRACTS: dict[str, dict[str, tuple[str, ...]]] = {
             "keyframe",
             "video_frame_timeline",
         ),
+        "transcript_features": (
+            "segments",
+            "time_ranges",
+            "transcript_json",
+            "optional_speaker_labels",
+            "optional_word_timestamps",
+        ),
+        "video_features": ("ffprobe_metadata", "sampled_keyframes", "frame_timeline"),
     },
     "standard_full": {
         "input_modalities": ("document", "image", "audio", "video"),
@@ -98,6 +133,27 @@ _PROFILE_CONTRACTS: dict[str, dict[str, tuple[str, ...]]] = {
             "keyframe",
             "video_frame_timeline",
         ),
+        "document_features": (
+            "layout",
+            "reading_order",
+            "tables",
+            "ocr_when_enabled",
+            "normalized_json",
+        ),
+        "vision_features": (
+            "structured_image_summary",
+            "detected_text",
+            "region_coordinates",
+            "provider_payload_bounding",
+        ),
+        "transcript_features": (
+            "segments",
+            "time_ranges",
+            "transcript_json",
+            "optional_speaker_labels",
+            "optional_word_timestamps",
+        ),
+        "video_features": ("ffprobe_metadata", "sampled_keyframes", "frame_timeline"),
     },
 }
 
@@ -146,6 +202,7 @@ def build_extraction_capability_payload(settings: Settings) -> dict[str, object]
         "optional_extras": _legacy_optional_extras(settings, providers),
         "policy": _policy_payload(settings),
         "evidence_contract": _evidence_contract_payload(),
+        "feature_contract": _feature_contract_payload(),
         "external_provider_egress": settings.extraction_external_ai_enabled,
         "limits": _limits_payload(settings),
     }
@@ -348,6 +405,10 @@ def _profile_payload(
             "input_modalities": (),
             "evidence_coordinates": (),
             "primary_artifact_types": (),
+            "document_features": (),
+            "vision_features": (),
+            "transcript_features": (),
+            "video_features": (),
         },
     )
     payload: dict[str, object] = {
@@ -358,6 +419,10 @@ def _profile_payload(
         "input_modalities": list(contract["input_modalities"]),
         "evidence_coordinates": list(contract["evidence_coordinates"]),
         "primary_artifact_types": list(contract["primary_artifact_types"]),
+        "document_features": list(contract.get("document_features", ())),
+        "vision_features": list(contract.get("vision_features", ())),
+        "transcript_features": list(contract.get("transcript_features", ())),
+        "video_features": list(contract.get("video_features", ())),
         "external_provider_egress": external_provider_egress,
         "requires_explicit_external_ai": requires_explicit_external_ai,
         "fallback_profiles": list(fallback_profiles),
@@ -450,6 +515,22 @@ def _evidence_contract_payload() -> dict[str, object]:
         "source_refs_are_bounded": True,
         "memory_promotion": "review_required",
         "source_text_policy": "untrusted_evidence",
+    }
+
+
+def _feature_contract_payload() -> dict[str, object]:
+    return {
+        "schema_version": "memo_stack.extraction_feature_contract.v1",
+        "profile_feature_fields": [
+            "document_features",
+            "vision_features",
+            "transcript_features",
+            "video_features",
+        ],
+        "feature_values_are_capabilities_not_guarantees": True,
+        "actual_artifact_metadata_is_authoritative": True,
+        "external_ai_features_require_explicit_profile": True,
+        "local_asr_does_not_provide_speaker_labels": True,
     }
 
 
