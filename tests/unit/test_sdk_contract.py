@@ -2073,6 +2073,48 @@ def test_sdk_supports_review_suggestions_batch() -> None:
     }
 
 
+def test_sdk_preserves_suggestion_review_audit_response() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/suggestions/sug_1/approve"
+        return httpx.Response(
+            200,
+            json={
+                "data": {
+                    "suggestion": {
+                        "id": "sug_1",
+                        "status": "approved",
+                        "review_audit": {
+                            "events": [
+                                {
+                                    "event_type": "memory_suggestion_reviewed",
+                                    "suggestion_id": "sug_1",
+                                    "action": "approve",
+                                    "new_status": "approved",
+                                    "reason": "reviewed",
+                                }
+                            ],
+                            "event_count": 1,
+                            "truncated": False,
+                        },
+                    }
+                }
+            },
+        )
+
+    client = MemoStackClient(
+        base_url="http://memory.test",
+        token="test-token",
+        transport=httpx.MockTransport(handler),
+    )
+
+    result = client.approve_suggestion("sug_1", reason="reviewed")
+    audit = result["data"]["suggestion"]["review_audit"]
+
+    assert audit["event_count"] == 1
+    assert audit["events"][0]["event_type"] == "memory_suggestion_reviewed"
+    assert audit["events"][0]["action"] == "approve"
+
+
 @pytest.mark.parametrize(
     ("items", "message"),
     [
