@@ -58,6 +58,7 @@
   };
 
   const els = {};
+  const inFlightReviewActions = new Set();
 
   window.memoStackBrowser = {
     state,
@@ -638,25 +639,28 @@
   }
 
   async function mergeAnchorSuggestion(candidate) {
-    const reason = window.prompt("merge reason", "same anchor confirmed in Memo Stack Browser");
-    if (reason === null) {
-      return;
-    }
-    setError("");
-    try {
-      await apiJson(`/v1/anchors/${encodeURIComponent(candidate.source_anchor.id)}/merge`, {
-        method: "POST",
-        body: {
-          target_anchor_id: candidate.target_anchor.id,
-          reason: reason || "same anchor confirmed in Memo Stack Browser",
-        },
-      });
-      await refreshAll();
-      window.memoStackReview.closeReviewModal();
-      selectNode(`anchor:${candidate.target_anchor.id}`);
-    } catch (error) {
-      setError(error.message);
-    }
+    const lockKey = `anchor-merge:${candidate.source_anchor.id}:${candidate.target_anchor.id}`;
+    await withReviewActionLock(lockKey, async () => {
+      const reason = window.prompt("merge reason", "same anchor confirmed in Memo Stack Browser");
+      if (reason === null) {
+        return;
+      }
+      setError("");
+      try {
+        await apiJson(`/v1/anchors/${encodeURIComponent(candidate.source_anchor.id)}/merge`, {
+          method: "POST",
+          body: {
+            target_anchor_id: candidate.target_anchor.id,
+            reason: reason || "same anchor confirmed in Memo Stack Browser",
+          },
+        });
+        await refreshAll();
+        window.memoStackReview.closeReviewModal();
+        selectNode(`anchor:${candidate.target_anchor.id}`);
+      } catch (error) {
+        setError(error.message);
+      }
+    });
   }
 
   async function splitAnchorAlias(anchor) {
@@ -737,97 +741,118 @@
   }
 
   async function reviewSuggestion(action, suggestionId) {
-    const reason = window.prompt(`${action} reason`, `Reviewed in Memo Stack Browser`);
-    if (reason === null) {
-      return;
-    }
-    setError("");
-    try {
-      await apiJson(`/v1/suggestions/${encodeURIComponent(suggestionId)}/${action}`, {
-        method: "POST",
-        body: { reason: reason || `Reviewed in Memo Stack Browser` },
-      });
-      await refreshAll();
-      window.memoStackReview.closeReviewModal();
-    } catch (error) {
-      setError(error.message);
-    }
-  }
-
-  async function reviewContextLinkSuggestion(action, suggestionId, overrides = {}) {
-    let reason = overrides.reason;
-    if (!Object.hasOwn(overrides, "reason")) {
-      reason = window.prompt(`${action} link reason`, `Reviewed in Memo Stack Browser`);
+    await withReviewActionLock(`fact-suggestion:${suggestionId}`, async () => {
+      const reason = window.prompt(`${action} reason`, `Reviewed in Memo Stack Browser`);
       if (reason === null) {
         return;
       }
-    }
-    setError("");
-    try {
-      await apiJson(`/v1/context-link-suggestions/${encodeURIComponent(suggestionId)}/review`, {
-        method: "POST",
-        body: withoutEmpty({
-          action,
-          reason: reason || `Reviewed in Memo Stack Browser`,
-          target_type: overrides.target_type,
-          target_id: overrides.target_id,
-          relation_type: overrides.relation_type,
-          confidence: overrides.confidence,
-          link_reason: overrides.link_reason,
-        }),
-      });
-      await refreshAll();
-      window.memoStackReview.closeReviewModal();
-    } catch (error) {
-      setError(error.message);
-    }
+      setError("");
+      try {
+        await apiJson(`/v1/suggestions/${encodeURIComponent(suggestionId)}/${action}`, {
+          method: "POST",
+          body: { reason: reason || `Reviewed in Memo Stack Browser` },
+        });
+        await refreshAll();
+        window.memoStackReview.closeReviewModal();
+      } catch (error) {
+        setError(error.message);
+      }
+    });
+  }
+
+  async function reviewContextLinkSuggestion(action, suggestionId, overrides = {}) {
+    await withReviewActionLock(`context-link-suggestion:${suggestionId}`, async () => {
+      let reason = overrides.reason;
+      if (!Object.hasOwn(overrides, "reason")) {
+        reason = window.prompt(`${action} link reason`, `Reviewed in Memo Stack Browser`);
+        if (reason === null) {
+          return;
+        }
+      }
+      setError("");
+      try {
+        await apiJson(`/v1/context-link-suggestions/${encodeURIComponent(suggestionId)}/review`, {
+          method: "POST",
+          body: withoutEmpty({
+            action,
+            reason: reason || `Reviewed in Memo Stack Browser`,
+            target_type: overrides.target_type,
+            target_id: overrides.target_id,
+            relation_type: overrides.relation_type,
+            confidence: overrides.confidence,
+            link_reason: overrides.link_reason,
+          }),
+        });
+        await refreshAll();
+        window.memoStackReview.closeReviewModal();
+      } catch (error) {
+        setError(error.message);
+      }
+    });
   }
 
   async function reviewPendingContextLinkSuggestionsBatch(action) {
-    const pending = window.memoStackReview.visiblePendingContextLinkReviews();
-    const batch = pending.slice(0, 50);
-    if (!batch.length) {
-      setError("No pending link reviews.");
-      return;
-    }
-    const visibleFilter = contextLinkBatchVisibleFilter();
-    if (!visibleFilter) {
-      setError("Clear the review target filter before batch review.");
-      return;
-    }
-    const reason = window.prompt(
-      `${action} ${batch.length} pending link reviews`,
-      `Batch reviewed in Memo Stack Browser`,
-    );
-    if (reason === null) {
-      return;
-    }
-    const label = action === "approve" ? "Approve" : "Reject";
-    if (!window.confirm(`${label} ${batch.length} pending link reviews?`)) {
-      return;
-    }
-    setError("");
-    try {
-      const response = await apiJson("/v1/context-link-suggestions/review-batch", {
-        method: "POST",
-        body: {
-          items: batch.map((suggestion) => ({
-            suggestion_id: suggestion.id,
-            action,
-            reason: reason || "Batch reviewed in Memo Stack Browser",
-          })),
-          continue_on_error: true,
-          visible_filter: visibleFilter,
-        },
-      });
-      const result = response.data || {};
-      await refreshAll({ silent: true });
-      const suffix = pending.length > batch.length ? `, ${pending.length - batch.length} left` : "";
-      setError(
-        `Batch link review: ${result.applied || 0} applied, ${result.failed || 0} failed${suffix}.`,
+    await withReviewActionLock("context-link-batch-review", async () => {
+      const pending = window.memoStackReview.visiblePendingContextLinkReviews();
+      const batch = pending.slice(0, 50);
+      if (!batch.length) {
+        setError("No pending link reviews.");
+        return;
+      }
+      const visibleFilter = contextLinkBatchVisibleFilter();
+      if (!visibleFilter) {
+        setError("Clear the review target filter before batch review.");
+        return;
+      }
+      const reason = window.prompt(
+        `${action} ${batch.length} pending link reviews`,
+        `Batch reviewed in Memo Stack Browser`,
       );
-    } catch (error) {
-      setError(error.message);
+      if (reason === null) {
+        return;
+      }
+      const label = action === "approve" ? "Approve" : "Reject";
+      if (!window.confirm(`${label} ${batch.length} pending link reviews?`)) {
+        return;
+      }
+      setError("");
+      try {
+        const response = await apiJson("/v1/context-link-suggestions/review-batch", {
+          method: "POST",
+          body: {
+            items: batch.map((suggestion) => ({
+              suggestion_id: suggestion.id,
+              action,
+              reason: reason || "Batch reviewed in Memo Stack Browser",
+            })),
+            continue_on_error: true,
+            visible_filter: visibleFilter,
+          },
+        });
+        const result = response.data || {};
+        await refreshAll({ silent: true });
+        const suffix = pending.length > batch.length
+          ? `, ${pending.length - batch.length} left`
+          : "";
+        setError(
+          `Batch link review: ${result.applied || 0} applied, ${result.failed || 0} failed${suffix}.`,
+        );
+      } catch (error) {
+        setError(error.message);
+      }
+    });
+  }
+
+  async function withReviewActionLock(lockKey, handler) {
+    if (inFlightReviewActions.has(lockKey)) {
+      setError("Review action is already in progress.");
+      return;
+    }
+    inFlightReviewActions.add(lockKey);
+    try {
+      await handler();
+    } finally {
+      inFlightReviewActions.delete(lockKey);
     }
   }
 
