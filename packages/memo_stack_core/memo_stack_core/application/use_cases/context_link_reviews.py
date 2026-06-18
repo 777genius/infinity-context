@@ -312,7 +312,7 @@ def _review_override_metadata(
         metadata["approved_target_id"] = target_id
         metadata["approved_relation_type"] = relation_type
         metadata["approved_confidence"] = confidence
-        metadata["approved_link_reason"] = link_reason[:320]
+        metadata["approved_link_reason"] = redact_sensitive_text(link_reason)[:320]
     return metadata
 
 

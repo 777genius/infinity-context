@@ -791,6 +791,7 @@ def test_rejected_context_link_suggestion_is_not_recreated(tmp_path: Path) -> No
 
 
 def test_context_link_suggestion_approve_can_override_target(tmp_path: Path) -> None:
+    raw_sensitive_value = "sk-" + "proj-link-reason-value1234567890"
     with make_client(tmp_path) as client:
         suggested_fact = client.post(
             "/v1/facts",
@@ -868,7 +869,7 @@ def test_context_link_suggestion_approve_can_override_target(tmp_path: Path) -> 
                 "target_id": override_fact.json()["data"]["id"],
                 "relation_type": "supports",
                 "confidence": "high",
-                "link_reason": "approved corrected target",
+                "link_reason": f"approved corrected target with {raw_sensitive_value}",
             },
             headers=auth_headers(),
         )
@@ -896,6 +897,7 @@ def test_context_link_suggestion_approve_can_override_target(tmp_path: Path) -> 
         )
 
     assert approved.status_code == 200, approved.text
+    assert raw_sensitive_value not in approved.text
     payload = approved.json()["data"]
     assert payload["suggestion"]["status"] == "approved"
     assert payload["suggestion"]["target_id"] == fact_candidate["target_id"]
@@ -906,13 +908,21 @@ def test_context_link_suggestion_approve_can_override_target(tmp_path: Path) -> 
         == override_fact.json()["data"]["id"]
     )
     assert payload["suggestion"]["metadata"]["approved_relation_type"] == "supports"
+    assert (
+        payload["suggestion"]["metadata"]["approved_link_reason"]
+        == "approved corrected target with [redacted]"
+    )
     assert payload["link"]["target_id"] == override_fact.json()["data"]["id"]
     assert payload["link"]["relation_type"] == "supports"
     assert payload["link"]["confidence"] == "high"
-    assert payload["link"]["reason"] == "approved corrected target"
+    assert payload["link"]["reason"] == "[redacted]"
     assert payload["link"]["metadata"]["approved_override"] is True
     assert payload["link"]["metadata"]["original_target_id"] == fact_candidate["target_id"]
     assert payload["link"]["metadata"]["approved_target_id"] == override_fact.json()["data"]["id"]
+    assert (
+        payload["link"]["metadata"]["approved_link_reason"]
+        == "approved corrected target with [redacted]"
+    )
     assert scope_links.status_code == 200, scope_links.text
     assert [item["id"] for item in scope_links.json()["data"]] == [payload["link"]["id"]]
     assert repeated.status_code == 200, repeated.text
