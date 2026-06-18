@@ -64,6 +64,7 @@ def _scorecard_fixture_results() -> dict[str, dict[str, Any]]:
                 "document_chunk_linking_accuracy": 1.0,
                 "anchor_recall_rate": 1.0,
                 "anchor_disambiguation_rate": 1.0,
+                "anchor_review_evidence_rate": 1.0,
                 "high_impact_relation_policy_safety": 1.0,
                 "review_approval_rate": 1.0,
                 "false_positive_count": 0,
@@ -1429,6 +1430,7 @@ def test_memory_quality_scorecard_fails_on_semantic_linking_regression() -> None
             "document_chunk_linking_accuracy": 0.0,
             "anchor_recall_rate": 0.5,
             "anchor_disambiguation_rate": 0.0,
+            "anchor_review_evidence_rate": 0.0,
             "high_impact_relation_policy_safety": 0.0,
             "review_approval_rate": 0.0,
             "false_positive_count": 1,
@@ -1443,6 +1445,7 @@ def test_memory_quality_scorecard_fails_on_semantic_linking_regression() -> None
     assert result["capabilities"]["semantic_linking"]["failed_checks"] == [
         "anchor_disambiguation_rate",
         "anchor_recall_rate",
+        "anchor_review_evidence_rate",
         "cross_scope_leak_count",
         "document_chunk_linking_accuracy",
         "event_linking_accuracy",
@@ -1457,6 +1460,7 @@ def test_memory_quality_scorecard_fails_on_semantic_linking_regression() -> None
     assert result["metrics"]["semantic_linking_temporal_intent_recall"] == 0.0
     assert result["metrics"]["semantic_linking_document_chunk_linking_accuracy"] == 0.0
     assert result["metrics"]["semantic_linking_anchor_disambiguation_rate"] == 0.0
+    assert result["metrics"]["semantic_linking_anchor_review_evidence_rate"] == 0.0
     assert result["metrics"]["semantic_linking_high_impact_relation_policy_safety"] == 0.0
     assert result["metrics"]["semantic_linking_false_positive_count"] == 1
     assert result["metrics"]["semantic_linking_cross_scope_leak_count"] == 1

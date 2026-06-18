@@ -1203,6 +1203,7 @@ def test_semantic_linking_golden_eval_passes(tmp_path: Path) -> None:
     assert result["metrics"]["event_linking_accuracy"] == 1.0
     assert result["metrics"]["temporal_intent_recall"] == 1.0
     assert result["metrics"]["anchor_disambiguation_rate"] == 1.0
+    assert result["metrics"]["anchor_review_evidence_rate"] == 1.0
     assert result["metrics"]["high_impact_relation_policy_safety"] == 1.0
     assert result["metrics"]["false_positive_count"] == 0
     assert result["metrics"]["cross_scope_leak_count"] == 0

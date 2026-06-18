@@ -374,6 +374,7 @@ def _scorecard_semantic_linking(
         "document_chunk_linking_accuracy": (metrics.get("document_chunk_linking_accuracy") == 1.0),
         "anchor_recall_rate": metrics.get("anchor_recall_rate") == 1.0,
         "anchor_disambiguation_rate": metrics.get("anchor_disambiguation_rate") == 1.0,
+        "anchor_review_evidence_rate": metrics.get("anchor_review_evidence_rate") == 1.0,
         "high_impact_relation_policy_safety": (
             metrics.get("high_impact_relation_policy_safety") == 1.0
         ),
@@ -1404,6 +1405,10 @@ def _scorecard_metrics(
         "semantic_linking_anchor_recall_rate": semantic.get("anchor_recall_rate", 0.0),
         "semantic_linking_anchor_disambiguation_rate": semantic.get(
             "anchor_disambiguation_rate",
+            0.0,
+        ),
+        "semantic_linking_anchor_review_evidence_rate": semantic.get(
+            "anchor_review_evidence_rate",
             0.0,
         ),
         "semantic_linking_high_impact_relation_policy_safety": semantic.get(
