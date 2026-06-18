@@ -391,6 +391,14 @@ def test_sdk_exposes_typed_extraction_capability_diagnostics() -> None:
                             "video_features",
                         ],
                     },
+                    "file_type_detection": {
+                        "schema_version": "memo_stack.file_type_detection_contract.v1",
+                        "declared_content_type_trusted": False,
+                        "diagnostic_fields": [
+                            "detected_content_type",
+                            "mime_content_type_mismatch",
+                        ],
+                    },
                     "modality_actions": {
                         "audio": {
                             "transcription_api": {
@@ -454,6 +462,14 @@ def test_sdk_exposes_typed_extraction_capability_diagnostics() -> None:
     assert diagnostics.feature_contract["schema_version"] == (
         "memo_stack.extraction_feature_contract.v1"
     )
+    assert diagnostics.file_type_detection["schema_version"] == (
+        "memo_stack.file_type_detection_contract.v1"
+    )
+    assert diagnostics.file_type_detection["declared_content_type_trusted"] is False
+    assert diagnostics.file_type_detection["diagnostic_fields"] == [
+        "detected_content_type",
+        "mime_content_type_mismatch",
+    ]
     assert diagnostics.modality_action("audio", "transcription_api") == {
         "profile": "media_api",
         "enabled": True,
@@ -554,6 +570,7 @@ def test_sdk_defaults_legacy_extraction_capability_contract_fields() -> None:
     standard_local = diagnostics.profile("standard_local")
 
     assert diagnostics.evidence_contract == {}
+    assert diagnostics.file_type_detection == {}
     assert standard_local is not None
     assert standard_local.input_modalities == ()
     assert standard_local.evidence_coordinates == ()
