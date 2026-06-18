@@ -65,7 +65,12 @@ def test_image_asset_extraction_persists_region_artifact_e2e(tmp_path: Path) -> 
         assert extraction["metadata"]["image_height"] == 40
 
         artifact_types = {item["artifact_type"] for item in extraction["artifacts"]}
-        assert artifact_types == {"extracted_json", "image_regions", "markdown"}
+        assert artifact_types == {
+            "extracted_json",
+            "image_regions",
+            "markdown",
+            "media_manifest",
+        }
         regions = next(
             item for item in extraction["artifacts"] if item["artifact_type"] == "image_regions"
         )
@@ -75,6 +80,17 @@ def test_image_asset_extraction_persists_region_artifact_e2e(tmp_path: Path) -> 
         assert payload["schema_name"] == "memo_stack.image_regions"
         assert payload["image"]["image_width"] == 120
         assert payload["regions"][0]["bbox"] == [0.0, 0.0, 120.0, 40.0]
+
+        manifest = next(
+            item for item in extraction["artifacts"] if item["artifact_type"] == "media_manifest"
+        )
+        manifest_download = client.get(f"/v1/extraction-artifacts/{manifest['id']}/download")
+        assert manifest_download.status_code == 200, manifest_download.text
+        manifest_payload = manifest_download.json()
+        assert manifest_payload["schema_version"] == "memo_stack.multimodal_manifest.v1"
+        assert manifest_payload["features"]["modalities"] == ["text", "image"]
+        assert manifest_payload["features"]["coordinate_fields_present"] == ["bbox"]
+        assert manifest_payload["features"]["has_bbox_refs"] is True
 
 
 @pytest.mark.skipif(shutil.which("tesseract") is None, reason="tesseract is not installed")
