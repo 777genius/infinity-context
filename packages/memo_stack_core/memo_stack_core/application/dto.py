@@ -448,6 +448,7 @@ class AnchorBackfillSourceSummary:
     source_type: str
     scanned: int
     observed: int
+    skipped_conflicts: int = 0
 
 
 @dataclass(frozen=True)

@@ -63,6 +63,13 @@ from memo_stack_core.ports.unit_of_work import UnitOfWorkFactoryPort, UnitOfWork
 _ANCHOR_RESOLVER_VERSION = "anchor-lifecycle-v2"
 
 
+@dataclass(frozen=True)
+class _ObservedAnchorUpsertResult:
+    anchor: MemoryAnchor | None
+    created: bool = False
+    skipped_reason: str | None = None
+
+
 class ListAnchorsUseCase:
     def __init__(self, *, uow_factory: UnitOfWorkFactoryPort) -> None:
         self._uow_factory = uow_factory
@@ -438,6 +445,7 @@ class BackfillAnchorsUseCase:
         now = self._clock.now()
         created = 0
         updated = 0
+        skipped_conflicts = 0
         touched: dict[str, MemoryAnchor] = {}
         source_summaries: list[AnchorBackfillSourceSummary] = []
         async with self._uow_factory() as uow:
@@ -449,11 +457,12 @@ class BackfillAnchorsUseCase:
             )
             for source_type, items in sources:
                 observed_count = 0
+                source_skipped_conflicts = 0
                 for item in items:
                     observed = extract_observed_anchors(item.text)
                     observed_count += len(observed)
                     for anchor in observed:
-                        saved, was_created = await _upsert_observed_anchor(
+                        upsert_result = await _upsert_observed_anchor(
                             uow,
                             ids=self._ids,
                             observed=anchor,
@@ -463,8 +472,13 @@ class BackfillAnchorsUseCase:
                             source_id=item.source_id,
                             now=now,
                         )
-                        touched[str(saved.id)] = saved
-                        if was_created:
+                        if upsert_result.anchor is None:
+                            if upsert_result.skipped_reason == "alias_conflict":
+                                skipped_conflicts += 1
+                                source_skipped_conflicts += 1
+                            continue
+                        touched[str(upsert_result.anchor.id)] = upsert_result.anchor
+                        if upsert_result.created:
                             created += 1
                         else:
                             updated += 1
@@ -473,6 +487,7 @@ class BackfillAnchorsUseCase:
                         source_type=source_type,
                         scanned=len(items),
                         observed=observed_count,
+                        skipped_conflicts=source_skipped_conflicts,
                     )
                 )
             await uow.commit()
@@ -484,6 +499,8 @@ class BackfillAnchorsUseCase:
             diagnostics={
                 "resolver_version": _ANCHOR_RESOLVER_VERSION,
                 "limit_per_source": limit,
+                "skipped_count": skipped_conflicts,
+                "skipped_conflict_count": skipped_conflicts,
             },
         )
 
@@ -557,7 +574,7 @@ async def _upsert_observed_anchor(
     source_type: str,
     source_id: str,
     now: datetime,
-) -> tuple[MemoryAnchor, bool]:
+) -> _ObservedAnchorUpsertResult:
     existing = await uow.anchors.find_active_by_key(
         space_id=str(space_id),
         memory_scope_id=str(memory_scope_id),
@@ -587,6 +604,18 @@ async def _upsert_observed_anchor(
     }
     confidence = _confidence_for_observed_anchor(observed)
     evidence_refs = (SourceRef(source_type=source_type, source_id=source_id),)
+    try:
+        await _assert_anchor_aliases_available(
+            uow,
+            space_id=str(space_id),
+            memory_scope_id=str(memory_scope_id),
+            kind=observed.kind.value,
+            label=observed.label,
+            aliases=observed.aliases,
+            exclude_anchor_ids=(str(existing.id),) if existing is not None else (),
+        )
+    except MemoryConflictError:
+        return _ObservedAnchorUpsertResult(anchor=None, skipped_reason="alias_conflict")
     if existing is not None:
         merged = (
             existing.update_details(
@@ -611,7 +640,7 @@ async def _upsert_observed_anchor(
             )
         )
         saved = await uow.anchors.save(merged)
-        return saved, False
+        return _ObservedAnchorUpsertResult(anchor=saved, created=False)
     saved = await uow.anchors.create(
         MemoryAnchor.create(
             anchor_id=MemoryAnchorId(ids.new_id("anchor")),
@@ -629,7 +658,7 @@ async def _upsert_observed_anchor(
             now=now,
         )
     )
-    return saved, True
+    return _ObservedAnchorUpsertResult(anchor=saved, created=True)
 
 
 async def _assert_anchor_aliases_available(

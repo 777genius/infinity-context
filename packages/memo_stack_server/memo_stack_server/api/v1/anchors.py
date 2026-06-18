@@ -292,6 +292,7 @@ async def backfill_anchors(
                     "source_type": item.source_type,
                     "scanned": item.scanned,
                     "observed": item.observed,
+                    "skipped_conflicts": item.skipped_conflicts,
                 }
                 for item in result.sources
             ],

@@ -47,6 +47,17 @@ def overwrite_anchor_aliases(client: TestClient, anchor_id: str, aliases: list[s
     asyncio.run(run())
 
 
+def evidence_ref_identity(ref: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "source_type": ref["source_type"],
+        "source_id": ref["source_id"],
+        "chunk_id": ref["chunk_id"],
+        "char_start": ref["char_start"],
+        "char_end": ref["char_end"],
+        "quote_preview": ref["quote_preview"],
+    }
+
+
 def insert_legacy_anchor_row(client: TestClient, *, anchor_id: str, created_at: str) -> None:
     created = datetime.fromisoformat(created_at)
 
@@ -172,7 +183,9 @@ def test_anchor_backfill_merge_and_split_lifecycle(tmp_path: Path) -> None:
         assert manual_anchor_data["normalized_key"] == "atlas"
         assert "Project Atlas" in manual_anchor_data["aliases"]
         assert manual_anchor_data["confidence"] == "high"
-        assert manual_anchor_data["evidence_refs"] == [
+        assert [
+            evidence_ref_identity(ref) for ref in manual_anchor_data["evidence_refs"]
+        ] == [
             {
                 "source_type": "manual",
                 "source_id": "manual-anchor-atlas",
@@ -466,6 +479,106 @@ def test_anchor_backfill_collapses_russian_person_case_variants(tmp_path: Path) 
         assert person_anchors[0]["label"] == "Алекс"
         assert {"Алекс", "Алексом"}.issubset(set(person_anchors[0]["aliases"]))
         assert person_anchors[0]["metadata"]["canonical_key"] == "aleks"
+
+
+def test_anchor_backfill_skips_legacy_alias_conflict_without_mutating_anchor(
+    tmp_path: Path,
+) -> None:
+    with make_client(tmp_path) as client:
+        capture = client.post(
+            "/v1/captures",
+            json={
+                "space_slug": "anchor-backfill-legacy-alias-conflict",
+                "memory_scope_external_ref": "default",
+                "thread_external_ref": "review",
+                "source_agent": "memo-frontend",
+                "source_kind": "manual",
+                "event_type": "QuickCapture",
+                "actor_role": "user",
+                "source_event_id": "capture-project-atlas-conflict",
+                "text": "Project Atlas",
+                "source_authority": "user_statement",
+            },
+            headers=auth_headers(),
+        )
+        assert capture.status_code == 201, capture.text
+        capture_id = capture.json()["data"]["id"]
+
+        canonical = client.post(
+            "/v1/anchors",
+            json={
+                "space_slug": "anchor-backfill-legacy-alias-conflict",
+                "memory_scope_external_ref": "default",
+                "kind": "project",
+                "label": "Atlas",
+                "aliases": ["Project Atlas"],
+                "evidence_refs": [
+                    {"source_type": "manual", "source_id": "canonical-atlas-review"}
+                ],
+            },
+            headers=auth_headers(),
+        )
+        assert canonical.status_code == 200, canonical.text
+
+        legacy_holder = client.post(
+            "/v1/anchors",
+            json={
+                "space_slug": "anchor-backfill-legacy-alias-conflict",
+                "memory_scope_external_ref": "default",
+                "kind": "project",
+                "label": "Legacy Holder",
+                "aliases": ["Legacy Alias"],
+            },
+            headers=auth_headers(),
+        )
+        assert legacy_holder.status_code == 200, legacy_holder.text
+        overwrite_anchor_aliases(
+            client,
+            legacy_holder.json()["data"]["id"],
+            ["Legacy Holder", "Atlas"],
+        )
+
+        backfill = client.post(
+            "/v1/anchors/backfill",
+            json={
+                "space_slug": "anchor-backfill-legacy-alias-conflict",
+                "memory_scope_external_ref": "default",
+                "limit_per_source": 20,
+            },
+            headers=auth_headers(),
+        )
+        assert backfill.status_code == 200, backfill.text
+        backfill_data = backfill.json()["data"]
+
+        anchors = client.get(
+            "/v1/anchors",
+            params={
+                "space_slug": "anchor-backfill-legacy-alias-conflict",
+                "memory_scope_external_ref": "default",
+                "kind": "project",
+                "limit": 100,
+            },
+            headers=auth_headers(),
+        )
+        assert anchors.status_code == 200, anchors.text
+
+    assert backfill_data["created"] == 0
+    assert backfill_data["updated"] == 0
+    assert backfill_data["diagnostics"]["skipped_count"] == 1
+    assert backfill_data["diagnostics"]["skipped_conflict_count"] == 1
+    capture_summary = next(
+        item for item in backfill_data["sources"] if item["source_type"] == "capture"
+    )
+    assert capture_summary["observed"] == 1
+    assert capture_summary["skipped_conflicts"] == 1
+    anchors_by_id = {item["id"]: item for item in anchors.json()["data"]}
+    canonical_after = anchors_by_id[canonical.json()["data"]["id"]]
+    assert {ref["source_id"] for ref in canonical_after["evidence_refs"]} == {
+        "canonical-atlas-review"
+    }
+    assert capture_id not in {
+        ref["source_id"] for ref in canonical_after["evidence_refs"]
+    }
 
 
 def test_organization_anchor_alias_conflicts_and_split_preserve_lineage(
@@ -824,7 +937,7 @@ def test_anchor_split_to_new_anchor_preserves_provenance_and_temporal_fields(
     assert split_anchor["metadata"]["split_reason"] == (
         "reviewer promoted alias into a separate organization"
     )
-    assert split_anchor["evidence_refs"] == [
+    assert [evidence_ref_identity(ref) for ref in split_anchor["evidence_refs"]] == [
         {
             "source_type": "manual",
             "source_id": "acme-group-review",
