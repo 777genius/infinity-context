@@ -41,3 +41,28 @@ def test_memory_platform_rules_lock_review_audit_contract() -> None:
         "new_status",
     ):
         assert required in rules
+
+
+def test_memory_architecture_lockfile_covers_core_product_rules() -> None:
+    lockfile = (ROOT / "docs" / "memory-architecture-research-lockfile.md").read_text(
+        encoding="utf-8"
+    )
+
+    for required in (
+        "### Locked Rule Index",
+        "`memory-type-boundaries`",
+        "`anchors-not-tags`",
+        "`temporal-current-by-default`",
+        "`review-over-weak-automation`",
+        "`evidence-not-instruction`",
+        "`postgres-canonical`",
+        "`derived-indexes-only`",
+        "`bounded-provenance`",
+        "`legacy-compatible`",
+        "`multimodal-evidence-first`",
+        "## Feature Slice Readiness Gates",
+        "semantic-linking-golden coverage",
+        "quality-golden coverage",
+        "provider-derived content is evidence-first",
+    ):
+        assert required in lockfile

@@ -57,6 +57,25 @@ inspire product rules, but cannot override them.
 | LangMem-style memory patterns split semantic, episodic and procedural behavior | Procedural memory cannot be inferred from ordinary facts or files without explicit review and a separate lifecycle |
 | Letta-style archival memory separates long-term search from always-visible context | Archival evidence is searchable and reviewable, but hidden from default prompt context unless selected by current retrieval policy |
 
+### Locked Rule Index
+
+This index exists so implementation PRs can point to the exact rule they are
+preserving. If a feature cannot name one of these rules, it is probably adding a
+parallel memory model and needs an ADR before implementation.
+
+| Rule id | Locked rule | Primary proof surface |
+| --- | --- | --- |
+| `memory-type-boundaries` | Semantic, episodic, procedural and archival memory are separate write/retrieval patterns | admission policy, context evals, prompt contract evals |
+| `anchors-not-tags` | Canonical anchors represent identity; tags are editable facets for navigation | anchor lifecycle tests, linking evals |
+| `temporal-current-by-default` | Normal context is current-state retrieval; stale/disputed/superseded evidence is review/debug only | temporal relation tests, quality-golden cases |
+| `review-over-weak-automation` | Weak or ambiguous writes become pending review or deny, not silent mutation | context-link policy tests, semantic-linking-golden |
+| `evidence-not-instruction` | Retrieved memory and extracted content are untrusted evidence, never hidden instructions | prompt contract evals, injection golden cases |
+| `postgres-canonical` | Postgres owns lifecycle, visibility, audit and compatibility defaults | API/repository tests, migration fixtures |
+| `derived-indexes-only` | Qdrant and Graphiti are replayable derived indexes and every hit is rehydrated through Postgres | provider consistency tests, context diagnostics |
+| `bounded-provenance` | Context items expose bounded scoring/provenance diagnostics without secrets | SDK/API contract tests, redaction tests |
+| `legacy-compatible` | Old payloads and rows map to safe defaults at boundaries, with diagnostics | SDK compatibility tests, transfer preview tests |
+| `multimodal-evidence-first` | Documents, images, audio and video produce evidence artifacts before semantic promotion | multimodal extraction tests, review-gated linking tests |
+
 ## Locked Product Model
 
 Memo Stack stores memory as canonical evidence plus derived retrieval indexes.
@@ -750,6 +769,35 @@ Minimum gate before major memory behavior changes:
 .venv/bin/python -m memo_stack_server.eval run --suite quality-golden
 .venv/bin/python -m memo_stack_server.eval run --suite semantic-linking-golden
 ```
+
+## Feature Slice Readiness Gates
+
+Every memory feature slice must pass these gates before implementation is
+considered complete. This is intentionally stricter than "route exists" or
+"frontend works".
+
+| Slice type | Required before commit | Required tests or evals |
+| --- | --- | --- |
+| memory type/admission | source trust, admission output and promotion rule are explicit | unit tests for source-only, pending, active and deny paths |
+| anchor identity | kind, normalized key, aliases and conflict behavior are explicit | duplicate, alias conflict, same-name cross-kind and merge/split tests |
+| temporal visibility | observed/valid windows and stale policy are explicit | normal context hides stale, review/debug explains stale |
+| context assembly | ranking reason, score signals, provenance and counters are bounded | API/SDK contract tests plus quality-golden coverage |
+| semantic linking | thresholds, deny rules, duplicate suppression and review state are explicit | policy tests plus semantic-linking-golden coverage |
+| migration compatibility | old missing fields and public payload defaults are enumerated | legacy row, import/export, API and SDK regression tests |
+| multimodal ingestion | artifact model, coordinates and provider degradation are explicit | document/image/audio/video extraction tests with source refs |
+| review UX/API/SDK | approve/reject/edit/batch semantics and audit event are explicit | API/SDK tests for filters, target override, bounded batch and audit |
+| observability | counters are bounded and redacted | diagnostics size/redaction tests |
+| performance guardrail | candidate, evidence, diagnostics and batch caps are explicit | bounded payload and N+1 regression tests where applicable |
+
+Definition of done:
+
+- The feature preserves at least one locked rule from the index above.
+- Public payload changes remain additive or include migration notes.
+- Any prompt-impacting behavior has deterministic eval coverage.
+- Any provider-derived content is evidence-first and review-gated when
+  ambiguous.
+- `memo_stack_core` still depends only on domain/application ports, not
+  provider SDKs or server frameworks.
 
 ## Implementation Traceability Matrix
 
