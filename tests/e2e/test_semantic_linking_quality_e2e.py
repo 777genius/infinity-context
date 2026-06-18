@@ -237,6 +237,65 @@ def test_semantic_linking_quality_golden_cases_e2e(tmp_path: Path) -> None:
         assert unrelated.status_code == 200, unrelated.text
         assert unrelated.json()["data"]["candidates"] == []
 
+        rejected_fact = _remember_fact(
+            client,
+            text=(
+                "Project Atlas screenshot evidence mentions Alex and a rejected "
+                "vendor onboarding checklist."
+            ),
+            source_id="atlas-rejected-screenshot-link",
+        )
+        rejected_capture = _capture(
+            client,
+            source_event_id="atlas-rejected-screenshot-capture",
+            text=(
+                "Save Alex Project Atlas screenshot evidence for rejected vendor "
+                "onboarding checklist review."
+            ),
+            thread_external_ref="quality-review",
+        )
+        rejected_payload = {
+            "space_slug": "semantic-linking-quality",
+            "memory_scope_external_ref": "default",
+            "thread_external_ref": "quality-review",
+            "source_type": "capture",
+            "source_id": rejected_capture["id"],
+            "text": "Alex Project Atlas screenshot evidence rejected vendor onboarding checklist",
+            "persist": True,
+            "limit": 8,
+        }
+        rejected_suggestions = client.post("/v1/link-suggestions", json=rejected_payload)
+        assert rejected_suggestions.status_code == 200, rejected_suggestions.text
+        rejected_candidate = next(
+            item
+            for item in rejected_suggestions.json()["data"]["candidates"]
+            if item["target_type"] == "fact" and item["target_id"] == rejected_fact["id"]
+        )
+        rejected_review = client.post(
+            f"/v1/context-link-suggestions/{rejected_candidate['suggestion_id']}/review",
+            json={"action": "reject", "reason": "quality golden rejected duplicate link"},
+        )
+        assert rejected_review.status_code == 200, rejected_review.text
+
+        repeated_rejected_suggestions = client.post(
+            "/v1/link-suggestions",
+            json=rejected_payload,
+        )
+        assert repeated_rejected_suggestions.status_code == 200
+        repeated_rejected_data = repeated_rejected_suggestions.json()["data"]
+        assert all(
+            item["target_id"] != rejected_fact["id"]
+            for item in repeated_rejected_data["candidates"]
+            if item["target_type"] == "fact"
+        )
+        assert repeated_rejected_data["diagnostics"]["skipped_reviewed_suggestion_count"] >= 1
+        assert (
+            repeated_rejected_data["diagnostics"]["skipped_reviewed_suggestion_status_counts"][
+                "rejected"
+            ]
+            >= 1
+        )
+
         cross_scope_fact = _remember_fact(
             client,
             space_slug="semantic-linking-quality-private",
