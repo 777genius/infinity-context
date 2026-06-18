@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import json
 import time
 from dataclasses import dataclass
 
@@ -201,6 +202,42 @@ def test_openai_vision_engine_extracts_image_understanding() -> None:
         "vision_json",
     }
     assert "Quick capture links this screenshot to MemoryScope frontend" in (result.markdown or "")
+
+
+def test_openai_vision_engine_bounds_provider_payload_before_artifacts() -> None:
+    engine = OpenAIVisionImageExtractionEngine(
+        api_key=None,
+        model="gpt-4.1-mini",
+        detail="high",
+        client_factory=lambda: _LargeVisionClient(),
+    )
+    request = _request(
+        parser_profile="standard_vision",
+        detected_content_type="image/png",
+        content=_sample_png_bytes(),
+        filename="memory-screenshot.png",
+        enable_external_ai=True,
+    )
+
+    result = asyncio.run(engine.extract(request))
+
+    assert result.status == "succeeded"
+    assert result.technical_metadata["visible_text_count"] == 50
+    assert result.technical_metadata["suggested_tag_count"] == 20
+    assert result.technical_metadata["vision_region_count"] == 50
+    assert result.technical_metadata["screenshot_ui_summary_chars"] == 4000
+    assert result.diagnostics["payload_bounded"] is True
+    vision_json = next(
+        artifact for artifact in result.artifacts if artifact.artifact_type == "vision_json"
+    )
+    payload = json.loads(vision_json.content.decode("utf-8"))
+    assert len(payload["summary"]) == 4000
+    assert len(payload["visible_text"]) == 50
+    assert all(len(item) == 1000 for item in payload["visible_text"])
+    assert len(payload["suggested_tags"]) == 20
+    assert all(len(item) == 80 for item in payload["suggested_tags"])
+    assert len(payload["regions"]) == 50
+    assert all(len(item["text"]) == 1000 for item in payload["regions"])
 
 
 def test_openai_vision_engine_ignores_standard_local_profile() -> None:
@@ -838,13 +875,40 @@ class _FakeVisionResponses:
         )
 
 
+class _LargeVisionResponses:
+    async def create(self, **kwargs) -> _FakeVisionResponse:
+        long_text = "x" * 5000
+        long_tag = "tag-" + ("x" * 120)
+        payload = {
+            "summary": long_text,
+            "visible_text": [long_text for _ in range(80)],
+            "screenshot_ui_summary": long_text,
+            "suggested_tags": [long_tag for _ in range(40)],
+            "regions": [
+                {
+                    "kind": "visible_text",
+                    "text": long_text,
+                    "bbox": [0, 0, 1, 1],
+                    "confidence": 0.9,
+                }
+                for _ in range(80)
+            ],
+        }
+        return _FakeVisionResponse(output_text=json.dumps(payload))
+
+
 class _FakeVisionClient:
-    def __init__(self) -> None:
-        self.responses = _FakeVisionResponses()
+    def __init__(self, responses=None) -> None:
+        self.responses = responses or _FakeVisionResponses()
         self.closed = False
 
     async def aclose(self) -> None:
         self.closed = True
+
+
+class _LargeVisionClient(_FakeVisionClient):
+    def __init__(self) -> None:
+        super().__init__(responses=_LargeVisionResponses())
 
 
 @dataclass(frozen=True)

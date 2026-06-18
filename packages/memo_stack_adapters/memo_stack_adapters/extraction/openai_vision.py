@@ -43,6 +43,13 @@ _SUPPORTED_OPENAI_IMAGE_TYPES = {
     "image/webp",
     "image/gif",
 }
+_MAX_TEXT_CHARS = 4_000
+_MAX_VISIBLE_TEXT_ITEMS = 50
+_MAX_VISIBLE_TEXT_CHARS = 1_000
+_MAX_TAG_ITEMS = 20
+_MAX_TAG_CHARS = 80
+_MAX_REGION_ITEMS = 50
+_MAX_REGION_TEXT_CHARS = 1_000
 _PROMPT = """Analyze this image as evidence for a personal/team memory system.
 
 Return only JSON matching the provided schema.
@@ -256,7 +263,7 @@ class OpenAIVisionImageExtractionEngine(ExtractionEngine):
                 "output_chars": len(markdown),
                 **(image_metadata.as_metadata() if image_metadata is not None else {}),
             },
-            diagnostics={"engine": self.name},
+            diagnostics={"engine": self.name, **vision_result.diagnostics},
             parser_name=self.name,
             parser_version=vision_result.provider_version or "image-vision-port",
             model_version=provider_model,
@@ -339,7 +346,10 @@ class OpenAIImageVisionAdapter(ImageVisionPort):
             provider_name=self.provider_name,
             provider_model=self._model,
             provider_version=self.provider_version,
-            diagnostics={"detail": self._detail},
+            diagnostics={
+                "detail": self._detail,
+                "payload_bounded": True,
+            },
         )
 
     def _client(self) -> Any:
@@ -409,10 +419,21 @@ def _normalize_vision_payload(payload: dict[str, object]) -> dict[str, object]:
     return {
         "schema_name": "memo_stack.vision_image_evidence",
         "schema_version": "1.0",
-        "summary": _text(payload.get("summary")),
-        "visible_text": _text_list(payload.get("visible_text")),
-        "screenshot_ui_summary": _text(payload.get("screenshot_ui_summary")),
-        "suggested_tags": _text_list(payload.get("suggested_tags")),
+        "summary": _text(payload.get("summary"), max_chars=_MAX_TEXT_CHARS),
+        "visible_text": _text_list(
+            payload.get("visible_text"),
+            max_items=_MAX_VISIBLE_TEXT_ITEMS,
+            max_chars=_MAX_VISIBLE_TEXT_CHARS,
+        ),
+        "screenshot_ui_summary": _text(
+            payload.get("screenshot_ui_summary"),
+            max_chars=_MAX_TEXT_CHARS,
+        ),
+        "suggested_tags": _text_list(
+            payload.get("suggested_tags"),
+            max_items=_MAX_TAG_ITEMS,
+            max_chars=_MAX_TAG_CHARS,
+        ),
         "regions": _region_payloads(payload.get("regions")),
     }
 
@@ -421,7 +442,7 @@ def _fallback_payload(raw_output: str) -> dict[str, object]:
     return {
         "schema_name": "memo_stack.vision_image_evidence",
         "schema_version": "1.0",
-        "summary": raw_output.strip(),
+        "summary": _text(raw_output, max_chars=_MAX_TEXT_CHARS),
         "visible_text": [],
         "screenshot_ui_summary": "",
         "suggested_tags": [],
@@ -433,10 +454,10 @@ def _region_payloads(value: object) -> list[dict[str, object]]:
     if not isinstance(value, list):
         return []
     regions: list[dict[str, object]] = []
-    for item in value[:200]:
+    for item in value[:_MAX_REGION_ITEMS]:
         if not isinstance(item, dict):
             continue
-        text = _text(item.get("text"))
+        text = _text(item.get("text"), max_chars=_MAX_REGION_TEXT_CHARS)
         if not text:
             continue
         regions.append(
@@ -535,18 +556,31 @@ def _vision_regions(
 
 
 def _region_kind(value: object) -> str:
-    text = _text(value).lower().replace(" ", "_")
+    text = _text(value, max_chars=80).lower().replace(" ", "_")
     return text[:80] or "image_region"
 
 
-def _text_list(value: object) -> list[str]:
+def _text_list(
+    value: object,
+    *,
+    max_items: int = _MAX_VISIBLE_TEXT_ITEMS,
+    max_chars: int = _MAX_VISIBLE_TEXT_CHARS,
+) -> list[str]:
     if not isinstance(value, list):
         return []
-    return [text for item in value if (text := _text(item))]
+    items: list[str] = []
+    for item in value:
+        text = _text(item, max_chars=max_chars)
+        if not text:
+            continue
+        items.append(text)
+        if len(items) >= max_items:
+            break
+    return items
 
 
-def _text(value: object) -> str:
-    return str(value or "").strip()
+def _text(value: object, *, max_chars: int = _MAX_TEXT_CHARS) -> str:
+    return str(value or "").strip()[:max(0, max_chars)]
 
 
 def _confidence(value: object) -> float | None:
