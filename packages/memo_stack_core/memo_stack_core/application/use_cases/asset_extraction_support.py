@@ -40,6 +40,20 @@ class ActiveAssetExtractionLeaseError(RuntimeError):
         self.retry_after_at = retry_after_at
 
 
+class DeferredAssetExtractionRetryError(RuntimeError):
+    diagnostic_code = "asset_extraction.retry_not_ready"
+
+    def __init__(
+        self,
+        *,
+        job_id: str,
+        retry_after_at: datetime,
+    ) -> None:
+        super().__init__("Asset extraction retry is waiting for retry_after_at")
+        self.job_id = job_id
+        self.retry_after_at = retry_after_at
+
+
 class ExtractionRetryPolicy:
     def __init__(
         self,
@@ -203,6 +217,13 @@ def indexing_status(status: AssetExtractionStatus) -> str:
         AssetExtractionStatus.CANCELED: "canceled",
         AssetExtractionStatus.STALE: "stale",
     }[status]
+
+
+def is_non_runnable_extraction_job(job: AssetExtractionJob) -> bool:
+    return job.status in NON_RUNNABLE_EXTRACTION_STATUSES or (
+        job.status == AssetExtractionStatus.FAILED
+        and job.retry_disposition == ExtractionRetryDisposition.PERMANENT
+    )
 
 
 def safe_exception_code(exc: Exception) -> str:

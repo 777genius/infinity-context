@@ -363,7 +363,10 @@ class OutboxWorker:
                 row.last_safe_diagnostic_code = diagnostic_code
                 row.updated_at = now
                 retry_after_at = _retry_after_from_exception(exc)
-                if diagnostic_code == "asset_extraction.lease_active":
+                if diagnostic_code in {
+                    "asset_extraction.lease_active",
+                    "asset_extraction.retry_not_ready",
+                }:
                     row.status = "retry_pending"
                     row.next_attempt_at = retry_after_at or now + timedelta(seconds=30)
                 else:

@@ -36,11 +36,13 @@ from memo_stack_core.application.safe_payload import safe_metadata, safe_metadat
 from memo_stack_core.application.use_cases.asset_extraction_support import (
     NON_RUNNABLE_EXTRACTION_STATUSES,
     ActiveAssetExtractionLeaseError,
+    DeferredAssetExtractionRetryError,
     ExtractionRetryPolicy,
     actual_media_analysis_seconds,
     asset_extract_event,
     estimated_media_analysis_seconds,
     indexing_status,
+    is_non_runnable_extraction_job,
     parser_config_hash,
     positive_int,
     safe_error_text,
@@ -359,7 +361,7 @@ class RunAssetExtractionUseCase:
 
     async def execute(self, command: RunAssetExtractionCommand) -> AssetExtractionResult:
         job = await self._mark_running(command)
-        if job.status in NON_RUNNABLE_EXTRACTION_STATUSES:
+        if is_non_runnable_extraction_job(job):
             async with self._uow_factory() as uow:
                 artifacts = await uow.asset_extractions.list_artifacts(job_id=str(job.id))
             return AssetExtractionResult(
@@ -511,7 +513,9 @@ class RunAssetExtractionUseCase:
                 indexing_status=ingest.indexing_status,
             )
         except Exception as exc:
-            await self._mark_failed_unless_terminal(job, exc)
+            failed = await self._mark_failed_unless_terminal(job, exc)
+            if failed.retry_disposition == ExtractionRetryDisposition.PERMANENT:
+                return AssetExtractionResult(job=failed, indexing_status="failed")
             if isinstance(exc, MemoryInfrastructureError):
                 raise
             raise MemoryInfrastructureError("Asset extraction failed") from exc
@@ -524,6 +528,18 @@ class RunAssetExtractionUseCase:
             if job.status in NON_RUNNABLE_EXTRACTION_STATUSES:
                 return job
             now = self._clock.now()
+            if job.status == AssetExtractionStatus.FAILED:
+                if job.retry_disposition == ExtractionRetryDisposition.PERMANENT:
+                    return job
+                if (
+                    job.retry_after_at is not None
+                    and _datetime_after(job.retry_after_at, now)
+                    and not command.force
+                ):
+                    raise DeferredAssetExtractionRetryError(
+                        job_id=str(job.id),
+                        retry_after_at=job.retry_after_at,
+                    )
             if job.status == AssetExtractionStatus.RUNNING:
                 if job.cancellation_requested_at is not None:
                     return job
@@ -876,16 +892,27 @@ class RunAssetExtractionUseCase:
             if current is None:
                 raise MemoryNotFoundError("Asset extraction job not found")
             now = self._clock.now()
-            retry_disposition = self._retry_policy.disposition_for_code(code)
+            policy_retry_disposition = self._retry_policy.disposition_for_code(code)
             retry_after_at = self._retry_policy.retry_after(
                 now=now,
                 attempt_count=current.attempt_count,
                 code=code,
             )
+            retry_exhausted = (
+                policy_retry_disposition == ExtractionRetryDisposition.RETRYABLE
+                and retry_after_at is None
+                and current.attempt_count >= self._retry_policy.max_attempts
+            )
+            retry_disposition = (
+                ExtractionRetryDisposition.PERMANENT
+                if retry_exhausted
+                else policy_retry_disposition
+            )
             retry_metadata = {
                 "retry_disposition": retry_disposition.value,
                 "retry_after_at": retry_after_at.isoformat() if retry_after_at else None,
                 "retry_max_attempts": self._retry_policy.max_attempts,
+                **({"retry_exhausted": True} if retry_exhausted else {}),
             }
             failed = current.mark_failed(
                 now=now,
