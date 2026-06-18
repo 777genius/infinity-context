@@ -246,6 +246,10 @@ def test_asset_upload_download_dedupe_and_context_link_flow(tmp_path: Path) -> N
         "needs_review",
         "auto_approve_candidate",
     }
+    assert candidate["metadata"]["policy_decision_canonical"] in {
+        "pending_review",
+        "auto_approve_candidate",
+    }
     assert candidate["metadata"]["review_gate"] == "required"
     assert {"alex", "frontend", "capture"}.issubset(set(candidate["metadata"]["matched_terms"]))
     assert link.status_code == 200

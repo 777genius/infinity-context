@@ -66,6 +66,7 @@ def test_policy_denies_low_score_without_strong_link_signal() -> None:
         "deny": 1,
         "duplicate_suppressed": 0,
         "auto_approve_candidate": 0,
+        "pending_review": 0,
         "needs_review": 0,
     }
 
@@ -105,6 +106,7 @@ def test_policy_allows_low_score_with_strong_temporal_signal_for_review() -> Non
     assert decision.requires_review is True
     assert result.candidates[0].target_id == "temporal"
     assert result.candidates[0].metadata["policy_decision"] == "needs_review"
+    assert result.candidates[0].metadata["policy_decision_canonical"] == "pending_review"
 
 
 def test_policy_keeps_single_signal_high_score_candidate_review_only() -> None:
@@ -177,6 +179,7 @@ def test_policy_applies_metadata_caps_and_duplicate_suppression() -> None:
         "deny": 0,
         "duplicate_suppressed": 1,
         "auto_approve_candidate": 1,
+        "pending_review": MAX_SUGGESTIONS_PER_SOURCE - 1,
         "needs_review": MAX_SUGGESTIONS_PER_SOURCE - 1,
     }
     assert result.diagnostics["link_policy_max_suggestions_per_source"] == (
@@ -184,9 +187,13 @@ def test_policy_applies_metadata_caps_and_duplicate_suppression() -> None:
     )
     first_metadata = result.candidates[0].metadata or {}
     assert first_metadata["policy_decision"] == "auto_approve_candidate"
+    assert first_metadata["policy_decision_canonical"] == "auto_approve_candidate"
     assert first_metadata["review_gate"] == "required"
     assert first_metadata["auto_approve_eligible"] is True
     assert first_metadata["policy_confidence"] == "high"
+    assert result.diagnostics["link_policy_pending_review_count"] == (
+        MAX_SUGGESTIONS_PER_SOURCE - 1
+    )
 
 
 def test_policy_diagnostics_report_actual_candidates_processed_before_limit() -> None:

@@ -143,10 +143,12 @@ def apply_context_link_policy(
             "link_policy_duplicate_suppressed_count": duplicate_count,
             "link_policy_auto_approve_eligible_count": auto_eligible_count,
             "link_policy_needs_review_count": needs_review_count,
+            "link_policy_pending_review_count": needs_review_count,
             "link_policy_decision_counts": {
                 "deny": denied_count,
                 "duplicate_suppressed": duplicate_count,
                 "auto_approve_candidate": auto_eligible_count,
+                "pending_review": needs_review_count,
                 "needs_review": needs_review_count,
             },
             "link_policy_max_suggestions_per_source": max_suggestions,
@@ -233,6 +235,7 @@ def _with_policy_metadata(
         {
             "suggestion_policy_version": POLICY_VERSION,
             "policy_decision": decision.outcome,
+            "policy_decision_canonical": _canonical_policy_decision(decision.outcome),
             "policy_relation_type": decision.relation_type,
             "policy_confidence": decision.confidence,
             "policy_reason_codes": list(decision.reason_codes),
@@ -241,6 +244,10 @@ def _with_policy_metadata(
         }
     )
     return replace(candidate, metadata=metadata)
+
+
+def _canonical_policy_decision(outcome: str) -> str:
+    return "pending_review" if outcome == "needs_review" else outcome
 
 
 def _deny_reason_codes(
