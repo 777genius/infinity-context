@@ -4,6 +4,7 @@ import json
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
+from memo_stack_core.domain.entities import SourceRef
 from memo_stack_server.api.public_payload import safe_public_metadata
 from memo_stack_server.api.v1.anchors import anchor_to_response
 from memo_stack_server.api.v1.context import context_item_to_response
@@ -12,7 +13,7 @@ from memo_stack_server.api.v1.context_links import (
     context_link_to_response,
 )
 from memo_stack_server.api.v1.documents import chunk_to_response
-from memo_stack_server.api.v1.facts import fact_relation_to_response
+from memo_stack_server.api.v1.facts import fact_relation_to_response, fact_to_response
 
 
 def test_safe_public_metadata_redacts_nested_sensitive_values() -> None:
@@ -256,6 +257,50 @@ def test_anchor_response_defaults_legacy_lifecycle_fields() -> None:
     assert response["valid_from"] is None
     assert response["valid_to"] is None
     assert response["metadata"] == {}
+
+
+def test_fact_response_exposes_multimodal_source_refs() -> None:
+    now = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
+    enum = SimpleNamespace
+
+    response = fact_to_response(
+        SimpleNamespace(
+            id="fact_multimodal",
+            space_id="space_1",
+            memory_scope_id="scope_1",
+            thread_id=None,
+            text="Screenshot says Alex approved launch.",
+            kind=enum(value="note"),
+            status=enum(value="active"),
+            version=1,
+            confidence=enum(value="high"),
+            trust_level=enum(value="medium"),
+            classification="internal",
+            category=None,
+            tags=(),
+            ttl_policy=None,
+            expires_at=None,
+            source_refs=(
+                SourceRef(
+                    source_type="asset_extraction",
+                    source_id="extract_1",
+                    chunk_id="chunk_1",
+                    page_number=2,
+                    time_start_ms=1000,
+                    time_end_ms=1500,
+                    bbox=(0.0, 1.0, 120.0, 40.0),
+                ),
+            ),
+            created_at=now,
+            updated_at=now,
+        )
+    )
+
+    ref = response["source_refs"][0]
+    assert ref["page_number"] == 2
+    assert ref["time_start_ms"] == 1000
+    assert ref["time_end_ms"] == 1500
+    assert ref["bbox"] == [0.0, 1.0, 120.0, 40.0]
 
 
 def test_fact_relation_response_defaults_legacy_temporal_fields_and_redacts_reason() -> None:

@@ -289,6 +289,46 @@ def test_context_dedupe_caps_merged_source_refs() -> None:
     )
 
 
+def test_context_dedupe_preserves_distinct_multimodal_source_refs() -> None:
+    primary_ref = SourceRef(
+        source_type="asset_extraction",
+        source_id="extract_1",
+        chunk_id="chunk_1",
+        char_start=0,
+        char_end=100,
+        page_number=1,
+    )
+    secondary_ref = SourceRef(
+        source_type="asset_extraction",
+        source_id="extract_1",
+        chunk_id="chunk_1",
+        char_start=0,
+        char_end=100,
+        bbox=(0.0, 1.0, 120.0, 40.0),
+    )
+
+    result = dedupe_rank_items(
+        (
+            ContextItem(
+                item_id="fact_multimodal",
+                item_type="fact",
+                text="primary",
+                score=0.9,
+                source_refs=(primary_ref,),
+            ),
+            ContextItem(
+                item_id="fact_multimodal",
+                item_type="fact",
+                text="secondary",
+                score=0.8,
+                source_refs=(secondary_ref,),
+            ),
+        )
+    )
+
+    assert result[0].source_refs == (primary_ref, secondary_ref)
+
+
 def test_context_ranking_merges_hybrid_retrieval_provenance() -> None:
     keyword = ContextItem(
         item_id="chunk_1",

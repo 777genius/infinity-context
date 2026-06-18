@@ -7,6 +7,7 @@ from memo_stack_adapters.postgres.mappers import (
     anchor_row_to_domain,
     fact_relation_row_to_domain,
     fact_row_to_domain,
+    source_ref_row_to_domain,
 )
 from memo_stack_core.domain.entities import Confidence, FactStatus, TrustLevel
 
@@ -83,3 +84,25 @@ def test_fact_row_to_domain_defaults_missing_policy_fields() -> None:
     assert fact.tags == ()
     assert fact.ttl_policy is None
     assert fact.expires_at is None
+
+
+def test_source_ref_row_to_domain_preserves_multimodal_fields() -> None:
+    row = SimpleNamespace(
+        source_type="asset_extraction",
+        source_id="extract_1",
+        chunk_id="chunk_1",
+        char_start=10,
+        char_end=40,
+        quote_preview="Screenshot text",
+        page_number=2,
+        time_start_ms=1000,
+        time_end_ms=1500,
+        bbox_json=[0, 1, 120, 40],
+    )
+
+    ref = source_ref_row_to_domain(row)
+
+    assert ref.page_number == 2
+    assert ref.time_start_ms == 1000
+    assert ref.time_end_ms == 1500
+    assert ref.bbox == (0.0, 1.0, 120.0, 40.0)

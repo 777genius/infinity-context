@@ -40,6 +40,7 @@ from memo_stack_server.api.v1.scope_resolution import (
     resolve_existing_single_scope,
     resolve_single_scope,
 )
+from memo_stack_server.api.v1.source_refs import source_ref_to_response
 from memo_stack_server.composition import Container
 from memo_stack_server.pagination import cursor_datetime, cursor_str, decode_cursor, encode_cursor
 
@@ -142,19 +143,7 @@ def fact_to_response(fact: MemoryFact, indexing_status: str | None = None) -> di
         "tags": list(fact.tags),
         "ttl_policy": fact.ttl_policy,
         "expires_at": fact.expires_at.isoformat() if fact.expires_at else None,
-        "source_refs": [
-            {
-                "source_type": ref.source_type,
-                "source_id": ref.source_id,
-                "chunk_id": ref.chunk_id,
-                "char_start": ref.char_start,
-                "char_end": ref.char_end,
-                "quote_preview": safe_public_text(ref.quote_preview)
-                if ref.quote_preview
-                else None,
-            }
-            for ref in fact.source_refs
-        ],
+        "source_refs": [source_ref_to_response(ref) for ref in fact.source_refs],
         "created_at": fact.created_at.isoformat(),
         "updated_at": fact.updated_at.isoformat(),
     }

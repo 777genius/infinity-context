@@ -70,7 +70,7 @@ def _merge_source_refs(
     secondary: tuple[SourceRef, ...],
 ) -> tuple[SourceRef, ...]:
     refs: list[SourceRef] = []
-    seen: set[tuple[str, str, str | None, int | None, int | None, str | None]] = set()
+    seen: set[tuple[object, ...]] = set()
     for ref in (*primary, *secondary):
         key = (
             ref.source_type,
@@ -79,6 +79,10 @@ def _merge_source_refs(
             ref.char_start,
             ref.char_end,
             ref.quote_preview,
+            ref.page_number,
+            ref.time_start_ms,
+            ref.time_end_ms,
+            ref.bbox,
         )
         if key in seen:
             continue

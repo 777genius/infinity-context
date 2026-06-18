@@ -105,6 +105,12 @@ _ADDITIVE_SCHEMA_COLUMNS = {
         ("valid_from", "TIMESTAMPTZ"),
         ("valid_to", "TIMESTAMPTZ"),
     ),
+    "memory_source_refs": (
+        ("page_number", "INTEGER"),
+        ("time_start_ms", "INTEGER"),
+        ("time_end_ms", "INTEGER"),
+        ("bbox_json", "JSON"),
+    ),
 }
 
 _LEGACY_PROFILE_ID_TABLES = (

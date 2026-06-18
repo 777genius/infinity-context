@@ -158,6 +158,71 @@ def test_remember_and_list_fact_support_external_scope_refs(tmp_path: Path) -> N
     assert listed.json()["data"][0]["thread_id"] is not None
 
 
+def test_fact_multimodal_source_refs_survive_persistence_and_context(
+    tmp_path: Path,
+) -> None:
+    with make_client(tmp_path) as client:
+        created = client.post(
+            "/v1/facts",
+            json={
+                **fact_payload("MULTIMODAL_FACT_MARKER: Alex approved launch."),
+                "source_refs": [
+                    {
+                        "source_type": "asset_extraction",
+                        "source_id": "extract_1",
+                        "chunk_id": "chunk_1",
+                        "quote_preview": "Alex approved launch",
+                        "page_number": 2,
+                        "time_start_ms": 1000,
+                        "time_end_ms": 1500,
+                        "bbox": [0, 1, 120, 40],
+                    }
+                ],
+            },
+            headers=auth_headers(),
+        )
+        listed = client.get(
+            "/v1/facts",
+            params={
+                "space_id": "space_client_app",
+                "memory_scope_id": "memory_scope_default",
+            },
+            headers=auth_headers(),
+        )
+        context = client.post(
+            "/v1/context",
+            json={
+                "space_id": "space_client_app",
+                "memory_scope_ids": ["memory_scope_default"],
+                "query": "MULTIMODAL_FACT_MARKER Alex approved launch",
+                "token_budget": 512,
+            },
+            headers=auth_headers(),
+        )
+
+    assert created.status_code == 201, created.text
+    assert listed.status_code == 200, listed.text
+    listed_fact = next(
+        item for item in listed.json()["data"] if item["id"] == created.json()["data"]["id"]
+    )
+    listed_ref = listed_fact["source_refs"][0]
+    assert listed_ref["page_number"] == 2
+    assert listed_ref["time_start_ms"] == 1000
+    assert listed_ref["time_end_ms"] == 1500
+    assert listed_ref["bbox"] == [0.0, 1.0, 120.0, 40.0]
+
+    assert context.status_code == 200, context.text
+    context_fact = next(
+        item for item in context.json()["data"]["items"] if item["item_id"] == listed_fact["id"]
+    )
+    context_ref = context_fact["source_refs"][0]
+    assert context_ref["page_number"] == 2
+    assert context_ref["time_start_ms"] == 1000
+    assert context_ref["time_end_ms"] == 1500
+    assert context_ref["bbox"] == [0.0, 1.0, 120.0, 40.0]
+    assert context.json()["data"]["diagnostics"]["source_refs_with_bbox_count"] >= 1
+
+
 def test_read_routes_do_not_create_missing_external_scope(tmp_path: Path) -> None:
     with make_client(tmp_path) as client:
         before_spaces = client.get("/v1/spaces", headers=auth_headers())

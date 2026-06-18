@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from math import isfinite
 from typing import Any
 
 from memo_stack_adapters.postgres.models import (
@@ -16,7 +17,7 @@ from memo_stack_adapters.postgres.models import (
     MemorySourceRefRow,
 )
 from memo_stack_core.application.safe_payload import safe_metadata, safe_metadata_text
-from memo_stack_core.domain.entities import Confidence
+from memo_stack_core.domain.entities import Confidence, SourceRef
 from memo_stack_core.domain.errors import MemoryValidationError
 
 from memo_stack_server.memory_scope_transfer_temporal import validate_temporal_window
@@ -119,6 +120,7 @@ def chunk_to_json(row: MemoryChunkRow, *, redacted: bool) -> dict[str, Any]:
 
 
 def source_ref_to_json(row: MemorySourceRefRow, *, redacted: bool) -> dict[str, Any]:
+    bbox = getattr(row, "bbox_json", None)
     return {
         "fact_id": row.fact_id,
         "fact_version": row.fact_version,
@@ -128,6 +130,10 @@ def source_ref_to_json(row: MemorySourceRefRow, *, redacted: bool) -> dict[str, 
         "char_start": row.char_start,
         "char_end": row.char_end,
         "quote_preview": None if redacted else bounded_optional_text(row.quote_preview, 240),
+        "page_number": getattr(row, "page_number", None),
+        "time_start_ms": getattr(row, "time_start_ms", None),
+        "time_end_ms": getattr(row, "time_end_ms", None),
+        "bbox": [float(value) for value in bbox] if _is_bbox(bbox) else None,
     }
 
 
@@ -323,15 +329,20 @@ def chunk_from_json(
 
 
 def source_ref_from_json(item: dict[str, Any]) -> MemorySourceRefRow:
+    ref = _source_ref_from_transfer_json(item)
     return MemorySourceRefRow(
         fact_id=str(item["fact_id"]),
         fact_version=int(item.get("fact_version", 1)),
-        source_type=str(item.get("source_type", "import")),
-        source_id=str(item.get("source_id", "import")),
-        chunk_id=item.get("chunk_id"),
-        char_start=item.get("char_start"),
-        char_end=item.get("char_end"),
-        quote_preview=bounded_optional_text(item.get("quote_preview"), 240),
+        source_type=ref.source_type,
+        source_id=ref.source_id,
+        chunk_id=ref.chunk_id,
+        char_start=ref.char_start,
+        char_end=ref.char_end,
+        quote_preview=ref.quote_preview,
+        page_number=ref.page_number,
+        time_start_ms=ref.time_start_ms,
+        time_end_ms=ref.time_end_ms,
+        bbox_json=list(ref.bbox) if ref.bbox is not None else None,
     )
 
 
@@ -462,14 +473,13 @@ def _anchor_evidence_refs_to_json(items: list[dict[str, object]]) -> list[dict[s
         if not isinstance(item, dict):
             continue
         refs.append(
-            {
-                "source_type": bounded_optional_text(item.get("source_type"), 80) or "unknown",
-                "source_id": bounded_optional_text(item.get("source_id"), 160) or "unknown",
-                "chunk_id": bounded_optional_text(item.get("chunk_id"), 160),
-                "char_start": item.get("char_start"),
-                "char_end": item.get("char_end"),
-                "quote_preview": safe_bounded_optional_text(item.get("quote_preview"), 240),
-            }
+            _source_ref_to_transfer_json(
+                _source_ref_from_transfer_json(
+                    item,
+                    default_source_type="unknown",
+                    default_source_id="unknown",
+                )
+            )
         )
     return refs
 
@@ -482,16 +492,81 @@ def _anchor_evidence_refs_from_json(value: object) -> list[dict[str, object]]:
         if not isinstance(item, dict):
             continue
         refs.append(
-            {
-                "source_type": bounded_optional_text(item.get("source_type"), 80) or "unknown",
-                "source_id": bounded_optional_text(item.get("source_id"), 160) or "unknown",
-                "chunk_id": bounded_optional_text(item.get("chunk_id"), 160),
-                "char_start": item.get("char_start"),
-                "char_end": item.get("char_end"),
-                "quote_preview": safe_bounded_optional_text(item.get("quote_preview"), 240),
-            }
+            _source_ref_to_transfer_json(
+                _source_ref_from_transfer_json(
+                    item,
+                    default_source_type="unknown",
+                    default_source_id="unknown",
+                )
+            )
         )
     return refs
+
+
+def _source_ref_from_transfer_json(
+    item: dict[str, object],
+    *,
+    default_source_type: str = "import",
+    default_source_id: str = "import",
+) -> SourceRef:
+    return SourceRef(
+        source_type=bounded_optional_text(item.get("source_type"), 80) or default_source_type,
+        source_id=bounded_optional_text(item.get("source_id"), 160) or default_source_id,
+        chunk_id=bounded_optional_text(item.get("chunk_id"), 160),
+        char_start=_optional_non_negative_int(item.get("char_start")),
+        char_end=_optional_non_negative_int(item.get("char_end")),
+        quote_preview=safe_bounded_optional_text(item.get("quote_preview"), 240),
+        page_number=_optional_positive_int(item.get("page_number")),
+        time_start_ms=_optional_non_negative_int(item.get("time_start_ms")),
+        time_end_ms=_optional_non_negative_int(item.get("time_end_ms")),
+        bbox=_optional_bbox(item.get("bbox") or item.get("bbox_json")),
+    )
+
+
+def _source_ref_to_transfer_json(ref: SourceRef) -> dict[str, object]:
+    return {
+        "source_type": ref.source_type,
+        "source_id": ref.source_id,
+        "chunk_id": ref.chunk_id,
+        "char_start": ref.char_start,
+        "char_end": ref.char_end,
+        "quote_preview": safe_bounded_optional_text(ref.quote_preview, 240),
+        "page_number": ref.page_number,
+        "time_start_ms": ref.time_start_ms,
+        "time_end_ms": ref.time_end_ms,
+        "bbox": list(ref.bbox) if ref.bbox is not None else None,
+    }
+
+
+def _optional_non_negative_int(value: object) -> int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed >= 0 else None
+
+
+def _optional_positive_int(value: object) -> int | None:
+    parsed = _optional_non_negative_int(value)
+    return parsed if parsed is not None and parsed >= 1 else None
+
+
+def _optional_bbox(value: object) -> tuple[float, float, float, float] | None:
+    if not _is_bbox(value):
+        return None
+    items = tuple(float(item) for item in value)
+    return (items[0], items[1], items[2], items[3])
+
+
+def _is_bbox(value: object) -> bool:
+    if not isinstance(value, (list, tuple)) or len(value) != 4:
+        return False
+    try:
+        return all(isfinite(float(item)) for item in value)
+    except (TypeError, ValueError):
+        return False
 
 
 def _confidence_value(value: object) -> str:

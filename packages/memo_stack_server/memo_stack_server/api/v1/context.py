@@ -13,10 +13,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from memo_stack_server.api.auth import require_service_token
 from memo_stack_server.api.dependencies import get_container
 from memo_stack_server.api.policy import should_retrieve
-from memo_stack_server.api.public_payload import safe_public_text
 from memo_stack_server.api.v1.scope_resolution import (
     resolve_existing_context_scope,
 )
+from memo_stack_server.api.v1.source_refs import source_ref_to_response
 from memo_stack_server.composition import Container
 
 router = APIRouter(tags=["context"], dependencies=[Depends(require_service_token)])
@@ -62,23 +62,7 @@ def context_item_to_response(item) -> dict[str, Any]:
         "memory_scope_id": diagnostics.get("memory_scope_id"),
         "text": item.text,
         "score": item.score,
-        "source_refs": [
-            {
-                "source_type": ref.source_type,
-                "source_id": ref.source_id,
-                "chunk_id": ref.chunk_id,
-                "char_start": ref.char_start,
-                "char_end": ref.char_end,
-                "quote_preview": safe_public_text(ref.quote_preview)
-                if ref.quote_preview
-                else None,
-                "page_number": ref.page_number,
-                "time_start_ms": ref.time_start_ms,
-                "time_end_ms": ref.time_end_ms,
-                "bbox": list(ref.bbox) if ref.bbox is not None else None,
-            }
-            for ref in public_source_refs
-        ],
+        "source_refs": [source_ref_to_response(ref) for ref in public_source_refs],
         "is_instruction": item.is_instruction,
         "diagnostics": diagnostics,
     }

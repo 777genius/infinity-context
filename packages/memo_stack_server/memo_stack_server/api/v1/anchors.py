@@ -23,8 +23,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from memo_stack_server.api.auth import require_service_token
 from memo_stack_server.api.dependencies import get_container
 from memo_stack_server.api.policy import ensure_server_writes_enabled
-from memo_stack_server.api.public_payload import safe_public_metadata, safe_public_text
+from memo_stack_server.api.public_payload import safe_public_metadata
 from memo_stack_server.api.v1.scope_resolution import resolve_existing_single_scope
+from memo_stack_server.api.v1.source_refs import source_ref_to_response
 from memo_stack_server.composition import Container
 
 router = APIRouter(
@@ -55,6 +56,10 @@ class AnchorEvidenceRefRequest(BaseModel):
     char_start: int | None = Field(default=None, ge=0)
     char_end: int | None = Field(default=None, ge=0)
     quote_preview: str | None = Field(default=None, max_length=240)
+    page_number: int | None = Field(default=None, ge=1)
+    time_start_ms: int | None = Field(default=None, ge=0)
+    time_end_ms: int | None = Field(default=None, ge=0)
+    bbox: tuple[float, float, float, float] | None = None
 
 
 class CreateAnchorRequest(AnchorScopeRequest):
@@ -375,18 +380,15 @@ def _map_anchor_evidence_ref(request: AnchorEvidenceRefRequest) -> SourceRef:
         char_start=request.char_start,
         char_end=request.char_end,
         quote_preview=request.quote_preview,
+        page_number=request.page_number,
+        time_start_ms=request.time_start_ms,
+        time_end_ms=request.time_end_ms,
+        bbox=request.bbox,
     )
 
 
 def _anchor_evidence_ref_to_response(ref: SourceRef) -> dict[str, Any]:
-    return {
-        "source_type": ref.source_type,
-        "source_id": ref.source_id,
-        "chunk_id": ref.chunk_id,
-        "char_start": ref.char_start,
-        "char_end": ref.char_end,
-        "quote_preview": safe_public_text(ref.quote_preview) if ref.quote_preview else None,
-    }
+    return source_ref_to_response(ref)
 
 
 def _datetime_to_response(value: datetime | None) -> str | None:

@@ -470,6 +470,10 @@ class MemorySourceRefRow(Base):
     char_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
     char_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
     quote_preview: Mapped[str | None] = mapped_column(String(240), nullable=True)
+    page_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    time_start_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    time_end_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    bbox_json: Mapped[list[float] | None] = mapped_column(json_type(), nullable=True)
 
 
 class MemoryFactVersionRow(Base):

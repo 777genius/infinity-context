@@ -111,6 +111,49 @@ def test_create_schema_adds_classification_to_existing_memory_tables(tmp_path: P
                         """
                     )
                 )
+                await connection.execute(
+                    text(
+                        """
+                        CREATE TABLE memory_source_refs (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            fact_id VARCHAR(80) NOT NULL,
+                            fact_version INTEGER NOT NULL,
+                            source_type VARCHAR(80) NOT NULL,
+                            source_id VARCHAR(160) NOT NULL,
+                            chunk_id VARCHAR(160),
+                            char_start INTEGER,
+                            char_end INTEGER,
+                            quote_preview VARCHAR(240)
+                        )
+                        """
+                    )
+                )
+                await connection.execute(
+                    text(
+                        """
+                        INSERT INTO memory_source_refs (
+                            fact_id,
+                            fact_version,
+                            source_type,
+                            source_id,
+                            chunk_id,
+                            char_start,
+                            char_end,
+                            quote_preview
+                        )
+                        VALUES (
+                            'fact_legacy',
+                            1,
+                            'manual',
+                            'legacy-source',
+                            NULL,
+                            NULL,
+                            NULL,
+                            NULL
+                        )
+                        """
+                    )
+                )
 
             await create_schema(engine)
 
@@ -140,13 +183,24 @@ def test_create_schema_adds_classification_to_existing_memory_tables(tmp_path: P
                     for column in inspector.get_columns("memory_fact_relations")
                     if column["name"] in {"observed_at", "valid_from", "valid_to"}
                 }
+                source_ref_multimodal_columns = {
+                    column["name"]: column
+                    for column in inspector.get_columns("memory_source_refs")
+                    if column["name"]
+                    in {"page_number", "time_start_ms", "time_end_ms", "bbox_json"}
+                }
                 document_indexes = {
                     index["name"]: index for index in inspector.get_indexes("memory_documents")
                 }
+                source_ref_count = connection.execute(
+                    text("SELECT COUNT(*) FROM memory_source_refs WHERE fact_id = 'fact_legacy'")
+                ).scalar_one()
                 return {
                     **classification_columns,
                     "memory_fact_taxonomy": fact_taxonomy_columns,
                     "memory_fact_relation_temporal": fact_relation_temporal_columns,
+                    "memory_source_ref_multimodal": source_ref_multimodal_columns,
+                    "memory_source_ref_count": source_ref_count,
                     "memory_service_tokens": token_columns,
                     "memory_document_indexes": document_indexes,
                 }
@@ -172,6 +226,13 @@ def test_create_schema_adds_classification_to_existing_memory_tables(tmp_path: P
         "valid_from",
         "valid_to",
     }
+    assert set(columns["memory_source_ref_multimodal"]) == {
+        "page_number",
+        "time_start_ms",
+        "time_end_ms",
+        "bbox_json",
+    }
+    assert columns["memory_source_ref_count"] == 1
     assert set(columns["memory_service_tokens"]) == {
         "memory_scope_ids_json",
         "permissions_json",

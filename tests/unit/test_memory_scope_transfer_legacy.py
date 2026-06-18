@@ -5,7 +5,12 @@ from types import SimpleNamespace
 
 from memo_stack_core.domain.errors import MemoryValidationError
 from memo_stack_server.memory_scope_transfer_context import remap_context_link_suggestion
-from memo_stack_server.memory_scope_transfer_records import anchor_from_json, anchor_to_json
+from memo_stack_server.memory_scope_transfer_records import (
+    anchor_from_json,
+    anchor_to_json,
+    source_ref_from_json,
+    source_ref_to_json,
+)
 from memo_stack_server.memory_scope_transfer_relations import relation_from_json, relation_to_json
 
 
@@ -30,6 +35,68 @@ def test_legacy_snapshot_anchor_defaults_new_lifecycle_fields() -> None:
     assert row.observed_at == created_at
     assert row.valid_from is None
     assert row.valid_to is None
+
+
+def test_snapshot_anchor_evidence_refs_preserve_multimodal_fields() -> None:
+    row = anchor_from_json(
+        {
+            "id": "anchor_multimodal_alex",
+            "kind": "person",
+            "normalized_key": "alex",
+            "label": "Alex",
+            "evidence_refs": [
+                {
+                    "source_type": "asset_extraction",
+                    "source_id": "extract_1",
+                    "chunk_id": "chunk_1",
+                    "quote_preview": "Alex screenshot",
+                    "page_number": 2,
+                    "time_start_ms": 1000,
+                    "time_end_ms": 1500,
+                    "bbox": [0, 1, 120, 40],
+                }
+            ],
+        },
+        space_id="space_legacy",
+        memory_scope_id="scope_legacy",
+        now=datetime(2026, 6, 18, 12, 0, tzinfo=UTC),
+    )
+
+    ref = row.evidence_refs_json[0]
+    assert ref["page_number"] == 2
+    assert ref["time_start_ms"] == 1000
+    assert ref["time_end_ms"] == 1500
+    assert ref["bbox"] == [0.0, 1.0, 120.0, 40.0]
+
+
+def test_snapshot_source_ref_roundtrip_preserves_multimodal_fields() -> None:
+    row = source_ref_from_json(
+        {
+            "fact_id": "fact_1",
+            "fact_version": 1,
+            "source_type": "asset_extraction",
+            "source_id": "extract_1",
+            "chunk_id": "chunk_1",
+            "char_start": 10,
+            "char_end": 40,
+            "quote_preview": "Frame evidence",
+            "page_number": 3,
+            "time_start_ms": 2000,
+            "time_end_ms": 2600,
+            "bbox": [10, 20, 300, 180],
+        }
+    )
+
+    exported = source_ref_to_json(row, redacted=False)
+
+    assert row.page_number == 3
+    assert row.time_start_ms == 2000
+    assert row.time_end_ms == 2600
+    assert row.bbox_json == [10.0, 20.0, 300.0, 180.0]
+    assert exported["page_number"] == 3
+    assert exported["time_start_ms"] == 2000
+    assert exported["time_end_ms"] == 2600
+    assert exported["bbox"] == [10.0, 20.0, 300.0, 180.0]
 
 
 def test_snapshot_anchor_import_rejects_invalid_confidence() -> None:

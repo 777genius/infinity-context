@@ -110,6 +110,10 @@ def source_ref_row_to_domain(row: MemorySourceRefRow) -> SourceRef:
         char_start=row.char_start,
         char_end=row.char_end,
         quote_preview=row.quote_preview,
+        page_number=getattr(row, "page_number", None),
+        time_start_ms=getattr(row, "time_start_ms", None),
+        time_end_ms=getattr(row, "time_end_ms", None),
+        bbox=_source_ref_bbox(getattr(row, "bbox_json", None)),
     )
 
 

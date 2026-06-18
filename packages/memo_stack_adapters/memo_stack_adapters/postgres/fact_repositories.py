@@ -387,6 +387,10 @@ class PostgresFactRepository(FactRepositoryPort):
                     char_start=ref.char_start,
                     char_end=ref.char_end,
                     quote_preview=ref.quote_preview,
+                    page_number=ref.page_number,
+                    time_start_ms=ref.time_start_ms,
+                    time_end_ms=ref.time_end_ms,
+                    bbox_json=list(ref.bbox) if ref.bbox is not None else None,
                 )
             )
 
