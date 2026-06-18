@@ -248,6 +248,7 @@ def _provider_states(settings: Settings) -> dict[str, _ProviderState]:
             metadata={
                 "model": settings.extraction_vision_model,
                 "detail": settings.extraction_vision_detail,
+                "request_timeout_seconds": settings.extraction_provider_timeout_seconds,
             },
         ),
         "transcription_api": _ProviderState(
@@ -269,6 +270,7 @@ def _provider_states(settings: Settings) -> dict[str, _ProviderState]:
                 "provider": settings.transcription_provider,
                 "model": settings.transcription_openai_model,
                 "max_provider_upload_bytes": settings.transcription_openai_max_upload_bytes,
+                "request_timeout_seconds": settings.extraction_provider_timeout_seconds,
                 "diarization_model_configured": _transcription_model_supports_diarization(
                     settings.transcription_openai_model
                 ),
@@ -459,6 +461,7 @@ def _legacy_optional_extras(
             "profiles": ["standard_vision", "standard_full"],
             "model": settings.extraction_vision_model,
             "detail": settings.extraction_vision_detail,
+            "request_timeout_seconds": settings.extraction_provider_timeout_seconds,
         },
         "transcription_api": {
             "installed": providers["transcription_api"].installed,
@@ -467,6 +470,7 @@ def _legacy_optional_extras(
             "profiles": ["media_api", "standard_asr", "standard_full"],
             "model": settings.transcription_openai_model,
             "max_provider_upload_bytes": settings.transcription_openai_max_upload_bytes,
+            "request_timeout_seconds": settings.extraction_provider_timeout_seconds,
             "diarization_model_configured": _transcription_model_supports_diarization(
                 settings.transcription_openai_model
             ),
@@ -657,6 +661,7 @@ def _limits_payload(settings: Settings) -> dict[str, object]:
         "max_image_pixels": settings.extraction_max_image_pixels,
         "parser_timeout_seconds": settings.extraction_parser_timeout_seconds,
         "subprocess_timeout_seconds": settings.extraction_subprocess_timeout_seconds,
+        "provider_timeout_seconds": settings.extraction_provider_timeout_seconds,
     }
 
 

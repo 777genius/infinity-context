@@ -299,6 +299,14 @@ def test_capabilities_return_noop_adapters() -> None:
     assert body["extraction"]["optional_extras"]["vision"]["configured"] is False
     assert body["extraction"]["optional_extras"]["vision"]["model"] == "gpt-4.1-mini"
     assert body["extraction"]["optional_extras"]["vision"]["detail"] == "high"
+    assert (
+        body["extraction"]["optional_extras"]["vision"]["request_timeout_seconds"]
+        == 60
+    )
+    assert (
+        body["extraction"]["providers"]["openai_vision"]["request_timeout_seconds"]
+        == 60
+    )
     assert isinstance(body["extraction"]["optional_extras"]["transcription_api"]["installed"], bool)
     assert body["extraction"]["optional_extras"]["transcription_api"]["configured"] is False
     assert body["extraction"]["optional_extras"]["transcription_api"]["provider"] == "openai"
@@ -309,6 +317,18 @@ def test_capabilities_return_noop_adapters() -> None:
     assert (
         body["extraction"]["optional_extras"]["transcription_api"]["max_provider_upload_bytes"]
         == OPENAI_TRANSCRIPTION_MAX_UPLOAD_BYTES
+    )
+    assert (
+        body["extraction"]["optional_extras"]["transcription_api"][
+            "request_timeout_seconds"
+        ]
+        == 60
+    )
+    assert (
+        body["extraction"]["providers"]["transcription_api"][
+            "request_timeout_seconds"
+        ]
+        == 60
     )
     assert (
         body["extraction"]["optional_extras"]["transcription_api"][
@@ -331,6 +351,7 @@ def test_capabilities_return_noop_adapters() -> None:
         "media_local_asr",
     ]
     assert body["extraction"]["limits"]["max_media_seconds"] == 600
+    assert body["extraction"]["limits"]["provider_timeout_seconds"] == 60
     assert body["captures"]["max_pending_per_memory_scope"] == 5_000
     assert body["captures"]["ingress_limit_code"] == "memory.capture.ingress_limited"
     assert body["supports_legacy_client_routes"] is False
@@ -359,6 +380,7 @@ def test_capabilities_expose_configured_external_media_extraction(tmp_path: Path
             transcription_provider="openai",
             transcription_openai_model="gpt-4o-transcribe",
             transcription_openai_max_upload_bytes=12_345,
+            extraction_provider_timeout_seconds=17,
             openai_api_key="sk-capabilities-secret",
             plan_media_analysis_seconds_per_month=3_600,
         )
@@ -374,6 +396,8 @@ def test_capabilities_expose_configured_external_media_extraction(tmp_path: Path
     assert extraction["optional_extras"]["vision"]["configured"] is True
     assert extraction["optional_extras"]["vision"]["model"] == "gpt-4.1-mini"
     assert extraction["optional_extras"]["vision"]["detail"] == "low"
+    assert extraction["optional_extras"]["vision"]["request_timeout_seconds"] == 17
+    assert extraction["providers"]["openai_vision"]["request_timeout_seconds"] == 17
     assert extraction["optional_extras"]["transcription_api"]["configured"] is True
     assert extraction["optional_extras"]["transcription_api"]["provider"] == "openai"
     assert extraction["optional_extras"]["transcription_api"]["model"] == "gpt-4o-transcribe"
@@ -383,6 +407,8 @@ def test_capabilities_expose_configured_external_media_extraction(tmp_path: Path
     )
     assert extraction["providers"]["transcription_api"]["diarization_model_configured"] is False
     assert extraction["optional_extras"]["transcription_api"]["max_provider_upload_bytes"] == 12_345
+    assert extraction["optional_extras"]["transcription_api"]["request_timeout_seconds"] == 17
+    assert extraction["providers"]["transcription_api"]["request_timeout_seconds"] == 17
     assert extraction["limits"]["max_bytes"] == 123_456
     assert extraction["limits"]["max_pages"] == 7
     assert extraction["limits"]["max_media_seconds"] == 42
@@ -392,6 +418,7 @@ def test_capabilities_expose_configured_external_media_extraction(tmp_path: Path
     assert extraction["limits"]["max_image_pixels"] == 50_000_000
     assert extraction["limits"]["parser_timeout_seconds"] == 5 * 60
     assert extraction["limits"]["subprocess_timeout_seconds"] == 60
+    assert extraction["limits"]["provider_timeout_seconds"] == 17
     assert extraction["providers"]["openai_vision"]["enabled"] is True
     assert extraction["providers"]["openai_vision"]["status"] == "ok"
     assert extraction["providers"]["transcription_api"]["enabled"] is True
