@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import urllib.parse
 from typing import Any
+
+import pytest
 
 from scripts import multimodal_docker_live_proof as proof
 
@@ -354,6 +357,60 @@ def test_makefile_exposes_multimodal_docker_live_proof_target() -> None:
 
     assert ".PHONY: infinity-context-multimodal-docker-live-proof" in makefile
     assert "$(PYTHON) scripts/multimodal_docker_live_proof.py" in makefile
+
+
+def test_sample_mp4_fixture_contains_extractable_video_frame(tmp_path) -> None:
+    ffprobe = shutil.which("ffprobe")
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffprobe or not ffmpeg:
+        pytest.skip("ffprobe and ffmpeg are required to validate the MP4 fixture")
+
+    video_path = tmp_path / "docker-proof.mp4"
+    frame_path = tmp_path / "keyframe.jpg"
+    video_path.write_bytes(proof._sample_mp4_bytes())
+
+    probe = subprocess.run(
+        [
+            ffprobe,
+            "-v",
+            "error",
+            "-show_entries",
+            "stream=codec_type",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "json",
+            str(video_path),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    payload = json.loads(probe.stdout)
+    assert any(
+        stream.get("codec_type") == "video" for stream in payload.get("streams", [])
+    )
+
+    subprocess.run(
+        [
+            ffmpeg,
+            "-y",
+            "-v",
+            "error",
+            "-ss",
+            "0",
+            "-i",
+            str(video_path),
+            "-frames:v",
+            "1",
+            str(frame_path),
+        ],
+        check=True,
+        capture_output=True,
+        timeout=20,
+    )
+    assert frame_path.stat().st_size > 0
 
 
 def _completed(
