@@ -225,6 +225,9 @@ def test_fact_multimodal_source_refs_survive_persistence_and_context(
     assert context_diagnostics["retrieval_sources_total"] == 1
     assert context_diagnostics["retrieval_sources_returned"] == 1
     assert context_diagnostics["retrieval_sources_truncated"] is False
+    assert context_diagnostics["source_refs_total"] == 1
+    assert context_diagnostics["source_refs_returned"] == 1
+    assert context_diagnostics["source_refs_truncated"] is False
     assert (
         context_diagnostics["ranking_reason"]
         == "canonical active fact matched query and filters"

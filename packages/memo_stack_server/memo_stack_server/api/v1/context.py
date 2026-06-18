@@ -53,10 +53,9 @@ def context_item_to_response(item) -> dict[str, Any]:
     diagnostics = dict(item.diagnostics or {})
     source_refs = tuple(item.source_refs)
     public_source_refs = source_refs[:_MAX_PUBLIC_CONTEXT_SOURCE_REFS]
-    if len(source_refs) > len(public_source_refs):
-        diagnostics["source_refs_total"] = len(source_refs)
-        diagnostics["source_refs_returned"] = len(public_source_refs)
-        diagnostics["source_refs_truncated"] = True
+    diagnostics["source_refs_total"] = len(source_refs)
+    diagnostics["source_refs_returned"] = len(public_source_refs)
+    diagnostics["source_refs_truncated"] = len(source_refs) > len(public_source_refs)
     return {
         "item_id": item.item_id,
         "item_type": item.item_type,
