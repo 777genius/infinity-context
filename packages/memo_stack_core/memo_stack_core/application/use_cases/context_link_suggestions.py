@@ -18,6 +18,9 @@ from memo_stack_core.application.context_link_candidate_policy import (
     chunk_label as _chunk_label,
 )
 from memo_stack_core.application.context_link_candidate_policy import (
+    chunk_multimodal_evidence_metadata as _chunk_multimodal_evidence_metadata,
+)
+from memo_stack_core.application.context_link_candidate_policy import (
     confidence_for_candidate as _confidence_for_candidate,
 )
 from memo_stack_core.application.context_link_candidate_policy import (
@@ -31,6 +34,9 @@ from memo_stack_core.application.context_link_candidate_policy import (
 )
 from memo_stack_core.application.context_link_candidate_policy import (
     is_same_source as _is_same_source,
+)
+from memo_stack_core.application.context_link_candidate_policy import (
+    multimodal_reason_hints as _multimodal_reason_hints,
 )
 from memo_stack_core.application.context_link_candidate_policy import (
     score_text_candidate as _score_text_candidate,
@@ -518,6 +524,12 @@ class SuggestContextLinksUseCase:
                 reasons.append("same thread")
             if not _has_link_signal(matched_terms=matched_terms, reasons=reasons):
                 continue
+            reasons.extend(
+                _multimodal_reason_hints(
+                    metadata=chunk.metadata,
+                    matched_terms=matched_terms,
+                )
+            )
             candidates.append(
                 _candidate(
                     target_type="chunk",
@@ -536,6 +548,7 @@ class SuggestContextLinksUseCase:
                         "char_end": chunk.char_end,
                         "matched_terms": list(matched_terms),
                         **_evidence_summary(_chunk_source_refs(chunk, text_preview=chunk.text)),
+                        **_chunk_multimodal_evidence_metadata(chunk.metadata),
                     },
                 )
             )

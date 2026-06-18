@@ -3,7 +3,9 @@ from memo_stack_core.application.context_link_candidate_policy import (
     _MAX_QUERY_TERMS,
     candidate,
     candidate_metadata,
+    chunk_multimodal_evidence_metadata,
     evidence_summary,
+    multimodal_reason_hints,
     source_text_risk_metadata,
     terms,
 )
@@ -33,6 +35,34 @@ def test_candidate_reason_codes_keep_specific_rule_signals() -> None:
         "known_project_tool_reference",
         "event_phrase",
         "organization_reference",
+    ]
+
+
+def test_candidate_reason_codes_keep_multimodal_evidence_signals() -> None:
+    item = candidate(
+        target_type="chunk",
+        target_id="chunk-vision",
+        label="chunk",
+        preview="Project Atlas screenshot",
+        score=86,
+        reasons=[
+            "matching text",
+            "visual text match",
+            "transcript match",
+            "keyframe match",
+            "video evidence match",
+            "audio evidence match",
+        ],
+        metadata={},
+    )
+
+    assert item.metadata["reason_codes"] == [
+        "text_match",
+        "visual_text_match",
+        "transcript_match",
+        "keyframe_match",
+        "video_evidence_match",
+        "audio_evidence_match",
     ]
 
 
@@ -121,6 +151,47 @@ def test_evidence_summary_is_bounded_and_multimodal_without_quotes() -> None:
     assert evidence_refs[1]["time_start_ms"] == 1000
     assert evidence_refs[2]["bbox"] == [0.0, 1.0, 120.0, 40.0]
     assert "quote_preview" not in evidence_refs[0]
+
+
+def test_chunk_multimodal_metadata_summarizes_provider_neutral_source_refs() -> None:
+    metadata = {
+        "asset_id": "asset-1",
+        "extraction_job_id": "extract-1",
+        "normalized_content_type": "video/mp4",
+        "parser_name": "media_metadata",
+        "source_refs": [
+            {
+                "source_type": "asset_extraction",
+                "source_id": "extract-1",
+                "kind": "video_keyframe",
+                "time_start_ms": 0,
+                "time_end_ms": 1000,
+                "bbox": [0, 0, 32, 32],
+                "raw_provider_payload": {"ignored": True},
+            },
+            {
+                "source_type": "asset_extraction",
+                "source_id": "extract-1",
+                "kind": "transcript_segment",
+                "time_start_ms": 1000,
+                "time_end_ms": 2000,
+            },
+        ],
+    }
+
+    summary = chunk_multimodal_evidence_metadata(metadata)
+    hints = multimodal_reason_hints(metadata=metadata, matched_terms=("atlas",))
+
+    assert summary["evidence_asset_id"] == "asset-1"
+    assert summary["evidence_extraction_job_id"] == "extract-1"
+    assert summary["evidence_normalized_content_type"] == "video/mp4"
+    assert summary["evidence_parser_name"] == "media_metadata"
+    assert summary["evidence_kinds"] == ["video_keyframe", "transcript_segment"]
+    assert summary["evidence_modalities"] == ["image", "audio", "video", "time_range"]
+    assert summary["evidence_has_bbox_ref"] is True
+    assert summary["evidence_has_time_range_ref"] is True
+    assert "raw_provider_payload" not in repr(summary)
+    assert hints == ["transcript match", "keyframe match"]
 
 
 def test_candidate_metadata_preserves_bounded_evidence_refs_for_review_history() -> None:

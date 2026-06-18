@@ -350,7 +350,14 @@ void main() {
           'review_gate': 'required',
           'review_gate_reason': 'mime_content_type_mismatch',
           'auto_approve_eligible': true,
+          'reason_codes': [
+            'text_match',
+            'visual_text_match',
+            'keyframe_match',
+          ],
           'policy_reason_codes': ['score_threshold_met', 'text_match'],
+          'evidence_modalities': ['image', 'video', 'time_range'],
+          'evidence_kinds': ['ocr_text', 'video_keyframe'],
           'mime_content_type_mismatch': true,
           'mime_declared_content_type': 'image/png',
           'mime_detected_content_type': 'text/plain',
@@ -404,6 +411,16 @@ void main() {
     expect(find.text('Rejected 1'), findsOneWidget);
     expect(find.text('person anchor 1'), findsOneWidget);
     expect(find.textContaining('policy: needs_review'), findsOneWidget);
+    expect(
+      find.textContaining('signals: text match, visual text, keyframe'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('evidence: image, video, time range'),
+        findsOneWidget);
+    expect(
+      find.textContaining('evidence kinds: ocr_text, video_keyframe'),
+      findsOneWidget,
+    );
     expect(find.textContaining('gate: required'), findsOneWidget);
     expect(find.textContaining('risk: MIME mismatch'), findsOneWidget);
     expect(

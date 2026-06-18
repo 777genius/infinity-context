@@ -255,6 +255,10 @@ class _ContextLinkSuggestionTile extends StatelessWidget {
                   color: scheme.onSurfaceVariant,
                 ),
           ),
+          if (_hasEvidenceDetails(suggestion)) ...[
+            const SizedBox(height: 8),
+            _SuggestionEvidenceChips(suggestion: suggestion),
+          ],
           const SizedBox(height: 8),
           Wrap(
             spacing: 6,
@@ -322,8 +326,16 @@ class _SuggestionTitle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final subtitle =
-        '${suggestion.targetType} - ${suggestion.score.toStringAsFixed(0)} - ${suggestion.reason}';
+    final reasonLabel = suggestion.reasonSignalLabels.isNotEmpty
+        ? suggestion.reasonSignalLabels.take(2).join(', ')
+        : suggestion.reason;
+    final evidenceLabel = suggestion.evidenceLabel;
+    final subtitle = [
+      suggestion.targetType,
+      suggestion.score.toStringAsFixed(0),
+      if (evidenceLabel != null) evidenceLabel,
+      reasonLabel,
+    ].join(' - ');
     return Tooltip(
       message: suggestion.targetPreview,
       child: Row(
@@ -356,6 +368,54 @@ class _SuggestionTitle extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _SuggestionEvidenceChips extends StatelessWidget {
+  final MemoryContextLinkSuggestion suggestion;
+
+  const _SuggestionEvidenceChips({required this.suggestion});
+
+  @override
+  Widget build(BuildContext context) {
+    final labels = [
+      if (suggestion.evidenceLabel != null)
+        'evidence: ${suggestion.evidenceLabel}',
+      ...suggestion.reasonSignalLabels.take(3).map((item) => 'signal: $item'),
+    ];
+    if (labels.isEmpty) return const SizedBox.shrink();
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: [
+        for (final label in labels) _SuggestionInfoChip(label: label),
+      ],
+    );
+  }
+}
+
+class _SuggestionInfoChip extends StatelessWidget {
+  final String label;
+
+  const _SuggestionInfoChip({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+        child: Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.labelSmall,
+        ),
       ),
     );
   }
@@ -428,6 +488,11 @@ class _SuggestionActions extends StatelessWidget {
       },
     );
   }
+}
+
+bool _hasEvidenceDetails(MemoryContextLinkSuggestion suggestion) {
+  return suggestion.evidenceLabel != null ||
+      suggestion.reasonSignalLabels.isNotEmpty;
 }
 
 IconData _iconFor(String type) {

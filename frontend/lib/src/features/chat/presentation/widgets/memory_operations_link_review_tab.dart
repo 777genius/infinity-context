@@ -260,6 +260,9 @@ class _SuggestionTile extends StatelessWidget {
     final reasonCodes = _metadataList(suggestion.metadata['reason_codes']);
     final policyCodes =
         _metadataList(suggestion.metadata['policy_reason_codes']);
+    final signalLabels = suggestion.reasonSignalLabels;
+    final evidenceLabel = suggestion.evidenceLabel;
+    final evidenceKinds = suggestion.evidenceKinds;
     final reviewGateReason =
         _metadataString(suggestion.metadata['review_gate_reason']);
     final mimeMismatchLabel = _mimeMismatchLabel(suggestion.metadata);
@@ -313,6 +316,16 @@ class _SuggestionTile extends StatelessWidget {
               if (reasonCodes.isNotEmpty)
                 _DetailChip(
                   label: 'codes: ${reasonCodes.take(3).join(', ')}',
+                ),
+              if (signalLabels.isNotEmpty)
+                _DetailChip(
+                  label: 'signals: ${signalLabels.take(4).join(', ')}',
+                ),
+              if (evidenceLabel != null)
+                _DetailChip(label: 'evidence: $evidenceLabel'),
+              if (evidenceKinds.isNotEmpty)
+                _DetailChip(
+                  label: 'evidence kinds: ${evidenceKinds.take(3).join(', ')}',
                 ),
               if (suggestion.policyDecision != null)
                 _DetailChip(label: 'policy: ${suggestion.policyDecision}'),

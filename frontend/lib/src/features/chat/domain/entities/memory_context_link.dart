@@ -172,6 +172,35 @@ class MemoryContextLinkSuggestion extends Equatable {
 
   bool get autoApproveEligible => metadata['auto_approve_eligible'] == true;
 
+  List<String> get reasonCodes => _stringList(metadata['reason_codes']);
+
+  List<String> get policyReasonCodes =>
+      _stringList(metadata['policy_reason_codes']);
+
+  List<String> get evidenceModalities =>
+      _stringList(metadata['evidence_modalities']);
+
+  List<String> get evidenceKinds => _stringList(metadata['evidence_kinds']);
+
+  List<String> get reasonSignalLabels {
+    final labels = reasonCodes
+        .map(_reasonSignalLabel)
+        .where((item) => item != null)
+        .cast<String>()
+        .toList(growable: false);
+    return labels;
+  }
+
+  String? get evidenceLabel {
+    final labels = evidenceModalities
+        .map(_evidenceModalityLabel)
+        .where((item) => item != null)
+        .cast<String>()
+        .toList(growable: false);
+    if (labels.isEmpty) return null;
+    return labels.take(4).join(', ');
+  }
+
   bool get isPending => status == 'pending';
 
   @override
@@ -225,4 +254,39 @@ Map<String, dynamic> _map(Object? value) {
     return value.map((key, item) => MapEntry(key.toString(), item));
   }
   return const <String, dynamic>{};
+}
+
+List<String> _stringList(Object? value) {
+  if (value is! List) return const <String>[];
+  return value
+      .map((item) => item.toString().trim())
+      .where((item) => item.isNotEmpty)
+      .toList(growable: false);
+}
+
+String? _reasonSignalLabel(String code) {
+  return switch (code) {
+    'visual_text_match' => 'visual text',
+    'transcript_match' => 'transcript',
+    'keyframe_match' => 'keyframe',
+    'video_evidence_match' => 'video evidence',
+    'audio_evidence_match' => 'audio evidence',
+    'text_match' => 'text match',
+    'temporal_intent_match' => 'time match',
+    'person_name' => 'person',
+    'explicit_project_reference' => 'project',
+    _ => null,
+  };
+}
+
+String? _evidenceModalityLabel(String modality) {
+  return switch (modality) {
+    'image' => 'image',
+    'audio' => 'audio',
+    'video' => 'video',
+    'document' => 'document',
+    'time_range' => 'time range',
+    'text' => 'text',
+    _ => null,
+  };
 }

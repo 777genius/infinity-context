@@ -44,6 +44,11 @@ _BASE_STRONG_REVIEW_SIGNAL_CODES = frozenset(
         "person_name",
         "organization_reference",
         "rule_signal",
+        "visual_text_match",
+        "transcript_match",
+        "keyframe_match",
+        "video_evidence_match",
+        "audio_evidence_match",
     }
 )
 _HIGH_IMPACT_RELATION_SIGNAL_CODES = {

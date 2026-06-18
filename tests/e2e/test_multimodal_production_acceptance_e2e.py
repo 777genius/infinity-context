@@ -57,6 +57,7 @@ def test_multimodal_asset_memory_acceptance_flow(tmp_path: Path) -> None:
                 content=_sample_pdf_bytes("Alex multimodal pdf acceptance evidence"),
                 expected_artifacts={"extracted_json", "markdown"},
                 expected_text="pdf acceptance evidence",
+                expected_evidence_modalities={"document"},
             ),
             _FixtureCase(
                 filename="acceptance.docx",
@@ -67,6 +68,7 @@ def test_multimodal_asset_memory_acceptance_flow(tmp_path: Path) -> None:
                 content=_sample_docx_bytes(),
                 expected_artifacts={"extracted_json", "markdown", "normalized_json"},
                 expected_text="Docx acceptance evidence",
+                expected_evidence_modalities={"document"},
             ),
             _FixtureCase(
                 filename="acceptance.png",
@@ -74,6 +76,8 @@ def test_multimodal_asset_memory_acceptance_flow(tmp_path: Path) -> None:
                 content=_sample_png_bytes(),
                 expected_artifacts={"extracted_json", "image_regions", "markdown"},
                 expected_text="Image asset evidence",
+                expected_evidence_modalities={"image"},
+                expected_reason_codes={"visual_text_match"},
             ),
             _FixtureCase(
                 filename="acceptance.wav",
@@ -81,6 +85,8 @@ def test_multimodal_asset_memory_acceptance_flow(tmp_path: Path) -> None:
                 content=_sample_wav_bytes(),
                 expected_artifacts={"extracted_json", "markdown", "media_manifest"},
                 expected_text="Media asset evidence",
+                expected_evidence_modalities={"audio"},
+                expected_reason_codes={"audio_evidence_match"},
             ),
             _FixtureCase(
                 filename="acceptance.mp4",
@@ -88,6 +94,8 @@ def test_multimodal_asset_memory_acceptance_flow(tmp_path: Path) -> None:
                 content=_sample_mp4_bytes(tmp_path),
                 expected_artifacts={"extracted_json", "markdown", "media_manifest", "keyframe"},
                 expected_text="Media asset evidence",
+                expected_evidence_modalities={"image", "video", "time_range"},
+                expected_reason_codes={"keyframe_match"},
             ),
         )
 
@@ -160,6 +168,21 @@ def test_multimodal_asset_memory_acceptance_flow(tmp_path: Path) -> None:
                 for item in suggestions.json()["data"]["candidates"]
                 if item["target_type"] == "fact"
             )
+            chunk_candidate = next(
+                item
+                for item in suggestions.json()["data"]["candidates"]
+                if item["target_type"] == "chunk"
+                and item["metadata"].get("document_id") == extraction["result_document_ids"][0]
+            )
+            chunk_metadata = chunk_candidate["metadata"]
+            assert case.expected_evidence_modalities.issubset(
+                set(chunk_metadata["evidence_modalities"])
+            )
+            assert case.expected_reason_codes.issubset(set(chunk_metadata["reason_codes"]))
+            if "image" in case.expected_evidence_modalities:
+                assert chunk_metadata["evidence_has_bbox_ref"] is True
+            if "time_range" in case.expected_evidence_modalities:
+                assert chunk_metadata["evidence_has_time_range_ref"] is True
             approved = client.post(
                 f"/v1/context-link-suggestions/{fact_candidate['suggestion_id']}/review",
                 json={"action": "approve", "reason": f"accepted {case.filename} evidence"},
@@ -192,12 +215,16 @@ class _FixtureCase:
         content: bytes,
         expected_artifacts: set[str],
         expected_text: str,
+        expected_evidence_modalities: set[str],
+        expected_reason_codes: set[str] | None = None,
     ) -> None:
         self.filename = filename
         self.content_type = content_type
         self.content = content
         self.expected_artifacts = expected_artifacts
         self.expected_text = expected_text
+        self.expected_evidence_modalities = expected_evidence_modalities
+        self.expected_reason_codes = expected_reason_codes or {"text_match"}
 
 
 def _sample_pdf_bytes(text: str) -> bytes:

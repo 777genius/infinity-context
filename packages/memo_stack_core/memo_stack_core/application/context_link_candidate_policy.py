@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from math import log
 
 from memo_stack_core.application.dto import ContextLinkCandidate, SuggestContextLinksCommand
+from memo_stack_core.application.safe_payload import safe_metadata_text
 from memo_stack_core.application.sensitive_text import (
     contains_sensitive_text,
     redact_sensitive_text,
@@ -412,6 +414,86 @@ def evidence_summary(source_refs: tuple[SourceRef, ...]) -> dict[str, object]:
     }
 
 
+def chunk_multimodal_evidence_metadata(metadata: Mapping[str, object]) -> dict[str, object]:
+    refs = _metadata_source_refs(metadata)
+    normalized_content_type = _safe_metadata_text_value(
+        metadata.get("normalized_content_type"),
+        limit=120,
+    )
+    evidence_kinds = _metadata_evidence_kinds(refs)
+    modalities = _metadata_evidence_modalities(
+        normalized_content_type=normalized_content_type,
+        evidence_kinds=evidence_kinds,
+        refs=refs,
+    )
+    if not normalized_content_type and not evidence_kinds and not modalities:
+        return {}
+
+    result: dict[str, object] = {}
+    asset_id = _safe_metadata_text_value(metadata.get("asset_id"), limit=160)
+    extraction_job_id = _safe_metadata_text_value(
+        metadata.get("extraction_job_id"),
+        limit=160,
+    )
+    parser_name = _safe_metadata_text_value(metadata.get("parser_name"), limit=120)
+    if asset_id:
+        result["evidence_asset_id"] = asset_id
+    if extraction_job_id:
+        result["evidence_extraction_job_id"] = extraction_job_id
+    if normalized_content_type:
+        result["evidence_normalized_content_type"] = normalized_content_type
+    if parser_name:
+        result["evidence_parser_name"] = parser_name
+    if evidence_kinds:
+        result["evidence_kinds"] = evidence_kinds
+    if modalities:
+        result["evidence_modalities"] = modalities
+    if any(_metadata_ref_has_key(ref, "page_number") for ref in refs):
+        result["evidence_has_page_ref"] = True
+    if any(_metadata_ref_has_key(ref, "bbox") for ref in refs):
+        result["evidence_has_bbox_ref"] = True
+    if any(
+        _metadata_ref_has_key(ref, "time_start_ms") or _metadata_ref_has_key(ref, "time_end_ms")
+        for ref in refs
+    ):
+        result["evidence_has_time_range_ref"] = True
+    return result
+
+
+def multimodal_reason_hints(
+    *,
+    metadata: Mapping[str, object],
+    matched_terms: tuple[str, ...],
+) -> list[str]:
+    if not matched_terms:
+        return []
+    refs = _metadata_source_refs(metadata)
+    normalized_content_type = _safe_metadata_text_value(
+        metadata.get("normalized_content_type"),
+        limit=120,
+    )
+    evidence_kinds = _metadata_evidence_kinds(refs)
+    modalities = set(
+        _metadata_evidence_modalities(
+            normalized_content_type=normalized_content_type,
+            evidence_kinds=evidence_kinds,
+            refs=refs,
+        )
+    )
+    hints: list[str] = []
+    if "transcript_segment" in evidence_kinds:
+        hints.append("transcript match")
+    if any(kind in evidence_kinds for kind in ("ocr_text", "image_metadata", "vision_region")):
+        hints.append("visual text match")
+    if any(kind in evidence_kinds for kind in ("video_keyframe", "video_frame_timeline")):
+        hints.append("keyframe match")
+    if "video" in modalities and "keyframe match" not in hints:
+        hints.append("video evidence match")
+    if "audio" in modalities and "transcript match" not in hints:
+        hints.append("audio evidence match")
+    return hints
+
+
 def candidate_metadata(
     candidate: ContextLinkCandidate,
     diagnostics: dict[str, object],
@@ -569,6 +651,81 @@ def _safe_evidence_text(value: str, *, limit: int) -> str:
     return redact_sensitive_text(value)[:limit]
 
 
+def _metadata_source_refs(metadata: Mapping[str, object]) -> tuple[Mapping[str, object], ...]:
+    refs = metadata.get("source_refs")
+    if not isinstance(refs, (list, tuple)):
+        return ()
+    return tuple(item for item in refs if isinstance(item, Mapping))
+
+
+def _metadata_evidence_kinds(refs: tuple[Mapping[str, object], ...]) -> list[str]:
+    kinds: list[str] = []
+    for ref in refs:
+        kind = _safe_metadata_text_value(ref.get("kind"), limit=80).lower().replace("-", "_")
+        if kind and kind not in kinds:
+            kinds.append(kind)
+        if len(kinds) >= 40:
+            break
+    return kinds
+
+
+def _metadata_evidence_modalities(
+    *,
+    normalized_content_type: str,
+    evidence_kinds: list[str],
+    refs: tuple[Mapping[str, object], ...],
+) -> list[str]:
+    modalities: set[str] = set()
+    if normalized_content_type.startswith("image/"):
+        modalities.add("image")
+    elif normalized_content_type.startswith("audio/"):
+        modalities.add("audio")
+    elif normalized_content_type.startswith("video/"):
+        modalities.add("video")
+    elif normalized_content_type in {
+        "application/pdf",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "text/html",
+    }:
+        modalities.add("document")
+    elif normalized_content_type.startswith("text/"):
+        modalities.add("text")
+
+    for kind in evidence_kinds:
+        if kind in {"ocr_text", "image_metadata", "image_region", "vision_region"}:
+            modalities.add("image")
+        if kind in {"transcript", "transcript_segment", "speech_segment", "word"}:
+            modalities.add("audio")
+        if kind in {"video_keyframe", "video_frame", "video_frame_timeline"}:
+            modalities.add("video")
+    if any(_metadata_ref_has_key(ref, "page_number") for ref in refs):
+        modalities.add("document")
+    if any(_metadata_ref_has_key(ref, "bbox") for ref in refs):
+        modalities.add("image")
+    if any(
+        _metadata_ref_has_key(ref, "time_start_ms") or _metadata_ref_has_key(ref, "time_end_ms")
+        for ref in refs
+    ):
+        modalities.add("time_range")
+
+    order = ("text", "document", "image", "audio", "video", "time_range")
+    return [modality for modality in order if modality in modalities]
+
+
+def _metadata_ref_has_key(ref: Mapping[str, object], key: str) -> bool:
+    value = ref.get(key)
+    return value is not None and value != ""
+
+
+def _safe_metadata_text_value(value: object, *, limit: int) -> str:
+    if value is None:
+        return ""
+    return safe_metadata_text(str(value), limit=limit).strip()
+
+
 def _reason_codes(reasons: tuple[str, ...]) -> list[str]:
     codes: list[str] = []
     for reason in reasons:
@@ -594,6 +751,16 @@ def _reason_codes(reasons: tuple[str, ...]) -> list[str]:
             codes.append("person_name")
         elif reason == "organization reference":
             codes.append("organization_reference")
+        elif reason == "visual text match":
+            codes.append("visual_text_match")
+        elif reason == "transcript match":
+            codes.append("transcript_match")
+        elif reason == "keyframe match":
+            codes.append("keyframe_match")
+        elif reason == "video evidence match":
+            codes.append("video_evidence_match")
+        elif reason == "audio evidence match":
+            codes.append("audio_evidence_match")
         elif reason == "recent context":
             codes.append("recent_context")
         else:

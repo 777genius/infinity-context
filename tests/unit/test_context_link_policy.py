@@ -109,6 +109,23 @@ def test_policy_allows_low_score_with_strong_temporal_signal_for_review() -> Non
     assert result.candidates[0].metadata["policy_decision_canonical"] == "pending_review"
 
 
+def test_policy_treats_multimodal_evidence_signals_as_reviewable() -> None:
+    candidate = _candidate(
+        target_id="ocr-chunk",
+        score=45.0,
+        target_type="chunk",
+        reason_codes=["visual_text_match"],
+    )
+
+    decision = decide_context_link_candidate(candidate)
+    result = apply_context_link_policy((candidate,), limit=10, persist=True)
+
+    assert decision.outcome == "needs_review"
+    assert decision.auto_approve_eligible is False
+    assert result.candidates[0].target_id == "ocr-chunk"
+    assert result.candidates[0].metadata["policy_decision"] == "needs_review"
+
+
 def test_policy_keeps_single_signal_high_score_candidate_review_only() -> None:
     decision = decide_context_link_candidate(_candidate(target_id="strong", score=94))
 
