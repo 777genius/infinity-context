@@ -101,6 +101,9 @@ def test_web_ui_serves_browser_without_openapi_noise(tmp_path) -> None:
     assert "Review history" in review_js.text
     assert "formatContextLinkReviewAudit" in js.text
     assert "trapModalFocus" in review_js.text
+    assert "event.preventDefault();" in review_js.text
+    assert "previousModalFocus.isConnected" in review_js.text
+    assert "els.reviewModal.contains(document.activeElement)" in review_js.text
     assert "modal-overlay" in css.text
     assert "review-grid" in css.text
     assert "white-space: pre-wrap" in css.text

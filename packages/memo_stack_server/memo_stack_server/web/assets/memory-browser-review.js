@@ -40,6 +40,7 @@
         return;
       }
       if (event.key === "Escape") {
+        event.preventDefault();
         closeReviewModal();
         return;
       }
@@ -210,7 +211,11 @@
     const { els } = browser();
     els.reviewModal.hidden = true;
     els.reviewModalBody.replaceChildren();
-    if (previousModalFocus && typeof previousModalFocus.focus === "function") {
+    if (
+      previousModalFocus &&
+      previousModalFocus.isConnected &&
+      typeof previousModalFocus.focus === "function"
+    ) {
       previousModalFocus.focus();
     }
     previousModalFocus = null;
@@ -567,6 +572,15 @@
     }
     const first = focusable[0];
     const last = focusable[focusable.length - 1];
+    if (!browser().els.reviewModal.contains(document.activeElement)) {
+      event.preventDefault();
+      if (event.shiftKey) {
+        last.focus();
+      } else {
+        first.focus();
+      }
+      return;
+    }
     if (event.shiftKey && document.activeElement === first) {
       event.preventDefault();
       last.focus();
