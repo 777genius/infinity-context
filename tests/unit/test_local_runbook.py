@@ -94,6 +94,11 @@ def test_frontend_marionette_local_e2e_report_contract(tmp_path: Path) -> None:
         "succeeded",
         exit_code=0,
     )
+    report["components"]["flutter_runtime_log"] = module._component(
+        "succeeded",
+        forbidden_marker_count=0,
+        markers=[],
+    )
     report["ok"] = True
     report["exit_code"] = 0
     report["finished_at"] = module._utc_now()
@@ -132,6 +137,11 @@ def test_frontend_marionette_local_e2e_report_contract(tmp_path: Path) -> None:
         "profile": "test",
     }
     assert persisted["components"]["flutter_marionette"]["status"] == "succeeded"
+    assert persisted["components"]["flutter_runtime_log"] == {
+        "status": "succeeded",
+        "forbidden_marker_count": 0,
+        "markers": [],
+    }
     assert persisted["flow_coverage"] == {
         "schema_version": 1,
         "status": "succeeded",
@@ -146,6 +156,36 @@ def test_frontend_marionette_local_e2e_report_contract(tmp_path: Path) -> None:
     assert str(ROOT) not in rendered
     assert "local-dev-token" not in rendered
     assert "OPENAI_API_KEY" not in rendered
+
+
+def test_frontend_marionette_runtime_log_component_flags_flutter_errors() -> None:
+    module = _load_frontend_marionette_local_e2e(
+        ROOT / "scripts" / "frontend_marionette_local_e2e.py"
+    )
+    markers: list[dict[str, str]] = []
+
+    module._collect_flutter_runtime_marker(
+        "EXCEPTION CAUGHT BY WIDGETS LIBRARY: token Bearer sk-test-secret",
+        markers,
+    )
+    module._collect_flutter_runtime_marker(
+        "A RenderFlex overflowed by 42 pixels on the right.",
+        markers,
+    )
+
+    component = module._flutter_runtime_log_component(markers)
+    rendered = json.dumps(component)
+
+    assert component["status"] == "failed"
+    assert component["forbidden_marker_count"] == 2
+    assert component["markers"][0]["marker"] == "EXCEPTION CAUGHT BY"
+    assert "Bearer <redacted>" in rendered
+    assert "sk-test-secret" not in rendered
+    assert module._flutter_runtime_log_component([]) == {
+        "status": "succeeded",
+        "forbidden_marker_count": 0,
+        "markers": [],
+    }
 
 
 def test_selfhost_compose_has_team_deployment_contract() -> None:

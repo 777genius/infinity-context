@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -18,6 +19,17 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 SUITE = "memo-stack-frontend-marionette-local-e2e"
+MAX_RUNTIME_LOG_MARKERS = 12
+MAX_RUNTIME_LOG_SNIPPET_CHARS = 240
+FLUTTER_RUNTIME_ERROR_MARKERS = (
+    "EXCEPTION CAUGHT BY",
+    "Another exception was thrown",
+    "RenderFlex overflowed",
+    "A RenderFlex overflowed",
+    "Codec failed to produce an image",
+    "[ERROR:flutter/runtime",
+    "Unhandled Exception",
+)
 
 
 def main() -> int:
@@ -97,20 +109,21 @@ def main() -> int:
                 "MEMO_STACK_E2E_FLOW_REPORT_OUT": str(flow_report_path),
             }
         )
-        result = subprocess.run(
+        marionette_exit_code, runtime_log = _run_streaming_process_and_collect_runtime_log(
             [str(dart_bin), "run", "tool/marionette_anchor_lifecycle_e2e.dart"],
             cwd=frontend_dir,
             env=marionette_env,
-            check=False,
         )
-        exit_code = int(result.returncode)
+        report["components"]["flutter_runtime_log"] = runtime_log
         report["components"]["flutter_marionette"] = _component(
-            "succeeded" if exit_code == 0 else "failed",
-            exit_code=exit_code,
+            "succeeded" if marionette_exit_code == 0 else "failed",
+            exit_code=marionette_exit_code,
         )
+        runtime_ok = runtime_log.get("status") == "succeeded"
+        exit_code = marionette_exit_code if marionette_exit_code != 0 else (0 if runtime_ok else 1)
         if exit_code == 0:
             report["components"]["worker"] = _component("succeeded")
-        report["ok"] = exit_code == 0
+        report["ok"] = marionette_exit_code == 0 and runtime_ok
         return exit_code
     except Exception as exc:
         report["ok"] = False
@@ -195,6 +208,7 @@ def _base_report(
             "server": _component("unknown"),
             "worker": _component("unknown"),
             "flutter_marionette": _component("unknown"),
+            "flutter_runtime_log": _component("unknown"),
         },
     }
 
@@ -255,6 +269,61 @@ def _mark_unknown_components_failed(report: dict[str, object], exc: Exception) -
             continue
         value["status"] = "failed"
         value["reason"] = exc.__class__.__name__
+
+
+def _run_streaming_process_and_collect_runtime_log(
+    command: list[str],
+    *,
+    cwd: Path,
+    env: dict[str, str],
+) -> tuple[int, dict[str, object]]:
+    process = subprocess.Popen(
+        command,
+        cwd=cwd,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        errors="replace",
+        bufsize=1,
+    )
+    markers: list[dict[str, str]] = []
+    if process.stdout is not None:
+        for line in process.stdout:
+            print(line, end="")
+            _collect_flutter_runtime_marker(line, markers)
+    return int(process.wait()), _flutter_runtime_log_component(markers)
+
+
+def _collect_flutter_runtime_marker(line: str, markers: list[dict[str, str]]) -> None:
+    if len(markers) >= MAX_RUNTIME_LOG_MARKERS:
+        return
+    lowered = line.lower()
+    for marker in FLUTTER_RUNTIME_ERROR_MARKERS:
+        if marker.lower() not in lowered:
+            continue
+        markers.append(
+            {
+                "marker": marker,
+                "snippet": _safe_log_snippet(line),
+            }
+        )
+        return
+
+
+def _flutter_runtime_log_component(markers: list[dict[str, str]]) -> dict[str, object]:
+    return _component(
+        "succeeded" if not markers else "failed",
+        forbidden_marker_count=len(markers),
+        markers=markers,
+    )
+
+
+def _safe_log_snippet(line: str) -> str:
+    snippet = line.replace("\r", "").strip()
+    snippet = re.sub(r"Bearer\s+[A-Za-z0-9._~+/=-]+", "Bearer <redacted>", snippet)
+    snippet = re.sub(r"sk-[A-Za-z0-9_-]{6,}", "sk-<redacted>", snippet)
+    return snippet[:MAX_RUNTIME_LOG_SNIPPET_CHARS]
 
 
 def _git_info(root: Path) -> dict[str, object]:

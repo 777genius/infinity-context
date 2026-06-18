@@ -230,8 +230,11 @@ def _audit_frontend_report(
         checks,
         failures,
         "frontend_marionette_components_succeeded",
-        _components_succeeded(components, {"server", "worker", "flutter_marionette"}),
-        "Frontend Marionette server, worker, or Flutter component failed",
+        _components_succeeded(
+            components,
+            {"server", "worker", "flutter_marionette", "flutter_runtime_log"},
+        ),
+        "Frontend Marionette server, worker, Flutter, or runtime log component failed",
     )
 
 

@@ -109,6 +109,43 @@ def test_multimodal_production_goal_audit_rejects_degraded_external_proofs(
     assert any("Live provider canary" in failure for failure in result.failures)
 
 
+def test_multimodal_production_goal_audit_rejects_frontend_runtime_log_failure(
+    tmp_path: Path,
+) -> None:
+    module = _load_module()
+    _write_core(tmp_path)
+    frontend_report = tmp_path / "frontend.json"
+    docker_report = tmp_path / "docker.json"
+    provider_report = tmp_path / "provider.json"
+    frontend = _frontend_report()
+    frontend["components"]["flutter_runtime_log"] = {
+        "status": "failed",
+        "forbidden_marker_count": 1,
+        "markers": [
+            {
+                "marker": "RenderFlex overflowed",
+                "snippet": "A RenderFlex overflowed by 42 pixels.",
+            }
+        ],
+    }
+    frontend_report.write_text(json.dumps(frontend), encoding="utf-8")
+    docker_report.write_text(json.dumps(_docker_report()), encoding="utf-8")
+    provider_report.write_text(json.dumps(_provider_report()), encoding="utf-8")
+
+    result = module.run_goal_audit(
+        root=tmp_path,
+        frontend_report=frontend_report.relative_to(tmp_path),
+        docker_report=docker_report.relative_to(tmp_path),
+        provider_report=provider_report.relative_to(tmp_path),
+        require_clean_git=False,
+        git={"commit": "abc", "short_commit": "abc", "dirty": False},
+    )
+
+    assert result.ok is False
+    assert result.checks["frontend_marionette_components_succeeded"] is False
+    assert any("runtime log component failed" in failure for failure in result.failures)
+
+
 def test_multimodal_production_goal_audit_rejects_provider_proof_without_git(
     tmp_path: Path,
 ) -> None:
@@ -191,6 +228,7 @@ def _frontend_report() -> dict[str, object]:
             "server": {"status": "succeeded"},
             "worker": {"status": "succeeded"},
             "flutter_marionette": {"status": "succeeded"},
+            "flutter_runtime_log": {"status": "succeeded"},
         },
         "flow_coverage": {
             "status": "succeeded",
