@@ -249,6 +249,8 @@ def is_permanent_error_code(code: str) -> bool:
         "dependency_missing",
         "not_installed",
         "missing_api_key",
+        "invalid_api_key",
+        "invalid_request",
         "external_ai_disabled",
         "empty_text",
         "empty_output",

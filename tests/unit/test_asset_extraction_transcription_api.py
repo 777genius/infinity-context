@@ -419,6 +419,9 @@ def test_audio_asset_extraction_provider_failure_falls_back_to_media_metadata(
         )
         assert extracted["metadata"]["transcription_provider"] == "openai_transcription"
         assert extracted["metadata"]["transcription_model"] == "gpt-4o-mini-transcribe"
+        assert extracted["metadata"]["transcript_provider_retryable"] is True
+        assert extracted["metadata"]["transcript_provider_error_type"] == "RuntimeError"
+        assert extracted["metadata"]["transcript_request_timeout_seconds"] == 60.0
         assert extracted["metadata"]["duration_seconds"] > 0
         assert {item["artifact_type"] for item in extracted["artifacts"]} == {
             "extracted_json",

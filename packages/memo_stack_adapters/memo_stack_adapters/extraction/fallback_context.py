@@ -56,6 +56,12 @@ def _speech_transcription_fallback_metadata(
     model = fallback_result.technical_metadata.get("transcription_model")
     if model:
         metadata["transcription_model"] = model
+    metadata.update(
+        _provider_fallback_metadata(
+            fallback_result,
+            prefix="transcript",
+        )
+    )
     return metadata
 
 
@@ -77,6 +83,26 @@ def _image_vision_fallback_metadata(
     model = fallback_result.technical_metadata.get("vision_model")
     if model:
         metadata["vision_model"] = model
+    metadata.update(_provider_fallback_metadata(fallback_result, prefix="vision"))
+    return metadata
+
+
+def _provider_fallback_metadata(
+    fallback_result: ExtractionResult,
+    *,
+    prefix: str,
+) -> dict[str, object]:
+    metadata: dict[str, object] = {}
+    technical = fallback_result.technical_metadata
+    retryable = technical.get("provider_retryable")
+    if isinstance(retryable, bool):
+        metadata[f"{prefix}_provider_retryable"] = retryable
+    error_type = technical.get("provider_error_type")
+    if isinstance(error_type, str) and error_type.strip():
+        metadata[f"{prefix}_provider_error_type"] = error_type.strip()[:120]
+    timeout = technical.get("request_timeout_seconds")
+    if isinstance(timeout, int | float) and timeout > 0:
+        metadata[f"{prefix}_request_timeout_seconds"] = float(timeout)
     return metadata
 
 

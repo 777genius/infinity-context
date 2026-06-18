@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import inspect
 import json
@@ -36,6 +37,7 @@ from memo_stack_adapters.extraction.image_evidence import (
     normalize_bbox,
     read_image_metadata,
 )
+from memo_stack_adapters.provider_errors import classify_provider_exception
 
 _VISION_PROFILES = {"vision", "openai_vision", "standard_vision", "standard_full", "full"}
 _SUPPORTED_OPENAI_IMAGE_TYPES = {
@@ -112,6 +114,7 @@ class OpenAIVisionImageExtractionEngine(ExtractionEngine):
         detail: str = "high",
         client_factory: Callable[[], Any] | None = None,
         max_output_tokens: int = 1200,
+        request_timeout_seconds: float = 60.0,
         vision: ImageVisionPort | None = None,
     ) -> None:
         self._api_key = api_key
@@ -119,6 +122,7 @@ class OpenAIVisionImageExtractionEngine(ExtractionEngine):
         self._detail = detail
         self._client_factory = client_factory
         self._max_output_tokens = max_output_tokens
+        self._request_timeout_seconds = max(1.0, float(request_timeout_seconds))
         adapter_client_factory = self._client if (api_key or client_factory is not None) else None
         self._vision = vision or OpenAIImageVisionAdapter(
             api_key=api_key,
@@ -126,6 +130,7 @@ class OpenAIVisionImageExtractionEngine(ExtractionEngine):
             detail=detail,
             client_factory=adapter_client_factory,
             max_output_tokens=max_output_tokens,
+            request_timeout_seconds=request_timeout_seconds,
         )
 
     async def supports(self, request: ExtractionRequest) -> SupportDecision:
@@ -298,12 +303,14 @@ class OpenAIImageVisionAdapter(ImageVisionPort):
         detail: str = "high",
         client_factory: Callable[[], Any] | None = None,
         max_output_tokens: int = 1200,
+        request_timeout_seconds: float = 60.0,
     ) -> None:
         self._api_key = api_key
         self._model = model
         self._detail = detail
         self._client_factory = client_factory
         self._max_output_tokens = max_output_tokens
+        self._request_timeout_seconds = max(1.0, float(request_timeout_seconds))
 
     async def analyze(self, request: ImageVisionRequest) -> ImageVisionResult:
         if not self._api_key and self._client_factory is None:
@@ -314,30 +321,43 @@ class OpenAIImageVisionAdapter(ImageVisionPort):
         client = None
         try:
             client = self._client()
-            response = await client.responses.create(
-                model=self._model,
-                input=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "input_text", "text": _PROMPT},
-                            {
-                                "type": "input_image",
-                                "image_url": _data_url(request),
-                                "detail": self._detail,
-                            },
-                        ],
-                    }
-                ],
-                max_output_tokens=self._max_output_tokens,
-                text=_structured_text_config(),
-                store=False,
+            response = await asyncio.wait_for(
+                client.responses.create(
+                    model=self._model,
+                    input=[
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "input_text", "text": _PROMPT},
+                                {
+                                    "type": "input_image",
+                                    "image_url": _data_url(request),
+                                    "detail": self._detail,
+                                },
+                            ],
+                        }
+                    ],
+                    max_output_tokens=self._max_output_tokens,
+                    text=_structured_text_config(),
+                    store=False,
+                ),
+                timeout=self._request_timeout_seconds,
             )
             raw_output = _response_output_text(response)
-        except Exception:
+        except Exception as exc:
+            code, retryable = classify_provider_exception(
+                exc,
+                prefix="asset_extraction.vision",
+                default_code="asset_extraction.vision_provider_error",
+            )
             return self._unsupported(
-                code="asset_extraction.vision_provider_error",
+                code=code,
                 message="OpenAI image understanding failed",
+                diagnostics={
+                    "provider_retryable": retryable,
+                    "provider_error_type": exc.__class__.__name__,
+                    "request_timeout_seconds": self._request_timeout_seconds,
+                },
             )
         finally:
             await _close_client(client)
@@ -358,6 +378,7 @@ class OpenAIImageVisionAdapter(ImageVisionPort):
             diagnostics={
                 "detail": self._detail,
                 "payload_bounded": True,
+                "request_timeout_seconds": self._request_timeout_seconds,
             },
         )
 
@@ -368,13 +389,22 @@ class OpenAIImageVisionAdapter(ImageVisionPort):
 
         return AsyncOpenAI(api_key=self._api_key)
 
-    def _unsupported(self, *, code: str, message: str) -> ImageVisionResult:
+    def _unsupported(
+        self,
+        *,
+        code: str,
+        message: str,
+        diagnostics: dict[str, object] | None = None,
+    ) -> ImageVisionResult:
         return ImageVisionResult(
             status="unsupported",
             provider_name=self.provider_name,
             provider_model=self._model,
             provider_version=self.provider_version,
-            diagnostics={"detail": self._detail},
+            diagnostics={
+                "detail": self._detail,
+                **(diagnostics or {}),
+            },
             safe_error_code=code,
             safe_error_message=message,
         )

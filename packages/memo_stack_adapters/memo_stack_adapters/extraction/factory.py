@@ -29,6 +29,7 @@ def build_standard_extractor(
     openai_api_key: str | None = None,
     vision_model: str = "gpt-4.1-mini",
     vision_detail: str = "high",
+    provider_timeout_seconds: int = 60,
     transcription_provider: str = "openai",
     transcription_model: str = "gpt-4o-mini-transcribe",
     transcription_max_upload_bytes: int = OPENAI_TRANSCRIPTION_MAX_UPLOAD_BYTES,
@@ -41,6 +42,7 @@ def build_standard_extractor(
             api_key=openai_api_key if transcription_provider == "openai" else None,
             model=transcription_model,
             max_upload_bytes=transcription_max_upload_bytes,
+            request_timeout_seconds=provider_timeout_seconds,
         )
     )
     return StandardExtractionRouter(
@@ -49,6 +51,7 @@ def build_standard_extractor(
                 api_key=openai_api_key,
                 model=vision_model,
                 detail=vision_detail,
+                request_timeout_seconds=provider_timeout_seconds,
             ),
             DoclingDocumentExtractionEngine(),
             speech_transcription,

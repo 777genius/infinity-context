@@ -422,6 +422,7 @@ def build_container(settings: Settings | None = None) -> Container:
             openai_api_key=resolved_settings.openai_api_key,
             vision_model=resolved_settings.extraction_vision_model,
             vision_detail=resolved_settings.extraction_vision_detail,
+            provider_timeout_seconds=resolved_settings.extraction_provider_timeout_seconds,
             transcription_provider=resolved_settings.transcription_provider,
             transcription_model=resolved_settings.transcription_openai_model,
             transcription_max_upload_bytes=(

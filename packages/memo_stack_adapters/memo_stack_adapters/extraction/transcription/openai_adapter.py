@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 from io import BytesIO
 from typing import Any
@@ -13,6 +14,8 @@ from memo_stack_core.ports.transcription import (
     SpeechTranscriptSegment,
     SpeechTranscriptWord,
 )
+
+from memo_stack_adapters.provider_errors import classify_provider_exception
 
 _SUPPORTED_CONTENT_TYPES = {
     "audio/flac",
@@ -44,12 +47,14 @@ class OpenAISpeechTranscriptionAdapter(SpeechTranscriptionPort):
         client_factory: Any | None = None,
         prompt: str | None = None,
         max_upload_bytes: int = OPENAI_TRANSCRIPTION_MAX_UPLOAD_BYTES,
+        request_timeout_seconds: float = 60.0,
     ) -> None:
         self._api_key = api_key
         self._model = model
         self._client_factory = client_factory
         self._prompt = prompt
         self._max_upload_bytes = max(1, int(max_upload_bytes))
+        self._request_timeout_seconds = max(1.0, float(request_timeout_seconds))
 
     async def transcribe(
         self,
@@ -79,14 +84,25 @@ class OpenAISpeechTranscriptionAdapter(SpeechTranscriptionPort):
         client = None
         try:
             client = self._client()
-            response = await client.audio.transcriptions.create(
-                **self._request_kwargs(request),
+            response = await asyncio.wait_for(
+                client.audio.transcriptions.create(**self._request_kwargs(request)),
+                timeout=self._request_timeout_seconds,
             )
             text = _response_text(response)[: request.max_output_chars]
-        except Exception:
+        except Exception as exc:
+            code, retryable = classify_provider_exception(
+                exc,
+                prefix="asset_extraction.transcription",
+                default_code="asset_extraction.transcription_provider_error",
+            )
             return self._unsupported(
-                code="asset_extraction.transcription_provider_error",
+                code=code,
                 message="OpenAI speech transcription failed",
+                diagnostics={
+                    "provider_retryable": retryable,
+                    "provider_error_type": exc.__class__.__name__,
+                    "request_timeout_seconds": self._request_timeout_seconds,
+                },
             )
         finally:
             await _close_client(client)
@@ -108,6 +124,7 @@ class OpenAISpeechTranscriptionAdapter(SpeechTranscriptionPort):
             provider_model=self._model,
             provider_version=self.provider_version,
             diagnostics={
+                "request_timeout_seconds": self._request_timeout_seconds,
                 **_request_diagnostics(self._model),
                 **_response_diagnostics(response),
             },

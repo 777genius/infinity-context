@@ -1531,6 +1531,9 @@ def test_standard_vision_provider_failure_falls_back_to_local_image_metadata(
         )
         assert extracted["metadata"]["vision_provider"] == "openai_vision"
         assert extracted["metadata"]["vision_model"] == "gpt-4.1-mini"
+        assert extracted["metadata"]["vision_provider_retryable"] is True
+        assert extracted["metadata"]["vision_provider_error_type"] == "RuntimeError"
+        assert extracted["metadata"]["vision_request_timeout_seconds"] == 60.0
         assert extracted["metadata"]["image_width"] == 120
         assert extracted["metadata"]["image_height"] == 40
         assert {item["artifact_type"] for item in extracted["artifacts"]} == {
