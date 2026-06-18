@@ -261,6 +261,29 @@ def test_capabilities_return_noop_adapters() -> None:
         "external_ai_features_require_explicit_profile": True,
         "local_asr_does_not_provide_speaker_labels": True,
     }
+    assert body["extraction"]["file_type_detection"] == {
+        "schema_version": "memo_stack.file_type_detection_contract.v1",
+        "declared_content_type_trusted": False,
+        "filename_extension_trusted": False,
+        "magic_bytes_preferred_for_binary_mismatch": True,
+        "textual_subtype_overrides_supported": True,
+        "empty_upload_policy": "reject_at_upload",
+        "mismatch_diagnostics_persisted": True,
+        "diagnostic_fields": [
+            "detected_content_type",
+            "detector_confidence",
+            "mime_declared_content_type",
+            "mime_detected_content_type",
+            "mime_magic_content_type",
+            "mime_extension_content_type",
+            "mime_content_type_mismatch",
+            "mime_magic_mismatch",
+            "mime_extension_mismatch",
+            "mime_detector_reason",
+            "asset_empty_content",
+        ],
+        "public_api_policy": "bounded_metadata_without_raw_bytes",
+    }
     modality_actions = body["extraction"]["modality_actions"]
     assert modality_actions["image"]["metadata"] == {
         "profile": "standard_local",
