@@ -46,6 +46,9 @@ class ContextSourceRef:
 class ContextItemDiagnostics:
     retrieval_source: str | None
     retrieval_sources: tuple[str, ...]
+    retrieval_sources_total: int
+    retrieval_sources_returned: int
+    retrieval_sources_truncated: bool
     ranking_reason: str
     score_signals: Mapping[str, object]
     provenance: Mapping[str, object]
@@ -71,6 +74,9 @@ class ContextBundleDiagnostics:
     context_assembly_version: str
     consistency_mode: str
     retrieval_sources_used: tuple[str, ...]
+    retrieval_sources_total: int
+    retrieval_sources_returned: int
+    retrieval_sources_truncated: bool
     hybrid_items_used: int
     temporal_replacements_applied: int
     temporal_relations_skipped_by_validity: int
@@ -106,6 +112,9 @@ class ContextBundleDiagnostics:
     source_refs_with_page_count: int = 0
     source_refs_with_bbox_count: int = 0
     source_refs_with_time_range_count: int = 0
+    source_refs_total: int = 0
+    source_refs_returned: int = 0
+    source_refs_truncated: bool = False
 
 
 @dataclass(frozen=True)
@@ -186,12 +195,29 @@ def _item_diagnostics_from_payload(value: object) -> ContextItemDiagnostics:
     if retrieval_source:
         safe_raw["retrieval_source"] = retrieval_source
     safe_raw["ranking_reason"] = ranking_reason
+    retrieval_sources_total = _non_negative_int(
+        raw.get("retrieval_sources_total"),
+        default=len(retrieval_sources),
+    )
+    retrieval_sources_returned = _non_negative_int(
+        raw.get("retrieval_sources_returned"),
+        default=len(retrieval_sources),
+    )
+    retrieval_sources_truncated = _safe_bool(
+        raw.get("retrieval_sources_truncated")
+    ) or retrieval_sources_total > retrieval_sources_returned
+    safe_raw["retrieval_sources_total"] = retrieval_sources_total
+    safe_raw["retrieval_sources_returned"] = retrieval_sources_returned
+    safe_raw["retrieval_sources_truncated"] = retrieval_sources_truncated
     safe_raw["review_only"] = review_only
     if stale_reason:
         safe_raw["stale_reason"] = stale_reason
     return ContextItemDiagnostics(
         retrieval_source=retrieval_source,
         retrieval_sources=retrieval_sources,
+        retrieval_sources_total=retrieval_sources_total,
+        retrieval_sources_returned=retrieval_sources_returned,
+        retrieval_sources_truncated=retrieval_sources_truncated,
         ranking_reason=ranking_reason,
         score_signals=_scalar_mapping(raw.get("score_signals")),
         provenance=_bounded_mapping(raw.get("provenance")),
@@ -209,10 +235,27 @@ def _bundle_diagnostics_from_payload(value: object) -> ContextBundleDiagnostics:
     )
     safe_raw = dict(raw)
     safe_raw["retrieval_sources_used"] = list(retrieval_sources_used)
+    retrieval_sources_total = _non_negative_int(
+        raw.get("retrieval_sources_total"),
+        default=len(retrieval_sources_used),
+    )
+    retrieval_sources_returned = _non_negative_int(
+        raw.get("retrieval_sources_returned"),
+        default=len(retrieval_sources_used),
+    )
+    retrieval_sources_truncated = _safe_bool(
+        raw.get("retrieval_sources_truncated")
+    ) or retrieval_sources_total > retrieval_sources_returned
+    safe_raw["retrieval_sources_total"] = retrieval_sources_total
+    safe_raw["retrieval_sources_returned"] = retrieval_sources_returned
+    safe_raw["retrieval_sources_truncated"] = retrieval_sources_truncated
     return ContextBundleDiagnostics(
         context_assembly_version=_safe_text(raw.get("context_assembly_version"), default="unknown"),
         consistency_mode=_safe_text(raw.get("consistency_mode"), default="unknown"),
         retrieval_sources_used=retrieval_sources_used,
+        retrieval_sources_total=retrieval_sources_total,
+        retrieval_sources_returned=retrieval_sources_returned,
+        retrieval_sources_truncated=retrieval_sources_truncated,
         hybrid_items_used=_non_negative_int(raw.get("hybrid_items_used")),
         temporal_replacements_applied=_non_negative_int(
             raw.get("temporal_replacements_applied")
@@ -266,6 +309,9 @@ def _bundle_diagnostics_from_payload(value: object) -> ContextBundleDiagnostics:
         source_refs_with_time_range_count=_non_negative_int(
             raw.get("source_refs_with_time_range_count")
         ),
+        source_refs_total=_non_negative_int(raw.get("source_refs_total")),
+        source_refs_returned=_non_negative_int(raw.get("source_refs_returned")),
+        source_refs_truncated=_safe_bool(raw.get("source_refs_truncated")),
     )
 
 
@@ -394,9 +440,9 @@ def _safe_bool(value: object) -> bool:
     return False
 
 
-def _non_negative_int(value: object) -> int:
+def _non_negative_int(value: object, *, default: int = 0) -> int:
     number = _optional_int(value)
-    return max(0, number or 0)
+    return max(0, number if number is not None else default)
 
 
 def _as_mapping(value: object) -> Mapping[str, object]:

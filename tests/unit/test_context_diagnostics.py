@@ -3,6 +3,7 @@ from memo_stack_core.application.context_diagnostics import (
     normalize_context_item_diagnostics,
 )
 from memo_stack_core.application.dto import ContextItem
+from memo_stack_core.domain.entities import SourceRef
 
 
 def test_context_bundle_diagnostics_are_bounded_redacted_and_typed() -> None:
@@ -45,6 +46,36 @@ def test_context_bundle_diagnostics_are_bounded_redacted_and_typed() -> None:
     assert "SECRET_VALUE_SHOULD_NOT_LEAK" not in str(diagnostics)
 
 
+def test_context_bundle_diagnostics_report_source_totals_and_truncation() -> None:
+    item = ContextItem(
+        item_id="chunk_contract",
+        item_type="chunk",
+        text="Contract diagnostics item.",
+        score=0.9,
+        source_refs=(
+            SourceRef(source_type="document", source_id="doc", chunk_id="chunk_1"),
+            SourceRef(source_type="manual", source_id="note"),
+        ),
+        diagnostics={
+            "retrieval_sources": [f"source_{index}" for index in range(12)],
+            "provenance": {"source_ref_count": 5},
+        },
+    )
+
+    diagnostics = normalize_context_bundle_diagnostics(
+        {"context_assembly_version": "context-v2-hybrid-explainable"},
+        items=(item,),
+    )
+
+    assert diagnostics["retrieval_sources_used"] == [f"source_{index}" for index in range(8)]
+    assert diagnostics["retrieval_sources_total"] == 12
+    assert diagnostics["retrieval_sources_returned"] == 8
+    assert diagnostics["retrieval_sources_truncated"] is True
+    assert diagnostics["source_refs_total"] == 5
+    assert diagnostics["source_refs_returned"] == 2
+    assert diagnostics["source_refs_truncated"] is True
+
+
 def test_context_bundle_diagnostics_defaults_empty_contract() -> None:
     diagnostics = normalize_context_bundle_diagnostics(
         {
@@ -57,6 +88,9 @@ def test_context_bundle_diagnostics_defaults_empty_contract() -> None:
     assert diagnostics["context_assembly_version"] == "context-v2-hybrid-explainable"
     assert diagnostics["consistency_mode"] == "best_effort"
     assert diagnostics["retrieval_sources_used"] == []
+    assert diagnostics["retrieval_sources_total"] == 0
+    assert diagnostics["retrieval_sources_returned"] == 0
+    assert diagnostics["retrieval_sources_truncated"] is False
     assert diagnostics["vector_status"] == "unknown"
     assert diagnostics["graph_status"] == "unknown"
     assert diagnostics["rag_status"] == "unknown"
@@ -69,6 +103,9 @@ def test_context_bundle_diagnostics_defaults_empty_contract() -> None:
     assert diagnostics["dropped_by_instruction_flag"] == 0
     assert diagnostics["dropped_by_budget"] == 0
     assert diagnostics["source_refs_with_bbox_count"] == 0
+    assert diagnostics["source_refs_total"] == 0
+    assert diagnostics["source_refs_returned"] == 0
+    assert diagnostics["source_refs_truncated"] is False
 
 
 def test_context_bundle_retrieval_sources_use_stable_priority_order() -> None:

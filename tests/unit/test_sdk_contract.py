@@ -480,6 +480,9 @@ def test_sdk_build_typed_context_returns_bounded_safe_diagnostics() -> None:
                         "graph_status": "degraded",
                         "rag_status": "skipped",
                         "retrieval_sources_used": [f"source_{index}" for index in range(12)],
+                        "retrieval_sources_total": 12,
+                        "retrieval_sources_returned": 8,
+                        "retrieval_sources_truncated": True,
                         "facts_considered": 5,
                         "keyword_chunks_considered": 6,
                         "vector_candidate_count": 9,
@@ -510,6 +513,9 @@ def test_sdk_build_typed_context_returns_bounded_safe_diagnostics() -> None:
                         "source_refs_with_page_count": 3,
                         "source_refs_with_bbox_count": 1,
                         "source_refs_with_time_range_count": 2,
+                        "source_refs_total": 25,
+                        "source_refs_returned": 20,
+                        "source_refs_truncated": True,
                         "api_key": raw_secret,
                     },
                     "items": [
@@ -539,6 +545,9 @@ def test_sdk_build_typed_context_returns_bounded_safe_diagnostics() -> None:
                                     "vector_chunks",
                                     "keyword_chunks",
                                 ],
+                                "retrieval_sources_total": 12,
+                                "retrieval_sources_returned": 8,
+                                "retrieval_sources_truncated": True,
                                 "review_only": True,
                                 "stale_reason": "fact_status_superseded",
                                 "score_signals": {
@@ -598,6 +607,9 @@ def test_sdk_build_typed_context_returns_bounded_safe_diagnostics() -> None:
     assert bundle.diagnostics.retrieval_sources_used == tuple(
         f"source_{index}" for index in range(8)
     )
+    assert bundle.diagnostics.retrieval_sources_total == 12
+    assert bundle.diagnostics.retrieval_sources_returned == 8
+    assert bundle.diagnostics.retrieval_sources_truncated is True
     assert bundle.diagnostics.facts_considered == 5
     assert bundle.diagnostics.keyword_chunks_considered == 6
     assert bundle.diagnostics.vector_candidate_count == 9
@@ -628,6 +640,9 @@ def test_sdk_build_typed_context_returns_bounded_safe_diagnostics() -> None:
     assert bundle.diagnostics.source_refs_with_page_count == 3
     assert bundle.diagnostics.source_refs_with_bbox_count == 1
     assert bundle.diagnostics.source_refs_with_time_range_count == 2
+    assert bundle.diagnostics.source_refs_total == 25
+    assert bundle.diagnostics.source_refs_returned == 20
+    assert bundle.diagnostics.source_refs_truncated is True
     assert "api_key" not in bundle.diagnostics.raw
 
     item = bundle.items[0]
@@ -640,6 +655,9 @@ def test_sdk_build_typed_context_returns_bounded_safe_diagnostics() -> None:
     assert item.source_refs[0].bbox == (0.0, 1.0, 120.0, 40.0)
     assert item.diagnostics.retrieval_source == "vector_chunks"
     assert item.diagnostics.retrieval_sources == ("vector_chunks", "keyword_chunks")
+    assert item.diagnostics.retrieval_sources_total == 12
+    assert item.diagnostics.retrieval_sources_returned == 8
+    assert item.diagnostics.retrieval_sources_truncated is True
     assert item.diagnostics.ranking_reason == "hybrid match via vector_chunks, keyword_chunks"
     assert item.diagnostics.review_only is True
     assert item.diagnostics.stale_reason == "fact_status_superseded"
@@ -686,6 +704,9 @@ def test_sdk_typed_context_defaults_missing_diagnostic_counters() -> None:
     assert bundle.diagnostics.vector_status == "unknown"
     assert bundle.diagnostics.graph_status == "unknown"
     assert bundle.diagnostics.rag_status == "unknown"
+    assert bundle.diagnostics.retrieval_sources_total == 0
+    assert bundle.diagnostics.retrieval_sources_returned == 0
+    assert bundle.diagnostics.retrieval_sources_truncated is False
     assert bundle.diagnostics.facts_considered == 0
     assert bundle.diagnostics.keyword_chunks_considered == 0
     assert bundle.diagnostics.vector_candidate_count == 0
@@ -707,6 +728,9 @@ def test_sdk_typed_context_defaults_missing_diagnostic_counters() -> None:
     assert bundle.diagnostics.dropped_by_budget == 0
     assert bundle.diagnostics.dropped_by_source_cap == 0
     assert bundle.diagnostics.dropped_by_char_cap == 0
+    assert bundle.diagnostics.source_refs_total == 0
+    assert bundle.diagnostics.source_refs_returned == 0
+    assert bundle.diagnostics.source_refs_truncated is False
 
 
 def test_sdk_typed_context_defaults_legacy_item_diagnostics() -> None:
@@ -748,6 +772,9 @@ def test_sdk_typed_context_defaults_legacy_item_diagnostics() -> None:
     assert item.is_instruction is False
     assert item.diagnostics.retrieval_source is None
     assert item.diagnostics.retrieval_sources == ()
+    assert item.diagnostics.retrieval_sources_total == 0
+    assert item.diagnostics.retrieval_sources_returned == 0
+    assert item.diagnostics.retrieval_sources_truncated is False
     assert item.diagnostics.ranking_reason == "matched without retrieval channel diagnostics"
     assert item.diagnostics.score_signals == {}
     assert item.diagnostics.provenance == {}

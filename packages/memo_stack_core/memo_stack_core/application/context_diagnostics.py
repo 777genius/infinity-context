@@ -199,8 +199,17 @@ def normalize_context_bundle_diagnostics(
             _safe_optional_text(raw.get(key), limit=_MAX_DIAGNOSTIC_KEY_CHARS)
             or default
         )
-    retrieval_sources = _bundle_retrieval_sources(items)
+    all_retrieval_sources = _bundle_retrieval_sources(
+        items,
+        limit=_MAX_RETRIEVAL_SOURCE_CANDIDATES,
+    )
+    retrieval_sources = all_retrieval_sources[:_MAX_RETRIEVAL_SOURCES]
     normalized["retrieval_sources_used"] = list(retrieval_sources)
+    normalized["retrieval_sources_total"] = len(all_retrieval_sources)
+    normalized["retrieval_sources_returned"] = len(retrieval_sources)
+    normalized["retrieval_sources_truncated"] = len(all_retrieval_sources) > len(
+        retrieval_sources
+    )
     normalized["diagnostics_truncated"] = len(raw) > _MAX_BUNDLE_DIAGNOSTIC_MAPPING_ITEMS
     for key in _BUNDLE_COUNTER_KEYS:
         if key in raw or key in _BUNDLE_COUNTER_DEFAULTS:
@@ -208,6 +217,7 @@ def normalize_context_bundle_diagnostics(
                 raw.get(key),
                 default=_BUNDLE_COUNTER_DEFAULTS.get(key, 0),
             )
+    normalized.update(_source_ref_counts(items))
     normalized.update(_multimodal_source_ref_counts(items))
     return normalized
 
@@ -371,11 +381,45 @@ def _candidate_count(diagnostics: dict[str, Any]) -> int:
     return value if isinstance(value, int) and value > 0 else 1
 
 
-def _bundle_retrieval_sources(items: tuple[ContextItem, ...]) -> tuple[str, ...]:
+def _bundle_retrieval_sources(
+    items: tuple[ContextItem, ...],
+    *,
+    limit: int = _MAX_RETRIEVAL_SOURCES,
+) -> tuple[str, ...]:
     sources = _ordered_unique(
-        tuple(source for item in items for source in diagnostic_retrieval_sources(item.diagnostics))
+        tuple(
+            source
+            for item in items
+            for source in diagnostic_retrieval_sources(item.diagnostics, limit=limit)
+        ),
+        limit=limit,
     )
     return _prioritized_retrieval_sources(sources)
+
+
+def _source_ref_counts(items: tuple[ContextItem, ...]) -> dict[str, int | bool]:
+    returned = sum(len(item.source_refs) for item in items)
+    total = sum(max(len(item.source_refs), _diagnostic_source_ref_count(item)) for item in items)
+    return {
+        "source_refs_total": total,
+        "source_refs_returned": returned,
+        "source_refs_truncated": total > returned,
+    }
+
+
+def _diagnostic_source_ref_count(item: ContextItem) -> int:
+    diagnostics = _as_dict(item.diagnostics)
+    provenance = _as_dict(diagnostics.get("provenance"))
+    score_signals = _as_dict(diagnostics.get("score_signals"))
+    for value in (
+        diagnostics.get("source_ref_count"),
+        provenance.get("source_ref_count"),
+        score_signals.get("source_ref_count"),
+    ):
+        count = _optional_non_negative_int(value)
+        if count is not None:
+            return count
+    return len(item.source_refs)
 
 
 def _multimodal_source_ref_counts(items: tuple[ContextItem, ...]) -> dict[str, int]:
@@ -428,6 +472,16 @@ def _non_negative_int(value: object, *, default: int) -> int:
     if isinstance(value, float):
         return max(0, int(value))
     return default
+
+
+def _optional_non_negative_int(value: object) -> int | None:
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return max(0, value)
+    if isinstance(value, float):
+        return max(0, int(value))
+    return None
 
 
 def _updated_at(item: ContextItem) -> str:
