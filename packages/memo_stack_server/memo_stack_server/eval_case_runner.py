@@ -34,6 +34,8 @@ def _run_eval_case(
         "max_facts": case.max_facts,
         "max_chunks": case.max_chunks,
     }
+    if case.include_stale:
+        payload["include_stale"] = True
     if case.thread_id:
         payload["thread_id"] = case.thread_id
     response = client.post("/v1/context", json=payload, headers=headers)

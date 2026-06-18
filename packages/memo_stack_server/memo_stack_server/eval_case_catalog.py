@@ -152,6 +152,21 @@ def _quality_golden_cases(
             max_chunks=0,
         ),
         EvalCase(
+            case_id="contradicted_fact_visible_only_in_stale_review",
+            category="stale_review",
+            space_id=space_id,
+            memory_scope_ids=(alpha_memory_scope_id,),
+            query="legacy billing owner Alex",
+            must_include=("QUALITY_FACT_CONTRADICTION_OLD",),
+            max_facts=5,
+            max_chunks=0,
+            include_stale=True,
+            required_diagnostics=(
+                ("stale_facts_used", "gte", 1),
+                ("retrieval_sources_used", "contains", "disputed_review"),
+            ),
+        ),
+        EvalCase(
             case_id="deleted_fact_hidden",
             category="deleted",
             space_id=space_id,

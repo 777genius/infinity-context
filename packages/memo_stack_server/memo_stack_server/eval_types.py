@@ -65,6 +65,7 @@ class EvalCase:
     max_facts: int = 20
     max_chunks: int = 30
     consistency_mode: str = "best_effort"
+    include_stale: bool = False
     require_evidence_guard: bool = True
     required_diagnostics: tuple[DiagnosticRequirement, ...] = ()
 

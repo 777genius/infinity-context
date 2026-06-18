@@ -1157,6 +1157,7 @@ def test_quality_golden_eval_passes() -> None:
         "updated_provider_current_only",
         "temporal_supersedes_current_only",
         "contradicted_fact_hidden_by_default",
+        "contradicted_fact_visible_only_in_stale_review",
         "document_architecture_precision",
         "hybrid_document_beats_single_source",
         "prompt_injection_evidence_only",
