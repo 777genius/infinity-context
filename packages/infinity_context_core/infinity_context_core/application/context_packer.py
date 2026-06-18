@@ -59,6 +59,8 @@ class ContextPacker:
         dropped_by_budget = 0
         dropped_by_char_cap = 0
         citations_rendered = 0
+        citation_quote_previews_rendered = 0
+        sensitive_citation_quote_previews_skipped = 0
         used_tokens = 0
         lines = list(_HEADER_LINES)
         current_memory_scope_id: str | None = None
@@ -95,6 +97,10 @@ class ContextPacker:
 
             selected.append(item)
             citations_rendered += len(_citation_labels(item))
+            citation_quote_previews_rendered += _citation_quote_preview_count(item)
+            sensitive_citation_quote_previews_skipped += (
+                _sensitive_citation_quote_skip_count(item)
+            )
             if item.item_type == "chunk":
                 selected_chunks_by_source[source_key] = source_count + 1
             used_tokens += item_tokens
@@ -119,6 +125,10 @@ class ContextPacker:
                     "dropped_by_source_cap": dropped_by_source_cap,
                     "dropped_by_char_cap": dropped_by_char_cap,
                     "citations_rendered": citations_rendered,
+                    "citation_quote_previews_rendered": citation_quote_previews_rendered,
+                    "sensitive_citation_quote_previews_skipped": (
+                        sensitive_citation_quote_previews_skipped
+                    ),
                     "rendered_chars": len(rendered_text),
                     "max_rendered_chars": char_budget,
                 },
@@ -183,6 +193,18 @@ def _citation_labels(item: ContextItem) -> tuple[str, ...]:
     return tuple(labels)
 
 
+def _citation_quote_preview_count(item: ContextItem) -> int:
+    return sum(1 for ref in item.source_refs[:3] if _citation_quote(ref.quote_preview))
+
+
+def _sensitive_citation_quote_skip_count(item: ContextItem) -> int:
+    return sum(
+        1
+        for ref in item.source_refs[:3]
+        if _citation_quote_is_sensitive(ref.quote_preview)
+    )
+
+
 def _source_ref_identity(ref: SourceRef) -> str:
     if ref.chunk_id:
         return f"{ref.source_type}:{ref.source_id}#{ref.chunk_id}"
@@ -211,15 +233,27 @@ def _format_bbox_value(value: float) -> str:
 
 
 def _citation_quote(value: str | None) -> str | None:
+    quote = _compact_citation_quote(value)
+    if quote is None or _citation_quote_is_sensitive(value):
+        return None
+    return _quote_text(quote)
+
+
+def _compact_citation_quote(value: str | None) -> str | None:
     if value is None:
         return None
     quote = _one_line(value)[:_MAX_CITATION_QUOTE_CHARS].strip()
     if not quote:
         return None
+    return quote
+
+
+def _citation_quote_is_sensitive(value: str | None) -> bool:
+    quote = _compact_citation_quote(value)
+    if quote is None:
+        return False
     lowered = quote.lower()
-    if any(marker in lowered for marker in _SENSITIVE_QUOTE_MARKERS):
-        return None
-    return _quote_text(quote)
+    return any(marker in lowered for marker in _SENSITIVE_QUOTE_MARKERS)
 
 
 def _quote_text(text: str) -> str:

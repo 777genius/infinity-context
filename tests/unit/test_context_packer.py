@@ -129,6 +129,8 @@ def test_memory_items_render_multimodal_citation_locations() -> None:
         'quote=\\"Invoice threshold visible in screenshot.\\""'
     ) in rendered
     assert result.bundle.diagnostics["citations_rendered"] == 1
+    assert result.bundle.diagnostics["citation_quote_previews_rendered"] == 1
+    assert result.bundle.diagnostics["sensitive_citation_quote_previews_skipped"] == 0
 
 
 def test_memory_items_skip_sensitive_citation_quote_previews() -> None:
@@ -161,6 +163,8 @@ def test_memory_items_skip_sensitive_citation_quote_previews() -> None:
     assert "time_ms=10-20" in rendered
     assert "Bearer" not in rendered
     assert "sk-test-secret-token" not in rendered
+    assert result.bundle.diagnostics["citation_quote_previews_rendered"] == 0
+    assert result.bundle.diagnostics["sensitive_citation_quote_previews_skipped"] == 1
 
 
 def test_memory_block_drops_instruction_marked_items() -> None:
