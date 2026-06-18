@@ -27,6 +27,7 @@ from memo_stack_core.application.dto import (
     ContextBundle,
     ContextItem,
 )
+from memo_stack_core.application.temporal_validity import is_temporal_window_current
 from memo_stack_core.domain.entities import MemoryChunk, MemoryFact, MemoryFactRelation, SourceRef
 from memo_stack_core.ports.adapters import EmbeddingPort, GraphMemoryPort, VectorMemoryPort
 from memo_stack_core.ports.capabilities import RagRecallPort
@@ -575,26 +576,11 @@ def _temporal_relation_is_current(
     *,
     now: datetime | None,
 ) -> bool:
-    if now is None:
-        return True
-    comparable_now = now
-    if comparable_now.tzinfo is None:
-        comparable_now = comparable_now.replace(tzinfo=None)
-    valid_from = _comparable_datetime(relation.valid_from, comparable_now)
-    valid_to = _comparable_datetime(relation.valid_to, comparable_now)
-    if valid_from is not None and comparable_now < valid_from:
-        return False
-    return not (valid_to is not None and comparable_now >= valid_to)
-
-
-def _comparable_datetime(value: datetime | None, reference: datetime) -> datetime | None:
-    if value is None:
-        return None
-    if value.tzinfo is None and reference.tzinfo is not None:
-        return value.replace(tzinfo=reference.tzinfo)
-    if value.tzinfo is not None and reference.tzinfo is None:
-        return value.replace(tzinfo=None)
-    return value
+    return is_temporal_window_current(
+        valid_from=relation.valid_from,
+        valid_to=relation.valid_to,
+        now=now,
+    )
 
 
 def _temporal_replacement_item(

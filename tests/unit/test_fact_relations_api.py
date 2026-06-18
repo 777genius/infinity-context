@@ -280,6 +280,63 @@ def test_contradicts_relation_marks_target_disputed_and_context_hides_it(
     assert "CONTRADICTED_OLD_FACT" not in rendered
 
 
+def test_future_contradicts_relation_does_not_dispute_current_fact_until_valid(
+    tmp_path: Path,
+) -> None:
+    with make_client(tmp_path) as client:
+        old_id = create_fact(
+            client,
+            "FUTURE_CONTRADICTION_OLD_FACT: billing owner remains Alex today.",
+        )
+        new_id = create_fact(
+            client,
+            "FUTURE_CONTRADICTION_NEW_FACT: billing owner becomes Dana in 2099.",
+        )
+        linked = client.post(
+            f"/v1/facts/{new_id}/relations",
+            json={
+                "target_fact_id": old_id,
+                "relation_type": "contradicts",
+                "reason": "Future-dated evidence should not dispute current fact yet.",
+                "observed_at": "2026-01-02T12:00:00+00:00",
+                "valid_from": "2099-01-01T00:00:00+00:00",
+            },
+            headers=auth_headers(),
+        )
+        repeated = client.post(
+            f"/v1/facts/{new_id}/relations",
+            json={
+                "target_fact_id": old_id,
+                "relation_type": "contradicts",
+                "reason": "Idempotent repeat must not prematurely dispute the target.",
+            },
+            headers=auth_headers(),
+        )
+        old_fact = client.get(f"/v1/facts/{old_id}", headers=auth_headers())
+        context = client.post(
+            "/v1/context",
+            json={
+                "space_id": "space_client_app",
+                "memory_scope_ids": ["memory_scope_default"],
+                "query": "FUTURE_CONTRADICTION billing owner Alex Dana",
+                "token_budget": 512,
+                "max_facts": 5,
+                "max_chunks": 0,
+            },
+            headers=auth_headers(),
+        )
+
+    assert linked.status_code == 201, linked.text
+    assert repeated.status_code == 201, repeated.text
+    assert repeated.json()["data"]["id"] == linked.json()["data"]["id"]
+    assert old_fact.status_code == 200, old_fact.text
+    assert old_fact.json()["data"]["status"] == "active"
+    assert context.status_code == 200, context.text
+    data = context.json()["data"]
+    assert "FUTURE_CONTRADICTION_OLD_FACT" in data["rendered_text"]
+    assert data["diagnostics"]["temporal_relations_skipped_by_validity"] >= 1
+
+
 def test_context_include_stale_can_show_disputed_review_only_evidence(
     tmp_path: Path,
 ) -> None:

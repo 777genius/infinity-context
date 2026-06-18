@@ -12,6 +12,7 @@ from memo_stack_core.application.dto import (
     ListFactRelationsQuery,
     UnlinkFactRelationCommand,
 )
+from memo_stack_core.application.temporal_validity import is_temporal_window_current
 from memo_stack_core.domain.entities import (
     FactRelationType,
     FactStatus,
@@ -46,6 +47,7 @@ class LinkFactsUseCase:
             relation_type = FactRelationType(command.relation_type)
         except ValueError as exc:
             raise MemoryValidationError("Unknown fact relation type") from exc
+        now = self._clock.now()
         async with self._uow_factory() as uow:
             source = await uow.facts.get_by_id(command.source_fact_id)
             target = await uow.facts.get_by_id(command.target_fact_id)
@@ -62,11 +64,11 @@ class LinkFactsUseCase:
                 if (
                     relation_type == FactRelationType.CONTRADICTS
                     and target.status == FactStatus.ACTIVE
+                    and _relation_window_is_current(existing, now=now)
                 ):
-                    await uow.facts.save(target.mark_disputed(now=self._clock.now()))
+                    await uow.facts.save(target.mark_disputed(now=now))
                     await uow.commit()
                 return FactRelationResult(relation=existing)
-            now = self._clock.now()
             relation = MemoryFactRelation.create(
                 relation_id=MemoryFactRelationId(self._ids.new_id("relation")),
                 space_id=source.space_id,
@@ -81,7 +83,11 @@ class LinkFactsUseCase:
                 valid_to=command.valid_to,
             )
             saved = await uow.fact_relations.create(relation)
-            if relation_type == FactRelationType.CONTRADICTS and target.status == FactStatus.ACTIVE:
+            if (
+                relation_type == FactRelationType.CONTRADICTS
+                and target.status == FactStatus.ACTIVE
+                and _relation_window_is_current(saved, now=now)
+            ):
                 await uow.facts.save(target.mark_disputed(now=now))
             await uow.commit()
             return FactRelationResult(relation=saved)
@@ -188,3 +194,11 @@ def _optional_datetime_matches(existing: datetime | None, requested: datetime | 
     elif comparable_existing.tzinfo is not None and comparable_requested.tzinfo is None:
         comparable_requested = comparable_requested.replace(tzinfo=comparable_existing.tzinfo)
     return comparable_existing == comparable_requested
+
+
+def _relation_window_is_current(relation: MemoryFactRelation, *, now: datetime) -> bool:
+    return is_temporal_window_current(
+        valid_from=relation.valid_from,
+        valid_to=relation.valid_to,
+        now=now,
+    )
