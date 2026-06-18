@@ -280,6 +280,93 @@ def test_contradicts_relation_marks_target_disputed_and_context_hides_it(
     assert "CONTRADICTED_OLD_FACT" not in rendered
 
 
+def test_context_include_stale_can_show_disputed_review_only_evidence(
+    tmp_path: Path,
+) -> None:
+    with make_client(tmp_path) as client:
+        old_id = create_fact(
+            client,
+            "DISPUTED_REVIEW_OLD_FACT: legacy incident owner is Alex.",
+        )
+        new_id = create_fact(
+            client,
+            "DISPUTED_REVIEW_NEW_FACT: incident owner is Dana, not Alex.",
+        )
+        linked = client.post(
+            f"/v1/facts/{new_id}/relations",
+            json={
+                "target_fact_id": old_id,
+                "relation_type": "contradicts",
+                "reason": "New incident owner evidence contradicts old owner.",
+                "observed_at": "2026-01-02T12:00:00+00:00",
+            },
+            headers=auth_headers(),
+        )
+        default_context = client.post(
+            "/v1/context",
+            json={
+                "space_id": "space_client_app",
+                "memory_scope_ids": ["memory_scope_default"],
+                "query": "DISPUTED_REVIEW_OLD_FACT legacy incident owner Alex",
+                "token_budget": 512,
+                "max_facts": 5,
+                "max_chunks": 0,
+            },
+            headers=auth_headers(),
+        )
+        superseded_only_context = client.post(
+            "/v1/context",
+            json={
+                "space_id": "space_client_app",
+                "memory_scope_ids": ["memory_scope_default"],
+                "query": "DISPUTED_REVIEW_OLD_FACT legacy incident owner Alex",
+                "token_budget": 512,
+                "max_facts": 5,
+                "max_chunks": 0,
+                "include_superseded": True,
+            },
+            headers=auth_headers(),
+        )
+        stale_context = client.post(
+            "/v1/context",
+            json={
+                "space_id": "space_client_app",
+                "memory_scope_ids": ["memory_scope_default"],
+                "query": "DISPUTED_REVIEW_OLD_FACT legacy incident owner Alex",
+                "token_budget": 512,
+                "max_facts": 5,
+                "max_chunks": 0,
+                "include_stale": True,
+            },
+            headers=auth_headers(),
+        )
+
+    assert linked.status_code == 201
+    assert default_context.status_code == 200
+    assert superseded_only_context.status_code == 200
+    assert stale_context.status_code == 200
+
+    default_data = default_context.json()["data"]
+    assert "DISPUTED_REVIEW_OLD_FACT" not in default_data["rendered_text"]
+    assert default_data["diagnostics"]["stale_facts_used"] == 0
+
+    superseded_only_data = superseded_only_context.json()["data"]
+    assert "DISPUTED_REVIEW_OLD_FACT" not in superseded_only_data["rendered_text"]
+    assert superseded_only_data["diagnostics"]["stale_facts_used"] == 0
+
+    stale_data = stale_context.json()["data"]
+    assert "DISPUTED_REVIEW_OLD_FACT" in stale_data["rendered_text"]
+    assert "disputed_review" in stale_data["diagnostics"]["retrieval_sources_used"]
+    assert stale_data["diagnostics"]["stale_facts_considered"] >= 1
+    assert stale_data["diagnostics"]["stale_facts_used"] == 1
+    assert stale_data["diagnostics"]["superseded_facts_used"] == 0
+    review_item = next(item for item in stale_data["items"] if item["item_id"] == old_id)
+    assert review_item["diagnostics"]["retrieval_source"] == "disputed_review"
+    assert review_item["diagnostics"]["review_only"] is True
+    assert review_item["diagnostics"]["stale_reason"] == "fact_status_disputed"
+    assert review_item["diagnostics"]["provenance"]["visibility"] == "review_only"
+
+
 def test_fact_relations_reject_cross_memory_scope_and_restricted_links(tmp_path: Path) -> None:
     with make_client(tmp_path) as client:
         source_id = create_fact(client, "RELATION_SCOPE: source fact.")

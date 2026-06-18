@@ -93,6 +93,9 @@ class BuildContextUseCase:
             "stale_graph_drop_count": 0,
             "stale_rag_drop_count": 0,
             "include_superseded": query.include_superseded,
+            "include_stale": query.include_stale,
+            "stale_facts_considered": 0,
+            "stale_facts_used": 0,
             "superseded_facts_considered": 0,
             "superseded_facts_used": 0,
         }
@@ -172,15 +175,18 @@ class BuildContextUseCase:
             query=query,
             memory_scope_ids=memory_scope_ids,
         )
-        superseded_review_items, superseded_diagnostics = (
-            await self._superseded_review_items(
+        include_stale_review = query.include_stale or query.include_superseded
+        stale_review_items, stale_diagnostics = (
+            await self._stale_review_items(
                 query=query,
                 memory_scope_ids=memory_scope_ids,
             )
-            if query.include_superseded
+            if include_stale_review
             else (
                 (),
                 {
+                    "stale_facts_considered": 0,
+                    "stale_facts_used": 0,
                     "superseded_facts_considered": 0,
                     "superseded_facts_used": 0,
                 },
@@ -195,13 +201,13 @@ class BuildContextUseCase:
         result = self._packer.pack(
             bundle_id=self._ids.new_id("ctx"),
             items=dedupe_rank_items(
-                (*temporal_items, *superseded_review_items, *pending_conflicts)
+                (*temporal_items, *stale_review_items, *pending_conflicts)
             ),
             token_budget=query.token_budget,
             max_rendered_chars=query.max_rendered_chars,
         )
         diagnostics.update(temporal_diagnostics)
-        diagnostics.update(superseded_diagnostics)
+        diagnostics.update(stale_diagnostics)
         diagnostics.update(result.bundle.diagnostics)
         diagnostics["pending_conflict_suggestions_considered"] = len(pending_conflicts)
         diagnostics["hybrid_items_used"] = sum(
@@ -310,7 +316,7 @@ class BuildContextUseCase:
             "temporal_relations_skipped_by_validity": relations_skipped_by_validity,
         }
 
-    async def _superseded_review_items(
+    async def _stale_review_items(
         self,
         *,
         query: BuildContextQuery,
@@ -318,6 +324,8 @@ class BuildContextUseCase:
     ) -> tuple[tuple[ContextItem, ...], dict[str, object]]:
         if query.max_facts <= 0:
             return (), {
+                "stale_facts_considered": 0,
+                "stale_facts_used": 0,
                 "superseded_facts_considered": 0,
                 "superseded_facts_used": 0,
             }
@@ -326,44 +334,56 @@ class BuildContextUseCase:
         candidate_limit = min(200, max(query.max_facts * 4, query.max_facts))
         items: list[ContextItem] = []
         considered = 0
+        superseded_considered = 0
+        superseded_used = 0
+        statuses = ("superseded", "disputed") if query.include_stale else ("superseded",)
         async with self._uow_factory() as uow:
             for memory_scope_id in query.memory_scope_ids:
-                if len(items) >= query.max_facts:
-                    break
-                facts = await uow.facts.list_for_scope(
-                    space_id=str(query.space_id),
-                    memory_scope_id=str(memory_scope_id),
-                    thread_id=str(query.thread_id) if query.thread_id else None,
-                    status="superseded",
-                    limit=candidate_limit,
-                    category=query.category,
-                    tag=None,
-                )
-                considered += len(facts)
-                for fact in facts:
-                    if not is_context_review_fact_visible(
-                        fact,
-                        query=query,
-                        memory_scope_ids=memory_scope_ids,
-                        statuses=("superseded",),
-                        now=now,
-                    ):
-                        continue
-                    relevance = score_query_relevance(query=query.query, text=fact.text)
-                    if relevance.query_term_count > 0 and relevance.unique_term_hits <= 0:
-                        continue
-                    items.append(
-                        _superseded_review_item(
-                            fact,
-                            relevance=relevance,
-                        )
-                    )
+                for status in statuses:
                     if len(items) >= query.max_facts:
                         break
+                    facts = await uow.facts.list_for_scope(
+                        space_id=str(query.space_id),
+                        memory_scope_id=str(memory_scope_id),
+                        thread_id=str(query.thread_id) if query.thread_id else None,
+                        status=status,
+                        limit=candidate_limit,
+                        category=query.category,
+                        tag=None,
+                    )
+                    considered += len(facts)
+                    if status == "superseded":
+                        superseded_considered += len(facts)
+                    for fact in facts:
+                        if not is_context_review_fact_visible(
+                            fact,
+                            query=query,
+                            memory_scope_ids=memory_scope_ids,
+                            statuses=(status,),
+                            now=now,
+                        ):
+                            continue
+                        relevance = score_query_relevance(query=query.query, text=fact.text)
+                        if relevance.query_term_count > 0 and relevance.unique_term_hits <= 0:
+                            continue
+                        items.append(
+                            _stale_review_item(
+                                fact,
+                                relevance=relevance,
+                            )
+                        )
+                        if status == "superseded":
+                            superseded_used += 1
+                        if len(items) >= query.max_facts:
+                            break
+                if len(items) >= query.max_facts:
+                    break
 
         return tuple(items), {
-            "superseded_facts_considered": considered,
-            "superseded_facts_used": len(items),
+            "stale_facts_considered": considered,
+            "stale_facts_used": len(items),
+            "superseded_facts_considered": superseded_considered,
+            "superseded_facts_used": superseded_used,
         }
 
     async def _pending_conflict_items(
@@ -489,12 +509,15 @@ def _fact_context_item(
     )
 
 
-def _superseded_review_item(
+def _stale_review_item(
     fact: MemoryFact,
     *,
     relevance: QueryRelevance,
 ) -> ContextItem:
     score = min(0.64, round(0.44 + relevance.score_boost, 4))
+    status = fact.status.value
+    retrieval_source = _stale_review_retrieval_source(status)
+    stale_reason = f"fact_status_{status}"
     return ContextItem(
         item_id=str(fact.id),
         item_type="fact",
@@ -503,15 +526,15 @@ def _superseded_review_item(
         source_refs=fact.source_refs,
         diagnostics={
             "memory_scope_id": str(fact.memory_scope_id),
-            "retrieval_source": "superseded_review",
-            "retrieval_sources": ["superseded_review"],
-            "ranking_reason": "included only for review because include_superseded is true",
+            "retrieval_source": retrieval_source,
+            "retrieval_sources": [retrieval_source],
+            "ranking_reason": _stale_review_ranking_reason(status),
             "review_only": True,
-            "stale_reason": "fact_status_superseded",
+            "stale_reason": stale_reason,
             "score_signals": {
                 "base_score": 0.44,
                 "final_score": score,
-                "retrieval_channel": "superseded_review",
+                "retrieval_channel": retrieval_source,
                 "fact_status": fact.status.value,
                 "query_term_count": relevance.query_term_count,
                 "unique_term_hits": relevance.unique_term_hits,
@@ -520,7 +543,7 @@ def _superseded_review_item(
                 "query_relevance_boost": relevance.score_boost,
             },
             "provenance": {
-                "retrieval_sources": ["superseded_review"],
+                "retrieval_sources": [retrieval_source],
                 "source_ref_count": len(fact.source_refs),
                 "fact_status": fact.status.value,
                 "fact_version": fact.version,
@@ -531,6 +554,20 @@ def _superseded_review_item(
             "updated_at": fact.updated_at.isoformat(),
         },
     )
+
+
+def _stale_review_retrieval_source(status: str) -> str:
+    if status == "superseded":
+        return "superseded_review"
+    if status == "disputed":
+        return "disputed_review"
+    return "stale_review"
+
+
+def _stale_review_ranking_reason(status: str) -> str:
+    if status == "superseded":
+        return "included only for review because include_superseded is true"
+    return f"included only for stale memory review because status is {status}"
 
 
 def _temporal_relation_is_current(

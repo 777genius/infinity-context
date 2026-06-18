@@ -90,6 +90,8 @@ class ContextBundleDiagnostics:
     stale_vector_drop_count: int = 0
     stale_graph_drop_count: int = 0
     stale_rag_drop_count: int = 0
+    stale_facts_considered: int = 0
+    stale_facts_used: int = 0
     superseded_facts_considered: int = 0
     superseded_facts_used: int = 0
     temporal_relations_considered: int = 0
@@ -227,6 +229,8 @@ def _bundle_diagnostics_from_payload(value: object) -> ContextBundleDiagnostics:
         stale_vector_drop_count=_non_negative_int(raw.get("stale_vector_drop_count")),
         stale_graph_drop_count=_non_negative_int(raw.get("stale_graph_drop_count")),
         stale_rag_drop_count=_non_negative_int(raw.get("stale_rag_drop_count")),
+        stale_facts_considered=_non_negative_int(raw.get("stale_facts_considered")),
+        stale_facts_used=_non_negative_int(raw.get("stale_facts_used")),
         superseded_facts_considered=_non_negative_int(
             raw.get("superseded_facts_considered")
         ),

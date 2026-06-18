@@ -21,6 +21,8 @@ def test_context_bundle_diagnostics_are_bounded_redacted_and_typed() -> None:
         "consistency_mode": "best_effort",
         "hybrid_items_used": 2,
         "temporal_replacements_applied": 1,
+        "stale_facts_considered": 3,
+        "stale_facts_used": 1,
         "api_key": "SECRET_VALUE_SHOULD_NOT_LEAK",
         **{f"extra_{index}": "x" * 500 for index in range(80)},
     }
@@ -35,6 +37,8 @@ def test_context_bundle_diagnostics_are_bounded_redacted_and_typed() -> None:
     assert diagnostics["retrieval_sources_used"] == [f"source_{index}" for index in range(8)]
     assert diagnostics["hybrid_items_used"] == 2
     assert diagnostics["temporal_replacements_applied"] == 1
+    assert diagnostics["stale_facts_considered"] == 3
+    assert diagnostics["stale_facts_used"] == 1
     assert diagnostics["diagnostics_truncated"] is True
     assert "api_key" not in diagnostics
     assert "SECRET_VALUE_SHOULD_NOT_LEAK" not in str(diagnostics)

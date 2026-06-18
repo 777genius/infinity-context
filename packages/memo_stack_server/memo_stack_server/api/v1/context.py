@@ -39,6 +39,7 @@ class ContextRequest(BaseModel):
     max_chunks: int = Field(default=30, ge=0, le=200)
     max_conflicting_suggestions: int = Field(default=5, ge=0, le=20)
     include_superseded: bool = False
+    include_stale: bool = False
     category: str | None = Field(default=None, max_length=80)
     tags_any: list[str] = Field(default_factory=list, max_length=10)
     tags_all: list[str] = Field(default_factory=list, max_length=10)
@@ -126,6 +127,7 @@ async def build_context(
             max_chunks=request.max_chunks,
             max_conflicting_suggestions=request.max_conflicting_suggestions,
             include_superseded=request.include_superseded,
+            include_stale=request.include_stale,
             category=_normalize_label(request.category),
             tags_any=_normalize_tags(request.tags_any),
             tags_all=_normalize_tags(request.tags_all),
@@ -213,6 +215,7 @@ async def search_memory(
             max_chunks=request.max_chunks,
             max_conflicting_suggestions=request.max_conflicting_suggestions,
             include_superseded=request.include_superseded,
+            include_stale=request.include_stale,
             category=_normalize_label(request.category),
             tags_any=_normalize_tags(request.tags_any),
             tags_all=_normalize_tags(request.tags_all),

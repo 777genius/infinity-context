@@ -489,6 +489,8 @@ def test_sdk_build_typed_context_returns_bounded_safe_diagnostics() -> None:
                         "stale_vector_drop_count": 1,
                         "stale_graph_drop_count": 2,
                         "stale_rag_drop_count": 3,
+                        "stale_facts_considered": 6,
+                        "stale_facts_used": 3,
                         "superseded_facts_considered": 4,
                         "superseded_facts_used": 2,
                         "hybrid_items_used": 2,
@@ -570,12 +572,14 @@ def test_sdk_build_typed_context_returns_bounded_safe_diagnostics() -> None:
         query="typed context",
         consistency_mode="best_effort",
         include_superseded=True,
+        include_stale=True,
     )
 
     assert isinstance(bundle, ContextBundle)
     assert seen["url"] == "http://memory.test/v1/context"
     assert seen["body"]["consistency_mode"] == "best_effort"
     assert seen["body"]["include_superseded"] is True
+    assert seen["body"]["include_stale"] is True
     assert bundle.bundle_id == "ctx_1"
     assert bundle.meta["request_id"] == "req_1"
     assert bundle.diagnostics.context_assembly_version == "context-v2-hybrid-explainable"
@@ -594,6 +598,8 @@ def test_sdk_build_typed_context_returns_bounded_safe_diagnostics() -> None:
     assert bundle.diagnostics.stale_vector_drop_count == 1
     assert bundle.diagnostics.stale_graph_drop_count == 2
     assert bundle.diagnostics.stale_rag_drop_count == 3
+    assert bundle.diagnostics.stale_facts_considered == 6
+    assert bundle.diagnostics.stale_facts_used == 3
     assert bundle.diagnostics.superseded_facts_considered == 4
     assert bundle.diagnostics.superseded_facts_used == 2
     assert bundle.diagnostics.hybrid_items_used == 2
@@ -1109,6 +1115,7 @@ def test_sdk_context_search_and_documents_support_external_scope() -> None:
         max_chunks=10,
         consistency_mode="best_effort",
         max_conflicting_suggestions=3,
+        include_stale=True,
     )
 
     assert [f"{method} {path}" for method, path, _body in seen] == [
@@ -1126,6 +1133,7 @@ def test_sdk_context_search_and_documents_support_external_scope() -> None:
     assert seen[2][2]["memory_scope_external_refs"] == ["default", "candidate"]
     assert seen[2][2]["consistency_mode"] == "best_effort"
     assert seen[2][2]["max_conflicting_suggestions"] == 3
+    assert seen[2][2]["include_stale"] is True
     assert "memory_scope_ids" not in seen[2][2]
 
 

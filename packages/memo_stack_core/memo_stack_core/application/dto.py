@@ -926,6 +926,7 @@ class BuildContextQuery:
     max_conflicting_suggestions: int = 5
     include_graph: bool = True
     include_superseded: bool = False
+    include_stale: bool = False
     category: str | None = None
     tags_any: tuple[str, ...] = ()
     tags_all: tuple[str, ...] = ()

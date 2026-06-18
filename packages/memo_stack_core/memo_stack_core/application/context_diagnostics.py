@@ -25,6 +25,8 @@ _BUNDLE_COUNTER_KEYS = (
     "stale_vector_drop_count",
     "stale_graph_drop_count",
     "stale_rag_drop_count",
+    "stale_facts_considered",
+    "stale_facts_used",
     "superseded_facts_considered",
     "superseded_facts_used",
     "temporal_relations_considered",
@@ -45,6 +47,8 @@ _BUNDLE_COUNTER_KEYS = (
 _BUNDLE_COUNTER_DEFAULTS = {
     "temporal_replacements_applied": 0,
     "temporal_relations_skipped_by_validity": 0,
+    "stale_facts_considered": 0,
+    "stale_facts_used": 0,
     "superseded_facts_considered": 0,
     "superseded_facts_used": 0,
     "pending_conflict_suggestions_considered": 0,
@@ -58,7 +62,9 @@ _RETRIEVAL_SOURCE_PRIORITY = {
     "temporal_supersedes_relation": 4,
     "pending_conflict_suggestion": 5,
     "superseded_review": 6,
-    "postgres_facts": 7,
+    "disputed_review": 7,
+    "stale_review": 8,
+    "postgres_facts": 9,
 }
 
 
