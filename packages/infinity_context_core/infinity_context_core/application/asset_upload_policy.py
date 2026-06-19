@@ -39,6 +39,7 @@ _BLOCKED_MAGIC_CONTENT_TYPES = {
     "application/x-mach-binary",
     "application/x-msdownload",
 }
+_UNKNOWN_MAGIC_CONTENT_TYPE = "application/octet-stream"
 _NESTED_ARCHIVE_EXTENSIONS = {
     ".7z",
     ".bz2",
@@ -162,9 +163,26 @@ def assess_asset_upload(
     )
     declared_mismatch = bool(
         declared
+        and not _is_generic_content_type(declared)
         and magic_content_type != "application/octet-stream"
         and not _content_types_compatible(declared, magic_content_type)
     )
+    extension_signature_unverified = _strict_expected_unverified(
+        expected=extension_content_type,
+        magic_content_type=magic_content_type,
+    )
+    declared_signature_unverified = _strict_expected_unverified(
+        expected=declared,
+        magic_content_type=magic_content_type,
+    )
+    if block_reason := _blocked_mime_mismatch_reason(
+        declared_content_type=declared,
+        extension_content_type=extension_content_type,
+        magic_content_type=magic_content_type,
+        declared_mismatch=declared_mismatch,
+        extension_mismatch=extension_mismatch,
+    ):
+        raise MemoryIngressLimitError(f"Asset file type mismatch is blocked: {block_reason}")
     archive_detected = magic_content_type == "application/zip"
     archive_review_required = archive_detected and not (
         _is_structured_document_content_type(declared)
@@ -195,6 +213,21 @@ def assess_asset_upload(
         "upload_magic_content_type": magic_content_type,
         "upload_content_type_mismatch": declared_mismatch,
         "upload_extension_mismatch": extension_mismatch,
+        "upload_signature_unverified": (
+            declared_signature_unverified or extension_signature_unverified
+        ),
+        "upload_mime_review_required": (
+            declared_mismatch
+            or extension_mismatch
+            or declared_signature_unverified
+            or extension_signature_unverified
+        ),
+        "upload_mime_review_reason": _mime_review_reason(
+            declared_mismatch=declared_mismatch,
+            extension_mismatch=extension_mismatch,
+            declared_signature_unverified=declared_signature_unverified,
+            extension_signature_unverified=extension_signature_unverified,
+        ),
         "upload_archive_detected": archive_detected,
         "upload_archive_review_required": archive_review_required,
         "upload_dangerous_extension_blocked": False,
@@ -634,6 +667,79 @@ def _content_types_compatible(expected: str, actual: str) -> bool:
     if expected.startswith("text/") and actual == "text/plain":
         return True
     return _is_structured_document_content_type(expected) and actual == "application/zip"
+
+
+def _blocked_mime_mismatch_reason(
+    *,
+    declared_content_type: str,
+    extension_content_type: str | None,
+    magic_content_type: str,
+    declared_mismatch: bool,
+    extension_mismatch: bool,
+) -> str | None:
+    if (
+        extension_mismatch
+        and _is_strict_magic_content_type(extension_content_type)
+        and _is_strict_magic_content_type(magic_content_type)
+    ):
+        return "extension_signature_mismatch"
+    if (
+        declared_mismatch
+        and _is_strict_magic_content_type(declared_content_type)
+        and _is_strict_magic_content_type(magic_content_type)
+        and not _content_types_compatible(extension_content_type or "", magic_content_type)
+    ):
+        return "declared_signature_mismatch"
+    return None
+
+
+def _strict_expected_unverified(
+    *,
+    expected: str | None,
+    magic_content_type: str,
+) -> bool:
+    return bool(
+        expected
+        and not _is_generic_content_type(expected)
+        and _is_strict_magic_content_type(expected)
+        and magic_content_type == _UNKNOWN_MAGIC_CONTENT_TYPE
+    )
+
+
+def _is_generic_content_type(value: str | None) -> bool:
+    return _normalize_content_type(value or "") == _UNKNOWN_MAGIC_CONTENT_TYPE
+
+
+def _is_strict_magic_content_type(value: str | None) -> bool:
+    content_type = _normalize_content_type(value or "")
+    return bool(
+        content_type == "application/pdf"
+        or content_type == "application/zip"
+        or content_type.startswith(("image/", "audio/", "video/"))
+        or _is_structured_document_content_type(content_type)
+    )
+
+
+def _mime_review_reason(
+    *,
+    declared_mismatch: bool,
+    extension_mismatch: bool,
+    declared_signature_unverified: bool,
+    extension_signature_unverified: bool,
+) -> str | None:
+    if declared_mismatch and extension_mismatch:
+        return "declared_and_extension_mismatch"
+    if declared_mismatch:
+        return "declared_content_type_mismatch"
+    if extension_mismatch:
+        return "extension_content_type_mismatch"
+    if declared_signature_unverified and extension_signature_unverified:
+        return "declared_and_extension_signature_unverified"
+    if declared_signature_unverified:
+        return "declared_signature_unverified"
+    if extension_signature_unverified:
+        return "extension_signature_unverified"
+    return None
 
 
 def _is_structured_document_content_type(value: str | None) -> bool:

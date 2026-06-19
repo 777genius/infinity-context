@@ -50,6 +50,30 @@ def test_upload_policy_reports_declared_and_extension_mismatch() -> None:
     assert result.metadata["upload_magic_content_type"] == "text/plain"
     assert result.metadata["upload_content_type_mismatch"] is True
     assert result.metadata["upload_extension_mismatch"] is True
+    assert result.metadata["upload_mime_review_required"] is True
+    assert result.metadata["upload_mime_review_reason"] == "declared_and_extension_mismatch"
+
+
+def test_upload_policy_rejects_binary_signature_spoofed_as_image() -> None:
+    with pytest.raises(MemoryIngressLimitError, match="extension_signature_mismatch"):
+        assess_asset_upload(
+            filename="screenshot.png",
+            declared_content_type="image/png",
+            content=b"%PDF-1.7\nnot a png",
+        )
+
+
+def test_upload_policy_marks_unverified_strict_binary_extension_for_review() -> None:
+    result = assess_asset_upload(
+        filename="screenshot.png",
+        declared_content_type="application/octet-stream",
+        content=b"\x00\x01\x02\x03unknown binary payload",
+    )
+
+    assert result.magic_content_type == "application/octet-stream"
+    assert result.metadata["upload_signature_unverified"] is True
+    assert result.metadata["upload_mime_review_required"] is True
+    assert result.metadata["upload_mime_review_reason"] == "extension_signature_unverified"
 
 
 def test_upload_policy_maps_flac_extension_to_audio_content_type() -> None:

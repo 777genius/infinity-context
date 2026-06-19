@@ -623,6 +623,25 @@ def test_spoofed_image_mime_text_asset_extracts_as_text_with_mismatch_metadata(
         assert extracted["metadata"]["mime_detector_reason"] == "magic"
 
 
+def test_binary_file_spoofed_as_image_is_rejected_before_storage(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        upload = client.post(
+            "/v1/assets",
+            params={
+                "space_slug": "quick-capture",
+                "memory_scope_external_ref": "frontend",
+                "thread_external_ref": "blocked-mime-mismatch",
+                "filename": "not-really-a-screenshot.png",
+            },
+            content=b"%PDF-1.7\nnot actually a png",
+            headers=auth_headers({"Content-Type": "image/png"}),
+        )
+
+    assert upload.status_code == 429, upload.text
+    assert upload.json()["error"]["code"] == "memory.capture.ingress_limited"
+    assert "file type mismatch" in upload.text
+
+
 def test_asset_extraction_size_limit_keeps_source_asset_downloadable(tmp_path: Path) -> None:
     with make_client(tmp_path, max_asset_upload_bytes=100, extraction_max_bytes=4) as client:
         upload = client.post(
