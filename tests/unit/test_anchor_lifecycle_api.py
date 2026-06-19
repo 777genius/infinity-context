@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -248,9 +248,7 @@ def test_anchor_backfill_merge_and_split_lifecycle(tmp_path: Path) -> None:
         assert manual_anchor_data["normalized_key"] == "atlas"
         assert "Project Atlas" in manual_anchor_data["aliases"]
         assert manual_anchor_data["confidence"] == "high"
-        assert [
-            evidence_ref_identity(ref) for ref in manual_anchor_data["evidence_refs"]
-        ] == [
+        assert [evidence_ref_identity(ref) for ref in manual_anchor_data["evidence_refs"]] == [
             {
                 "source_type": "manual",
                 "source_id": "manual-anchor-atlas",
@@ -552,6 +550,65 @@ def test_anchor_backfill_collapses_russian_person_case_variants(tmp_path: Path) 
         assert person_anchors[0]["metadata"]["canonical_key"] == "aleks"
 
 
+def test_anchor_backfill_resolves_relative_event_valid_window(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        capture = client.post(
+            "/v1/captures",
+            json={
+                "space_slug": "anchor-event-valid-window",
+                "memory_scope_external_ref": "default",
+                "thread_external_ref": "review",
+                "source_agent": "memo-frontend",
+                "source_kind": "manual",
+                "event_type": "QuickCapture",
+                "actor_role": "user",
+                "source_event_id": "capture-alex-hour-ago",
+                "text": "Час назад я переписывался с Алексом по Project Atlas.",
+                "source_authority": "user_statement",
+            },
+            headers=auth_headers(),
+        )
+        assert capture.status_code == 201, capture.text
+
+        backfill = client.post(
+            "/v1/anchors/backfill",
+            json={
+                "space_slug": "anchor-event-valid-window",
+                "memory_scope_external_ref": "default",
+                "limit_per_source": 20,
+            },
+            headers=auth_headers(),
+        )
+        assert backfill.status_code == 200, backfill.text
+
+        anchors = client.get(
+            "/v1/anchors",
+            params={
+                "space_slug": "anchor-event-valid-window",
+                "memory_scope_external_ref": "default",
+                "kind": "event",
+                "limit": 100,
+            },
+            headers=auth_headers(),
+        )
+        assert anchors.status_code == 200, anchors.text
+        event_anchor = next(
+            item
+            for item in anchors.json()["data"]
+            if item["normalized_key"] == "переписывался с алексом час назад"
+        )
+
+    observed_at = datetime.fromisoformat(event_anchor["observed_at"])
+    valid_from = datetime.fromisoformat(event_anchor["valid_from"])
+    valid_to = datetime.fromisoformat(event_anchor["valid_to"])
+    assert valid_from == observed_at - timedelta(hours=1)
+    assert valid_to == observed_at
+    assert event_anchor["metadata"]["event_temporal_hint_code"] == "hours_ago"
+    assert event_anchor["metadata"]["event_temporal_window_source"] == "relative_hint_v1"
+    assert event_anchor["metadata"]["event_valid_from"] == event_anchor["valid_from"]
+    assert event_anchor["metadata"]["event_valid_to"] == event_anchor["valid_to"]
+
+
 def test_anchor_backfill_collapses_cross_script_project_identity(tmp_path: Path) -> None:
     with make_client(tmp_path) as client:
         latin_capture = client.post(
@@ -621,9 +678,7 @@ def test_anchor_backfill_collapses_cross_script_project_identity(tmp_path: Path)
         assert len(atlas_anchors) == 1
         assert atlas_anchors[0]["normalized_key"] in {"atlas", "атлас"}
         assert {"Atlas", "Атлас"}.issubset(set(atlas_anchors[0]["aliases"]))
-        assert {
-            ref["source_id"] for ref in atlas_anchors[0]["evidence_refs"]
-        } == {
+        assert {ref["source_id"] for ref in atlas_anchors[0]["evidence_refs"]} == {
             latin_capture.json()["data"]["id"],
             cyrillic_capture.json()["data"]["id"],
         }
@@ -660,9 +715,7 @@ def test_anchor_backfill_skips_legacy_alias_conflict_without_mutating_anchor(
                 "kind": "project",
                 "label": "Atlas",
                 "aliases": ["Project Atlas"],
-                "evidence_refs": [
-                    {"source_type": "manual", "source_id": "canonical-atlas-review"}
-                ],
+                "evidence_refs": [{"source_type": "manual", "source_id": "canonical-atlas-review"}],
             },
             headers=auth_headers(),
         )
@@ -724,9 +777,7 @@ def test_anchor_backfill_skips_legacy_alias_conflict_without_mutating_anchor(
     assert {ref["source_id"] for ref in canonical_after["evidence_refs"]} == {
         "canonical-atlas-review"
     }
-    assert capture_id not in {
-        ref["source_id"] for ref in canonical_after["evidence_refs"]
-    }
+    assert capture_id not in {ref["source_id"] for ref in canonical_after["evidence_refs"]}
 
 
 def test_project_merge_suggestions_skip_prefix_variant_projects(tmp_path: Path) -> None:

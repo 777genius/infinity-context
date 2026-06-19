@@ -13,6 +13,10 @@ from infinity_context_core.application.anchor_extraction import (
     normalize_anchor_key,
     structured_anchor_metadata_for_label,
 )
+from infinity_context_core.application.anchor_temporal_window import (
+    temporal_window_for_observed_anchor,
+    temporal_window_metadata,
+)
 from infinity_context_core.application.dto import (
     AnchorBackfillSourceSummary,
     AnchorMergeCandidate,
@@ -603,8 +607,10 @@ async def _upsert_observed_anchor(
             kind=observed.kind.value,
             alias_key=observed.normalized_key,
         )
+    valid_from, valid_to = temporal_window_for_observed_anchor(observed, observed_at=now)
     metadata = {
         **observed.metadata,
+        **temporal_window_metadata(valid_from, valid_to),
         "last_backfill_source_type": source_type,
         "last_backfill_source_id": source_id,
         "resolver_version": _ANCHOR_RESOLVER_VERSION,
@@ -632,6 +638,8 @@ async def _upsert_observed_anchor(
                 confidence=confidence,
                 evidence_refs=evidence_refs,
                 observed_at=now,
+                valid_from=valid_from,
+                valid_to=valid_to,
                 metadata=metadata,
                 now=now,
             )
@@ -642,6 +650,8 @@ async def _upsert_observed_anchor(
                 confidence=confidence,
                 evidence_refs=evidence_refs,
                 observed_at=now,
+                valid_from=valid_from,
+                valid_to=valid_to,
                 metadata=metadata,
                 now=now,
             )
@@ -661,6 +671,8 @@ async def _upsert_observed_anchor(
             confidence=confidence,
             evidence_refs=evidence_refs,
             observed_at=now,
+            valid_from=valid_from,
+            valid_to=valid_to,
             metadata=metadata,
             now=now,
         )
@@ -728,9 +740,7 @@ async def _find_active_anchor_by_alias_key(
 
 def _anchor_alias_keys(*, kind: str, label: str, aliases: tuple[str, ...]) -> tuple[str, ...]:
     keys = {
-        normalized
-        for value in (label, *aliases)
-        if (normalized := normalize_anchor_key(value))
+        normalized for value in (label, *aliases) if (normalized := normalize_anchor_key(value))
     }
     if kind in {MemoryAnchorKind.ORGANIZATION.value, MemoryAnchorKind.PROJECT.value}:
         keys.update(_compact_anchor_key(key) for key in tuple(keys))
@@ -914,11 +924,7 @@ def _manual_anchor_metadata(
     audit: dict[str, object],
 ) -> dict[str, object]:
     return {
-        **(
-            structured_anchor_metadata_for_label(kind, label, aliases=aliases)
-            if label
-            else {}
-        ),
+        **(structured_anchor_metadata_for_label(kind, label, aliases=aliases) if label else {}),
         **dict(metadata or {}),
         "resolver_version": _ANCHOR_RESOLVER_VERSION,
         **audit,
