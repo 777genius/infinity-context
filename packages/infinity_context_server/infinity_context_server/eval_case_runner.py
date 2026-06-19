@@ -430,6 +430,7 @@ def _quality_golden_metrics(
         for result in case_results
         if result.case.required_source_ref_matches or result.case.required_citation_matches
     )
+    retrieval_trace_cases = tuple(result for result in case_results if result.item_ids)
     item_contract_cases = tuple(
         result for result in case_results if result.case.required_item_matches
     )
@@ -495,6 +496,10 @@ def _quality_golden_metrics(
             len(citation_cases),
         ),
         "source_citation_failure_count": source_citation_failures,
+        "retrieval_trace_support_rate": _ratio(
+            sum(1 for result in retrieval_trace_cases if _has_retrieval_trace(result)),
+            len(retrieval_trace_cases),
+        ),
         "item_contract_support_rate": _ratio(
             sum(1 for result in item_contract_cases if not result.failures),
             len(item_contract_cases),
@@ -535,6 +540,7 @@ def _quality_golden_gates(metrics: dict[str, object]) -> dict[str, bool]:
         "hybrid_retrieval_rate": metrics["hybrid_retrieval_rate"] == 1.0,
         "citation_support_rate": metrics["citation_support_rate"] == 1.0,
         "source_citation_failure_count": metrics["source_citation_failure_count"] == 0,
+        "retrieval_trace_support_rate": metrics["retrieval_trace_support_rate"] == 1.0,
         "item_contract_support_rate": metrics["item_contract_support_rate"] == 1.0,
         "item_contract_failure_count": metrics["item_contract_failure_count"] == 0,
         "duplicate_merge_review_rate": metrics["duplicate_merge_review_rate"] == 1.0,
@@ -688,6 +694,20 @@ def _graph_native_gates(metrics: dict[str, object]) -> dict[str, bool]:
 def _result_diagnostic_int(result: EvalCaseResult, key: str) -> int:
     value = result.diagnostics.get(key)
     return value if isinstance(value, int) else 0
+
+
+def _has_retrieval_trace(result: EvalCaseResult) -> bool:
+    trace = result.diagnostics.get("retrieval_trace")
+    if not isinstance(trace, list) or not trace:
+        return False
+    for raw_entry in trace:
+        if not isinstance(raw_entry, dict):
+            continue
+        source = raw_entry.get("retrieval_source")
+        item_count = raw_entry.get("item_count")
+        if isinstance(source, str) and source and isinstance(item_count, int) and item_count > 0:
+            return True
+    return False
 
 
 def _count_category_failures(

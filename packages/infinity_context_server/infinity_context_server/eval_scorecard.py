@@ -400,6 +400,9 @@ def _scorecard_canonical_recall_precision(
         ),
         "answer_support_rate": quality.get("answer_support_rate") == 1.0,
         "document_recall_at_5": float(quality.get("document_recall_at_5", 0.0)) >= 0.95,
+        "retrieval_trace_support_rate": (
+            quality.get("retrieval_trace_support_rate") == 1.0
+        ),
         "item_contract_support_rate": quality.get("item_contract_support_rate") == 1.0,
         "item_contract_failure_count": quality.get("item_contract_failure_count") == 0,
     }
@@ -1539,6 +1542,10 @@ def _scorecard_metrics(
         "quality_precision_at_5": quality.get("precision_at_5", 0.0),
         "quality_item_contract_support_rate": quality.get("item_contract_support_rate", 0.0),
         "quality_item_contract_failure_count": quality.get("item_contract_failure_count", 0),
+        "quality_retrieval_trace_support_rate": quality.get(
+            "retrieval_trace_support_rate",
+            0.0,
+        ),
         "quality_required_case_coverage_rate": quality.get("required_case_coverage_rate", 0.0),
         "quality_missing_required_case_count": quality.get("missing_required_case_count", 0),
         "long_multi_session_recall_at_5": long.get("multi_session_recall_at_5", 0.0),
