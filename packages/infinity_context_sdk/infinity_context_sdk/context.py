@@ -57,6 +57,11 @@ class ContextCitation:
     time_start_ms: int | None = None
     time_end_ms: int | None = None
     bbox: tuple[float, float, float, float] | None = None
+    evidence_kind: str | None = None
+    evidence_modality: str | None = None
+    evidence_confidence: float | None = None
+    retrieval_source: str | None = None
+    ranking_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -247,6 +252,14 @@ def _citation_from_payload(payload: Mapping[str, object]) -> ContextCitation:
         time_start_ms=_optional_int(time_range_ms.get("start")),
         time_end_ms=_optional_int(time_range_ms.get("end")),
         bbox=_optional_bbox(payload.get("bbox")),
+        evidence_kind=_optional_text(payload.get("evidence_kind"), limit=MAX_KEY_CHARS),
+        evidence_modality=_optional_text(payload.get("evidence_modality"), limit=MAX_KEY_CHARS),
+        evidence_confidence=_optional_float(payload.get("evidence_confidence")),
+        retrieval_source=_optional_text(payload.get("retrieval_source"), limit=MAX_KEY_CHARS),
+        ranking_reason=_optional_text(
+            payload.get("ranking_reason"),
+            limit=MAX_RANKING_REASON_CHARS,
+        ),
     )
 
 
@@ -569,6 +582,14 @@ def _optional_int(value: object) -> int | None:
         return value
     if isinstance(value, float):
         return int(value)
+    return None
+
+
+def _optional_float(value: object) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int | float):
+        return float(value)
     return None
 
 

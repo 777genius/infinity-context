@@ -986,6 +986,11 @@ def test_sdk_build_typed_context_returns_bounded_safe_diagnostics() -> None:
                                         "end": index * 1000 + 500,
                                     },
                                     "bbox": [0, 1, 120, 40],
+                                    "evidence_kind": "transcript_segment",
+                                    "evidence_modality": "audio",
+                                    "evidence_confidence": 0.91,
+                                    "retrieval_source": "artifact_evidence",
+                                    "ranking_reason": "matched first-party multimodal evidence",
                                 }
                                 for index in range(25)
                             ],
@@ -1146,6 +1151,11 @@ def test_sdk_build_typed_context_returns_bounded_safe_diagnostics() -> None:
     assert item.citations[0].time_start_ms == 0
     assert item.citations[0].time_end_ms == 500
     assert item.citations[0].bbox == (0.0, 1.0, 120.0, 40.0)
+    assert item.citations[0].evidence_kind == "transcript_segment"
+    assert item.citations[0].evidence_modality == "audio"
+    assert item.citations[0].evidence_confidence == 0.91
+    assert item.citations[0].retrieval_source == "artifact_evidence"
+    assert item.citations[0].ranking_reason == "matched first-party multimodal evidence"
     assert item.diagnostics.retrieval_source == "vector_chunks"
     assert item.diagnostics.retrieval_sources == ("vector_chunks", "keyword_chunks")
     assert item.diagnostics.retrieval_sources_total == 12

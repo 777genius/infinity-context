@@ -63,6 +63,7 @@ def context_item_to_response(item) -> dict[str, Any]:
             item_id=str(item.item_id),
             item_type=str(item.item_type),
             index=index,
+            diagnostics=diagnostics,
         )
         for index, ref in enumerate(public_source_refs)
     ]
@@ -91,6 +92,7 @@ def _source_ref_to_citation(
     item_id: str,
     item_type: str,
     index: int,
+    diagnostics: dict[str, Any],
 ) -> dict[str, Any]:
     source = source_ref_to_response(ref)
     citation_id = _citation_id(
@@ -98,11 +100,12 @@ def _source_ref_to_citation(
         item_type=item_type,
         index=index,
     )
+    evidence = _citation_evidence_context(diagnostics)
     char_range = _range_payload(source.get("char_start"), source.get("char_end"))
     time_range_ms = _range_payload(source.get("time_start_ms"), source.get("time_end_ms"))
     return {
         "citation_id": citation_id,
-        "label": _citation_label(source, index=index),
+        "label": _citation_label(source, index=index, evidence=evidence),
         "source_type": source["source_type"],
         "source_id": source["source_id"],
         "chunk_id": source["chunk_id"],
@@ -111,6 +114,11 @@ def _source_ref_to_citation(
         "page_number": source["page_number"],
         "time_range_ms": time_range_ms,
         "bbox": source["bbox"],
+        "evidence_kind": evidence["evidence_kind"],
+        "evidence_modality": evidence["evidence_modality"],
+        "evidence_confidence": evidence["evidence_confidence"],
+        "retrieval_source": evidence["retrieval_source"],
+        "ranking_reason": evidence["ranking_reason"],
     }
 
 
@@ -120,8 +128,18 @@ def _citation_id(*, item_id: str, item_type: str, index: int) -> str:
     return f"{safe_item_type}:{safe_item_id}:citation:{index + 1}"
 
 
-def _citation_label(source: dict[str, Any], *, index: int) -> str:
-    parts = [f"[{index + 1}]", str(source.get("source_type") or "source")]
+def _citation_label(
+    source: dict[str, Any],
+    *,
+    index: int,
+    evidence: dict[str, Any],
+) -> str:
+    parts = [f"[{index + 1}]"]
+    if evidence.get("evidence_kind"):
+        parts.append(str(evidence["evidence_kind"]))
+    if evidence.get("evidence_modality"):
+        parts.append(str(evidence["evidence_modality"]))
+    parts.append(str(source.get("source_type") or "source"))
     source_id = str(source.get("source_id") or "")
     if source_id:
         parts.append(source_id)
@@ -134,6 +152,41 @@ def _citation_label(source: dict[str, Any], *, index: int) -> str:
     if source.get("bbox") is not None:
         parts.append("bbox")
     return safe_public_text(" ".join(parts))[:240]
+
+
+def _citation_evidence_context(diagnostics: dict[str, Any]) -> dict[str, Any]:
+    provenance = diagnostics.get("provenance")
+    if not isinstance(provenance, dict):
+        provenance = {}
+    return {
+        "evidence_kind": _optional_safe_text(
+            diagnostics.get("evidence_kind") or provenance.get("evidence_kind")
+        ),
+        "evidence_modality": _optional_safe_text(
+            diagnostics.get("evidence_modality") or provenance.get("evidence_modality")
+        ),
+        "evidence_confidence": _optional_float(
+            diagnostics.get("evidence_confidence") or provenance.get("evidence_confidence")
+        ),
+        "retrieval_source": _optional_safe_text(diagnostics.get("retrieval_source")),
+        "ranking_reason": _optional_safe_text(diagnostics.get("ranking_reason")),
+    }
+
+
+def _optional_safe_text(value: object) -> str | None:
+    if value is None:
+        return None
+    text = safe_public_text(str(value)).strip()
+    return text[:240] if text else None
+
+
+def _optional_float(value: object) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _range_payload(start: object, end: object) -> dict[str, int | None] | None:

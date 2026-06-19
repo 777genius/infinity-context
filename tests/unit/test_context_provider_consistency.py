@@ -696,6 +696,25 @@ def test_context_retrieves_media_manifest_artifact_evidence(tmp_path: Path) -> N
     assert diagnostics["source_refs_with_bbox_count"] == 1
     assert len(data["items"]) == 2
     assert {item["item_type"] for item in data["items"]} == {"extraction_artifact"}
+    citations_by_chunk = {
+        citation["chunk_id"]: citation
+        for item in data["items"]
+        for citation in item["citations"]
+    }
+    transcript_citation = citations_by_chunk["element:0"]
+    ocr_citation = citations_by_chunk["element:1"]
+    assert transcript_citation["evidence_kind"] == "transcript_segment"
+    assert transcript_citation["evidence_modality"] == "audio"
+    assert transcript_citation["evidence_confidence"] == 0.92
+    assert transcript_citation["retrieval_source"] == "artifact_evidence"
+    assert transcript_citation["ranking_reason"] == (
+        "matched first-party multimodal extraction evidence"
+    )
+    assert "transcript_segment audio" in transcript_citation["label"]
+    assert ocr_citation["evidence_kind"] == "ocr_region"
+    assert ocr_citation["evidence_modality"] == "image"
+    assert ocr_citation["evidence_confidence"] == 0.81
+    assert "ocr_region image" in ocr_citation["label"]
 
 
 def test_context_enriches_multimodal_evidence_with_query_focused_snippet(
