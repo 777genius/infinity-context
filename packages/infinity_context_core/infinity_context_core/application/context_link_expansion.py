@@ -3,13 +3,23 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 
+from infinity_context_core.application.context_anchors import (
+    anchor_context_item,
+    anchor_identity_retrieval_text,
+    anchor_retrieval_text,
+)
 from infinity_context_core.application.context_artifact_evidence import (
     context_items_from_media_manifest_payload,
     read_media_manifest_payload,
 )
 from infinity_context_core.application.context_hydration import ContextHydrator
-from infinity_context_core.application.context_policy import is_context_fact_visible
+from infinity_context_core.application.context_policy import (
+    is_context_anchor_visible,
+    is_context_fact_visible,
+)
+from infinity_context_core.application.context_relevance import score_query_relevance
 from infinity_context_core.application.context_snippets import (
     query_focused_snippet,
     query_snippet_diagnostics,
@@ -23,7 +33,7 @@ from infinity_context_core.application.source_refs import (
     source_ref_location_summary,
 )
 from infinity_context_core.domain.assets import AssetStatus, MemoryAsset, MemoryContextLink
-from infinity_context_core.domain.entities import MemoryChunk, MemoryFact, SourceRef
+from infinity_context_core.domain.entities import MemoryAnchor, MemoryChunk, MemoryFact, SourceRef
 from infinity_context_core.domain.extraction import (
     AssetExtractionJob,
     AssetExtractionStatus,
@@ -67,11 +77,7 @@ class ApprovedContextLinkExpander:
         ):
             return ContextLinkExpansionResult(items=(), diagnostics=_empty_diagnostics())
 
-        visible_item_ids = {
-            (item.item_type, item.item_id)
-            for item in items
-            if item.item_type in {"anchor", "chunk", "fact"}
-        }
+        visible_item_ids = _visible_link_endpoint_ids(items)
         if not visible_item_ids:
             return ContextLinkExpansionResult(items=(), diagnostics=_empty_diagnostics())
 
@@ -87,6 +93,7 @@ class ApprovedContextLinkExpander:
         existing_artifact_ids = {
             item.item_id for item in items if item.item_type == "extraction_artifact"
         }
+        existing_anchor_ids = {item.item_id for item in items if item.item_type == "anchor"}
         chunk_items, stale_chunk_drop_count = await self._linked_chunk_items(
             links=deduped_links,
             existing_chunk_ids=existing_chunk_ids,
@@ -96,6 +103,12 @@ class ApprovedContextLinkExpander:
         fact_items, stale_fact_drop_count = await self._linked_fact_items(
             links=deduped_links,
             existing_fact_ids=existing_fact_ids,
+            query=query,
+            memory_scope_ids=memory_scope_ids,
+        )
+        anchor_items, stale_anchor_drop_count = await self._linked_anchor_items(
+            links=deduped_links,
+            existing_anchor_ids=existing_anchor_ids,
             query=query,
             memory_scope_ids=memory_scope_ids,
         )
@@ -120,18 +133,24 @@ class ApprovedContextLinkExpander:
             memory_scope_ids=memory_scope_ids,
         )
         return ContextLinkExpansionResult(
-            items=(*chunk_items, *fact_items, *asset_items, *artifact_items),
+            items=(*chunk_items, *fact_items, *anchor_items, *asset_items, *artifact_items),
             diagnostics={
                 "approved_context_links_considered": len(deduped_links),
                 "approved_context_links_used": (
-                    len(chunk_items) + len(fact_items) + len(asset_items) + len(artifact_items)
+                    len(chunk_items)
+                    + len(fact_items)
+                    + len(anchor_items)
+                    + len(asset_items)
+                    + len(artifact_items)
                 ),
                 "approved_context_linked_chunks_used": len(chunk_items),
                 "approved_context_linked_facts_used": len(fact_items),
+                "approved_context_linked_anchors_used": len(anchor_items),
                 "approved_context_linked_assets_used": len(asset_items),
                 "approved_context_linked_extraction_artifacts_used": len(artifact_items),
                 "stale_context_linked_chunk_drop_count": stale_chunk_drop_count,
                 "stale_context_linked_fact_drop_count": stale_fact_drop_count,
+                "stale_context_linked_anchor_drop_count": stale_anchor_drop_count,
                 "stale_context_linked_asset_drop_count": stale_asset_drop_count,
                 "stale_context_linked_extraction_artifact_drop_count": (stale_artifact_drop_count),
                 **asset_manifest_diagnostics,
@@ -146,7 +165,7 @@ class ApprovedContextLinkExpander:
         query: BuildContextQuery,
         memory_scope_ids: tuple[str, ...],
     ) -> list[MemoryContextLink]:
-        max_links = max(query.max_chunks, query.max_facts, 1) * 4
+        max_links = max(query.max_chunks, query.max_facts, query.max_evidence_items, 1) * 4
         links: list[MemoryContextLink] = []
         async with self._uow_factory() as uow:
             for item_type, item_id in sorted(visible_item_ids):
@@ -240,6 +259,52 @@ class ApprovedContextLinkExpander:
                 continue
             items.append(_linked_fact_context_item(fact, link=link, query_text=query.query))
         return tuple(items), max(0, len(fact_ids) - len(items))
+
+    async def _linked_anchor_items(
+        self,
+        *,
+        links: tuple[MemoryContextLink, ...],
+        existing_anchor_ids: set[str],
+        query: BuildContextQuery,
+        memory_scope_ids: tuple[str, ...],
+    ) -> tuple[tuple[ContextItem, ...], int]:
+        if query.max_facts <= 0:
+            return (), 0
+        links_by_anchor_id = _best_links_by_target_id(
+            links=links,
+            target_type="anchor",
+            existing_ids=existing_anchor_ids,
+            limit=max(query.max_facts, 1),
+        )
+        anchor_ids = tuple(links_by_anchor_id)
+        if not anchor_ids:
+            return (), 0
+        now = self._clock.now() if self._clock is not None else None
+        anchors_by_id: dict[str, MemoryAnchor] = {}
+        async with self._uow_factory() as uow:
+            for anchor_id in anchor_ids:
+                anchor = await uow.anchors.get_by_id(anchor_id)
+                if anchor is not None and is_context_anchor_visible(
+                    anchor,
+                    query=query,
+                    memory_scope_ids=memory_scope_ids,
+                    now=now,
+                ):
+                    anchors_by_id[anchor_id] = anchor
+        items: list[ContextItem] = []
+        for anchor_id, link in links_by_anchor_id.items():
+            anchor = anchors_by_id.get(anchor_id)
+            if anchor is None:
+                continue
+            items.append(
+                _linked_anchor_context_item(
+                    anchor,
+                    link=link,
+                    query_text=query.query,
+                    now=now,
+                )
+            )
+        return tuple(items), max(0, len(anchor_ids) - len(items))
 
     async def _linked_asset_items(
         self,
@@ -351,7 +416,11 @@ class ApprovedContextLinkExpander:
             items.append(_linked_asset_context_item(asset, link=link))
             if len(items) >= query.max_evidence_items:
                 break
-        return tuple(items), max(0, len(asset_ids) - visible_asset_count), diagnostics
+        return (
+            tuple(items),
+            max(0, len(asset_ids) - visible_asset_count),
+            _strip_generic_artifact_evidence_diagnostics(diagnostics),
+        )
 
     async def _linked_extraction_artifact_items(
         self,
@@ -474,7 +543,11 @@ class ApprovedContextLinkExpander:
             )
             if len(items) >= query.max_evidence_items:
                 break
-        return tuple(items), max(0, len(artifact_ids) - len(loaded)), diagnostics
+        return (
+            tuple(items),
+            max(0, len(artifact_ids) - len(loaded)),
+            _strip_generic_artifact_evidence_diagnostics(diagnostics),
+        )
 
 
 def _empty_diagnostics() -> dict[str, object]:
@@ -483,10 +556,12 @@ def _empty_diagnostics() -> dict[str, object]:
         "approved_context_links_used": 0,
         "approved_context_linked_chunks_used": 0,
         "approved_context_linked_facts_used": 0,
+        "approved_context_linked_anchors_used": 0,
         "approved_context_linked_assets_used": 0,
         "approved_context_linked_extraction_artifacts_used": 0,
         "stale_context_linked_chunk_drop_count": 0,
         "stale_context_linked_fact_drop_count": 0,
+        "stale_context_linked_anchor_drop_count": 0,
         "stale_context_linked_asset_drop_count": 0,
         "stale_context_linked_extraction_artifact_drop_count": 0,
         **_empty_asset_manifest_diagnostics(),
@@ -518,6 +593,16 @@ def _empty_extraction_artifact_diagnostics() -> dict[str, object]:
     }
 
 
+def _strip_generic_artifact_evidence_diagnostics(
+    diagnostics: dict[str, object],
+) -> dict[str, object]:
+    return {
+        key: value
+        for key, value in diagnostics.items()
+        if key != "artifact_evidence_status" and not key.startswith("artifact_evidence_")
+    }
+
+
 def _best_links_by_target_id(
     *,
     links: tuple[MemoryContextLink, ...],
@@ -546,6 +631,25 @@ def _linked_target_id(link: MemoryContextLink, *, target_type: str) -> str | Non
     return None
 
 
+def _visible_link_endpoint_ids(items: tuple[ContextItem, ...]) -> set[tuple[str, str]]:
+    visible: set[tuple[str, str]] = set()
+    for item in items:
+        if item.item_type in {"anchor", "asset", "chunk", "fact"}:
+            visible.add((item.item_type, item.item_id))
+            continue
+        if item.item_type != "extraction_artifact":
+            continue
+        visible.add((item.item_type, item.item_id))
+        diagnostics = item.diagnostics if isinstance(item.diagnostics, dict) else {}
+        artifact_id = diagnostics.get("artifact_id")
+        if isinstance(artifact_id, str) and artifact_id.strip():
+            visible.add(("extraction_artifact", artifact_id.strip()))
+        for source_ref in item.source_refs:
+            if source_ref.source_type == "extraction_artifact" and source_ref.source_id:
+                visible.add(("extraction_artifact", source_ref.source_id))
+    return visible
+
+
 async def _latest_asset_media_manifest(
     uow: object,
     *,
@@ -569,6 +673,77 @@ async def _latest_asset_media_manifest(
             if artifact.artifact_type == ExtractionArtifactType.MEDIA_MANIFEST:
                 return artifact, job
     return None
+
+
+def _linked_anchor_context_item(
+    anchor: MemoryAnchor,
+    *,
+    link: MemoryContextLink,
+    query_text: str,
+    now: datetime | None,
+) -> ContextItem:
+    retrieval_text = anchor_retrieval_text(anchor)
+    relevance = score_query_relevance(query=query_text, text=retrieval_text)
+    identity_relevance = score_query_relevance(
+        query=query_text,
+        text=anchor_identity_retrieval_text(anchor),
+    )
+    base_item = anchor_context_item(
+        anchor,
+        relevance=relevance,
+        identity_relevance=identity_relevance,
+        now=now,
+    )
+    base_diagnostics = base_item.diagnostics if isinstance(base_item.diagnostics, dict) else {}
+    score = min(0.94, round(max(base_item.score, _linked_item_score(link) + 0.02), 4))
+    score_signals = base_diagnostics.get("score_signals")
+    anchor_score_signals = score_signals if isinstance(score_signals, dict) else {}
+    return ContextItem(
+        item_id=str(anchor.id),
+        item_type="anchor",
+        text=base_item.text,
+        score=score,
+        source_refs=base_item.source_refs,
+        diagnostics=_linked_item_diagnostics(
+            link=link,
+            retrieval_source="approved_context_linked_anchors",
+            memory_scope_id=str(anchor.memory_scope_id),
+            score=score,
+            source_ref_count=len(base_item.source_refs),
+            ranking_reason=(
+                "approved context link connected visible evidence or memory "
+                "to canonical anchor"
+            ),
+            score_signals_extra={
+                "anchor_query_score": base_item.score,
+                "anchor_kind": anchor.kind.value,
+                "anchor_query_unique_term_hits": int(
+                    anchor_score_signals.get("unique_term_hits") or 0
+                ),
+                "anchor_identity_unique_term_hits": int(
+                    anchor_score_signals.get("identity_unique_term_hits") or 0
+                ),
+            },
+            extra_provenance={
+                "anchor_kind": anchor.kind.value,
+                "anchor_status": anchor.status.value,
+                "anchor_confidence": anchor.confidence.value,
+                "normalized_key": anchor.normalized_key,
+                "observed_at": anchor.observed_at.isoformat(),
+                "valid_from": anchor.valid_from.isoformat() if anchor.valid_from else None,
+                "valid_to": anchor.valid_to.isoformat() if anchor.valid_to else None,
+                "identity_metadata": base_diagnostics.get("identity_metadata") or {},
+            },
+            extra_diagnostics={
+                **_anchor_base_diagnostics(base_diagnostics),
+                "anchor_kind": anchor.kind.value,
+                "normalized_key": anchor.normalized_key,
+                "confidence": anchor.confidence.value,
+                "observed_at": anchor.observed_at.isoformat(),
+                "updated_at": anchor.updated_at.isoformat(),
+            },
+        ),
+    )
 
 
 def _linked_chunk_context_item(
@@ -762,12 +937,13 @@ def _linked_item_diagnostics(
     extra_provenance: dict[str, object],
     extra_diagnostics: dict[str, object],
     score_signals_extra: dict[str, object] | None = None,
+    ranking_reason: str = "approved context link connected visible memory to related evidence",
 ) -> dict[str, object]:
     return {
         "memory_scope_id": memory_scope_id,
         "retrieval_source": retrieval_source,
         "retrieval_sources": [retrieval_source],
-        "ranking_reason": "approved context link connected visible memory to related evidence",
+        "ranking_reason": ranking_reason,
         "context_link_id": str(link.id),
         "context_link_relation_type": link.relation_type,
         "context_link_confidence": link.confidence,
@@ -792,6 +968,18 @@ def _linked_item_diagnostics(
         },
         **extra_diagnostics,
     }
+
+
+def _anchor_base_diagnostics(base_diagnostics: dict[str, object]) -> dict[str, object]:
+    excluded = {
+        "memory_scope_id",
+        "retrieval_source",
+        "retrieval_sources",
+        "ranking_reason",
+        "score_signals",
+        "provenance",
+    }
+    return {key: value for key, value in base_diagnostics.items() if key not in excluded}
 
 
 def _linked_item_score(link: MemoryContextLink) -> float:

@@ -773,6 +773,117 @@ def test_context_retrieves_media_manifest_artifact_evidence(tmp_path: Path) -> N
     assert "ocr_region image" in ocr_citation["label"]
 
 
+def test_context_expands_visible_media_manifest_evidence_to_linked_anchor(
+    tmp_path: Path,
+) -> None:
+    marker = "ZXQREV0420"
+    with make_client(tmp_path) as client:
+        container = client.app.state.container
+        upload = client.post(
+            "/v1/assets",
+            params={
+                "space_slug": container.settings.default_space_slug,
+                "memory_scope_external_ref": container.settings.default_memory_scope_external_ref,
+                "thread_external_ref": "thread-reverse-artifact-anchor",
+                "filename": "alex-review.wav",
+            },
+            content=b"fake wav bytes",
+            headers={**auth_headers(), "Content-Type": "audio/wav"},
+        )
+        assert upload.status_code == 201, upload.text
+        asset = upload.json()["data"]
+        artifact_id = asyncio.run(
+            _store_media_manifest_artifact(
+                container,
+                asset=asset,
+                payload={
+                    "schema_version": "infinity_context.multimodal_manifest.v1",
+                    "evidence_items": [
+                        {
+                            "id": "segment:0",
+                            "kind": "transcript_segment",
+                            "modality": "audio",
+                            "text_preview": (
+                                f"{marker} Alex confirmed the Atlas renewal cutoff."
+                            ),
+                            "time_range": {"start_ms": 4200, "end_ms": 7600},
+                            "confidence": 0.94,
+                        }
+                    ],
+                },
+            )
+        )
+        anchor = client.post(
+            "/v1/anchors",
+            json={
+                "space_id": asset["space_id"],
+                "memory_scope_id": asset["memory_scope_id"],
+                "kind": "event",
+                "label": "Alex followup",
+                "confidence": "high",
+                "metadata": {
+                    "anchor_family": "event",
+                    "event_type": "meeting",
+                    "event_participant_label": "Alex",
+                    "event_participant_canonical_key": "alex",
+                    "event_project_label": "Atlas",
+                    "event_project_canonical_key": "atlas",
+                },
+            },
+            headers=auth_headers(),
+        )
+        assert anchor.status_code == 200, anchor.text
+        link = client.post(
+            "/v1/context-links",
+            json={
+                "space_id": asset["space_id"],
+                "memory_scope_id": asset["memory_scope_id"],
+                "source_type": "extraction_artifact",
+                "source_id": artifact_id,
+                "target_type": "anchor",
+                "target_id": anchor.json()["data"]["id"],
+                "relation_type": "evidence_of",
+                "confidence": "high",
+                "reason": "manifest transcript segment resolves to the Alex followup event",
+            },
+            headers=auth_headers(),
+        )
+        assert link.status_code == 200, link.text
+        context = client.post(
+            "/v1/context",
+            json={
+                "space_slug": container.settings.default_space_slug,
+                "memory_scope_external_ref": container.settings.default_memory_scope_external_ref,
+                "thread_external_ref": "thread-reverse-artifact-anchor",
+                "query": marker,
+                "max_facts": 5,
+                "max_chunks": 0,
+                "max_evidence_items": 5,
+                "token_budget": 900,
+            },
+            headers=auth_headers(),
+        )
+
+    assert context.status_code == 200, context.text
+    data = context.json()["data"]
+    rendered = data["rendered_text"]
+    assert "Alex confirmed the Atlas renewal cutoff" in rendered
+    assert "event: Alex followup" in rendered
+    assert "time_ms=4200-7600" in rendered
+    assert data["diagnostics"]["artifact_evidence_items_used"] == 1
+    assert data["diagnostics"]["approved_context_linked_anchors_used"] == 1
+    linked_anchor_items = [
+        item
+        for item in data["items"]
+        if item["diagnostics"].get("retrieval_source") == "approved_context_linked_anchors"
+    ]
+    assert len(linked_anchor_items) == 1
+    assert linked_anchor_items[0]["diagnostics"]["context_link_relation_type"] == "evidence_of"
+    assert linked_anchor_items[0]["diagnostics"]["provenance"]["context_link_source_type"] == (
+        "extraction_artifact"
+    )
+
+
 def test_context_enriches_multimodal_evidence_with_query_focused_snippet(
     tmp_path: Path,
 ) -> None:
@@ -3858,7 +3969,7 @@ async def _store_media_manifest_artifact(
     *,
     asset: dict[str, object],
     payload: dict[str, object],
-) -> None:
+) -> str:
     now = container.clock.now()
     job_id = container.ids.new_id("job")
     artifact_id = container.ids.new_id("artifact")
@@ -3907,3 +4018,4 @@ async def _store_media_manifest_artifact(
         await uow.asset_extractions.create(job)
         await uow.asset_extractions.create_artifact(artifact)
         await uow.commit()
+    return artifact_id

@@ -296,7 +296,7 @@ class BuildContextUseCase:
             ),
         )
         linked_context = await self._context_link_expander.collect(
-            items=temporal_items,
+            items=(*temporal_items, *artifact_evidence_items),
             query=query,
             memory_scope_ids=memory_scope_ids,
         )

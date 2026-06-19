@@ -14,6 +14,10 @@ from infinity_context_core.domain.assets import (
     MemoryContextLinkId,
 )
 from infinity_context_core.domain.entities import (
+    Confidence,
+    MemoryAnchor,
+    MemoryAnchorId,
+    MemoryAnchorKind,
     MemoryFact,
     MemoryFactId,
     MemoryKind,
@@ -250,10 +254,84 @@ def test_linked_fact_context_item_uses_query_focused_source_quote() -> None:
     assert diagnostics["score_signals"]["query_snippet_unique_term_hits"] == 4
 
 
+def test_visible_manifest_evidence_expands_reverse_link_to_anchor() -> None:
+    now = datetime(2026, 6, 19, tzinfo=UTC)
+    anchor = _anchor(now=now)
+    link = MemoryContextLink.create(
+        link_id=MemoryContextLinkId("context_link_artifact_anchor"),
+        space_id=SpaceId("space_client_app"),
+        memory_scope_id=MemoryScopeId("memory_scope_default"),
+        source_type="extraction_artifact",
+        source_id="artifact_manifest_1",
+        target_type="anchor",
+        target_id=str(anchor.id),
+        relation_type="evidence_of",
+        confidence="high",
+        reason="exact transcript evidence resolves to canonical Alex event",
+        now=now,
+    )
+    uow = _LinkedArtifactUnitOfWork(now=now, link=link, anchor=anchor)
+    expander = ApprovedContextLinkExpander(
+        uow_factory=lambda: uow,
+        hydrator=object(),
+    )
+
+    result = asyncio.run(
+        expander.collect(
+            items=(
+                ContextItem(
+                    item_id="artifact_manifest_1:segment_1",
+                    item_type="extraction_artifact",
+                    text="Alex confirmed the Atlas cutoff in this transcript segment.",
+                    score=0.9,
+                    source_refs=(
+                        SourceRef(
+                            source_type="extraction_artifact",
+                            source_id="artifact_manifest_1",
+                            chunk_id="segment_1",
+                        ),
+                    ),
+                    diagnostics={
+                        "memory_scope_id": "memory_scope_default",
+                        "artifact_id": "artifact_manifest_1",
+                    },
+                ),
+            ),
+            query=BuildContextQuery(
+                space_id=SpaceId("space_client_app"),
+                memory_scope_ids=(MemoryScopeId("memory_scope_default"),),
+                query="TRANSCRIPT_ONLY_MARKER",
+                max_facts=3,
+                max_chunks=0,
+                max_evidence_items=0,
+            ),
+            memory_scope_ids=("memory_scope_default",),
+        )
+    )
+
+    assert result.diagnostics["approved_context_links_considered"] == 1
+    assert result.diagnostics["approved_context_linked_anchors_used"] == 1
+    assert result.diagnostics["stale_context_linked_anchor_drop_count"] == 0
+    item = result.items[0]
+    assert item.item_type == "anchor"
+    assert item.text.startswith("event: Alex review")
+    assert item.diagnostics["retrieval_source"] == "approved_context_linked_anchors"
+    assert item.diagnostics["context_link_relation_type"] == "evidence_of"
+    assert item.diagnostics["provenance"]["context_link_source_type"] == "extraction_artifact"
+    assert item.diagnostics["score_signals"]["anchor_query_unique_term_hits"] == 0
+
+
 class _LinkedArtifactUnitOfWork:
-    def __init__(self, *, now: datetime, link: MemoryContextLink) -> None:
+    def __init__(
+        self,
+        *,
+        now: datetime,
+        link: MemoryContextLink,
+        anchor: MemoryAnchor | None = None,
+    ) -> None:
         self.context_links = _ContextLinksRepository(link)
         self.assets = _AssetsRepository(_asset(now=now))
+        self.anchors = _AnchorsRepository(anchor or _anchor(now=now))
         self.asset_extractions = _AssetExtractionsRepository(
             artifact=_artifact(now=now),
             job=_job(now=now),
@@ -293,6 +371,14 @@ class _AssetsRepository:
 
     async def get_by_id(self, asset_id: str) -> MemoryAsset | None:
         return self._asset if asset_id == str(self._asset.id) else None
+
+
+class _AnchorsRepository:
+    def __init__(self, anchor: MemoryAnchor) -> None:
+        self._anchor = anchor
+
+    async def get_by_id(self, anchor_id: str) -> MemoryAnchor | None:
+        return self._anchor if anchor_id == str(self._anchor.id) else None
 
 
 class _AssetExtractionsRepository:
@@ -344,6 +430,26 @@ def _asset(*, now: datetime) -> MemoryAsset:
         sha256_hex="a" * 64,
         storage_backend="local",
         storage_key="assets/alex-call.mp4",
+        now=now,
+    )
+
+
+def _anchor(*, now: datetime) -> MemoryAnchor:
+    return MemoryAnchor.create(
+        anchor_id=MemoryAnchorId("anchor_event_alex"),
+        space_id=SpaceId("space_client_app"),
+        memory_scope_id=MemoryScopeId("memory_scope_default"),
+        kind=MemoryAnchorKind.EVENT,
+        normalized_key="alex review",
+        label="Alex review",
+        confidence=Confidence.HIGH,
+        metadata={
+            "anchor_family": "event",
+            "event_participant_label": "Alex",
+            "event_participant_canonical_key": "alex",
+            "event_project_label": "Atlas",
+            "event_project_canonical_key": "atlas",
+        },
         now=now,
     )
 

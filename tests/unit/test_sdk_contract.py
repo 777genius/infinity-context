@@ -932,6 +932,7 @@ def test_sdk_build_typed_context_returns_bounded_safe_diagnostics() -> None:
                         "approved_context_links_used": 10,
                         "approved_context_linked_chunks_used": 4,
                         "approved_context_linked_facts_used": 3,
+                        "approved_context_linked_anchors_used": 6,
                         "approved_context_linked_assets_used": 2,
                         "approved_context_linked_extraction_artifacts_used": 2,
                         "approved_context_linked_extraction_artifact_manifest_items_used": 7,
@@ -945,6 +946,7 @@ def test_sdk_build_typed_context_returns_bounded_safe_diagnostics() -> None:
                         "approved_context_linked_extraction_artifact_schema_skip_count": 5,
                         "stale_context_linked_chunk_drop_count": 1,
                         "stale_context_linked_fact_drop_count": 2,
+                        "stale_context_linked_anchor_drop_count": 5,
                         "stale_context_linked_asset_drop_count": 3,
                         "stale_context_linked_extraction_artifact_drop_count": 4,
                         "items_considered": 14,
@@ -1178,6 +1180,7 @@ def test_sdk_build_typed_context_returns_bounded_safe_diagnostics() -> None:
     assert bundle.diagnostics.approved_context_links_used == 10
     assert bundle.diagnostics.approved_context_linked_chunks_used == 4
     assert bundle.diagnostics.approved_context_linked_facts_used == 3
+    assert bundle.diagnostics.approved_context_linked_anchors_used == 6
     assert bundle.diagnostics.approved_context_linked_assets_used == 2
     assert bundle.diagnostics.approved_context_linked_extraction_artifacts_used == 2
     assert bundle.diagnostics.approved_context_linked_extraction_artifact_manifest_items_used == 7
@@ -1193,6 +1196,7 @@ def test_sdk_build_typed_context_returns_bounded_safe_diagnostics() -> None:
     assert bundle.diagnostics.approved_context_linked_extraction_artifact_schema_skip_count == 5
     assert bundle.diagnostics.stale_context_linked_chunk_drop_count == 1
     assert bundle.diagnostics.stale_context_linked_fact_drop_count == 2
+    assert bundle.diagnostics.stale_context_linked_anchor_drop_count == 5
     assert bundle.diagnostics.stale_context_linked_asset_drop_count == 3
     assert bundle.diagnostics.stale_context_linked_extraction_artifact_drop_count == 4
     assert bundle.diagnostics.items_considered == 14
@@ -1372,6 +1376,7 @@ def test_sdk_typed_context_defaults_missing_diagnostic_counters() -> None:
     assert bundle.diagnostics.approved_context_links_used == 0
     assert bundle.diagnostics.approved_context_linked_chunks_used == 0
     assert bundle.diagnostics.approved_context_linked_facts_used == 0
+    assert bundle.diagnostics.approved_context_linked_anchors_used == 0
     assert bundle.diagnostics.approved_context_linked_assets_used == 0
     assert bundle.diagnostics.approved_context_linked_extraction_artifacts_used == 0
     assert bundle.diagnostics.approved_context_linked_extraction_artifact_manifest_items_used == 0
@@ -1387,6 +1392,7 @@ def test_sdk_typed_context_defaults_missing_diagnostic_counters() -> None:
     assert bundle.diagnostics.approved_context_linked_extraction_artifact_schema_skip_count == 0
     assert bundle.diagnostics.stale_context_linked_chunk_drop_count == 0
     assert bundle.diagnostics.stale_context_linked_fact_drop_count == 0
+    assert bundle.diagnostics.stale_context_linked_anchor_drop_count == 0
     assert bundle.diagnostics.stale_context_linked_asset_drop_count == 0
     assert bundle.diagnostics.stale_context_linked_extraction_artifact_drop_count == 0
     assert bundle.diagnostics.items_considered == 0

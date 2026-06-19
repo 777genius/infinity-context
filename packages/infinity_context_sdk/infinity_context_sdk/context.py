@@ -174,6 +174,7 @@ class ContextBundleDiagnostics:
     approved_context_links_used: int = 0
     approved_context_linked_chunks_used: int = 0
     approved_context_linked_facts_used: int = 0
+    approved_context_linked_anchors_used: int = 0
     approved_context_linked_assets_used: int = 0
     approved_context_linked_extraction_artifacts_used: int = 0
     approved_context_linked_extraction_artifact_manifest_items_used: int = 0
@@ -184,6 +185,7 @@ class ContextBundleDiagnostics:
     approved_context_linked_extraction_artifact_schema_skip_count: int = 0
     stale_context_linked_chunk_drop_count: int = 0
     stale_context_linked_fact_drop_count: int = 0
+    stale_context_linked_anchor_drop_count: int = 0
     stale_context_linked_asset_drop_count: int = 0
     stale_context_linked_extraction_artifact_drop_count: int = 0
     diversity_families_considered: int = 0
@@ -523,6 +525,9 @@ def _bundle_diagnostics_from_payload(value: object) -> ContextBundleDiagnostics:
         approved_context_linked_facts_used=_non_negative_int(
             raw.get("approved_context_linked_facts_used")
         ),
+        approved_context_linked_anchors_used=_non_negative_int(
+            raw.get("approved_context_linked_anchors_used")
+        ),
         approved_context_linked_assets_used=_non_negative_int(
             raw.get("approved_context_linked_assets_used")
         ),
@@ -552,6 +557,9 @@ def _bundle_diagnostics_from_payload(value: object) -> ContextBundleDiagnostics:
         ),
         stale_context_linked_fact_drop_count=_non_negative_int(
             raw.get("stale_context_linked_fact_drop_count")
+        ),
+        stale_context_linked_anchor_drop_count=_non_negative_int(
+            raw.get("stale_context_linked_anchor_drop_count")
         ),
         stale_context_linked_asset_drop_count=_non_negative_int(
             raw.get("stale_context_linked_asset_drop_count")
