@@ -91,7 +91,7 @@ def _scorecard_fixture_results() -> dict[str, dict[str, Any]]:
             "ok": True,
             "status": "ok",
             "metrics": {
-                "case_count": 14,
+                "case_count": 15,
                 "required_case_coverage_rate": 1.0,
                 "missing_required_case_count": 0,
                 "ranking_accuracy": 1.0,
@@ -100,6 +100,7 @@ def _scorecard_fixture_results() -> dict[str, dict[str, Any]]:
                 "document_chunk_linking_accuracy": 1.0,
                 "anchor_recall_rate": 1.0,
                 "anchor_disambiguation_rate": 1.0,
+                "mixed_script_event_anchor_rate": 1.0,
                 "anchor_review_evidence_rate": 1.0,
                 "high_impact_relation_policy_safety": 1.0,
                 "evidence_relation_policy_safety": 1.0,
@@ -1574,6 +1575,7 @@ def test_memory_quality_scorecard_fails_on_semantic_linking_regression() -> None
             "document_chunk_linking_accuracy": 0.0,
             "anchor_recall_rate": 0.5,
             "anchor_disambiguation_rate": 0.0,
+            "mixed_script_event_anchor_rate": 0.0,
             "anchor_review_evidence_rate": 0.0,
             "high_impact_relation_policy_safety": 0.0,
             "evidence_relation_policy_safety": 0.0,
@@ -1599,6 +1601,7 @@ def test_memory_quality_scorecard_fails_on_semantic_linking_regression() -> None
         "false_positive_count",
         "high_impact_relation_policy_safety",
         "mentions_relation_policy_safety",
+        "mixed_script_event_anchor_rate",
         "ranking_accuracy",
         "review_approval_rate",
         "temporal_intent_recall",
@@ -1608,6 +1611,7 @@ def test_memory_quality_scorecard_fails_on_semantic_linking_regression() -> None
     assert result["metrics"]["semantic_linking_temporal_intent_recall"] == 0.0
     assert result["metrics"]["semantic_linking_document_chunk_linking_accuracy"] == 0.0
     assert result["metrics"]["semantic_linking_anchor_disambiguation_rate"] == 0.0
+    assert result["metrics"]["semantic_linking_mixed_script_event_anchor_rate"] == 0.0
     assert result["metrics"]["semantic_linking_anchor_review_evidence_rate"] == 0.0
     assert result["metrics"]["semantic_linking_high_impact_relation_policy_safety"] == 0.0
     assert result["metrics"]["semantic_linking_evidence_relation_policy_safety"] == 0.0

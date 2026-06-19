@@ -50,7 +50,7 @@ _MEMORY_QUALITY_SCORECARD_REQUIRED_SUITES = (
 _MEMORY_QUALITY_SCORECARD_MIN_CASE_COUNTS = {
     SMALL_GOLDEN_SUITE: 8,
     QUALITY_GOLDEN_SUITE: 16,
-    SEMANTIC_LINKING_GOLDEN_SUITE: 14,
+    SEMANTIC_LINKING_GOLDEN_SUITE: 15,
     MULTIMODAL_OFFLINE_GOLDEN_SUITE: 10,
     LONG_MEMORY_GOLDEN_SUITE: 16,
     AUTO_MEMORY_GOLDEN_SUITE: 13,
@@ -88,6 +88,7 @@ SEMANTIC_LINKING_REQUIRED_CASE_IDS = (
     "anchor_evidence_confidence_and_observed_at_exposed",
     "same_name_person_project_anchors_separate",
     "cross_script_project_anchor_resolves_canonical",
+    "mixed_script_event_anchor_preserves_person_project_time",
     "high_impact_relation_requires_explicit_signal",
     "weak_overlap_below_review_threshold_denied",
     "evidence_relation_requires_source_signal",

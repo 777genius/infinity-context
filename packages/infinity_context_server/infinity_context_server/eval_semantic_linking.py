@@ -291,6 +291,68 @@ def _execute_semantic_linking_golden(client: Any, headers: dict[str, str]) -> di
                 "cross_script_project_anchor_not_canonicalized",
             )
         )
+    mixed_event_capture = _capture(
+        client,
+        headers,
+        space_slug=space_slug,
+        source_event_id="mixed-script-event-anchor-capture",
+        text=(
+            "Meeting with Alex about проект Атлас last week covered migration "
+            "rollback and production risk handoff."
+        ),
+        thread_external_ref="quality-review",
+    )
+    mixed_event_suggestions = _suggest(
+        client,
+        headers,
+        space_slug=space_slug,
+        source_id=str(mixed_event_capture.get("id", "")),
+        text=(
+            "Meeting with Alex about проект Атлас last week migration rollback "
+            "production risk"
+        ),
+        thread_external_ref="quality-review",
+        limit=16,
+    )
+    mixed_event_anchor_candidate = next(
+        (
+            item
+            for item in mixed_event_suggestions.get("candidates", [])
+            if item.get("target_type") == "anchor"
+            and item.get("metadata", {}).get("anchor_kind") == "event"
+            and item.get("metadata", {}).get("event_participant_canonical_key") == "aleks"
+            and item.get("metadata", {}).get("event_project_canonical_key") == "atlas"
+            and item.get("metadata", {}).get("event_temporal_hint_code") == "last_week"
+        ),
+        {},
+    )
+    checks["mixed_script_event_anchor_preserves_person_project_time"] = bool(
+        mixed_event_capture
+    ) and bool(mixed_event_anchor_candidate)
+    cases.append(
+        {
+            "case_id": "mixed_script_event_anchor_preserves_person_project_time",
+            "ok": checks["mixed_script_event_anchor_preserves_person_project_time"],
+            "target_id": mixed_event_anchor_candidate.get("target_id"),
+            "score": mixed_event_anchor_candidate.get("score"),
+            "metadata": {
+                key: mixed_event_anchor_candidate.get("metadata", {}).get(key)
+                for key in (
+                    "event_participant_canonical_key",
+                    "event_project_canonical_key",
+                    "event_temporal_hint_code",
+                )
+            },
+        }
+    )
+    if not checks["mixed_script_event_anchor_preserves_person_project_time"]:
+        failures.append(
+            _failure(
+                "mixed_script_event_anchor_preserves_person_project_time",
+                "anchor_disambiguation",
+                "mixed_script_event_anchor_lost_canonical_identity",
+            )
+        )
 
     policy_case = _high_impact_relation_policy_case()
     checks["high_impact_relation_requires_explicit_signal"] = bool(policy_case["ok"])
@@ -722,6 +784,7 @@ def _suggest(
     source_id: str,
     text: str,
     thread_external_ref: str | None = None,
+    limit: int = 8,
 ) -> dict[str, object]:
     response = client.post(
         "/v1/link-suggestions",
@@ -733,7 +796,7 @@ def _suggest(
             "source_id": source_id,
             "text": text,
             "persist": True,
-            "limit": 8,
+            "limit": limit,
         },
         headers=headers,
     )
@@ -1037,6 +1100,11 @@ def _report(
         "anchor_disambiguation_rate": (
             1.0 if checks.get("same_name_person_project_anchors_separate") else 0.0
         ),
+        "mixed_script_event_anchor_rate": (
+            1.0
+            if checks.get("mixed_script_event_anchor_preserves_person_project_time")
+            else 0.0
+        ),
         "anchor_review_evidence_rate": (
             1.0
             if checks.get("anchor_evidence_confidence_and_observed_at_exposed")
@@ -1068,6 +1136,7 @@ def _report(
         "document_chunk_linking_accuracy": metrics["document_chunk_linking_accuracy"] == 1.0,
         "anchor_recall_rate": metrics["anchor_recall_rate"] == 1.0,
         "anchor_disambiguation_rate": metrics["anchor_disambiguation_rate"] == 1.0,
+        "mixed_script_event_anchor_rate": metrics["mixed_script_event_anchor_rate"] == 1.0,
         "anchor_review_evidence_rate": metrics["anchor_review_evidence_rate"] == 1.0,
         "high_impact_relation_policy_safety": (
             metrics["high_impact_relation_policy_safety"] == 1.0

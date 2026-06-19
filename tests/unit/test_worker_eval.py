@@ -1229,6 +1229,7 @@ def test_semantic_linking_golden_eval_passes(tmp_path: Path) -> None:
     assert result["checks"]["temporal_intent_links_recent_fact_without_text_match"] is True
     assert result["checks"]["person_and_project_anchors_suggested"] is True
     assert result["checks"]["same_name_person_project_anchors_separate"] is True
+    assert result["checks"]["mixed_script_event_anchor_preserves_person_project_time"] is True
     assert result["checks"]["high_impact_relation_requires_explicit_signal"] is True
     assert result["checks"]["weak_overlap_below_review_threshold_denied"] is True
     assert result["checks"]["evidence_relation_requires_source_signal"] is True
@@ -1247,6 +1248,8 @@ def test_semantic_linking_golden_eval_passes(tmp_path: Path) -> None:
     assert result["metrics"]["event_linking_accuracy"] == 1.0
     assert result["metrics"]["temporal_intent_recall"] == 1.0
     assert result["metrics"]["anchor_disambiguation_rate"] == 1.0
+    assert result["metrics"]["mixed_script_event_anchor_rate"] == 1.0
+    assert result["gates"]["mixed_script_event_anchor_rate"] is True
     assert result["metrics"]["anchor_review_evidence_rate"] == 1.0
     assert result["metrics"]["high_impact_relation_policy_safety"] == 1.0
     assert result["metrics"]["weak_overlap_policy_safety"] == 1.0
