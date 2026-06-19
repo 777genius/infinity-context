@@ -388,6 +388,39 @@ def _quality_golden_cases(
             ),
         ),
         EvalCase(
+            case_id="canonical_event_anchor_recall_by_identity",
+            category="anchor_context",
+            space_id=space_id,
+            memory_scope_ids=(alpha_memory_scope_id,),
+            query="Alex Project Atlas billing call one hour ago event",
+            must_include=(
+                "event: Atlas billing call",
+                "event_type: call",
+                "with: Alex",
+                "time: one hour ago",
+            ),
+            max_facts=0,
+            max_chunks=0,
+            required_diagnostics=(
+                ("anchors_used", "gte", 1),
+                ("retrieval_sources_used", "contains", "canonical_anchors"),
+            ),
+            required_source_ref_matches=(
+                (
+                    ("source_type", "eq", "capture"),
+                    ("source_id", "quality-event-anchor-capture"),
+                    ("quote_preview", "contains", "Alex Project Atlas billing call"),
+                ),
+            ),
+            required_citation_matches=(
+                (
+                    ("source_type", "eq", "capture"),
+                    ("source_id", "eq", "quality-event-anchor-capture"),
+                    ("quote_preview", "contains", "Alex Project Atlas billing call"),
+                ),
+            ),
+        ),
+        EvalCase(
             case_id="multimodal_source_refs_recall_with_citations",
             category="documents",
             space_id=space_id,

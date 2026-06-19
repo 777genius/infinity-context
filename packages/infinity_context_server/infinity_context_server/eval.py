@@ -921,6 +921,12 @@ def _seed_quality_golden(client: TestClient, headers: dict[str, str]) -> Quality
         space_id=space_id,
         memory_scope_id=alpha_memory_scope_id,
     )
+    checks["quality_event_anchor"] = _seed_quality_event_anchor(
+        client,
+        headers,
+        space_id=space_id,
+        memory_scope_id=alpha_memory_scope_id,
+    )
     checks["deleted_fact"] = _seed_quality_deleted_fact(
         client,
         headers,
@@ -1361,6 +1367,57 @@ def _seed_quality_project_anchor(
             },
         },
         headers=_with_idempotency(headers, "quality-project-anchor-v1"),
+    )
+    return _status_ok(response.status_code)
+
+
+def _seed_quality_event_anchor(
+    client: TestClient,
+    headers: dict[str, str],
+    *,
+    space_id: str,
+    memory_scope_id: str,
+) -> bool:
+    response = client.post(
+        "/v1/anchors",
+        json={
+            "space_id": space_id,
+            "memory_scope_id": memory_scope_id,
+            "kind": "event",
+            "label": "Atlas billing call",
+            "aliases": ["Project Atlas billing review", "Alex Atlas call"],
+            "description": "Canonical event anchor for Alex Project Atlas billing call.",
+            "confidence": "high",
+            "evidence_refs": [
+                {
+                    "source_type": "capture",
+                    "source_id": "quality-event-anchor-capture",
+                    "quote_preview": "Alex Project Atlas billing call happened one hour ago.",
+                }
+            ],
+            "observed_at": "2026-01-03T13:00:00+00:00",
+            "metadata": {
+                "anchor_family": "event",
+                "event_type": "call",
+                "event_type_canonical": "call",
+                "event_participant_label": "Alex",
+                "event_participant_relation": "with",
+                "event_participant_canonical_key": "alex",
+                "project_canonical_key": "atlas",
+                "event_temporal_phrase": "one hour ago",
+                "event_temporal_hint_code": "relative_recent",
+                "event_temporal_quantity": "1",
+                "event_temporal_unit": "hour",
+                "event_identity_terms": [
+                    "alex",
+                    "project atlas",
+                    "billing",
+                    "call",
+                    "one hour ago",
+                ],
+            },
+        },
+        headers=_with_idempotency(headers, "quality-event-anchor-v1"),
     )
     return _status_ok(response.status_code)
 
