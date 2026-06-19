@@ -180,6 +180,89 @@ def test_capture_semantic_russian_duplicate_creates_merge_review_suggestion(
     }
 
 
+def test_capture_semantic_cross_language_call_summary_creates_merge_review_suggestion(
+    tmp_path: Path,
+) -> None:
+    app = _capture_app(
+        tmp_path,
+        "capture-semantic-cross-language-summary.db",
+        CaptureMode.AUTO_APPLY_SAFE,
+    )
+    headers = {"Authorization": "Bearer test-token"}
+    with TestClient(app) as client:
+        existing = _create_fact(
+            client,
+            headers=headers,
+            text="Alex owns Atlas document retrieval notes from the call.",
+            space_slug="capture-semantic-cross-language-summary",
+            source_id="semantic-cross-language-existing",
+        )
+        capture = _create_capture(
+            client,
+            headers=headers,
+            text="Запомни: Итоги созвона: Алекс отвечает за поиск документов в Атласе.",
+            space_slug="capture-semantic-cross-language-summary",
+        )
+        result = _consolidate(
+            client,
+            capture_id=capture.json()["data"]["id"],
+            extractor=StaticExtractor(
+                (
+                    _candidate(
+                        "Итоги созвона: Алекс отвечает за поиск документов в Атласе.",
+                        confidence=Confidence.HIGH,
+                        ttl_policy="durable",
+                        source_id="semantic-cross-language-candidate",
+                    ),
+                )
+            ),
+            auto_apply_safe_enabled=True,
+        )
+        facts = _list_facts(
+            client,
+            headers=headers,
+            space_slug="capture-semantic-cross-language-summary",
+        )
+        suggestions = _list_suggestions(
+            client,
+            headers=headers,
+            space_slug="capture-semantic-cross-language-summary",
+        )
+        suggestion = suggestions.json()["data"][0]
+        approved = client.post(
+            f"/v1/suggestions/{suggestion['id']}/approve",
+            json={"reason": "confirmed cross-language summary duplicate"},
+            headers=headers,
+        )
+        merged_facts = _list_facts(
+            client,
+            headers=headers,
+            space_slug="capture-semantic-cross-language-summary",
+        )
+
+    assert existing.status_code == 201
+    assert result.auto_applied_facts == 0
+    assert result.created_suggestions == 1
+    assert [item["text"] for item in facts.json()["data"]] == [
+        "Alex owns Atlas document retrieval notes from the call."
+    ]
+    assert suggestion["operation"] == "review"
+    assert suggestion["target_fact_id"] == existing.json()["data"]["id"]
+    assert suggestion["review_payload"]["review_kind"] == "duplicate_fact_merge"
+    assert suggestion["review_payload"]["dedupe_match_type"] == "semantic_identity_overlap"
+    assert "identity_overlap" in suggestion["review_payload"]["dedupe_reason_codes"]
+    assert "content_overlap" in suggestion["review_payload"]["dedupe_reason_codes"]
+    assert "event_type:call" in suggestion["review_payload"]["dedupe_overlap_terms"]
+    assert "person:aleks" in suggestion["review_payload"]["dedupe_overlap_terms"]
+    assert approved.status_code == 200, approved.text
+    merged_fact = merged_facts.json()["data"][0]
+    assert merged_fact["version"] == 2
+    assert {ref["source_id"] for ref in merged_fact["source_refs"]} == {
+        "semantic-cross-language-existing",
+        "semantic-cross-language-candidate",
+    }
+
+
 def test_capture_semantic_dedupe_keeps_engine_mismatch_for_review(tmp_path: Path) -> None:
     app = _capture_app(tmp_path, "capture-semantic-engine-mismatch.db", CaptureMode.SUGGEST)
     headers = {"Authorization": "Bearer test-token"}

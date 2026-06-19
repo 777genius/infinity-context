@@ -86,6 +86,24 @@ def test_semantic_dedupe_recognizes_cross_language_audio_call_paraphrase() -> No
     assert "project:atlas" in match.overlap_terms
 
 
+def test_semantic_dedupe_recognizes_cross_language_call_summary_identity_overlap() -> None:
+    match = describe_duplicate_fact_match(
+        "Итоги созвона: Алекс отвечает за поиск документов в Атласе.",
+        "Alex owns Atlas document retrieval notes from the call.",
+    )
+
+    assert match is not None
+    assert match.match_type == "semantic_identity_overlap"
+    assert "semantic_duplicate" in match.reason_codes
+    assert "identity_overlap" in match.reason_codes
+    assert "content_overlap" in match.reason_codes
+    assert "event_type:call" in match.overlap_terms
+    assert "person:aleks" in match.overlap_terms
+    assert "document" in match.overlap_terms
+    assert "owner" in match.overlap_terms
+    assert "retrieval" in match.overlap_terms
+
+
 def test_semantic_dedupe_recognizes_cross_language_video_keyframe_paraphrase() -> None:
     match = describe_duplicate_fact_match(
         "Видео фрагмент демо Project Atlas показывает billing dashboard.",
@@ -129,6 +147,17 @@ def test_semantic_dedupe_rejects_similar_but_different_person_event() -> None:
     assert not looks_conflicting_fact(
         "Alex call last week covered Project Atlas pricing.",
         "Maria call last week covered Project Atlas pricing.",
+    )
+
+
+def test_semantic_dedupe_rejects_similar_owner_with_different_named_person() -> None:
+    assert not looks_equivalent_fact(
+        "Maria owns Project Atlas retrieval notes.",
+        "Alex owns Project Atlas retrieval notes.",
+    )
+    assert not looks_equivalent_fact(
+        "Итоги созвона: Мария отвечает за поиск документов в Атласе.",
+        "Alex owns Atlas document retrieval notes from the call.",
     )
 
 

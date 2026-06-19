@@ -8,6 +8,7 @@ from dataclasses import dataclass
 
 from infinity_context_core.application.anchor_extraction import (
     ObservedAnchor,
+    canonical_anchor_key,
     extract_observed_anchors,
 )
 from infinity_context_core.domain.entities import MemoryAnchorKind
@@ -25,6 +26,34 @@ _EVENT_TYPE_ALIASES = {
     "sozvon": "call",
     "vstrecha": "meeting",
     "zvonok": "call",
+}
+_IDENTITY_TERM_PREFIXES = (
+    "event_participant:",
+    "event_project:",
+    "event_temporal:",
+    "event_type:",
+    "organization:",
+    "person:",
+    "project:",
+)
+_DUPLICATE_CONTENT_SIGNAL_TERMS = {
+    "audio",
+    "billing",
+    "call",
+    "dashboard",
+    "document",
+    "image",
+    "invoice",
+    "meeting",
+    "note",
+    "owner",
+    "pricing",
+    "retrieval",
+    "screenshot",
+    "storage",
+    "transcript",
+    "vector",
+    "video",
 }
 
 
@@ -117,6 +146,14 @@ def describe_duplicate_fact_match(
             reason_codes=("semantic_duplicate", "token_overlap"),
             overlap_terms=tuple(sorted(overlap))[:12],
         )
+    identity_match = _semantic_identity_overlap_match(
+        overlap=overlap,
+        candidate_terms=candidate_terms,
+        existing_terms=existing_terms,
+        base_score=score,
+    )
+    if identity_match is not None:
+        return identity_match
     anchors = {
         "adapter",
         "canonical",
@@ -149,6 +186,37 @@ def describe_duplicate_fact_match(
     return None
 
 
+def _semantic_identity_overlap_match(
+    *,
+    overlap: set[str],
+    candidate_terms: set[str],
+    existing_terms: set[str],
+    base_score: float,
+) -> FactDuplicateMatch | None:
+    identity_overlap = {term for term in overlap if _is_identity_term(term)}
+    if len(identity_overlap) < 2:
+        return None
+    signal_overlap = overlap & _DUPLICATE_CONTENT_SIGNAL_TERMS
+    if len(signal_overlap) < 2:
+        return None
+    candidate_signals = candidate_terms & _DUPLICATE_CONTENT_SIGNAL_TERMS
+    existing_signals = existing_terms & _DUPLICATE_CONTENT_SIGNAL_TERMS
+    if not candidate_signals or not existing_signals:
+        return None
+    score = max(base_score, 0.58 + min(len(identity_overlap), 4) * 0.05)
+    score += min(len(signal_overlap), 4) * 0.035
+    return FactDuplicateMatch(
+        match_type="semantic_identity_overlap",
+        score=round(min(score, 0.93), 3),
+        reason_codes=("semantic_duplicate", "identity_overlap", "content_overlap"),
+        overlap_terms=tuple(sorted(identity_overlap | signal_overlap))[:12],
+    )
+
+
+def _is_identity_term(term: str) -> bool:
+    return term.startswith(_IDENTITY_TERM_PREFIXES)
+
+
 def semantic_memory_terms(text: str) -> set[str]:
     aliases = {
         "docs": "document",
@@ -161,15 +229,28 @@ def semantic_memory_terms(text: str) -> set[str]:
         "invoice": "invoice",
         "invoices": "invoice",
         "memories": "memory",
+        "memo": "note",
+        "memos": "note",
         "notes": "note",
+        "own": "owner",
+        "owned": "owner",
+        "owns": "owner",
         "photo": "image",
         "photos": "image",
         "record": "transcript",
         "recorded": "transcript",
         "recording": "transcript",
+        "recap": "note",
+        "responsibility": "owner",
+        "responsible": "owner",
         "retrieves": "retrieval",
+        "search": "retrieval",
+        "searched": "retrieval",
+        "searches": "retrieval",
         "screenshot": "screenshot",
         "screenshots": "screenshot",
+        "summaries": "note",
+        "summary": "note",
         "transcripts": "transcript",
         "video": "video",
         "videos": "video",
@@ -195,7 +276,14 @@ def semantic_memory_terms(text: str) -> set[str]:
         "запись": "transcript",
         "изображение": "image",
         "инвойс": "invoice",
+        "итог": "note",
+        "итоги": "note",
         "картинка": "image",
+        "конспект": "note",
+        "мемо": "note",
+        "заметка": "note",
+        "заметки": "note",
+        "заметк": "note",
         "поиск": "retrieval",
         "показал": "shows",
         "показано": "shows",
@@ -219,9 +307,15 @@ def semantic_memory_terms(text: str) -> set[str]:
         "счёт": "invoice",
         "счёта": "invoice",
         "транскрипт": "transcript",
+        "отвечает": "owner",
+        "ответственен": "owner",
+        "ответственна": "owner",
+        "ответственный": "owner",
+        "ответственная": "owner",
         "фото": "image",
         "фотография": "image",
         "фрагмент": "segment",
+        "владеет": "owner",
         "хранилище": "storage",
         "хранит": "storage",
         "хранить": "storage",
@@ -273,6 +367,11 @@ def semantic_memory_terms(text: str) -> set[str]:
             continue
         if len(token) >= 4:
             terms.add(token)
+            if re.search(r"[а-яё]", token, re.IGNORECASE):
+                canonical_token = canonical_anchor_key(token)
+                transliterated = aliases.get(canonical_token, canonical_token)
+                if transliterated and transliterated != token and len(transliterated) >= 4:
+                    terms.add(transliterated)
     return terms
 
 
@@ -299,7 +398,7 @@ def _semantic_anchor_terms(text: str) -> tuple[str, ...]:
         canonical_key = str(anchor.metadata.get("canonical_key") or anchor.normalized_key).strip()
         if not canonical_key:
             continue
-        if anchor.kind == MemoryAnchorKind.PERSON and _is_media_false_person_anchor(
+        if anchor.kind == MemoryAnchorKind.PERSON and _is_false_person_anchor_key(
             canonical_key
         ):
             continue
@@ -314,13 +413,38 @@ def _semantic_anchor_terms(text: str) -> tuple[str, ...]:
     return tuple(terms)
 
 
-def _is_media_false_person_anchor(canonical_key: str) -> bool:
+def _is_false_person_anchor_key(canonical_key: str) -> bool:
     return canonical_key.strip().casefold() in {
         "audio",
+        "backend",
+        "database",
+        "doc",
+        "docs",
+        "document",
+        "frontend",
+        "graph",
+        "graphiti",
         "image",
+        "itogi",
+        "memory",
+        "mysql",
+        "neo4j",
+        "note",
+        "notes",
+        "postgres",
+        "provider",
+        "qdrant",
         "recording",
+        "recap",
+        "redis",
+        "retrieval",
         "screenshot",
+        "sqlite",
+        "storage",
+        "summary",
         "transcript",
+        "vector",
+        "vectors",
         "video",
     }
 
@@ -331,7 +455,7 @@ def _event_semantic_terms(anchor: ObservedAnchor) -> tuple[str, ...]:
     event_type = _normalized_event_type(metadata.get("event_type_canonical"))
     if event_type:
         terms.append(f"event_type:{event_type}")
-    participant = str(metadata.get("event_participant_canonical_key") or "").strip().casefold()
+    participant = _person_identity_key(metadata.get("event_participant_canonical_key"))
     if participant:
         terms.append(f"event_participant:{participant}")
     project = str(metadata.get("event_project_canonical_key") or "").strip().casefold()
@@ -362,6 +486,7 @@ def _normalize_russian_semantic_token(token: str) -> str:
         ("ев", "й"),
         ("ом", ""),
         ("ем", ""),
+        ("е", ""),
         ("ам", ""),
         ("ям", "я"),
         ("у", ""),
@@ -600,11 +725,10 @@ def _has_named_anchor_mismatch(candidate_text: str, existing_text: str) -> bool:
     if candidate_projects and existing_projects and not candidate_projects & existing_projects:
         return True
 
-    if _has_event_anchor(candidate_text) and _has_event_anchor(existing_text):
-        candidate_people = _named_anchor_keys(candidate_text, kind=MemoryAnchorKind.PERSON)
-        existing_people = _named_anchor_keys(existing_text, kind=MemoryAnchorKind.PERSON)
-        if candidate_people and existing_people and not candidate_people & existing_people:
-            return True
+    candidate_people = _named_anchor_keys(candidate_text, kind=MemoryAnchorKind.PERSON)
+    existing_people = _named_anchor_keys(existing_text, kind=MemoryAnchorKind.PERSON)
+    if candidate_people and existing_people and not candidate_people & existing_people:
+        return True
 
     candidate_orgs = _named_anchor_keys(candidate_text, kind=MemoryAnchorKind.ORGANIZATION)
     existing_orgs = _named_anchor_keys(existing_text, kind=MemoryAnchorKind.ORGANIZATION)
@@ -639,7 +763,7 @@ def _event_identity_payloads(text: str) -> tuple[dict[str, str], ...]:
         metadata = anchor.metadata
         payload = {
             "event_type": _normalized_event_type(metadata.get("event_type_canonical")),
-            "participant": str(metadata.get("event_participant_canonical_key") or ""),
+            "participant": _person_identity_key(metadata.get("event_participant_canonical_key")),
             "project": str(metadata.get("event_project_canonical_key") or ""),
             "temporal": _event_temporal_identity(metadata),
         }
@@ -678,9 +802,11 @@ def _named_anchor_keys(
     reasons: set[str] | None = None,
 ) -> set[str]:
     return {
-        _canonical_named_anchor_key(anchor)
+        key
         for anchor in extract_observed_anchors(text)
+        if (key := _canonical_named_anchor_key(anchor))
         if anchor.kind == kind and (reasons is None or anchor.reason in reasons)
+        and not (kind == MemoryAnchorKind.PERSON and _is_false_person_anchor_key(key))
     }
 
 
@@ -693,3 +819,8 @@ def _canonical_named_anchor_key(anchor: ObservedAnchor) -> str:
 
 def _has_event_anchor(text: str) -> bool:
     return any(anchor.kind == MemoryAnchorKind.EVENT for anchor in extract_observed_anchors(text))
+
+
+def _person_identity_key(value: object) -> str:
+    key = str(value or "").strip().casefold()
+    return "" if _is_false_person_anchor_key(key) else key
