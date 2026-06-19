@@ -1,3 +1,5 @@
+from math import inf, nan
+
 from infinity_context_core.application.context_packer import ContextPacker
 from infinity_context_core.application.context_policy import thread_is_visible
 from infinity_context_core.application.context_ranking import dedupe_rank_items
@@ -507,6 +509,75 @@ def test_context_packer_preserves_multimodal_evidence_modality_diversity() -> No
     assert result.bundle.diagnostics["diversity_families_considered"] == 2
     assert result.bundle.diagnostics["diversity_families_used"] == 2
     assert result.bundle.diagnostics["diversity_items_used"] == 2
+
+
+def test_context_packer_renders_bounded_retrieval_metadata_without_secret_leaks() -> None:
+    item = ContextItem(
+        item_id="artifact_ocr_line",
+        item_type="extraction_artifact",
+        text="OCR line says Atlas billing owner is Alex.",
+        score=0.87321,
+        source_refs=(
+            SourceRef(
+                source_type="extraction_artifact",
+                source_id="artifact-screen",
+                chunk_id="ocr-line-1",
+                bbox=(10.0, 12.0, 90.0, 44.0),
+                quote_preview="Atlas billing owner is Alex.",
+            ),
+        ),
+        diagnostics={
+            "memory_scope_id": "memory_scope_default",
+            "evidence_kind": "ocr_region",
+            "evidence_modality": "image",
+            "evidence_confidence": 0.91,
+            "ranking_reason": (
+                "provider matched query using Bearer context-secret-value1234567890"
+            ),
+        },
+    )
+
+    result = ContextPacker().pack(
+        bundle_id="ctx_rendered_metadata",
+        items=(item,),
+        token_budget=512,
+    )
+
+    rendered = result.bundle.rendered_text
+    assert "score=0.873" in rendered
+    assert "evidence=image/ocr_region" in rendered
+    assert "confidence=0.910" in rendered
+    assert 'reason="provider matched query using [redacted]"' in rendered
+    assert "context-secret-value" not in rendered
+    assert "Bearer" not in rendered
+
+
+def test_context_packer_bounds_non_finite_scores_in_rendered_metadata() -> None:
+    result = ContextPacker().pack(
+        bundle_id="ctx_non_finite_score",
+        items=(
+            ContextItem(
+                item_id="artifact_score_check",
+                item_type="extraction_artifact",
+                text="Invalid score should not leak into rendered context.",
+                score=nan,
+                source_refs=(
+                    SourceRef(source_type="extraction_artifact", source_id="score-check"),
+                ),
+                diagnostics={
+                    "memory_scope_id": "memory_scope_default",
+                    "evidence_confidence": inf,
+                },
+            ),
+        ),
+        token_budget=512,
+    )
+
+    rendered = result.bundle.rendered_text
+    assert "score=0.000" in rendered
+    assert "confidence=0.000" in rendered
+    assert "nan" not in rendered.casefold()
+    assert "inf" not in rendered.casefold()
 
 
 def test_context_packer_caps_extraction_artifacts_per_source() -> None:

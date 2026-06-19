@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from math import isfinite
 
 from infinity_context_core.application.context_diagnostics import (
     context_rank_key,
@@ -16,6 +17,7 @@ from infinity_context_core.domain.entities import SourceRef
 _MAX_ITEMS_PER_SOURCE = 4
 _SOURCE_CAPPED_ITEM_TYPES = frozenset({"chunk", "extraction_artifact"})
 _MAX_CITATION_QUOTE_CHARS = 160
+_MAX_RENDERED_REASON_CHARS = 180
 _DEFAULT_MAX_RENDERED_CHARS = 18000
 _DIVERSITY_FAMILY_PRIORITY = (
     "fact",
@@ -410,10 +412,11 @@ def _redact_context_item_text(item: ContextItem) -> tuple[ContextItem, bool]:
 
 def _item_line(index: int, item: ContextItem) -> str:
     safe_text = _one_line(item.text)
+    metadata_part = _rendered_metadata_part(item)
     citation_text = _citation_text(item)
     citation_part = f' citations="{_quote_text(citation_text)}"' if citation_text else ""
     return (
-        f"[{index}] {item.item_type}:{item.item_id} "
+        f"[{index}] {item.item_type}:{item.item_id} {metadata_part} "
         f'source={_source_label(item)}{citation_part} text="{_quote_text(safe_text)}"'
     )
 
@@ -439,6 +442,79 @@ def _source_label(item: ContextItem) -> str:
     if ref.chunk_id:
         return f"{ref.source_type}:{ref.source_id}#{ref.chunk_id}"
     return f"{ref.source_type}:{ref.source_id}"
+
+
+def _rendered_metadata_part(item: ContextItem) -> str:
+    parts = [f"score={_format_score(item.score)}"]
+    evidence_label = _evidence_label(item)
+    if evidence_label:
+        parts.append(f"evidence={evidence_label}")
+    confidence = _evidence_confidence(item)
+    if confidence:
+        parts.append(f"confidence={confidence}")
+    reason = _rendered_reason(item)
+    if reason:
+        parts.append(f'reason="{_quote_text(reason)}"')
+    return " ".join(parts)
+
+
+def _format_score(value: float) -> str:
+    if not isfinite(value):
+        value = 0.0
+    return f"{max(0.0, min(1.0, value)):.3f}"
+
+
+def _evidence_label(item: ContextItem) -> str:
+    if item.item_type != "extraction_artifact":
+        return ""
+    kind = _safe_inline_label(_diagnostic_text(item, "evidence_kind"))
+    modality = _safe_inline_label(_diagnostic_text(item, "evidence_modality"))
+    if modality and kind:
+        return f"{modality}/{kind}"
+    return modality or kind
+
+
+def _safe_inline_label(value: str) -> str:
+    text = value.strip().casefold()
+    if not text or any(marker in text for marker in _SENSITIVE_QUOTE_MARKERS):
+        return ""
+    chars: list[str] = []
+    for char in text[:64]:
+        if char.isalnum() or char in {"_", "-"}:
+            chars.append(char)
+        elif char.isspace() or char in {"/", "."}:
+            chars.append("_")
+    return "".join(chars).strip("_-")[:48]
+
+
+def _evidence_confidence(item: ContextItem) -> str:
+    raw = _diagnostic_value(item, "evidence_confidence")
+    if isinstance(raw, bool) or raw is None:
+        return ""
+    try:
+        parsed = float(raw)
+    except (TypeError, ValueError):
+        return ""
+    if parsed < 0:
+        return ""
+    return _format_score(parsed)
+
+
+def _rendered_reason(item: ContextItem) -> str:
+    reason = _diagnostic_text(item, "ranking_reason")
+    if not reason:
+        return ""
+    return _one_line(redact_sensitive_text(reason))[:_MAX_RENDERED_REASON_CHARS].strip()
+
+
+def _diagnostic_value(item: ContextItem, key: str) -> object:
+    diagnostics = item.diagnostics or {}
+    value = diagnostics.get(key)
+    if value is None:
+        provenance = diagnostics.get("provenance")
+        if isinstance(provenance, dict):
+            value = provenance.get(key)
+    return value
 
 
 def _citation_text(item: ContextItem) -> str:
