@@ -46,6 +46,7 @@ from infinity_context_server.eval_constants import (
     GRAPH_NATIVE_GOLDEN_SUITE,
     LONG_MEMORY_GOLDEN_SUITE,
     MEMORY_QUALITY_SCORECARD_SUITE,
+    MULTIMODAL_OFFLINE_GOLDEN_SUITE,
     PROMPT_CONTRACT_SUITE,
     PUBLIC_MEMORY_BENCHMARK_SUITE,
     QUALITY_GOLDEN_REQUIRED_CASE_IDS,
@@ -100,6 +101,22 @@ def memory_quality_scorecard_policy_snapshot(
             "min_semantic_extraction_cases": (
                 _MEMORY_QUALITY_SCORECARD_MIN_SEMANTIC_EXTRACTION_CASES
             ),
+        },
+        "multimodal_offline": {
+            "required_checks": [
+                "vision_linking_accuracy",
+                "metadata_only_visual_linking_accuracy",
+                "audio_linking_accuracy",
+                "video_linking_accuracy",
+                "temporal_audio_linking_accuracy",
+                "similar_wrong_project_precision",
+                "empty_audio_no_candidate_rate",
+                "prompt_injection_guard_rate",
+                "evidence_metadata_exposed",
+            ],
+            "requires_no_false_positives": True,
+            "requires_prompt_injection_guard": True,
+            "requires_evidence_metadata": True,
         },
         "full_provider": {
             "required_adapters": list(_FULL_PROVIDER_REQUIRED_ADAPTERS),
@@ -202,6 +219,9 @@ def build_memory_quality_scorecard(
         "longitudinal_memory": _scorecard_longitudinal_memory(suite_results),
         "auto_memory_admission": _scorecard_auto_memory_admission(suite_results),
         "semantic_linking": _scorecard_semantic_linking(suite_results),
+        "multimodal_evidence_retrieval": _scorecard_multimodal_evidence_retrieval(
+            suite_results
+        ),
         "graph_native_recall": _scorecard_graph_native_recall(suite_results),
         "scope_and_safety": _scorecard_scope_and_safety(suite_results),
         "prompt_context_contract": _scorecard_prompt_context_contract(suite_results),
@@ -476,6 +496,52 @@ def _scorecard_semantic_linking(
         },
     }
     return _scorecard_capability("semantic_linking", checks)
+
+
+def _scorecard_multimodal_evidence_retrieval(
+    suite_results: Mapping[str, dict[str, object]],
+) -> dict[str, object]:
+    result = suite_results.get(MULTIMODAL_OFFLINE_GOLDEN_SUITE)
+    metrics = _scorecard_result_metrics(result)
+    gates_raw = result.get("gates", {}) if isinstance(result, dict) else {}
+    gates = gates_raw if isinstance(gates_raw, Mapping) else {}
+    checks_raw = result.get("checks", {}) if isinstance(result, dict) else {}
+    check_map = checks_raw if isinstance(checks_raw, Mapping) else {}
+    checks = {
+        "pass_rate": metrics.get("pass_rate") == 1.0,
+        "case_count": int(metrics.get("case_count", 0)) >= 10,
+        "false_positive_count": metrics.get("false_positive_count") == 0,
+        "vision_linking_accuracy": metrics.get("vision_linking_accuracy") == 1.0,
+        "metadata_only_visual_linking_accuracy": (
+            metrics.get("metadata_only_visual_linking_accuracy") == 1.0
+        ),
+        "audio_linking_accuracy": metrics.get("audio_linking_accuracy") == 1.0,
+        "video_linking_accuracy": metrics.get("video_linking_accuracy") == 1.0,
+        "temporal_audio_linking_accuracy": (
+            metrics.get("temporal_audio_linking_accuracy") == 1.0
+        ),
+        "similar_wrong_project_precision": (
+            metrics.get("similar_wrong_project_precision") == 1.0
+        ),
+        "empty_audio_no_candidate_rate": (
+            metrics.get("empty_audio_no_candidate_rate") == 1.0
+        ),
+        "prompt_injection_guard_rate": (
+            metrics.get("prompt_injection_guard_rate") == 1.0
+        ),
+        "gate_case_count": gates.get("case_count") is True,
+        "gate_all_cases_passed": gates.get("all_cases_passed") is True,
+        "gate_evidence_metadata_exposed": (
+            gates.get("evidence_metadata_exposed") is True
+        ),
+        "check_prompt_injection_guard": (
+            check_map.get("prompt_injection_guard") is True
+        ),
+        "check_evidence_metadata_exposed": (
+            check_map.get("evidence_metadata_exposed") is True
+        ),
+    }
+    return _scorecard_capability("multimodal_evidence_retrieval", checks)
 
 
 def _scorecard_scope_and_safety(
@@ -1462,6 +1528,9 @@ def _scorecard_metrics(
 ) -> dict[str, object]:
     quality = _scorecard_result_metrics(suite_results.get(QUALITY_GOLDEN_SUITE))
     semantic = _scorecard_result_metrics(suite_results.get(SEMANTIC_LINKING_GOLDEN_SUITE))
+    multimodal = _scorecard_result_metrics(
+        suite_results.get(MULTIMODAL_OFFLINE_GOLDEN_SUITE)
+    )
     long = _scorecard_result_metrics(suite_results.get(LONG_MEMORY_GOLDEN_SUITE))
     auto = _scorecard_result_metrics(suite_results.get(AUTO_MEMORY_GOLDEN_SUITE))
     graph = _scorecard_result_metrics(suite_results.get(GRAPH_NATIVE_GOLDEN_SUITE))
@@ -1531,6 +1600,15 @@ def _scorecard_metrics(
         ),
         "semantic_linking_false_positive_count": semantic.get("false_positive_count", 0),
         "semantic_linking_cross_scope_leak_count": semantic.get("cross_scope_leak_count", 0),
+        "multimodal_offline_pass_rate": multimodal.get("pass_rate", 0.0),
+        "multimodal_offline_false_positive_count": multimodal.get(
+            "false_positive_count",
+            0,
+        ),
+        "multimodal_offline_prompt_injection_guard_rate": multimodal.get(
+            "prompt_injection_guard_rate",
+            0.0,
+        ),
         "graph_recall_rate": graph.get("graph_recall_rate", 0.0),
         "graph_hydration_rate": graph.get("graph_hydration_rate", 0.0),
         "safety_leak_count": _scorecard_safety_leak_count(suite_results),

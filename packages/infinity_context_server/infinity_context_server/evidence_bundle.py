@@ -24,6 +24,7 @@ from infinity_context_server.eval import (
     GRAPH_NATIVE_GOLDEN_SUITE,
     LONG_MEMORY_GOLDEN_SUITE,
     MEMORY_QUALITY_SCORECARD_SUITE,
+    MULTIMODAL_OFFLINE_GOLDEN_SUITE,
     PROMPT_CONTRACT_SUITE,
     QUALITY_GOLDEN_SUITE,
     SEMANTIC_LINKING_GOLDEN_SUITE,
@@ -33,6 +34,7 @@ from infinity_context_server.eval import (
     run_graph_native_golden,
     run_long_memory_golden,
     run_memory_quality_scorecard,
+    run_multimodal_offline_golden,
     run_prompt_snapshots,
     run_quality_golden,
     run_semantic_linking_golden,
@@ -71,6 +73,11 @@ DETERMINISTIC_EVIDENCE_SUITES: tuple[EvidenceSuite, ...] = (
         SEMANTIC_LINKING_GOLDEN_SUITE,
         "semantic-linking-golden.json",
         lambda report_out: run_semantic_linking_golden(report_out=report_out),
+    ),
+    EvidenceSuite(
+        MULTIMODAL_OFFLINE_GOLDEN_SUITE,
+        "multimodal-offline-golden.json",
+        lambda report_out: run_multimodal_offline_golden(report_out=report_out),
     ),
     EvidenceSuite(
         LONG_MEMORY_GOLDEN_SUITE,

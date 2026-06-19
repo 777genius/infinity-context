@@ -11,6 +11,7 @@ from infinity_context_server.eval import (
     run_memory_quality_scorecard,
 )
 from infinity_context_server.eval_constants import (
+    MULTIMODAL_OFFLINE_GOLDEN_SUITE,
     QUALITY_GOLDEN_REQUIRED_CASE_IDS,
     SEMANTIC_LINKING_REQUIRED_CASE_IDS,
 )
@@ -89,7 +90,7 @@ def _scorecard_fixture_results() -> dict[str, dict[str, Any]]:
             "ok": True,
             "status": "ok",
             "metrics": {
-                "case_count": 13,
+                "case_count": 14,
                 "required_case_coverage_rate": 1.0,
                 "missing_required_case_count": 0,
                 "ranking_accuracy": 1.0,
@@ -123,6 +124,60 @@ def _scorecard_fixture_results() -> dict[str, dict[str, Any]]:
                 "unrelated_capture_has_no_candidates": True,
                 "cross_scope_fact_not_suggested": True,
             },
+            "failures": [],
+        },
+        MULTIMODAL_OFFLINE_GOLDEN_SUITE: {
+            "suite": MULTIMODAL_OFFLINE_GOLDEN_SUITE,
+            "ok": True,
+            "status": "ok",
+            "checks": {
+                "ocr_visual_text_links_image_chunk": True,
+                "metadata_only_bbox_region_links_image_chunk": True,
+                "transcript_links_audio_time_range": True,
+                "video_keyframe_links_frame_timeline": True,
+                "video_without_audio_keeps_keyframe_candidate": True,
+                "alex_hour_ago_links_recent_audio_event": True,
+                "similar_wrong_project_keeps_atlas_over_aurora": True,
+                "empty_audio_without_speech_has_no_candidates": True,
+                "prompt_injection_guard": True,
+                "unrelated_capture_has_no_candidates": True,
+                "evidence_metadata_exposed": True,
+            },
+            "metrics": {
+                "case_count": 10,
+                "passed_case_count": 10,
+                "pass_rate": 1.0,
+                "false_positive_count": 0,
+                "vision_linking_accuracy": 1.0,
+                "metadata_only_visual_linking_accuracy": 1.0,
+                "audio_linking_accuracy": 1.0,
+                "video_linking_accuracy": 1.0,
+                "temporal_audio_linking_accuracy": 1.0,
+                "similar_wrong_project_precision": 1.0,
+                "empty_audio_no_candidate_rate": 1.0,
+                "prompt_injection_guard_rate": 1.0,
+            },
+            "gates": {
+                "case_count": True,
+                "all_cases_passed": True,
+                "false_positive_count": True,
+                "prompt_injection_guard": True,
+                "evidence_metadata_exposed": True,
+            },
+            "cases": _case_reports(
+                (
+                    "ocr_visual_text_links_image_chunk",
+                    "metadata_only_bbox_region_links_image_chunk",
+                    "transcript_links_audio_time_range",
+                    "video_keyframe_links_frame_timeline",
+                    "video_without_audio_keeps_keyframe_candidate",
+                    "alex_hour_ago_links_recent_audio_event",
+                    "similar_wrong_project_keeps_atlas_over_aurora",
+                    "empty_audio_without_speech_has_no_candidates",
+                    "prompt_injection_screenshot_stays_review_evidence",
+                    "unrelated_multimodal_capture_has_no_candidates",
+                )
+            ),
             "failures": [],
         },
         "long-memory-golden": {
@@ -469,6 +524,7 @@ def test_memory_quality_scorecard_passes_with_required_capabilities(tmp_path: Pa
     assert result["capabilities"]["longitudinal_memory"]["ok"] is True
     assert result["capabilities"]["auto_memory_admission"]["ok"] is True
     assert result["capabilities"]["semantic_linking"]["ok"] is True
+    assert result["capabilities"]["multimodal_evidence_retrieval"]["ok"] is True
     assert result["capabilities"]["graph_native_recall"]["ok"] is True
     assert result["capabilities"]["scope_and_safety"]["ok"] is True
     assert result["capabilities"]["prompt_context_contract"]["ok"] is True
@@ -481,6 +537,9 @@ def test_memory_quality_scorecard_passes_with_required_capabilities(tmp_path: Pa
         "public_benchmark_evidence_missing",
     ]
     assert result["metrics"]["safety_leak_count"] == 0
+    assert result["metrics"]["multimodal_offline_pass_rate"] == 1.0
+    assert result["metrics"]["multimodal_offline_false_positive_count"] == 0
+    assert result["metrics"]["multimodal_offline_prompt_injection_guard_rate"] == 1.0
     assert result["failures"] == []
     assert payload["ok"] is True
     assert "QUALITY_RESTRICTED_SECRET" not in report_text
@@ -516,6 +575,11 @@ def test_memory_quality_scorecard_policy_snapshot_documents_top_evidence_floors(
     assert policy["min_case_counts"]["semantic-linking-golden"] == len(
         SEMANTIC_LINKING_REQUIRED_CASE_IDS
     )
+    assert MULTIMODAL_OFFLINE_GOLDEN_SUITE in policy["required_suites"]
+    assert policy["min_case_counts"][MULTIMODAL_OFFLINE_GOLDEN_SUITE] == 10
+    assert policy["multimodal_offline"]["requires_evidence_metadata"] is True
+    assert policy["multimodal_offline"]["requires_prompt_injection_guard"] is True
+    assert "audio_linking_accuracy" in policy["multimodal_offline"]["required_checks"]
     assert policy["full_provider"]["required_adapters"] == [
         "qdrant",
         "graphiti",
@@ -1553,6 +1617,22 @@ def test_memory_quality_scorecard_fails_on_missing_semantic_linking_safety_check
         in result["capabilities"]["semantic_linking"]["failed_checks"]
     )
     assert result["metrics"]["semantic_linking_false_positive_count"] == 0
+
+
+def test_memory_quality_scorecard_fails_on_multimodal_metadata_regression() -> None:
+    suite_results = _scorecard_fixture_results()
+    multimodal = suite_results[MULTIMODAL_OFFLINE_GOLDEN_SUITE]
+    multimodal["checks"]["evidence_metadata_exposed"] = False
+    multimodal["gates"]["evidence_metadata_exposed"] = False
+
+    result = build_memory_quality_scorecard(suite_results)
+
+    assert result["ok"] is False
+    capability = result["capabilities"]["multimodal_evidence_retrieval"]
+    assert capability["ok"] is False
+    assert "check_evidence_metadata_exposed" in capability["failed_checks"]
+    assert "gate_evidence_metadata_exposed" in capability["failed_checks"]
+    assert result["gates"]["all_capabilities_ok"] is False
 
 
 def test_memory_quality_scorecard_fails_on_missing_required_golden_cases() -> None:

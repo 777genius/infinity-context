@@ -66,6 +66,7 @@ from infinity_context_server.eval_constants import (
     LONG_MEMORY_GOLDEN_SUITE,
     LONGMEMEVAL_BENCHMARK_SUITE,
     MEMORY_QUALITY_SCORECARD_SUITE,
+    MULTIMODAL_OFFLINE_GOLDEN_SUITE,
     PROMPT_CONTRACT_SNAPSHOT_FILE,
     PROMPT_CONTRACT_SNAPSHOT_VERSION,
     PROMPT_CONTRACT_SUITE,
@@ -86,6 +87,7 @@ from infinity_context_server.eval_fixtures import (
 )
 from infinity_context_server.eval_graph import EvalGraphMemoryAdapter, _install_eval_graph_adapter
 from infinity_context_server.eval_hybrid import install_eval_hybrid_context
+from infinity_context_server.eval_multimodal_offline import run_multimodal_offline_golden
 from infinity_context_server.eval_prompt_contract import (
     build_prompt_contract_snapshot,
     run_prompt_snapshots,
@@ -117,6 +119,7 @@ __all__ = (
     "LONGMEMEVAL_BENCHMARK_SUITE",
     "LONG_MEMORY_GOLDEN_SUITE",
     "MEMORY_QUALITY_SCORECARD_SUITE",
+    "MULTIMODAL_OFFLINE_GOLDEN_SUITE",
     "PROMPT_CONTRACT_SNAPSHOT_FILE",
     "PROMPT_CONTRACT_SNAPSHOT_VERSION",
     "PROMPT_CONTRACT_SUITE",
@@ -128,6 +131,7 @@ __all__ = (
     "build_prompt_contract_snapshot",
     "memory_quality_scorecard_policy_snapshot",
     "run_semantic_linking_golden",
+    "run_multimodal_offline_golden",
 )
 
 
@@ -373,6 +377,7 @@ def run_memory_quality_scorecard(
             SMALL_GOLDEN_SUITE: run_small_golden(),
             QUALITY_GOLDEN_SUITE: run_quality_golden(),
             SEMANTIC_LINKING_GOLDEN_SUITE: run_semantic_linking_golden(),
+            MULTIMODAL_OFFLINE_GOLDEN_SUITE: run_multimodal_offline_golden(),
             LONG_MEMORY_GOLDEN_SUITE: run_long_memory_golden(),
             AUTO_MEMORY_GOLDEN_SUITE: run_auto_memory_golden(),
             GRAPH_NATIVE_GOLDEN_SUITE: run_graph_native_golden(),
@@ -1989,6 +1994,12 @@ def main(argv: Sequence[str] | None = None) -> None:
                 auth_token=_eval_auth_token_from_env() if args.api_url else None,
                 report_out=args.report_out,
             )
+        elif args.suite == MULTIMODAL_OFFLINE_GOLDEN_SUITE:
+            if args.api_url:
+                raise SystemExit(
+                    f"{MULTIMODAL_OFFLINE_GOLDEN_SUITE} is deterministic offline-only"
+                )
+            result = run_multimodal_offline_golden(report_out=args.report_out)
         elif args.suite == LONG_MEMORY_GOLDEN_SUITE:
             result = run_long_memory_golden(
                 api_url=args.api_url,
@@ -2013,6 +2024,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "Supported: "
                 f"{SMALL_GOLDEN_SUITE}, {QUALITY_GOLDEN_SUITE}, "
                 f"{SEMANTIC_LINKING_GOLDEN_SUITE}, {LONG_MEMORY_GOLDEN_SUITE}, "
+                f"{MULTIMODAL_OFFLINE_GOLDEN_SUITE}, "
                 f"{AUTO_MEMORY_GOLDEN_SUITE}, "
                 f"{GRAPH_NATIVE_GOLDEN_SUITE}"
             )
