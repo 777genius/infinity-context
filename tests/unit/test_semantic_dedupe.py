@@ -58,6 +58,47 @@ def test_semantic_dedupe_recognizes_cross_script_project_identity() -> None:
     assert "project:atlas" in match.overlap_terms
 
 
+def test_semantic_dedupe_recognizes_cross_language_screenshot_paraphrase() -> None:
+    match = describe_duplicate_fact_match(
+        "Скриншот инвойса Project Atlas показывает владельца Alex.",
+        "Project Atlas screenshot invoice shows owner Alex.",
+    )
+
+    assert match is not None
+    assert match.match_type == "semantic_token_overlap"
+    assert "screenshot" in match.overlap_terms
+    assert "invoice" in match.overlap_terms
+    assert "owner" in match.overlap_terms
+    assert "person:aleks" in match.overlap_terms
+    assert "project:atlas" in match.overlap_terms
+
+
+def test_semantic_dedupe_recognizes_cross_language_audio_call_paraphrase() -> None:
+    match = describe_duplicate_fact_match(
+        "Аудио запись созвона с Алексом по Project Atlas про billing.",
+        "Transcript from Alex Project Atlas billing call.",
+    )
+
+    assert match is not None
+    assert "event_type:call" in match.overlap_terms
+    assert "event_participant:aleks" in match.overlap_terms
+    assert "billing" in match.overlap_terms
+    assert "project:atlas" in match.overlap_terms
+
+
+def test_semantic_dedupe_recognizes_cross_language_video_keyframe_paraphrase() -> None:
+    match = describe_duplicate_fact_match(
+        "Видео фрагмент демо Project Atlas показывает billing dashboard.",
+        "Project Atlas video keyframe shows billing dashboard demo.",
+    )
+
+    assert match is not None
+    assert "video" in match.overlap_terms
+    assert "demo" in match.overlap_terms
+    assert "billing" in match.overlap_terms
+    assert "project:atlas" in match.overlap_terms
+
+
 def test_semantic_dedupe_rejects_exclusive_engine_mismatch() -> None:
     assert not looks_equivalent_fact(
         "Docs retrieval should use Qdrant vectors.",

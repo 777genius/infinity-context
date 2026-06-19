@@ -19,6 +19,13 @@ _NUMERIC_VALUE_RE = re.compile(
     r"gb|mb|kb|replicas?|shards?))?\b",
     re.IGNORECASE,
 )
+_EVENT_TYPE_ALIASES = {
+    "perepiska": "chat",
+    "soobshchenie": "message",
+    "sozvon": "call",
+    "vstrecha": "meeting",
+    "zvonok": "call",
+}
 
 
 @dataclass(frozen=True)
@@ -147,11 +154,33 @@ def semantic_memory_terms(text: str) -> set[str]:
         "docs": "document",
         "doc": "document",
         "documents": "document",
+        "audio": "audio",
         "graphs": "graph",
+        "image": "image",
+        "images": "image",
+        "invoice": "invoice",
+        "invoices": "invoice",
         "memories": "memory",
         "notes": "note",
+        "photo": "image",
+        "photos": "image",
+        "record": "transcript",
+        "recorded": "transcript",
+        "recording": "transcript",
         "retrieves": "retrieval",
+        "screenshot": "screenshot",
+        "screenshots": "screenshot",
+        "transcripts": "transcript",
+        "video": "video",
+        "videos": "video",
         "vectors": "vector",
+        "аудио": "audio",
+        "видео": "video",
+        "видеозапись": "video",
+        "видеофрагмент": "video",
+        "владельц": "owner",
+        "владелец": "owner",
+        "демо": "demo",
         "документ": "document",
         "документа": "document",
         "документам": "document",
@@ -163,7 +192,14 @@ def semantic_memory_terms(text: str) -> set[str]:
         "использует": "uses",
         "искать": "retrieval",
         "ищем": "retrieval",
+        "запись": "transcript",
+        "изображение": "image",
+        "инвойс": "invoice",
+        "картинка": "image",
         "поиск": "retrieval",
+        "показал": "shows",
+        "показано": "shows",
+        "показывает": "shows",
         "проект": "project",
         "проекта": "project",
         "проекте": "project",
@@ -173,6 +209,19 @@ def semantic_memory_terms(text: str) -> set[str]:
         "проектов": "project",
         "проекту": "project",
         "проекты": "project",
+        "снимок": "screenshot",
+        "созвон": "call",
+        "скриншот": "screenshot",
+        "скриншота": "screenshot",
+        "скриншоте": "screenshot",
+        "счет": "invoice",
+        "счета": "invoice",
+        "счёт": "invoice",
+        "счёта": "invoice",
+        "транскрипт": "transcript",
+        "фото": "image",
+        "фотография": "image",
+        "фрагмент": "segment",
         "хранилище": "storage",
         "хранит": "storage",
         "хранить": "storage",
@@ -229,7 +278,15 @@ def semantic_memory_terms(text: str) -> set[str]:
 
 def _semantic_anchor_terms(text: str) -> tuple[str, ...]:
     terms: list[str] = []
-    for anchor in extract_observed_anchors(text):
+    anchors = tuple(extract_observed_anchors(text))
+    has_event = any(anchor.kind == MemoryAnchorKind.EVENT for anchor in anchors)
+    explicit_event_participants = {
+        str(anchor.metadata.get("event_participant_canonical_key") or "").strip().casefold()
+        for anchor in anchors
+        if anchor.kind == MemoryAnchorKind.EVENT
+    }
+    explicit_event_participants.discard("")
+    for anchor in anchors:
         if anchor.kind == MemoryAnchorKind.EVENT:
             terms.extend(_event_semantic_terms(anchor))
             continue
@@ -242,14 +299,36 @@ def _semantic_anchor_terms(text: str) -> tuple[str, ...]:
         canonical_key = str(anchor.metadata.get("canonical_key") or anchor.normalized_key).strip()
         if not canonical_key:
             continue
-        terms.append(f"{anchor.kind.value}:{canonical_key.casefold()}")
+        if anchor.kind == MemoryAnchorKind.PERSON and _is_media_false_person_anchor(
+            canonical_key
+        ):
+            continue
+        normalized_key = canonical_key.casefold()
+        terms.append(f"{anchor.kind.value}:{normalized_key}")
+        if (
+            anchor.kind == MemoryAnchorKind.PERSON
+            and has_event
+            and not explicit_event_participants
+        ):
+            terms.append(f"event_participant:{normalized_key}")
     return tuple(terms)
+
+
+def _is_media_false_person_anchor(canonical_key: str) -> bool:
+    return canonical_key.strip().casefold() in {
+        "audio",
+        "image",
+        "recording",
+        "screenshot",
+        "transcript",
+        "video",
+    }
 
 
 def _event_semantic_terms(anchor: ObservedAnchor) -> tuple[str, ...]:
     metadata = anchor.metadata
     terms: list[str] = []
-    event_type = str(metadata.get("event_type_canonical") or "").strip().casefold()
+    event_type = _normalized_event_type(metadata.get("event_type_canonical"))
     if event_type:
         terms.append(f"event_type:{event_type}")
     participant = str(metadata.get("event_participant_canonical_key") or "").strip().casefold()
@@ -548,7 +627,7 @@ def _event_identity_payloads(text: str) -> tuple[dict[str, str], ...]:
             continue
         metadata = anchor.metadata
         payload = {
-            "event_type": str(metadata.get("event_type_canonical") or ""),
+            "event_type": _normalized_event_type(metadata.get("event_type_canonical")),
             "participant": str(metadata.get("event_participant_canonical_key") or ""),
             "temporal": _event_temporal_identity(metadata),
         }
@@ -564,6 +643,11 @@ def _event_payloads_compatible(candidate: dict[str, str], existing: dict[str, st
         if left and right and left != right:
             return False
     return True
+
+
+def _normalized_event_type(value: object) -> str:
+    event_type = str(value or "").strip().casefold()
+    return _EVENT_TYPE_ALIASES.get(event_type, event_type)
 
 
 def _event_temporal_identity(metadata: dict[str, object]) -> str:
