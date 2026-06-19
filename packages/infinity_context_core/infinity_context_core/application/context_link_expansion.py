@@ -12,8 +12,8 @@ from infinity_context_core.application.source_refs import (
     chunk_source_refs,
     source_ref_location_summary,
 )
-from infinity_context_core.domain.assets import MemoryContextLink
-from infinity_context_core.domain.entities import MemoryChunk, MemoryFact
+from infinity_context_core.domain.assets import AssetStatus, MemoryAsset, MemoryContextLink
+from infinity_context_core.domain.entities import MemoryChunk, MemoryFact, SourceRef
 from infinity_context_core.ports.clock import ClockPort
 from infinity_context_core.ports.unit_of_work import UnitOfWorkFactoryPort
 
@@ -43,7 +43,9 @@ class ApprovedContextLinkExpander:
         query: BuildContextQuery,
         memory_scope_ids: tuple[str, ...],
     ) -> ContextLinkExpansionResult:
-        if not items or (query.max_chunks <= 0 and query.max_facts <= 0):
+        if not items or (
+            query.max_chunks <= 0 and query.max_facts <= 0 and query.max_evidence_items <= 0
+        ):
             return ContextLinkExpansionResult(items=(), diagnostics=_empty_diagnostics())
 
         visible_item_ids = {
@@ -62,6 +64,7 @@ class ApprovedContextLinkExpander:
         deduped_links = _dedupe_context_links(tuple(links))
         existing_chunk_ids = {item.item_id for item in items if item.item_type == "chunk"}
         existing_fact_ids = {item.item_id for item in items if item.item_type == "fact"}
+        existing_asset_ids = {item.item_id for item in items if item.item_type == "asset"}
         chunk_items, stale_chunk_drop_count = await self._linked_chunk_items(
             links=deduped_links,
             existing_chunk_ids=existing_chunk_ids,
@@ -74,15 +77,25 @@ class ApprovedContextLinkExpander:
             query=query,
             memory_scope_ids=memory_scope_ids,
         )
+        asset_items, stale_asset_drop_count = await self._linked_asset_items(
+            links=deduped_links,
+            existing_asset_ids=existing_asset_ids,
+            query=query,
+            memory_scope_ids=memory_scope_ids,
+        )
         return ContextLinkExpansionResult(
-            items=(*chunk_items, *fact_items),
+            items=(*chunk_items, *fact_items, *asset_items),
             diagnostics={
                 "approved_context_links_considered": len(deduped_links),
-                "approved_context_links_used": len(chunk_items) + len(fact_items),
+                "approved_context_links_used": (
+                    len(chunk_items) + len(fact_items) + len(asset_items)
+                ),
                 "approved_context_linked_chunks_used": len(chunk_items),
                 "approved_context_linked_facts_used": len(fact_items),
+                "approved_context_linked_assets_used": len(asset_items),
                 "stale_context_linked_chunk_drop_count": stale_chunk_drop_count,
                 "stale_context_linked_fact_drop_count": stale_fact_drop_count,
+                "stale_context_linked_asset_drop_count": stale_asset_drop_count,
             },
         )
 
@@ -188,6 +201,44 @@ class ApprovedContextLinkExpander:
             items.append(_linked_fact_context_item(fact, link=link))
         return tuple(items), max(0, len(fact_ids) - len(items))
 
+    async def _linked_asset_items(
+        self,
+        *,
+        links: tuple[MemoryContextLink, ...],
+        existing_asset_ids: set[str],
+        query: BuildContextQuery,
+        memory_scope_ids: tuple[str, ...],
+    ) -> tuple[tuple[ContextItem, ...], int]:
+        if query.max_evidence_items <= 0:
+            return (), 0
+        links_by_asset_id = _best_links_by_target_id(
+            links=links,
+            target_type="asset",
+            existing_ids=existing_asset_ids,
+            limit=max(query.max_evidence_items, 1),
+        )
+        asset_ids = tuple(links_by_asset_id)
+        if not asset_ids:
+            return (), 0
+        async with self._uow_factory() as uow:
+            assets_by_id = {}
+            for asset_id in asset_ids:
+                asset = await uow.assets.get_by_id(asset_id)
+                if asset is not None:
+                    assets_by_id[str(asset.id)] = asset
+        items: list[ContextItem] = []
+        allowed_scope_ids = set(memory_scope_ids)
+        for asset_id, link in links_by_asset_id.items():
+            asset = assets_by_id.get(asset_id)
+            if asset is None or not _asset_visible(
+                asset,
+                query=query,
+                memory_scope_ids=allowed_scope_ids,
+            ):
+                continue
+            items.append(_linked_asset_context_item(asset, link=link))
+        return tuple(items), max(0, len(asset_ids) - len(items))
+
 
 def _empty_diagnostics() -> dict[str, object]:
     return {
@@ -195,8 +246,10 @@ def _empty_diagnostics() -> dict[str, object]:
         "approved_context_links_used": 0,
         "approved_context_linked_chunks_used": 0,
         "approved_context_linked_facts_used": 0,
+        "approved_context_linked_assets_used": 0,
         "stale_context_linked_chunk_drop_count": 0,
         "stale_context_linked_fact_drop_count": 0,
+        "stale_context_linked_asset_drop_count": 0,
     }
 
 
@@ -292,6 +345,50 @@ def _linked_fact_context_item(fact: MemoryFact, *, link: MemoryContextLink) -> C
     )
 
 
+def _linked_asset_context_item(asset: MemoryAsset, *, link: MemoryContextLink) -> ContextItem:
+    score = min(0.9, round(_linked_item_score(link) + 0.005, 4))
+    text = (
+        f"Linked file {asset.filename} "
+        f"({asset.content_type}, {asset.byte_size} bytes)"
+    )
+    source_refs = (
+        SourceRef(
+            source_type="asset",
+            source_id=str(asset.id),
+            quote_preview=asset.filename,
+        ),
+    )
+    return ContextItem(
+        item_id=str(asset.id),
+        item_type="asset",
+        text=text,
+        score=score,
+        source_refs=source_refs,
+        diagnostics=_linked_item_diagnostics(
+            link=link,
+            retrieval_source="approved_context_linked_assets",
+            memory_scope_id=str(asset.memory_scope_id),
+            score=score,
+            source_ref_count=len(source_refs),
+            extra_provenance={
+                "asset_id": str(asset.id),
+                "asset_filename": asset.filename,
+                "asset_content_type": asset.content_type,
+                "asset_byte_size": asset.byte_size,
+                "asset_status": asset.status.value,
+            },
+            extra_diagnostics={
+                "asset_id": str(asset.id),
+                "asset_filename": asset.filename,
+                "asset_content_type": asset.content_type,
+                "asset_byte_size": asset.byte_size,
+                "asset_status": asset.status.value,
+                **source_ref_location_summary(source_refs),
+            },
+        ),
+    )
+
+
 def _linked_item_diagnostics(
     *,
     link: MemoryContextLink,
@@ -340,6 +437,21 @@ def _linked_item_score(link: MemoryContextLink) -> float:
     }.get(link.confidence, 0.025)
     relation_boost = 0.015 if link.relation_type in {"evidence_of", "mentions"} else 0.0
     return min(0.91, round(0.8 + confidence_boost + relation_boost, 4))
+
+
+def _asset_visible(
+    asset: MemoryAsset,
+    *,
+    query: BuildContextQuery,
+    memory_scope_ids: set[str],
+) -> bool:
+    if asset.status != AssetStatus.STORED:
+        return False
+    if str(asset.space_id) != str(query.space_id):
+        return False
+    if str(asset.memory_scope_id) not in memory_scope_ids:
+        return False
+    return query.thread_id is None or str(asset.thread_id) == str(query.thread_id)
 
 
 def _dedupe_context_links(links: tuple[MemoryContextLink, ...]) -> tuple[MemoryContextLink, ...]:

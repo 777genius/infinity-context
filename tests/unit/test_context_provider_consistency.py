@@ -978,6 +978,148 @@ def test_context_expands_approved_fact_to_linked_chunk_evidence(tmp_path: Path) 
     assert linked_items[0].diagnostics["provenance"]["context_link_source_type"] == "fact"
 
 
+def test_context_expands_approved_fact_to_linked_asset_metadata(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        container = client.app.state.container
+        asset = client.post(
+            "/v1/assets",
+            params={
+                "space_slug": container.settings.default_space_slug,
+                "memory_scope_external_ref": container.settings.default_memory_scope_external_ref,
+                "thread_external_ref": "linked-asset-thread",
+                "filename": "atlas-review-screenshot.png",
+            },
+            content=b"fake png bytes",
+            headers={**auth_headers(), "Content-Type": "image/png"},
+        )
+        assert asset.status_code == 201, asset.text
+        asset_data = asset.json()["data"]
+        fact = client.post(
+            "/v1/facts",
+            json={
+                "space_id": asset_data["space_id"],
+                "memory_scope_id": asset_data["memory_scope_id"],
+                "text": "LINKED_ASSET_MARKER says Atlas screenshot is the supporting file.",
+                "kind": "note",
+                "source_refs": [{"source_type": "manual", "source_id": "linked-asset-fact"}],
+            },
+            headers=auth_headers(),
+        )
+        assert fact.status_code == 201, fact.text
+        link = client.post(
+            "/v1/context-links",
+            json={
+                "space_id": asset_data["space_id"],
+                "memory_scope_id": asset_data["memory_scope_id"],
+                "source_type": "fact",
+                "source_id": fact.json()["data"]["id"],
+                "target_type": "asset",
+                "target_id": asset_data["id"],
+                "relation_type": "evidence_of",
+                "confidence": "high",
+                "reason": "approved screenshot file supports fact",
+            },
+            headers=auth_headers(),
+        )
+        context = client.post(
+            "/v1/context",
+            json={
+                "space_slug": container.settings.default_space_slug,
+                "memory_scope_external_ref": container.settings.default_memory_scope_external_ref,
+                "thread_external_ref": "linked-asset-thread",
+                "query": "LINKED_ASSET_MARKER",
+                "token_budget": 900,
+            },
+            headers=auth_headers(),
+        )
+
+    assert link.status_code == 200, link.text
+    assert context.status_code == 200, context.text
+    data = context.json()["data"]
+    assert "LINKED_ASSET_MARKER" in data["rendered_text"]
+    assert "Linked file atlas-review-screenshot.png" in data["rendered_text"]
+    assert data["diagnostics"]["approved_context_links_considered"] == 1
+    assert data["diagnostics"]["approved_context_links_used"] == 1
+    assert data["diagnostics"]["approved_context_linked_assets_used"] == 1
+    linked_items = [
+        item
+        for item in data["items"]
+        if item["diagnostics"].get("retrieval_source") == "approved_context_linked_assets"
+    ]
+    assert len(linked_items) == 1
+    assert linked_items[0]["item_type"] == "asset"
+    assert linked_items[0]["citations"][0]["source_type"] == "asset"
+    assert linked_items[0]["citations"][0]["source_id"] == asset_data["id"]
+    assert linked_items[0]["diagnostics"]["context_link_relation_type"] == "evidence_of"
+
+
+def test_context_drops_deleted_asset_reached_through_approved_link(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        container = client.app.state.container
+        asset = client.post(
+            "/v1/assets",
+            params={
+                "space_slug": container.settings.default_space_slug,
+                "memory_scope_external_ref": container.settings.default_memory_scope_external_ref,
+                "thread_external_ref": "deleted-linked-asset-thread",
+                "filename": "deleted-atlas-screenshot.png",
+            },
+            content=b"fake png bytes",
+            headers={**auth_headers(), "Content-Type": "image/png"},
+        )
+        assert asset.status_code == 201, asset.text
+        asset_data = asset.json()["data"]
+        fact = client.post(
+            "/v1/facts",
+            json={
+                "space_id": asset_data["space_id"],
+                "memory_scope_id": asset_data["memory_scope_id"],
+                "text": "DELETED_LINKED_ASSET_MARKER should not leak deleted file metadata.",
+                "kind": "note",
+                "source_refs": [{"source_type": "manual", "source_id": "deleted-asset-fact"}],
+            },
+            headers=auth_headers(),
+        )
+        assert fact.status_code == 201, fact.text
+        link = client.post(
+            "/v1/context-links",
+            json={
+                "space_id": asset_data["space_id"],
+                "memory_scope_id": asset_data["memory_scope_id"],
+                "source_type": "fact",
+                "source_id": fact.json()["data"]["id"],
+                "target_type": "asset",
+                "target_id": asset_data["id"],
+                "relation_type": "evidence_of",
+                "confidence": "high",
+                "reason": "approved screenshot file supports fact",
+            },
+            headers=auth_headers(),
+        )
+        deleted = client.delete(f"/v1/assets/{asset_data['id']}", headers=auth_headers())
+        context = client.post(
+            "/v1/context",
+            json={
+                "space_slug": container.settings.default_space_slug,
+                "memory_scope_external_ref": container.settings.default_memory_scope_external_ref,
+                "thread_external_ref": "deleted-linked-asset-thread",
+                "query": "DELETED_LINKED_ASSET_MARKER",
+                "token_budget": 900,
+            },
+            headers=auth_headers(),
+        )
+
+    assert link.status_code == 200, link.text
+    assert deleted.status_code == 200, deleted.text
+    assert context.status_code == 200, context.text
+    data = context.json()["data"]
+    assert "DELETED_LINKED_ASSET_MARKER" in data["rendered_text"]
+    assert "deleted-atlas-screenshot.png" not in data["rendered_text"]
+    assert data["diagnostics"]["approved_context_links_considered"] == 1
+    assert data["diagnostics"]["approved_context_linked_assets_used"] == 0
+    assert data["diagnostics"]["stale_context_linked_asset_drop_count"] == 1
+
+
 def test_context_includes_matching_canonical_anchor_with_evidence_citation(
     tmp_path: Path,
 ) -> None:
