@@ -134,6 +134,9 @@ def _rank_facts_for_query(
         ranked.append((relevance, index, fact))
     ranked.sort(
         key=lambda item: (
+            -item[0].phrase_bigram_hits,
+            -item[0].phrase_boost,
+            -item[0].score_boost,
             -item[0].unique_term_hits,
             -item[0].hit_ratio,
             -item[0].capped_frequency_hits,

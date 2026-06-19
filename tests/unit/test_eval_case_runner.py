@@ -1,6 +1,7 @@
 from infinity_context_server.eval_case_runner import (
     _MAX_DIAGNOSTIC_MISMATCH_FAILURES,
     _case_failures,
+    _item_mappings,
     _required_case_metrics,
     _required_diagnostic_mismatches,
     _required_diagnostics_ok,
@@ -175,6 +176,63 @@ def test_required_mapping_groups_match_source_refs_and_nested_citations() -> Non
     )
 
 
+def test_required_mapping_groups_match_nested_context_items() -> None:
+    items = [
+        {
+            "item_id": "artifact-mm:ocr-owner",
+            "item_type": "extraction_artifact",
+            "score": 0.9058,
+            "diagnostics": {
+                "retrieval_source": "artifact_evidence",
+                "evidence_kind": "ocr_region",
+                "evidence_modality": "image",
+                "evidence_confidence": 0.93,
+                "ranking_reason": "matched first-party multimodal extraction evidence",
+                "score_signals": {"evidence_confidence": 0.93},
+            },
+        }
+    ]
+
+    assert (
+        _required_mapping_group_mismatches(
+            _item_mappings(items),
+            required=(
+                (
+                    ("item_type", "eq", "extraction_artifact"),
+                    ("score", "gte", 0.9),
+                    ("diagnostics.retrieval_source", "eq", "artifact_evidence"),
+                    ("diagnostics.evidence_kind", "eq", "ocr_region"),
+                    ("diagnostics.evidence_confidence", "gte", 0.9),
+                    (
+                        "diagnostics.ranking_reason",
+                        "contains",
+                        "first-party multimodal extraction evidence",
+                    ),
+                    ("diagnostics.score_signals.evidence_confidence", "gte", 0.9),
+                ),
+            ),
+        )
+        == ()
+    )
+
+    assert _required_mapping_group_mismatches(
+        _item_mappings(items),
+        required=((("diagnostics.evidence_kind", "eq", "transcript_segment"),),),
+    ) == (
+        {
+            "group_index": 0,
+            "candidate_count": 1,
+            "required": [
+                {
+                    "key": "diagnostics.evidence_kind",
+                    "operator": "eq",
+                    "expected": "transcript_segment",
+                }
+            ],
+        },
+    )
+
+
 def test_case_failures_include_source_ref_and_citation_requirements() -> None:
     case = EvalCase(
         case_id="multimodal_source_refs_recall_with_citations",
@@ -212,6 +270,39 @@ def test_case_failures_include_source_ref_and_citation_requirements() -> None:
             "reason": "required_citations_missing",
             "item_ids": ["chunk_mm"],
             "citation_mismatches": [
+                {"group_index": 0, "candidate_count": 0, "required": []}
+            ],
+        },
+    )
+
+
+def test_case_failures_include_item_contract_requirements() -> None:
+    case = EvalCase(
+        case_id="multimodal_evidence_metadata_contract",
+        category="item_contract",
+        space_id="space_eval",
+        memory_scope_ids=("scope_eval",),
+        query="Project Atlas screenshot OCR",
+    )
+
+    failures = _case_failures(
+        case=case,
+        recall_ok=True,
+        precision_ok=True,
+        evidence_guard=True,
+        diagnostic_mismatches=(),
+        item_mismatches=({"group_index": 0, "candidate_count": 0, "required": []},),
+        token_overflow=False,
+        item_ids=("artifact_mm",),
+    )
+
+    assert failures == (
+        {
+            "case_id": "multimodal_evidence_metadata_contract",
+            "category": "item_contract",
+            "reason": "required_items_missing",
+            "item_ids": ["artifact_mm"],
+            "item_mismatches": [
                 {"group_index": 0, "candidate_count": 0, "required": []}
             ],
         },

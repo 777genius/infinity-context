@@ -58,6 +58,25 @@ def test_rank_facts_for_query_uses_normalized_lexical_variants() -> None:
     assert ranked == (current,)
 
 
+def test_rank_facts_for_query_prefers_phrase_signal_over_loose_decoy_terms() -> None:
+    target = _fact(
+        "fact_graphiti",
+        "LONGMEM_DECISION_GRAPHITI: Graphiti remains the temporal fact engine.",
+    )
+    decoy = _fact(
+        "fact_obsidian",
+        "LONGMEM_DECOY_OBSIDIAN: Obsidian 3D graph is the primary runtime engine.",
+    )
+
+    ranked = _rank_facts_for_query(
+        (decoy, target),
+        query_text="primary runtime temporal fact engine Graphiti Obsidian 3D graph",
+        limit=1,
+    )
+
+    assert ranked == (target,)
+
+
 def _fact(fact_id: str, text: str) -> MemoryFact:
     now = datetime(2026, 1, 1, tzinfo=UTC)
     return MemoryFact.create(

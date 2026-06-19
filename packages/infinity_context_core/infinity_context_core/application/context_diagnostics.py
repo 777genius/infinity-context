@@ -233,9 +233,15 @@ _RETRIEVAL_SOURCE_PRIORITY = {
 }
 
 
-def context_rank_key(item: ContextItem) -> tuple[float, int, str, str, str, int, int, str, str]:
+def context_rank_key(
+    item: ContextItem,
+) -> tuple[float, float, float, float, float, int, str, str, str, int, int, str, str]:
     return (
         -round(item.score, 8),
+        -_score_signal_float(item, "phrase_bigram_hits"),
+        -_score_signal_float(item, "phrase_boost"),
+        -_score_signal_float(item, "distinctive_term_hits"),
+        -_score_signal_float(item, "unique_term_hits"),
         -_source_ref_quality_score(item),
         item.item_type,
         _memory_scope_id(item),
@@ -612,6 +618,17 @@ def _source_ref_quality_score(item: ContextItem) -> int:
         if ref.bbox is not None:
             score += 5
     return min(99, score)
+
+
+def _score_signal_float(item: ContextItem, key: str) -> float:
+    diagnostics = _as_dict(item.diagnostics)
+    score_signals = _as_dict(diagnostics.get("score_signals"))
+    value = score_signals.get(key)
+    if isinstance(value, bool):
+        return 0.0
+    if isinstance(value, int | float):
+        return float(value)
+    return 0.0
 
 
 def _item_type_counts(items: tuple[ContextItem, ...]) -> dict[str, int]:

@@ -140,6 +140,16 @@ def text_variant_counts(text: str, *, min_chars: int = 2) -> Counter[str]:
     return counts
 
 
+def text_variant_sequence(text: str, *, min_chars: int = 2) -> tuple[tuple[str, ...], ...]:
+    return tuple(
+        variants
+        for token in _tokens(text, split_underscores=True)
+        if len(token) >= min_chars
+        for variants in (_text_token_variants(token),)
+        if variants
+    )
+
+
 def query_term_frequency(term: LexicalQueryTerm, text_counts: Counter[str]) -> int:
     return max((text_counts.get(variant, 0) for variant in term.variants), default=0)
 

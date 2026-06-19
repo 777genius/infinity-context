@@ -9,6 +9,7 @@ from infinity_context_core.application.context_lexical import (
     query_term_frequency,
     query_terms,
     text_variant_counts,
+    text_variant_sequence,
 )
 
 
@@ -21,6 +22,9 @@ class QueryRelevance:
     hit_ratio: float
     distinctive_term_count: int = 0
     distinctive_term_hits: int = 0
+    phrase_bigram_count: int = 0
+    phrase_bigram_hits: int = 0
+    phrase_boost: float = 0.0
 
 
 _GENERIC_MEMORY_QUERY_TERMS = frozenset(
@@ -90,8 +94,21 @@ def score_query_relevance(*, query: str, text: str, max_boost: float = 0.12) -> 
         for term in distinctive_terms
         if query_term_frequency(term, counts) > 0
     )
+    phrase_bigram_count = max(0, len(terms) - 1)
+    phrase_bigram_hits = _phrase_bigram_hits(
+        terms=terms,
+        text_variants=text_variant_sequence(text),
+    )
     frequency_boost = min(0.025, capped_frequency_hits * 0.002)
-    score_boost = min(max_boost, round(hit_ratio * max_boost + frequency_boost, 4))
+    phrase_boost = _phrase_boost(
+        hit_ratio=hit_ratio,
+        phrase_bigram_hits=phrase_bigram_hits,
+    )
+    score_cap = max_boost + (0.02 if phrase_boost > 0 else 0.0)
+    score_boost = min(
+        score_cap,
+        round(hit_ratio * max_boost + frequency_boost + phrase_boost, 4),
+    )
     return QueryRelevance(
         score_boost=score_boost,
         query_term_count=len(terms),
@@ -100,6 +117,9 @@ def score_query_relevance(*, query: str, text: str, max_boost: float = 0.12) -> 
         hit_ratio=round(hit_ratio, 4),
         distinctive_term_count=len(distinctive_terms),
         distinctive_term_hits=distinctive_hits,
+        phrase_bigram_count=phrase_bigram_count,
+        phrase_bigram_hits=phrase_bigram_hits,
+        phrase_boost=phrase_boost,
     )
 
 
@@ -119,9 +139,39 @@ def query_relevance_score_signals(relevance: QueryRelevance) -> dict[str, int | 
         "hit_ratio": relevance.hit_ratio,
         "distinctive_term_count": relevance.distinctive_term_count,
         "distinctive_term_hits": relevance.distinctive_term_hits,
+        "phrase_bigram_count": relevance.phrase_bigram_count,
+        "phrase_bigram_hits": relevance.phrase_bigram_hits,
+        "phrase_boost": relevance.phrase_boost,
         "query_relevance_boost": relevance.score_boost,
     }
 
 
 def _is_distinctive_term(term: LexicalQueryTerm) -> bool:
     return not any(variant in _GENERIC_MEMORY_QUERY_TERMS for variant in term.variants)
+
+
+def _phrase_bigram_hits(
+    *,
+    terms: tuple[LexicalQueryTerm, ...],
+    text_variants: tuple[tuple[str, ...], ...],
+) -> int:
+    if len(terms) < 2 or len(text_variants) < 2:
+        return 0
+    text_variant_sets = tuple(set(variants) for variants in text_variants)
+    hits = 0
+    for left, right in zip(terms, terms[1:], strict=False):
+        left_variants = set(left.variants)
+        right_variants = set(right.variants)
+        if any(
+            left_variants.intersection(text_variant_sets[index])
+            and right_variants.intersection(text_variant_sets[index + 1])
+            for index in range(len(text_variant_sets) - 1)
+        ):
+            hits += 1
+    return hits
+
+
+def _phrase_boost(*, hit_ratio: float, phrase_bigram_hits: int) -> float:
+    if hit_ratio <= 0.0 or hit_ratio >= 0.8 or phrase_bigram_hits <= 0:
+        return 0.0
+    return min(0.02, round(phrase_bigram_hits * 0.006, 4))

@@ -73,3 +73,21 @@ def test_query_relevance_policy_keeps_entity_partial_match() -> None:
     assert relevance.distinctive_term_count == 1
     assert relevance.distinctive_term_hits == 1
     assert is_query_relevance_sufficient(relevance) is True
+
+
+def test_query_relevance_phrase_signal_beats_loose_decoy_terms() -> None:
+    query = "primary runtime temporal fact engine Graphiti Obsidian 3D graph"
+    target = score_query_relevance(
+        query=query,
+        text="LONGMEM_DECISION_GRAPHITI: Graphiti remains the temporal fact engine.",
+        max_boost=0.03,
+    )
+    decoy = score_query_relevance(
+        query=query,
+        text="LONGMEM_DECOY_OBSIDIAN: Obsidian 3D graph is the primary runtime engine.",
+        max_boost=0.03,
+    )
+
+    assert target.unique_term_hits < decoy.unique_term_hits
+    assert target.phrase_bigram_hits > decoy.phrase_bigram_hits
+    assert target.score_boost > decoy.score_boost

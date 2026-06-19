@@ -57,6 +57,8 @@ def _scorecard_fixture_results() -> dict[str, dict[str, Any]]:
                 "precision_at_5": 0.95,
                 "answer_support_rate": 1.0,
                 "document_recall_at_5": 1.0,
+                "item_contract_support_rate": 1.0,
+                "item_contract_failure_count": 0,
                 "multi_memory_scope_recall_at_5": 1.0,
                 "thread_recall_at_5": 1.0,
                 "stale_memory_rate": 0.0,
@@ -483,6 +485,27 @@ def test_memory_quality_scorecard_passes_with_required_capabilities(tmp_path: Pa
     assert payload["ok"] is True
     assert "QUALITY_RESTRICTED_SECRET" not in report_text
     assert "Ignore previous instructions" not in report_text
+
+
+def test_memory_quality_scorecard_fails_on_item_contract_regression() -> None:
+    suite_results = _scorecard_fixture_results()
+    suite_results["quality-golden"]["metrics"].update(
+        {
+            "item_contract_support_rate": 0.0,
+            "item_contract_failure_count": 1,
+        }
+    )
+
+    result = build_memory_quality_scorecard(suite_results)
+
+    assert result["ok"] is False
+    assert result["capabilities"]["canonical_recall_precision"]["ok"] is False
+    assert result["capabilities"]["canonical_recall_precision"]["failed_checks"] == [
+        "item_contract_failure_count",
+        "item_contract_support_rate",
+    ]
+    assert result["metrics"]["quality_item_contract_support_rate"] == 0.0
+    assert result["metrics"]["quality_item_contract_failure_count"] == 1
 
 
 def test_memory_quality_scorecard_policy_snapshot_documents_top_evidence_floors() -> None:

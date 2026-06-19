@@ -82,6 +82,10 @@ def _run_eval_case(
         diagnostics,
         required=case.required_diagnostics,
     )
+    item_mismatches = _required_mapping_group_mismatches(
+        _item_mappings(items),
+        required=case.required_item_matches,
+    )
     source_ref_mismatches = _required_mapping_group_mismatches(
         _flatten_item_mappings(items, "source_refs"),
         required=case.required_source_ref_matches,
@@ -97,6 +101,7 @@ def _run_eval_case(
         precision_ok=precision_ok,
         evidence_guard=evidence_guard,
         diagnostic_mismatches=diagnostic_mismatches,
+        item_mismatches=item_mismatches,
         source_ref_mismatches=source_ref_mismatches,
         citation_mismatches=citation_mismatches,
         token_overflow=token_overflow,
@@ -222,6 +227,12 @@ def _flatten_item_mappings(items: object, key: str) -> tuple[dict[str, object], 
     return tuple(mappings)
 
 
+def _item_mappings(items: object) -> tuple[dict[str, object], ...]:
+    if not isinstance(items, list):
+        return ()
+    return tuple(item for item in items if isinstance(item, dict))
+
+
 def _required_mapping_group_mismatches(
     mappings: tuple[dict[str, object], ...],
     *,
@@ -292,6 +303,7 @@ def _case_failures(
     diagnostic_mismatches: tuple[dict[str, object], ...],
     token_overflow: bool,
     item_ids: tuple[str, ...],
+    item_mismatches: tuple[dict[str, object], ...] = (),
     source_ref_mismatches: tuple[dict[str, object], ...] = (),
     citation_mismatches: tuple[dict[str, object], ...] = (),
 ) -> tuple[dict[str, object], ...]:
@@ -305,6 +317,10 @@ def _case_failures(
     if diagnostic_mismatches:
         failure = _failure(case, "required_diagnostics_missing", item_ids)
         failure["diagnostic_mismatches"] = list(diagnostic_mismatches)
+        failures.append(failure)
+    if item_mismatches:
+        failure = _failure(case, "required_items_missing", item_ids)
+        failure["item_mismatches"] = list(item_mismatches)
         failures.append(failure)
     if source_ref_mismatches:
         failure = _failure(case, "required_source_refs_missing", item_ids)
@@ -414,6 +430,9 @@ def _quality_golden_metrics(
         for result in case_results
         if result.case.required_source_ref_matches or result.case.required_citation_matches
     )
+    item_contract_cases = tuple(
+        result for result in case_results if result.case.required_item_matches
+    )
     duplicate_merge_cases = tuple(
         result for result in case_results if result.case.category == "duplicate_merge"
     )
@@ -440,6 +459,7 @@ def _quality_golden_metrics(
         case_results,
         ("required_source_refs_missing", "required_citations_missing"),
     )
+    item_contract_failures = _count_failures(case_results, ("required_items_missing",))
     critical_failure_count = (
         int(base["deleted_memory_leak_count"])
         + int(base["cross_memory_scope_leak_count"])
@@ -448,6 +468,7 @@ def _quality_golden_metrics(
         + restricted_leaks
         + cross_thread_leaks
         + source_citation_failures
+        + item_contract_failures
         + _count_category_failures(case_results, "stale_update", "must_not_include_matched")
     )
     return {
@@ -474,6 +495,11 @@ def _quality_golden_metrics(
             len(citation_cases),
         ),
         "source_citation_failure_count": source_citation_failures,
+        "item_contract_support_rate": _ratio(
+            sum(1 for result in item_contract_cases if not result.failures),
+            len(item_contract_cases),
+        ),
+        "item_contract_failure_count": item_contract_failures,
         "duplicate_merge_review_rate": _ratio(
             sum(1 for result in duplicate_merge_cases if not result.failures),
             len(duplicate_merge_cases),
@@ -509,6 +535,8 @@ def _quality_golden_gates(metrics: dict[str, object]) -> dict[str, bool]:
         "hybrid_retrieval_rate": metrics["hybrid_retrieval_rate"] == 1.0,
         "citation_support_rate": metrics["citation_support_rate"] == 1.0,
         "source_citation_failure_count": metrics["source_citation_failure_count"] == 0,
+        "item_contract_support_rate": metrics["item_contract_support_rate"] == 1.0,
+        "item_contract_failure_count": metrics["item_contract_failure_count"] == 0,
         "duplicate_merge_review_rate": metrics["duplicate_merge_review_rate"] == 1.0,
         "anchor_context_recall_rate": metrics["anchor_context_recall_rate"] == 1.0,
         "multi_memory_scope_recall_at_5": metrics["multi_memory_scope_recall_at_5"] == 1.0,

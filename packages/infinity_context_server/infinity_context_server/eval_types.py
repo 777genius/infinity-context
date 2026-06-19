@@ -70,6 +70,7 @@ class EvalCase:
     include_stale: bool = False
     require_evidence_guard: bool = True
     required_diagnostics: tuple[DiagnosticRequirement, ...] = ()
+    required_item_matches: tuple[MappingRequirement, ...] = ()
     required_source_ref_matches: tuple[MappingRequirement, ...] = ()
     required_citation_matches: tuple[MappingRequirement, ...] = ()
 

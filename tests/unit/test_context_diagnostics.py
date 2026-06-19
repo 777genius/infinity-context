@@ -1,4 +1,5 @@
 from infinity_context_core.application.context_diagnostics import (
+    context_rank_key,
     normalize_context_bundle_diagnostics,
     normalize_context_item_diagnostics,
 )
@@ -44,6 +45,41 @@ def test_context_bundle_diagnostics_are_bounded_redacted_and_typed() -> None:
     assert diagnostics["diagnostics_truncated"] is True
     assert "api_key" not in diagnostics
     assert "SECRET_VALUE_SHOULD_NOT_LEAK" not in str(diagnostics)
+
+
+def test_context_rank_key_uses_phrase_signal_when_scores_tie() -> None:
+    target = ContextItem(
+        item_id="target",
+        item_type="fact",
+        text="Graphiti remains the temporal fact engine.",
+        score=0.99,
+        source_refs=(),
+        diagnostics={
+            "score_signals": {
+                "phrase_bigram_hits": 2,
+                "phrase_boost": 0.012,
+                "distinctive_term_hits": 4,
+                "unique_term_hits": 4,
+            }
+        },
+    )
+    decoy = ContextItem(
+        item_id="decoy",
+        item_type="fact",
+        text="Obsidian 3D graph is the primary runtime engine.",
+        score=0.99,
+        source_refs=(),
+        diagnostics={
+            "score_signals": {
+                "phrase_bigram_hits": 1,
+                "phrase_boost": 0.006,
+                "distinctive_term_hits": 5,
+                "unique_term_hits": 5,
+            }
+        },
+    )
+
+    assert context_rank_key(target) < context_rank_key(decoy)
 
 
 def test_context_bundle_diagnostics_report_source_totals_and_truncation() -> None:

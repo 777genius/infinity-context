@@ -1205,33 +1205,53 @@ async def _store_quality_media_manifest_artifact(
     payload: dict[str, object],
 ) -> None:
     now = container.clock.now()
-    job_id = container.ids.new_id("job")
-    artifact_id = container.ids.new_id("artifact")
+    parser_profile = "quality-media-manifest"
+    parser_config_hash_value = "quality-media-manifest-v1"
     content = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    create_job = False
+    async with container.uow_factory() as uow:
+        existing = await uow.asset_extractions.find_active_for_asset_profile(
+            asset_id=str(asset["id"]),
+            parser_profile=parser_profile,
+            parser_config_hash=parser_config_hash_value,
+            source_sha256_hex=str(asset["sha256_hex"]),
+        )
+        if existing is not None:
+            artifacts = await uow.asset_extractions.list_artifacts(job_id=str(existing.id))
+            if any(_artifact_type_value(artifact) == "media_manifest" for artifact in artifacts):
+                return
+            job_id = str(existing.id)
+        else:
+            job_id = container.ids.new_id("job")
+            create_job = True
+
+    artifact_id = container.ids.new_id("artifact")
     storage_key = (
         f"{asset['space_id']}/{asset['memory_scope_id']}/extractions/"
         f"{artifact_id}/media_manifest.json"
     )
-    job = AssetExtractionJob.create(
-        job_id=AssetExtractionJobId(job_id),
-        asset_id=str(asset["id"]),
-        space_id=SpaceId(str(asset["space_id"])),
-        memory_scope_id=MemoryScopeId(str(asset["memory_scope_id"])),
-        thread_id=str(asset["thread_id"]) if asset.get("thread_id") else None,
-        parser_profile="quality-media-manifest",
-        parser_config_hash="quality-media-manifest-v1",
-        source_sha256_hex=str(asset["sha256_hex"]),
-        now=now,
-        metadata={"eval_fixture": True},
-    ).mark_running(now=now, lease_owner="quality-eval")
-    job = job.mark_succeeded(
-        now=now,
-        result_document_ids=(),
-        parser_name="quality-media-manifest",
-        parser_version="1",
-        model_version=None,
-        metadata={"eval_fixture": True},
-    )
+    job = None
+    if create_job:
+        job = AssetExtractionJob.create(
+            job_id=AssetExtractionJobId(job_id),
+            asset_id=str(asset["id"]),
+            space_id=SpaceId(str(asset["space_id"])),
+            memory_scope_id=MemoryScopeId(str(asset["memory_scope_id"])),
+            thread_id=str(asset["thread_id"]) if asset.get("thread_id") else None,
+            parser_profile=parser_profile,
+            parser_config_hash=parser_config_hash_value,
+            source_sha256_hex=str(asset["sha256_hex"]),
+            now=now,
+            metadata={"eval_fixture": True},
+        ).mark_running(now=now, lease_owner="quality-eval")
+        job = job.mark_succeeded(
+            now=now,
+            result_document_ids=(),
+            parser_name=parser_profile,
+            parser_version="1",
+            model_version=None,
+            metadata={"eval_fixture": True},
+        )
     artifact = ExtractionArtifact.create(
         artifact_id=ExtractionArtifactId(artifact_id),
         job_id=AssetExtractionJobId(job_id),
@@ -1250,9 +1270,14 @@ async def _store_quality_media_manifest_artifact(
     )
     await container.blob_storage.write_bytes(storage_key=storage_key, content=content)
     async with container.uow_factory() as uow:
-        await uow.asset_extractions.create(job)
+        if job is not None:
+            await uow.asset_extractions.create(job)
         await uow.asset_extractions.create_artifact(artifact)
         await uow.commit()
+
+
+def _artifact_type_value(artifact: ExtractionArtifact) -> str:
+    return str(getattr(artifact.artifact_type, "value", artifact.artifact_type))
 
 
 def _first_document_chunk_id(
