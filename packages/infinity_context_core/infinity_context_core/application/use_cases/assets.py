@@ -36,6 +36,19 @@ from infinity_context_core.ports.unit_of_work import UnitOfWorkFactoryPort, Unit
 
 _MAX_FILENAME_CHARS = 240
 _SAFE_FILENAME_PATTERN = re.compile(r"[^A-Za-z0-9._-]+")
+_EXACT_SHA256_MATCH_TYPE = "exact_sha256"
+_THREAD_DUPLICATE_REASON_CODES = (
+    "exact_sha256",
+    "same_thread",
+    "existing_asset_reused",
+)
+_SCOPE_DUPLICATE_REASON_CODES = (
+    "exact_sha256",
+    "same_memory_scope",
+    "blob_reused",
+)
+_REUSE_EXISTING_ASSET_ACTION = "reuse_existing_asset"
+_LINK_DUPLICATE_CONTEXTS_ACTION = "link_duplicate_asset_contexts"
 
 
 class CreateAssetUseCase:
@@ -88,6 +101,11 @@ class CreateAssetUseCase:
                         status="exact_asset_match",
                         reason_code="asset_dedup.exact_asset_match",
                         scope="thread",
+                        match_type=_EXACT_SHA256_MATCH_TYPE,
+                        reason_codes=_THREAD_DUPLICATE_REASON_CODES,
+                        recommended_action=_REUSE_EXISTING_ASSET_ACTION,
+                        source_label=command.filename,
+                        target_label=existing.filename,
                         duplicate_of_asset_id=str(existing.id),
                         storage_key_reused=True,
                         blob_written=False,
@@ -167,6 +185,11 @@ class CreateAssetUseCase:
                             status="late_exact_asset_match",
                             reason_code="asset_dedup.late_exact_asset_match",
                             scope="thread",
+                            match_type=_EXACT_SHA256_MATCH_TYPE,
+                            reason_codes=_THREAD_DUPLICATE_REASON_CODES,
+                            recommended_action=_REUSE_EXISTING_ASSET_ACTION,
+                            source_label=command.filename,
+                            target_label=existing.filename,
                             duplicate_of_asset_id=str(existing.id),
                             storage_key_reused=True,
                             blob_written=wrote_blob,
@@ -206,6 +229,11 @@ class CreateAssetUseCase:
                 status="scope_blob_reused",
                 reason_code="asset_dedup.scope_blob_reused",
                 scope="memory_scope",
+                match_type=_EXACT_SHA256_MATCH_TYPE,
+                reason_codes=_SCOPE_DUPLICATE_REASON_CODES,
+                recommended_action=_LINK_DUPLICATE_CONTEXTS_ACTION,
+                source_label=saved.filename,
+                target_label=reusable_asset.filename,
                 duplicate_of_asset_id=str(reusable_asset.id),
                 suggestion_id=dedupe_suggestion_id,
                 suggestion_status=dedupe_suggestion_status,
@@ -287,18 +315,14 @@ class CreateAssetUseCase:
             reason="Exact same asset bytes already exist in this memory scope",
             score=100.0,
             metadata={
-                "dedupe_match_type": "exact_sha256",
-                "dedupe_reason_codes": [
-                    "exact_sha256",
-                    "same_memory_scope",
-                    "blob_reused",
-                ],
+                "dedupe_match_type": _EXACT_SHA256_MATCH_TYPE,
+                "dedupe_reason_codes": list(_SCOPE_DUPLICATE_REASON_CODES),
                 "sha256_prefix": sha256_hex[:12],
                 "source_asset_filename": source.filename,
                 "target_asset_filename": target.filename,
                 "source_label": source.filename,
                 "target_label": target.filename,
-                "recommended_action": "link_duplicate_asset_contexts",
+                "recommended_action": _LINK_DUPLICATE_CONTEXTS_ACTION,
             },
             now=now,
         )

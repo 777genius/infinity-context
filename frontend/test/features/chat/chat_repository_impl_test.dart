@@ -87,6 +87,51 @@ void main() {
       await repo.dispose();
     });
 
+    test('uploadFile emits actionable deduplication review metadata', () async {
+      final rest = _DuplicateUploadRestClient();
+      final repo = ChatRepositoryImpl(rest);
+      final messages = <Map<String, dynamic>>[];
+      final sub = repo.messages().listen((message) {
+        if (message.kind == 'attachment') {
+          messages.add(message.meta ?? const <String, dynamic>{});
+        }
+      });
+
+      final assetId = await repo.uploadFile(
+        'shared-note.txt',
+        [1, 2, 3],
+        mime: 'text/plain',
+      );
+      await pumpEventQueue();
+
+      expect(assetId, 'asset-duplicate');
+      expect(messages.single['assetDuplicate'], isTrue);
+      expect(messages.single['assetDeduplicationStatus'], 'scope_blob_reused');
+      expect(messages.single['assetDeduplicationMatchType'], 'exact_sha256');
+      expect(messages.single['assetDeduplicationReasonCodes'], [
+        'exact_sha256',
+        'same_memory_scope',
+        'blob_reused',
+      ]);
+      expect(
+        messages.single['assetDeduplicationRecommendedAction'],
+        'link_duplicate_asset_contexts',
+      );
+      expect(
+          messages.single['assetDeduplicationSourceLabel'], 'shared-note.txt');
+      expect(
+          messages.single['assetDeduplicationTargetLabel'], 'shared-note.txt');
+      expect(messages.single['assetDuplicateOfAssetId'], 'asset-source');
+      expect(
+          messages.single['contextLinkSuggestionId'], 'ctxlinksug-duplicate');
+      expect(messages.single['contextLinkSuggestionStatus'], 'pending');
+      expect(messages.single.containsKey('storageKey'), isFalse);
+      expect(messages.single.containsKey('sha256Hex'), isFalse);
+
+      await sub.cancel();
+      await repo.dispose();
+    });
+
     test('uploadFile falls back when extraction is disabled', () async {
       final rest = _ExtractionDisabledRestClient();
       final repo = ChatRepositoryImpl(rest);
@@ -689,6 +734,46 @@ class _UploadRecordingRestClient extends BackendRestClient {
       'extraction': {
         'id': 'extract-1',
         'status': 'pending',
+      },
+    };
+  }
+}
+
+class _DuplicateUploadRestClient extends BackendRestClient {
+  @override
+  Future<Map<String, dynamic>> uploadBytes(
+    String name,
+    List<int> bytes, {
+    required String spaceSlug,
+    required String memoryScopeExternalRef,
+    String? threadExternalRef,
+    String? mime,
+    bool extract = false,
+    String? parserProfile,
+    void Function(int, int)? onProgress,
+    void Function(void Function())? onCreateCancel,
+  }) async {
+    return {
+      'id': 'asset-duplicate',
+      'deduplication': {
+        'duplicate': true,
+        'status': 'scope_blob_reused',
+        'reason_code': 'asset_dedup.scope_blob_reused',
+        'scope': 'memory_scope',
+        'match_type': 'exact_sha256',
+        'reason_codes': [
+          'exact_sha256',
+          'same_memory_scope',
+          'blob_reused',
+        ],
+        'recommended_action': 'link_duplicate_asset_contexts',
+        'source_label': 'shared-note.txt',
+        'target_label': 'shared-note.txt',
+        'duplicate_of_asset_id': 'asset-source',
+        'suggestion_id': 'ctxlinksug-duplicate',
+        'suggestion_status': 'pending',
+        'storage_key_reused': true,
+        'blob_written': false,
       },
     };
   }

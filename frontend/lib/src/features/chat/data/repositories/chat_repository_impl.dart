@@ -573,7 +573,6 @@ class ChatRepositoryImpl
       'mime': mime,
       'extractionId': extractionId,
       'extractionStatus': extractionStatus,
-      ...deduplicationMeta,
     });
 
     // Collect album items if batch is provided
@@ -1015,6 +1014,11 @@ Map<String, dynamic> _deduplicationMeta(
   final suggestionStatus = deduplication['suggestion_status']?.toString();
   final duplicateOfAssetId = deduplication['duplicate_of_asset_id']?.toString();
   final duplicateOfJobId = deduplication['duplicate_of_job_id']?.toString();
+  final matchType = deduplication['match_type']?.toString();
+  final recommendedAction = deduplication['recommended_action']?.toString();
+  final sourceLabel = deduplication['source_label']?.toString();
+  final targetLabel = deduplication['target_label']?.toString();
+  final reasonCodes = _deduplicationReasonCodes(deduplication['reason_codes']);
   final duplicate = deduplication['duplicate'];
   return {
     if (duplicate is bool) '${prefix}Duplicate': duplicate,
@@ -1022,6 +1026,16 @@ Map<String, dynamic> _deduplicationMeta(
       '${prefix}DeduplicationStatus': status,
     if (reasonCode != null && reasonCode.isNotEmpty)
       '${prefix}DeduplicationReasonCode': reasonCode,
+    if (matchType != null && matchType.isNotEmpty)
+      '${prefix}DeduplicationMatchType': matchType,
+    if (reasonCodes.isNotEmpty)
+      '${prefix}DeduplicationReasonCodes': reasonCodes,
+    if (recommendedAction != null && recommendedAction.isNotEmpty)
+      '${prefix}DeduplicationRecommendedAction': recommendedAction,
+    if (sourceLabel != null && sourceLabel.isNotEmpty)
+      '${prefix}DeduplicationSourceLabel': sourceLabel,
+    if (targetLabel != null && targetLabel.isNotEmpty)
+      '${prefix}DeduplicationTargetLabel': targetLabel,
     if (duplicateOfAssetId != null && duplicateOfAssetId.isNotEmpty)
       '${prefix}DuplicateOfAssetId': duplicateOfAssetId,
     if (duplicateOfJobId != null && duplicateOfJobId.isNotEmpty)
@@ -1031,4 +1045,15 @@ Map<String, dynamic> _deduplicationMeta(
     if (suggestionStatus != null && suggestionStatus.isNotEmpty)
       'contextLinkSuggestionStatus': suggestionStatus,
   };
+}
+
+List<String> _deduplicationReasonCodes(Object? value) {
+  if (value is Iterable) {
+    return value
+        .map((item) => item?.toString().trim() ?? '')
+        .where((item) => item.isNotEmpty)
+        .toList(growable: false);
+  }
+  final text = value?.toString().trim();
+  return text == null || text.isEmpty ? const <String>[] : <String>[text];
 }

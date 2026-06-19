@@ -2326,8 +2326,7 @@ def test_asset_extraction_request_is_idempotent_before_and_after_worker(
         assert second_data["duplicate"] is True
         assert second_data["deduplication"]["status"] == "active_job_match"
         assert (
-            second_data["deduplication"]["reason_code"]
-            == "asset_extraction_dedup.active_job_match"
+            second_data["deduplication"]["reason_code"] == "asset_extraction_dedup.active_job_match"
         )
         assert second_data["deduplication"]["duplicate_of_job_id"] == first_data["id"]
         assert second_data["id"] == first_data["id"]
@@ -2373,6 +2372,16 @@ def test_duplicate_upload_with_extract_reuses_existing_asset_and_extraction_cont
         assert first_data["deduplication"]["status"] == "new_blob_stored"
         assert second_data["duplicate"] is True
         assert second_data["deduplication"]["status"] == "exact_asset_match"
+        assert second_data["deduplication"]["match_type"] == "exact_sha256"
+        assert second_data["deduplication"]["reason_codes"] == [
+            "exact_sha256",
+            "same_thread",
+            "existing_asset_reused",
+        ]
+        assert second_data["deduplication"]["recommended_action"] == "reuse_existing_asset"
+        assert second_data["deduplication"]["source_label"] == "duplicate-capture.txt"
+        assert second_data["deduplication"]["target_label"] == "duplicate-capture.txt"
+        assert "suggestion_id" not in second_data["deduplication"]
         assert second_data["deduplication"]["duplicate_of_asset_id"] == first_data["id"]
         assert second_data["id"] == first_data["id"]
         assert second_data["extraction"]["duplicate"] is True
@@ -2417,6 +2426,15 @@ def test_same_scope_different_thread_duplicate_upload_reuses_blob_contract(
         assert second_data["duplicate"] is True
         assert second_data["deduplication"]["status"] == "scope_blob_reused"
         assert second_data["deduplication"]["scope"] == "memory_scope"
+        assert second_data["deduplication"]["match_type"] == "exact_sha256"
+        assert second_data["deduplication"]["reason_codes"] == [
+            "exact_sha256",
+            "same_memory_scope",
+            "blob_reused",
+        ]
+        assert second_data["deduplication"]["recommended_action"] == "link_duplicate_asset_contexts"
+        assert second_data["deduplication"]["source_label"] == "shared-note.txt"
+        assert second_data["deduplication"]["target_label"] == "shared-note.txt"
         assert second_data["deduplication"]["duplicate_of_asset_id"] == first_data["id"]
         assert second_data["deduplication"]["suggestion_status"] == "pending"
         assert second_data["deduplication"]["storage_key_reused"] is True
@@ -2443,6 +2461,12 @@ def test_same_scope_different_thread_duplicate_upload_reuses_blob_contract(
         assert suggestion["id"] == suggestion_id
         assert suggestion["confidence"] == "high"
         assert suggestion["metadata"]["dedupe_match_type"] == "exact_sha256"
+        assert suggestion["metadata"]["dedupe_reason_codes"] == [
+            "exact_sha256",
+            "same_memory_scope",
+            "blob_reused",
+        ]
+        assert suggestion["metadata"]["recommended_action"] == ("link_duplicate_asset_contexts")
 
         approved = client.post(
             f"/v1/context-link-suggestions/{suggestion_id}/review",
@@ -2511,10 +2535,7 @@ def test_same_scope_duplicate_asset_reuses_succeeded_extraction_without_worker(
         assert reused_extraction["duplicate"] is True
         assert reused_extraction["deduplication"]["status"] == "source_job_reused"
         assert reused_extraction["deduplication"]["duplicate_of_job_id"] == source_extraction_id
-        assert (
-            reused_extraction["metadata"]["reused_from_job_id"]
-            == source_extraction_id
-        )
+        assert reused_extraction["metadata"]["reused_from_job_id"] == source_extraction_id
         assert reused_extraction["metadata"]["reused_from_asset_id"] == first_data["id"]
         assert reused_extraction["metadata"]["usage_media_analysis_seconds_requested"] == 0
 

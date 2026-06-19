@@ -162,6 +162,11 @@ class DeduplicationInfo:
     status: str
     reason_code: str
     scope: str = "none"
+    match_type: str | None = None
+    reason_codes: tuple[str, ...] = ()
+    recommended_action: str | None = None
+    source_label: str | None = None
+    target_label: str | None = None
     duplicate_of_asset_id: str | None = None
     duplicate_of_job_id: str | None = None
     suggestion_id: str | None = None

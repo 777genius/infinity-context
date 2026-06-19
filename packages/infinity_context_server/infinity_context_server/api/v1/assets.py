@@ -361,6 +361,11 @@ def deduplication_to_response(info: DeduplicationInfo | None) -> dict[str, Any] 
         "scope": info.scope,
     }
     optional_fields = {
+        "match_type": info.match_type,
+        "reason_codes": list(info.reason_codes) if info.reason_codes else None,
+        "recommended_action": info.recommended_action,
+        "source_label": info.source_label,
+        "target_label": info.target_label,
         "duplicate_of_asset_id": info.duplicate_of_asset_id,
         "duplicate_of_job_id": info.duplicate_of_job_id,
         "suggestion_id": info.suggestion_id,
