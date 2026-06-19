@@ -23,6 +23,11 @@ _SAFE_RECALL_DIAGNOSTIC_KEYS = (
     "collection",
     "dataset_id",
 )
+_SAFE_CONTEXT_LINK_DIAGNOSTIC_KEYS = (
+    "context_link_id",
+    "context_link_relation_type",
+    "context_link_confidence",
+)
 _BUNDLE_COUNTER_KEYS = (
     "facts_considered",
     "anchors_considered",
@@ -67,9 +72,17 @@ _BUNDLE_COUNTER_KEYS = (
     "approved_context_linked_chunks_used",
     "approved_context_linked_facts_used",
     "approved_context_linked_assets_used",
+    "approved_context_linked_extraction_artifacts_used",
+    "approved_context_linked_extraction_artifact_manifest_items_used",
+    "approved_context_linked_extraction_artifact_blob_storage_disabled_count",
+    "approved_context_linked_extraction_artifact_manifest_too_large_count",
+    "approved_context_linked_extraction_artifact_read_error_count",
+    "approved_context_linked_extraction_artifact_parse_error_count",
+    "approved_context_linked_extraction_artifact_schema_skip_count",
     "stale_context_linked_chunk_drop_count",
     "stale_context_linked_fact_drop_count",
     "stale_context_linked_asset_drop_count",
+    "stale_context_linked_extraction_artifact_drop_count",
     "hybrid_items_used",
     "items_considered",
     "items_used",
@@ -142,9 +155,17 @@ _BUNDLE_COUNTER_DEFAULTS = {
     "approved_context_linked_chunks_used": 0,
     "approved_context_linked_facts_used": 0,
     "approved_context_linked_assets_used": 0,
+    "approved_context_linked_extraction_artifacts_used": 0,
+    "approved_context_linked_extraction_artifact_manifest_items_used": 0,
+    "approved_context_linked_extraction_artifact_blob_storage_disabled_count": 0,
+    "approved_context_linked_extraction_artifact_manifest_too_large_count": 0,
+    "approved_context_linked_extraction_artifact_read_error_count": 0,
+    "approved_context_linked_extraction_artifact_parse_error_count": 0,
+    "approved_context_linked_extraction_artifact_schema_skip_count": 0,
     "stale_context_linked_chunk_drop_count": 0,
     "stale_context_linked_fact_drop_count": 0,
     "stale_context_linked_asset_drop_count": 0,
+    "stale_context_linked_extraction_artifact_drop_count": 0,
     "hybrid_items_used": 0,
     "items_considered": 0,
     "items_used": 0,
@@ -185,17 +206,18 @@ _RETRIEVAL_SOURCE_PRIORITY = {
     "approved_context_linked_chunks": 2,
     "approved_context_linked_facts": 3,
     "approved_context_linked_assets": 4,
-    "artifact_evidence": 5,
-    "canonical_anchors": 6,
-    "keyword_chunks": 7,
-    "graph_hydrated": 8,
-    "temporal_supersedes_relation": 9,
-    "pending_conflict_suggestion": 10,
-    "pending_duplicate_merge_suggestion": 11,
-    "superseded_review": 12,
-    "disputed_review": 13,
-    "stale_review": 14,
-    "postgres_facts": 14,
+    "approved_context_linked_extraction_artifacts": 5,
+    "artifact_evidence": 6,
+    "canonical_anchors": 7,
+    "keyword_chunks": 8,
+    "graph_hydrated": 9,
+    "temporal_supersedes_relation": 10,
+    "pending_conflict_suggestion": 11,
+    "pending_duplicate_merge_suggestion": 12,
+    "superseded_review": 13,
+    "disputed_review": 14,
+    "stale_review": 15,
+    "postgres_facts": 15,
 }
 
 
@@ -247,6 +269,7 @@ def normalize_context_diagnostics(diagnostics: object) -> dict[str, object]:
     normalized = safe_diagnostic_mapping(raw)
     normalized.update(_safe_query_snippet_diagnostics(raw))
     normalized.update(_safe_recall_diagnostics(raw))
+    normalized.update(_safe_context_link_diagnostics(raw))
     normalized["retrieval_sources"] = list(retrieval_sources)
     normalized["retrieval_sources_total"] = len(all_retrieval_sources)
     normalized["retrieval_sources_returned"] = len(retrieval_sources)
@@ -358,6 +381,8 @@ def merge_context_diagnostics(
     merged = safe_diagnostic_mapping({**secondary_raw, **primary_raw})
     merged.update(_safe_recall_diagnostics(secondary_raw))
     merged.update(_safe_recall_diagnostics(primary_raw))
+    merged.update(_safe_context_link_diagnostics(secondary_raw))
+    merged.update(_safe_context_link_diagnostics(primary_raw))
     prioritized_sources = _prioritized_retrieval_sources(retrieval_sources)
     selected_source = prioritized_sources[0] if prioritized_sources else None
     if selected_source:
@@ -430,6 +455,15 @@ def _safe_query_snippet_diagnostics(raw: dict[str, Any]) -> dict[str, object]:
 def _safe_recall_diagnostics(raw: dict[str, Any]) -> dict[str, object]:
     diagnostics: dict[str, object] = {}
     for key in _SAFE_RECALL_DIAGNOSTIC_KEYS:
+        value = _safe_optional_text(raw.get(key), limit=_MAX_DIAGNOSTIC_STRING_CHARS)
+        if value:
+            diagnostics[key] = value
+    return diagnostics
+
+
+def _safe_context_link_diagnostics(raw: dict[str, Any]) -> dict[str, object]:
+    diagnostics: dict[str, object] = {}
+    for key in _SAFE_CONTEXT_LINK_DIAGNOSTIC_KEYS:
         value = _safe_optional_text(raw.get(key), limit=_MAX_DIAGNOSTIC_STRING_CHARS)
         if value:
             diagnostics[key] = value

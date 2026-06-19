@@ -106,6 +106,7 @@ class BuildContextUseCase:
             uow_factory=uow_factory,
             hydrator=self._hydrator,
             clock=clock,
+            blob_storage=blob_storage,
         )
         self._artifact_evidence_collector = ArtifactEvidenceContextCollector(
             uow_factory=uow_factory,

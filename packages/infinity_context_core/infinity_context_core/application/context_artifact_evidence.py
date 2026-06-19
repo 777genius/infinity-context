@@ -199,41 +199,77 @@ class ArtifactEvidenceContextCollector:
         *,
         diagnostics: dict[str, object],
     ) -> Mapping[str, object] | None:
-        if artifact.byte_size > self._max_manifest_bytes:
-            diagnostics["artifact_evidence_manifest_too_large_count"] = (
-                int(diagnostics["artifact_evidence_manifest_too_large_count"]) + 1
-            )
-            return None
-        try:
-            content = await self._blob_storage.read_bytes(storage_key=artifact.storage_key)
-        except Exception:
-            diagnostics["artifact_evidence_read_error_count"] = (
-                int(diagnostics["artifact_evidence_read_error_count"]) + 1
-            )
-            return None
-        if len(content) > self._max_manifest_bytes:
-            diagnostics["artifact_evidence_manifest_too_large_count"] = (
-                int(diagnostics["artifact_evidence_manifest_too_large_count"]) + 1
-            )
-            return None
-        try:
-            payload = json.loads(content.decode("utf-8"))
-        except (UnicodeDecodeError, JSONDecodeError):
-            diagnostics["artifact_evidence_parse_error_count"] = (
-                int(diagnostics["artifact_evidence_parse_error_count"]) + 1
-            )
-            return None
-        if not isinstance(payload, Mapping):
-            diagnostics["artifact_evidence_parse_error_count"] = (
-                int(diagnostics["artifact_evidence_parse_error_count"]) + 1
-            )
-            return None
-        if payload.get("schema_version") != _MEDIA_MANIFEST_SCHEMA_VERSION:
-            diagnostics["artifact_evidence_schema_skip_count"] = (
-                int(diagnostics["artifact_evidence_schema_skip_count"]) + 1
-            )
-            return None
-        return payload
+        return await read_media_manifest_payload(
+            blob_storage=self._blob_storage,
+            artifact=artifact,
+            diagnostics=diagnostics,
+            max_manifest_bytes=self._max_manifest_bytes,
+        )
+
+
+async def read_media_manifest_payload(
+    *,
+    blob_storage: BlobStoragePort,
+    artifact: ExtractionArtifact,
+    diagnostics: dict[str, object],
+    diagnostic_prefix: str = "artifact_evidence",
+    max_manifest_bytes: int = _MAX_MANIFEST_BYTES,
+) -> Mapping[str, object] | None:
+    if artifact.byte_size > max_manifest_bytes:
+        _increment_diagnostic(diagnostics, f"{diagnostic_prefix}_manifest_too_large_count")
+        return None
+    try:
+        content = await blob_storage.read_bytes(storage_key=artifact.storage_key)
+    except Exception:
+        _increment_diagnostic(diagnostics, f"{diagnostic_prefix}_read_error_count")
+        return None
+    if len(content) > max_manifest_bytes:
+        _increment_diagnostic(diagnostics, f"{diagnostic_prefix}_manifest_too_large_count")
+        return None
+    try:
+        payload = json.loads(content.decode("utf-8"))
+    except (UnicodeDecodeError, JSONDecodeError):
+        _increment_diagnostic(diagnostics, f"{diagnostic_prefix}_parse_error_count")
+        return None
+    if not isinstance(payload, Mapping):
+        _increment_diagnostic(diagnostics, f"{diagnostic_prefix}_parse_error_count")
+        return None
+    if payload.get("schema_version") != _MEDIA_MANIFEST_SCHEMA_VERSION:
+        _increment_diagnostic(diagnostics, f"{diagnostic_prefix}_schema_skip_count")
+        return None
+    return payload
+
+
+def context_items_from_media_manifest_payload(
+    *,
+    artifact: ExtractionArtifact,
+    job_id: str,
+    memory_scope_id: str,
+    payload: Mapping[str, object],
+    query: BuildContextQuery,
+    diagnostics: dict[str, object],
+    retrieval_source: str = "artifact_evidence",
+    ranking_reason: str = "matched first-party multimodal extraction evidence",
+    require_query_match: bool = True,
+    extra_diagnostics: Mapping[str, object] | None = None,
+    extra_provenance: Mapping[str, object] | None = None,
+) -> tuple[ContextItem, ...]:
+    _init_diagnostics(diagnostics)
+    return _context_items_from_manifest(
+        candidate=_ManifestCandidate(
+            artifact=artifact,
+            job_id=job_id,
+            memory_scope_id=memory_scope_id,
+        ),
+        payload=payload,
+        query=query,
+        diagnostics=diagnostics,
+        retrieval_source=retrieval_source,
+        ranking_reason=ranking_reason,
+        require_query_match=require_query_match,
+        extra_diagnostics=extra_diagnostics,
+        extra_provenance=extra_provenance,
+    )
 
 
 def _context_items_from_manifest(
@@ -242,6 +278,11 @@ def _context_items_from_manifest(
     payload: Mapping[str, object],
     query: BuildContextQuery,
     diagnostics: dict[str, object],
+    retrieval_source: str = "artifact_evidence",
+    ranking_reason: str = "matched first-party multimodal extraction evidence",
+    require_query_match: bool = True,
+    extra_diagnostics: Mapping[str, object] | None = None,
+    extra_provenance: Mapping[str, object] | None = None,
 ) -> tuple[ContextItem, ...]:
     evidence_items = payload.get("evidence_items")
     if not isinstance(evidence_items, list):
@@ -277,7 +318,11 @@ def _context_items_from_manifest(
                 )
             ),
         )
-        if relevance.query_term_count > 0 and relevance.unique_term_hits <= 0:
+        if (
+            require_query_match
+            and relevance.query_term_count > 0
+            and relevance.unique_term_hits <= 0
+        ):
             diagnostics["artifact_evidence_query_drop_count"] = (
                 int(diagnostics["artifact_evidence_query_drop_count"]) + 1
             )
@@ -332,13 +377,13 @@ def _context_items_from_manifest(
                 source_refs=source_refs,
                 diagnostics={
                     "memory_scope_id": candidate.memory_scope_id,
-                    "retrieval_source": "artifact_evidence",
-                    "retrieval_sources": ["artifact_evidence"],
-                    "ranking_reason": "matched first-party multimodal extraction evidence",
+                    "retrieval_source": retrieval_source,
+                    "retrieval_sources": [retrieval_source],
+                    "ranking_reason": ranking_reason,
                     "score_signals": {
                         "base_score": 0.68,
                         "final_score": score,
-                        "retrieval_channel": "artifact_evidence",
+                        "retrieval_channel": retrieval_source,
                         "evidence_confidence": confidence,
                         "confidence_boost": confidence_boost,
                         "coordinate_boost": coordinate_boost,
@@ -352,7 +397,7 @@ def _context_items_from_manifest(
                         **query_snippet_score_signals(snippet),
                     },
                     "provenance": {
-                        "retrieval_sources": ["artifact_evidence"],
+                        "retrieval_sources": [retrieval_source],
                         "source_ref_count": 1,
                         "artifact_id": str(artifact.id),
                         "asset_id": str(artifact.asset_id),
@@ -364,6 +409,7 @@ def _context_items_from_manifest(
                         "evidence_confidence": confidence,
                         **source_ref_location_summary(source_refs),
                         **query_snippet_diagnostics(snippet),
+                        **dict(extra_provenance or {}),
                     },
                     "artifact_id": str(artifact.id),
                     "asset_id": str(artifact.asset_id),
@@ -372,6 +418,7 @@ def _context_items_from_manifest(
                     "evidence_confidence": confidence,
                     **source_ref_location_summary(source_refs),
                     **query_snippet_diagnostics(snippet),
+                    **dict(extra_diagnostics or {}),
                 },
             )
         )
@@ -523,3 +570,7 @@ def _init_diagnostics(diagnostics: dict[str, object]) -> None:
         "artifact_evidence_stale_asset_drop_count",
     ):
         diagnostics.setdefault(key, 0)
+
+
+def _increment_diagnostic(diagnostics: dict[str, object], key: str) -> None:
+    diagnostics[key] = int(diagnostics.get(key, 0)) + 1

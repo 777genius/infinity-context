@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from infinity_context_core.application.context_artifact_evidence import (
+    context_items_from_media_manifest_payload,
+    read_media_manifest_payload,
+)
 from infinity_context_core.application.context_hydration import ContextHydrator
 from infinity_context_core.application.context_policy import is_context_fact_visible
 from infinity_context_core.application.context_snippets import (
@@ -20,6 +24,13 @@ from infinity_context_core.application.source_refs import (
 )
 from infinity_context_core.domain.assets import AssetStatus, MemoryAsset, MemoryContextLink
 from infinity_context_core.domain.entities import MemoryChunk, MemoryFact, SourceRef
+from infinity_context_core.domain.extraction import (
+    AssetExtractionJob,
+    AssetExtractionStatus,
+    ExtractionArtifact,
+    ExtractionArtifactType,
+)
+from infinity_context_core.ports.assets import BlobStoragePort
 from infinity_context_core.ports.clock import ClockPort
 from infinity_context_core.ports.unit_of_work import UnitOfWorkFactoryPort
 
@@ -37,10 +48,12 @@ class ApprovedContextLinkExpander:
         uow_factory: UnitOfWorkFactoryPort,
         hydrator: ContextHydrator,
         clock: ClockPort | None = None,
+        blob_storage: BlobStoragePort | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._hydrator = hydrator
         self._clock = clock
+        self._blob_storage = blob_storage
 
     async def collect(
         self,
@@ -71,6 +84,9 @@ class ApprovedContextLinkExpander:
         existing_chunk_ids = {item.item_id for item in items if item.item_type == "chunk"}
         existing_fact_ids = {item.item_id for item in items if item.item_type == "fact"}
         existing_asset_ids = {item.item_id for item in items if item.item_type == "asset"}
+        existing_artifact_ids = {
+            item.item_id for item in items if item.item_type == "extraction_artifact"
+        }
         chunk_items, stale_chunk_drop_count = await self._linked_chunk_items(
             links=deduped_links,
             existing_chunk_ids=existing_chunk_ids,
@@ -89,19 +105,35 @@ class ApprovedContextLinkExpander:
             query=query,
             memory_scope_ids=memory_scope_ids,
         )
+        artifact_items, stale_artifact_drop_count, artifact_diagnostics = (
+            await self._linked_extraction_artifact_items(
+                links=deduped_links,
+                existing_artifact_ids=existing_artifact_ids,
+                query=query,
+                memory_scope_ids=memory_scope_ids,
+            )
+        )
         return ContextLinkExpansionResult(
-            items=(*chunk_items, *fact_items, *asset_items),
+            items=(*chunk_items, *fact_items, *asset_items, *artifact_items),
             diagnostics={
                 "approved_context_links_considered": len(deduped_links),
                 "approved_context_links_used": (
-                    len(chunk_items) + len(fact_items) + len(asset_items)
+                    len(chunk_items)
+                    + len(fact_items)
+                    + len(asset_items)
+                    + len(artifact_items)
                 ),
                 "approved_context_linked_chunks_used": len(chunk_items),
                 "approved_context_linked_facts_used": len(fact_items),
                 "approved_context_linked_assets_used": len(asset_items),
+                "approved_context_linked_extraction_artifacts_used": len(artifact_items),
                 "stale_context_linked_chunk_drop_count": stale_chunk_drop_count,
                 "stale_context_linked_fact_drop_count": stale_fact_drop_count,
                 "stale_context_linked_asset_drop_count": stale_asset_drop_count,
+                "stale_context_linked_extraction_artifact_drop_count": (
+                    stale_artifact_drop_count
+                ),
+                **artifact_diagnostics,
             },
         )
 
@@ -245,6 +277,129 @@ class ApprovedContextLinkExpander:
             items.append(_linked_asset_context_item(asset, link=link))
         return tuple(items), max(0, len(asset_ids) - len(items))
 
+    async def _linked_extraction_artifact_items(
+        self,
+        *,
+        links: tuple[MemoryContextLink, ...],
+        existing_artifact_ids: set[str],
+        query: BuildContextQuery,
+        memory_scope_ids: tuple[str, ...],
+    ) -> tuple[tuple[ContextItem, ...], int, dict[str, object]]:
+        diagnostics = _empty_extraction_artifact_diagnostics()
+        if query.max_evidence_items <= 0:
+            return (), 0, diagnostics
+        links_by_artifact_id = _best_links_by_target_id(
+            links=links,
+            target_type="extraction_artifact",
+            existing_ids=existing_artifact_ids,
+            limit=max(query.max_evidence_items, 1),
+        )
+        artifact_ids = tuple(links_by_artifact_id)
+        if not artifact_ids:
+            return (), 0, diagnostics
+
+        loaded: dict[str, tuple[ExtractionArtifact, AssetExtractionJob, MemoryAsset]] = {}
+        async with self._uow_factory() as uow:
+            for artifact_id in artifact_ids:
+                artifact = await uow.asset_extractions.get_artifact_by_id(artifact_id)
+                if artifact is None:
+                    continue
+                job = await uow.asset_extractions.get_by_id(str(artifact.job_id))
+                asset = await uow.assets.get_by_id(str(artifact.asset_id))
+                if (
+                    job is None
+                    or asset is None
+                    or not _extraction_artifact_visible(
+                        artifact=artifact,
+                        job=job,
+                        asset=asset,
+                        query=query,
+                        memory_scope_ids=set(memory_scope_ids),
+                    )
+                ):
+                    continue
+                loaded[artifact_id] = (artifact, job, asset)
+
+        items: list[ContextItem] = []
+        for artifact_id, link in links_by_artifact_id.items():
+            loaded_item = loaded.get(artifact_id)
+            if loaded_item is None:
+                continue
+            artifact, job, asset = loaded_item
+            if (
+                artifact.artifact_type == ExtractionArtifactType.MEDIA_MANIFEST
+                and self._blob_storage is not None
+            ):
+                payload = await read_media_manifest_payload(
+                    blob_storage=self._blob_storage,
+                    artifact=artifact,
+                    diagnostics=diagnostics,
+                    diagnostic_prefix="approved_context_linked_extraction_artifact",
+                )
+                if payload is not None:
+                    manifest_items = context_items_from_media_manifest_payload(
+                        artifact=artifact,
+                        job_id=str(job.id),
+                        memory_scope_id=str(job.memory_scope_id),
+                        payload=payload,
+                        query=query,
+                        diagnostics=diagnostics,
+                        retrieval_source="approved_context_linked_extraction_artifacts",
+                        ranking_reason=(
+                            "approved context link connected visible memory to "
+                            "multimodal extraction evidence"
+                        ),
+                        require_query_match=False,
+                        extra_diagnostics=_linked_extraction_artifact_extra_diagnostics(
+                            artifact=artifact,
+                            job=job,
+                            asset=asset,
+                            link=link,
+                        ),
+                        extra_provenance=_linked_extraction_artifact_extra_provenance(
+                            artifact=artifact,
+                            job=job,
+                            asset=asset,
+                            link=link,
+                        ),
+                    )
+                    manifest_items_key = (
+                        "approved_context_linked_extraction_artifact_manifest_items_used"
+                    )
+                    diagnostics[manifest_items_key] = (
+                        int(diagnostics[manifest_items_key]) + len(manifest_items)
+                    )
+                    items.extend(
+                        sorted(manifest_items, key=lambda item: (-item.score, item.item_id))[
+                            : max(0, query.max_evidence_items - len(items))
+                        ]
+                    )
+                    if len(items) >= query.max_evidence_items:
+                        break
+                    continue
+            elif artifact.artifact_type == ExtractionArtifactType.MEDIA_MANIFEST:
+                diagnostics[
+                    "approved_context_linked_extraction_artifact_blob_storage_disabled_count"
+                ] = (
+                    int(
+                        diagnostics[
+                            "approved_context_linked_extraction_artifact_blob_storage_disabled_count"
+                        ]
+                    )
+                    + 1
+                )
+            items.append(
+                _linked_extraction_artifact_context_item(
+                    artifact,
+                    job=job,
+                    asset=asset,
+                    link=link,
+                )
+            )
+            if len(items) >= query.max_evidence_items:
+                break
+        return tuple(items), max(0, len(artifact_ids) - len(loaded)), diagnostics
+
 
 def _empty_diagnostics() -> dict[str, object]:
     return {
@@ -253,9 +408,23 @@ def _empty_diagnostics() -> dict[str, object]:
         "approved_context_linked_chunks_used": 0,
         "approved_context_linked_facts_used": 0,
         "approved_context_linked_assets_used": 0,
+        "approved_context_linked_extraction_artifacts_used": 0,
         "stale_context_linked_chunk_drop_count": 0,
         "stale_context_linked_fact_drop_count": 0,
         "stale_context_linked_asset_drop_count": 0,
+        "stale_context_linked_extraction_artifact_drop_count": 0,
+        **_empty_extraction_artifact_diagnostics(),
+    }
+
+
+def _empty_extraction_artifact_diagnostics() -> dict[str, object]:
+    return {
+        "approved_context_linked_extraction_artifact_manifest_items_used": 0,
+        "approved_context_linked_extraction_artifact_blob_storage_disabled_count": 0,
+        "approved_context_linked_extraction_artifact_manifest_too_large_count": 0,
+        "approved_context_linked_extraction_artifact_read_error_count": 0,
+        "approved_context_linked_extraction_artifact_parse_error_count": 0,
+        "approved_context_linked_extraction_artifact_schema_skip_count": 0,
     }
 
 
@@ -417,6 +586,61 @@ def _linked_asset_context_item(asset: MemoryAsset, *, link: MemoryContextLink) -
     )
 
 
+def _linked_extraction_artifact_context_item(
+    artifact: ExtractionArtifact,
+    *,
+    job: AssetExtractionJob,
+    asset: MemoryAsset,
+    link: MemoryContextLink,
+) -> ContextItem:
+    score = min(0.89, round(_linked_item_score(link) + 0.01, 4))
+    filename = (
+        _artifact_metadata_text(artifact, "filename")
+        or f"{artifact.artifact_type.value}.bin"
+    )
+    content_type = _artifact_metadata_text(artifact, "content_type") or "application/octet-stream"
+    text = (
+        f"Linked extraction artifact {filename} "
+        f"({artifact.artifact_type.value}, {content_type}, {artifact.byte_size} bytes)"
+    )
+    source_refs = (
+        SourceRef(
+            source_type="extraction_artifact",
+            source_id=str(artifact.id),
+            quote_preview=filename,
+        ),
+    )
+    return ContextItem(
+        item_id=str(artifact.id),
+        item_type="extraction_artifact",
+        text=text,
+        score=score,
+        source_refs=source_refs,
+        diagnostics=_linked_item_diagnostics(
+            link=link,
+            retrieval_source="approved_context_linked_extraction_artifacts",
+            memory_scope_id=str(job.memory_scope_id),
+            score=score,
+            source_ref_count=len(source_refs),
+            extra_provenance=_linked_extraction_artifact_extra_provenance(
+                artifact=artifact,
+                job=job,
+                asset=asset,
+                link=link,
+            ),
+            extra_diagnostics={
+                **_linked_extraction_artifact_extra_diagnostics(
+                    artifact=artifact,
+                    job=job,
+                    asset=asset,
+                    link=link,
+                ),
+                **source_ref_location_summary(source_refs),
+            },
+        ),
+    )
+
+
 def _linked_item_diagnostics(
     *,
     link: MemoryContextLink,
@@ -482,6 +706,70 @@ def _asset_visible(
     if str(asset.memory_scope_id) not in memory_scope_ids:
         return False
     return query.thread_id is None or str(asset.thread_id) == str(query.thread_id)
+
+
+def _extraction_artifact_visible(
+    *,
+    artifact: ExtractionArtifact,
+    job: AssetExtractionJob,
+    asset: MemoryAsset,
+    query: BuildContextQuery,
+    memory_scope_ids: set[str],
+) -> bool:
+    if job.status != AssetExtractionStatus.SUCCEEDED:
+        return False
+    if str(job.id) != str(artifact.job_id) or str(job.asset_id) != str(artifact.asset_id):
+        return False
+    if str(asset.id) != str(artifact.asset_id):
+        return False
+    return _asset_visible(asset, query=query, memory_scope_ids=memory_scope_ids)
+
+
+def _linked_extraction_artifact_extra_diagnostics(
+    *,
+    artifact: ExtractionArtifact,
+    job: AssetExtractionJob,
+    asset: MemoryAsset,
+    link: MemoryContextLink,
+) -> dict[str, object]:
+    return {
+        "artifact_id": str(artifact.id),
+        "asset_id": str(asset.id),
+        "asset_filename": asset.filename,
+        "artifact_type": artifact.artifact_type.value,
+        "artifact_byte_size": artifact.byte_size,
+        "artifact_content_type": _artifact_metadata_text(artifact, "content_type"),
+        "extraction_job_id": str(job.id),
+        "context_link_id": str(link.id),
+        "context_link_relation_type": link.relation_type,
+        "context_link_confidence": link.confidence,
+    }
+
+
+def _linked_extraction_artifact_extra_provenance(
+    *,
+    artifact: ExtractionArtifact,
+    job: AssetExtractionJob,
+    asset: MemoryAsset,
+    link: MemoryContextLink,
+) -> dict[str, object]:
+    return {
+        "artifact_id": str(artifact.id),
+        "artifact_type": artifact.artifact_type.value,
+        "artifact_storage_backend": artifact.storage_backend,
+        "asset_id": str(asset.id),
+        "asset_filename": asset.filename,
+        "asset_content_type": asset.content_type,
+        "extraction_job_id": str(job.id),
+        "context_link_id": str(link.id),
+        "context_link_relation_type": link.relation_type,
+        "context_link_confidence": link.confidence,
+    }
+
+
+def _artifact_metadata_text(artifact: ExtractionArtifact, key: str) -> str:
+    value = artifact.metadata.get(key)
+    return value.strip()[:240] if isinstance(value, str) else ""
 
 
 def _dedupe_context_links(links: tuple[MemoryContextLink, ...]) -> tuple[MemoryContextLink, ...]:
