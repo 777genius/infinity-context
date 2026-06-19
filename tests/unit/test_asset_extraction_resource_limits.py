@@ -30,12 +30,13 @@ class _Ids:
 
 
 class _BlobStorage:
-    def __init__(self) -> None:
+    def __init__(self, content: bytes = b"oversized content should not be read") -> None:
+        self.content = content
         self.reads: list[str] = []
 
     async def read_bytes(self, *, storage_key: str) -> bytes:
         self.reads.append(storage_key)
-        return b"oversized content should not be read"
+        return self.content
 
 
 class _Detector:
@@ -146,15 +147,61 @@ def test_run_asset_extraction_rejects_oversized_asset_before_blob_read() -> None
     )
 
 
-def _asset(*, byte_size: int) -> MemoryAsset:
-    content = b"x" * byte_size
+def test_run_asset_extraction_revalidates_upload_policy_before_detector() -> None:
+    content = b"%PDF-1.7\nnot actually an image"
+    asset = _asset(
+        byte_size=len(content),
+        content=content,
+        filename="spoofed-screenshot.png",
+        content_type="image/png",
+    )
+    job = _job(asset=asset)
+    uow_factory = _UowFactory(asset=asset, job=job)
+    blob_storage = _BlobStorage(content=content)
+    detector = _Detector()
+    extractor = _Extractor()
+    use_case = RunAssetExtractionUseCase(
+        uow_factory=uow_factory,
+        blob_storage=blob_storage,
+        detector=detector,
+        extractor=extractor,
+        ingest_document=object(),
+        clock=_Clock(),
+        ids=_Ids(),
+        limits=ExtractionLimits(max_bytes=1_000_000, max_image_pixels=50_000_000),
+    )
+
+    result = asyncio.run(use_case.execute(RunAssetExtractionCommand(job_id=str(job.id))))
+
+    assert result.job.status == AssetExtractionStatus.UNSUPPORTED
+    assert result.indexing_status == "unsupported"
+    assert result.job.safe_error_code == "asset_extraction.upload_policy_rejected"
+    assert result.job.safe_error_message == "Asset violates upload security policy"
+    assert result.job.parser_name == "upload_policy"
+    assert result.job.metadata["extraction_upload_policy_revalidated"] is True
+    assert result.job.metadata["extraction_upload_policy_status"] == "rejected"
+    assert result.job.metadata["extraction_upload_magic_content_type"] == "application/pdf"
+    assert "raw" not in result.job.metadata
+    assert blob_storage.reads == ["assets/asset_1.bin"]
+    assert detector.called is False
+    assert extractor.called is False
+
+
+def _asset(
+    *,
+    byte_size: int,
+    content: bytes | None = None,
+    filename: str = "large-recording.wav",
+    content_type: str = "audio/wav",
+) -> MemoryAsset:
+    content = content if content is not None else b"x" * byte_size
     return MemoryAsset.create(
         asset_id=MemoryAssetId("asset_1"),
         space_id=SpaceId("space_1"),
         memory_scope_id=MemoryScopeId("scope_1"),
         thread_id=ThreadId("thread_1"),
-        filename="large-recording.wav",
-        content_type="audio/wav",
+        filename=filename,
+        content_type=content_type,
         byte_size=byte_size,
         sha256_hex=sha256(content).hexdigest(),
         storage_backend="local",

@@ -430,6 +430,10 @@ def test_capabilities_return_noop_adapters() -> None:
             "upload_image_height",
             "upload_image_pixels",
             "upload_image_max_pixels",
+            "extraction_upload_policy_revalidated",
+            "extraction_upload_policy_status",
+            "extraction_upload_policy_rejection",
+            "extraction_upload_magic_content_type",
             "mime_detector_reason",
             "asset_empty_content",
         ],
@@ -548,6 +552,14 @@ def test_capabilities_return_noop_adapters() -> None:
     assert body["extraction"]["limits"]["heartbeat_seconds"] == 15.0
     assert body["extraction"]["resource_policy"]["limits_normalized_before_provider"] is True
     assert body["extraction"]["resource_policy"]["rejects_oversized_asset_before_blob_read"] is True
+    assert (
+        body["extraction"]["resource_policy"]["revalidates_upload_policy_after_blob_read"]
+        is True
+    )
+    assert (
+        body["extraction"]["resource_policy"]["upload_policy_rejection_error_code"]
+        == "asset_extraction.upload_policy_rejected"
+    )
     assert (
         body["extraction"]["resource_policy"]["oversized_asset_error_code"]
         == "asset_extraction.file_too_large"

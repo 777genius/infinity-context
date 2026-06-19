@@ -15,6 +15,11 @@ from infinity_context_core.application.asset_extraction_mapping import (
     extracted_text,
     result_json,
 )
+from infinity_context_core.application.asset_upload_policy import (
+    UPLOAD_POLICY_VERSION,
+    assess_asset_upload,
+    detect_magic_content_type,
+)
 from infinity_context_core.application.context_link_candidate_policy import (
     source_text_risk_metadata,
 )
@@ -65,6 +70,7 @@ from infinity_context_core.application.use_cases.asset_extraction_support import
 from infinity_context_core.domain.assets import AssetStatus, MemoryAsset
 from infinity_context_core.domain.errors import (
     MemoryInfrastructureError,
+    MemoryIngressLimitError,
     MemoryNotFoundError,
     MemoryQuotaExceededError,
     MemoryValidationError,
@@ -521,6 +527,27 @@ class RunAssetExtractionUseCase:
                     ),
                 )
                 return AssetExtractionResult(job=unsupported, indexing_status="unsupported")
+            try:
+                upload_assessment = assess_asset_upload(
+                    filename=asset.filename,
+                    declared_content_type=asset.content_type,
+                    content=content,
+                    max_image_pixels=self._limits.max_image_pixels,
+                )
+            except MemoryIngressLimitError as exc:
+                unsupported = await self._mark_unsupported(
+                    job,
+                    result=_upload_policy_rejection_result(
+                        asset=asset,
+                        content=content,
+                        message=str(exc),
+                    ),
+                )
+                return AssetExtractionResult(job=unsupported, indexing_status="unsupported")
+            job = await self._update_job_metadata(
+                job,
+                metadata=_upload_policy_revalidation_metadata(upload_assessment.metadata),
+            )
             job = await self._save_progress(
                 job,
                 stage="detecting_type",
@@ -1231,6 +1258,42 @@ def _resource_limit_result(
         else None,
         safe_error_code=code or "asset_extraction.resource_limit",
         safe_error_message=message or "Asset exceeds extraction resource policy",
+        technical_metadata=metadata,
+    )
+
+
+def _upload_policy_revalidation_metadata(metadata: dict[str, object]) -> dict[str, object]:
+    return {
+        "extraction_upload_policy_revalidated": True,
+        "extraction_upload_policy_status": "allowed",
+        **safe_metadata(metadata),
+    }
+
+
+def _upload_policy_rejection_result(
+    *,
+    asset: MemoryAsset,
+    content: bytes,
+    message: str,
+) -> ExtractionResult:
+    metadata = {
+        "upload_policy_version": UPLOAD_POLICY_VERSION,
+        "extraction_upload_policy_revalidated": True,
+        "extraction_upload_policy_status": "rejected",
+        "extraction_upload_policy_rejection": safe_metadata_text(message),
+        "extraction_upload_magic_content_type": safe_metadata_text(
+            detect_magic_content_type(content)
+        ),
+        "extraction_asset_byte_size": len(content),
+    }
+    return ExtractionResult(
+        status="unsupported",
+        normalized_content_type=safe_metadata_text(asset.content_type),
+        title=asset.filename,
+        parser_name="upload_policy",
+        parser_version=UPLOAD_POLICY_VERSION,
+        safe_error_code="asset_extraction.upload_policy_rejected",
+        safe_error_message="Asset violates upload security policy",
         technical_metadata=metadata,
     )
 
