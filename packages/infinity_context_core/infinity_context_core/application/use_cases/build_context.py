@@ -661,7 +661,12 @@ def _fact_context_item(
     now: datetime | None,
     query_text: str,
 ) -> ContextItem:
-    fact_score, fact_signals = _fact_score_signals(fact, now=now)
+    relevance = score_query_relevance(query=query_text, text=fact.text, max_boost=0.03)
+    fact_score, fact_signals = _fact_score_signals(
+        fact,
+        now=now,
+        relevance=relevance,
+    )
     snippet = query_focused_snippet(query=query_text, text=fact.text)
     source_refs = source_refs_with_query_snippet(fact.source_refs, snippet)
     return ContextItem(
@@ -932,6 +937,7 @@ def _fact_score_signals(
     fact: MemoryFact,
     *,
     now: datetime | None,
+    relevance: QueryRelevance,
 ) -> tuple[float, dict[str, object]]:
     confidence_boost = _level_boost(fact.confidence.value, low=0.012, medium=0.03, high=0.05)
     trust_boost = _level_boost(fact.trust_level.value, low=0.01, medium=0.03, high=0.045)
@@ -939,7 +945,18 @@ def _fact_score_signals(
     ttl_penalty = -0.015 if fact.expires_at is not None else 0.0
     score = min(
         0.99,
-        max(0.0, round(0.88 + confidence_boost + trust_boost + freshness_boost + ttl_penalty, 4)),
+        max(
+            0.0,
+            round(
+                0.88
+                + confidence_boost
+                + trust_boost
+                + freshness_boost
+                + ttl_penalty
+                + relevance.score_boost,
+                4,
+            ),
+        ),
     )
     return score, {
         "base_score": 0.88,
@@ -947,6 +964,11 @@ def _fact_score_signals(
         "trust_boost": round(trust_boost, 4),
         "freshness_boost": round(freshness_boost, 4),
         "ttl_penalty": round(ttl_penalty, 4),
+        "query_term_count": relevance.query_term_count,
+        "unique_term_hits": relevance.unique_term_hits,
+        "capped_frequency_hits": relevance.capped_frequency_hits,
+        "hit_ratio": relevance.hit_ratio,
+        "query_relevance_boost": relevance.score_boost,
         "classification": fact.classification,
         "category": fact.category,
     }

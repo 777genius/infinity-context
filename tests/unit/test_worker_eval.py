@@ -1162,6 +1162,8 @@ def test_quality_golden_eval_passes() -> None:
     assert result["metrics"]["source_citation_failure_count"] == 0
     assert result["gates"]["citation_support_rate"] is True
     assert result["gates"]["source_citation_failure_count"] is True
+    assert result["metrics"]["duplicate_merge_review_rate"] == 1.0
+    assert result["gates"]["duplicate_merge_review_rate"] is True
     assert result["metrics"]["required_case_count"] == len(QUALITY_GOLDEN_REQUIRED_CASE_IDS)
     assert result["metrics"]["missing_required_case_count"] == 0
     assert result["metrics"]["required_case_coverage_rate"] == 1.0

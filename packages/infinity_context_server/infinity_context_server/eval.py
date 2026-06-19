@@ -909,6 +909,12 @@ def _seed_quality_golden(client: TestClient, headers: dict[str, str]) -> Quality
         space_id=space_id,
         memory_scope_id=alpha_memory_scope_id,
     )
+    checks["quality_duplicate_merge_review"] = _seed_quality_duplicate_merge_review(
+        client,
+        headers,
+        space_id=space_id,
+        memory_scope_id=alpha_memory_scope_id,
+    )
     checks["deleted_fact"] = _seed_quality_deleted_fact(
         client,
         headers,
@@ -1254,6 +1260,63 @@ def _seed_quality_contradiction_dispute(
         and disputed.status_code == 200
         and disputed.json().get("data", {}).get("status") == "disputed"
     )
+
+
+def _seed_quality_duplicate_merge_review(
+    client: TestClient,
+    headers: dict[str, str],
+    *,
+    space_id: str,
+    memory_scope_id: str,
+) -> bool:
+    active = _remember_eval_fact_response(
+        client,
+        headers,
+        space_id=space_id,
+        memory_scope_id=memory_scope_id,
+        text=(
+            "QUALITY_DUPLICATE_MERGE_ACTIVE: Alex owns Project Atlas retrieval notes "
+            "from the canonical meeting memory."
+        ),
+        source_id="quality-duplicate-merge-active",
+        idempotency_key="quality-duplicate-merge-active-v1",
+        classification="internal",
+    )
+    fact_id = _response_data_id(active)
+    if not _status_ok(active.status_code) or not fact_id:
+        return False
+    suggestion = client.post(
+        "/v1/suggestions",
+        json={
+            "space_id": space_id,
+            "memory_scope_id": memory_scope_id,
+            "candidate_text": (
+                "QUALITY_DUPLICATE_MERGE_PENDING: Alex owns Project Atlas retrieval "
+                "notes from the duplicate meeting capture."
+            ),
+            "kind": "architecture_decision",
+            "operation": "update",
+            "target_fact_id": fact_id,
+            "target_fact_version": 1,
+            "source_refs": [
+                {
+                    "source_type": "manual",
+                    "source_id": "quality-duplicate-merge-pending",
+                }
+            ],
+            "confidence": "medium",
+            "trust_level": "medium",
+            "safe_reason": "quality_duplicate_merge_requires_review",
+            "review_payload": {
+                "review_kind": "duplicate_fact_merge",
+                "dedupe_match_type": "semantic_token_overlap",
+                "dedupe_reason_codes": ["semantic_duplicate", "token_overlap"],
+                "dedupe_overlap_terms": ["person:alex", "project:atlas", "retrieval"],
+            },
+        },
+        headers=_with_idempotency(headers, "quality-duplicate-merge-suggestion-v1"),
+    )
+    return _status_ok(suggestion.status_code)
 
 
 def _seed_long_memory_golden(

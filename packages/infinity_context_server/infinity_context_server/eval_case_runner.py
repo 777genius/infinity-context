@@ -413,6 +413,9 @@ def _quality_golden_metrics(
         for result in case_results
         if result.case.required_source_ref_matches or result.case.required_citation_matches
     )
+    duplicate_merge_cases = tuple(
+        result for result in case_results if result.case.category == "duplicate_merge"
+    )
     multi_memory_scope_cases = tuple(
         result for result in case_results if result.case.category == "multi_memory_scope"
     )
@@ -467,6 +470,10 @@ def _quality_golden_metrics(
             len(citation_cases),
         ),
         "source_citation_failure_count": source_citation_failures,
+        "duplicate_merge_review_rate": _ratio(
+            sum(1 for result in duplicate_merge_cases if not result.failures),
+            len(duplicate_merge_cases),
+        ),
         "multi_memory_scope_recall_at_5": _ratio(
             sum(1 for result in multi_memory_scope_cases if result.recall_ok),
             len(multi_memory_scope_cases),
@@ -494,6 +501,7 @@ def _quality_golden_gates(metrics: dict[str, object]) -> dict[str, bool]:
         "hybrid_retrieval_rate": metrics["hybrid_retrieval_rate"] == 1.0,
         "citation_support_rate": metrics["citation_support_rate"] == 1.0,
         "source_citation_failure_count": metrics["source_citation_failure_count"] == 0,
+        "duplicate_merge_review_rate": metrics["duplicate_merge_review_rate"] == 1.0,
         "multi_memory_scope_recall_at_5": metrics["multi_memory_scope_recall_at_5"] == 1.0,
         "thread_recall_at_5": metrics["thread_recall_at_5"] == 1.0,
         "stale_memory_rate": metrics["stale_memory_rate"] == 0.0,

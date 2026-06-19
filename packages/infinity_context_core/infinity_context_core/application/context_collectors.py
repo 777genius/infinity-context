@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from infinity_context_core.application.context_hydration import ContextHydrator
+from infinity_context_core.application.context_relevance import score_query_relevance
 from infinity_context_core.application.context_snippets import (
     query_focused_snippet,
     query_snippet_diagnostics,
@@ -76,11 +77,16 @@ class CanonicalContextCollector:
                 memory_scope_ids=memory_scope_ids,
                 thread_id=str(query.thread_id) if query.thread_id else None,
                 query=query.query,
-                limit=query.max_facts,
+                limit=_canonical_fact_candidate_limit(query.max_facts),
                 category=query.category,
                 tags_any=query.tags_any,
                 tags_all=query.tags_all,
                 tags_none=query.tags_none,
+            )
+            facts = _rank_facts_for_query(
+                tuple(facts),
+                query_text=query.query,
+                limit=query.max_facts,
             )
             keyword_chunks = await uow.chunks.keyword_search(
                 space_id=str(query.space_id),
@@ -106,6 +112,35 @@ class CanonicalContextCollector:
             keyword_chunks=tuple(keyword_chunks),
             anchors=tuple(anchors),
         )
+
+
+def _canonical_fact_candidate_limit(max_facts: int) -> int:
+    if max_facts <= 0:
+        return 0
+    return min(100, max(max_facts * 4, max_facts + 8))
+
+
+def _rank_facts_for_query(
+    facts: tuple[MemoryFact, ...],
+    *,
+    query_text: str,
+    limit: int,
+) -> tuple[MemoryFact, ...]:
+    if limit <= 0 or not facts:
+        return ()
+    ranked = []
+    for index, fact in enumerate(facts):
+        relevance = score_query_relevance(query=query_text, text=fact.text)
+        ranked.append((relevance, index, fact))
+    ranked.sort(
+        key=lambda item: (
+            -item[0].unique_term_hits,
+            -item[0].hit_ratio,
+            -item[0].capped_frequency_hits,
+            item[1],
+        )
+    )
+    return tuple(fact for _, _, fact in ranked[:limit])
 
 
 class VectorContextCollector:

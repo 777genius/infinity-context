@@ -334,6 +334,25 @@ def _quality_golden_cases(
             ),
         ),
         EvalCase(
+            case_id="pending_duplicate_merge_review_visible",
+            category="duplicate_merge",
+            space_id=space_id,
+            memory_scope_ids=(alpha_memory_scope_id,),
+            query="Alex Project Atlas retrieval notes duplicate meeting capture",
+            must_include=(
+                "QUALITY_DUPLICATE_MERGE_ACTIVE",
+                "QUALITY_DUPLICATE_MERGE_PENDING",
+                "Pending duplicate merge update suggestion for active fact",
+            ),
+            must_not_include=("Pending review add suggestion for active fact",),
+            max_facts=1,
+            max_chunks=0,
+            required_diagnostics=(
+                ("pending_conflict_suggestions_considered", "eq", 0),
+                ("pending_duplicate_merge_suggestions_considered", "eq", 1),
+            ),
+        ),
+        EvalCase(
             case_id="multimodal_source_refs_recall_with_citations",
             category="documents",
             space_id=space_id,
