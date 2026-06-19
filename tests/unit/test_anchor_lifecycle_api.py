@@ -120,6 +120,71 @@ def test_anchor_public_api_defaults_legacy_lifecycle_fields(tmp_path: Path) -> N
     assert anchor["updated_at"] == created_at
 
 
+def test_manual_event_anchor_preserves_explicit_structured_metadata(
+    tmp_path: Path,
+) -> None:
+    with make_client(tmp_path) as client:
+        capture = client.post(
+            "/v1/captures",
+            json={
+                "space_slug": "manual-event-metadata",
+                "memory_scope_external_ref": "default",
+                "thread_external_ref": "review",
+                "source_agent": "memo-frontend",
+                "source_kind": "manual",
+                "event_type": "QuickCapture",
+                "actor_role": "user",
+                "source_event_id": "capture-manual-event-metadata",
+                "text": "Alex discussed Project Atlas billing on the call one hour ago.",
+                "source_authority": "user_statement",
+            },
+            headers=auth_headers(),
+        )
+        assert capture.status_code == 201, capture.text
+
+        response = client.post(
+            "/v1/anchors",
+            json={
+                "space_slug": "manual-event-metadata",
+                "memory_scope_external_ref": "default",
+                "kind": "event",
+                "label": "Atlas billing call",
+                "aliases": ["Project Atlas billing review"],
+                "description": "Reviewer-confirmed event anchor.",
+                "confidence": "high",
+                "metadata": {
+                    "anchor_family": "event",
+                    "event_type": "call",
+                    "event_type_canonical": "call",
+                    "event_participant_label": "Alex",
+                    "event_participant_relation": "with",
+                    "event_participant_canonical_key": "alex",
+                    "project_canonical_key": "atlas",
+                    "event_temporal_phrase": "one hour ago",
+                    "event_temporal_hint_code": "relative_recent",
+                    "event_temporal_quantity": "1",
+                    "event_temporal_unit": "hour",
+                    "event_identity_terms": [
+                        "alex",
+                        "project atlas",
+                        "billing",
+                        "call",
+                    ],
+                },
+            },
+            headers=auth_headers(),
+        )
+
+    assert response.status_code == 200, response.text
+    metadata = response.json()["data"]["metadata"]
+    assert metadata["event_type"] == "call"
+    assert metadata["event_type_canonical"] == "call"
+    assert metadata["event_participant_label"] == "Alex"
+    assert metadata["event_temporal_phrase"] == "one hour ago"
+    assert metadata["creation_source"] == "manual"
+    assert metadata["resolver_version"] == "anchor-lifecycle-v2"
+
+
 def test_anchor_backfill_merge_and_split_lifecycle(tmp_path: Path) -> None:
     with make_client(tmp_path) as client:
         capture = client.post(

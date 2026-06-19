@@ -137,7 +137,10 @@ def _anchor_render_text(anchor: MemoryAnchor, *, metadata: dict[str, object]) ->
 
 def _event_render_parts(metadata: dict[str, object]) -> tuple[str, ...]:
     parts: list[str] = []
-    if event_type := _metadata_text(metadata.get("event_type"), limit=80):
+    if event_type := _metadata_text(
+        metadata.get("event_type_canonical") or metadata.get("event_type"),
+        limit=80,
+    ):
         parts.append(f"event_type: {event_type}")
     if participant := _metadata_text(metadata.get("event_participant_label"), limit=120):
         relation = _metadata_text(metadata.get("event_participant_relation"), limit=80) or "with"

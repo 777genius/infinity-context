@@ -115,12 +115,12 @@ class CreateAnchorUseCase:
             raise MemoryValidationError("Anchor normalized key is required")
         confidence = _parse_anchor_confidence(command.confidence)
         now = self._clock.now()
-        metadata = {
-            **dict(command.metadata or {}),
-            "resolver_version": _ANCHOR_RESOLVER_VERSION,
-            "creation_source": "manual",
-            **structured_anchor_metadata_for_label(kind, label),
-        }
+        metadata = _manual_anchor_metadata(
+            kind=kind,
+            label=label,
+            metadata=command.metadata,
+            audit={"creation_source": "manual"},
+        )
         async with self._uow_factory() as uow:
             existing = await uow.anchors.find_active_by_key(
                 space_id=str(command.space_id),
@@ -234,16 +234,12 @@ class UpdateAnchorUseCase:
                     observed_at=command.observed_at,
                     valid_from=command.valid_from,
                     valid_to=command.valid_to,
-                    metadata={
-                        **dict(command.metadata or {}),
-                        "resolver_version": _ANCHOR_RESOLVER_VERSION,
-                        "last_edit_source": "manual",
-                        **(
-                            structured_anchor_metadata_for_label(anchor.kind, label)
-                            if label
-                            else {}
-                        ),
-                    },
+                    metadata=_manual_anchor_metadata(
+                        kind=anchor.kind,
+                        label=label,
+                        metadata=command.metadata,
+                        audit={"last_edit_source": "manual"},
+                    ),
                     now=now,
                 )
             )
@@ -893,6 +889,21 @@ def _event_temporal_identity(metadata: dict[str, object]) -> str:
     if isinstance(quantity, int) and unit:
         return f"{hint}:{quantity}:{unit}"
     return hint
+
+
+def _manual_anchor_metadata(
+    *,
+    kind: MemoryAnchorKind,
+    label: str | None,
+    metadata: dict[str, object] | None,
+    audit: dict[str, object],
+) -> dict[str, object]:
+    return {
+        **(structured_anchor_metadata_for_label(kind, label) if label else {}),
+        **dict(metadata or {}),
+        "resolver_version": _ANCHOR_RESOLVER_VERSION,
+        **audit,
+    }
 
 
 def _metadata_text(metadata: dict[str, object], key: str) -> str:
