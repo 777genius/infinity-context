@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from infinity_context_core.application.anchor_extraction import extract_observed_anchors
+from infinity_context_core.application.anchor_extraction import (
+    ObservedAnchor,
+    extract_observed_anchors,
+)
 from infinity_context_core.application.context_link_candidate_policy import (
     candidate as _candidate,
 )
@@ -71,7 +74,9 @@ from infinity_context_core.application.dto import (
     SuggestContextLinksCommand,
 )
 from infinity_context_core.application.observed_anchor_resolution import (
+    canonical_anchor_keys,
     find_active_by_observed_canonical_key,
+    observed_canonical_key,
     preferred_observed_label,
     should_promote_observed_key,
 )
@@ -88,6 +93,7 @@ from infinity_context_core.domain.entities import (
     Confidence,
     MemoryAnchor,
     MemoryAnchorId,
+    MemoryAnchorKind,
     SourceRef,
 )
 from infinity_context_core.domain.errors import MemoryValidationError
@@ -245,9 +251,15 @@ class SuggestContextLinksUseCase:
             diagnostics["excluded_query_terms"] = list(excluded_terms)
         if temporal_hints:
             diagnostics["temporal_hints"] = [hint.code for hint in temporal_hints]
+        observed_for_query = extract_observed_anchors(query_text)
         observed_by_key = {
             (anchor.kind.value, anchor.normalized_key): anchor
-            for anchor in extract_observed_anchors(query_text)
+            for anchor in observed_for_query
+        }
+        observed_by_canonical_key = {
+            (anchor.kind.value, key): anchor
+            for anchor in observed_for_query
+            if (key := observed_canonical_key(anchor))
         }
         candidates: list[ContextLinkCandidate] = []
         seen: set[tuple[str, str]] = set()
@@ -274,7 +286,11 @@ class SuggestContextLinksUseCase:
                 now=now,
                 base=26,
             )
-            observed = observed_by_key.get((anchor.kind.value, anchor.normalized_key))
+            observed = _observed_anchor_for_candidate(
+                anchor,
+                observed_by_key=observed_by_key,
+                observed_by_canonical_key=observed_by_canonical_key,
+            )
             if observed is not None:
                 score += observed.score_boost
                 reasons.append(observed.reason)
@@ -814,6 +830,23 @@ def _confidence_for_observed_anchor(score_boost: int) -> Confidence:
     if score_boost <= 8:
         return Confidence.LOW
     return Confidence.MEDIUM
+
+
+def _observed_anchor_for_candidate(
+    anchor: MemoryAnchor,
+    *,
+    observed_by_key: dict[tuple[str, str], ObservedAnchor],
+    observed_by_canonical_key: dict[tuple[str, str], ObservedAnchor],
+) -> ObservedAnchor | None:
+    observed = observed_by_key.get((anchor.kind.value, anchor.normalized_key))
+    if observed is not None:
+        return observed
+    if anchor.kind not in {MemoryAnchorKind.ORGANIZATION, MemoryAnchorKind.PROJECT}:
+        return None
+    for key in canonical_anchor_keys(anchor):
+        if observed := observed_by_canonical_key.get((anchor.kind.value, key)):
+            return observed
+    return None
 
 
 def _suggestion_confidence(candidate: ContextLinkCandidate) -> str:

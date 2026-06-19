@@ -203,6 +203,61 @@ def _execute_semantic_linking_golden(client: Any, headers: dict[str, str]) -> di
             "anchor_keys": sorted(same_name_anchor_keys),
         }
     )
+    cross_script_capture = _capture(
+        client,
+        headers,
+        space_slug=space_slug,
+        source_event_id="cross-script-project-anchor-capture",
+        text=(
+            "Сохрани заметку по проекту Атлас: onboarding pricing invoice "
+            "threshold approval is tied to OpenAI vendor review."
+        ),
+        thread_external_ref="quality-review",
+    )
+    cross_script_suggestions = _suggest(
+        client,
+        headers,
+        space_slug=space_slug,
+        source_id=str(cross_script_capture.get("id", "")),
+        text="проект Атлас onboarding pricing OpenAI invoice threshold",
+        thread_external_ref="quality-review",
+    )
+    cross_script_anchor_candidates = [
+        item
+        for item in cross_script_suggestions.get("candidates", [])
+        if item.get("target_type") == "anchor"
+    ]
+    cross_script_project_candidate = next(
+        (
+            item
+            for item in cross_script_anchor_candidates
+            if item.get("metadata", {}).get("anchor_kind") == "project"
+            and item.get("metadata", {}).get("canonical_key") == "atlas"
+        ),
+        {},
+    )
+    cross_script_anchors = _list_anchors(client, headers, space_slug=space_slug)
+    atlas_project_anchors = [
+        item
+        for item in cross_script_anchors
+        if item.get("kind") == "project"
+        and item.get("metadata", {}).get("canonical_key") == "atlas"
+    ]
+    checks["cross_script_project_anchor_resolves_canonical"] = (
+        bool(cross_script_capture)
+        and bool(cross_script_project_candidate)
+        and len(atlas_project_anchors) == 1
+        and "Атлас" in set(atlas_project_anchors[0].get("aliases", []))
+    )
+    cases.append(
+        {
+            "case_id": "cross_script_project_anchor_resolves_canonical",
+            "ok": checks["cross_script_project_anchor_resolves_canonical"],
+            "candidate_target_id": cross_script_project_candidate.get("target_id"),
+            "candidate_score": cross_script_project_candidate.get("score"),
+            "atlas_anchor_count": len(atlas_project_anchors),
+        }
+    )
     if not checks["top_fact_beats_distractor"]:
         failures.append(
             _failure(
@@ -226,6 +281,14 @@ def _execute_semantic_linking_golden(client: Any, headers: dict[str, str]) -> di
                 "same_name_person_project_anchors_separate",
                 "anchor_disambiguation",
                 "same_normalized_person_and_project_not_kept_separate",
+            )
+        )
+    if not checks["cross_script_project_anchor_resolves_canonical"]:
+        failures.append(
+            _failure(
+                "cross_script_project_anchor_resolves_canonical",
+                "anchor_disambiguation",
+                "cross_script_project_anchor_not_canonicalized",
             )
         )
 
