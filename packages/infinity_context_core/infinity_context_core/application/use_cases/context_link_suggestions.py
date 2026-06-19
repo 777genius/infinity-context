@@ -67,6 +67,11 @@ from infinity_context_core.application.context_link_policy import (
     policy_confidence_for_candidate,
     policy_relation_type_for_candidate,
 )
+from infinity_context_core.application.context_link_source_enrichment import (
+    is_self_extraction_chunk,
+    is_self_extraction_document,
+    source_extraction_enrichment,
+)
 from infinity_context_core.application.document_text import document_chunk_retrieval_text
 from infinity_context_core.application.dto import (
     ContextLinkCandidate,
@@ -151,9 +156,18 @@ class SuggestContextLinksUseCase:
                 if extraction_job is not None and _same_scope(extraction_job, command):
                     if extraction_job.thread_id:
                         source_thread_id = str(extraction_job.thread_id)
+                    enrichment = await source_extraction_enrichment(
+                        uow,
+                        command=command,
+                        document_ids=extraction_job.result_document_ids,
+                    )
+                    if enrichment.text:
+                        query_text = _join_text(query_text, enrichment.text)
+                    diagnostics.update(enrichment.diagnostics)
                     source_risk_metadata.update(
                         _source_extraction_risk_metadata(extraction_job.metadata)
                     )
+                    source_risk_metadata.update(enrichment.risk_metadata)
             if source_risk_metadata:
                 diagnostics.update(source_risk_metadata)
             facts = await uow.facts.find_active(
@@ -501,6 +515,8 @@ class SuggestContextLinksUseCase:
             key = ("document", str(document.id))
             if key in seen or _is_same_source(key, command):
                 continue
+            if is_self_extraction_document(document, command):
+                continue
             seen.add(key)
             target_text = f"{document.title} {document.source_type} {document.source_external_id}"
             score, reasons, matched_terms = _score_text_candidate(
@@ -543,6 +559,8 @@ class SuggestContextLinksUseCase:
         for chunk in chunks:
             key = ("chunk", str(chunk.id))
             if key in seen or _is_same_source(key, command):
+                continue
+            if is_self_extraction_chunk(chunk, command):
                 continue
             seen.add(key)
             retrieval_text = document_chunk_retrieval_text(
