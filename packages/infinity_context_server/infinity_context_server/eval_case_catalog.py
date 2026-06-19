@@ -298,6 +298,22 @@ def _quality_golden_cases(
             required_diagnostics=(("hybrid_items_used", "gte", 1),),
         ),
         EvalCase(
+            case_id="context_diversity_preserves_fact_and_chunk_evidence",
+            category="hybrid_retrieval",
+            space_id=space_id,
+            memory_scope_ids=(alpha_memory_scope_id,),
+            query="quality context diversity screenshot transcript fact crowd",
+            must_include=("QUALITY_DIVERSITY_FACT_PRIMARY", "QUALITY_DIVERSITY_CHUNK"),
+            must_not_include=("QUALITY_DIVERSITY_FACT_SECONDARY",),
+            token_budget=160,
+            max_facts=3,
+            max_chunks=1,
+            required_diagnostics=(
+                ("diversity_families_used", "gte", 2),
+                ("diversity_items_used", "gte", 2),
+            ),
+        ),
+        EvalCase(
             case_id="multimodal_source_refs_recall_with_citations",
             category="documents",
             space_id=space_id,

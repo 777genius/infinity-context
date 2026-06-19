@@ -748,6 +748,44 @@ def _seed_quality_golden(client: TestClient, headers: dict[str, str]) -> Quality
             None,
         ),
         (
+            "context_diversity_fact_primary",
+            alpha_memory_scope_id,
+            (
+                "QUALITY_DIVERSITY_FACT_PRIMARY: quality context diversity fact crowd "
+                "tracks the canonical decision."
+            ),
+            "quality-diversity-fact-0",
+            "quality-diversity-fact-0-v1",
+            "internal",
+            None,
+        ),
+        (
+            "context_diversity_fact_secondary",
+            alpha_memory_scope_id,
+            (
+                "QUALITY_DIVERSITY_FACT_SECONDARY: quality context diversity fact crowd "
+                "is a lower-priority duplicate pressure item. "
+                + ("secondary detail " * 20)
+            ),
+            "quality-diversity-fact-1",
+            "quality-diversity-fact-1-v1",
+            "internal",
+            None,
+        ),
+        (
+            "context_diversity_fact_tertiary",
+            alpha_memory_scope_id,
+            (
+                "QUALITY_DIVERSITY_FACT_TERTIARY: quality context diversity fact crowd "
+                "adds another canonical fact candidate. "
+                + ("tertiary detail " * 20)
+            ),
+            "quality-diversity-fact-2",
+            "quality-diversity-fact-2-v1",
+            "internal",
+            None,
+        ),
+        (
             "restricted_secret",
             alpha_memory_scope_id,
             "QUALITY_RESTRICTED_SECRET: production credential must never render in context.",
@@ -953,6 +991,25 @@ def _seed_quality_golden(client: TestClient, headers: dict[str, str]) -> Quality
                 ],
             },
             headers=_with_idempotency(headers, "quality-doc-mm-source-refs-v1"),
+        ).status_code
+    )
+    checks["quality_context_diversity_document"] = _status_ok(
+        client.post(
+            "/v1/documents",
+            json={
+                "space_id": space_id,
+                "memory_scope_id": alpha_memory_scope_id,
+                "title": "Quality context diversity evidence",
+                "text": (
+                    "QUALITY_DIVERSITY_CHUNK: quality context diversity screenshot "
+                    "transcript evidence keeps the source artifact visible. "
+                    + ("chunk detail " * 6)
+                ),
+                "source_type": "document",
+                "source_external_id": "quality-doc-context-diversity",
+                "classification": "internal",
+            },
+            headers=_with_idempotency(headers, "quality-doc-context-diversity-v1"),
         ).status_code
     )
     hybrid_document_response = client.post(

@@ -63,6 +63,7 @@ QUALITY_GOLDEN_REQUIRED_CASE_IDS = (
     "contradicted_fact_visible_only_in_stale_review",
     "document_architecture_precision",
     "hybrid_document_beats_single_source",
+    "context_diversity_preserves_fact_and_chunk_evidence",
     "multimodal_source_refs_recall_with_citations",
     "person_event_project_precision",
     "multilingual_recent_person_project_recall",
