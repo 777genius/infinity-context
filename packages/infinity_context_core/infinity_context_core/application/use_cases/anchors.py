@@ -9,9 +9,9 @@ from difflib import SequenceMatcher
 from infinity_context_core.application.anchor_extraction import (
     ObservedAnchor,
     canonical_anchor_key,
-    canonical_anchor_key_for_kind,
     extract_observed_anchors,
     normalize_anchor_key,
+    structured_anchor_metadata_for_label,
 )
 from infinity_context_core.application.dto import (
     AnchorBackfillSourceSummary,
@@ -119,7 +119,7 @@ class CreateAnchorUseCase:
             **dict(command.metadata or {}),
             "resolver_version": _ANCHOR_RESOLVER_VERSION,
             "creation_source": "manual",
-            "canonical_key": canonical_anchor_key_for_kind(kind, label),
+            **structured_anchor_metadata_for_label(kind, label),
         }
         async with self._uow_factory() as uow:
             existing = await uow.anchors.find_active_by_key(
@@ -239,7 +239,7 @@ class UpdateAnchorUseCase:
                         "resolver_version": _ANCHOR_RESOLVER_VERSION,
                         "last_edit_source": "manual",
                         **(
-                            {"canonical_key": canonical_anchor_key_for_kind(anchor.kind, label)}
+                            structured_anchor_metadata_for_label(anchor.kind, label)
                             if label
                             else {}
                         ),
@@ -395,7 +395,7 @@ class SplitAnchorUseCase:
                         "resolver_version": _ANCHOR_RESOLVER_VERSION,
                         "split_from_anchor_id": str(anchor.id),
                         "split_reason": reason,
-                        "canonical_key": canonical_anchor_key_for_kind(anchor.kind, label),
+                        **structured_anchor_metadata_for_label(anchor.kind, label),
                     },
                     now=now,
                 )
@@ -419,7 +419,7 @@ class SplitAnchorUseCase:
                         "resolver_version": _ANCHOR_RESOLVER_VERSION,
                         "split_from_anchor_id": str(anchor.id),
                         "split_reason": reason,
-                        "canonical_key": canonical_anchor_key_for_kind(anchor.kind, label),
+                        **structured_anchor_metadata_for_label(anchor.kind, label),
                     },
                     now=now,
                 )
@@ -818,6 +818,8 @@ def _merge_score(
     if alias_overlap:
         reasons.append("alias overlap")
         return 92.0, reasons, {"shared_aliases": alias_overlap}
+    if anchor.kind == MemoryAnchorKind.EVENT:
+        return _event_merge_score(anchor, other)
     anchor_key = canonical_anchor_key(anchor.label)
     other_key = canonical_anchor_key(other.label)
     ratio = SequenceMatcher(a=anchor_key, b=other_key).ratio()
@@ -826,6 +828,80 @@ def _merge_score(
     reasons.append("label similarity")
     score = round(ratio * 100, 2)
     return score, reasons, {"label_similarity": ratio, "keys": [anchor_key, other_key]}
+
+
+def _event_merge_score(
+    anchor: MemoryAnchor,
+    other: MemoryAnchor,
+) -> tuple[float, list[str], dict[str, object]]:
+    anchor_identity = _event_identity(anchor)
+    other_identity = _event_identity(other)
+    compatible, conflict_reason = _event_identities_compatible(anchor_identity, other_identity)
+    metadata: dict[str, object] = {
+        "event_identity": {
+            "source": anchor_identity,
+            "target": other_identity,
+        }
+    }
+    if not compatible:
+        metadata["event_identity_conflict"] = conflict_reason
+        return 0.0, [], metadata
+
+    anchor_key = canonical_anchor_key(anchor.label)
+    other_key = canonical_anchor_key(other.label)
+    ratio = SequenceMatcher(a=anchor_key, b=other_key).ratio()
+    metadata.update({"label_similarity": ratio, "keys": [anchor_key, other_key]})
+    if ratio < _LABEL_SIMILARITY_MERGE_THRESHOLD:
+        return 0.0, [], metadata
+    return round(ratio * 100, 2), ["event identity similarity"], metadata
+
+
+def _event_identity(anchor: MemoryAnchor) -> dict[str, str]:
+    metadata = dict(anchor.metadata or {})
+    if metadata.get("anchor_family") != "event":
+        metadata = structured_anchor_metadata_for_label(anchor.kind, anchor.label)
+    event_type = _metadata_text(metadata, "event_type_canonical") or canonical_anchor_key(
+        _first_anchor_token(anchor.label)
+    )
+    participant = _metadata_text(metadata, "event_participant_canonical_key")
+    temporal = _event_temporal_identity(metadata)
+    return {
+        "event_type": event_type,
+        "participant": participant,
+        "temporal": temporal,
+    }
+
+
+def _event_identities_compatible(
+    left: dict[str, str],
+    right: dict[str, str],
+) -> tuple[bool, str | None]:
+    for key in ("event_type", "participant", "temporal"):
+        left_value = left.get(key, "")
+        right_value = right.get(key, "")
+        if left_value != right_value:
+            return False, f"{key}_mismatch"
+    return bool(left.get("event_type")), None
+
+
+def _event_temporal_identity(metadata: dict[str, object]) -> str:
+    hint = _metadata_text(metadata, "event_temporal_hint_code")
+    if not hint:
+        return ""
+    quantity = metadata.get("event_temporal_quantity")
+    unit = _metadata_text(metadata, "event_temporal_unit")
+    if isinstance(quantity, int) and unit:
+        return f"{hint}:{quantity}:{unit}"
+    return hint
+
+
+def _metadata_text(metadata: dict[str, object], key: str) -> str:
+    value = metadata.get(key)
+    return value.strip() if isinstance(value, str) and value.strip() else ""
+
+
+def _first_anchor_token(label: str) -> str:
+    return (normalize_anchor_key(label).split() or [""])[0]
 
 
 def _merge_order(anchor: MemoryAnchor, other: MemoryAnchor) -> tuple[MemoryAnchor, MemoryAnchor]:

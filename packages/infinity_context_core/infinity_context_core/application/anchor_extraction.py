@@ -375,6 +375,17 @@ def canonical_anchor_key_for_kind(kind: MemoryAnchorKind, label: str) -> str:
     return canonical_anchor_key(label)
 
 
+def structured_anchor_metadata_for_label(
+    kind: MemoryAnchorKind,
+    label: str,
+) -> dict[str, object]:
+    canonical_key = canonical_anchor_key_for_kind(kind, label)
+    return {
+        "canonical_key": canonical_key,
+        **_structured_anchor_metadata(kind, label, canonical_key=canonical_key),
+    }
+
+
 def _append_anchor(
     anchors: list[ObservedAnchor],
     seen: set[tuple[str, str]],
@@ -390,7 +401,6 @@ def _append_anchor(
         return
     seen.add(key)
     safe_label = label.strip()[:120]
-    canonical_key = canonical_anchor_key_for_kind(kind, label)
     anchors.append(
         ObservedAnchor(
             kind=kind,
@@ -402,8 +412,7 @@ def _append_anchor(
             metadata={
                 "extraction_reason": reason,
                 "extractor": "anchor-rule-v2",
-                "canonical_key": canonical_key,
-                **_structured_anchor_metadata(kind, label, canonical_key=canonical_key),
+                **structured_anchor_metadata_for_label(kind, label),
             },
         )
     )
