@@ -13,6 +13,7 @@ from infinity_context_core.application import (
     ExpireSuggestionCommand,
     ListSuggestionsQuery,
     RejectSuggestionCommand,
+    ResolveSuggestionConflictCommand,
     ReviewSuggestionBatchItemCommand,
     ReviewSuggestionsBatchCommand,
 )
@@ -136,6 +137,14 @@ class ReviewSuggestionRequest(BaseModel):
     force: bool = False
 
 
+class ResolveSuggestionConflictRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action: str = Field(min_length=1, max_length=40)
+    reason: str | None = Field(default=None, max_length=320)
+    force: bool = False
+
+
 class ReviewSuggestionBatchItemRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -155,6 +164,7 @@ class ReviewSuggestionsBatchRequest(BaseModel):
 def suggestion_to_response(suggestion: MemorySuggestion) -> dict[str, Any]:
     review_actionable = suggestion.status == SuggestionStatus.PENDING
     review_payload = safe_public_metadata(suggestion.review_payload or {}, max_items=40)
+    review_kind = _suggestion_review_kind(review_payload)
     return {
         "id": str(suggestion.id),
         "space_id": str(suggestion.space_id),
@@ -189,9 +199,12 @@ def suggestion_to_response(suggestion: MemorySuggestion) -> dict[str, Any]:
         "created_from_capture_id": suggestion.created_from_capture_id,
         "candidate_fingerprint": suggestion.candidate_fingerprint,
         "review_payload": review_payload,
-        "review_kind": _suggestion_review_kind(review_payload),
+        "review_kind": review_kind,
         "review_actionable": review_actionable,
-        "available_review_actions": _available_review_actions(review_actionable),
+        "available_review_actions": _available_review_actions(
+            review_actionable,
+            review_kind=review_kind,
+        ),
         "review_state_reason": _suggestion_review_state_reason(suggestion),
         "review_resolution_options": _suggestion_review_resolution_options(review_payload),
         "review_reason": _safe_optional_reason(suggestion.review_reason, limit=320),
@@ -207,8 +220,13 @@ def _suggestion_review_kind(review_payload: dict[str, Any]) -> str:
     return str(value).strip() if value else "candidate_review"
 
 
-def _available_review_actions(review_actionable: bool) -> list[str]:
-    return ["approve", "reject", "expire"] if review_actionable else []
+def _available_review_actions(review_actionable: bool, *, review_kind: str) -> list[str]:
+    if not review_actionable:
+        return []
+    actions = ["approve", "reject", "expire"]
+    if review_kind == "conflict_review":
+        actions.append("resolve_conflict")
+    return actions
 
 
 def _suggestion_review_state_reason(suggestion: MemorySuggestion) -> str:
@@ -387,6 +405,27 @@ async def review_suggestions_batch(
         )
     )
     return {"data": _review_batch_to_response(result)}
+
+
+@router.post("/{suggestion_id}/resolve-conflict")
+async def resolve_suggestion_conflict(
+    suggestion_id: str,
+    request: ResolveSuggestionConflictRequest,
+    container: Annotated[Container, Depends(get_container)],
+) -> dict[str, Any]:
+    ensure_server_writes_enabled(container)
+    result = await container.resolve_suggestion_conflict.execute(
+        ResolveSuggestionConflictCommand(
+            suggestion_id=suggestion_id,
+            action=request.action,
+            reason=request.reason,
+            force=request.force,
+        )
+    )
+    body = {"suggestion": suggestion_to_response(result.suggestion)}
+    if result.fact:
+        body["fact"] = fact_to_response(result.fact, result.indexing_status)
+    return {"data": body}
 
 
 @router.post("/{suggestion_id}/approve")

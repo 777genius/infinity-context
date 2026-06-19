@@ -1176,6 +1176,14 @@ class ExpireSuggestionCommand:
 
 
 @dataclass(frozen=True)
+class ResolveSuggestionConflictCommand:
+    suggestion_id: str
+    action: str
+    reason: str | None = None
+    force: bool = False
+
+
+@dataclass(frozen=True)
 class ReviewSuggestionBatchItemCommand:
     suggestion_id: str
     action: str

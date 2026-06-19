@@ -110,6 +110,7 @@ from infinity_context_core.application.dto import (
     RelatedFactsResult,
     RememberFactCommand,
     RequestAssetExtractionCommand,
+    ResolveSuggestionConflictCommand,
     RetryAssetExtractionCommand,
     ReviewContextLinkSuggestionBatchItemCommand,
     ReviewContextLinkSuggestionBatchItemResult,
@@ -248,6 +249,7 @@ from infinity_context_core.application.use_cases.suggestions import (
     ExpireSuggestionUseCase,
     ListSuggestionsUseCase,
     RejectSuggestionUseCase,
+    ResolveSuggestionConflictUseCase,
     ReviewSuggestionsBatchUseCase,
 )
 from infinity_context_core.application.use_cases.update_fact import UpdateFactUseCase
@@ -431,6 +433,8 @@ __all__ = [
     "RememberFactUseCase",
     "RequestAssetExtractionCommand",
     "RequestAssetExtractionUseCase",
+    "ResolveSuggestionConflictCommand",
+    "ResolveSuggestionConflictUseCase",
     "ContextLinkSuggestionVisibleFilter",
     "ReviewContextLinkSuggestionBatchItemCommand",
     "ReviewContextLinkSuggestionBatchItemResult",

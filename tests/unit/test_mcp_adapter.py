@@ -437,24 +437,35 @@ def _conflict_resolution_options() -> list[dict[str, str]]:
             "review_action": "reject",
             "effect": "keep_existing_fact",
             "availability": "available",
+            "resolution_action": "reject_candidate",
         },
         {
             "id": "approve_candidate",
             "review_action": "approve",
             "effect": "create_new_fact_keep_conflicting_fact",
             "availability": "available",
+            "resolution_action": "approve_candidate",
         },
         {
             "id": "expire_candidate",
             "review_action": "expire",
             "effect": "hide_pending_suggestion",
             "availability": "available",
+            "resolution_action": "expire_candidate",
         },
         {
             "id": "replace_existing_fact",
-            "review_action": "manual_targeted_update",
+            "review_action": "resolve_conflict",
             "effect": "update_conflicting_fact_with_candidate",
-            "availability": "manual_only",
+            "availability": "available",
+            "resolution_action": "replace_existing_fact",
+        },
+        {
+            "id": "mark_existing_disputed",
+            "review_action": "resolve_conflict",
+            "effect": "mark_existing_fact_disputed_keep_candidate_as_evidence",
+            "availability": "available",
+            "resolution_action": "mark_existing_disputed",
         },
     ]
 

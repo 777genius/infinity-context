@@ -82,6 +82,7 @@
     formatContextLinkReviewAudit: (...args) => formatContextLinkReviewAudit(...args),
     manualContextLinkForm: (...args) => manualContextLinkForm(...args),
     reviewSuggestion: (...args) => reviewSuggestion(...args),
+    resolveSuggestionConflict: (...args) => resolveSuggestionConflict(...args),
     reviewContextLinkSuggestion: (...args) => reviewContextLinkSuggestion(...args),
     reviewPendingContextLinkSuggestionsBatch: (...args) =>
       reviewPendingContextLinkSuggestionsBatch(...args),
@@ -751,6 +752,32 @@
         await apiJson(`/v1/suggestions/${encodeURIComponent(suggestionId)}/${action}`, {
           method: "POST",
           body: { reason: reason || `Reviewed in Infinity Context Browser` },
+        });
+        await refreshAll();
+        window.infinityContextReview.closeReviewModal();
+      } catch (error) {
+        setError(error.message);
+      }
+    });
+  }
+
+  async function resolveSuggestionConflict(action, suggestionId) {
+    await withReviewActionLock(`fact-suggestion:${suggestionId}`, async () => {
+      const reason = window.prompt(
+        `${action} reason`,
+        `Resolved in Infinity Context Browser`,
+      );
+      if (reason === null) {
+        return;
+      }
+      setError("");
+      try {
+        await apiJson(`/v1/suggestions/${encodeURIComponent(suggestionId)}/resolve-conflict`, {
+          method: "POST",
+          body: {
+            action,
+            reason: reason || `Resolved in Infinity Context Browser`,
+          },
         });
         await refreshAll();
         window.infinityContextReview.closeReviewModal();

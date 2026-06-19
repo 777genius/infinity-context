@@ -347,6 +347,10 @@
         actionButton("Reject", () => reviewSuggestion("reject", suggestion.id)),
         actionButton("Expire", () => reviewSuggestion("expire", suggestion.id)),
       );
+      const conflictActions = factSuggestionConflictActions(suggestion);
+      if (conflictActions) {
+        actions.append(...conflictActions);
+      }
       content.push(actions);
     }
     openReviewModal(`Fact suggestion ${shortId(suggestion.id)}`, content);
@@ -402,6 +406,33 @@
     const id = option.id || "resolution";
     const action = option.review_action || "review";
     return `${id} (${action})`;
+  }
+
+  function factSuggestionConflictActions(suggestion) {
+    const { actionButton, arrayOf, resolveSuggestionConflict } = browser();
+    const options = arrayOf(suggestion.review_resolution_options).filter(
+      (option) => option.review_action === "resolve_conflict" && option.availability === "available",
+    );
+    if (!options.length) {
+      return null;
+    }
+    return options.map((option) =>
+      actionButton(
+        conflictResolutionButtonLabel(option),
+        () => resolveSuggestionConflict(option.resolution_action || option.id, suggestion.id),
+        option.id === "replace_existing_fact" ? "primary-button" : "",
+      ),
+    );
+  }
+
+  function conflictResolutionButtonLabel(option) {
+    if (option.id === "replace_existing_fact") {
+      return "Replace existing";
+    }
+    if (option.id === "mark_existing_disputed") {
+      return "Mark disputed";
+    }
+    return option.id || "Resolve";
   }
 
   function contextEndpointPreviewSection(title, objectType, objectId, fallbackPreview = "") {

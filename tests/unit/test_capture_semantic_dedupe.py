@@ -316,14 +316,19 @@ def test_auto_apply_safe_active_conflict_creates_review_suggestion_not_fact(
     assert suggestion["candidate_text"] == "Docs retrieval should use Qdrant vectors."
     assert suggestion["review_payload"]["review_kind"] == "conflict_review"
     assert suggestion["review_kind"] == "conflict_review"
-    assert suggestion["available_review_actions"] == ["approve", "reject", "expire"]
+    assert suggestion["available_review_actions"] == [
+        "approve",
+        "reject",
+        "expire",
+        "resolve_conflict",
+    ]
     assert suggestion["review_resolution_options"][1]["id"] == "approve_candidate"
     assert suggestion["review_resolution_options"][1]["effect"] == (
         "create_new_fact_keep_conflicting_fact"
     )
-    assert suggestion["review_resolution_options"][3]["review_action"] == (
-        "manual_targeted_update"
-    )
+    assert suggestion["review_resolution_options"][3]["review_action"] == "resolve_conflict"
+    assert suggestion["review_resolution_options"][3]["availability"] == "available"
+    assert suggestion["review_resolution_options"][4]["id"] == "mark_existing_disputed"
     assert suggestion["review_payload"]["conflicting_fact_id"] == existing.json()["data"]["id"]
     assert suggestion["review_payload"]["conflicting_fact_version"] == 1
     assert suggestion["review_payload"]["conflict_match_type"] == "exclusive_anchor_mismatch"
@@ -394,6 +399,219 @@ def test_auto_apply_safe_numeric_conflict_creates_review_suggestion_not_fact(
     assert "numeric_value_mismatch" in suggestion["review_payload"]["conflict_reason_codes"]
     assert "billing" in suggestion["review_payload"]["conflict_overlap_terms"]
     assert "auto_apply_active_conflict" in suggestion["review_payload"]["rejected_resolver_codes"]
+
+
+def test_conflict_resolution_replace_existing_fact_updates_conflicting_fact(
+    tmp_path: Path,
+) -> None:
+    app = _capture_app(tmp_path, "capture-conflict-replace.db", CaptureMode.AUTO_APPLY_SAFE)
+    headers = {"Authorization": "Bearer test-token"}
+    with TestClient(app) as client:
+        existing = _create_fact(
+            client,
+            headers=headers,
+            text="Project Atlas keeps billing logs for 7 days.",
+            space_slug="capture-conflict-replace",
+        )
+        capture = _create_capture(
+            client,
+            headers=headers,
+            text="Remember: Project Atlas keeps billing logs for 30 days.",
+            space_slug="capture-conflict-replace",
+        )
+        result = _consolidate(
+            client,
+            capture_id=capture.json()["data"]["id"],
+            extractor=StaticExtractor(
+                (
+                    _candidate(
+                        "Project Atlas keeps billing logs for 30 days.",
+                        confidence=Confidence.HIGH,
+                        ttl_policy="durable",
+                    ),
+                )
+            ),
+            auto_apply_safe_enabled=True,
+        )
+        suggestion = _list_suggestions(
+            client,
+            headers=headers,
+            space_slug="capture-conflict-replace",
+        ).json()["data"][0]
+        resolved = client.post(
+            f"/v1/suggestions/{suggestion['id']}/resolve-conflict",
+            json={
+                "action": "replace_existing_fact",
+                "reason": "newer capture supersedes the old retention value",
+            },
+            headers=headers,
+        )
+        active_facts = _list_facts(
+            client,
+            headers=headers,
+            space_slug="capture-conflict-replace",
+        )
+        pending = _list_suggestions(
+            client,
+            headers=headers,
+            space_slug="capture-conflict-replace",
+        )
+
+    assert existing.status_code == 201
+    assert result.created_suggestions == 1
+    assert resolved.status_code == 200
+    data = resolved.json()["data"]
+    assert data["fact"]["id"] == existing.json()["data"]["id"]
+    assert data["fact"]["text"] == "Project Atlas keeps billing logs for 30 days."
+    assert data["fact"]["version"] == 2
+    assert data["fact"]["status"] == "active"
+    assert data["suggestion"]["status"] == "approved"
+    assert data["suggestion"]["review_payload"]["resolved_conflict_action"] == (
+        "replace_existing_fact"
+    )
+    assert data["suggestion"]["review_payload"]["resolved_fact_id"] == existing.json()["data"]["id"]
+    assert [item["text"] for item in active_facts.json()["data"]] == [
+        "Project Atlas keeps billing logs for 30 days."
+    ]
+    assert pending.json()["data"] == []
+
+
+def test_conflict_resolution_mark_existing_disputed_removes_default_active_fact(
+    tmp_path: Path,
+) -> None:
+    app = _capture_app(tmp_path, "capture-conflict-dispute.db", CaptureMode.AUTO_APPLY_SAFE)
+    headers = {"Authorization": "Bearer test-token"}
+    with TestClient(app) as client:
+        existing = _create_fact(
+            client,
+            headers=headers,
+            text="Project Atlas keeps billing logs for 7 days.",
+            space_slug="capture-conflict-dispute",
+        )
+        capture = _create_capture(
+            client,
+            headers=headers,
+            text="Remember: Project Atlas keeps billing logs for 30 days.",
+            space_slug="capture-conflict-dispute",
+        )
+        _consolidate(
+            client,
+            capture_id=capture.json()["data"]["id"],
+            extractor=StaticExtractor(
+                (
+                    _candidate(
+                        "Project Atlas keeps billing logs for 30 days.",
+                        confidence=Confidence.HIGH,
+                        ttl_policy="durable",
+                    ),
+                )
+            ),
+            auto_apply_safe_enabled=True,
+        )
+        suggestion = _list_suggestions(
+            client,
+            headers=headers,
+            space_slug="capture-conflict-dispute",
+        ).json()["data"][0]
+        resolved = client.post(
+            f"/v1/suggestions/{suggestion['id']}/resolve-conflict",
+            json={
+                "action": "mark_existing_disputed",
+                "reason": "both retention values need human verification",
+            },
+            headers=headers,
+        )
+        active_facts = _list_facts(
+            client,
+            headers=headers,
+            space_slug="capture-conflict-dispute",
+        )
+        disputed_facts = _list_facts_with_status(
+            client,
+            headers=headers,
+            space_slug="capture-conflict-dispute",
+            status_filter="disputed",
+        )
+
+    assert existing.status_code == 201
+    assert resolved.status_code == 200
+    data = resolved.json()["data"]
+    assert data["fact"]["id"] == existing.json()["data"]["id"]
+    assert data["fact"]["status"] == "disputed"
+    assert data["fact"]["version"] == 2
+    assert data["suggestion"]["status"] == "approved"
+    assert data["suggestion"]["review_payload"]["resolved_conflict_action"] == (
+        "mark_existing_disputed"
+    )
+    assert active_facts.json()["data"] == []
+    assert [item["status"] for item in disputed_facts.json()["data"]] == ["disputed"]
+
+
+def test_conflict_resolution_rejects_stale_conflicting_fact_version(
+    tmp_path: Path,
+) -> None:
+    app = _capture_app(tmp_path, "capture-conflict-stale.db", CaptureMode.AUTO_APPLY_SAFE)
+    headers = {"Authorization": "Bearer test-token"}
+    with TestClient(app) as client:
+        existing = _create_fact(
+            client,
+            headers=headers,
+            text="Project Atlas keeps billing logs for 7 days.",
+            space_slug="capture-conflict-stale",
+        )
+        capture = _create_capture(
+            client,
+            headers=headers,
+            text="Remember: Project Atlas keeps billing logs for 30 days.",
+            space_slug="capture-conflict-stale",
+        )
+        _consolidate(
+            client,
+            capture_id=capture.json()["data"]["id"],
+            extractor=StaticExtractor(
+                (
+                    _candidate(
+                        "Project Atlas keeps billing logs for 30 days.",
+                        confidence=Confidence.HIGH,
+                        ttl_policy="durable",
+                    ),
+                )
+            ),
+            auto_apply_safe_enabled=True,
+        )
+        suggestion = _list_suggestions(
+            client,
+            headers=headers,
+            space_slug="capture-conflict-stale",
+        ).json()["data"][0]
+        updated = client.patch(
+            f"/v1/facts/{existing.json()['data']['id']}",
+            json={
+                "expected_version": 1,
+                "text": "Project Atlas keeps billing logs for 14 days.",
+                "reason": "manual update before conflict review",
+                "source_refs": [{"source_type": "manual", "source_id": "stale-update"}],
+            },
+            headers=headers,
+        )
+        stale_resolution = client.post(
+            f"/v1/suggestions/{suggestion['id']}/resolve-conflict",
+            json={
+                "action": "replace_existing_fact",
+                "reason": "try to apply stale conflict review",
+            },
+            headers=headers,
+        )
+        still_pending = _list_suggestions(
+            client,
+            headers=headers,
+            space_slug="capture-conflict-stale",
+        )
+
+    assert existing.status_code == 201
+    assert updated.status_code == 200
+    assert stale_resolution.status_code == 409
+    assert still_pending.json()["data"][0]["status"] == "pending"
 
 
 def _capture_app(tmp_path: Path, database_name: str, capture_mode: CaptureMode):
@@ -503,12 +721,27 @@ def _consolidate(
 
 
 def _list_facts(client: TestClient, *, headers: dict[str, str], space_slug: str):
+    return _list_facts_with_status(
+        client,
+        headers=headers,
+        space_slug=space_slug,
+        status_filter="active",
+    )
+
+
+def _list_facts_with_status(
+    client: TestClient,
+    *,
+    headers: dict[str, str],
+    space_slug: str,
+    status_filter: str,
+):
     return client.get(
         "/v1/facts",
         params={
             "space_slug": space_slug,
             "memory_scope_external_ref": "default",
-            "status": "active",
+            "status": status_filter,
         },
         headers=headers,
     )
