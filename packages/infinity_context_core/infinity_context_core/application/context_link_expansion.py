@@ -6,6 +6,12 @@ from dataclasses import dataclass
 
 from infinity_context_core.application.context_hydration import ContextHydrator
 from infinity_context_core.application.context_policy import is_context_fact_visible
+from infinity_context_core.application.context_snippets import (
+    query_focused_snippet,
+    query_snippet_diagnostics,
+    query_snippet_score_signals,
+    source_refs_with_query_snippet,
+)
 from infinity_context_core.application.document_text import document_chunk_retrieval_text
 from infinity_context_core.application.dto import BuildContextQuery, ContextItem
 from infinity_context_core.application.source_refs import (
@@ -163,7 +169,7 @@ class ApprovedContextLinkExpander:
             chunk = chunks_by_id.get(chunk_id)
             if chunk is None:
                 continue
-            items.append(_linked_chunk_context_item(chunk, link=link))
+            items.append(_linked_chunk_context_item(chunk, link=link, query_text=query.query))
         return tuple(items), max(0, len(chunk_ids) - len(items))
 
     async def _linked_fact_items(
@@ -198,7 +204,7 @@ class ApprovedContextLinkExpander:
                 now=now,
             ):
                 continue
-            items.append(_linked_fact_context_item(fact, link=link))
+            items.append(_linked_fact_context_item(fact, link=link, query_text=query.query))
         return tuple(items), max(0, len(fact_ids) - len(items))
 
     async def _linked_asset_items(
@@ -281,10 +287,19 @@ def _linked_target_id(link: MemoryContextLink, *, target_type: str) -> str | Non
     return None
 
 
-def _linked_chunk_context_item(chunk: MemoryChunk, *, link: MemoryContextLink) -> ContextItem:
+def _linked_chunk_context_item(
+    chunk: MemoryChunk,
+    *,
+    link: MemoryContextLink,
+    query_text: str,
+) -> ContextItem:
     score = _linked_item_score(link)
     text = document_chunk_retrieval_text(text=chunk.text, metadata=chunk.metadata)
-    source_refs = chunk_source_refs(chunk, text_preview=text[:200])
+    snippet = query_focused_snippet(query=query_text, text=text)
+    source_refs = source_refs_with_query_snippet(
+        chunk_source_refs(chunk, text_preview=snippet.text if snippet else text[:200]),
+        snippet,
+    )
     return ContextItem(
         item_id=str(chunk.id),
         item_type="chunk",
@@ -297,6 +312,7 @@ def _linked_chunk_context_item(chunk: MemoryChunk, *, link: MemoryContextLink) -
             memory_scope_id=str(chunk.memory_scope_id),
             score=score,
             source_ref_count=len(source_refs),
+            score_signals_extra=query_snippet_score_signals(snippet),
             extra_provenance={
                 "source_type": chunk.source_type,
                 "source_id": chunk.source_external_id,
@@ -305,6 +321,7 @@ def _linked_chunk_context_item(chunk: MemoryChunk, *, link: MemoryContextLink) -
                 "char_start": chunk.char_start,
                 "char_end": chunk.char_end,
                 **source_ref_location_summary(source_refs),
+                **query_snippet_diagnostics(snippet),
             },
             extra_diagnostics={
                 "source_type": chunk.source_type,
@@ -313,33 +330,44 @@ def _linked_chunk_context_item(chunk: MemoryChunk, *, link: MemoryContextLink) -
                 "char_start": chunk.char_start,
                 "char_end": chunk.char_end,
                 **source_ref_location_summary(source_refs),
+                **query_snippet_diagnostics(snippet),
             },
         ),
     )
 
 
-def _linked_fact_context_item(fact: MemoryFact, *, link: MemoryContextLink) -> ContextItem:
+def _linked_fact_context_item(
+    fact: MemoryFact,
+    *,
+    link: MemoryContextLink,
+    query_text: str,
+) -> ContextItem:
     score = min(0.93, round(_linked_item_score(link) + 0.015, 4))
+    snippet = query_focused_snippet(query=query_text, text=fact.text)
+    source_refs = source_refs_with_query_snippet(fact.source_refs, snippet)
     return ContextItem(
         item_id=str(fact.id),
         item_type="fact",
         text=fact.text,
         score=score,
-        source_refs=fact.source_refs,
+        source_refs=source_refs,
         diagnostics=_linked_item_diagnostics(
             link=link,
             retrieval_source="approved_context_linked_facts",
             memory_scope_id=str(fact.memory_scope_id),
             score=score,
-            source_ref_count=len(fact.source_refs),
+            source_ref_count=len(source_refs),
+            score_signals_extra=query_snippet_score_signals(snippet),
             extra_provenance={
                 "fact_status": fact.status.value,
                 "fact_version": fact.version,
+                **query_snippet_diagnostics(snippet),
             },
             extra_diagnostics={
                 "confidence": fact.confidence.value,
                 "trust_level": fact.trust_level.value,
                 "updated_at": fact.updated_at.isoformat(),
+                **query_snippet_diagnostics(snippet),
             },
         ),
     )
@@ -398,6 +426,7 @@ def _linked_item_diagnostics(
     source_ref_count: int,
     extra_provenance: dict[str, object],
     extra_diagnostics: dict[str, object],
+    score_signals_extra: dict[str, object] | None = None,
 ) -> dict[str, object]:
     return {
         "memory_scope_id": memory_scope_id,
@@ -413,6 +442,7 @@ def _linked_item_diagnostics(
             "retrieval_channel": retrieval_source,
             "context_link_confidence_boost": round(score - 0.8, 4),
             "source_ref_count": source_ref_count,
+            **(score_signals_extra or {}),
         },
         "provenance": {
             "retrieval_sources": [retrieval_source],
