@@ -146,6 +146,7 @@ class ContextBundleDiagnostics:
     temporal_relations_considered: int = 0
     temporal_contradictions_considered: int = 0
     pending_conflict_suggestions_considered: int = 0
+    pending_duplicate_merge_suggestions_considered: int = 0
     multimodal_source_ref_count: int = 0
     items_with_multimodal_source_refs: int = 0
     source_refs_with_page_count: int = 0
@@ -432,6 +433,9 @@ def _bundle_diagnostics_from_payload(value: object) -> ContextBundleDiagnostics:
         ),
         pending_conflict_suggestions_considered=_non_negative_int(
             raw.get("pending_conflict_suggestions_considered")
+        ),
+        pending_duplicate_merge_suggestions_considered=_non_negative_int(
+            raw.get("pending_duplicate_merge_suggestions_considered")
         ),
         multimodal_source_ref_count=_non_negative_int(raw.get("multimodal_source_ref_count")),
         items_with_multimodal_source_refs=_non_negative_int(

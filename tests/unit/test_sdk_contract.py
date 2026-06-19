@@ -927,6 +927,7 @@ def test_sdk_build_typed_context_returns_bounded_safe_diagnostics() -> None:
                         "temporal_contradictions_considered": 2,
                         "temporal_relations_skipped_by_validity": 3,
                         "pending_conflict_suggestions_considered": 11,
+                        "pending_duplicate_merge_suggestions_considered": 5,
                         "items_considered": 14,
                         "items_used": 7,
                         "dropped_by_instruction_flag": 1,
@@ -1101,6 +1102,7 @@ def test_sdk_build_typed_context_returns_bounded_safe_diagnostics() -> None:
     assert bundle.diagnostics.temporal_contradictions_considered == 2
     assert bundle.diagnostics.temporal_relations_skipped_by_validity == 3
     assert bundle.diagnostics.pending_conflict_suggestions_considered == 11
+    assert bundle.diagnostics.pending_duplicate_merge_suggestions_considered == 5
     assert bundle.diagnostics.items_considered == 14
     assert bundle.diagnostics.items_used == 7
     assert bundle.diagnostics.dropped_by_instruction_flag == 1

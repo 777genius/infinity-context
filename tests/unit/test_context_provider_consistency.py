@@ -2050,6 +2050,78 @@ def test_context_surfaces_pending_conflict_suggestions_for_visible_facts(
     assert suggestion_items[0]["diagnostics"]["conflicting_fact_id"] == fact_id
 
 
+def test_context_surfaces_pending_duplicate_merge_suggestions_for_visible_facts(
+    tmp_path: Path,
+) -> None:
+    with make_client(tmp_path) as client:
+        fact_response = client.post(
+            "/v1/facts",
+            json={
+                "space_id": "space_client_app",
+                "memory_scope_id": "memory_scope_default",
+                "text": "MERGE_CONTEXT_ACTIVE: Alex owns Project Atlas retrieval notes.",
+                "kind": "architecture_decision",
+                "source_refs": [{"source_type": "manual", "source_id": "merge-active"}],
+            },
+            headers=auth_headers(),
+        )
+        fact_id = fact_response.json()["data"]["id"]
+        suggestion_response = client.post(
+            "/v1/suggestions",
+            json={
+                "space_id": "space_client_app",
+                "memory_scope_id": "memory_scope_default",
+                "candidate_text": (
+                    "MERGE_CONTEXT_PENDING: Alex owns Project Atlas retrieval notes "
+                    "from the duplicate meeting capture."
+                ),
+                "kind": "architecture_decision",
+                "operation": "update",
+                "target_fact_id": fact_id,
+                "target_fact_version": 1,
+                "source_refs": [{"source_type": "manual", "source_id": "merge-pending"}],
+                "confidence": "medium",
+                "trust_level": "medium",
+                "safe_reason": "test_duplicate_merge_requires_review",
+                "review_payload": {
+                    "review_kind": "duplicate_fact_merge",
+                    "dedupe_match_type": "semantic_token_overlap",
+                    "dedupe_reason_codes": ["semantic_duplicate", "token_overlap"],
+                    "dedupe_overlap_terms": ["person:alex", "project:atlas", "retrieval"],
+                },
+            },
+            headers=auth_headers(),
+        )
+        context_response = client.post(
+            "/v1/context",
+            json={
+                "space_id": "space_client_app",
+                "memory_scope_ids": ["memory_scope_default"],
+                "query": "Alex Project Atlas retrieval notes",
+                "token_budget": 512,
+            },
+            headers=auth_headers(),
+        )
+
+    assert fact_response.status_code == 201
+    assert suggestion_response.status_code == 201
+    assert context_response.status_code == 200
+    data = context_response.json()["data"]
+    rendered = data["rendered_text"]
+    assert "MERGE_CONTEXT_ACTIVE" in rendered
+    assert "MERGE_CONTEXT_PENDING" in rendered
+    assert "Pending duplicate merge update suggestion for active fact" in rendered
+    assert data["diagnostics"]["pending_conflict_suggestions_considered"] == 0
+    assert data["diagnostics"]["pending_duplicate_merge_suggestions_considered"] == 1
+    suggestion_items = [item for item in data["items"] if item["item_type"] == "suggestion"]
+    assert len(suggestion_items) == 1
+    diagnostics = suggestion_items[0]["diagnostics"]
+    assert diagnostics["retrieval_source"] == "pending_duplicate_merge_suggestion"
+    assert diagnostics["review_kind"] == "duplicate_fact_merge"
+    assert diagnostics["target_fact_id"] == fact_id
+    assert diagnostics["canonical"] is False
+
+
 def test_context_can_include_rag_recall_candidates_when_adapter_is_enabled(
     tmp_path: Path,
 ) -> None:

@@ -54,6 +54,7 @@ _BUNDLE_COUNTER_KEYS = (
     "temporal_contradictions_considered",
     "temporal_relations_skipped_by_validity",
     "pending_conflict_suggestions_considered",
+    "pending_duplicate_merge_suggestions_considered",
     "approved_context_links_considered",
     "approved_context_links_used",
     "approved_context_linked_chunks_used",
@@ -126,6 +127,7 @@ _BUNDLE_COUNTER_DEFAULTS = {
     "superseded_facts_considered": 0,
     "superseded_facts_used": 0,
     "pending_conflict_suggestions_considered": 0,
+    "pending_duplicate_merge_suggestions_considered": 0,
     "approved_context_links_considered": 0,
     "approved_context_links_used": 0,
     "approved_context_linked_chunks_used": 0,
@@ -178,10 +180,11 @@ _RETRIEVAL_SOURCE_PRIORITY = {
     "graph_hydrated": 8,
     "temporal_supersedes_relation": 9,
     "pending_conflict_suggestion": 10,
-    "superseded_review": 11,
-    "disputed_review": 12,
-    "stale_review": 13,
-    "postgres_facts": 13,
+    "pending_duplicate_merge_suggestion": 11,
+    "superseded_review": 12,
+    "disputed_review": 13,
+    "stale_review": 14,
+    "postgres_facts": 14,
 }
 
 

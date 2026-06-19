@@ -149,6 +149,7 @@ class BuildContextUseCase:
             "stale_facts_used": 0,
             "superseded_facts_considered": 0,
             "superseded_facts_used": 0,
+            "pending_duplicate_merge_suggestions_considered": 0,
         }
         if query.consistency_mode == ConsistencyMode.CANONICAL_ONLY:
             diagnostics["vector_status"] = "skipped"
@@ -277,7 +278,7 @@ class BuildContextUseCase:
                 },
             )
         )
-        pending_conflicts = await self._pending_conflict_items(
+        pending_review_items = await self._pending_conflict_items(
             query=query,
             visible_fact_ids=tuple(
                 item.item_id for item in temporal_items if item.item_type == "fact"
@@ -296,7 +297,7 @@ class BuildContextUseCase:
                     *artifact_evidence_items,
                     *linked_context.items,
                     *stale_review_items,
-                    *pending_conflicts,
+                    *pending_review_items,
                 )
             ),
             token_budget=query.token_budget,
@@ -306,7 +307,17 @@ class BuildContextUseCase:
         diagnostics.update(stale_diagnostics)
         diagnostics.update(linked_context.diagnostics)
         diagnostics.update(result.bundle.diagnostics)
-        diagnostics["pending_conflict_suggestions_considered"] = len(pending_conflicts)
+        diagnostics["pending_conflict_suggestions_considered"] = sum(
+            1
+            for item in pending_review_items
+            if (item.diagnostics or {}).get("retrieval_source") == "pending_conflict_suggestion"
+        )
+        diagnostics["pending_duplicate_merge_suggestions_considered"] = sum(
+            1
+            for item in pending_review_items
+            if (item.diagnostics or {}).get("retrieval_source")
+            == "pending_duplicate_merge_suggestion"
+        )
         diagnostics["hybrid_items_used"] = sum(
             1
             for item in result.bundle.items
@@ -513,38 +524,9 @@ class BuildContextUseCase:
                     if conflict_fact_id not in visible_fact_id_set:
                         continue
                     items.append(
-                        ContextItem(
-                            item_id=str(suggestion.id),
-                            item_type="suggestion",
-                            text=_conflict_suggestion_text(
-                                candidate_text=suggestion.candidate_text,
-                                operation=suggestion.operation.value,
-                                conflict_fact_id=conflict_fact_id,
-                            ),
-                            score=0.94,
-                            source_refs=suggestion.source_refs,
-                            diagnostics={
-                                "memory_scope_id": str(suggestion.memory_scope_id),
-                                "retrieval_source": "pending_conflict_suggestion",
-                                "retrieval_sources": ["pending_conflict_suggestion"],
-                                "ranking_reason": (
-                                    "pending suggestion contradicts visible active fact"
-                                ),
-                                "score_signals": {
-                                    "base_score": 0.94,
-                                    "review_status_boost": 0.0,
-                                    "canonical": False,
-                                },
-                                "provenance": {
-                                    "retrieval_sources": ["pending_conflict_suggestion"],
-                                    "source_ref_count": len(suggestion.source_refs),
-                                    "conflicting_fact_id": conflict_fact_id,
-                                },
-                                "status": suggestion.status.value,
-                                "operation": suggestion.operation.value,
-                                "canonical": False,
-                                "conflicting_fact_id": conflict_fact_id,
-                            },
+                        _pending_review_suggestion_item(
+                            suggestion=suggestion,
+                            target_fact_id=conflict_fact_id,
                         )
                     )
                     if len(items) >= max_items:
@@ -571,6 +553,95 @@ def _conflict_suggestion_text(
     return (
         f"Pending review {operation} suggestion for active fact {conflict_fact_id}: "
         f"{candidate_text}"
+    )
+
+
+def _pending_review_suggestion_item(
+    *,
+    suggestion,
+    target_fact_id: str,
+) -> ContextItem:
+    review_kind = _suggestion_review_kind(suggestion)
+    retrieval_source = _pending_suggestion_retrieval_source(review_kind)
+    score = _pending_suggestion_score(review_kind)
+    return ContextItem(
+        item_id=str(suggestion.id),
+        item_type="suggestion",
+        text=_pending_suggestion_text(
+            candidate_text=suggestion.candidate_text,
+            operation=suggestion.operation.value,
+            review_kind=review_kind,
+            target_fact_id=target_fact_id,
+        ),
+        score=score,
+        source_refs=suggestion.source_refs,
+        diagnostics={
+            "memory_scope_id": str(suggestion.memory_scope_id),
+            "retrieval_source": retrieval_source,
+            "retrieval_sources": [retrieval_source],
+            "ranking_reason": _pending_suggestion_ranking_reason(review_kind),
+            "review_kind": review_kind,
+            "score_signals": {
+                "base_score": score,
+                "review_status_boost": 0.0,
+                "canonical": False,
+            },
+            "provenance": {
+                "retrieval_sources": [retrieval_source],
+                "source_ref_count": len(suggestion.source_refs),
+                "target_fact_id": target_fact_id,
+                "review_kind": review_kind,
+                "candidate_fingerprint": suggestion.candidate_fingerprint,
+            },
+            "status": suggestion.status.value,
+            "operation": suggestion.operation.value,
+            "canonical": False,
+            "target_fact_id": target_fact_id,
+            "conflicting_fact_id": target_fact_id,
+        },
+    )
+
+
+def _suggestion_review_kind(suggestion) -> str:
+    payload = suggestion.review_payload or {}
+    value = payload.get("review_kind")
+    return str(value).strip() if value else "conflict_review"
+
+
+def _pending_suggestion_retrieval_source(review_kind: str) -> str:
+    if review_kind == "duplicate_fact_merge":
+        return "pending_duplicate_merge_suggestion"
+    return "pending_conflict_suggestion"
+
+
+def _pending_suggestion_score(review_kind: str) -> float:
+    if review_kind == "duplicate_fact_merge":
+        return 0.93
+    return 0.94
+
+
+def _pending_suggestion_ranking_reason(review_kind: str) -> str:
+    if review_kind == "duplicate_fact_merge":
+        return "pending duplicate merge can update visible active fact without duplicating memory"
+    return "pending suggestion contradicts visible active fact"
+
+
+def _pending_suggestion_text(
+    *,
+    candidate_text: str,
+    operation: str,
+    review_kind: str,
+    target_fact_id: str,
+) -> str:
+    if review_kind == "duplicate_fact_merge":
+        return (
+            f"Pending duplicate merge {operation} suggestion for active fact "
+            f"{target_fact_id}: {candidate_text}"
+        )
+    return _conflict_suggestion_text(
+        candidate_text=candidate_text,
+        operation=operation,
+        conflict_fact_id=target_fact_id,
     )
 
 
