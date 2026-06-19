@@ -9,7 +9,11 @@ from dataclasses import dataclass
 from json import JSONDecodeError
 from math import isfinite
 
-from infinity_context_core.application.context_relevance import score_query_relevance
+from infinity_context_core.application.context_relevance import (
+    is_query_relevance_sufficient,
+    query_relevance_score_signals,
+    score_query_relevance,
+)
 from infinity_context_core.application.context_snippets import (
     query_focused_snippet,
     query_snippet_diagnostics,
@@ -318,11 +322,7 @@ def _context_items_from_manifest(
                 )
             ),
         )
-        if (
-            require_query_match
-            and relevance.query_term_count > 0
-            and relevance.unique_term_hits <= 0
-        ):
+        if require_query_match and not is_query_relevance_sufficient(relevance):
             diagnostics["artifact_evidence_query_drop_count"] = (
                 int(diagnostics["artifact_evidence_query_drop_count"]) + 1
             )
@@ -391,11 +391,7 @@ def _context_items_from_manifest(
                         "coordinate_boost": coordinate_boost,
                         "evidence_kind_boost": kind_boost,
                         "evidence_modality_boost": modality_boost,
-                        "query_term_count": relevance.query_term_count,
-                        "unique_term_hits": relevance.unique_term_hits,
-                        "capped_frequency_hits": relevance.capped_frequency_hits,
-                        "hit_ratio": relevance.hit_ratio,
-                        "query_relevance_boost": relevance.score_boost,
+                        **query_relevance_score_signals(relevance),
                         **query_snippet_score_signals(snippet),
                     },
                     "provenance": {

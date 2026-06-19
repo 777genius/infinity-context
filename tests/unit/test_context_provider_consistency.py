@@ -1313,6 +1313,58 @@ def test_context_includes_matching_canonical_anchor_with_evidence_citation(
     assert anchor_items[0].diagnostics["retrieval_source"] == "canonical_anchors"
 
 
+def test_context_drops_wrong_project_anchor_when_only_generic_terms_match(
+    tmp_path: Path,
+) -> None:
+    with make_client(tmp_path) as client:
+        anchor = client.post(
+            "/v1/anchors",
+            json={
+                "space_id": "space_client_app",
+                "memory_scope_id": "memory_scope_default",
+                "kind": "project",
+                "label": "Project Apollo",
+                "aliases": ["Apollo"],
+                "description": "Canonical project anchor for Apollo work.",
+                "confidence": "high",
+                "evidence_refs": [
+                    {
+                        "source_type": "manual",
+                        "source_id": "anchor_apollo_manual",
+                        "quote_preview": "Project Apollo appeared in a planning note.",
+                    }
+                ],
+            },
+            headers=auth_headers(),
+        )
+        container = client.app.state.container
+        use_case = BuildContextUseCase(
+            uow_factory=container.uow_factory,
+            ids=container.ids,
+            vector_index=NoopVectorMemoryAdapter(),
+            graph_index=NoopGraphMemoryAdapter(),
+            embedder=NoopEmbeddingAdapter(),
+        )
+        context = asyncio.run(
+            use_case.execute(
+                BuildContextQuery(
+                    space_id=SpaceId("space_client_app"),
+                    memory_scope_ids=(MemoryScopeId("memory_scope_default"),),
+                    query="Project Atlas",
+                    token_budget=512,
+                    max_facts=0,
+                    max_chunks=0,
+                )
+            )
+        )
+
+    assert anchor.status_code == 200, anchor.text
+    assert "Project Apollo" not in context.rendered_text
+    assert context.items == ()
+    assert context.diagnostics["anchors_considered"] == 1
+    assert context.diagnostics["anchors_used"] == 0
+
+
 def test_context_retrieves_event_anchor_by_structured_identity_metadata(
     tmp_path: Path,
 ) -> None:

@@ -1,4 +1,7 @@
-from infinity_context_core.application.context_relevance import score_query_relevance
+from infinity_context_core.application.context_relevance import (
+    is_query_relevance_sufficient,
+    score_query_relevance,
+)
 
 
 def test_query_relevance_matches_russian_case_variants() -> None:
@@ -54,3 +57,19 @@ def test_query_relevance_avoids_unrelated_project_match() -> None:
     assert relevance.query_term_count == 2
     assert relevance.unique_term_hits == 1
     assert relevance.hit_ratio == 0.5
+    assert relevance.distinctive_term_count == 1
+    assert relevance.distinctive_term_hits == 0
+    assert is_query_relevance_sufficient(relevance) is False
+
+
+def test_query_relevance_policy_keeps_entity_partial_match() -> None:
+    relevance = score_query_relevance(
+        query="Alex meeting",
+        text="person: Alex",
+    )
+
+    assert relevance.query_term_count == 2
+    assert relevance.unique_term_hits == 1
+    assert relevance.distinctive_term_count == 1
+    assert relevance.distinctive_term_hits == 1
+    assert is_query_relevance_sufficient(relevance) is True

@@ -33,6 +33,8 @@ from infinity_context_core.application.context_policy import (
 from infinity_context_core.application.context_ranking import dedupe_rank_items
 from infinity_context_core.application.context_relevance import (
     QueryRelevance,
+    is_query_relevance_sufficient,
+    query_relevance_score_signals,
     score_query_relevance,
 )
 from infinity_context_core.application.context_snippets import (
@@ -202,7 +204,7 @@ class BuildContextUseCase:
                 query=query.query,
                 text=anchor_retrieval_text(anchor),
             )
-            if relevance.query_term_count > 0 and relevance.unique_term_hits <= 0:
+            if not is_query_relevance_sufficient(relevance):
                 continue
             identity_relevance = score_query_relevance(
                 query=query.query,
@@ -482,7 +484,7 @@ class BuildContextUseCase:
                         ):
                             continue
                         relevance = score_query_relevance(query=query.query, text=fact.text)
-                        if relevance.query_term_count > 0 and relevance.unique_term_hits <= 0:
+                        if not is_query_relevance_sufficient(relevance):
                             continue
                         items.append(
                             _stale_review_item(
@@ -730,11 +732,7 @@ def _stale_review_item(
                 "final_score": score,
                 "retrieval_channel": retrieval_source,
                 "fact_status": fact.status.value,
-                "query_term_count": relevance.query_term_count,
-                "unique_term_hits": relevance.unique_term_hits,
-                "capped_frequency_hits": relevance.capped_frequency_hits,
-                "hit_ratio": relevance.hit_ratio,
-                "query_relevance_boost": relevance.score_boost,
+                **query_relevance_score_signals(relevance),
                 **query_snippet_score_signals(snippet),
             },
             "provenance": {
@@ -880,15 +878,7 @@ def _chunk_context_item(
         **query_snippet_score_signals(snippet),
     }
     if relevance is not None:
-        score_signals.update(
-            {
-                "query_term_count": relevance.query_term_count,
-                "unique_term_hits": relevance.unique_term_hits,
-                "capped_frequency_hits": relevance.capped_frequency_hits,
-                "hit_ratio": relevance.hit_ratio,
-                "query_relevance_boost": relevance.score_boost,
-            }
-        )
+        score_signals.update(query_relevance_score_signals(relevance))
     return ContextItem(
         item_id=str(chunk.id),
         item_type="chunk",
@@ -965,11 +955,7 @@ def _fact_score_signals(
         "trust_boost": round(trust_boost, 4),
         "freshness_boost": round(freshness_boost, 4),
         "ttl_penalty": round(ttl_penalty, 4),
-        "query_term_count": relevance.query_term_count,
-        "unique_term_hits": relevance.unique_term_hits,
-        "capped_frequency_hits": relevance.capped_frequency_hits,
-        "hit_ratio": relevance.hit_ratio,
-        "query_relevance_boost": relevance.score_boost,
+        **query_relevance_score_signals(relevance),
         "classification": fact.classification,
         "category": fact.category,
     }

@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from infinity_context_core.application.context_relevance import QueryRelevance
+from infinity_context_core.application.context_relevance import (
+    QueryRelevance,
+    query_relevance_score_signals,
+)
 from infinity_context_core.application.dto import ContextItem
 from infinity_context_core.application.safe_payload import safe_metadata_text
 from infinity_context_core.domain.entities import MemoryAnchor
@@ -90,11 +93,7 @@ def anchor_context_item(
                 "retrieval_channel": "canonical_anchors",
                 "anchor_kind": anchor.kind.value,
                 "confidence": anchor.confidence.value,
-                "query_term_count": relevance.query_term_count,
-                "unique_term_hits": relevance.unique_term_hits,
-                "capped_frequency_hits": relevance.capped_frequency_hits,
-                "hit_ratio": relevance.hit_ratio,
-                "query_relevance_boost": relevance.score_boost,
+                **query_relevance_score_signals(relevance),
                 "identity_unique_term_hits": identity_relevance.unique_term_hits,
                 "identity_hit_ratio": identity_relevance.hit_ratio,
                 "identity_relevance_boost": identity_relevance.score_boost,
