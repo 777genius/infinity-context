@@ -350,6 +350,28 @@ def _quality_golden_cases(
                 ("query_snippet_items_used", "gte", 1),
                 ("query_snippet_source_refs_enriched", "gte", 1),
             ),
+            required_source_ref_matches=(
+                (
+                    ("source_type", "eq", "asset_extraction"),
+                    ("source_id", "eq", "quality-mm-extract"),
+                    ("page_number", "eq", 2),
+                    ("time_start_ms", "eq", 1200),
+                    ("time_end_ms", "eq", 5400),
+                    ("bbox", "eq", [12.0, 32.0, 300.0, 88.0]),
+                    ("quote_preview", "contains", "Project Atlas screenshot"),
+                ),
+            ),
+            required_citation_matches=(
+                (
+                    ("source_type", "eq", "asset_extraction"),
+                    ("source_id", "eq", "quality-mm-extract"),
+                    ("page_number", "eq", 2),
+                    ("time_range_ms.start", "eq", 1200),
+                    ("time_range_ms.end", "eq", 5400),
+                    ("bbox", "eq", [12.0, 32.0, 300.0, 88.0]),
+                    ("label", "contains", "bbox"),
+                ),
+            ),
         ),
         EvalCase(
             case_id="document_middle_recall",

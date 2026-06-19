@@ -15,7 +15,12 @@ from infinity_context_server.eval_constants import (
     _SMALL_GOLDEN_RECALL_GATE,
     QUALITY_GOLDEN_REQUIRED_CASE_IDS,
 )
-from infinity_context_server.eval_types import DiagnosticRequirement, EvalCase, EvalCaseResult
+from infinity_context_server.eval_types import (
+    DiagnosticRequirement,
+    EvalCase,
+    EvalCaseResult,
+    MappingRequirement,
+)
 
 _MAX_DIAGNOSTIC_MISMATCH_FAILURES = 8
 _MAX_DIAGNOSTIC_FAILURE_TEXT_CHARS = 160
@@ -76,6 +81,14 @@ def _run_eval_case(
         diagnostics,
         required=case.required_diagnostics,
     )
+    source_ref_mismatches = _required_mapping_group_mismatches(
+        _flatten_item_mappings(items, "source_refs"),
+        required=case.required_source_ref_matches,
+    )
+    citation_mismatches = _required_mapping_group_mismatches(
+        _flatten_item_mappings(items, "citations"),
+        required=case.required_citation_matches,
+    )
     token_overflow = _token_overflow(diagnostics)
     failures = _case_failures(
         case=case,
@@ -83,6 +96,8 @@ def _run_eval_case(
         precision_ok=precision_ok,
         evidence_guard=evidence_guard,
         diagnostic_mismatches=diagnostic_mismatches,
+        source_ref_mismatches=source_ref_mismatches,
+        citation_mismatches=citation_mismatches,
         token_overflow=token_overflow,
         item_ids=item_ids,
     )
@@ -190,6 +205,83 @@ def _contains(actual: object, expected: object) -> bool:
     return False
 
 
+def _flatten_item_mappings(items: object, key: str) -> tuple[dict[str, object], ...]:
+    if not isinstance(items, list):
+        return ()
+    mappings: list[dict[str, object]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        raw_values = item.get(key)
+        if not isinstance(raw_values, list):
+            continue
+        for value in raw_values:
+            if isinstance(value, dict):
+                mappings.append(value)
+    return tuple(mappings)
+
+
+def _required_mapping_group_mismatches(
+    mappings: tuple[dict[str, object], ...],
+    *,
+    required: tuple[MappingRequirement, ...],
+) -> tuple[dict[str, object], ...]:
+    mismatches: list[dict[str, object]] = []
+    for index, requirement_group in enumerate(required):
+        if any(
+            _mapping_requirement_group_matches(mapping, required=requirement_group)
+            for mapping in mappings
+        ):
+            continue
+        if len(mismatches) >= _MAX_DIAGNOSTIC_MISMATCH_FAILURES:
+            break
+        mismatches.append(
+            {
+                "group_index": index,
+                "candidate_count": len(mappings),
+                "required": [
+                    _safe_mapping_requirement(requirement)
+                    for requirement in requirement_group
+                ],
+            }
+        )
+    return tuple(mismatches)
+
+
+def _mapping_requirement_group_matches(
+    mapping: dict[str, object],
+    *,
+    required: MappingRequirement,
+) -> bool:
+    for requirement in required:
+        key, operator, expected = _parse_diagnostic_requirement(requirement)
+        if not _diagnostic_requirement_matches(
+            _mapping_value(mapping, key),
+            operator=operator,
+            expected=expected,
+        ):
+            return False
+    return True
+
+
+def _mapping_value(mapping: dict[str, object], key: str) -> object:
+    current: object = mapping
+    for part in key.split("."):
+        if not isinstance(current, dict):
+            return None
+        current = current.get(part)
+    return current
+
+
+def _safe_mapping_requirement(requirement: DiagnosticRequirement) -> dict[str, object]:
+    key, operator, expected = _parse_diagnostic_requirement(requirement)
+    return {
+        "key": _safe_failure_text(key),
+        "operator": _safe_failure_text(operator),
+        "expected": _safe_failure_value(expected),
+    }
+
+
 def _case_failures(
     *,
     case: EvalCase,
@@ -199,6 +291,8 @@ def _case_failures(
     diagnostic_mismatches: tuple[dict[str, object], ...],
     token_overflow: bool,
     item_ids: tuple[str, ...],
+    source_ref_mismatches: tuple[dict[str, object], ...] = (),
+    citation_mismatches: tuple[dict[str, object], ...] = (),
 ) -> tuple[dict[str, object], ...]:
     failures: list[dict[str, object]] = []
     if not recall_ok:
@@ -210,6 +304,14 @@ def _case_failures(
     if diagnostic_mismatches:
         failure = _failure(case, "required_diagnostics_missing", item_ids)
         failure["diagnostic_mismatches"] = list(diagnostic_mismatches)
+        failures.append(failure)
+    if source_ref_mismatches:
+        failure = _failure(case, "required_source_refs_missing", item_ids)
+        failure["source_ref_mismatches"] = list(source_ref_mismatches)
+        failures.append(failure)
+    if citation_mismatches:
+        failure = _failure(case, "required_citations_missing", item_ids)
+        failure["citation_mismatches"] = list(citation_mismatches)
         failures.append(failure)
     if token_overflow:
         failures.append(_failure(case, "token_budget_overflow", item_ids))
@@ -306,6 +408,11 @@ def _quality_golden_metrics(
     hybrid_cases = tuple(
         result for result in case_results if result.case.category == "hybrid_retrieval"
     )
+    citation_cases = tuple(
+        result
+        for result in case_results
+        if result.case.required_source_ref_matches or result.case.required_citation_matches
+    )
     multi_memory_scope_cases = tuple(
         result for result in case_results if result.case.category == "multi_memory_scope"
     )
@@ -322,6 +429,10 @@ def _quality_golden_metrics(
         "cross_thread",
         "must_not_include_matched",
     )
+    source_citation_failures = _count_failures(
+        case_results,
+        ("required_source_refs_missing", "required_citations_missing"),
+    )
     critical_failure_count = (
         int(base["deleted_memory_leak_count"])
         + int(base["cross_memory_scope_leak_count"])
@@ -329,6 +440,7 @@ def _quality_golden_metrics(
         + int(base["context_token_overflow_count"])
         + restricted_leaks
         + cross_thread_leaks
+        + source_citation_failures
         + _count_category_failures(case_results, "stale_update", "must_not_include_matched")
     )
     return {
@@ -350,6 +462,11 @@ def _quality_golden_metrics(
             sum(1 for result in hybrid_cases if not result.failures),
             len(hybrid_cases),
         ),
+        "citation_support_rate": _ratio(
+            sum(1 for result in citation_cases if not result.failures),
+            len(citation_cases),
+        ),
+        "source_citation_failure_count": source_citation_failures,
         "multi_memory_scope_recall_at_5": _ratio(
             sum(1 for result in multi_memory_scope_cases if result.recall_ok),
             len(multi_memory_scope_cases),
@@ -375,6 +492,8 @@ def _quality_golden_gates(metrics: dict[str, object]) -> dict[str, bool]:
         "answer_support_rate": metrics["answer_support_rate"] == 1.0,
         "document_recall_at_5": float(metrics["document_recall_at_5"]) >= 0.95,
         "hybrid_retrieval_rate": metrics["hybrid_retrieval_rate"] == 1.0,
+        "citation_support_rate": metrics["citation_support_rate"] == 1.0,
+        "source_citation_failure_count": metrics["source_citation_failure_count"] == 0,
         "multi_memory_scope_recall_at_5": metrics["multi_memory_scope_recall_at_5"] == 1.0,
         "thread_recall_at_5": metrics["thread_recall_at_5"] == 1.0,
         "stale_memory_rate": metrics["stale_memory_rate"] == 0.0,
@@ -537,6 +656,18 @@ def _count_category_failures(
         if result.case.category == category
         for failure in result.failures
         if failure["reason"] == reason
+    )
+
+
+def _count_failures(
+    case_results: tuple[EvalCaseResult, ...],
+    reasons: tuple[str, ...],
+) -> int:
+    return sum(
+        1
+        for result in case_results
+        for failure in result.failures
+        if failure["reason"] in reasons
     )
 
 

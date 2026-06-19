@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 DiagnosticRequirement = tuple[str, object] | tuple[str, str, object]
+MappingRequirement = tuple[DiagnosticRequirement, ...]
 
 
 @dataclass(frozen=True)
@@ -68,6 +69,8 @@ class EvalCase:
     include_stale: bool = False
     require_evidence_guard: bool = True
     required_diagnostics: tuple[DiagnosticRequirement, ...] = ()
+    required_source_ref_matches: tuple[MappingRequirement, ...] = ()
+    required_citation_matches: tuple[MappingRequirement, ...] = ()
 
 
 @dataclass(frozen=True)
