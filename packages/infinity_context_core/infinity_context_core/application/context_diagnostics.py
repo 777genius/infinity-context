@@ -109,6 +109,7 @@ _BUNDLE_COUNTER_KEYS = (
     "source_refs_with_page_count",
     "source_refs_with_bbox_count",
     "source_refs_with_time_range_count",
+    "source_refs_with_char_range_count",
     "query_snippet_items_used",
     "query_snippet_source_refs_enriched",
     "rendered_chars",
@@ -195,6 +196,7 @@ _BUNDLE_COUNTER_DEFAULTS = {
     "source_refs_with_page_count": 0,
     "source_refs_with_bbox_count": 0,
     "source_refs_with_time_range_count": 0,
+    "source_refs_with_char_range_count": 0,
     "query_snippet_items_used": 0,
     "query_snippet_source_refs_enriched": 0,
     "rendered_chars": 0,
@@ -604,6 +606,9 @@ def _multimodal_source_ref_counts(items: tuple[ContextItem, ...]) -> dict[str, i
     time_count = sum(
         1 for ref in refs if ref.time_start_ms is not None or ref.time_end_ms is not None
     )
+    char_range_count = sum(
+        1 for ref in refs if ref.char_start is not None or ref.char_end is not None
+    )
     return {
         "multimodal_source_ref_count": sum(1 for ref in refs if _is_multimodal_source_ref(ref)),
         "items_with_multimodal_source_refs": sum(
@@ -612,6 +617,7 @@ def _multimodal_source_ref_counts(items: tuple[ContextItem, ...]) -> dict[str, i
         "source_refs_with_page_count": page_count,
         "source_refs_with_bbox_count": bbox_count,
         "source_refs_with_time_range_count": time_count,
+        "source_refs_with_char_range_count": char_range_count,
     }
 
 

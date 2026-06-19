@@ -76,6 +76,33 @@ def test_context_bundle_diagnostics_report_source_totals_and_truncation() -> Non
     assert diagnostics["source_refs_truncated"] is True
 
 
+def test_context_bundle_diagnostics_count_char_range_source_refs() -> None:
+    item = ContextItem(
+        item_id="chunk_contract",
+        item_type="chunk",
+        text="Contract diagnostics item.",
+        score=0.9,
+        source_refs=(
+            SourceRef(
+                source_type="document",
+                source_id="contract_1",
+                chunk_id="chunk_7",
+                char_start=120,
+                char_end=188,
+            ),
+            SourceRef(source_type="manual", source_id="note"),
+        ),
+        diagnostics={},
+    )
+
+    diagnostics = normalize_context_bundle_diagnostics({}, items=(item,))
+
+    assert diagnostics["source_refs_with_char_range_count"] == 1
+    assert diagnostics["source_refs_with_page_count"] == 0
+    assert diagnostics["source_refs_with_bbox_count"] == 0
+    assert diagnostics["source_refs_with_time_range_count"] == 0
+
+
 def test_context_bundle_diagnostics_defaults_empty_contract() -> None:
     diagnostics = normalize_context_bundle_diagnostics(
         {
@@ -115,6 +142,7 @@ def test_context_bundle_diagnostics_defaults_empty_contract() -> None:
     assert diagnostics["citation_quote_previews_rendered"] == 0
     assert diagnostics["sensitive_citation_quote_previews_skipped"] == 0
     assert diagnostics["sensitive_item_text_redacted"] == 0
+    assert diagnostics["source_refs_with_char_range_count"] == 0
     assert diagnostics["source_refs_with_bbox_count"] == 0
     assert diagnostics["source_refs_total"] == 0
     assert diagnostics["source_refs_returned"] == 0

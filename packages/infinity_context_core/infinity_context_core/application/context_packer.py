@@ -485,6 +485,10 @@ def _source_ref_location(ref: SourceRef) -> str:
         start = ref.time_start_ms if ref.time_start_ms is not None else "?"
         end = ref.time_end_ms if ref.time_end_ms is not None else "?"
         parts.append(f"time_ms={start}-{end}")
+    if ref.char_start is not None or ref.char_end is not None:
+        start = ref.char_start if ref.char_start is not None else "?"
+        end = ref.char_end if ref.char_end is not None else "?"
+        parts.append(f"chars={start}-{end}")
     if ref.bbox is not None:
         bbox = ",".join(_format_bbox_value(value) for value in ref.bbox)
         parts.append(f"bbox={bbox}")
