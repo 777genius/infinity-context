@@ -2432,6 +2432,7 @@ def test_context_surfaces_pending_duplicate_merge_suggestions_for_visible_facts(
                 "review_payload": {
                     "review_kind": "duplicate_fact_merge",
                     "dedupe_match_type": "semantic_token_overlap",
+                    "dedupe_score": 0.82,
                     "dedupe_reason_codes": ["semantic_duplicate", "token_overlap"],
                     "dedupe_overlap_terms": ["person:alex", "project:atlas", "retrieval"],
                 },
@@ -2464,6 +2465,16 @@ def test_context_surfaces_pending_duplicate_merge_suggestions_for_visible_facts(
     diagnostics = suggestion_items[0]["diagnostics"]
     assert diagnostics["retrieval_source"] == "pending_duplicate_merge_suggestion"
     assert diagnostics["review_kind"] == "duplicate_fact_merge"
+    assert diagnostics["dedupe_match_type"] == "semantic_token_overlap"
+    assert diagnostics["review_match_score"] == 0.82
+    assert diagnostics["review_reason_codes"] == ["semantic_duplicate", "token_overlap"]
+    assert diagnostics["dedupe_overlap_terms"] == [
+        "person:alex",
+        "project:atlas",
+        "retrieval",
+    ]
+    assert diagnostics["provenance"]["dedupe_match_type"] == "semantic_token_overlap"
+    assert diagnostics["provenance"]["review_match_score"] == 0.82
     assert diagnostics["target_fact_id"] == fact_id
     assert diagnostics["canonical"] is False
 

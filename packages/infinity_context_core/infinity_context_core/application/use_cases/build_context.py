@@ -578,6 +578,7 @@ def _pending_review_suggestion_item(
     retrieval_source = _pending_suggestion_retrieval_source(review_kind)
     score = _pending_suggestion_score(review_kind)
     review_resolution = _suggestion_review_resolution_diagnostics(suggestion)
+    review_match = _suggestion_review_match_diagnostics(suggestion)
     return ContextItem(
         item_id=str(suggestion.id),
         item_type="suggestion",
@@ -606,12 +607,14 @@ def _pending_review_suggestion_item(
                 "target_fact_id": target_fact_id,
                 "review_kind": review_kind,
                 "candidate_fingerprint": suggestion.candidate_fingerprint,
+                **review_match,
             },
             "status": suggestion.status.value,
             "operation": suggestion.operation.value,
             "canonical": False,
             "target_fact_id": target_fact_id,
             "conflicting_fact_id": target_fact_id,
+            **review_match,
             **review_resolution,
         },
     )
@@ -654,6 +657,66 @@ def _suggestion_review_resolution_diagnostics(suggestion) -> dict[str, object]:
     if safe_options:
         diagnostics["review_resolution_options"] = safe_options
     return diagnostics
+
+
+def _suggestion_review_match_diagnostics(suggestion) -> dict[str, object]:
+    payload = suggestion.review_payload or {}
+    diagnostics: dict[str, object] = {}
+    for key in (
+        "dedupe_match_type",
+        "conflict_match_type",
+        "duplicate_fact_id",
+        "duplicate_fact_version",
+        "target_fact_version",
+    ):
+        value = _bounded_metadata_text(payload.get(key), limit=120)
+        if value:
+            diagnostics[key] = value
+    score = _optional_float(payload.get("dedupe_score") or payload.get("conflict_score"))
+    if score is not None:
+        diagnostics["review_match_score"] = score
+    for key in (
+        "dedupe_reason_codes",
+        "dedupe_overlap_terms",
+        "conflict_reason_codes",
+        "conflict_overlap_terms",
+    ):
+        values = _bounded_metadata_text_list(payload.get(key), limit=80, max_items=12)
+        if values:
+            diagnostics[key] = values
+    reason_codes = _bounded_metadata_text_list(
+        payload.get("dedupe_reason_codes") or payload.get("conflict_reason_codes"),
+        limit=80,
+        max_items=12,
+    )
+    if reason_codes:
+        diagnostics["review_reason_codes"] = reason_codes
+    return diagnostics
+
+
+def _bounded_metadata_text_list(
+    value: object,
+    *,
+    limit: int,
+    max_items: int,
+) -> list[str]:
+    if not isinstance(value, list | tuple):
+        return []
+    safe_values: list[str] = []
+    for item in value[:max_items]:
+        text = _bounded_metadata_text(item, limit=limit)
+        if text:
+            safe_values.append(text)
+    return safe_values
+
+
+def _optional_float(value: object) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _bounded_metadata_text(value: object, *, limit: int) -> str:
