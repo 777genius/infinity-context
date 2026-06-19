@@ -27,6 +27,17 @@ class StoredBlobObject:
 
 
 @dataclass(frozen=True)
+class StoredBlobReference:
+    source_type: str
+    source_id: str
+    storage_backend: str
+    storage_key: str
+    sha256_hex: str
+    byte_size: int
+    created_at: datetime
+
+
+@dataclass(frozen=True)
 class StoredBlobPage:
     objects: tuple[StoredBlobObject, ...]
     next_cursor: str | None = None
@@ -44,6 +55,9 @@ class BlobStoragePort(Protocol):
 
 
 class BlobStorageMaintenancePort(BlobStoragePort, Protocol):
+    async def stat_object(self, *, storage_key: str) -> StoredBlobObject:
+        """Read metadata for one blob without loading full content when supported."""
+
     async def list_objects(
         self,
         *,
@@ -99,6 +113,15 @@ class AssetRepositoryPort(Protocol):
         storage_keys: tuple[str, ...],
     ) -> set[str]:
         """Return storage keys referenced by active stored assets."""
+
+    async def list_stored_blob_references(
+        self,
+        *,
+        storage_backend: str,
+        prefix: str,
+        limit: int,
+    ) -> list[StoredBlobReference]:
+        """List active asset blob references for storage maintenance."""
 
     async def list_for_scope(
         self,

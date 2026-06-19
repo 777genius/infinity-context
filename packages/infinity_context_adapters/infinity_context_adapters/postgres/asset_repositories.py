@@ -16,6 +16,7 @@ from infinity_context_core.ports.assets import (
     AssetRepositoryPort,
     ContextLinkRepositoryPort,
     ContextLinkSuggestionRepositoryPort,
+    StoredBlobReference,
 )
 from infinity_context_core.ports.extraction import AssetExtractionRepositoryPort
 from sqlalchemy import func, or_, select
@@ -159,6 +160,40 @@ class PostgresAssetRepository(AssetRepositoryPort):
             )
         ).scalars()
         return {str(row) for row in rows}
+
+    async def list_stored_blob_references(
+        self,
+        *,
+        storage_backend: str,
+        prefix: str,
+        limit: int,
+    ) -> list[StoredBlobReference]:
+        conditions = [
+            MemoryAssetRow.storage_backend == storage_backend,
+            MemoryAssetRow.status == "stored",
+        ]
+        if prefix:
+            conditions.append(MemoryAssetRow.storage_key.startswith(f"{prefix}/", autoescape=True))
+        rows = (
+            await self._session.execute(
+                select(MemoryAssetRow)
+                .where(*conditions)
+                .order_by(MemoryAssetRow.created_at, MemoryAssetRow.id)
+                .limit(limit)
+            )
+        ).scalars()
+        return [
+            StoredBlobReference(
+                source_type="asset",
+                source_id=row.id,
+                storage_backend=row.storage_backend,
+                storage_key=row.storage_key,
+                sha256_hex=row.sha256_hex,
+                byte_size=row.byte_size,
+                created_at=row.created_at,
+            )
+            for row in rows
+        ]
 
     async def list_for_scope(
         self,
@@ -314,6 +349,52 @@ class PostgresAssetExtractionRepository(AssetExtractionRepositoryPort):
             )
         ).scalars()
         return {str(row) for row in rows}
+
+    async def list_retained_artifact_blob_references(
+        self,
+        *,
+        storage_backend: str,
+        prefix: str,
+        limit: int,
+    ) -> list[StoredBlobReference]:
+        conditions = [
+            MemoryAssetExtractionArtifactRow.storage_backend == storage_backend,
+            MemoryAssetRow.status == "stored",
+        ]
+        if prefix:
+            conditions.append(
+                MemoryAssetExtractionArtifactRow.storage_key.startswith(
+                    f"{prefix}/",
+                    autoescape=True,
+                )
+            )
+        rows = (
+            await self._session.execute(
+                select(MemoryAssetExtractionArtifactRow)
+                .join(
+                    MemoryAssetRow,
+                    MemoryAssetRow.id == MemoryAssetExtractionArtifactRow.asset_id,
+                )
+                .where(*conditions)
+                .order_by(
+                    MemoryAssetExtractionArtifactRow.created_at,
+                    MemoryAssetExtractionArtifactRow.id,
+                )
+                .limit(limit)
+            )
+        ).scalars()
+        return [
+            StoredBlobReference(
+                source_type="extraction_artifact",
+                source_id=row.id,
+                storage_backend=row.storage_backend,
+                storage_key=row.storage_key,
+                sha256_hex=row.sha256_hex,
+                byte_size=row.byte_size,
+                created_at=row.created_at,
+            )
+            for row in rows
+        ]
 
     async def list_for_asset(
         self,

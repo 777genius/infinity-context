@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Protocol
 
 from infinity_context_core.domain.extraction import AssetExtractionJob, ExtractionArtifact
+from infinity_context_core.ports.assets import StoredBlobReference
 
 
 @dataclass(frozen=True)
@@ -140,6 +141,15 @@ class AssetExtractionRepositoryPort(Protocol):
         storage_keys: tuple[str, ...],
     ) -> set[str]:
         """Return artifact storage keys retained by active stored assets."""
+
+    async def list_retained_artifact_blob_references(
+        self,
+        *,
+        storage_backend: str,
+        prefix: str,
+        limit: int,
+    ) -> list[StoredBlobReference]:
+        """List retained extraction artifact blob references for storage maintenance."""
 
     async def list_for_asset(
         self,

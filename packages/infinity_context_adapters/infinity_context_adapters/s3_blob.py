@@ -80,6 +80,24 @@ class S3BlobStorage:
             Key=object_key,
         )
 
+    async def stat_object(self, *, storage_key: str) -> StoredBlobObject:
+        object_key = self._object_key(storage_key)
+        try:
+            response = await asyncio.to_thread(
+                self._client.head_object,
+                Bucket=self._bucket,
+                Key=object_key,
+            )
+        except Exception as exc:
+            if _is_not_found_error(exc):
+                raise MemoryNotFoundError("Asset blob not found") from exc
+            raise
+        return StoredBlobObject(
+            storage_key=storage_key,
+            byte_size=_optional_int(response.get("ContentLength")),
+            updated_at=_optional_datetime(response.get("LastModified")),
+        )
+
     async def list_objects(
         self,
         *,
@@ -199,6 +217,14 @@ def _normalize_list_prefix(prefix: str) -> str:
     if not normalized:
         return ""
     return _normalize_storage_key(normalized)
+
+
+def _optional_int(value: object) -> int | None:
+    return value if isinstance(value, int) else None
+
+
+def _optional_datetime(value: object) -> datetime | None:
+    return value if isinstance(value, datetime) else None
 
 
 def _unsafe_key_parts(value: str) -> bool:

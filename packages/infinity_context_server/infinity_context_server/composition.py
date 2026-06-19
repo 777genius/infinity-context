@@ -93,6 +93,7 @@ from infinity_context_core.application import (
     ReviewSuggestionsBatchUseCase,
     RunAssetExtractionUseCase,
     RunBlobStorageCleanupUseCase,
+    RunBlobStorageIntegrityAuditUseCase,
     SplitAnchorUseCase,
     SuggestAnchorMergesUseCase,
     SuggestContextLinksUseCase,
@@ -235,6 +236,7 @@ class Container:
     consolidate_capture: ConsolidateCaptureUseCase
     expire_pending_suggestions: ExpirePendingSuggestionsUseCase
     run_blob_storage_cleanup: RunBlobStorageCleanupUseCase
+    run_blob_storage_integrity_audit: RunBlobStorageIntegrityAuditUseCase
     runtime_metrics: RuntimeMetrics
     provider_circuits: tuple[ProviderCircuitBreaker, ...]
 
@@ -546,6 +548,11 @@ def build_container(settings: Settings | None = None) -> Container:
         blob_storage=blob_storage,
         clock=clock,
     )
+    run_blob_storage_integrity_audit = RunBlobStorageIntegrityAuditUseCase(
+        uow_factory=uow_factory,
+        blob_storage=blob_storage,
+        clock=clock,
+    )
     runtime_metrics = RuntimeMetrics()
 
     return Container(
@@ -640,6 +647,7 @@ def build_container(settings: Settings | None = None) -> Container:
         consolidate_capture=consolidate_capture,
         expire_pending_suggestions=expire_pending_suggestions,
         run_blob_storage_cleanup=run_blob_storage_cleanup,
+        run_blob_storage_integrity_audit=run_blob_storage_integrity_audit,
         runtime_metrics=runtime_metrics,
         provider_circuits=provider_circuits,
     )

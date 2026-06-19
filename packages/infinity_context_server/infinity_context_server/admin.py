@@ -16,7 +16,11 @@ from infinity_context_adapters.postgres.models import (
     MemoryScopeRow,
     MemorySpaceRow,
 )
-from infinity_context_core.application import BlobStorageCleanupCommand, EnsureScopeCommand
+from infinity_context_core.application import (
+    BlobStorageCleanupCommand,
+    BlobStorageIntegrityAuditCommand,
+    EnsureScopeCommand,
+)
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -499,11 +503,64 @@ async def cleanup_asset_storage(
         await container.engine.dispose()
 
 
+async def audit_asset_storage(
+    *,
+    prefix: str,
+    limit: int,
+    max_blob_read_bytes: int,
+    no_checksum: bool,
+    assets_only: bool,
+    artifacts_only: bool,
+) -> dict[str, object]:
+    if assets_only and artifacts_only:
+        return {
+            "status": "refused",
+            "reason": "choose only one of --assets-only or --artifacts-only",
+        }
+    container = build_container(Settings())
+    try:
+        include_assets = not artifacts_only
+        include_artifacts = not assets_only
+        result = await container.run_blob_storage_integrity_audit.execute(
+            BlobStorageIntegrityAuditCommand(
+                storage_backend=container.settings.asset_storage_backend,
+                prefix=prefix,
+                include_assets=include_assets,
+                include_artifacts=include_artifacts,
+                verify_checksum=not no_checksum,
+                max_references=limit,
+                max_blob_read_bytes=max_blob_read_bytes,
+            )
+        )
+        return {
+            "status": result.status,
+            "operation": "audit-asset-storage",
+            "storage_backend": result.storage_backend,
+            "prefix": result.prefix,
+            "scanned_count": result.scanned_count,
+            "ok_count": result.ok_count,
+            "missing_count": result.missing_count,
+            "byte_size_mismatch_count": result.byte_size_mismatch_count,
+            "checksum_mismatch_count": result.checksum_mismatch_count,
+            "checksum_skipped_count": result.checksum_skipped_count,
+            "read_error_count": result.read_error_count,
+            "stat_error_count": result.stat_error_count,
+            "issues": [_json_safe_dataclass_payload(item) for item in result.issues],
+            "diagnostics": result.diagnostics,
+        }
+    finally:
+        await container.engine.dispose()
+
+
 def _cleanup_decision_payload(decision: object) -> dict[str, object]:
-    payload = asdict(decision)
-    updated_at = payload.get("updated_at")
-    if isinstance(updated_at, datetime):
-        payload["updated_at"] = updated_at.isoformat()
+    return _json_safe_dataclass_payload(decision)
+
+
+def _json_safe_dataclass_payload(item: object) -> dict[str, object]:
+    payload = asdict(item)
+    for key, value in tuple(payload.items()):
+        if isinstance(value, datetime):
+            payload[key] = value.isoformat()
     return payload
 
 
@@ -567,6 +624,15 @@ async def _run(args: argparse.Namespace) -> dict[str, object]:
             grace_period_seconds=args.grace_period_seconds,
             cursor=args.cursor,
             apply_changes=args.apply,
+        )
+    if args.command == "audit-asset-storage":
+        return await audit_asset_storage(
+            prefix=args.prefix,
+            limit=args.limit,
+            max_blob_read_bytes=args.max_blob_read_bytes,
+            no_checksum=args.no_checksum,
+            assets_only=args.assets_only,
+            artifacts_only=args.artifacts_only,
         )
     if args.command == "token":
         if args.token_command == "create":
@@ -639,6 +705,13 @@ def main() -> None:
     cleanup_storage.add_argument("--grace-period-seconds", type=int, default=86_400)
     cleanup_storage.add_argument("--cursor", default=None)
     cleanup_storage.add_argument("--apply", action="store_true")
+    audit_storage = sub.add_parser("audit-asset-storage")
+    audit_storage.add_argument("--prefix", default="")
+    audit_storage.add_argument("--limit", type=int, default=100)
+    audit_storage.add_argument("--max-blob-read-bytes", type=int, default=64 * 1024 * 1024)
+    audit_storage.add_argument("--no-checksum", action="store_true")
+    audit_storage.add_argument("--assets-only", action="store_true")
+    audit_storage.add_argument("--artifacts-only", action="store_true")
     token = sub.add_parser("token")
     token_sub = token.add_subparsers(dest="token_command", required=True)
     token_create_parser = token_sub.add_parser("create")

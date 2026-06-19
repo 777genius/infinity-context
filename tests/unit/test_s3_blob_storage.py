@@ -41,6 +41,15 @@ class _FakeS3Client:
             raise _FakeS3NotFound
         return {"Body": _FakeBody(content)}
 
+    def head_object(self, *, Bucket: str, Key: str) -> dict[str, object]:
+        content = self.objects.get((Bucket, Key))
+        if content is None:
+            raise _FakeS3NotFound
+        return {
+            "ContentLength": len(content),
+            "LastModified": self.last_modified[(Bucket, Key)],
+        }
+
     def delete_object(self, *, Bucket: str, Key: str) -> None:
         self.deleted.append((Bucket, Key))
         self.objects.pop((Bucket, Key), None)
@@ -110,6 +119,7 @@ def test_s3_blob_storage_lists_logical_objects_with_configured_prefix() -> None:
         await storage.write_bytes(storage_key="space/scope/b.txt", content=b"bb")
         await storage.write_bytes(storage_key="space/other/c.txt", content=b"ccc")
 
+        object_stat = await storage.stat_object(storage_key="space/scope/b.txt")
         first_page = await storage.list_objects(prefix="space/scope", limit=1)
         second_page = await storage.list_objects(
             prefix="space/scope",
@@ -117,6 +127,9 @@ def test_s3_blob_storage_lists_logical_objects_with_configured_prefix() -> None:
             cursor=first_page.next_cursor,
         )
 
+        assert object_stat.storage_key == "space/scope/b.txt"
+        assert object_stat.byte_size == 2
+        assert object_stat.updated_at == datetime(2026, 6, 19, tzinfo=UTC)
         assert [item.storage_key for item in first_page.objects] == ["space/scope/a.txt"]
         assert first_page.objects[0].byte_size == 1
         assert first_page.objects[0].updated_at == datetime(2026, 6, 19, tzinfo=UTC)

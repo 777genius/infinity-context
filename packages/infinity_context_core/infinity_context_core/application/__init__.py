@@ -172,6 +172,12 @@ from infinity_context_core.application.use_cases.blob_storage_cleanup import (
     BlobStorageCleanupResult,
     RunBlobStorageCleanupUseCase,
 )
+from infinity_context_core.application.use_cases.blob_storage_integrity import (
+    BlobStorageIntegrityAuditCommand,
+    BlobStorageIntegrityAuditResult,
+    BlobStorageIntegrityIssue,
+    RunBlobStorageIntegrityAuditUseCase,
+)
 from infinity_context_core.application.use_cases.build_context import BuildContextUseCase
 from infinity_context_core.application.use_cases.build_memory_digest import BuildMemoryDigestUseCase
 from infinity_context_core.application.use_cases.build_memory_insights import BuildMemoryInsightsUseCase

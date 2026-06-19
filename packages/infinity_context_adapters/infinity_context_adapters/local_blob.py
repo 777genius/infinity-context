@@ -34,6 +34,12 @@ class LocalBlobStorage:
         if path.exists() and path.is_file():
             path.unlink()
 
+    async def stat_object(self, *, storage_key: str) -> StoredBlobObject:
+        path = self._path_for_key(storage_key)
+        if not path.exists() or not path.is_file():
+            raise MemoryNotFoundError("Asset blob not found")
+        return self._object_for_path(path)
+
     async def list_objects(
         self,
         *,
