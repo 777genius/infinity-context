@@ -802,6 +802,7 @@ def _resource_policy_summary(contract: dict[str, Any]) -> dict[str, Any]:
         "reject_nested_archives",
         "reject_encrypted_entries",
         "reject_entry_count_limit",
+        "reject_single_entry_size_limit",
         "reject_uncompressed_size_limit",
         "reject_compression_ratio_limit",
     }
@@ -813,9 +814,11 @@ def _resource_policy_summary(contract: dict[str, Any]) -> dict[str, Any]:
         "extraction_upload_policy_revalidated",
         "extraction_archive_resource_policy_version",
         "extraction_archive_uncompressed_bytes",
+        "extraction_archive_max_entry_uncompressed_bytes",
         "extraction_archive_compression_ratio",
         "extraction_max_archive_entries",
         "extraction_max_archive_uncompressed_bytes",
+        "extraction_max_archive_single_entry_bytes",
         "extraction_max_archive_compression_ratio",
     }
     archive_policy_complete = all(

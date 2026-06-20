@@ -26,6 +26,7 @@ from infinity_context_core.application.extraction_resource_policy import (
     EXTRACTION_ARCHIVE_RESOURCE_POLICY_VERSION,
     EXTRACTION_RESOURCE_LIMIT_CAPS,
     EXTRACTION_RESOURCE_POLICY_VERSION,
+    EXTRACTION_RESULT_RESOURCE_POLICY_VERSION,
 )
 from infinity_context_core.application.multimodal_manifest import (
     multimodal_manifest_contract_payload,
@@ -832,6 +833,23 @@ def _resource_policy_payload() -> dict[str, object]:
         "rejects_blob_content_length_overflow_before_provider": True,
         "revalidates_upload_policy_after_blob_read": True,
         "inspects_zip_central_directory_before_provider": True,
+        "validates_extractor_result_before_ingest": True,
+        "result_policy_version": EXTRACTION_RESULT_RESOURCE_POLICY_VERSION,
+        "result_rejection_policy": {
+            "reject_media_duration_limit_breach": True,
+            "reject_image_pixel_limit_breach": True,
+            "reject_page_processing_limit_breach": True,
+            "reject_table_processing_limit_breach": True,
+            "mark_page_count_truncation": True,
+            "mark_table_count_truncation": True,
+            "mark_output_char_truncation": True,
+        },
+        "result_rejection_error_codes": [
+            "asset_extraction.media_too_long",
+            "asset_extraction.image_too_large",
+            "asset_extraction.page_limit_breach",
+            "asset_extraction.table_limit_breach",
+        ],
         "archive_policy_version": EXTRACTION_ARCHIVE_RESOURCE_POLICY_VERSION,
         "archive_rejection_policy": {
             "reject_unsafe_paths": True,
@@ -841,6 +859,7 @@ def _resource_policy_payload() -> dict[str, object]:
             "reject_nested_archives": True,
             "reject_encrypted_entries": True,
             "reject_entry_count_limit": True,
+            "reject_single_entry_size_limit": True,
             "reject_uncompressed_size_limit": True,
             "reject_compression_ratio_limit": True,
         },
@@ -852,6 +871,7 @@ def _resource_policy_payload() -> dict[str, object]:
             "asset_extraction.archive_nested_archive",
             "asset_extraction.archive_encrypted",
             "asset_extraction.archive_too_many_entries",
+            "asset_extraction.archive_entry_too_large",
             "asset_extraction.archive_uncompressed_too_large",
             "asset_extraction.archive_compression_ratio_too_high",
         ],
@@ -866,6 +886,18 @@ def _resource_policy_payload() -> dict[str, object]:
             "extraction_asset_byte_size",
             "extraction_asset_byte_size_source",
             "extraction_resource_limit_exceeded",
+            "extraction_result_resource_policy_version",
+            "extraction_result_resource_checked",
+            "extraction_result_media_seconds",
+            "extraction_result_page_count",
+            "extraction_result_pages_processed",
+            "extraction_result_pages_truncated",
+            "extraction_result_table_count",
+            "extraction_result_tables_processed",
+            "extraction_result_tables_truncated",
+            "extraction_result_image_pixels",
+            "extraction_result_output_chars",
+            "extraction_result_output_truncation_required",
             "extraction_upload_policy_revalidated",
             "extraction_upload_policy_status",
             "extraction_upload_policy_rejection",
@@ -876,6 +908,7 @@ def _resource_policy_payload() -> dict[str, object]:
             "extraction_archive_file_entries",
             "extraction_archive_uncompressed_bytes",
             "extraction_archive_compressed_bytes",
+            "extraction_archive_max_entry_uncompressed_bytes",
             "extraction_archive_compression_ratio",
             "extraction_archive_unsafe_path_count",
             "extraction_archive_symlink_entry_count",
@@ -885,6 +918,7 @@ def _resource_policy_payload() -> dict[str, object]:
             "extraction_archive_encrypted_entry_count",
             "extraction_max_archive_entries",
             "extraction_max_archive_uncompressed_bytes",
+            "extraction_max_archive_single_entry_bytes",
             "extraction_max_archive_compression_ratio",
         ],
         "hard_caps": dict(EXTRACTION_RESOURCE_LIMIT_CAPS),
@@ -1109,6 +1143,9 @@ def _limits_payload(settings: Settings) -> dict[str, object]:
         "max_archive_entries": settings.extraction_max_archive_entries,
         "max_archive_uncompressed_bytes": (
             settings.extraction_max_archive_uncompressed_bytes
+        ),
+        "max_archive_single_entry_bytes": (
+            settings.extraction_max_archive_single_entry_bytes
         ),
         "max_archive_compression_ratio": (
             settings.extraction_max_archive_compression_ratio

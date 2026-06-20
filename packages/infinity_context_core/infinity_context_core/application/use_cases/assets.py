@@ -63,6 +63,10 @@ class CreateAssetUseCase:
         storage_backend: str = "local",
         max_bytes: int = 25 * 1024 * 1024,
         max_image_pixels: int = 50_000_000,
+        max_archive_entries: int = 2_000,
+        max_archive_uncompressed_bytes: int = 250 * 1024 * 1024,
+        max_archive_single_entry_bytes: int = 100 * 1024 * 1024,
+        max_archive_compression_ratio: int = 100,
         max_storage_bytes_per_memory_scope: int = 0,
     ) -> None:
         self._uow_factory = uow_factory
@@ -72,6 +76,10 @@ class CreateAssetUseCase:
         self._storage_backend = storage_backend
         self._max_bytes = max(1, max_bytes)
         self._max_image_pixels = max(1, max_image_pixels)
+        self._max_archive_entries = max(1, max_archive_entries)
+        self._max_archive_uncompressed_bytes = max(1, max_archive_uncompressed_bytes)
+        self._max_archive_single_entry_bytes = max(1, max_archive_single_entry_bytes)
+        self._max_archive_compression_ratio = max(1, max_archive_compression_ratio)
         self._max_storage_bytes_per_memory_scope = max(0, max_storage_bytes_per_memory_scope)
 
     async def execute(self, command: CreateAssetCommand) -> AssetResult:
@@ -84,6 +92,10 @@ class CreateAssetUseCase:
             declared_content_type=command.content_type,
             content=command.content,
             max_image_pixels=self._max_image_pixels,
+            max_archive_entries=self._max_archive_entries,
+            max_archive_uncompressed_bytes=self._max_archive_uncompressed_bytes,
+            max_archive_single_entry_bytes=self._max_archive_single_entry_bytes,
+            max_archive_compression_ratio=self._max_archive_compression_ratio,
         )
         now = self._clock.now()
         digest = hashlib.sha256(command.content).hexdigest()

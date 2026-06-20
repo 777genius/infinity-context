@@ -12,7 +12,7 @@ from zipfile import BadZipFile, ZipFile, is_zipfile
 from infinity_context_core.ports.extraction import ExtractionLimits
 
 EXTRACTION_RESOURCE_POLICY_VERSION = "asset-extraction-resource-policy-v1"
-EXTRACTION_RESULT_RESOURCE_POLICY_VERSION = "asset-extraction-result-resource-policy-v1"
+EXTRACTION_RESULT_RESOURCE_POLICY_VERSION = "asset-extraction-result-resource-policy-v2"
 EXTRACTION_ARCHIVE_RESOURCE_POLICY_VERSION = "asset-extraction-archive-resource-policy-v2"
 
 EXTRACTION_RESOURCE_LIMIT_CAPS = {
@@ -26,6 +26,7 @@ EXTRACTION_RESOURCE_LIMIT_CAPS = {
     "max_image_pixels": 500_000_000,
     "max_archive_entries": 100_000,
     "max_archive_uncompressed_bytes": 10 * 1024 * 1024 * 1024,
+    "max_archive_single_entry_bytes": 10 * 1024 * 1024 * 1024,
     "max_archive_compression_ratio": 10_000,
 }
 
@@ -39,6 +40,7 @@ _DEFAULT_SUBPROCESS_TIMEOUT_SECONDS = 60.0
 _DEFAULT_MAX_IMAGE_PIXELS = 50_000_000
 _DEFAULT_MAX_ARCHIVE_ENTRIES = 2_000
 _DEFAULT_MAX_ARCHIVE_UNCOMPRESSED_BYTES = 250 * 1024 * 1024
+_DEFAULT_MAX_ARCHIVE_SINGLE_ENTRY_BYTES = 100 * 1024 * 1024
 _DEFAULT_MAX_ARCHIVE_COMPRESSION_RATIO = 100
 _ZIP_CONTAINER_TYPES = frozenset(
     {
@@ -124,6 +126,12 @@ def normalize_extraction_limits(limits: ExtractionLimits) -> ExtractionLimits:
             maximum=EXTRACTION_RESOURCE_LIMIT_CAPS["max_archive_uncompressed_bytes"],
             default=_DEFAULT_MAX_ARCHIVE_UNCOMPRESSED_BYTES,
         ),
+        max_archive_single_entry_bytes=_bounded_int(
+            limits.max_archive_single_entry_bytes,
+            minimum=1,
+            maximum=EXTRACTION_RESOURCE_LIMIT_CAPS["max_archive_single_entry_bytes"],
+            default=_DEFAULT_MAX_ARCHIVE_SINGLE_ENTRY_BYTES,
+        ),
         max_archive_compression_ratio=_bounded_int(
             limits.max_archive_compression_ratio,
             minimum=1,
@@ -153,6 +161,9 @@ def extraction_limits_metadata(limits: ExtractionLimits) -> dict[str, object]:
         "extraction_max_archive_entries": normalized.max_archive_entries,
         "extraction_max_archive_uncompressed_bytes": (
             normalized.max_archive_uncompressed_bytes
+        ),
+        "extraction_max_archive_single_entry_bytes": (
+            normalized.max_archive_single_entry_bytes
         ),
         "extraction_max_archive_compression_ratio": (
             normalized.max_archive_compression_ratio
@@ -217,6 +228,9 @@ def assess_extraction_archive_resource_limits(
         "extraction_max_archive_uncompressed_bytes": (
             normalized.max_archive_uncompressed_bytes
         ),
+        "extraction_max_archive_single_entry_bytes": (
+            normalized.max_archive_single_entry_bytes
+        ),
         "extraction_max_archive_compression_ratio": (
             normalized.max_archive_compression_ratio
         ),
@@ -266,6 +280,10 @@ def assess_extraction_archive_resource_limits(
     file_infos = tuple(info for info in infos if not info.is_dir())
     total_uncompressed = sum(max(0, int(info.file_size)) for info in file_infos)
     total_compressed = sum(max(0, int(info.compress_size)) for info in file_infos)
+    max_entry_uncompressed = max(
+        (max(0, int(info.file_size)) for info in file_infos),
+        default=0,
+    )
     compression_ratio = (
         round(total_uncompressed / max(total_compressed, 1), 4)
         if total_uncompressed
@@ -285,6 +303,7 @@ def assess_extraction_archive_resource_limits(
             "extraction_archive_file_entries": len(file_infos),
             "extraction_archive_uncompressed_bytes": total_uncompressed,
             "extraction_archive_compressed_bytes": total_compressed,
+            "extraction_archive_max_entry_uncompressed_bytes": max_entry_uncompressed,
             "extraction_archive_compression_ratio": compression_ratio,
             "extraction_archive_unsafe_path_count": unsafe_path_count,
             "extraction_archive_symlink_entry_count": symlink_count,
@@ -372,6 +391,19 @@ def assess_extraction_archive_resource_limits(
                 "extraction_resource_limit_exceeded": "max_archive_entries",
             },
         )
+    if max_entry_uncompressed > normalized.max_archive_single_entry_bytes:
+        return ExtractionResourceDecision(
+            limits=normalized,
+            allowed=False,
+            code="asset_extraction.archive_entry_too_large",
+            message="Archive member uncompressed size exceeds extraction resource limit",
+            metadata={
+                **metadata,
+                "extraction_resource_limit_exceeded": (
+                    "max_archive_single_entry_bytes"
+                ),
+            },
+        )
     if total_uncompressed > normalized.max_archive_uncompressed_bytes:
         return ExtractionResourceDecision(
             limits=normalized,
@@ -447,6 +479,21 @@ def assess_extraction_result_resource_limits(
         "pages_processed",
         "processed_pages",
     )
+    table_count = _metadata_positive_int(
+        result_metadata,
+        "table_count",
+        "tables",
+        "num_tables",
+        "docling_table_count",
+    )
+    tables_processed = _metadata_positive_int(
+        result_metadata,
+        "tables_extracted",
+        "tables_processed",
+        "processed_tables",
+        "table_artifact_count",
+        "docling_table_artifact_count",
+    )
     image_pixels = _metadata_positive_int(
         result_metadata,
         "image_pixels",
@@ -472,6 +519,7 @@ def assess_extraction_result_resource_limits(
         "extraction_max_pages": normalized.max_pages,
         "extraction_max_media_seconds": normalized.max_media_seconds,
         "extraction_max_output_chars": normalized.max_output_chars,
+        "extraction_max_tables": normalized.max_tables,
         "extraction_max_image_pixels": normalized.max_image_pixels,
     }
     if duration_seconds is not None:
@@ -480,6 +528,10 @@ def assess_extraction_result_resource_limits(
         metadata["extraction_result_page_count"] = page_count
     if pages_processed is not None:
         metadata["extraction_result_pages_processed"] = pages_processed
+    if table_count is not None:
+        metadata["extraction_result_table_count"] = table_count
+    if tables_processed is not None:
+        metadata["extraction_result_tables_processed"] = tables_processed
     if image_pixels is not None:
         metadata["extraction_result_image_pixels"] = image_pixels
     if output_chars is not None:
@@ -518,11 +570,25 @@ def assess_extraction_result_resource_limits(
                 "extraction_resource_limit_exceeded": "max_pages",
             },
         )
+    if tables_processed is not None and tables_processed > normalized.max_tables:
+        return ExtractionResourceDecision(
+            limits=normalized,
+            allowed=False,
+            code="asset_extraction.table_limit_breach",
+            message="Extractor processed more tables than allowed",
+            metadata={
+                **metadata,
+                "extraction_resource_limit_exceeded": "max_tables",
+            },
+        )
 
     applied: list[str] = []
     if page_count is not None and page_count > normalized.max_pages:
         applied.append("max_pages")
         metadata["extraction_result_pages_truncated"] = True
+    if table_count is not None and table_count > normalized.max_tables:
+        applied.append("max_tables")
+        metadata["extraction_result_tables_truncated"] = True
     if output_chars is not None and output_chars > normalized.max_output_chars:
         applied.append("max_output_chars")
         metadata["extraction_result_output_truncation_required"] = True
@@ -630,6 +696,7 @@ def _clamped_limit_fields(
         "max_image_pixels",
         "max_archive_entries",
         "max_archive_uncompressed_bytes",
+        "max_archive_single_entry_bytes",
         "max_archive_compression_ratio",
         "enable_ocr",
         "enable_external_ai",

@@ -616,6 +616,22 @@ def test_capabilities_return_noop_adapters() -> None:
         ]
         is True
     )
+    assert (
+        body["extraction"]["resource_policy"]["validates_extractor_result_before_ingest"]
+        is True
+    )
+    assert body["extraction"]["resource_policy"]["result_rejection_policy"] == {
+        "reject_media_duration_limit_breach": True,
+        "reject_image_pixel_limit_breach": True,
+        "reject_page_processing_limit_breach": True,
+        "reject_table_processing_limit_breach": True,
+        "mark_page_count_truncation": True,
+        "mark_table_count_truncation": True,
+        "mark_output_char_truncation": True,
+    }
+    assert "asset_extraction.table_limit_breach" in (
+        body["extraction"]["resource_policy"]["result_rejection_error_codes"]
+    )
     assert "max_archive_entries" in body["extraction"]["resource_policy"]["hard_caps"]
     assert (
         "extraction_archive_resource_checked"
@@ -629,6 +645,7 @@ def test_capabilities_return_noop_adapters() -> None:
         "reject_nested_archives": True,
         "reject_encrypted_entries": True,
         "reject_entry_count_limit": True,
+        "reject_single_entry_size_limit": True,
         "reject_uncompressed_size_limit": True,
         "reject_compression_ratio_limit": True,
     }
@@ -640,6 +657,10 @@ def test_capabilities_return_noop_adapters() -> None:
         "extraction_archive_special_entry_count",
         "extraction_archive_duplicate_path_count",
         "extraction_archive_nested_archive_count",
+        "extraction_archive_max_entry_uncompressed_bytes",
+        "extraction_max_archive_single_entry_bytes",
+        "extraction_result_tables_processed",
+        "extraction_result_tables_truncated",
     ):
         assert field in body["extraction"]["resource_policy"]["diagnostic_fields"]
     assert (
@@ -674,6 +695,7 @@ def test_capabilities_expose_configured_external_media_extraction(tmp_path: Path
             extraction_max_tables=3,
             extraction_max_archive_entries=77,
             extraction_max_archive_uncompressed_bytes=987_654,
+            extraction_max_archive_single_entry_bytes=123_456,
             extraction_max_archive_compression_ratio=12,
             extraction_ocr_enabled=False,
             extraction_vision_model="gpt-5.5",
@@ -732,6 +754,7 @@ def test_capabilities_expose_configured_external_media_extraction(tmp_path: Path
     assert extraction["limits"]["max_image_pixels"] == 50_000_000
     assert extraction["limits"]["max_archive_entries"] == 77
     assert extraction["limits"]["max_archive_uncompressed_bytes"] == 987_654
+    assert extraction["limits"]["max_archive_single_entry_bytes"] == 123_456
     assert extraction["limits"]["max_archive_compression_ratio"] == 12
     assert extraction["limits"]["parser_timeout_seconds"] == 5 * 60
     assert extraction["limits"]["subprocess_timeout_seconds"] == 60

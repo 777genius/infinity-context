@@ -415,6 +415,9 @@ def build_container(settings: Settings | None = None) -> Container:
         max_archive_uncompressed_bytes=(
             resolved_settings.extraction_max_archive_uncompressed_bytes
         ),
+        max_archive_single_entry_bytes=(
+            resolved_settings.extraction_max_archive_single_entry_bytes
+        ),
         max_archive_compression_ratio=(
             resolved_settings.extraction_max_archive_compression_ratio
         ),

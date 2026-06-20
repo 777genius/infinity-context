@@ -574,6 +574,40 @@ def test_create_asset_rejects_archive_bomb_before_blob_write() -> None:
     asyncio.run(run())
 
 
+def test_create_asset_rejects_archive_single_large_member_before_blob_write() -> None:
+    async def run() -> None:
+        assets = FakeAssetRepository()
+        storage = FakeBlobStorage()
+
+        try:
+            await _create_use_case(
+                assets=assets,
+                storage=storage,
+                max_archive_single_entry_bytes=512,
+                max_archive_uncompressed_bytes=10_000,
+                max_archive_compression_ratio=10_000,
+            ).execute(
+                _command(
+                    filename="payload.zip",
+                    content=_zip_bytes(
+                        {
+                            "large.bin": b"0" * 900,
+                            "small.bin": b"1",
+                        }
+                    ),
+                )
+            )
+        except MemoryIngressLimitError as exc:
+            assert "entry exceeds configured size limit" in str(exc)
+        else:
+            raise AssertionError("expected MemoryIngressLimitError")
+
+        assert storage.writes == []
+        assert assets.created == []
+
+    asyncio.run(run())
+
+
 def test_create_asset_rejects_image_pixel_bomb_before_blob_write() -> None:
     async def run() -> None:
         assets = FakeAssetRepository()
@@ -602,6 +636,9 @@ def _create_use_case(
     *,
     assets: FakeAssetRepository,
     storage: FakeBlobStorage,
+    max_archive_single_entry_bytes: int = 100 * 1024 * 1024,
+    max_archive_uncompressed_bytes: int = 250 * 1024 * 1024,
+    max_archive_compression_ratio: int = 100,
     max_storage_bytes_per_memory_scope: int = 0,
 ) -> CreateAssetUseCase:
     return CreateAssetUseCase(
@@ -609,6 +646,9 @@ def _create_use_case(
         clock=FakeClock(),
         ids=FakeIds(),
         blob_storage=storage,
+        max_archive_single_entry_bytes=max_archive_single_entry_bytes,
+        max_archive_uncompressed_bytes=max_archive_uncompressed_bytes,
+        max_archive_compression_ratio=max_archive_compression_ratio,
         max_storage_bytes_per_memory_scope=max_storage_bytes_per_memory_scope,
     )
 

@@ -107,6 +107,11 @@ class Settings(BaseSettings):
         ge=1,
         le=10 * 1024 * 1024 * 1024,
     )
+    extraction_max_archive_single_entry_bytes: int = Field(
+        default=100 * 1024 * 1024,
+        ge=1,
+        le=10 * 1024 * 1024 * 1024,
+    )
     extraction_max_archive_compression_ratio: int = Field(default=100, ge=1, le=10_000)
     extraction_ocr_enabled: bool = True
     extraction_vision_model: str = "gpt-4.1-mini"

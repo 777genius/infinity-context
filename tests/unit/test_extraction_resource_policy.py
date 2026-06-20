@@ -28,6 +28,7 @@ def test_extraction_resource_policy_normalizes_untrusted_limits() -> None:
         max_image_pixels=10**12,
         max_archive_entries=10**9,
         max_archive_uncompressed_bytes=10**13,
+        max_archive_single_entry_bytes=10**13,
         max_archive_compression_ratio=10**9,
         enable_ocr=True,
         enable_external_ai=False,
@@ -56,6 +57,10 @@ def test_extraction_resource_policy_normalizes_untrusted_limits() -> None:
         == EXTRACTION_RESOURCE_LIMIT_CAPS["max_archive_uncompressed_bytes"]
     )
     assert (
+        normalized.max_archive_single_entry_bytes
+        == EXTRACTION_RESOURCE_LIMIT_CAPS["max_archive_single_entry_bytes"]
+    )
+    assert (
         normalized.max_archive_compression_ratio
         == EXTRACTION_RESOURCE_LIMIT_CAPS["max_archive_compression_ratio"]
     )
@@ -64,6 +69,7 @@ def test_extraction_resource_policy_normalizes_untrusted_limits() -> None:
     assert "max_bytes" in metadata["extraction_limits_clamped_fields"]
     assert "subprocess_timeout_seconds" in metadata["extraction_limits_clamped_fields"]
     assert "max_archive_entries" in metadata["extraction_limits_clamped_fields"]
+    assert "max_archive_single_entry_bytes" in metadata["extraction_limits_clamped_fields"]
 
 
 def test_extraction_resource_policy_blocks_oversized_assets_with_safe_metadata() -> None:
@@ -150,6 +156,36 @@ def test_extraction_result_resource_policy_blocks_provider_page_limit_breach() -
     assert decision.code == "asset_extraction.page_limit_breach"
     assert decision.metadata["extraction_resource_limit_exceeded"] == "max_pages"
     assert decision.metadata["extraction_result_pages_processed"] == 6
+
+
+def test_extraction_result_resource_policy_marks_table_truncation_without_blocking() -> None:
+    decision = assess_extraction_result_resource_limits(
+        result_metadata={"docling_table_count": 12, "docling_table_artifact_count": 5},
+        limits=ExtractionLimits(max_bytes=1_000, max_tables=5),
+    )
+
+    assert decision.allowed is True
+    assert decision.code is None
+    assert decision.metadata["extraction_result_tables_truncated"] is True
+    assert decision.metadata["extraction_resource_limits_applied"] == ["max_tables"]
+    assert decision.metadata["extraction_result_table_count"] == 12
+    assert decision.metadata["extraction_result_tables_processed"] == 5
+    assert decision.metadata["extraction_max_tables"] == 5
+
+
+def test_extraction_result_resource_policy_blocks_provider_table_limit_breach() -> None:
+    decision = assess_extraction_result_resource_limits(
+        result_metadata={"docling_table_count": 12, "docling_table_artifact_count": 6},
+        limits=ExtractionLimits(max_bytes=1_000, max_tables=5),
+    )
+
+    assert decision.allowed is False
+    assert decision.code == "asset_extraction.table_limit_breach"
+    assert decision.message == "Extractor processed more tables than allowed"
+    assert decision.metadata["extraction_resource_limit_exceeded"] == "max_tables"
+    assert decision.metadata["extraction_result_table_count"] == 12
+    assert decision.metadata["extraction_result_tables_processed"] == 6
+    assert decision.metadata["extraction_max_tables"] == 5
 
 
 def test_extraction_archive_resource_policy_allows_bounded_structured_archive() -> None:
@@ -364,6 +400,42 @@ def test_extraction_archive_resource_policy_blocks_zip_bomb_shape() -> None:
     assert decision.metadata["extraction_resource_limit_exceeded"] == (
         "max_archive_uncompressed_bytes"
     )
+
+
+def test_extraction_archive_resource_policy_blocks_single_large_member() -> None:
+    content = _zip_bytes(
+        {
+            "large.bin": b"A" * 900,
+            "small.bin": b"B",
+        }
+    )
+
+    decision = assess_extraction_archive_resource_limits(
+        filename="single-entry.zip",
+        declared_content_type="application/zip",
+        detected_content_type="application/zip",
+        magic_content_type="application/zip",
+        content=content,
+        limits=ExtractionLimits(
+            max_bytes=10_000,
+            max_archive_entries=10,
+            max_archive_uncompressed_bytes=10_000,
+            max_archive_single_entry_bytes=512,
+            max_archive_compression_ratio=10_000,
+        ),
+    )
+
+    assert decision.allowed is False
+    assert decision.code == "asset_extraction.archive_entry_too_large"
+    assert decision.message == (
+        "Archive member uncompressed size exceeds extraction resource limit"
+    )
+    assert decision.metadata["extraction_archive_max_entry_uncompressed_bytes"] == 900
+    assert decision.metadata["extraction_max_archive_single_entry_bytes"] == 512
+    assert decision.metadata["extraction_resource_limit_exceeded"] == (
+        "max_archive_single_entry_bytes"
+    )
+    assert "large.bin" not in str(decision.metadata)
 
 
 def test_extraction_archive_resource_policy_blocks_high_compression_ratio() -> None:

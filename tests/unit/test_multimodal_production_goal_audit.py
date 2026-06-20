@@ -999,6 +999,7 @@ def _docker_report() -> dict[str, object]:
                     "max_image_pixels": 20_000_000,
                     "max_archive_entries": 1000,
                     "max_archive_uncompressed_bytes": 100 * 1024 * 1024,
+                    "max_archive_single_entry_bytes": 50 * 1024 * 1024,
                     "max_archive_compression_ratio": 100.0,
                     "parser_timeout_seconds": 120,
                     "subprocess_timeout_seconds": 60,
