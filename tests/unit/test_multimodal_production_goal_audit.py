@@ -424,6 +424,12 @@ def test_multimodal_production_goal_audit_requires_live_invalid_key_probe(
     assert result.ok is False
     assert result.checks["live_provider_proof_matrix_invalid_key_live_probe"] is False
     assert result.checks["live_provider_proof_matrix_invalid_key_live_probe_observed"] is False
+    assert (
+        result.checks[
+            "live_provider_proof_matrix_invalid_key_probe_covers_vision_and_transcription"
+        ]
+        is False
+    )
     assert any("invalid-key probe" in failure for failure in result.failures)
 
 
@@ -677,7 +683,15 @@ def _provider_proof_matrix() -> dict[str, object]:
                 "proof": "live_invalid_credential_call",
                 "requires_provider_key": False,
                 "ok": True,
-                "observed_reason": "asset_extraction.vision.invalid_api_key",
+                "observed_reason": (
+                    "vision:asset_extraction.vision.invalid_api_key; "
+                    "transcription:asset_extraction.transcription.invalid_api_key"
+                ),
+                "observed_reasons": {
+                    "vision": "asset_extraction.vision.invalid_api_key",
+                    "transcription": "asset_extraction.transcription.invalid_api_key",
+                },
+                "provider_probe_count": 2,
             },
             "vision_fixture_contract": {
                 "status": "contract_covered",

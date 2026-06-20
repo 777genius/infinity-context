@@ -417,26 +417,100 @@ async def _run_invalid_key_probe(
     *,
     probe_mode: str = "explicit",
 ) -> dict[str, object]:
-    result = await _run_vision(api_key=INVALID_KEY_PROBE_VALUE, args=args)
-    reason = str(result.get("reason") or "")
-    if result.get("status") == "failed" and "invalid_api_key" in reason:
+    vision_result = await _run_vision(api_key=INVALID_KEY_PROBE_VALUE, args=args)
+    transcription_result = await _run_invalid_transcription_key_probe(args=args)
+    provider_results = {
+        "vision": _invalid_key_probe_result(vision_result),
+        "transcription": _invalid_key_probe_result(transcription_result),
+    }
+    failed_providers = [
+        provider for provider, result in provider_results.items() if result["ok"] is not True
+    ]
+    observed_reasons = {
+        provider: str(result["reason"])
+        for provider, result in provider_results.items()
+        if isinstance(result.get("reason"), str) and result["reason"]
+    }
+    observed_statuses = {
+        provider: str(result["status"])
+        for provider, result in provider_results.items()
+        if isinstance(result.get("status"), str) and result["status"]
+    }
+    if not failed_providers:
         return _component(
             "succeeded",
             proof="live_invalid_credential_call",
             probe_mode=probe_mode,
-            observed_reason=reason,
-            observed_status=result.get("status"),
-            diagnostics=_safe_diagnostics(result.get("diagnostics") or {}),
+            observed_reason="; ".join(
+                f"{provider}:{reason}" for provider, reason in observed_reasons.items()
+            ),
+            observed_reasons=observed_reasons,
+            observed_statuses=observed_statuses,
+            provider_probe_count=len(provider_results),
+            diagnostics={
+                provider: _safe_diagnostics(
+                    raw_result.get("diagnostics")
+                    if isinstance(raw_result.get("diagnostics"), dict)
+                    else {}
+                )
+                for provider, raw_result in (
+                    ("vision", vision_result),
+                    ("transcription", transcription_result),
+                )
+            },
         )
     return _component(
         "failed",
         reason="invalid_key_probe_unexpected_result",
-        message="Invalid key probe did not return an invalid_api_key classification",
+        message=(
+            "Invalid key probe did not return invalid_api_key classification "
+            "for every provider endpoint"
+        ),
         probe_mode=probe_mode,
-        observed_status=result.get("status"),
-        observed_reason=reason or None,
-        diagnostics=_safe_diagnostics(result.get("diagnostics") or {}),
+        failed_providers=failed_providers,
+        observed_reason="; ".join(
+            f"{provider}:{reason}" for provider, reason in observed_reasons.items()
+        ),
+        observed_reasons=observed_reasons,
+        observed_statuses=observed_statuses,
+        provider_probe_count=len(provider_results),
+        diagnostics={
+            provider: _safe_diagnostics(
+                raw_result.get("diagnostics")
+                if isinstance(raw_result.get("diagnostics"), dict)
+                else {}
+            )
+            for provider, raw_result in (
+                ("vision", vision_result),
+                ("transcription", transcription_result),
+            )
+        },
     )
+
+
+async def _run_invalid_transcription_key_probe(
+    *,
+    args: argparse.Namespace,
+) -> dict[str, object]:
+    with tempfile.TemporaryDirectory(prefix="infinity-context-invalid-asr-") as tmp:
+        audio_path = Path(tmp) / "invalid-key-probe.wav"
+        audio_path.write_bytes(_sample_wav_bytes())
+        return await _run_transcription_fixture(
+            api_key=INVALID_KEY_PROBE_VALUE,
+            args=args,
+            audio_path=audio_path,
+            generated_audio=False,
+        )
+
+
+def _invalid_key_probe_result(result: dict[str, object]) -> dict[str, object]:
+    reason = str(result.get("reason") or "")
+    status = str(result.get("status") or "")
+    return {
+        "ok": status == "failed" and "invalid_api_key" in reason,
+        "status": status,
+        "reason": reason,
+    }
 
 
 def _invalid_key_probe_mode(
@@ -1092,14 +1166,33 @@ def _invalid_key_probe_requirement(components: dict[object, object]) -> dict[str
         if isinstance(component.get("observed_reason"), str)
         else None
     )
+    observed_reasons = (
+        component.get("observed_reasons")
+        if isinstance(component.get("observed_reasons"), dict)
+        else {}
+    )
+    provider_probe_count = component.get("provider_probe_count")
+    provider_reasons_ok = _provider_invalid_key_reasons_ok(observed_reasons)
     return {
         "status": status,
         "proof": "live_invalid_credential_call",
         "requires_provider_key": False,
-        "ok": status == "succeeded",
+        "ok": status == "succeeded" and provider_reasons_ok,
         **({"reason": reason} if reason else {}),
         **({"observed_reason": observed_reason} if observed_reason else {}),
+        **({"observed_reasons": observed_reasons} if observed_reasons else {}),
+        **({"provider_probe_count": provider_probe_count} if provider_probe_count else {}),
     }
+
+
+def _provider_invalid_key_reasons_ok(observed_reasons: object) -> bool:
+    if not isinstance(observed_reasons, dict):
+        return False
+    return all(
+        isinstance(observed_reasons.get(provider), str)
+        and "invalid_api_key" in str(observed_reasons[provider])
+        for provider in ("vision", "transcription")
+    )
 
 
 def _readiness_summary(report: dict[str, object]) -> dict[str, object]:
@@ -1827,6 +1920,36 @@ def _sample_png_bytes() -> bytes:
     pixels = bytearray([255, 255, 255] * width * height)
     _draw_text(pixels, width, x=14, y=18, text="INFINITY CONTEXT 24", scale=3)
     return _encode_png(width, height, bytes(pixels))
+
+
+def _sample_wav_bytes() -> bytes:
+    sample_rate = 16_000
+    channels = 1
+    bits_per_sample = 16
+    duration_seconds = 1
+    sample_count = sample_rate * duration_seconds
+    byte_rate = sample_rate * channels * bits_per_sample // 8
+    block_align = channels * bits_per_sample // 8
+    samples = b"\x00\x00" * sample_count
+    return (
+        b"RIFF"
+        + struct.pack("<I", 36 + len(samples))
+        + b"WAVE"
+        + b"fmt "
+        + struct.pack(
+            "<IHHIIHH",
+            16,
+            1,
+            channels,
+            sample_rate,
+            byte_rate,
+            block_align,
+            bits_per_sample,
+        )
+        + b"data"
+        + struct.pack("<I", len(samples))
+        + samples
+    )
 
 
 def _draw_text(

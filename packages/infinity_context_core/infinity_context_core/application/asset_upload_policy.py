@@ -502,6 +502,8 @@ def _inspect_image_payload(
         return {
             **metadata,
             "upload_image_inspection_status": "unsupported_content_type",
+            "upload_image_review_required": True,
+            "upload_image_review_reason": "unsupported_dimension_content_type",
         }
 
     dimensions = _image_dimensions(content, content_type=content_type)

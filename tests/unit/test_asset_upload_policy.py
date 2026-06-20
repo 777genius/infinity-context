@@ -131,6 +131,33 @@ def test_upload_policy_rejects_image_pixel_bomb() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("filename", "declared_content_type", "content"),
+    [
+        ("wide-gamut.avif", "image/avif", b"\x00\x00\x00\x18ftypavif\x00\x00\x00\x00"),
+        ("iphone-photo.heic", "image/heic", b"\x00\x00\x00\x18ftypheic\x00\x00\x00\x00"),
+    ],
+)
+def test_upload_policy_marks_unsupported_image_dimensions_for_review(
+    filename: str,
+    declared_content_type: str,
+    content: bytes,
+) -> None:
+    result = assess_asset_upload(
+        filename=filename,
+        declared_content_type=declared_content_type,
+        content=content,
+    )
+
+    assert result.metadata["upload_image_detected"] is True
+    assert result.metadata["upload_image_inspection_status"] == "unsupported_content_type"
+    assert result.metadata["upload_image_review_required"] is True
+    assert result.metadata["upload_image_review_reason"] == (
+        "unsupported_dimension_content_type"
+    )
+    assert "upload_image_pixels" not in result.metadata
+
+
 def test_upload_policy_rejects_corrupted_magic_image_header() -> None:
     with pytest.raises(MemoryIngressLimitError, match="dimensions"):
         assess_asset_upload(

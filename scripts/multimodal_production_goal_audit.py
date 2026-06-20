@@ -623,6 +623,16 @@ def _audit_provider_proof_matrix(
         else {}
     )
     observed_reason = invalid_key_probe.get("observed_reason")
+    observed_reasons = (
+        invalid_key_probe.get("observed_reasons")
+        if isinstance(invalid_key_probe.get("observed_reasons"), dict)
+        else {}
+    )
+    provider_reasons_ok = all(
+        isinstance(observed_reasons.get(provider), str)
+        and "invalid_api_key" in str(observed_reasons[provider])
+        for provider in ("vision", "transcription")
+    )
     _check(
         checks,
         failures,
@@ -632,6 +642,13 @@ def _audit_provider_proof_matrix(
         and isinstance(observed_reason, str)
         and "invalid_api_key" in observed_reason,
         "Live provider proof matrix invalid-key probe did not prove invalid_api_key classification",
+    )
+    _check(
+        checks,
+        failures,
+        "live_provider_proof_matrix_invalid_key_probe_covers_vision_and_transcription",
+        provider_reasons_ok,
+        "Live provider invalid-key probe must cover both vision and transcription endpoints",
     )
 
 

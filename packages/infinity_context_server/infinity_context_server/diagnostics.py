@@ -156,6 +156,7 @@ def storage_diagnostics(container: Container) -> dict[str, Any]:
             "ready": readiness["ready"],
             "readiness": readiness,
             "maintenance": _storage_maintenance_config(settings),
+            "governance": _storage_governance_config(settings),
         }
     if backend == "s3":
         configured = bool(settings.asset_storage_s3_bucket)
@@ -178,6 +179,7 @@ def storage_diagnostics(container: Container) -> dict[str, Any]:
                 "network_probe": "not_performed",
             },
             "maintenance": _storage_maintenance_config(settings),
+            "governance": _storage_governance_config(settings),
         }
     return {
         "asset_backend": backend,
@@ -186,6 +188,7 @@ def storage_diagnostics(container: Container) -> dict[str, Any]:
         "ready": False,
         "readiness": {"unsupported_backend": True},
         "maintenance": _storage_maintenance_config(settings),
+        "governance": _storage_governance_config(settings),
     }
 
 
@@ -518,5 +521,16 @@ def _storage_maintenance_config(settings) -> dict[str, object]:
         ),
         "integrity_max_blob_read_bytes": int(
             getattr(settings, "asset_storage_integrity_max_blob_read_bytes", 8 * 1024 * 1024)
+        ),
+    }
+
+
+def _storage_governance_config(settings) -> dict[str, object]:
+    return {
+        "backup_policy_configured": bool(
+            getattr(settings, "asset_storage_backup_policy_configured", False)
+        ),
+        "object_lifecycle_policy_configured": bool(
+            getattr(settings, "asset_storage_object_lifecycle_policy_configured", False)
         ),
     }

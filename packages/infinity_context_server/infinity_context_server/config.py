@@ -78,6 +78,8 @@ class Settings(BaseSettings):
         ge=1,
         le=512 * 1024 * 1024,
     )
+    asset_storage_backup_policy_configured: bool = False
+    asset_storage_object_lifecycle_policy_configured: bool = False
     plan_asset_storage_bytes_per_memory_scope: int = Field(
         default=5 * 1024 * 1024 * 1024,
         ge=0,

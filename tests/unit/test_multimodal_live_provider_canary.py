@@ -306,6 +306,9 @@ def test_multimodal_live_provider_canary_has_local_fixtures_and_redaction() -> N
     assert module._content_type_for_path(Path("fixture.mp3")) == "audio/mpeg"
     assert module._content_type_for_path(Path("fixture.bin")) == ("application/octet-stream")
     assert module._sample_png_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+    sample_wav = module._sample_wav_bytes()
+    assert sample_wav.startswith(b"RIFF")
+    assert sample_wav[8:12] == b"WAVE"
     safe = module._safe_diagnostics(
         {
             "api_key": "sk-test-secret",
@@ -370,7 +373,16 @@ def test_multimodal_live_provider_canary_invalid_key_probe_is_redacted(
             "status": "failed",
         }
 
+    async def fake_run_transcription(*, args: object) -> dict[str, object]:
+        assert args is not None
+        return {
+            "diagnostics": {"message": f"provider rejected {module.INVALID_KEY_PROBE_VALUE}"},
+            "reason": "asset_extraction.transcription.invalid_api_key",
+            "status": "failed",
+        }
+
     monkeypatch.setattr(module, "_run_vision", fake_run_vision)
+    monkeypatch.setattr(module, "_run_invalid_transcription_key_probe", fake_run_transcription)
 
     component = asyncio.run(
         module._run_invalid_key_probe(args=module._parse_args(["--probe-invalid-key"]))
@@ -380,9 +392,19 @@ def test_multimodal_live_provider_canary_invalid_key_probe_is_redacted(
     assert component["status"] == "succeeded"
     assert component["proof"] == "live_invalid_credential_call"
     assert component["probe_mode"] == "explicit"
-    assert component["observed_status"] == "failed"
-    assert component["observed_reason"] == "asset_extraction.vision.invalid_api_key"
-    assert component["diagnostics"] == {"message": "provider rejected <redacted>"}
+    assert component["observed_statuses"] == {
+        "transcription": "failed",
+        "vision": "failed",
+    }
+    assert component["observed_reasons"] == {
+        "transcription": "asset_extraction.transcription.invalid_api_key",
+        "vision": "asset_extraction.vision.invalid_api_key",
+    }
+    assert component["provider_probe_count"] == 2
+    assert component["diagnostics"] == {
+        "transcription": {"message": "provider rejected <redacted>"},
+        "vision": {"message": "provider rejected <redacted>"},
+    }
     assert module.INVALID_KEY_PROBE_VALUE not in rendered
 
 
@@ -406,8 +428,16 @@ def test_multimodal_live_provider_canary_auto_probes_invalid_key_without_real_ke
             "succeeded",
             proof="live_invalid_credential_call",
             probe_mode=probe_mode,
-            observed_reason="asset_extraction.vision.invalid_api_key",
-            observed_status="failed",
+            observed_reason=(
+                "vision:asset_extraction.vision.invalid_api_key; "
+                "transcription:asset_extraction.transcription.invalid_api_key"
+            ),
+            observed_reasons={
+                "vision": "asset_extraction.vision.invalid_api_key",
+                "transcription": "asset_extraction.transcription.invalid_api_key",
+            },
+            observed_statuses={"vision": "failed", "transcription": "failed"},
+            provider_probe_count=2,
             diagnostics={"message": "provider rejected <redacted>"},
         )
 
@@ -424,16 +454,32 @@ def test_multimodal_live_provider_canary_auto_probes_invalid_key_without_real_ke
     assert report["components"]["provider_key"]["reason"] == "provider_credential_missing"
     assert report["components"]["invalid_key_probe"] == {
         "diagnostics": {"message": "provider rejected <redacted>"},
-        "observed_reason": "asset_extraction.vision.invalid_api_key",
-        "observed_status": "failed",
+        "observed_reason": (
+            "vision:asset_extraction.vision.invalid_api_key; "
+            "transcription:asset_extraction.transcription.invalid_api_key"
+        ),
+        "observed_reasons": {
+            "transcription": "asset_extraction.transcription.invalid_api_key",
+            "vision": "asset_extraction.vision.invalid_api_key",
+        },
+        "observed_statuses": {"transcription": "failed", "vision": "failed"},
         "probe_mode": "auto_no_key",
         "proof": "live_invalid_credential_call",
+        "provider_probe_count": 2,
         "status": "succeeded",
     }
     assert report["proof_matrix"]["requirements"]["invalid_key_live_probe"] == {
         "ok": True,
-        "observed_reason": "asset_extraction.vision.invalid_api_key",
+        "observed_reason": (
+            "vision:asset_extraction.vision.invalid_api_key; "
+            "transcription:asset_extraction.transcription.invalid_api_key"
+        ),
+        "observed_reasons": {
+            "transcription": "asset_extraction.transcription.invalid_api_key",
+            "vision": "asset_extraction.vision.invalid_api_key",
+        },
         "proof": "live_invalid_credential_call",
+        "provider_probe_count": 2,
         "requires_provider_key": False,
         "status": "succeeded",
     }
@@ -485,8 +531,16 @@ def test_multimodal_live_provider_canary_proof_matrix_tracks_invalid_key_probe()
         "vision": {"status": "skipped", "reason": "provider_credential_missing"},
         "transcription": {"status": "skipped", "reason": "provider_credential_missing"},
         "invalid_key_probe": {
-            "observed_reason": "asset_extraction.vision.invalid_api_key",
+            "observed_reason": (
+                "vision:asset_extraction.vision.invalid_api_key; "
+                "transcription:asset_extraction.transcription.invalid_api_key"
+            ),
+            "observed_reasons": {
+                "vision": "asset_extraction.vision.invalid_api_key",
+                "transcription": "asset_extraction.transcription.invalid_api_key",
+            },
             "proof": "live_invalid_credential_call",
+            "provider_probe_count": 2,
             "status": "succeeded",
         },
     }
@@ -504,8 +558,16 @@ def test_multimodal_live_provider_canary_proof_matrix_tracks_invalid_key_probe()
 
     assert proof["requirements"]["invalid_key_live_probe"] == {
         "ok": True,
-        "observed_reason": "asset_extraction.vision.invalid_api_key",
+        "observed_reason": (
+            "vision:asset_extraction.vision.invalid_api_key; "
+            "transcription:asset_extraction.transcription.invalid_api_key"
+        ),
+        "observed_reasons": {
+            "transcription": "asset_extraction.transcription.invalid_api_key",
+            "vision": "asset_extraction.vision.invalid_api_key",
+        },
         "proof": "live_invalid_credential_call",
+        "provider_probe_count": 2,
         "requires_provider_key": False,
         "status": "succeeded",
     }

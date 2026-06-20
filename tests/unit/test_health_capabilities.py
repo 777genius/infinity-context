@@ -137,6 +137,8 @@ def test_capabilities_return_noop_adapters() -> None:
             "status": "ok",
             "self_host_ready": True,
             "hosted_team_ready": False,
+            "self_host_production_ready": False,
+            "hosted_team_production_ready": False,
             "recommended_hosted_backend": "s3",
             "blob_identity": "sha256",
             "duplicate_detection": "exact_sha256",
@@ -146,9 +148,15 @@ def test_capabilities_return_noop_adapters() -> None:
             "storage_cleanup_supported": True,
             "maintenance_enabled": False,
             "cleanup_apply_enabled": False,
+            "backup_policy_configured": False,
+            "object_lifecycle_policy_configured": False,
             "safe_diagnostics": True,
             "degraded_reasons": [],
-            "warnings": ["hosted_team_deployments_should_use_s3_compatible_storage"],
+            "warnings": [
+                "hosted_team_deployments_should_use_s3_compatible_storage",
+                "asset_storage_backup_policy_not_confirmed",
+                "asset_storage_maintenance_not_enabled",
+            ],
         },
     }
     assert body["plans"]["current"] == "free"
@@ -416,6 +424,7 @@ def test_capabilities_return_noop_adapters() -> None:
                 "image/webp",
             ],
             "reject_corrupted_supported_image_headers": True,
+            "review_unsupported_dimension_content_types": True,
             "reject_pixel_count_limit": True,
             "max_image_pixels_field": "limits.max_image_pixels",
             "declared_mime_does_not_trigger_image_limits_without_magic": True,
@@ -451,6 +460,7 @@ def test_capabilities_return_noop_adapters() -> None:
             "upload_image_detected",
             "upload_image_inspection_status",
             "upload_image_review_required",
+            "upload_image_review_reason",
             "upload_image_width",
             "upload_image_height",
             "upload_image_pixels",
@@ -749,6 +759,8 @@ def test_capabilities_storage_readiness_redacts_s3_values(tmp_path: Path) -> Non
                 asset_storage_s3_force_path_style=True,
                 asset_storage_maintenance_enabled=True,
                 asset_storage_cleanup_apply_enabled=True,
+                asset_storage_backup_policy_configured=True,
+                asset_storage_object_lifecycle_policy_configured=True,
             )
         )
     )
@@ -768,6 +780,8 @@ def test_capabilities_storage_readiness_redacts_s3_values(tmp_path: Path) -> Non
         "status": "ok",
         "self_host_ready": True,
         "hosted_team_ready": True,
+        "self_host_production_ready": True,
+        "hosted_team_production_ready": True,
         "recommended_hosted_backend": "s3",
         "blob_identity": "sha256",
         "duplicate_detection": "exact_sha256",
@@ -777,6 +791,8 @@ def test_capabilities_storage_readiness_redacts_s3_values(tmp_path: Path) -> Non
         "storage_cleanup_supported": True,
         "maintenance_enabled": True,
         "cleanup_apply_enabled": True,
+        "backup_policy_configured": True,
+        "object_lifecycle_policy_configured": True,
         "safe_diagnostics": True,
         "degraded_reasons": [],
         "warnings": [],
@@ -788,6 +804,37 @@ def test_capabilities_storage_readiness_redacts_s3_values(tmp_path: Path) -> Non
     assert "eu-secret-1" not in serialized
     assert "AKIA-CAPABILITY-SECRET" not in serialized
     assert "capability-secret" not in serialized
+
+
+def test_capabilities_storage_readiness_warns_when_s3_governance_is_unconfirmed(
+    tmp_path: Path,
+) -> None:
+    payload = _storage_payload(
+        SimpleNamespace(
+            settings=Settings(
+                deploy_profile=DeployProfile.TEST,
+                database_url=f"sqlite+aiosqlite:///{tmp_path / 'capabilities-s3-warnings.db'}",
+                auto_create_schema=True,
+                qdrant_enabled=False,
+                graphiti_enabled=False,
+                embeddings_enabled=False,
+                asset_storage_backend="s3",
+                asset_storage_s3_bucket="private-memory-bucket",
+            )
+        )
+    )
+
+    readiness = payload["deployment_readiness"]
+    assert readiness["hosted_team_ready"] is True
+    assert readiness["hosted_team_production_ready"] is False
+    assert readiness["backup_policy_configured"] is False
+    assert readiness["object_lifecycle_policy_configured"] is False
+    assert set(readiness["warnings"]) == {
+        "asset_storage_backup_policy_not_confirmed",
+        "s3_object_lifecycle_policy_not_confirmed",
+        "asset_storage_maintenance_not_enabled",
+        "s3_region_not_configured",
+    }
 
 
 def test_capabilities_expose_configured_diarization_transcription_model(
@@ -873,6 +920,10 @@ def test_storage_diagnostics_endpoint_exposes_local_readiness_without_path(tmp_p
     assert storage["readiness"]["root_exists"] is False
     assert storage["readiness"]["parent_exists"] is True
     assert storage["readiness"]["parent_writable"] is True
+    assert storage["governance"] == {
+        "backup_policy_configured": False,
+        "object_lifecycle_policy_configured": False,
+    }
     assert str(asset_root) not in response.text
     assert str(tmp_path) not in response.text
 
@@ -918,6 +969,10 @@ def test_storage_diagnostics_redacts_s3_configuration_values() -> None:
             "cleanup_max_deletions": 100,
             "cleanup_grace_period_seconds": 86_400,
             "integrity_max_blob_read_bytes": 8 * 1024 * 1024,
+        },
+        "governance": {
+            "backup_policy_configured": False,
+            "object_lifecycle_policy_configured": False,
         },
     }
     serialized = repr(payload)

@@ -128,6 +128,19 @@ Back up Postgres and assets first. Qdrant and Neo4j are useful to snapshot for
 fast recovery, but they must remain rebuildable from canonical Postgres rows and
 asset/artifact blobs.
 
+For team/hosted readiness diagnostics, configure storage governance explicitly:
+
+```text
+MEMORY_ASSET_STORAGE_BACKUP_POLICY_CONFIGURED=true
+MEMORY_ASSET_STORAGE_OBJECT_LIFECYCLE_POLICY_CONFIGURED=true
+MEMORY_ASSET_STORAGE_MAINTENANCE_ENABLED=true
+```
+
+These flags do not create backups or object lifecycle rules by themselves. They
+tell `/v1/capabilities` and diagnostics that the operator has configured those
+policies outside the app. Keep `MEMORY_ASSET_STORAGE_CLEANUP_APPLY_ENABLED=false`
+until cleanup dry runs are reviewed.
+
 Example Postgres dump:
 
 ```bash
