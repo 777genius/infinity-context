@@ -551,6 +551,7 @@ def _docker_report() -> dict[str, object]:
         "git": {"commit": "abc", "short_commit": "abc", "dirty": False},
         "components": {
             "docker_daemon": {"status": "succeeded"},
+            "docker_disk_preflight": {"status": "succeeded"},
             "compose_config": {"status": "succeeded"},
             "compose_stack": {"status": "succeeded"},
             "container_dependencies": {"status": "succeeded"},

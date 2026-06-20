@@ -31,6 +31,7 @@ REQUIRED_FRONTEND_FLOWS = frozenset(
 REQUIRED_DOCKER_COMPONENTS = frozenset(
     {
         "docker_daemon",
+        "docker_disk_preflight",
         "compose_config",
         "compose_stack",
         "container_dependencies",

@@ -33,6 +33,7 @@ COMPOSE_FILE = ROOT / "docker-compose.yml"
 SUITE = "infinity-context-multimodal-docker-live-proof"
 PROJECT_PREFIX = "infinity-context-multimodal-"
 DEFAULT_REPORT = ".e2e-artifacts/multimodal-docker-live-proof.json"
+DEFAULT_MIN_HOST_FREE_BYTES = 2 * 1024 * 1024 * 1024
 
 RunCommand = Callable[[list[str]], subprocess.CompletedProcess[str]]
 RequestJson = Callable[..., dict[str, Any]]
@@ -83,6 +84,7 @@ def run_multimodal_docker_live_proof(
     try:
         _prove_compose_config(args, project_name, run_cmd=run_cmd, report=report, env=env)
         _prove_docker_daemon(args, run_cmd=run_cmd, report=report, env=env)
+        _prove_docker_disk_preflight(args, run_cmd=run_cmd, report=report, env=env)
         stack_started = True
         _start_stack(args, project_name, run_cmd=run_cmd, report=report, env=env)
         _prove_container_dependencies(
@@ -158,6 +160,16 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--startup-timeout-seconds", type=float, default=180.0)
     parser.add_argument("--extraction-timeout-seconds", type=float, default=180.0)
     parser.add_argument(
+        "--min-host-free-bytes",
+        type=int,
+        default=int(
+            os.environ.get(
+                "MEMORY_MULTIMODAL_DOCKER_MIN_HOST_FREE_BYTES",
+                str(DEFAULT_MIN_HOST_FREE_BYTES),
+            )
+        ),
+    )
+    parser.add_argument(
         "--report-out",
         default=os.environ.get(
             "MEMORY_MULTIMODAL_DOCKER_PROOF_REPORT_OUT",
@@ -201,8 +213,13 @@ def _base_report(
             ),
         },
         "docker_client": _docker_client_diagnostics(args),
+        "resource_preflight": {
+            "host_disk": _host_disk_diagnostics(args.min_host_free_bytes),
+            "docker_system_df": {"status": "not_checked"},
+        },
         "components": {
             "docker_daemon": _component("unknown"),
+            "docker_disk_preflight": _component("unknown"),
             "compose_config": _component("unknown"),
             "compose_stack": _component("unknown"),
             "container_dependencies": _component("unknown"),
@@ -256,6 +273,42 @@ def _prove_docker_daemon(
         "docker_daemon",
         "succeeded",
         server_version=result.stdout.strip()[:80],
+    )
+
+
+def _prove_docker_disk_preflight(
+    args: argparse.Namespace,
+    *,
+    run_cmd: RunCommand,
+    report: dict[str, Any],
+    env: dict[str, str],
+) -> None:
+    diagnostics = {
+        "host_disk": _host_disk_diagnostics(args.min_host_free_bytes),
+        "docker_system_df": _docker_system_df_diagnostics(args, run_cmd=run_cmd, env=env),
+    }
+    report["resource_preflight"] = diagnostics
+    host_disk = diagnostics["host_disk"]
+    if host_disk["free_bytes"] < host_disk["min_free_bytes"]:
+        raise DockerProofFailure(
+            "docker_disk_preflight",
+            "docker_disk_space_insufficient",
+            (
+                "Host disk free space is below the configured Docker proof threshold: "
+                f"free_bytes={host_disk['free_bytes']}; "
+                f"min_free_bytes={host_disk['min_free_bytes']}; "
+                f"path={host_disk['path']}"
+            ),
+            degraded=True,
+            diagnostics=diagnostics,
+        )
+    warnings = _docker_disk_preflight_warnings(diagnostics)
+    _mark_component(
+        report,
+        "docker_disk_preflight",
+        "succeeded",
+        diagnostics=diagnostics,
+        warnings=warnings,
     )
 
 
@@ -1262,6 +1315,136 @@ def _docker_client_diagnostics(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
+def _host_disk_diagnostics(min_free_bytes: int) -> dict[str, Any]:
+    usage = _host_disk_usage(ROOT)
+    total = int(usage.total)
+    used = int(usage.used)
+    free = int(usage.free)
+    return {
+        "path": str(ROOT),
+        "total_bytes": total,
+        "used_bytes": used,
+        "free_bytes": free,
+        "free_ratio": round(free / total, 4) if total > 0 else 0.0,
+        "min_free_bytes": max(0, int(min_free_bytes)),
+        "ok": free >= max(0, int(min_free_bytes)),
+    }
+
+
+def _host_disk_usage(path: Path) -> Any:
+    return shutil.disk_usage(path)
+
+
+def _docker_system_df_diagnostics(
+    args: argparse.Namespace,
+    *,
+    run_cmd: RunCommand,
+    env: dict[str, str],
+) -> dict[str, Any]:
+    command = [args.docker, "system", "df", "--format", "{{json .}}"]
+    try:
+        result = run_cmd(command)
+    except subprocess.TimeoutExpired as exc:
+        return {
+            "status": "unavailable",
+            "reason": "docker_system_df_timeout",
+            "message": _safe_timeout(exc, env=env),
+        }
+    except OSError as exc:
+        return {
+            "status": "unavailable",
+            "reason": "docker_system_df_unavailable",
+            "message": _safe_text(str(exc), env=env),
+        }
+    if result.returncode != 0:
+        return {
+            "status": "unavailable",
+            "reason": "docker_system_df_failed",
+            "message": _safe_completed(result, env=env),
+        }
+    rows = _parse_docker_system_df(result.stdout)
+    return {
+        "status": "succeeded",
+        "rows": rows,
+        "total_reclaimable_bytes": sum(row.get("reclaimable_bytes", 0) for row in rows),
+        "total_size_bytes": sum(row.get("size_bytes", 0) for row in rows),
+    }
+
+
+def _parse_docker_system_df(stdout: str) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for line in stdout.splitlines():
+        raw = line.strip()
+        if not raw:
+            continue
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        rows.append(
+            {
+                "type": str(payload.get("Type") or payload.get("type") or "unknown")[:80],
+                "total_count": _safe_int(payload.get("TotalCount")),
+                "active": _safe_int(payload.get("Active")),
+                "size": _safe_diagnostic_value(str(payload.get("Size") or "")),
+                "size_bytes": _parse_docker_size_bytes(str(payload.get("Size") or "")),
+                "reclaimable": _safe_diagnostic_value(str(payload.get("Reclaimable") or "")),
+                "reclaimable_bytes": _parse_docker_size_bytes(
+                    str(payload.get("Reclaimable") or "")
+                ),
+            }
+        )
+    return rows
+
+
+def _safe_int(value: Any) -> int | None:
+    try:
+        return int(str(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_docker_size_bytes(value: str) -> int:
+    token = value.strip().split(" ", 1)[0].strip()
+    if not token:
+        return 0
+    unit_multipliers = {
+        "b": 1,
+        "kb": 1000,
+        "mb": 1000**2,
+        "gb": 1000**3,
+        "tb": 1000**4,
+        "kib": 1024,
+        "mib": 1024**2,
+        "gib": 1024**3,
+        "tib": 1024**4,
+    }
+    number_part = token
+    unit_part = "b"
+    for index, char in enumerate(token):
+        if char.isalpha():
+            number_part = token[:index]
+            unit_part = token[index:].lower()
+            break
+    try:
+        number = float(number_part)
+    except ValueError:
+        return 0
+    return int(number * unit_multipliers.get(unit_part, 1))
+
+
+def _docker_disk_preflight_warnings(diagnostics: dict[str, Any]) -> list[str]:
+    warnings: list[str] = []
+    docker_df = diagnostics.get("docker_system_df")
+    if isinstance(docker_df, dict):
+        reclaimable = int(docker_df.get("total_reclaimable_bytes") or 0)
+        if reclaimable >= 5 * 1000**3:
+            warnings.append("docker_reclaimable_space_available")
+    return warnings
+
+
 def _first_command_token(value: str) -> str:
     try:
         parts = shlex.split(value)
@@ -1375,7 +1558,7 @@ def _recovery_policy(*, status: str, reason: str | None) -> dict[str, Any]:
             "user_retryable": False,
             "operator_action": "install_docker_cli",
         }
-    if "no_space_left_on_device" in normalized:
+    if "no_space_left_on_device" in normalized or "disk_space_insufficient" in normalized:
         return {
             "user_retryable": True,
             "operator_action": "free_docker_disk_space",

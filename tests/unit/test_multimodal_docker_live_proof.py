@@ -4,6 +4,7 @@ import json
 import shutil
 import subprocess
 import urllib.parse
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -13,6 +14,7 @@ from scripts import multimodal_docker_live_proof as proof
 
 def test_docker_live_proof_runs_compose_flow_and_redacts_token(monkeypatch) -> None:
     monkeypatch.setattr(proof, "_docker_context_show", lambda _command: "desktop-linux")
+    monkeypatch.setattr(proof, "_host_disk_usage", lambda _path: _disk_usage())
     args = proof._parse_args(
         [
             "--no-build",
@@ -40,6 +42,8 @@ def test_docker_live_proof_runs_compose_flow_and_redacts_token(monkeypatch) -> N
         text = " ".join(command)
         if command[:2] == ["docker", "info"]:
             return _completed(command, stdout="29.0.0\n")
+        if command[:3] == ["docker", "system", "df"]:
+            return _completed(command, stdout=_docker_system_df_output())
         if command[:3] == ["docker", "ps", "-a"]:
             return _completed(command)
         if command[:3] == ["docker", "ps", "-aq"]:
@@ -196,6 +200,13 @@ def test_docker_live_proof_runs_compose_flow_and_redacts_token(monkeypatch) -> N
 
     assert report["ok"] is True
     assert report["components"]["compose_stack"]["status"] == "succeeded"
+    assert report["components"]["docker_disk_preflight"]["status"] == "succeeded"
+    assert (
+        report["components"]["docker_disk_preflight"]["diagnostics"]["docker_system_df"][
+            "total_reclaimable_bytes"
+        ]
+        == 5843000000
+    )
     assert report["components"]["compose_stack"]["state"] == "running"
     assert report["components"]["container_dependencies"]["versions"]["ffmpeg"]
     assert report["components"]["capabilities"]["provider_contract"]["ok"] is True
@@ -372,6 +383,7 @@ def test_docker_live_proof_degrades_on_compose_up_timeout_and_cleans_project(
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(proof, "_docker_context_show", lambda _command: "desktop-linux")
+    monkeypatch.setattr(proof, "_host_disk_usage", lambda _path: _disk_usage())
     args = proof._parse_args(
         [
             "--project-name",
@@ -400,6 +412,8 @@ def test_docker_live_proof_degrades_on_compose_up_timeout_and_cleans_project(
             return _completed(command)
         if command[:2] == ["docker", "info"]:
             return _completed(command, stdout="29.0.0\n")
+        if command[:3] == ["docker", "system", "df"]:
+            return _completed(command, stdout=_docker_system_df_output())
         if "up" in command:
             raise subprocess.TimeoutExpired(
                 command,
@@ -446,6 +460,7 @@ def test_docker_live_proof_reports_compose_up_no_space_with_logs_and_cleanup(
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(proof, "_docker_context_show", lambda _command: "desktop-linux")
+    monkeypatch.setattr(proof, "_host_disk_usage", lambda _path: _disk_usage())
     args = proof._parse_args(
         [
             "--project-name",
@@ -472,6 +487,8 @@ def test_docker_live_proof_reports_compose_up_no_space_with_logs_and_cleanup(
             return _completed(command)
         if command[:2] == ["docker", "info"]:
             return _completed(command, stdout="29.0.0\n")
+        if command[:3] == ["docker", "system", "df"]:
+            return _completed(command, stdout=_docker_system_df_output())
         if "up" in command:
             return _completed(
                 command,
@@ -525,6 +542,88 @@ def test_docker_live_proof_reports_compose_up_no_space_with_logs_and_cleanup(
     assert report["components"]["cleanup"]["status"] == "succeeded"
     assert any("logs" in command for command in commands)
     assert any("down" in command for command in commands)
+
+
+def test_docker_live_proof_fails_fast_when_host_disk_is_below_threshold(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(proof, "_docker_context_show", lambda _command: "desktop-linux")
+    monkeypatch.setattr(
+        proof,
+        "_host_disk_usage",
+        lambda _path: _disk_usage(total=10_000, used=9_500, free=500),
+    )
+    args = proof._parse_args(
+        [
+            "--project-name",
+            "infinity-context-proof-test",
+            "--min-host-free-bytes",
+            "1000",
+            "--server-port",
+            "18181",
+            "--postgres-port",
+            "18182",
+            "--qdrant-port",
+            "18183",
+            "--neo4j-http-port",
+            "18184",
+            "--neo4j-bolt-port",
+            "18185",
+        ]
+    )
+    commands: list[list[str]] = []
+
+    def run_cmd(command: list[str]) -> subprocess.CompletedProcess[str]:
+        commands.append(command)
+        if "config" in command:
+            return _completed(command)
+        if command[:2] == ["docker", "info"]:
+            return _completed(command, stdout="29.0.0\n")
+        if command[:3] == ["docker", "system", "df"]:
+            return _completed(command, stdout=_docker_system_df_output())
+        raise AssertionError(f"Unexpected command: {command}")
+
+    report = proof.run_multimodal_docker_live_proof(
+        args,
+        run_cmd=run_cmd,
+        request_json=lambda *_args, **_kwargs: {},
+        sleep=lambda _: None,
+    )
+
+    assert report["ok"] is False
+    assert report["failure"]["component"] == "docker_disk_preflight"
+    assert report["failure"]["reason"] == "docker_disk_space_insufficient"
+    assert report["failure"]["operator_action"] == "free_docker_disk_space"
+    assert report["failure"]["diagnostics"]["host_disk"]["free_bytes"] == 500
+    assert report["failure"]["diagnostics"]["host_disk"]["min_free_bytes"] == 1000
+    assert report["components"]["docker_disk_preflight"]["status"] == "degraded"
+    assert report["components"]["cleanup"]["status"] == "unknown"
+    assert not any("up" in command for command in commands)
+
+
+def test_docker_system_df_parser_bounds_reclaimable_diagnostics() -> None:
+    rows = proof._parse_docker_system_df(_docker_system_df_output())
+
+    assert rows == [
+        {
+            "active": 19,
+            "reclaimable": "5.5GB (42%)",
+            "reclaimable_bytes": 5500000000,
+            "size": "10GB",
+            "size_bytes": 10000000000,
+            "total_count": 156,
+            "type": "Images",
+        },
+        {
+            "active": 0,
+            "reclaimable": "343MB",
+            "reclaimable_bytes": 343000000,
+            "size": "2.1GB",
+            "size_bytes": 2100000000,
+            "total_count": 129,
+            "type": "Build Cache",
+        },
+    ]
 
 
 def test_cleanup_removes_labeled_compose_resource_tails() -> None:
@@ -868,4 +967,22 @@ def _completed(
         returncode=returncode,
         stdout=stdout,
         stderr=stderr,
+    )
+
+
+def _disk_usage(
+    *,
+    total: int = 20_000_000_000,
+    used: int = 10_000_000_000,
+    free: int = 10_000_000_000,
+) -> SimpleNamespace:
+    return SimpleNamespace(total=total, used=used, free=free)
+
+
+def _docker_system_df_output() -> str:
+    return (
+        '{"Active":"19","Reclaimable":"5.5GB (42%)","Size":"10GB",'
+        '"TotalCount":"156","Type":"Images"}\n'
+        '{"Active":"0","Reclaimable":"343MB","Size":"2.1GB",'
+        '"TotalCount":"129","Type":"Build Cache"}\n'
     )
