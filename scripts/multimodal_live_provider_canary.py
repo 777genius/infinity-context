@@ -451,7 +451,6 @@ def _invalid_key_probe_mode(
     if has_provider_key:
         return "auto_with_key"
     return "auto_no_key"
-    return None
 
 
 def _invalid_key_probe_skip_reason(
@@ -629,6 +628,7 @@ def _update_proof_matrix(report: dict[str, object]) -> None:
 def _finalize_report(report: dict[str, object]) -> None:
     report["secrets_redacted"] = not _contains_secret_like_value(report)
     _update_proof_matrix(report)
+    report["readiness"] = _readiness_summary(report)
     report["provenance"] = build_report_provenance(
         generated_by="scripts/multimodal_live_provider_canary.py",
         suite=SUITE,
@@ -810,7 +810,7 @@ def _vision_response_evidence_requirement(
         and (visible_text_count > 0 or summary_chars > 0)
     )
     return {
-        "status": "contract_covered" if ok else "failed",
+        "status": "succeeded" if ok else "failed",
         "proof": "live_provider_evidence_shape",
         "requires_provider_key": True,
         "ok": ok,
@@ -864,7 +864,7 @@ def _transcription_response_artifact_requirement(
         and response_format in {"json", "verbose_json", "diarized_json"}
     )
     return {
-        "status": "contract_covered" if ok else "failed",
+        "status": "succeeded" if ok else "failed",
         "proof": "live_provider_artifact_shape",
         "requires_provider_key": True,
         "ok": ok,
@@ -1090,6 +1090,91 @@ def _invalid_key_probe_requirement(components: dict[object, object]) -> dict[str
         **({"reason": reason} if reason else {}),
         **({"observed_reason": observed_reason} if observed_reason else {}),
     }
+
+
+def _readiness_summary(report: dict[str, object]) -> dict[str, object]:
+    proof_matrix = (
+        report.get("proof_matrix") if isinstance(report.get("proof_matrix"), dict) else {}
+    )
+    requirements = (
+        proof_matrix.get("requirements")
+        if isinstance(proof_matrix.get("requirements"), dict)
+        else {}
+    )
+    blocking_requirements = [
+        str(name)
+        for name, requirement in requirements.items()
+        if isinstance(requirement, dict) and requirement.get("ok") is not True
+    ]
+    live_provider_key_required = any(
+        isinstance(requirement, dict)
+        and requirement.get("requires_provider_key") is True
+        and requirement.get("ok") is not True
+        for requirement in requirements.values()
+    )
+    provider_key_present = bool(report.get("provider_key_present"))
+    production_ready = not blocking_requirements
+    if production_ready:
+        status = "production_ready"
+    elif live_provider_key_required and not provider_key_present:
+        status = "blocked_by_provider_credential"
+    else:
+        status = "failed"
+    return {
+        "schema_version": "multimodal-provider-readiness-v1",
+        "status": status,
+        "production_ready": production_ready,
+        "live_provider_key_required": live_provider_key_required,
+        "blocking_requirements": blocking_requirements,
+        "operator_actions": _readiness_operator_actions(report),
+        "next_steps": _readiness_next_steps(
+            blocking_requirements=blocking_requirements,
+            live_provider_key_required=live_provider_key_required,
+            provider_key_present=provider_key_present,
+        ),
+    }
+
+
+def _readiness_operator_actions(report: dict[str, object]) -> list[str]:
+    components = report.get("components") if isinstance(report.get("components"), dict) else {}
+    actions: set[str] = set()
+    for component in components.values():
+        if isinstance(component, dict):
+            _collect_operator_action(component, actions)
+        elif isinstance(component, list):
+            for item in component:
+                if isinstance(item, dict):
+                    _collect_operator_action(item, actions)
+    return sorted(actions)
+
+
+def _collect_operator_action(component: dict[object, object], actions: set[str]) -> None:
+    status = str(component.get("status") or "")
+    action = component.get("operator_action")
+    if status not in {"configured", "succeeded"} and isinstance(action, str) and action:
+        actions.add(action)
+
+
+def _readiness_next_steps(
+    *,
+    blocking_requirements: list[str],
+    live_provider_key_required: bool,
+    provider_key_present: bool,
+) -> list[str]:
+    steps: list[str] = []
+    if live_provider_key_required and not provider_key_present:
+        steps.append("configure_provider_credential")
+    if "audio_fixture_format_coverage" in blocking_requirements or (
+        "audio_transcription_format_matrix" in blocking_requirements and provider_key_present
+    ):
+        steps.append("provide_wav_and_mp3_audio_fixtures")
+    if "invalid_key_live_probe" in blocking_requirements:
+        steps.append("run_invalid_key_probe")
+    if blocking_requirements and not steps:
+        steps.append("inspect_provider_canary")
+    if not blocking_requirements:
+        steps.append("archive_live_provider_report")
+    return steps
 
 
 def _format_results_from_component(component: dict[object, object]) -> list[dict[str, object]]:

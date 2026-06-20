@@ -117,6 +117,30 @@ def test_multimodal_live_provider_canary_reports_missing_key_without_secret_leak
         "live_requirements_passed": 0,
         "live_requirements_total": 6,
     }
+    assert file_report["readiness"] == {
+        "blocking_requirements": [
+            "vision_real_provider",
+            "vision_response_evidence",
+            "audio_transcription_real_provider",
+            "transcription_response_artifact",
+            "audio_transcription_format_matrix",
+            "audio_fixture_format_coverage",
+            "invalid_key_live_probe",
+        ],
+        "live_provider_key_required": True,
+        "next_steps": [
+            "configure_provider_credential",
+            "provide_wav_and_mp3_audio_fixtures",
+            "run_invalid_key_probe",
+        ],
+        "operator_actions": [
+            "configure_provider_credential",
+            "inspect_provider_canary",
+        ],
+        "production_ready": False,
+        "schema_version": "multimodal-provider-readiness-v1",
+        "status": "blocked_by_provider_credential",
+    }
     requirements = proof["requirements"]
     assert requirements["vision_real_provider"] == {
         "ok": False,
@@ -383,12 +407,8 @@ def test_multimodal_live_provider_canary_auto_probes_invalid_key_without_real_ke
         "live_requirements_passed": 1,
         "live_requirements_total": 6,
     }
-    assert report["provenance"]["generated_by"] == (
-        "scripts/multimodal_live_provider_canary.py"
-    )
-    assert report["provenance"]["suite"] == (
-        "infinity-context-multimodal-live-provider-canary"
-    )
+    assert report["provenance"]["generated_by"] == ("scripts/multimodal_live_provider_canary.py")
+    assert report["provenance"]["suite"] == ("infinity-context-multimodal-live-provider-canary")
 
 
 def test_multimodal_live_provider_canary_can_skip_auto_invalid_key_probe() -> None:
@@ -486,7 +506,7 @@ def test_multimodal_live_provider_canary_proof_matrix_tracks_live_artifacts() ->
         "ok": True,
         "proof": "live_provider_evidence_shape",
         "requires_provider_key": True,
-        "status": "contract_covered",
+        "status": "succeeded",
         "summary_chars": 40,
         "visible_text_count": 1,
     }
@@ -496,7 +516,7 @@ def test_multimodal_live_provider_canary_proof_matrix_tracks_live_artifacts() ->
         "requires_provider_key": True,
         "response_format": "json",
         "segment_count": 0,
-        "status": "contract_covered",
+        "status": "succeeded",
         "transcript_chars": 52,
         "word_count": 0,
     }
