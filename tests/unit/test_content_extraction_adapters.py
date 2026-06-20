@@ -1,9 +1,15 @@
 import asyncio
 import base64
 import json
+import subprocess
 import time
 from dataclasses import dataclass
 
+import pytest
+from infinity_context_adapters.extraction import media_tools
+from infinity_context_adapters.extraction import (
+    transcription_engine as transcription_engine_module,
+)
 from infinity_context_adapters.extraction.content import (
     ExtractionEngine,
     ImageMetadataExtractionEngine,
@@ -819,6 +825,81 @@ def test_speech_transcription_router_falls_back_when_provider_upload_is_too_larg
     assert metadata["transcript_error_code"] == "asset_extraction.transcription_file_too_large"
 
 
+def test_media_probe_timeout_metadata_is_bounded_and_redacted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_run(
+        args: list[str],
+        *,
+        request: ExtractionRequest,
+    ) -> subprocess.CompletedProcess[bytes]:
+        raise subprocess.TimeoutExpired(
+            cmd=args,
+            timeout=request.limits.subprocess_timeout_seconds,
+            output=b"stdout sk-proj-timeoutsecretvalue123456",
+            stderr=b"stderr Bearer timeoutsecretvalue123456",
+        )
+
+    monkeypatch.setattr(media_tools.shutil, "which", lambda binary: f"/usr/bin/{binary}")
+    monkeypatch.setattr(media_tools, "_run_media_subprocess", fake_run)
+    request = _request(
+        parser_profile="media_api",
+        detected_content_type="video/mp4",
+        content=b"\x00\x00\x00\x18ftypmp42fake video bytes",
+        filename="timeout-video.mp4",
+        subprocess_timeout_seconds=1,
+    )
+
+    result = media_tools.probe_media_with_ffprobe(request)
+
+    assert result.status == "failed"
+    assert result.metadata is not None
+    assert result.metadata["probe_status"] == "timeout"
+    assert result.metadata["probe_failure_reason"] == "subprocess_timeout"
+    assert result.metadata["probe_timed_out_after_seconds"] == 1
+    assert result.metadata["protocol_whitelist"] == "file"
+    payload = json.dumps(result.metadata, sort_keys=True)
+    assert "sk-proj-" not in payload
+    assert "Bearer timeout" not in payload
+    assert "[redacted]" in payload
+
+
+def test_video_transcription_skips_provider_when_probe_failed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transcription = _CountingTranscriptionPort()
+    engine = SpeechTranscriptionExtractionEngine(transcription=transcription)
+
+    monkeypatch.setattr(
+        transcription_engine_module,
+        "probe_media_with_ffprobe",
+        lambda request: media_tools.MediaProbeResult(
+            status="failed",
+            metadata={
+                "probe_status": "timeout",
+                "probe_failure_reason": "subprocess_timeout",
+                "subprocess_timeout_seconds": 1,
+            },
+        ),
+    )
+    request = _request(
+        parser_profile="media_api",
+        detected_content_type="video/mp4",
+        content=b"\x00\x00\x00\x18ftypmp42fake video bytes",
+        filename="timeout-video.mp4",
+        enable_external_ai=True,
+        subprocess_timeout_seconds=1,
+    )
+
+    result = asyncio.run(engine.extract(request))
+
+    assert transcription.called is False
+    assert result.status == "unsupported"
+    assert result.safe_error_code == "asset_extraction.transcription_media_probe_timeout"
+    assert result.technical_metadata["probe_failure_reason"] == "subprocess_timeout"
+    assert result.diagnostics["fallback_allowed"] is True
+
+
 def test_standard_asr_provider_failure_does_not_fall_back_to_local_asr() -> None:
     local_asr_model_loaded = False
 
@@ -1272,6 +1353,23 @@ class _LargeTranscriptPort:
             duration_seconds=2.0,
             provider_name="test_transcription",
             provider_model="bounded-test",
+        )
+
+
+class _CountingTranscriptionPort:
+    def __init__(self) -> None:
+        self.called = False
+
+    async def transcribe(
+        self,
+        request: SpeechTranscriptionRequest,
+    ) -> SpeechTranscriptionResult:
+        self.called = True
+        return SpeechTranscriptionResult(
+            status="succeeded",
+            text="provider should not be called",
+            provider_name="counting_transcription",
+            provider_model="test",
         )
 
 

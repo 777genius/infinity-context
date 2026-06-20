@@ -9,6 +9,7 @@ import tempfile
 from dataclasses import dataclass
 from typing import Any
 
+from infinity_context_core.application.safe_payload import safe_metadata_text
 from infinity_context_core.ports.extraction import (
     ExtractionArtifactCandidate,
     ExtractionRequest,
@@ -16,6 +17,7 @@ from infinity_context_core.ports.extraction import (
 
 _LOCAL_MEDIA_PROTOCOL_WHITELIST = "file"
 _MEDIA_STDIN_POLICY = "closed"
+_MEDIA_SUBPROCESS_OUTPUT_LIMIT = 500
 
 
 @dataclass(frozen=True)
@@ -126,31 +128,43 @@ def probe_media_with_ffprobe(request: ExtractionRequest) -> MediaProbeResult:
                 ],
                 request=request,
             )
-    except (OSError, subprocess.TimeoutExpired):
+    except subprocess.TimeoutExpired as exc:
         return MediaProbeResult(
             status="failed",
-            metadata={
-                "probe_status": "failed",
-                **_media_subprocess_policy_metadata(request),
-            },
+            metadata=_media_subprocess_failure_metadata(
+                request=request,
+                reason="subprocess_timeout",
+                timeout_expired=exc,
+            ),
+        )
+    except OSError as exc:
+        return MediaProbeResult(
+            status="failed",
+            metadata=_media_subprocess_failure_metadata(
+                request=request,
+                reason="subprocess_error",
+                exception=exc,
+            ),
         )
     if completed.returncode != 0:
         return MediaProbeResult(
             status="failed",
-            metadata={
-                "probe_status": "failed",
-                **_media_subprocess_policy_metadata(request),
-            },
+            metadata=_media_subprocess_failure_metadata(
+                request=request,
+                reason="nonzero_exit",
+                completed=completed,
+            ),
         )
     try:
         payload = json.loads(completed.stdout.decode("utf-8"))
     except json.JSONDecodeError:
         return MediaProbeResult(
             status="failed",
-            metadata={
-                "probe_status": "failed",
-                **_media_subprocess_policy_metadata(request),
-            },
+            metadata=_media_subprocess_failure_metadata(
+                request=request,
+                reason="invalid_json",
+                completed=completed,
+            ),
         )
     return _media_probe_from_payload(
         payload,
@@ -441,6 +455,53 @@ def _media_subprocess_policy_metadata(request: ExtractionRequest) -> dict[str, o
         "stdin_policy": _MEDIA_STDIN_POLICY,
         "subprocess_timeout_seconds": _subprocess_timeout_seconds(request),
     }
+
+
+def _media_subprocess_failure_metadata(
+    *,
+    request: ExtractionRequest,
+    reason: str,
+    completed: subprocess.CompletedProcess[bytes] | None = None,
+    timeout_expired: subprocess.TimeoutExpired | None = None,
+    exception: OSError | None = None,
+) -> dict[str, object]:
+    metadata: dict[str, object] = {
+        "probe_status": "timeout" if reason == "subprocess_timeout" else "failed",
+        "probe_failure_reason": reason,
+        **_media_subprocess_policy_metadata(request),
+    }
+    if completed is not None:
+        metadata["probe_returncode"] = completed.returncode
+        _add_bounded_subprocess_output(metadata, prefix="stderr", data=completed.stderr)
+        _add_bounded_subprocess_output(metadata, prefix="stdout", data=completed.stdout)
+    if timeout_expired is not None:
+        metadata["probe_timed_out_after_seconds"] = _subprocess_timeout_seconds(request)
+        _add_bounded_subprocess_output(metadata, prefix="stderr", data=timeout_expired.stderr)
+        _add_bounded_subprocess_output(metadata, prefix="stdout", data=timeout_expired.output)
+    if exception is not None:
+        metadata["probe_exception_type"] = safe_metadata_text(
+            exception.__class__.__name__,
+            limit=120,
+        )
+    return metadata
+
+
+def _add_bounded_subprocess_output(
+    metadata: dict[str, object],
+    *,
+    prefix: str,
+    data: bytes | str | None,
+) -> None:
+    if data is None:
+        return
+    if isinstance(data, bytes):
+        text = data.decode("utf-8", errors="replace")
+    else:
+        text = data
+    text = safe_metadata_text(text.strip(), limit=_MEDIA_SUBPROCESS_OUTPUT_LIMIT)
+    metadata[f"probe_{prefix}_chars"] = len(text)
+    if text:
+        metadata[f"probe_{prefix}_excerpt"] = text
 
 
 def _selected_keyframe_seconds(

@@ -567,18 +567,30 @@ class MediaMetadataExtractionEngine(ExtractionEngine):
                 metadata={
                     "byte_size": request.byte_size,
                     "mime_detected": request.detected_content_type,
+                    **(probe.metadata or {}),
                 },
             )
         if probe.status == "failed":
+            probe_metadata = probe.metadata or {}
+            probe_timed_out = probe_metadata.get("probe_failure_reason") == "subprocess_timeout"
             return _unsupported(
                 request,
                 parser_name=self.name,
                 parser_version=self.version,
-                code="asset_extraction.media_probe_failed",
-                message="Media file could not be probed locally",
+                code=(
+                    "asset_extraction.media_probe_timeout"
+                    if probe_timed_out
+                    else "asset_extraction.media_probe_failed"
+                ),
+                message=(
+                    "Media probing timed out locally"
+                    if probe_timed_out
+                    else "Media file could not be probed locally"
+                ),
                 metadata={
                     "byte_size": request.byte_size,
                     "mime_detected": request.detected_content_type,
+                    **probe_metadata,
                 },
             )
         if probe.duration_seconds and probe.duration_seconds > request.limits.max_media_seconds:

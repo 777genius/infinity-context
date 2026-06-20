@@ -66,6 +66,17 @@ class SpeechTranscriptionExtractionEngine(ExtractionEngine):
 
     async def extract(self, request: ExtractionRequest) -> ExtractionResult:
         probe = probe_media_with_ffprobe(request)
+        if request.detected_content_type.startswith("video/") and probe.status == "failed":
+            return _fallback_unsupported(
+                request,
+                code=_video_probe_transcription_error_code(probe),
+                message="Video could not be probed before transcription",
+                metadata={
+                    "duration_seconds": probe.duration_seconds,
+                    "stream_summaries": list(probe.stream_summaries),
+                    **(probe.metadata or {}),
+                },
+            )
         if probe.duration_seconds and probe.duration_seconds > request.limits.max_media_seconds:
             return _fallback_unsupported(
                 request,
@@ -328,6 +339,13 @@ def _probe_confirms_no_audio(probe: MediaProbeResult) -> bool:
     return any(stream.codec_type == "video" for stream in probe.streams) or any(
         summary.startswith("video/") for summary in probe.stream_summaries
     )
+
+
+def _video_probe_transcription_error_code(probe: MediaProbeResult) -> str:
+    metadata = probe.metadata or {}
+    if metadata.get("probe_failure_reason") == "subprocess_timeout":
+        return "asset_extraction.transcription_media_probe_timeout"
+    return "asset_extraction.transcription_media_probe_failed"
 
 
 def _is_media_content_type(content_type: str) -> bool:
