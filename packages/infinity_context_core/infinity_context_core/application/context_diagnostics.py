@@ -18,6 +18,7 @@ _MAX_DIAGNOSTIC_LIST_ITEMS = 8
 _MAX_DIAGNOSTIC_KEY_CHARS = 80
 _MAX_DIAGNOSTIC_STRING_CHARS = 240
 _MAX_RANKING_REASON_CHARS = 240
+_MAX_EVIDENCE_LOCATION_GAPS = 8
 _SAFE_RECALL_DIAGNOSTIC_KEYS = (
     "provider",
     "adapter_name",
@@ -376,6 +377,7 @@ def normalize_context_bundle_diagnostics(
     normalized.update(_source_ref_counts(items))
     normalized.update(_multimodal_source_ref_counts(items))
     normalized.update(_evidence_kind_modality_counts(items))
+    normalized["evidence_coverage_profile"] = _evidence_coverage_profile(items)
     normalized.update(_query_snippet_counts(items))
     normalized["retrieval_trace"] = _retrieval_trace(
         items,
@@ -779,6 +781,132 @@ def _evidence_kind_modality_counts(items: tuple[ContextItem, ...]) -> dict[str, 
         "items_with_evidence_kind": sum(kind_counts.values()),
         "items_with_evidence_modality": sum(modality_counts.values()),
     }
+
+
+def _evidence_coverage_profile(items: tuple[ContextItem, ...]) -> dict[str, object]:
+    evidence_items = tuple(item for item in items if _has_evidence_identity(item))
+    precise_evidence_items = sum(1 for item in evidence_items if _item_has_precise_location(item))
+    transcript_items = tuple(item for item in evidence_items if _is_transcript_evidence(item))
+    image_region_items = tuple(item for item in evidence_items if _is_image_region_evidence(item))
+    video_frame_items = tuple(item for item in evidence_items if _is_video_frame_evidence(item))
+    document_items = tuple(item for item in evidence_items if _is_document_evidence(item))
+    gaps = _evidence_location_gaps(
+        transcript_items=transcript_items,
+        image_region_items=image_region_items,
+        video_frame_items=video_frame_items,
+        document_items=document_items,
+    )
+    return {
+        "schema_version": "evidence-coverage-v1",
+        "items_total": len(items),
+        "evidence_items_total": len(evidence_items),
+        "precise_evidence_items": precise_evidence_items,
+        "precise_evidence_location_coverage_ratio": _ratio(
+            precise_evidence_items,
+            len(evidence_items),
+        ),
+        "transcript_items_total": len(transcript_items),
+        "transcript_time_range_coverage_ratio": _ratio(
+            sum(1 for item in transcript_items if _item_has_time_range(item)),
+            len(transcript_items),
+        ),
+        "image_region_items_total": len(image_region_items),
+        "image_bbox_coverage_ratio": _ratio(
+            sum(1 for item in image_region_items if _item_has_bbox(item)),
+            len(image_region_items),
+        ),
+        "video_frame_items_total": len(video_frame_items),
+        "video_time_range_coverage_ratio": _ratio(
+            sum(1 for item in video_frame_items if _item_has_time_range(item)),
+            len(video_frame_items),
+        ),
+        "document_items_total": len(document_items),
+        "document_page_or_char_coverage_ratio": _ratio(
+            sum(1 for item in document_items if _item_has_page_or_char_range(item)),
+            len(document_items),
+        ),
+        "evidence_location_gap_count": len(gaps),
+        "evidence_location_gaps": list(gaps[:_MAX_EVIDENCE_LOCATION_GAPS]),
+        "prompt_ready_multimodal_evidence": len(gaps) == 0,
+    }
+
+
+def _has_evidence_identity(item: ContextItem) -> bool:
+    return bool(
+        _diagnostic_text(item, "evidence_kind")
+        or _diagnostic_text(item, "evidence_modality")
+    )
+
+
+def _is_transcript_evidence(item: ContextItem) -> bool:
+    kind = _diagnostic_text(item, "evidence_kind").casefold()
+    modality = _diagnostic_text(item, "evidence_modality").casefold()
+    return modality == "audio" or any(marker in kind for marker in ("transcript", "speech", "word"))
+
+
+def _is_image_region_evidence(item: ContextItem) -> bool:
+    kind = _diagnostic_text(item, "evidence_kind").casefold()
+    modality = _diagnostic_text(item, "evidence_modality").casefold()
+    return modality == "image" and any(
+        marker in kind for marker in ("ocr", "region", "bbox", "vision")
+    )
+
+
+def _is_video_frame_evidence(item: ContextItem) -> bool:
+    kind = _diagnostic_text(item, "evidence_kind").casefold()
+    modality = _diagnostic_text(item, "evidence_modality").casefold()
+    return modality == "video" and any(marker in kind for marker in ("keyframe", "frame"))
+
+
+def _is_document_evidence(item: ContextItem) -> bool:
+    kind = _diagnostic_text(item, "evidence_kind").casefold()
+    modality = _diagnostic_text(item, "evidence_modality").casefold()
+    return modality in {"document", "pdf"} or any(
+        marker in kind for marker in ("document", "pdf", "page")
+    )
+
+
+def _evidence_location_gaps(
+    *,
+    transcript_items: tuple[ContextItem, ...],
+    image_region_items: tuple[ContextItem, ...],
+    video_frame_items: tuple[ContextItem, ...],
+    document_items: tuple[ContextItem, ...],
+) -> tuple[str, ...]:
+    gaps: list[str] = []
+    if any(not _item_has_time_range(item) for item in transcript_items):
+        gaps.append("transcript_without_time_range")
+    if any(not _item_has_bbox(item) for item in image_region_items):
+        gaps.append("image_region_without_bbox")
+    if any(not _item_has_time_range(item) for item in video_frame_items):
+        gaps.append("video_frame_without_time_range")
+    if any(not _item_has_page_or_char_range(item) for item in document_items):
+        gaps.append("document_without_page_or_char_range")
+    return tuple(gaps)
+
+
+def _item_has_precise_location(item: ContextItem) -> bool:
+    return any(_source_ref_has_precise_location(ref) for ref in item.source_refs)
+
+
+def _item_has_time_range(item: ContextItem) -> bool:
+    return any(
+        ref.time_start_ms is not None or ref.time_end_ms is not None
+        for ref in item.source_refs
+    )
+
+
+def _item_has_bbox(item: ContextItem) -> bool:
+    return any(ref.bbox is not None for ref in item.source_refs)
+
+
+def _item_has_page_or_char_range(item: ContextItem) -> bool:
+    return any(
+        ref.page_number is not None
+        or ref.char_start is not None
+        or ref.char_end is not None
+        for ref in item.source_refs
+    )
 
 
 def _diagnostic_text(item: ContextItem, key: str) -> str:

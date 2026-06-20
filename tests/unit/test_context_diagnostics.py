@@ -208,10 +208,106 @@ def test_context_bundle_diagnostics_count_evidence_kinds_and_modalities() -> Non
     }
     assert diagnostics["items_with_evidence_kind"] == 3
     assert diagnostics["items_with_evidence_modality"] == 3
+    assert diagnostics["evidence_coverage_profile"] == {
+        "schema_version": "evidence-coverage-v1",
+        "items_total": 3,
+        "evidence_items_total": 3,
+        "precise_evidence_items": 2,
+        "precise_evidence_location_coverage_ratio": 0.6667,
+        "transcript_items_total": 1,
+        "transcript_time_range_coverage_ratio": 1.0,
+        "image_region_items_total": 1,
+        "image_bbox_coverage_ratio": 1.0,
+        "video_frame_items_total": 1,
+        "video_time_range_coverage_ratio": 0.0,
+        "document_items_total": 0,
+        "document_page_or_char_coverage_ratio": 0.0,
+        "evidence_location_gap_count": 1,
+        "evidence_location_gaps": ["video_frame_without_time_range"],
+        "prompt_ready_multimodal_evidence": False,
+    }
     assert diagnostics["retrieval_quality_summary"]["retrieval_mode"] == (
         "multimodal_single_source"
     )
     assert diagnostics["retrieval_quality_summary"]["multimodal_item_ratio"] == 0.6667
+    assert diagnostics["retrieval_quality_summary"]["evidence_location_gap_count"] == 1
+
+
+def test_context_bundle_diagnostics_report_multimodal_evidence_location_gaps() -> None:
+    transcript_without_time = ContextItem(
+        item_id="audio_transcript",
+        item_type="extraction_artifact",
+        text="Transcript mentions Atlas without segment coordinates.",
+        score=0.88,
+        source_refs=(SourceRef(source_type="extraction_artifact", source_id="audio_1"),),
+        diagnostics={
+            "evidence_kind": "transcript_segment",
+            "evidence_modality": "audio",
+        },
+    )
+    ocr_without_bbox = ContextItem(
+        item_id="image_ocr",
+        item_type="extraction_artifact",
+        text="OCR says Atlas budget changed.",
+        score=0.87,
+        source_refs=(SourceRef(source_type="extraction_artifact", source_id="image_1"),),
+        diagnostics={"evidence_kind": "ocr_region", "evidence_modality": "image"},
+    )
+    keyframe_without_time = ContextItem(
+        item_id="video_keyframe",
+        item_type="extraction_artifact",
+        text="Keyframe shows the roadmap slide.",
+        score=0.86,
+        source_refs=(SourceRef(source_type="extraction_artifact", source_id="video_1"),),
+        diagnostics={"evidence_kind": "video_keyframe", "evidence_modality": "video"},
+    )
+    document_without_location = ContextItem(
+        item_id="document_page",
+        item_type="chunk",
+        text="Document says Atlas launch moved.",
+        score=0.85,
+        source_refs=(SourceRef(source_type="document", source_id="doc_1"),),
+        diagnostics={"evidence_kind": "document_page", "evidence_modality": "document"},
+    )
+
+    diagnostics = normalize_context_bundle_diagnostics(
+        {"context_assembly_version": "context-v2-hybrid-explainable"},
+        items=(
+            transcript_without_time,
+            ocr_without_bbox,
+            keyframe_without_time,
+            document_without_location,
+        ),
+    )
+
+    assert diagnostics["evidence_coverage_profile"] == {
+        "schema_version": "evidence-coverage-v1",
+        "items_total": 4,
+        "evidence_items_total": 4,
+        "precise_evidence_items": 0,
+        "precise_evidence_location_coverage_ratio": 0.0,
+        "transcript_items_total": 1,
+        "transcript_time_range_coverage_ratio": 0.0,
+        "image_region_items_total": 1,
+        "image_bbox_coverage_ratio": 0.0,
+        "video_frame_items_total": 1,
+        "video_time_range_coverage_ratio": 0.0,
+        "document_items_total": 1,
+        "document_page_or_char_coverage_ratio": 0.0,
+        "evidence_location_gap_count": 4,
+        "evidence_location_gaps": [
+            "transcript_without_time_range",
+            "image_region_without_bbox",
+            "video_frame_without_time_range",
+            "document_without_page_or_char_range",
+        ],
+        "prompt_ready_multimodal_evidence": False,
+    }
+    summary = diagnostics["retrieval_quality_summary"]
+    assert summary["evidence_location_coverage_ratio"] == 0.0
+    assert summary["evidence_location_gap_count"] == 4
+    assert "low_evidence_location_coverage" in summary["actionable_gaps"]
+    assert "evidence_location_gaps_present" in summary["actionable_gaps"]
 
 
 def test_context_bundle_diagnostics_defaults_empty_contract() -> None:
@@ -262,6 +358,24 @@ def test_context_bundle_diagnostics_defaults_empty_contract() -> None:
     assert diagnostics["evidence_modality_counts"] == {}
     assert diagnostics["items_with_evidence_kind"] == 0
     assert diagnostics["items_with_evidence_modality"] == 0
+    assert diagnostics["evidence_coverage_profile"] == {
+        "schema_version": "evidence-coverage-v1",
+        "items_total": 0,
+        "evidence_items_total": 0,
+        "precise_evidence_items": 0,
+        "precise_evidence_location_coverage_ratio": 0.0,
+        "transcript_items_total": 0,
+        "transcript_time_range_coverage_ratio": 0.0,
+        "image_region_items_total": 0,
+        "image_bbox_coverage_ratio": 0.0,
+        "video_frame_items_total": 0,
+        "video_time_range_coverage_ratio": 0.0,
+        "document_items_total": 0,
+        "document_page_or_char_coverage_ratio": 0.0,
+        "evidence_location_gap_count": 0,
+        "evidence_location_gaps": [],
+        "prompt_ready_multimodal_evidence": True,
+    }
     assert diagnostics["retrieval_quality_summary"] == {
         "schema_version": "retrieval-quality-v1",
         "evidence_strength": "empty",
@@ -274,6 +388,8 @@ def test_context_bundle_diagnostics_defaults_empty_contract() -> None:
         "precise_location_coverage_ratio": 0.0,
         "query_snippet_coverage_ratio": 0.0,
         "multimodal_item_ratio": 0.0,
+        "evidence_location_coverage_ratio": 0.0,
+        "evidence_location_gap_count": 0,
         "review_pressure_ratio": 0.0,
         "stale_item_ratio": 0.0,
         "stale_filtered_count": 0,
@@ -352,6 +468,8 @@ def test_context_bundle_diagnostics_report_strong_retrieval_quality_summary() ->
         "precise_location_coverage_ratio": 1.0,
         "query_snippet_coverage_ratio": 0.5,
         "multimodal_item_ratio": 0.5,
+        "evidence_location_coverage_ratio": 1.0,
+        "evidence_location_gap_count": 0,
         "review_pressure_ratio": 0.0,
         "stale_item_ratio": 0.0,
         "stale_filtered_count": 0,

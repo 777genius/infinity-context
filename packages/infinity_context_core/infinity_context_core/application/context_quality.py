@@ -30,6 +30,18 @@ def retrieval_quality_summary(
         diagnostics.get("query_snippet_items_used"),
         default=0,
     )
+    evidence_profile = _as_dict(diagnostics.get("evidence_coverage_profile"))
+    evidence_items_total = _non_negative_int(
+        evidence_profile.get("evidence_items_total"),
+        default=0,
+    )
+    evidence_location_gap_count = _non_negative_int(
+        evidence_profile.get("evidence_location_gap_count"),
+        default=0,
+    )
+    evidence_location_coverage = _ratio_float(
+        evidence_profile.get("precise_evidence_location_coverage_ratio"),
+    )
     review_only_items = _non_negative_int(provenance.get("review_only_items"), default=0)
     pending_review_items = _non_negative_int(
         provenance.get("pending_review_items"),
@@ -81,6 +93,8 @@ def retrieval_quality_summary(
         "precise_location_coverage_ratio": precise_location_coverage,
         "query_snippet_coverage_ratio": _ratio(query_snippet_items, item_count),
         "multimodal_item_ratio": _ratio(multimodal_items, item_count),
+        "evidence_location_coverage_ratio": evidence_location_coverage,
+        "evidence_location_gap_count": evidence_location_gap_count,
         "review_pressure_ratio": _ratio(
             review_only_items + pending_review_items,
             item_count,
@@ -105,6 +119,9 @@ def retrieval_quality_summary(
             retrieval_source_count=retrieval_source_count,
             multimodal_items=multimodal_items,
             query_snippet_items=query_snippet_items,
+            evidence_items_total=evidence_items_total,
+            evidence_location_coverage=evidence_location_coverage,
+            evidence_location_gap_count=evidence_location_gap_count,
             review_only_items=review_only_items,
             pending_review_items=pending_review_items,
             stale_items=stale_items,
@@ -187,6 +204,9 @@ def _retrieval_quality_gaps(
     retrieval_source_count: int,
     multimodal_items: int,
     query_snippet_items: int,
+    evidence_items_total: int,
+    evidence_location_coverage: float,
+    evidence_location_gap_count: int,
     review_only_items: int,
     pending_review_items: int,
     stale_items: int,
@@ -200,6 +220,10 @@ def _retrieval_quality_gaps(
         gaps.append("low_citation_coverage")
     if multimodal_items > 0 and precise_location_coverage < 0.5:
         gaps.append("low_precise_location_coverage")
+    if evidence_items_total > 0 and evidence_location_coverage < 0.5:
+        gaps.append("low_evidence_location_coverage")
+    if evidence_location_gap_count > 0:
+        gaps.append("evidence_location_gaps_present")
     if retrieval_source_count <= 1 and item_count > 1:
         gaps.append("single_retrieval_channel")
     if query_snippet_items <= 0 and item_count > 1:
