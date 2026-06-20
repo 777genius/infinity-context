@@ -955,6 +955,9 @@ def test_sdk_build_typed_context_returns_bounded_safe_diagnostics() -> None:
                         "artifact_evidence_candidate_cap_reached_count": 1,
                         "artifact_evidence_confidence_signal_count": 6,
                         "artifact_evidence_coordinate_signal_count": 3,
+                        "artifact_evidence_time_query_count": 2,
+                        "artifact_evidence_time_query_match_count": 1,
+                        "artifact_evidence_time_query_drop_count": 1,
                         "artifact_evidence_invalid_time_range_count": 2,
                         "artifact_evidence_invalid_bbox_count": 1,
                         "artifact_evidence_query_drop_count": 1,
@@ -1024,6 +1027,8 @@ def test_sdk_build_typed_context_returns_bounded_safe_diagnostics() -> None:
                         "source_refs_with_char_range_count": 11,
                         "query_snippet_items_used": 4,
                         "query_snippet_source_refs_enriched": 6,
+                        "media_time_query_items_used": 1,
+                        "media_time_query_matched_items_used": 1,
                         "source_refs_total": 25,
                         "source_refs_returned": 20,
                         "source_refs_truncated": True,
@@ -1063,6 +1068,7 @@ def test_sdk_build_typed_context_returns_bounded_safe_diagnostics() -> None:
                                 "source_refs_with_page_count": 3,
                                 "source_refs_with_bbox_count": 1,
                                 "source_refs_with_time_range_count": 2,
+                                "media_time_query_match_count": 1,
                                 "evidence_kind_counts": {
                                     "transcript_segment": 1,
                                 },
@@ -1274,6 +1280,9 @@ def test_sdk_build_typed_context_returns_bounded_safe_diagnostics() -> None:
     assert bundle.diagnostics.artifact_evidence_candidate_cap_reached_count == 1
     assert bundle.diagnostics.artifact_evidence_confidence_signal_count == 6
     assert bundle.diagnostics.artifact_evidence_coordinate_signal_count == 3
+    assert bundle.diagnostics.artifact_evidence_time_query_count == 2
+    assert bundle.diagnostics.artifact_evidence_time_query_match_count == 1
+    assert bundle.diagnostics.artifact_evidence_time_query_drop_count == 1
     assert bundle.diagnostics.artifact_evidence_invalid_time_range_count == 2
     assert bundle.diagnostics.artifact_evidence_invalid_bbox_count == 1
     assert bundle.diagnostics.artifact_evidence_query_drop_count == 1
@@ -1345,6 +1354,8 @@ def test_sdk_build_typed_context_returns_bounded_safe_diagnostics() -> None:
     assert bundle.diagnostics.source_refs_with_char_range_count == 11
     assert bundle.diagnostics.query_snippet_items_used == 4
     assert bundle.diagnostics.query_snippet_source_refs_enriched == 6
+    assert bundle.diagnostics.media_time_query_items_used == 1
+    assert bundle.diagnostics.media_time_query_matched_items_used == 1
     assert bundle.diagnostics.source_refs_total == 25
     assert bundle.diagnostics.source_refs_returned == 20
     assert bundle.diagnostics.source_refs_truncated is True
@@ -1384,6 +1395,7 @@ def test_sdk_build_typed_context_returns_bounded_safe_diagnostics() -> None:
     assert trace.source_refs_with_page_count == 3
     assert trace.source_refs_with_bbox_count == 1
     assert trace.source_refs_with_time_range_count == 2
+    assert trace.media_time_query_match_count == 1
     assert trace.evidence_kind_counts == {"transcript_segment": 1}
     assert trace.evidence_modality_counts == {"audio": 1}
     assert trace.max_score == 0.91

@@ -11,6 +11,12 @@ from math import isfinite
 from infinity_context_core.application.context_link_candidate_policy import (
     prompt_injection_signal_codes,
 )
+from infinity_context_core.application.context_media_time import (
+    media_time_match_for_source_ref,
+    media_time_match_score_signals,
+    media_time_query_diagnostics,
+    media_time_windows_from_query,
+)
 from infinity_context_core.application.context_relevance import (
     is_query_relevance_sufficient,
     query_relevance_score_signals,
@@ -288,6 +294,11 @@ def _context_items_from_manifest(
     evidence_items = payload.get("evidence_items")
     if not isinstance(evidence_items, list):
         return ()
+    time_windows = media_time_windows_from_query(query.query)
+    if time_windows:
+        diagnostics["artifact_evidence_time_query_count"] = (
+            int(diagnostics["artifact_evidence_time_query_count"]) + len(time_windows)
+        )
     items: list[ContextItem] = []
     for index, raw_item in enumerate(evidence_items):
         if not isinstance(raw_item, Mapping):
@@ -319,11 +330,6 @@ def _context_items_from_manifest(
                 )
             ),
         )
-        if require_query_match and not is_query_relevance_sufficient(relevance):
-            diagnostics["artifact_evidence_query_drop_count"] = (
-                int(diagnostics["artifact_evidence_query_drop_count"]) + 1
-            )
-            continue
         artifact = candidate.artifact
         snippet = query_focused_snippet(query=query.query, text=text)
         evidence_id = _safe_evidence_id(raw_item, index=index, diagnostics=diagnostics)
@@ -341,6 +347,25 @@ def _context_items_from_manifest(
             include_char_range=True,
         )
         source_ref = source_refs[0]
+        time_match = media_time_match_for_source_ref(source_ref, time_windows)
+        if time_windows and time_match is None and require_query_match:
+            diagnostics["artifact_evidence_time_query_drop_count"] = (
+                int(diagnostics["artifact_evidence_time_query_drop_count"]) + 1
+            )
+            continue
+        elif time_match is not None:
+            diagnostics["artifact_evidence_time_query_match_count"] = (
+                int(diagnostics["artifact_evidence_time_query_match_count"]) + 1
+            )
+        if (
+            not time_windows
+            and require_query_match
+            and not is_query_relevance_sufficient(relevance)
+        ):
+            diagnostics["artifact_evidence_query_drop_count"] = (
+                int(diagnostics["artifact_evidence_query_drop_count"]) + 1
+            )
+            continue
         confidence = _confidence(raw_item.get("confidence"))
         kind = safe_metadata_text(str(raw_item.get("kind") or "unknown"))
         modality = safe_metadata_text(str(raw_item.get("modality") or "unknown"))
@@ -364,7 +389,8 @@ def _context_items_from_manifest(
                 + confidence_boost
                 + coordinate_boost
                 + kind_boost
-                + modality_boost,
+                + modality_boost
+                + (time_match.boost if time_match else 0.0),
                 4,
             ),
         )
@@ -391,6 +417,7 @@ def _context_items_from_manifest(
                         "evidence_modality_boost": modality_boost,
                         **query_relevance_score_signals(relevance),
                         **query_snippet_score_signals(snippet),
+                        **media_time_match_score_signals(time_match),
                     },
                     "provenance": {
                         "retrieval_sources": [retrieval_source],
@@ -405,6 +432,7 @@ def _context_items_from_manifest(
                         "evidence_confidence": confidence,
                         **source_ref_location_summary(source_refs),
                         **query_snippet_diagnostics(snippet),
+                        **media_time_query_diagnostics(time_windows),
                         **dict(extra_provenance or {}),
                     },
                     "artifact_id": str(artifact.id),
@@ -414,6 +442,7 @@ def _context_items_from_manifest(
                     "evidence_confidence": confidence,
                     **source_ref_location_summary(source_refs),
                     **query_snippet_diagnostics(snippet),
+                    **media_time_query_diagnostics(time_windows),
                     **dict(extra_diagnostics or {}),
                 },
             )
@@ -618,6 +647,9 @@ def _init_diagnostics(diagnostics: dict[str, object]) -> None:
         "artifact_evidence_candidate_cap_reached_count",
         "artifact_evidence_confidence_signal_count",
         "artifact_evidence_coordinate_signal_count",
+        "artifact_evidence_time_query_count",
+        "artifact_evidence_time_query_match_count",
+        "artifact_evidence_time_query_drop_count",
         "artifact_evidence_invalid_time_range_count",
         "artifact_evidence_invalid_bbox_count",
         "artifact_evidence_query_drop_count",

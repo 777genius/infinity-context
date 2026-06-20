@@ -562,6 +562,7 @@ def test_context_preserves_multimodal_chunk_source_ref_citations(tmp_path: Path)
             "source_refs_with_page_count": 1,
             "source_refs_with_bbox_count": 1,
             "source_refs_with_time_range_count": 1,
+            "media_time_query_match_count": 0,
             "evidence_kind_counts": {},
             "evidence_modality_counts": {},
             "max_score": round(context.items[0].score, 4),

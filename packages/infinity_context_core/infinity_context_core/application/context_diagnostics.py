@@ -52,6 +52,9 @@ _BUNDLE_COUNTER_KEYS = (
     "artifact_evidence_candidate_cap_reached_count",
     "artifact_evidence_confidence_signal_count",
     "artifact_evidence_coordinate_signal_count",
+    "artifact_evidence_time_query_count",
+    "artifact_evidence_time_query_match_count",
+    "artifact_evidence_time_query_drop_count",
     "artifact_evidence_invalid_time_range_count",
     "artifact_evidence_invalid_bbox_count",
     "artifact_evidence_query_drop_count",
@@ -136,6 +139,8 @@ _BUNDLE_COUNTER_KEYS = (
     "source_refs_with_char_range_count",
     "query_snippet_items_used",
     "query_snippet_source_refs_enriched",
+    "media_time_query_items_used",
+    "media_time_query_matched_items_used",
     "rendered_chars",
     "max_rendered_chars",
 )
@@ -160,6 +165,9 @@ _BUNDLE_COUNTER_DEFAULTS = {
     "artifact_evidence_candidate_cap_reached_count": 0,
     "artifact_evidence_confidence_signal_count": 0,
     "artifact_evidence_coordinate_signal_count": 0,
+    "artifact_evidence_time_query_count": 0,
+    "artifact_evidence_time_query_match_count": 0,
+    "artifact_evidence_time_query_drop_count": 0,
     "artifact_evidence_invalid_time_range_count": 0,
     "artifact_evidence_invalid_bbox_count": 0,
     "artifact_evidence_query_drop_count": 0,
@@ -244,6 +252,8 @@ _BUNDLE_COUNTER_DEFAULTS = {
     "source_refs_with_char_range_count": 0,
     "query_snippet_items_used": 0,
     "query_snippet_source_refs_enriched": 0,
+    "media_time_query_items_used": 0,
+    "media_time_query_matched_items_used": 0,
     "rendered_chars": 0,
     "max_rendered_chars": 0,
 }
@@ -401,6 +411,7 @@ def normalize_context_bundle_diagnostics(
     normalized.update(_evidence_kind_modality_counts(items))
     normalized["evidence_coverage_profile"] = _evidence_coverage_profile(items)
     normalized.update(_query_snippet_counts(items))
+    normalized.update(_media_time_query_counts(items))
     normalized["retrieval_trace"] = _retrieval_trace(
         items,
         retrieval_sources=retrieval_sources,
@@ -999,6 +1010,22 @@ def _query_snippet_counts(items: tuple[ContextItem, ...]) -> dict[str, int]:
     }
 
 
+def _media_time_query_counts(items: tuple[ContextItem, ...]) -> dict[str, int]:
+    query_items = 0
+    matched_items = 0
+    for item in items:
+        diagnostics = _as_dict(item.diagnostics)
+        score_signals = _as_dict(diagnostics.get("score_signals"))
+        if _optional_non_negative_int(diagnostics.get("media_time_query_count")):
+            query_items += 1
+        if _optional_non_negative_int(score_signals.get("media_time_matched_window_count")):
+            matched_items += 1
+    return {
+        "media_time_query_items_used": query_items,
+        "media_time_query_matched_items_used": matched_items,
+    }
+
+
 def _retrieval_trace(
     items: tuple[ContextItem, ...],
     *,
@@ -1040,6 +1067,7 @@ def _empty_retrieval_trace_entry(source: str) -> dict[str, object]:
         "source_refs_with_page_count": 0,
         "source_refs_with_bbox_count": 0,
         "source_refs_with_time_range_count": 0,
+        "media_time_query_match_count": 0,
         "evidence_kind_counts": {},
         "evidence_modality_counts": {},
         "max_score": 0.0,
@@ -1052,6 +1080,7 @@ def _add_item_to_retrieval_trace_entry(
     entry: dict[str, object],
     item: ContextItem,
 ) -> None:
+    diagnostics = _as_dict(item.diagnostics)
     entry["item_count"] = int(entry["item_count"]) + 1
     entry["source_ref_count"] = int(entry["source_ref_count"]) + len(item.source_refs)
     entry["multimodal_source_ref_count"] = int(entry["multimodal_source_ref_count"]) + sum(
@@ -1077,8 +1106,13 @@ def _add_item_to_retrieval_trace_entry(
         for ref in item.source_refs
         if ref.time_start_ms is not None or ref.time_end_ms is not None
     )
+    entry["media_time_query_match_count"] = int(entry["media_time_query_match_count"]) + int(
+        _optional_non_negative_int(
+            _as_dict(diagnostics.get("score_signals")).get("media_time_matched_window_count")
+        )
+        or 0
+    )
     entry["max_score"] = max(float(entry["max_score"]), round(float(item.score), 4))
-    diagnostics = _as_dict(item.diagnostics)
     if diagnostics.get("review_only") is True:
         entry["review_only_count"] = int(entry["review_only_count"]) + 1
     if _safe_optional_text(diagnostics.get("stale_reason"), limit=_MAX_DIAGNOSTIC_KEY_CHARS):

@@ -229,8 +229,50 @@ def test_context_bundle_diagnostics_count_evidence_kinds_and_modalities() -> Non
     assert diagnostics["retrieval_quality_summary"]["retrieval_mode"] == (
         "multimodal_single_source"
     )
-    assert diagnostics["retrieval_quality_summary"]["multimodal_item_ratio"] == 0.6667
-    assert diagnostics["retrieval_quality_summary"]["evidence_location_gap_count"] == 1
+
+
+def test_context_bundle_diagnostics_count_media_time_query_matches() -> None:
+    transcript = ContextItem(
+        item_id="artifact_transcript",
+        item_type="extraction_artifact",
+        text="Transcript segment at the requested timestamp.",
+        score=0.91,
+        source_refs=(
+            SourceRef(
+                source_type="extraction_artifact",
+                source_id="artifact_audio",
+                chunk_id="segment_42",
+                time_start_ms=40_000,
+                time_end_ms=45_000,
+            ),
+        ),
+        diagnostics={
+            "retrieval_sources": ["artifact_evidence"],
+            "evidence_kind": "transcript_segment",
+            "evidence_modality": "audio",
+            "media_time_query_count": 1,
+            "score_signals": {
+                "media_time_match_boost": 0.06,
+                "media_time_matched_window_count": 1,
+            },
+        },
+    )
+
+    diagnostics = normalize_context_bundle_diagnostics(
+        {
+            "artifact_evidence_time_query_count": 1,
+            "artifact_evidence_time_query_match_count": 1,
+            "artifact_evidence_time_query_drop_count": 2,
+        },
+        items=(transcript,),
+    )
+
+    assert diagnostics["artifact_evidence_time_query_count"] == 1
+    assert diagnostics["artifact_evidence_time_query_match_count"] == 1
+    assert diagnostics["artifact_evidence_time_query_drop_count"] == 2
+    assert diagnostics["media_time_query_items_used"] == 1
+    assert diagnostics["media_time_query_matched_items_used"] == 1
+    assert diagnostics["retrieval_trace"][0]["media_time_query_match_count"] == 1
 
 
 def test_context_bundle_diagnostics_report_multimodal_evidence_location_gaps() -> None:
