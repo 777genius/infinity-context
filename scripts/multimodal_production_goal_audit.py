@@ -17,6 +17,7 @@ SUITE = "infinity-context-multimodal-production-goal-audit"
 DEFAULT_FRONTEND_REPORT = ".e2e-artifacts/frontend-marionette-local-e2e.json"
 DEFAULT_DOCKER_REPORT = ".e2e-artifacts/multimodal-docker-live-proof.json"
 DEFAULT_PROVIDER_REPORT = ".e2e-artifacts/multimodal-live-provider-canary.json"
+DEFAULT_QUALITY_SCORECARD_REPORT = ".e2e-artifacts/memory-quality-scorecard.json"
 
 REQUIRED_FRONTEND_FLOWS = frozenset(
     {
@@ -105,6 +106,20 @@ PROVIDER_REQUIREMENT_CHECKS = {
     "timeout_classification": "live_provider_proof_matrix_timeout_classification",
     "no_secret_leak_guard": "live_provider_proof_matrix_no_secret_leak_guard",
 }
+REQUIRED_MEMORY_QUALITY_CAPABILITIES = frozenset(
+    {
+        "canonical_recall_precision",
+        "longitudinal_memory",
+        "auto_memory_admission",
+        "semantic_linking",
+        "dedup_merge_conflict_resolution",
+        "multimodal_evidence_retrieval",
+        "graph_native_recall",
+        "scope_and_safety",
+        "prompt_context_contract",
+    }
+)
+MIN_MEMORY_QUALITY_SCORE_10 = 9.0
 
 
 @dataclass(frozen=True)
@@ -139,6 +154,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         frontend_report=Path(args.frontend_report),
         docker_report=Path(args.docker_report),
         provider_report=Path(args.provider_report),
+        quality_scorecard_report=Path(args.quality_scorecard_report),
         require_clean_git=not args.allow_dirty,
     )
     payload = result.as_dict()
@@ -159,6 +175,7 @@ def run_goal_audit(
     frontend_report: Path = Path(DEFAULT_FRONTEND_REPORT),
     docker_report: Path = Path(DEFAULT_DOCKER_REPORT),
     provider_report: Path = Path(DEFAULT_PROVIDER_REPORT),
+    quality_scorecard_report: Path = Path(DEFAULT_QUALITY_SCORECARD_REPORT),
     require_clean_git: bool = True,
     git: Mapping[str, object] | None = None,
 ) -> GoalAuditResult:
@@ -166,6 +183,7 @@ def run_goal_audit(
     frontend = _load_report(root / frontend_report)
     docker = _load_report(root / docker_report)
     provider = _load_report(root / provider_report)
+    quality_scorecard = _load_report(root / quality_scorecard_report)
     git = dict(git) if git is not None else _git_info(root)
 
     checks: dict[str, bool] = {}
@@ -209,12 +227,18 @@ def run_goal_audit(
         checks=checks,
         failures=failures,
     )
+    _audit_quality_scorecard_report(
+        quality_scorecard,
+        checks=checks,
+        failures=failures,
+    )
 
     serialized_reports = json.dumps(
         {
             "frontend": frontend,
             "docker": docker,
             "provider": provider,
+            "quality_scorecard": quality_scorecard,
         },
         sort_keys=True,
     )
@@ -230,6 +254,7 @@ def run_goal_audit(
         "frontend": _report_summary(frontend),
         "docker": _report_summary(docker),
         "provider": _report_summary(provider),
+        "quality_scorecard": _report_summary(quality_scorecard),
     }
     blocked_requirements = _blocked_requirements(
         frontend=frontend,
@@ -771,12 +796,106 @@ def _audit_provider_proof_matrix(
     )
 
 
+def _audit_quality_scorecard_report(
+    report: Mapping[str, object] | None,
+    *,
+    checks: dict[str, bool],
+    failures: list[str],
+) -> None:
+    _check(
+        checks,
+        failures,
+        "memory_quality_scorecard_report_present",
+        report is not None,
+        f"Missing memory quality scorecard report at {DEFAULT_QUALITY_SCORECARD_REPORT}",
+    )
+    if report is None:
+        return
+
+    score = report.get("score") if isinstance(report.get("score"), dict) else {}
+    gates = report.get("gates") if isinstance(report.get("gates"), dict) else {}
+    capabilities = (
+        report.get("capabilities") if isinstance(report.get("capabilities"), dict) else {}
+    )
+    metrics = report.get("metrics") if isinstance(report.get("metrics"), dict) else {}
+    _check(
+        checks,
+        failures,
+        "memory_quality_scorecard_suite_valid",
+        report.get("suite") == "memory-quality-scorecard",
+        "Memory quality scorecard report has an unexpected suite name",
+    )
+    _check(
+        checks,
+        failures,
+        "memory_quality_scorecard_passed",
+        report.get("ok") is True and report.get("status") == "ok",
+        "Memory quality scorecard did not pass",
+    )
+    _check(
+        checks,
+        failures,
+        "memory_quality_scorecard_maturity_score",
+        _positive_float(score.get("maturity_score_10")) is not None
+        and float(score["maturity_score_10"]) >= MIN_MEMORY_QUALITY_SCORE_10,
+        "Memory quality scorecard maturity score is below production threshold",
+    )
+    for gate_name in (
+        "required_suites_present",
+        "all_suites_ok",
+        "all_capabilities_ok",
+        "maturity_score_min",
+    ):
+        _check(
+            checks,
+            failures,
+            f"memory_quality_scorecard_gate_{gate_name}",
+            gates.get(gate_name) is True,
+            f"Memory quality scorecard gate {gate_name} failed",
+        )
+
+    present_capabilities = {
+        str(name)
+        for name, value in capabilities.items()
+        if isinstance(name, str) and isinstance(value, dict)
+    }
+    _check(
+        checks,
+        failures,
+        "memory_quality_scorecard_capabilities_complete",
+        REQUIRED_MEMORY_QUALITY_CAPABILITIES.issubset(present_capabilities),
+        "Memory quality scorecard is missing required retrieval/linking/safety capabilities",
+    )
+    for capability_name in sorted(REQUIRED_MEMORY_QUALITY_CAPABILITIES):
+        capability = (
+            capabilities.get(capability_name)
+            if isinstance(capabilities.get(capability_name), dict)
+            else {}
+        )
+        _check(
+            checks,
+            failures,
+            f"memory_quality_scorecard_capability_{capability_name}",
+            capability.get("ok") is True,
+            f"Memory quality scorecard capability {capability_name} failed",
+        )
+
+    _check(
+        checks,
+        failures,
+        "memory_quality_scorecard_no_safety_leaks",
+        _non_negative_int(metrics.get("safety_leak_count")) == 0,
+        "Memory quality scorecard reported safety leaks",
+    )
+
+
 def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", default=str(_repository_root()))
     parser.add_argument("--frontend-report", default=DEFAULT_FRONTEND_REPORT)
     parser.add_argument("--docker-report", default=DEFAULT_DOCKER_REPORT)
     parser.add_argument("--provider-report", default=DEFAULT_PROVIDER_REPORT)
+    parser.add_argument("--quality-scorecard-report", default=DEFAULT_QUALITY_SCORECARD_REPORT)
     parser.add_argument(
         "--report-out",
         default=os.environ.get(
@@ -1024,6 +1143,22 @@ def _report_summary(report: Mapping[str, object] | None) -> dict[str, object]:
                 _string_list(readiness.get("blocking_requirements"))
             ),
         }
+    score = report.get("score")
+    if isinstance(score, dict):
+        summary["score"] = {
+            "maturity_score_10": _positive_float(score.get("maturity_score_10")),
+            "minimum_maturity_score_10": _positive_float(
+                score.get("minimum_maturity_score_10")
+            ),
+        }
+    gates = report.get("gates")
+    if isinstance(gates, dict):
+        summary["gates"] = {
+            "required_suites_present": gates.get("required_suites_present") is True,
+            "all_suites_ok": gates.get("all_suites_ok") is True,
+            "all_capabilities_ok": gates.get("all_capabilities_ok") is True,
+            "maturity_score_min": gates.get("maturity_score_min") is True,
+        }
     return summary
 
 
@@ -1036,6 +1171,22 @@ def _string_list(value: object) -> tuple[str, ...]:
 def _positive_int(value: object) -> int | None:
     if isinstance(value, int) and value > 0:
         return value
+    return None
+
+
+def _non_negative_int(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int) and value >= 0:
+        return value
+    return None
+
+
+def _positive_float(value: object) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int | float) and value > 0:
+        return float(value)
     return None
 
 

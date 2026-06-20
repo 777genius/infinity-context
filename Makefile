@@ -153,7 +153,7 @@ infinity-context-eval:
 
 .PHONY: infinity-context-quality-scorecard
 infinity-context-quality-scorecard:
-	$(PYTHON) -m infinity_context_server eval scorecard
+	$(PYTHON) -m infinity_context_server eval scorecard --report-out .e2e-artifacts/memory-quality-scorecard.json
 
 .PHONY: infinity-context-quality-scorecard-from-reports
 infinity-context-quality-scorecard-from-reports:

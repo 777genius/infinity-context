@@ -81,6 +81,19 @@ _SEMANTIC_LINKING_REQUIRED_CHECKS = (
     "unrelated_capture_has_no_candidates",
     "cross_scope_fact_not_suggested",
 )
+_DEDUP_MERGE_QUALITY_CASE_IDS = (
+    "pending_conflict_review_visible",
+    "pending_duplicate_merge_review_visible",
+)
+_DEDUP_MERGE_AUTO_CASE_IDS = (
+    "capture_replay_is_idempotent",
+    "approved_fact_creates_duplicate_merge_review",
+)
+_DEDUP_MERGE_SEMANTIC_CHECKS = (
+    "high_impact_relation_requires_explicit_signal",
+    "weak_overlap_below_review_threshold_denied",
+    "cross_scope_fact_not_suggested",
+)
 
 
 def _ratio(passed: int, total: int) -> float:
@@ -123,6 +136,15 @@ def memory_quality_scorecard_policy_snapshot(
             "requires_prompt_injection_guard": True,
             "requires_evidence_metadata": True,
             "requires_retrieval_evidence_coverage_profile": True,
+        },
+        "dedup_merge_conflict_resolution": {
+            "required_quality_case_ids": list(_DEDUP_MERGE_QUALITY_CASE_IDS),
+            "required_auto_memory_case_ids": list(_DEDUP_MERGE_AUTO_CASE_IDS),
+            "required_semantic_checks": list(_DEDUP_MERGE_SEMANTIC_CHECKS),
+            "requires_no_duplicate_suggestions": True,
+            "requires_replay_idempotency": True,
+            "requires_review_before_merge": True,
+            "requires_no_cross_scope_duplicate_targets": True,
         },
         "full_provider": {
             "required_adapters": list(_FULL_PROVIDER_REQUIRED_ADAPTERS),
@@ -238,6 +260,9 @@ def build_memory_quality_scorecard(
         "longitudinal_memory": _scorecard_longitudinal_memory(suite_results),
         "auto_memory_admission": _scorecard_auto_memory_admission(suite_results),
         "semantic_linking": _scorecard_semantic_linking(suite_results),
+        "dedup_merge_conflict_resolution": (
+            _scorecard_dedup_merge_conflict_resolution(suite_results)
+        ),
         "multimodal_evidence_retrieval": _scorecard_multimodal_evidence_retrieval(
             suite_results
         ),
@@ -533,6 +558,61 @@ def _scorecard_semantic_linking(
         },
     }
     return _scorecard_capability("semantic_linking", checks)
+
+
+def _scorecard_dedup_merge_conflict_resolution(
+    suite_results: Mapping[str, dict[str, object]],
+) -> dict[str, object]:
+    quality_result = suite_results.get(QUALITY_GOLDEN_SUITE)
+    auto_result = suite_results.get(AUTO_MEMORY_GOLDEN_SUITE)
+    semantic_result = suite_results.get(SEMANTIC_LINKING_GOLDEN_SUITE)
+    auto_metrics = _scorecard_result_metrics(auto_result)
+    semantic_metrics = _scorecard_result_metrics(semantic_result)
+    semantic_checks_raw = (
+        semantic_result.get("checks", {}) if isinstance(semantic_result, dict) else {}
+    )
+    semantic_checks = semantic_checks_raw if isinstance(semantic_checks_raw, Mapping) else {}
+    quality_case_ids = set(_scorecard_case_ids(quality_result))
+    auto_case_ids = set(_scorecard_case_ids(auto_result))
+    checks = {
+        **{
+            f"quality_case_{case_id}": case_id in quality_case_ids
+            for case_id in _DEDUP_MERGE_QUALITY_CASE_IDS
+        },
+        **{
+            f"auto_memory_case_{case_id}": case_id in auto_case_ids
+            for case_id in _DEDUP_MERGE_AUTO_CASE_IDS
+        },
+        "auto_memory_duplicate_suggestion_count": (
+            _scorecard_int(auto_metrics.get("duplicate_suggestion_count")) == 0
+        ),
+        "auto_memory_replay_duplicate_suggestion_count": (
+            _scorecard_int(auto_metrics.get("replay_duplicate_suggestion_count")) == 0
+        ),
+        "auto_memory_wrong_auto_apply_count": (
+            _scorecard_int(auto_metrics.get("wrong_auto_apply_count")) == 0
+        ),
+        "auto_memory_active_fact_before_review_count": (
+            _scorecard_int(auto_metrics.get("active_fact_before_review_count")) == 0
+        ),
+        "auto_memory_target_resolution_violation_count": (
+            _scorecard_int(auto_metrics.get("target_resolution_violation_count")) == 0
+        ),
+        "auto_memory_review_operation_violation_count": (
+            _scorecard_int(auto_metrics.get("review_operation_violation_count")) == 0
+        ),
+        **{
+            f"semantic_check_{check_name}": semantic_checks.get(check_name) is True
+            for check_name in _DEDUP_MERGE_SEMANTIC_CHECKS
+        },
+        "semantic_linking_false_positive_count": (
+            _scorecard_int(semantic_metrics.get("false_positive_count")) == 0
+        ),
+        "semantic_linking_cross_scope_leak_count": (
+            _scorecard_int(semantic_metrics.get("cross_scope_leak_count")) == 0
+        ),
+    }
+    return _scorecard_capability("dedup_merge_conflict_resolution", checks)
 
 
 def _scorecard_multimodal_evidence_retrieval(
@@ -1729,6 +1809,24 @@ def _scorecard_metrics(
         "auto_extraction_admission_accuracy": auto.get(
             "extraction_admission_accuracy",
             0.0,
+        ),
+        "auto_duplicate_suggestion_count": auto.get("duplicate_suggestion_count", 0),
+        "auto_replay_duplicate_suggestion_count": auto.get(
+            "replay_duplicate_suggestion_count",
+            0,
+        ),
+        "auto_wrong_auto_apply_count": auto.get("wrong_auto_apply_count", 0),
+        "auto_active_fact_before_review_count": auto.get(
+            "active_fact_before_review_count",
+            0,
+        ),
+        "auto_target_resolution_violation_count": auto.get(
+            "target_resolution_violation_count",
+            0,
+        ),
+        "auto_review_operation_violation_count": auto.get(
+            "review_operation_violation_count",
+            0,
         ),
         "semantic_linking_ranking_accuracy": semantic.get("ranking_accuracy", 0.0),
         "semantic_linking_event_linking_accuracy": semantic.get(

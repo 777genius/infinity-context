@@ -125,6 +125,7 @@ def _scorecard_fixture_results() -> dict[str, dict[str, Any]]:
                 "same_name_person_project_anchors_separate": True,
                 "explicit_alias_anchor_identity_terms_rank_correct_target": True,
                 "high_impact_relation_requires_explicit_signal": True,
+                "weak_overlap_below_review_threshold_denied": True,
                 "evidence_relation_requires_source_signal": True,
                 "mentions_relation_requires_entity_signal": True,
                 "top_suggestion_approves_to_link": True,
@@ -246,6 +247,8 @@ def _scorecard_fixture_results() -> dict[str, dict[str, Any]]:
                 "extraction_target_hint_accuracy": 1.0,
                 "extraction_false_positive_count": 0,
                 "extraction_false_negative_count": 0,
+                "duplicate_suggestion_count": 0,
+                "replay_duplicate_suggestion_count": 0,
                 "wrong_auto_apply_count": 0,
                 "active_fact_before_review_count": 0,
                 "prompt_injection_promoted_count": 0,
@@ -254,6 +257,23 @@ def _scorecard_fixture_results() -> dict[str, dict[str, Any]]:
                 "target_resolution_violation_count": 0,
                 "review_operation_violation_count": 0,
             },
+            "cases": _case_reports(
+                (
+                    "explicit_remember_creates_pending_suggestion",
+                    "auto_apply_safe_rejects_medium_confidence",
+                    "temporary_task_not_promoted_to_durable",
+                    "prompt_injection_not_promoted",
+                    "secret_redacted_before_storage",
+                    "assistant_inference_is_low_trust_review_only",
+                    "candidate_flood_is_capped",
+                    "update_target_hint_resolves_to_review_suggestion",
+                    "delete_target_hint_resolves_to_review_suggestion",
+                    "ambiguous_target_hint_is_not_promoted",
+                    "explicit_review_operation_stays_review_only",
+                    "capture_replay_is_idempotent",
+                    "approved_fact_creates_duplicate_merge_review",
+                )
+            ),
             "failures": [],
         },
         "graph-native-golden": {
@@ -610,6 +630,7 @@ def test_memory_quality_scorecard_passes_with_required_capabilities(tmp_path: Pa
     assert result["capabilities"]["longitudinal_memory"]["ok"] is True
     assert result["capabilities"]["auto_memory_admission"]["ok"] is True
     assert result["capabilities"]["semantic_linking"]["ok"] is True
+    assert result["capabilities"]["dedup_merge_conflict_resolution"]["ok"] is True
     assert result["capabilities"]["multimodal_evidence_retrieval"]["ok"] is True
     assert result["capabilities"]["graph_native_recall"]["ok"] is True
     assert result["capabilities"]["scope_and_safety"]["ok"] is True
@@ -627,6 +648,8 @@ def test_memory_quality_scorecard_passes_with_required_capabilities(tmp_path: Pa
     assert result["metrics"]["multimodal_offline_pass_rate"] == 1.0
     assert result["metrics"]["multimodal_offline_false_positive_count"] == 0
     assert result["metrics"]["multimodal_offline_prompt_injection_guard_rate"] == 1.0
+    assert result["metrics"]["auto_duplicate_suggestion_count"] == 0
+    assert result["metrics"]["auto_replay_duplicate_suggestion_count"] == 0
     assert result["failures"] == []
     assert payload["ok"] is True
     assert "QUALITY_RESTRICTED_SECRET" not in report_text
@@ -749,6 +772,19 @@ def test_memory_quality_scorecard_policy_snapshot_documents_top_evidence_floors(
         "retrieval_evidence_coverage_profile"
         in policy["multimodal_offline"]["required_checks"]
     )
+    assert policy["dedup_merge_conflict_resolution"]["required_quality_case_ids"] == [
+        "pending_conflict_review_visible",
+        "pending_duplicate_merge_review_visible",
+    ]
+    assert policy["dedup_merge_conflict_resolution"]["required_auto_memory_case_ids"] == [
+        "capture_replay_is_idempotent",
+        "approved_fact_creates_duplicate_merge_review",
+    ]
+    assert "weak_overlap_below_review_threshold_denied" in policy[
+        "dedup_merge_conflict_resolution"
+    ]["required_semantic_checks"]
+    assert policy["dedup_merge_conflict_resolution"]["requires_replay_idempotency"] is True
+    assert policy["dedup_merge_conflict_resolution"]["requires_review_before_merge"] is True
     assert policy["full_provider"]["required_adapters"] == [
         "qdrant",
         "graphiti",
@@ -1875,6 +1911,49 @@ def test_memory_quality_scorecard_fails_on_missing_semantic_linking_safety_check
         in result["capabilities"]["semantic_linking"]["failed_checks"]
     )
     assert result["metrics"]["semantic_linking_false_positive_count"] == 0
+
+
+def test_memory_quality_scorecard_fails_on_dedup_merge_conflict_regression() -> None:
+    suite_results = _scorecard_fixture_results()
+    suite_results["quality-golden"]["cases"] = [
+        case
+        for case in suite_results["quality-golden"]["cases"]
+        if case["case_id"] != "pending_duplicate_merge_review_visible"
+    ]
+    suite_results["auto-memory-golden"]["cases"] = [
+        case
+        for case in suite_results["auto-memory-golden"]["cases"]
+        if case["case_id"] != "approved_fact_creates_duplicate_merge_review"
+    ]
+    suite_results["auto-memory-golden"]["metrics"].update(
+        {
+            "duplicate_suggestion_count": 1,
+            "replay_duplicate_suggestion_count": 1,
+            "target_resolution_violation_count": 1,
+            "review_operation_violation_count": 1,
+        }
+    )
+    suite_results["semantic-linking-golden"]["checks"][
+        "weak_overlap_below_review_threshold_denied"
+    ] = False
+
+    result = build_memory_quality_scorecard(suite_results)
+
+    assert result["ok"] is False
+    capability = result["capabilities"]["dedup_merge_conflict_resolution"]
+    assert capability["ok"] is False
+    assert capability["failed_checks"] == [
+        "auto_memory_case_approved_fact_creates_duplicate_merge_review",
+        "auto_memory_duplicate_suggestion_count",
+        "auto_memory_replay_duplicate_suggestion_count",
+        "auto_memory_review_operation_violation_count",
+        "auto_memory_target_resolution_violation_count",
+        "quality_case_pending_duplicate_merge_review_visible",
+        "semantic_check_weak_overlap_below_review_threshold_denied",
+    ]
+    assert result["metrics"]["auto_duplicate_suggestion_count"] == 1
+    assert result["metrics"]["auto_replay_duplicate_suggestion_count"] == 1
+    assert result["gates"]["all_capabilities_ok"] is False
 
 
 def test_memory_quality_scorecard_fails_on_multimodal_metadata_regression() -> None:

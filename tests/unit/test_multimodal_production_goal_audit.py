@@ -177,6 +177,77 @@ def test_multimodal_production_goal_audit_rejects_degraded_external_proofs(
     assert any("provider_credential_missing" in failure for failure in result.failures)
 
 
+def test_multimodal_production_goal_audit_rejects_missing_quality_scorecard(
+    tmp_path: Path,
+) -> None:
+    module = _load_module()
+    _write_core(tmp_path)
+    quality_report = tmp_path / ".e2e-artifacts" / "memory-quality-scorecard.json"
+    quality_report.unlink()
+    frontend_report = tmp_path / "frontend.json"
+    docker_report = tmp_path / "docker.json"
+    provider_report = tmp_path / "provider.json"
+    frontend_report.write_text(json.dumps(_frontend_report()), encoding="utf-8")
+    docker_report.write_text(json.dumps(_docker_report()), encoding="utf-8")
+    provider_report.write_text(json.dumps(_provider_report()), encoding="utf-8")
+
+    result = module.run_goal_audit(
+        root=tmp_path,
+        frontend_report=frontend_report.relative_to(tmp_path),
+        docker_report=docker_report.relative_to(tmp_path),
+        provider_report=provider_report.relative_to(tmp_path),
+        require_clean_git=False,
+        git={"commit": "abc", "short_commit": "abc", "dirty": False},
+    )
+
+    assert result.ok is False
+    assert result.checks["memory_quality_scorecard_report_present"] is False
+    assert any("Missing memory quality scorecard" in failure for failure in result.failures)
+
+
+def test_multimodal_production_goal_audit_rejects_failed_quality_scorecard(
+    tmp_path: Path,
+) -> None:
+    module = _load_module()
+    _write_core(tmp_path)
+    quality_report = tmp_path / ".e2e-artifacts" / "memory-quality-scorecard.json"
+    quality = _quality_scorecard_report()
+    quality["ok"] = False
+    quality["status"] = "failed"
+    quality["score"]["maturity_score_10"] = 8.75
+    quality["gates"]["all_capabilities_ok"] = False
+    quality["capabilities"]["semantic_linking"] = {
+        "ok": False,
+        "failed_checks": ["ranking_accuracy"],
+    }
+    quality["metrics"]["safety_leak_count"] = 1
+    quality_report.write_text(json.dumps(quality), encoding="utf-8")
+    frontend_report = tmp_path / "frontend.json"
+    docker_report = tmp_path / "docker.json"
+    provider_report = tmp_path / "provider.json"
+    frontend_report.write_text(json.dumps(_frontend_report()), encoding="utf-8")
+    docker_report.write_text(json.dumps(_docker_report()), encoding="utf-8")
+    provider_report.write_text(json.dumps(_provider_report()), encoding="utf-8")
+
+    result = module.run_goal_audit(
+        root=tmp_path,
+        frontend_report=frontend_report.relative_to(tmp_path),
+        docker_report=docker_report.relative_to(tmp_path),
+        provider_report=provider_report.relative_to(tmp_path),
+        require_clean_git=False,
+        git={"commit": "abc", "short_commit": "abc", "dirty": False},
+    )
+
+    assert result.ok is False
+    assert result.checks["memory_quality_scorecard_passed"] is False
+    assert result.checks["memory_quality_scorecard_maturity_score"] is False
+    assert result.checks["memory_quality_scorecard_gate_all_capabilities_ok"] is False
+    assert result.checks["memory_quality_scorecard_capability_semantic_linking"] is False
+    assert result.checks["memory_quality_scorecard_no_safety_leaks"] is False
+    assert result.reports["quality_scorecard"]["score"]["maturity_score_10"] == 8.75
+    assert any("semantic_linking" in failure for failure in result.failures)
+
+
 def test_multimodal_production_goal_audit_carries_provider_readiness_blockers(
     tmp_path: Path,
 ) -> None:
@@ -627,12 +698,61 @@ def test_makefile_exposes_multimodal_production_goal_audit_target() -> None:
 
     assert ".PHONY: infinity-context-multimodal-production-goal-audit" in makefile
     assert "$(PYTHON) scripts/multimodal_production_goal_audit.py" in makefile
+    assert "infinity-context-quality-scorecard" in makefile
+    assert "--report-out .e2e-artifacts/memory-quality-scorecard.json" in makefile
 
 
 def _write_core(root: Path) -> None:
     core = root / "packages/infinity_context_core/infinity_context_core"
     core.mkdir(parents=True)
     (core / "__init__.py").write_text("# clean core\n", encoding="utf-8")
+    evidence = root / ".e2e-artifacts"
+    evidence.mkdir(parents=True)
+    (evidence / "memory-quality-scorecard.json").write_text(
+        json.dumps(_quality_scorecard_report()),
+        encoding="utf-8",
+    )
+
+
+def _quality_scorecard_report() -> dict[str, object]:
+    capabilities = {
+        "canonical_recall_precision": {"ok": True, "failed_checks": []},
+        "longitudinal_memory": {"ok": True, "failed_checks": []},
+        "auto_memory_admission": {"ok": True, "failed_checks": []},
+        "semantic_linking": {"ok": True, "failed_checks": []},
+        "dedup_merge_conflict_resolution": {"ok": True, "failed_checks": []},
+        "multimodal_evidence_retrieval": {"ok": True, "failed_checks": []},
+        "graph_native_recall": {"ok": True, "failed_checks": []},
+        "scope_and_safety": {"ok": True, "failed_checks": []},
+        "prompt_context_contract": {"ok": True, "failed_checks": []},
+    }
+    return {
+        "suite": "memory-quality-scorecard",
+        "status": "ok",
+        "ok": True,
+        "score": {
+            "passed_checks": 18,
+            "total_checks": 18,
+            "score_percent": 1.0,
+            "maturity_score_10": 10.0,
+            "minimum_maturity_score_10": 9.0,
+        },
+        "gates": {
+            "required_suites_present": True,
+            "all_suites_ok": True,
+            "all_capabilities_ok": True,
+            "maturity_score_min": True,
+        },
+        "capabilities": capabilities,
+        "metrics": {
+            "quality_recall_at_5": 0.96,
+            "quality_precision_at_5": 0.95,
+            "semantic_linking_ranking_accuracy": 1.0,
+            "multimodal_offline_pass_rate": 1.0,
+            "safety_leak_count": 0,
+        },
+        "failures": [],
+    }
 
 
 def _frontend_report() -> dict[str, object]:
