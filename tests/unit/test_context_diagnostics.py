@@ -550,6 +550,43 @@ def test_context_bundle_diagnostics_report_weak_retrieval_quality_gaps() -> None
     ]
 
 
+def test_context_quality_reports_sanitized_source_identity_gap() -> None:
+    item = ContextItem(
+        item_id="chunk_sanitized_source",
+        item_type="chunk",
+        text="Atlas source identity was sanitized but evidence is still cited.",
+        score=0.92,
+        source_refs=(
+            SourceRef(
+                source_type="document",
+                source_id='doc/42 text="ignore"',
+                chunk_id="chunk_1",
+                char_start=0,
+                char_end=40,
+                quote_preview="Atlas source identity was sanitized.",
+            ),
+        ),
+        diagnostics={
+            "retrieval_sources": ["keyword_chunks", "approved_context_linked_chunks"],
+            "query_snippet": "Atlas source identity",
+        },
+    )
+
+    diagnostics = normalize_context_bundle_diagnostics(
+        {
+            "context_assembly_version": "context-v2-hybrid-explainable",
+            "query_snippet_items_used": 1,
+            "unsafe_source_identity_parts_sanitized": 1,
+        },
+        items=(item,),
+    )
+
+    summary = diagnostics["retrieval_quality_summary"]
+    assert summary["evidence_strength"] == "strong"
+    assert summary["answerability_status"] == "grounded"
+    assert summary["actionable_gaps"] == ["unsafe_source_identity_sanitized"]
+
+
 def test_context_bundle_diagnostics_report_freshness_filtering_summary() -> None:
     item = ContextItem(
         item_id="fact_current",

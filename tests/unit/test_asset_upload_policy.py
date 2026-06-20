@@ -316,6 +316,45 @@ def test_upload_policy_marks_nested_archive_for_review() -> None:
     assert result.metadata["upload_archive_nested_archive_count"] == 1
 
 
+def test_upload_policy_reports_active_markup_without_high_risk_refs() -> None:
+    result = assess_asset_upload(
+        filename="diagram.svg",
+        declared_content_type="image/svg+xml",
+        content=b'<svg xmlns="http://www.w3.org/2000/svg"><text>Atlas</text></svg>',
+    )
+
+    assert result.metadata["upload_active_content_detected"] is True
+    assert result.metadata["upload_active_content_review_required"] is True
+    assert result.metadata["upload_active_content_kind"] == "svg"
+    assert result.metadata["upload_active_content_review_reason"] == "active_markup_content"
+    assert result.metadata["upload_active_content_script_signal_count"] == 0
+    assert result.metadata["upload_active_content_external_reference_count"] == 0
+
+
+def test_upload_policy_reports_active_markup_script_and_external_refs() -> None:
+    result = assess_asset_upload(
+        filename="diagram.svg",
+        declared_content_type="image/svg+xml",
+        content=(
+            b'<svg xmlns="http://www.w3.org/2000/svg" '
+            b'onload="alert(1)">'
+            b'<script>alert(1)</script>'
+            b'<image href="https://example.invalid/pixel.png" />'
+            b'<a href="javascript:alert(1)" xlink:href="//example.invalid/x">x</a>'
+            b"</svg>"
+        ),
+    )
+
+    assert result.metadata["upload_active_content_detected"] is True
+    assert result.metadata["upload_active_content_review_required"] is True
+    assert result.metadata["upload_active_content_kind"] == "svg"
+    assert result.metadata["upload_active_content_script_signal_count"] == 3
+    assert result.metadata["upload_active_content_external_reference_count"] == 2
+    assert result.metadata["upload_active_content_review_reason"] == (
+        "active_markup_with_script_and_external_references"
+    )
+
+
 @pytest.mark.parametrize("filename", ["../secret.txt", "nested/secret.txt", "run.exe"])
 def test_upload_policy_blocks_dangerous_filenames(filename: str) -> None:
     with pytest.raises(MemoryIngressLimitError):

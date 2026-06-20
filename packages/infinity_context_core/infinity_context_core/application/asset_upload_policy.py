@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import stat
 import zipfile
 from collections.abc import Iterable
@@ -101,6 +102,15 @@ _ACTIVE_CONTENT_TYPES = {
     "text/xml",
 }
 _ACTIVE_CONTENT_EXTENSIONS = {".htm", ".html", ".svg", ".xhtml", ".xml"}
+_ACTIVE_CONTENT_RISK_SAMPLE_BYTES = 64 * 1024
+_ACTIVE_SCRIPT_SIGNAL_RE = re.compile(
+    r"<\s*script\b|javascript\s*:|\son[a-z][a-z0-9_-]*\s*=",
+    re.IGNORECASE,
+)
+_ACTIVE_EXTERNAL_REFERENCE_RE = re.compile(
+    r"(?:href|src|xlink:href)\s*=\s*['\"]\s*(?:https?:|//|data:)",
+    re.IGNORECASE,
+)
 _TEXT_BYTES = set(range(32, 127)) | {9, 10, 13}
 _IMAGE_DIMENSION_CONTENT_TYPES = {"image/gif", "image/jpeg", "image/png", "image/webp"}
 _JPEG_SOF_MARKERS = frozenset(
@@ -340,6 +350,7 @@ def _active_content_metadata(
     if content_signature_type in _ACTIVE_CONTENT_TYPES:
         signals.append("content_signature")
     signals = list(dict.fromkeys(signals))
+    script_signal_count, external_reference_count = _active_content_risk_counts(content)
     content_type = (
         content_signature_type
         if content_signature_type in _ACTIVE_CONTENT_TYPES
@@ -357,10 +368,43 @@ def _active_content_metadata(
         "upload_active_content_kind": _active_content_kind(content_type),
         "upload_active_content_content_type": content_type,
         "upload_active_content_signals": signals,
+        "upload_active_content_script_signal_count": script_signal_count if signals else 0,
+        "upload_active_content_external_reference_count": (
+            external_reference_count if signals else 0
+        ),
         "upload_active_content_review_reason": (
-            "active_markup_content" if signals else None
+            _active_content_review_reason(
+                active=bool(signals),
+                script_signal_count=script_signal_count,
+                external_reference_count=external_reference_count,
+            )
         ),
     }
+
+
+def _active_content_risk_counts(content: bytes) -> tuple[int, int]:
+    sample = content[:_ACTIVE_CONTENT_RISK_SAMPLE_BYTES].decode("utf-8", errors="ignore")
+    return (
+        min(100, len(_ACTIVE_SCRIPT_SIGNAL_RE.findall(sample))),
+        min(100, len(_ACTIVE_EXTERNAL_REFERENCE_RE.findall(sample))),
+    )
+
+
+def _active_content_review_reason(
+    *,
+    active: bool,
+    script_signal_count: int,
+    external_reference_count: int,
+) -> str | None:
+    if not active:
+        return None
+    if script_signal_count > 0 and external_reference_count > 0:
+        return "active_markup_with_script_and_external_references"
+    if script_signal_count > 0:
+        return "active_markup_with_script"
+    if external_reference_count > 0:
+        return "active_markup_with_external_references"
+    return "active_markup_content"
 
 
 def _detect_active_markup_content_type(content: bytes) -> str | None:

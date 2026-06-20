@@ -810,6 +810,8 @@ def _file_type_detection_contract_payload() -> dict[str, object]:
             "upload_image_height",
             "upload_image_pixels",
             "upload_image_max_pixels",
+            "upload_active_content_script_signal_count",
+            "upload_active_content_external_reference_count",
             "extraction_upload_policy_revalidated",
             "extraction_upload_policy_status",
             "extraction_upload_policy_rejection",

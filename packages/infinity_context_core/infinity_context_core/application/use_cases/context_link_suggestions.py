@@ -1029,6 +1029,8 @@ def _source_extraction_risk_metadata(metadata: dict[str, object]) -> dict[str, o
                 "upload_active_content_kind",
                 "upload_active_content_content_type",
                 "upload_active_content_review_reason",
+                "upload_active_content_script_signal_count",
+                "upload_active_content_external_reference_count",
             ),
         )
     return risk_metadata

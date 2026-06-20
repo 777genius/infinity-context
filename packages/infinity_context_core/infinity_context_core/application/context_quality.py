@@ -314,6 +314,22 @@ def _retrieval_quality_gaps(
         > 0
     ):
         gaps.append("sensitive_text_redacted")
+    if (
+        _non_negative_int(
+            diagnostics.get("sensitive_source_identity_parts_redacted"),
+            default=0,
+        )
+        > 0
+    ):
+        gaps.append("sensitive_source_identity_redacted")
+    if (
+        _non_negative_int(
+            diagnostics.get("unsafe_source_identity_parts_sanitized"),
+            default=0,
+        )
+        > 0
+    ):
+        gaps.append("unsafe_source_identity_sanitized")
     return gaps[:_MAX_ACTIONABLE_GAPS]
 
 

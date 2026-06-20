@@ -702,8 +702,10 @@ def test_svg_active_content_asset_extracts_with_review_metadata(tmp_path: Path) 
         assert extracted["metadata"]["upload_active_content_kind"] == "svg"
         assert extracted["metadata"]["upload_active_content_content_type"] == "image/svg+xml"
         assert extracted["metadata"]["upload_active_content_review_reason"] == (
-            "active_markup_content"
+            "active_markup_with_script"
         )
+        assert extracted["metadata"]["upload_active_content_script_signal_count"] == 1
+        assert extracted["metadata"]["upload_active_content_external_reference_count"] == 0
 
         suggestions = client.post(
             "/v1/link-suggestions",
@@ -728,6 +730,10 @@ def test_svg_active_content_asset_extracts_with_review_metadata(tmp_path: Path) 
         )
         assert suggestion_data["diagnostics"]["active_content_review_required"] is True
         assert suggestion_data["diagnostics"]["upload_active_content_kind"] == "svg"
+        assert suggestion_data["diagnostics"]["upload_active_content_script_signal_count"] == 1
+        assert (
+            suggestion_data["diagnostics"]["upload_active_content_external_reference_count"] == 0
+        )
         assert (
             suggestion_data["diagnostics"]["observed_anchor_upsert_skipped_reason"]
             == "active_content_review_required"
