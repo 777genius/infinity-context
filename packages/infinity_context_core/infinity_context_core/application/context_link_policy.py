@@ -377,6 +377,8 @@ def _source_review_gate_reasons(candidate: ContextLinkCandidate) -> tuple[str, .
     reasons: list[str] = []
     if metadata.get("prompt_injection_signals_detected") is True:
         reasons.append("prompt_injection_evidence")
+    if metadata.get("active_content_review_required") is True:
+        reasons.append("active_content_review_required")
     if metadata.get("mime_content_type_mismatch") is True:
         reasons.append("mime_content_type_mismatch")
     if metadata.get("mime_archive_review_required") is True:
@@ -389,6 +391,7 @@ def _source_review_reason_code(review_reason: str) -> str:
         "prompt_injection_evidence": "prompt_injection_evidence_review_required",
         "mime_content_type_mismatch": "source_mime_mismatch_review_required",
         "mime_archive_review_required": "source_archive_content_review_required",
+        "active_content_review_required": "source_active_content_review_required",
     }.get(review_reason, "source_risk_review_required")
 
 

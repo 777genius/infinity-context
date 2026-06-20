@@ -261,6 +261,36 @@ def test_policy_gates_archive_risk_evidence_from_auto_approve() -> None:
     assert result.diagnostics["link_policy_source_risk_review_count"] == 1
 
 
+def test_policy_gates_active_content_evidence_from_auto_approve() -> None:
+    candidate = _candidate(
+        target_id="svg-active-content-source",
+        score=96,
+        reason_codes=["text_match", "explicit_project_reference"],
+        metadata={
+            "active_content_review_required": True,
+            "upload_active_content_detected": True,
+            "upload_active_content_kind": "svg",
+            "upload_active_content_content_type": "image/svg+xml",
+        },
+    )
+
+    decision = decide_context_link_candidate(candidate)
+    result = apply_context_link_policy((candidate,), limit=10, persist=True)
+
+    assert decision.outcome == "needs_review"
+    assert decision.confidence == "medium"
+    assert decision.auto_approve_eligible is False
+    assert "source_active_content_review_required" in decision.reason_codes
+    metadata = result.candidates[0].metadata
+    assert metadata["policy_decision"] == "needs_review"
+    assert metadata["policy_confidence"] == "medium"
+    assert metadata["auto_approve_eligible"] is False
+    assert metadata["review_gate_reason"] == "active_content_review_required"
+    assert metadata["review_gate_reasons"] == ["active_content_review_required"]
+    assert result.diagnostics["link_policy_auto_approve_eligible_count"] == 0
+    assert result.diagnostics["link_policy_source_risk_review_count"] == 1
+
+
 def test_policy_keeps_suggestion_targets_review_only_even_with_high_score() -> None:
     suggestion_target = _candidate(
         target_id="suggestion_candidate",

@@ -61,6 +61,7 @@ _EXTENSION_CONTENT_TYPES = {
     ".heic": "image/heic",
     ".heif": "image/heif",
     ".html": "text/html",
+    ".htm": "text/html",
     ".jpeg": "image/jpeg",
     ".jpg": "image/jpeg",
     ".json": "application/json",
@@ -79,6 +80,7 @@ _EXTENSION_CONTENT_TYPES = {
     ".png": "image/png",
     ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     ".srt": "application/x-subrip",
+    ".svg": "image/svg+xml",
     ".tif": "image/tiff",
     ".tiff": "image/tiff",
     ".txt": "text/plain",
@@ -88,8 +90,17 @@ _EXTENSION_CONTENT_TYPES = {
     ".webp": "image/webp",
     ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     ".xml": "application/xml",
+    ".xhtml": "application/xhtml+xml",
     ".zip": "application/zip",
 }
+_ACTIVE_CONTENT_TYPES = {
+    "application/xhtml+xml",
+    "application/xml",
+    "image/svg+xml",
+    "text/html",
+    "text/xml",
+}
+_ACTIVE_CONTENT_EXTENSIONS = {".htm", ".html", ".svg", ".xhtml", ".xml"}
 _TEXT_BYTES = set(range(32, 127)) | {9, 10, 13}
 _IMAGE_DIMENSION_CONTENT_TYPES = {"image/gif", "image/jpeg", "image/png", "image/webp"}
 _JPEG_SOF_MARKERS = frozenset(
@@ -205,6 +216,13 @@ def assess_asset_upload(
         content_type=magic_content_type,
         max_image_pixels=max_image_pixels,
     )
+    active_content_metadata = _active_content_metadata(
+        extension=extension,
+        declared_content_type=declared,
+        extension_content_type=extension_content_type,
+        magic_content_type=magic_content_type,
+        content=content,
+    )
     metadata = {
         "upload_policy_version": UPLOAD_POLICY_VERSION,
         "upload_declared_content_type": declared or "application/octet-stream",
@@ -233,6 +251,7 @@ def assess_asset_upload(
         "upload_dangerous_extension_blocked": False,
         **archive_metadata,
         **image_metadata,
+        **active_content_metadata,
     }
     metadata["upload_archive_review_reason"] = _archive_review_reason(
         raw_archive_review_required=archive_detected
@@ -291,11 +310,83 @@ def detect_magic_content_type(content: bytes) -> str:
         return "video/webm" if b"webm" in content[:256].lower() else "video/x-matroska"
     if head.startswith(b"PK\x03\x04"):
         return "application/zip"
+    if active_markup_content_type := _detect_active_markup_content_type(content):
+        return active_markup_content_type
     if head[:16].lstrip().startswith((b"{", b"[")):
         return "application/json"
     if _looks_like_text(head):
         return "text/plain"
     return "application/octet-stream"
+
+
+def _active_content_metadata(
+    *,
+    extension: str,
+    declared_content_type: str,
+    extension_content_type: str | None,
+    magic_content_type: str,
+    content: bytes,
+) -> dict[str, object]:
+    content_signature_type = _detect_active_markup_content_type(content)
+    signals: list[str] = []
+    if extension in _ACTIVE_CONTENT_EXTENSIONS:
+        signals.append("filename_extension")
+    if declared_content_type in _ACTIVE_CONTENT_TYPES:
+        signals.append("declared_content_type")
+    if extension_content_type in _ACTIVE_CONTENT_TYPES:
+        signals.append("extension_content_type")
+    if magic_content_type in _ACTIVE_CONTENT_TYPES:
+        signals.append("magic_content_type")
+    if content_signature_type in _ACTIVE_CONTENT_TYPES:
+        signals.append("content_signature")
+    signals = list(dict.fromkeys(signals))
+    content_type = (
+        content_signature_type
+        if content_signature_type in _ACTIVE_CONTENT_TYPES
+        else magic_content_type
+        if magic_content_type in _ACTIVE_CONTENT_TYPES
+        else extension_content_type
+        if extension_content_type in _ACTIVE_CONTENT_TYPES
+        else declared_content_type
+        if declared_content_type in _ACTIVE_CONTENT_TYPES
+        else None
+    )
+    return {
+        "upload_active_content_detected": bool(signals),
+        "upload_active_content_review_required": bool(signals),
+        "upload_active_content_kind": _active_content_kind(content_type),
+        "upload_active_content_content_type": content_type,
+        "upload_active_content_signals": signals,
+        "upload_active_content_review_reason": (
+            "active_markup_content" if signals else None
+        ),
+    }
+
+
+def _detect_active_markup_content_type(content: bytes) -> str | None:
+    sample = content[:4096].decode("utf-8", errors="ignore").lstrip("\ufeff \t\r\n")
+    if not sample:
+        return None
+    lowered = sample.lower()
+    if "<svg" in lowered[:512]:
+        return "image/svg+xml"
+    if lowered.startswith("<!doctype html") or lowered.startswith("<html") or (
+        "<html" in lowered[:512]
+    ):
+        return "text/html"
+    if lowered.startswith("<?xml"):
+        return "application/xml"
+    return None
+
+
+def _active_content_kind(content_type: str | None) -> str | None:
+    if content_type == "image/svg+xml":
+        return "svg"
+    if content_type in {"text/html", "application/xhtml+xml"}:
+        return "html"
+    if content_type in {"application/xml", "text/xml"}:
+        return "xml"
+    return None
 
 
 def _inspect_zip_archive(

@@ -640,6 +640,110 @@ def test_spoofed_image_mime_text_asset_extracts_as_text_with_mismatch_metadata(
         assert extracted["metadata"]["mime_detector_reason"] == "magic"
 
 
+def test_svg_active_content_asset_extracts_with_review_metadata(tmp_path: Path) -> None:
+    svg_payload = b"""<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="120">
+  <script>alert('review me')</script>
+  <text x="10" y="24">Project Atlas launch checklist</text>
+</svg>
+"""
+    with make_client(tmp_path) as client:
+        fact = client.post(
+            "/v1/facts",
+            json={
+                "space_slug": "quick-capture",
+                "memory_scope_external_ref": "frontend",
+                "thread_external_ref": "active-content",
+                "text": "Project Atlas launch checklist needs secure SVG review gates.",
+                "kind": "note",
+                "source_refs": [
+                    {"source_type": "manual", "source_id": "active-content-fact"}
+                ],
+                "category": "project_context",
+                "tags": ["atlas", "security"],
+            },
+            headers=auth_headers({"Idempotency-Key": "active-content-fact"}),
+        )
+        assert fact.status_code == 201, fact.text
+        fact_id = fact.json()["data"]["id"]
+
+        upload = client.post(
+            "/v1/assets",
+            params={
+                "space_slug": "quick-capture",
+                "memory_scope_external_ref": "frontend",
+                "thread_external_ref": "active-content",
+                "filename": "active-content-diagram.svg",
+                "extract": "true",
+            },
+            content=svg_payload,
+            headers=auth_headers({"Content-Type": "image/svg+xml"}),
+        )
+        assert upload.status_code == 201, upload.text
+        uploaded = upload.json()["data"]
+        extraction = uploaded["extraction"]
+        assert uploaded["metadata"]["upload_active_content_detected"] is True
+        assert uploaded["metadata"]["upload_active_content_review_required"] is True
+        assert uploaded["metadata"]["upload_active_content_kind"] == "svg"
+        assert "content_signature" in uploaded["metadata"]["upload_active_content_signals"]
+
+        processed = asyncio.run(OutboxWorker(client.app.state.container).run_once(limit=10))
+        assert processed >= 1
+
+        fetched = client.get(
+            f"/v1/asset-extractions/{extraction['id']}",
+            headers=auth_headers(),
+        )
+        assert fetched.status_code == 200, fetched.text
+        extracted = fetched.json()["data"]
+        assert extracted["status"] == "succeeded"
+        assert extracted["metadata"]["upload_active_content_detected"] is True
+        assert extracted["metadata"]["upload_active_content_review_required"] is True
+        assert extracted["metadata"]["upload_active_content_kind"] == "svg"
+        assert extracted["metadata"]["upload_active_content_content_type"] == "image/svg+xml"
+        assert extracted["metadata"]["upload_active_content_review_reason"] == (
+            "active_markup_content"
+        )
+
+        suggestions = client.post(
+            "/v1/link-suggestions",
+            json={
+                "space_slug": "quick-capture",
+                "memory_scope_external_ref": "frontend",
+                "thread_external_ref": "active-content",
+                "source_type": "asset_extraction",
+                "source_id": extraction["id"],
+                "text": "Project Atlas launch checklist secure SVG review gates",
+                "persist": True,
+                "limit": 10,
+            },
+            headers=auth_headers(),
+        )
+        assert suggestions.status_code == 200, suggestions.text
+        suggestion_data = suggestions.json()["data"]
+        fact_candidate = next(
+            item
+            for item in suggestion_data["candidates"]
+            if item["target_type"] == "fact" and item["target_id"] == fact_id
+        )
+        assert suggestion_data["diagnostics"]["active_content_review_required"] is True
+        assert suggestion_data["diagnostics"]["upload_active_content_kind"] == "svg"
+        assert (
+            suggestion_data["diagnostics"]["observed_anchor_upsert_skipped_reason"]
+            == "active_content_review_required"
+        )
+        assert fact_candidate["metadata"]["policy_decision"] == "needs_review"
+        assert fact_candidate["metadata"]["policy_confidence"] == "medium"
+        assert fact_candidate["metadata"]["auto_approve_eligible"] is False
+        assert fact_candidate["metadata"]["review_gate_reason"] == (
+            "active_content_review_required"
+        )
+        assert (
+            "source_active_content_review_required"
+            in fact_candidate["metadata"]["policy_reason_codes"]
+        )
+
+
 def test_binary_file_spoofed_as_image_is_rejected_before_storage(tmp_path: Path) -> None:
     with make_client(tmp_path) as client:
         upload = client.post(

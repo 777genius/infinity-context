@@ -1019,12 +1019,26 @@ def _source_extraction_risk_metadata(metadata: dict[str, object]) -> dict[str, o
                 "detector_confidence",
             ),
         )
+    if metadata.get("upload_active_content_review_required") is True:
+        risk_metadata["active_content_review_required"] = True
+        _copy_scalar_metadata(
+            risk_metadata,
+            metadata,
+            keys=(
+                "upload_active_content_detected",
+                "upload_active_content_kind",
+                "upload_active_content_content_type",
+                "upload_active_content_review_reason",
+            ),
+        )
     return risk_metadata
 
 
 def _source_risk_skip_reason(source_risk_metadata: dict[str, object]) -> str:
     if source_risk_metadata.get("prompt_injection_signals_detected") is True:
         return "prompt_injection_evidence"
+    if source_risk_metadata.get("active_content_review_required") is True:
+        return "active_content_review_required"
     if source_risk_metadata.get("mime_content_type_mismatch") is True:
         return "mime_content_type_mismatch"
     if source_risk_metadata.get("mime_archive_review_required") is True:
