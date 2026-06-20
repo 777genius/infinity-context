@@ -38,6 +38,8 @@ from infinity_context_server.auth_tokens import (
 )
 from infinity_context_server.composition import build_container
 from infinity_context_server.config import DeployProfile, Settings
+from infinity_context_server.deployment_readiness import build_storage_deployment_readiness
+from infinity_context_server.diagnostics import storage_diagnostics
 from infinity_context_server.memory_scope_transfer import export_memory_scope, import_memory_scope
 
 ACTIVE_CONTEXT_MANUAL_CHECKS: tuple[tuple[str, str], ...] = (
@@ -87,9 +89,13 @@ async def doctor() -> dict[str, object]:
             _adapter_check(adapter.name, adapter.enabled, adapter.healthy, adapter.degraded_reason)
             for adapter in capabilities.adapters
         ]
+        storage_readiness = build_storage_deployment_readiness(
+            settings=container.settings,
+            diagnostics=storage_diagnostics(container),
+        )
         checks = [
             {"name": "postgres", "status": "ok"},
-            {"name": "migrations", "status": "ok"},
+            _migrations_check(storage_readiness),
             {
                 "name": "outbox",
                 "status": "ok" if dead == 0 else "degraded",
@@ -110,6 +116,7 @@ async def doctor() -> dict[str, object]:
                 for adapter in capabilities.adapters
             },
             "outbox": {"pending": pending, "dead": dead},
+            "storage_readiness": _doctor_storage_readiness_payload(storage_readiness),
         }
     finally:
         await container.engine.dispose()
@@ -308,6 +315,56 @@ def _adapter_required_action(name: str, degraded_reason: str | None) -> str | No
         "embeddings.provider_unavailable": "retry after provider/network recovery",
     }
     return actions.get(degraded_reason, f"inspect {name} adapter configuration and provider logs")
+
+
+def _migrations_check(readiness: dict[str, object]) -> dict[str, object]:
+    migration_runner_required = readiness.get("migration_runner_required") is True
+    return {
+        "name": "migrations",
+        "status": "ok",
+        "schema_management_mode": readiness.get("schema_management_mode"),
+        "auto_create_schema_enabled": readiness.get("auto_create_schema_enabled"),
+        "migration_runner_required": migration_runner_required,
+        "migration_runner_service": readiness.get("migration_runner_service"),
+        "migration_strategy": readiness.get("migration_strategy"),
+        "required_action": (
+            "run infinity_context_migrate before serving traffic"
+            if migration_runner_required
+            else None
+        ),
+    }
+
+
+def _doctor_storage_readiness_payload(readiness: dict[str, object]) -> dict[str, object]:
+    safe_keys = (
+        "schema_version",
+        "status",
+        "self_host_ready",
+        "hosted_team_ready",
+        "self_host_production_ready",
+        "hosted_team_production_ready",
+        "schema_management_mode",
+        "auto_create_schema_enabled",
+        "auto_create_schema_allowed_in_server_profile",
+        "migration_runner_required",
+        "migration_runner_service",
+        "migration_strategy",
+        "recommended_hosted_backend",
+        "blob_identity",
+        "duplicate_detection",
+        "scope_storage_quota_enforced",
+        "scope_storage_quota_bytes",
+        "scope_storage_quota_unlimited_when_zero",
+        "storage_cleanup_supported",
+        "maintenance_enabled",
+        "cleanup_apply_enabled",
+        "backup_policy_configured",
+        "object_lifecycle_policy_configured",
+        "safe_diagnostics",
+        "degraded_reasons",
+        "warnings",
+    )
+    return {key: readiness.get(key) for key in safe_keys}
 
 
 def _doctor_status(checks: list[dict[str, object]]) -> str:

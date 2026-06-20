@@ -141,6 +141,20 @@ tell `/v1/capabilities` and diagnostics that the operator has configured those
 policies outside the app. Keep `MEMORY_ASSET_STORAGE_CLEANUP_APPLY_ENABLED=false`
 until cleanup dry runs are reviewed.
 
+`/v1/capabilities.storage.deployment_readiness` also reports schema management
+readiness. In team/server deployments `MEMORY_AUTO_CREATE_SCHEMA=false` is the
+expected mode, and the readiness payload will show:
+
+```text
+schema_management_mode=external_migration_runner
+migration_runner_required=true
+migration_runner_service=infinity_context_migrate
+```
+
+This means the API server is not responsible for creating or migrating schema at
+startup. Run the migration service before serving traffic, then use
+`/v1/capabilities` and the admin doctor command to confirm readiness.
+
 Example Postgres dump:
 
 ```bash

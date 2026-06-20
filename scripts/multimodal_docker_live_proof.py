@@ -931,9 +931,15 @@ def _storage_readiness_summary(storage: dict[str, Any]) -> dict[str, Any]:
     warnings = _string_list(readiness.get("warnings"))
     return {
         "ok": (
-            readiness.get("schema_version") == "asset-storage-deployment-readiness-v1"
+            readiness.get("schema_version") == "asset-storage-deployment-readiness-v2"
             and storage.get("asset_backend_configured") is True
             and readiness.get("self_host_ready") is True
+            and readiness.get("schema_management_mode")
+            in {"auto_create", "external_migration_runner"}
+            and readiness.get("auto_create_schema_allowed_in_server_profile") is False
+            and isinstance(readiness.get("migration_runner_required"), bool)
+            and readiness.get("migration_runner_service") == "infinity_context_migrate"
+            and readiness.get("migration_strategy") == "external_forward_migrations"
             and readiness.get("recommended_hosted_backend") == "s3"
             and readiness.get("blob_identity") == "sha256"
             and readiness.get("duplicate_detection") == "exact_sha256"
@@ -950,6 +956,14 @@ def _storage_readiness_summary(storage: dict[str, Any]) -> dict[str, Any]:
         "hosted_team_ready": readiness.get("hosted_team_ready"),
         "self_host_production_ready": readiness.get("self_host_production_ready"),
         "hosted_team_production_ready": readiness.get("hosted_team_production_ready"),
+        "schema_management_mode": readiness.get("schema_management_mode"),
+        "auto_create_schema_enabled": readiness.get("auto_create_schema_enabled"),
+        "auto_create_schema_allowed_in_server_profile": readiness.get(
+            "auto_create_schema_allowed_in_server_profile"
+        ),
+        "migration_runner_required": readiness.get("migration_runner_required"),
+        "migration_runner_service": readiness.get("migration_runner_service"),
+        "migration_strategy": readiness.get("migration_strategy"),
         "recommended_hosted_backend": readiness.get("recommended_hosted_backend"),
         "blob_identity": readiness.get("blob_identity"),
         "duplicate_detection": readiness.get("duplicate_detection"),

@@ -441,6 +441,53 @@ def _degraded_multimodal_live_provider_canary_report() -> dict[str, Any]:
     return report
 
 
+def _docker_live_proof_report() -> dict[str, Any]:
+    return {
+        "suite": "infinity-context-multimodal-docker-live-proof",
+        "ok": True,
+        "git": {"commit": "abc123", "dirty": False},
+        "components": {
+            "capabilities": {
+                "status": "succeeded",
+                "storage_readiness": {
+                    "ok": True,
+                    "schema_version": "asset-storage-deployment-readiness-v2",
+                    "asset_backend": "local",
+                    "asset_external": False,
+                    "self_host_ready": True,
+                    "hosted_team_ready": False,
+                    "self_host_production_ready": False,
+                    "hosted_team_production_ready": False,
+                    "schema_management_mode": "auto_create",
+                    "auto_create_schema_enabled": True,
+                    "auto_create_schema_allowed_in_server_profile": False,
+                    "migration_runner_required": False,
+                    "migration_runner_service": "infinity_context_migrate",
+                    "migration_strategy": "external_forward_migrations",
+                    "recommended_hosted_backend": "s3",
+                    "blob_identity": "sha256",
+                    "duplicate_detection": "exact_sha256",
+                    "scope_storage_quota_enforced": True,
+                    "scope_storage_quota_bytes": 5 * 1024 * 1024 * 1024,
+                    "scope_storage_quota_unlimited_when_zero": True,
+                    "storage_cleanup_supported": True,
+                    "maintenance_enabled": False,
+                    "cleanup_apply_enabled": False,
+                    "backup_policy_configured": False,
+                    "object_lifecycle_policy_configured": False,
+                    "safe_diagnostics": True,
+                    "degraded_reasons": [],
+                    "warnings": [
+                        "hosted_team_deployments_should_use_s3_compatible_storage",
+                        "asset_storage_backup_policy_not_confirmed",
+                        "asset_storage_maintenance_not_enabled",
+                    ],
+                },
+            }
+        },
+    }
+
+
 def _agent_behavior_benchmark_report() -> dict[str, Any]:
     return {
         "suite": "memory_mcp_agent_behavior",
@@ -650,6 +697,7 @@ def test_memory_quality_scorecard_passes_with_required_capabilities(tmp_path: Pa
     assert result["capabilities"]["auto_memory_admission"]["ok"] is True
     assert result["capabilities"]["semantic_linking"]["ok"] is True
     assert result["capabilities"]["dedup_merge_conflict_resolution"]["ok"] is True
+    assert result["capabilities"]["cloud_self_host_readiness"]["ok"] is True
     assert result["capabilities"]["multimodal_evidence_retrieval"]["ok"] is True
     assert result["capabilities"]["graph_native_recall"]["ok"] is True
     assert result["capabilities"]["scope_and_safety"]["ok"] is True
@@ -823,6 +871,23 @@ def test_memory_quality_scorecard_policy_snapshot_documents_top_evidence_floors(
     ]["required_semantic_checks"]
     assert policy["dedup_merge_conflict_resolution"]["requires_replay_idempotency"] is True
     assert policy["dedup_merge_conflict_resolution"]["requires_review_before_merge"] is True
+    assert policy["cloud_self_host_readiness"]["storage_readiness_schema_version"] == (
+        "asset-storage-deployment-readiness-v2"
+    )
+    assert policy["cloud_self_host_readiness"]["requires_s3_compatible_hosted_backend"] is True
+    assert (
+        policy["cloud_self_host_readiness"]["requires_external_migration_runner_contract"]
+        is True
+    )
+    assert (
+        policy["cloud_self_host_readiness"]["migration_runner_service"]
+        == "infinity_context_migrate"
+    )
+    assert policy["cloud_self_host_readiness"]["requires_safe_diagnostics"] is True
+    assert (
+        policy["cloud_self_host_readiness"]["live_proof_required_for_production_claim"]
+        is True
+    )
     assert policy["full_provider"]["required_adapters"] == [
         "qdrant",
         "graphiti",
@@ -2062,6 +2127,43 @@ def test_memory_quality_scorecard_fails_on_dedup_merge_conflict_regression() -> 
     assert result["metrics"]["auto_duplicate_suggestion_count"] == 1
     assert result["metrics"]["auto_replay_duplicate_suggestion_count"] == 1
     assert result["gates"]["all_capabilities_ok"] is False
+
+
+def test_memory_quality_scorecard_fails_on_cloud_self_host_readiness_regression() -> None:
+    suite_results = _scorecard_fixture_results()
+    docker_report = _docker_live_proof_report()
+    storage = docker_report["components"]["capabilities"]["storage_readiness"]
+    storage["schema_version"] = "asset-storage-deployment-readiness-v1"
+    storage["migration_runner_service"] = None
+    storage["safe_diagnostics"] = False
+    suite_results["infinity-context-multimodal-docker-live-proof"] = docker_report
+
+    result = build_memory_quality_scorecard(suite_results)
+
+    assert result["ok"] is False
+    capability = result["capabilities"]["cloud_self_host_readiness"]
+    assert capability["ok"] is False
+    assert capability["failed_checks"] == [
+        "docker_live_migration_runner_contract",
+        "docker_live_safe_diagnostics",
+        "docker_live_storage_readiness_v2",
+    ]
+    assert result["gates"]["all_capabilities_ok"] is False
+
+
+def test_memory_quality_scorecard_accepts_cloud_self_host_live_proof_contract() -> None:
+    suite_results = _scorecard_fixture_results()
+    suite_results["infinity-context-multimodal-docker-live-proof"] = (
+        _docker_live_proof_report()
+    )
+
+    result = build_memory_quality_scorecard(suite_results)
+
+    assert result["ok"] is True
+    capability = result["capabilities"]["cloud_self_host_readiness"]
+    assert capability["ok"] is True
+    assert capability["checks"]["docker_live_storage_readiness_v2"] is True
+    assert capability["checks"]["docker_live_migration_runner_contract"] is True
 
 
 def test_memory_quality_scorecard_fails_on_multimodal_metadata_regression() -> None:

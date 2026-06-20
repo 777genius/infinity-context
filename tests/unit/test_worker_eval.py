@@ -1709,10 +1709,19 @@ def test_readiness_doctor_entrypoint_is_safe(
 
     assert result["status"] == "ok"
     assert _doctor_check(result, "postgres")["status"] == "ok"
-    assert _doctor_check(result, "migrations")["status"] == "ok"
+    migrations = _doctor_check(result, "migrations")
+    assert migrations["status"] == "ok"
+    assert migrations["schema_management_mode"] == "external_migration_runner"
+    assert migrations["migration_runner_required"] is True
+    assert migrations["migration_runner_service"] == "infinity_context_migrate"
+    assert migrations["required_action"] == "run infinity_context_migrate before serving traffic"
     assert _doctor_check(result, "outbox")["dead"] == 0
     assert _doctor_check(result, "qdrant")["status"] == "disabled"
     assert _doctor_check(result, "graphiti")["status"] == "disabled"
+    assert result["storage_readiness"]["schema_version"] == (
+        "asset-storage-deployment-readiness-v2"
+    )
+    assert result["storage_readiness"]["migration_runner_required"] is True
     assert "RAW_" not in str(result)
 
 

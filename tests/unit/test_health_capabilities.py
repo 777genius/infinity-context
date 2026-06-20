@@ -150,12 +150,18 @@ def test_capabilities_return_noop_adapters() -> None:
             "force_path_style": False,
         },
         "deployment_readiness": {
-            "schema_version": "asset-storage-deployment-readiness-v1",
+            "schema_version": "asset-storage-deployment-readiness-v2",
             "status": "ok",
             "self_host_ready": True,
             "hosted_team_ready": False,
             "self_host_production_ready": False,
             "hosted_team_production_ready": False,
+            "schema_management_mode": "external_migration_runner",
+            "auto_create_schema_enabled": False,
+            "auto_create_schema_allowed_in_server_profile": False,
+            "migration_runner_required": True,
+            "migration_runner_service": "infinity_context_migrate",
+            "migration_strategy": "external_forward_migrations",
             "recommended_hosted_backend": "s3",
             "blob_identity": "sha256",
             "duplicate_detection": "exact_sha256",
@@ -173,6 +179,7 @@ def test_capabilities_return_noop_adapters() -> None:
                 "hosted_team_deployments_should_use_s3_compatible_storage",
                 "asset_storage_backup_policy_not_confirmed",
                 "asset_storage_maintenance_not_enabled",
+                "database_migration_runner_required",
             ],
         },
     }
@@ -839,12 +846,18 @@ def test_capabilities_storage_readiness_redacts_s3_values(tmp_path: Path) -> Non
         "force_path_style": True,
     }
     assert payload["deployment_readiness"] == {
-        "schema_version": "asset-storage-deployment-readiness-v1",
+        "schema_version": "asset-storage-deployment-readiness-v2",
         "status": "ok",
         "self_host_ready": True,
         "hosted_team_ready": True,
-        "self_host_production_ready": True,
-        "hosted_team_production_ready": True,
+        "self_host_production_ready": False,
+        "hosted_team_production_ready": False,
+        "schema_management_mode": "auto_create",
+        "auto_create_schema_enabled": True,
+        "auto_create_schema_allowed_in_server_profile": False,
+        "migration_runner_required": False,
+        "migration_runner_service": "infinity_context_migrate",
+        "migration_strategy": "external_forward_migrations",
         "recommended_hosted_backend": "s3",
         "blob_identity": "sha256",
         "duplicate_detection": "exact_sha256",
@@ -898,6 +911,44 @@ def test_capabilities_storage_readiness_warns_when_s3_governance_is_unconfirmed(
         "asset_storage_maintenance_not_enabled",
         "s3_region_not_configured",
     }
+
+
+def test_capabilities_storage_readiness_reports_external_migration_runner_for_s3(
+    tmp_path: Path,
+) -> None:
+    payload = _storage_payload(
+        SimpleNamespace(
+            settings=Settings(
+                deploy_profile=DeployProfile.SERVER,
+                database_url=f"sqlite+aiosqlite:///{tmp_path / 'capabilities-s3-server.db'}",
+                auto_create_schema=False,
+                service_token="server-token",
+                qdrant_enabled=False,
+                graphiti_enabled=False,
+                embeddings_enabled=False,
+                asset_storage_backend="s3",
+                asset_storage_s3_bucket="private-memory-bucket",
+                asset_storage_s3_region="us-east-1",
+                asset_storage_maintenance_enabled=True,
+                asset_storage_cleanup_apply_enabled=True,
+                asset_storage_backup_policy_configured=True,
+                asset_storage_object_lifecycle_policy_configured=True,
+            )
+        )
+    )
+
+    readiness = payload["deployment_readiness"]
+    assert readiness["schema_version"] == "asset-storage-deployment-readiness-v2"
+    assert readiness["hosted_team_ready"] is True
+    assert readiness["hosted_team_production_ready"] is True
+    assert readiness["schema_management_mode"] == "external_migration_runner"
+    assert readiness["auto_create_schema_enabled"] is False
+    assert readiness["auto_create_schema_allowed_in_server_profile"] is False
+    assert readiness["migration_runner_required"] is True
+    assert readiness["migration_runner_service"] == "infinity_context_migrate"
+    assert readiness["migration_strategy"] == "external_forward_migrations"
+    assert "database_migration_runner_required" in readiness["warnings"]
+    assert "private-memory-bucket" not in repr(payload)
 
 
 def test_capabilities_expose_configured_diarization_transcription_model(

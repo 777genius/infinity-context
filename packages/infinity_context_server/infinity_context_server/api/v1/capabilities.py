@@ -9,6 +9,7 @@ from infinity_context_server.api.auth import require_service_token
 from infinity_context_server.api.dependencies import get_container
 from infinity_context_server.api.policy import should_capture
 from infinity_context_server.composition import Container
+from infinity_context_server.deployment_readiness import build_storage_deployment_readiness
 from infinity_context_server.diagnostics import storage_diagnostics
 from infinity_context_server.extraction_capabilities import build_extraction_capability_payload
 
@@ -129,79 +130,15 @@ def _storage_payload(container: Container) -> dict[str, Any]:
             "force_path_style": settings.asset_storage_s3_force_path_style,
         },
         "deployment_readiness": _storage_deployment_readiness(
-            container,
+            settings=settings,
             diagnostics=diagnostics,
         ),
     }
 
 
 def _storage_deployment_readiness(
-    container: Container,
     *,
+    settings: Any,
     diagnostics: dict[str, Any],
 ) -> dict[str, Any]:
-    settings = container.settings
-    backend = settings.asset_storage_backend
-    configured = diagnostics.get("configured") is True
-    ready = diagnostics.get("ready") is True
-    maintenance = diagnostics.get("maintenance")
-    maintenance_payload = maintenance if isinstance(maintenance, dict) else {}
-    governance = diagnostics.get("governance")
-    governance_payload = governance if isinstance(governance, dict) else {}
-    maintenance_enabled = maintenance_payload.get("enabled") is True
-    cleanup_apply_enabled = maintenance_payload.get("cleanup_apply_enabled") is True
-    backup_policy_configured = governance_payload.get("backup_policy_configured") is True
-    object_lifecycle_policy_configured = (
-        governance_payload.get("object_lifecycle_policy_configured") is True
-    )
-    degraded_reasons: list[str] = []
-    warnings: list[str] = []
-    if not configured:
-        degraded_reasons.append("asset_storage_not_configured")
-    if not ready:
-        degraded_reasons.append("asset_storage_not_ready")
-    if backend == "local":
-        warnings.append("hosted_team_deployments_should_use_s3_compatible_storage")
-    if not backup_policy_configured:
-        warnings.append("asset_storage_backup_policy_not_confirmed")
-    if backend == "s3" and not object_lifecycle_policy_configured:
-        warnings.append("s3_object_lifecycle_policy_not_confirmed")
-    if not maintenance_enabled:
-        warnings.append("asset_storage_maintenance_not_enabled")
-    if maintenance_enabled and not cleanup_apply_enabled:
-        warnings.append("asset_storage_cleanup_apply_disabled")
-    if backend == "s3" and not settings.asset_storage_s3_region:
-        warnings.append("s3_region_not_configured")
-    return {
-        "schema_version": "asset-storage-deployment-readiness-v1",
-        "status": "ok" if ready and configured else "misconfigured",
-        "self_host_ready": ready and configured,
-        "hosted_team_ready": backend == "s3" and ready and configured,
-        "self_host_production_ready": (
-            ready and configured and backup_policy_configured and maintenance_enabled
-        ),
-        "hosted_team_production_ready": (
-            backend == "s3"
-            and ready
-            and configured
-            and backup_policy_configured
-            and object_lifecycle_policy_configured
-            and maintenance_enabled
-        ),
-        "recommended_hosted_backend": "s3",
-        "blob_identity": "sha256",
-        "duplicate_detection": "exact_sha256",
-        "scope_storage_quota_enforced": (
-            settings.plan_asset_storage_bytes_per_memory_scope > 0
-        ),
-        "scope_storage_quota_bytes": settings.plan_asset_storage_bytes_per_memory_scope,
-        "scope_storage_quota_unlimited_when_zero": True,
-        "storage_cleanup_supported": True,
-        "maintenance_enabled": maintenance_enabled,
-        "cleanup_apply_enabled": cleanup_apply_enabled,
-        "backup_policy_configured": backup_policy_configured,
-        "object_lifecycle_policy_configured": object_lifecycle_policy_configured,
-        "safe_diagnostics": True,
-        "degraded_reasons": degraded_reasons,
-        "warnings": warnings,
-    }
+    return build_storage_deployment_readiness(settings=settings, diagnostics=diagnostics)

@@ -630,8 +630,14 @@ def _audit_docker_report(
         "docker_live_capabilities_storage_readiness_contract_present",
         storage_readiness.get("ok") is True
         and storage_readiness.get("schema_version")
-        == "asset-storage-deployment-readiness-v1"
+        == "asset-storage-deployment-readiness-v2"
         and storage_readiness.get("self_host_ready") is True
+        and storage_readiness.get("schema_management_mode")
+        in {"auto_create", "external_migration_runner"}
+        and storage_readiness.get("auto_create_schema_allowed_in_server_profile") is False
+        and isinstance(storage_readiness.get("migration_runner_required"), bool)
+        and storage_readiness.get("migration_runner_service") == "infinity_context_migrate"
+        and storage_readiness.get("migration_strategy") == "external_forward_migrations"
         and storage_readiness.get("recommended_hosted_backend") == "s3"
         and storage_readiness.get("blob_identity") == "sha256"
         and storage_readiness.get("duplicate_detection") == "exact_sha256"

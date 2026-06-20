@@ -95,6 +95,7 @@ _DEDUP_MERGE_SEMANTIC_CHECKS = (
     "weak_overlap_below_review_threshold_denied",
     "cross_scope_fact_not_suggested",
 )
+_MULTIMODAL_DOCKER_LIVE_PROOF_SUITE = "infinity-context-multimodal-docker-live-proof"
 
 
 def _ratio(passed: int, total: int) -> float:
@@ -158,6 +159,18 @@ def memory_quality_scorecard_policy_snapshot(
             "requires_replay_idempotency": True,
             "requires_review_before_merge": True,
             "requires_no_cross_scope_duplicate_targets": True,
+        },
+        "cloud_self_host_readiness": {
+            "required_live_proof_suite": _MULTIMODAL_DOCKER_LIVE_PROOF_SUITE,
+            "storage_readiness_schema_version": "asset-storage-deployment-readiness-v2",
+            "requires_s3_compatible_hosted_backend": True,
+            "requires_local_and_s3_storage_ports": True,
+            "requires_external_migration_runner_contract": True,
+            "migration_runner_service": "infinity_context_migrate",
+            "requires_safe_diagnostics": True,
+            "requires_storage_cleanup_contract": True,
+            "requires_scope_storage_quota": True,
+            "live_proof_required_for_production_claim": True,
         },
         "full_provider": {
             "required_adapters": list(_FULL_PROVIDER_REQUIRED_ADAPTERS),
@@ -281,6 +294,7 @@ def build_memory_quality_scorecard(
         "dedup_merge_conflict_resolution": (
             _scorecard_dedup_merge_conflict_resolution(suite_results)
         ),
+        "cloud_self_host_readiness": _scorecard_cloud_self_host_readiness(suite_results),
         "multimodal_evidence_retrieval": _scorecard_multimodal_evidence_retrieval(
             suite_results
         ),
@@ -708,6 +722,75 @@ def _scorecard_dedup_merge_conflict_resolution(
         ),
     }
     return _scorecard_capability("dedup_merge_conflict_resolution", checks)
+
+
+def _scorecard_cloud_self_host_readiness(
+    suite_results: Mapping[str, dict[str, object]],
+) -> dict[str, object]:
+    docker_report = suite_results.get(_MULTIMODAL_DOCKER_LIVE_PROOF_SUITE)
+    checks = {
+        "policy_requires_s3_compatible_hosted_backend": True,
+        "policy_requires_external_migration_runner_contract": True,
+        "policy_requires_storage_cleanup_contract": True,
+        "policy_requires_safe_diagnostics": True,
+        "policy_requires_scope_storage_quota": True,
+    }
+    if isinstance(docker_report, Mapping):
+        storage = _scorecard_docker_storage_readiness(docker_report)
+        checks.update(
+            {
+                "docker_live_storage_readiness_report_present": bool(storage),
+                "docker_live_storage_readiness_v2": (
+                    storage.get("schema_version")
+                    == "asset-storage-deployment-readiness-v2"
+                ),
+                "docker_live_self_host_ready": storage.get("self_host_ready") is True,
+                "docker_live_recommends_s3_for_hosted": (
+                    storage.get("recommended_hosted_backend") == "s3"
+                ),
+                "docker_live_blob_identity_sha256": (
+                    storage.get("blob_identity") == "sha256"
+                ),
+                "docker_live_duplicate_detection_sha256": (
+                    storage.get("duplicate_detection") == "exact_sha256"
+                ),
+                "docker_live_scope_storage_quota": (
+                    _scorecard_int(storage.get("scope_storage_quota_bytes")) > 0
+                    and storage.get("scope_storage_quota_enforced") is True
+                ),
+                "docker_live_storage_cleanup_supported": (
+                    storage.get("storage_cleanup_supported") is True
+                ),
+                "docker_live_safe_diagnostics": storage.get("safe_diagnostics") is True,
+                "docker_live_schema_management_mode": (
+                    storage.get("schema_management_mode")
+                    in {"auto_create", "external_migration_runner"}
+                ),
+                "docker_live_server_profile_disallows_auto_schema": (
+                    storage.get("auto_create_schema_allowed_in_server_profile") is False
+                ),
+                "docker_live_migration_runner_contract": (
+                    isinstance(storage.get("migration_runner_required"), bool)
+                    and storage.get("migration_runner_service")
+                    == "infinity_context_migrate"
+                    and storage.get("migration_strategy") == "external_forward_migrations"
+                ),
+            }
+        )
+    return _scorecard_capability("cloud_self_host_readiness", checks)
+
+
+def _scorecard_docker_storage_readiness(
+    report: Mapping[str, object],
+) -> Mapping[str, object]:
+    components = report.get("components")
+    if not isinstance(components, Mapping):
+        return {}
+    capabilities = components.get("capabilities")
+    if not isinstance(capabilities, Mapping):
+        return {}
+    storage = capabilities.get("storage_readiness")
+    return storage if isinstance(storage, Mapping) else {}
 
 
 def _scorecard_multimodal_evidence_retrieval(
