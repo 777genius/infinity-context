@@ -313,6 +313,44 @@ def test_anchor_extraction_handles_chat_handles_and_email_people() -> None:
     )
 
 
+def test_anchor_extraction_keeps_explicit_person_alias_as_identity_term() -> None:
+    anchors = extract_observed_anchors(
+        "Alex aka Alexander Cooper discussed Project Atlas. "
+        "Alexander Cooper should resolve through the alias, not a second anchor."
+    )
+
+    people = {
+        anchor.normalized_key: anchor
+        for anchor in anchors
+        if anchor.kind == MemoryAnchorKind.PERSON
+    }
+
+    assert "alex" in people
+    assert "alexander cooper" not in people
+    assert people["alex"].aliases == ("Alex", "Alexander Cooper")
+    assert people["alex"].metadata["alias_identity_terms"] == ["aleksander cooper"]
+    assert people["alex"].metadata["identity_key"] == "person:aleks"
+
+
+def test_anchor_extraction_keeps_explicit_project_alias_as_identity_term() -> None:
+    anchors = extract_observed_anchors(
+        "Project Atlas aka Atlas Mobile owns the screenshots. "
+        "Project Atlas Mobile should not create a duplicate project in this capture."
+    )
+
+    projects = {
+        anchor.normalized_key: anchor
+        for anchor in anchors
+        if anchor.kind == MemoryAnchorKind.PROJECT
+    }
+
+    assert "atlas" in projects
+    assert "atlas mobile" not in projects
+    assert projects["atlas"].aliases == ("Atlas", "Atlas Mobile")
+    assert projects["atlas"].metadata["alias_identity_terms"] == ["atlas mobile"]
+    assert projects["atlas"].metadata["identity_key"] == "project:atlas"
+
+
 def test_anchor_extraction_merges_common_russian_person_case_variants() -> None:
     anchors = extract_observed_anchors(
         "Мария подтвердила Project Atlas. От Марии пришел follow-up. "

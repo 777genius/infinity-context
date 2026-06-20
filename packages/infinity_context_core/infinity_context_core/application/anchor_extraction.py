@@ -21,10 +21,33 @@ _EMAIL_PATTERN = re.compile(
     r"\b(?P<local>[A-Za-z][A-Za-z0-9._+-]{2,63})@"
     r"(?P<domain>[A-Za-z0-9.-]+\.[A-Za-z]{2,})\b"
 )
+_ALIAS_CONNECTOR = (
+    r"(?i:aka|a\.k\.a\.|also known as|он же|она же|"
+    r"также известн(?:ый|ая|о|ые)? как)"
+)
+_PERSON_ALIAS_PATTERN = re.compile(
+    r"\b(?P<label>"
+    r"[A-Z][a-z][A-Za-z]{1,40}(?:\s+[A-Z][a-z][A-Za-z]{1,40})?|"
+    r"[А-ЯЁ][а-яё]{2,40}(?:\s+[А-ЯЁ][а-яё]{2,40})?"
+    r")\s*(?:\(|,)?\s*(?:" + _ALIAS_CONNECTOR + r")\s+(?P<alias>"
+    r"[A-Z][a-z][A-Za-z]{1,40}(?:\s+[A-Z][a-z][A-Za-z]{1,40})?|"
+    r"[А-ЯЁ][а-яё]{2,40}(?:\s+[А-ЯЁ][а-яё]{2,40})?"
+    r")\)?",
+)
 _PROJECT_PATTERN = re.compile(
     r"\b(?:project|проект(?:у|е|а|ом)?|repo|repository|service|сервис)\s+"
     r"([A-Za-zА-Яа-яЁё0-9][\w.-]{1,80}"
     r"(?:\s+[A-Za-zА-Яа-яЁё0-9][\w.-]{1,80}){0,3})",
+    re.IGNORECASE,
+)
+_PROJECT_ALIAS_PATTERN = re.compile(
+    r"\b(?:project|проект(?:у|е|а|ом)?|repo|repository|service|сервис)\s+"
+    r"(?P<label>[A-Za-zА-Яа-яЁё0-9][\w.-]{1,80}"
+    r"(?:\s+[A-Za-zА-Яа-яЁё0-9][\w.-]{1,80}){0,3})"
+    r"\s*(?:\(|,)?\s*(?:" + _ALIAS_CONNECTOR + r")\s+"
+    r"(?:(?:project|проект(?:у|е|а|ом)?)\s+)?"
+    r"(?P<alias>[A-Za-zА-Яа-яЁё0-9][\w.-]{1,80}"
+    r"(?:\s+[A-Za-zА-Яа-яЁё0-9][\w.-]{1,80}){0,3})\)?",
     re.IGNORECASE,
 )
 _ORGANIZATION_PATTERN = re.compile(
@@ -330,6 +353,17 @@ class _EventComponents:
 def extract_observed_anchors(text: str) -> tuple[ObservedAnchor, ...]:
     seen: set[tuple[str, str]] = set()
     anchors: list[ObservedAnchor] = []
+    for kind, label, aliases, reason, score_boost in _explicit_alias_observations(text):
+        _append_anchor(
+            anchors,
+            seen,
+            kind=kind,
+            label=label,
+            reason=reason,
+            score_boost=score_boost,
+            aliases=(label, *aliases),
+        )
+        _mark_alias_keys_seen(seen, kind=kind, aliases=aliases)
     for raw in _organization_labels(text):
         _append_anchor(
             anchors,
@@ -475,6 +509,7 @@ def _append_anchor(
     label: str,
     reason: str,
     score_boost: float,
+    aliases: tuple[str, ...] | None = None,
 ) -> None:
     normalized_key = _normalized_anchor_key_for_kind(kind, label)
     key = (kind.value, normalized_key)
@@ -482,21 +517,51 @@ def _append_anchor(
         return
     seen.add(key)
     safe_label = label.strip()[:120]
+    safe_aliases = _safe_aliases(safe_label, aliases or (safe_label,))
     anchors.append(
         ObservedAnchor(
             kind=kind,
             normalized_key=normalized_key,
             label=safe_label,
-            aliases=(safe_label,),
+            aliases=safe_aliases,
             reason=reason,
             score_boost=score_boost,
             metadata={
                 "extraction_reason": reason,
                 "extractor": "anchor-rule-v2",
-                **structured_anchor_metadata_for_label(kind, label),
+                **structured_anchor_metadata_for_label(kind, label, aliases=safe_aliases),
             },
         )
     )
+
+
+def _mark_alias_keys_seen(
+    seen: set[tuple[str, str]],
+    *,
+    kind: MemoryAnchorKind,
+    aliases: tuple[str, ...],
+) -> None:
+    for alias in aliases:
+        normalized_key = _normalized_anchor_key_for_kind(kind, alias)
+        if normalized_key:
+            seen.add((kind.value, normalized_key))
+
+
+def _safe_aliases(label: str, aliases: tuple[str, ...]) -> tuple[str, ...]:
+    safe: list[str] = []
+    seen: set[str] = set()
+    for alias in aliases:
+        value = alias.strip()[:120]
+        normalized = normalize_anchor_key(value)
+        if not value or not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        safe.append(value)
+        if len(safe) >= 8:
+            break
+    if not safe:
+        safe.append(label)
+    return tuple(safe)
 
 
 def _normalized_anchor_key_for_kind(kind: MemoryAnchorKind, label: str) -> str:
@@ -690,6 +755,49 @@ def _temporal_hint_payload(phrase: str) -> tuple[str, int | None, str]:
     if match := re.match(r"(?P<count>\d{1,2}) недел[юи] назад$", normalized):
         return "weeks_ago", int(match.group("count")), "week"
     return "relative_time", None, ""
+
+
+def _explicit_alias_observations(
+    text: str,
+) -> tuple[tuple[MemoryAnchorKind, str, tuple[str, ...], str, float], ...]:
+    observations: list[tuple[MemoryAnchorKind, str, tuple[str, ...], str, float]] = []
+    for match in _PROJECT_ALIAS_PATTERN.finditer(text):
+        label = _clean_project_label(match.group("label"))
+        alias = _clean_project_label(match.group("alias"))
+        if (
+            label
+            and alias
+            and _is_probable_event_project_label(label)
+            and _is_probable_event_project_label(alias)
+        ):
+            observations.append(
+                (
+                    MemoryAnchorKind.PROJECT,
+                    label,
+                    (alias,),
+                    "explicit project alias reference",
+                    27,
+                )
+            )
+    for match in _PERSON_ALIAS_PATTERN.finditer(text):
+        label = _clean_person_alias_label(match.group("label"))
+        alias = _clean_person_alias_label(match.group("alias"))
+        if (
+            label
+            and alias
+            and _is_probable_person_label(label)
+            and _is_probable_person_label(alias)
+        ):
+            observations.append(
+                (
+                    MemoryAnchorKind.PERSON,
+                    label,
+                    (alias,),
+                    "explicit person alias reference",
+                    26,
+                )
+            )
+    return tuple(observations)
 
 
 def _explicit_project_labels(text: str) -> tuple[str, ...]:
@@ -1003,6 +1111,17 @@ def _clean_project_label(label: str) -> str:
         if raw_token.rstrip().endswith((".", "!", "?", ";", ":")):
             break
     return " ".join(cleaned).strip(".,:;()[]{} ")
+
+
+def _clean_person_alias_label(label: str) -> str:
+    value = label.strip(".,:;()[]{} ")
+    value = re.split(
+        r"\b(?:and|with|и|с|по|про|about|for)\b",
+        value,
+        maxsplit=1,
+        flags=re.IGNORECASE,
+    )[0]
+    return " ".join(value.split()[:3]).strip(".,:;()[]{} ")
 
 
 def _looks_like_project_label_continuation(token: str) -> bool:
