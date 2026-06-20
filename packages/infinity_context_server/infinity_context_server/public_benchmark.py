@@ -145,6 +145,16 @@ def run_public_memory_benchmark(
             raise BenchmarkValidationError("max_cases must be greater than zero")
         cases = cases[:max_cases]
 
+    duplicate_case_keys = _duplicate_case_keys(cases)
+    if duplicate_case_keys:
+        result = _duplicate_case_failure_result(
+            cases=cases,
+            duplicate_case_keys=duplicate_case_keys,
+        )
+        result = _with_public_benchmark_provenance(result, dataset_path=dataset_path)
+        _write_report(result, report_out)
+        return result
+
     if not cases:
         result = {
             "suite": PUBLIC_MEMORY_BENCHMARK_SUITE,
@@ -238,11 +248,38 @@ def load_public_benchmark_case_count(
 ) -> int:
     """Return the normalized case count without running retrieval or writing data."""
 
+    return int(
+        load_public_benchmark_dataset_profile(
+            dataset_path=dataset_path,
+            benchmark=benchmark,
+        )["case_count"]
+    )
+
+
+def load_public_benchmark_dataset_profile(
+    *,
+    dataset_path: Path,
+    benchmark: str | None = None,
+) -> dict[str, object]:
+    """Return safe normalized dataset profile without running retrieval."""
+
     cases = _load_cases(dataset_path)
     if benchmark:
         canonical_benchmark = _normalize_benchmark_name(benchmark)
         cases = tuple(case for case in cases if case.benchmark == canonical_benchmark)
-    return len(cases)
+    case_keys = tuple(f"{case.benchmark}:{case.case_id}" for case in cases)
+    unique_case_keys = set(case_keys)
+    benchmark_counts: dict[str, int] = defaultdict(int)
+    for case in cases:
+        benchmark_counts[case.benchmark] += 1
+    return {
+        "case_count": len(cases),
+        "unique_case_id_count": len(unique_case_keys),
+        "duplicate_case_id_count": len(case_keys) - len(unique_case_keys),
+        "benchmark_counts": dict(sorted(benchmark_counts.items())),
+        "dataset_hash": _dataset_hash(dataset_path),
+        "dataset_path_label": dataset_path.name,
+    }
 
 
 def _with_public_benchmark_provenance(
@@ -308,6 +345,7 @@ def _execute_cases(
     benchmarks = _benchmark_summaries(run_results, min_accuracy=min_accuracy)
     accuracy = _accuracy(run_results)
     ok = bool(run_results) and all(item["ok"] is True for item in benchmarks)
+    case_keys = tuple(f"{case.benchmark}:{case.case_id}" for case in cases)
     result: dict[str, object] = {
         "suite": PUBLIC_MEMORY_BENCHMARK_SUITE,
         "status": "ok" if ok else "failed",
@@ -329,12 +367,15 @@ def _execute_cases(
         "checks": {
             "dataset_loaded": True,
             "case_count": len(run_results) > 0,
+            "unique_case_ids": True,
             "minimum_accuracy_met": ok,
             "no_request_failures": not failures,
         },
         "metrics": {
             "benchmark_count": len(benchmarks),
             "case_count": len(run_results),
+            "unique_case_id_count": len(set(case_keys)),
+            "duplicate_case_id_count": 0,
             "accuracy": accuracy,
             "latency_ms_p95": _p95([item.latency_ms for item in run_results]),
         },
@@ -497,6 +538,17 @@ def _cases_from_payload(payload: object) -> tuple[PublicBenchmarkCase, ...]:
         else:
             cases.append(_normalize_case(item))
     return tuple(cases)
+
+
+def _duplicate_case_keys(cases: Sequence[PublicBenchmarkCase]) -> tuple[str, ...]:
+    seen: set[str] = set()
+    duplicates: list[str] = []
+    for case in cases:
+        key = f"{case.benchmark}:{case.case_id}"
+        if key in seen and key not in duplicates:
+            duplicates.append(key)
+        seen.add(key)
+    return tuple(duplicates)
 
 
 def _is_official_locomo_sample(raw: Mapping[str, object]) -> bool:
@@ -1065,6 +1117,39 @@ def _setup_failure_result(*, reason: str, case_count: int) -> dict[str, object]:
         "benchmarks": [],
         "cases": [],
         "failures": [{"case_id": "suite_setup", "category": "setup", "reason": reason}],
+    }
+
+
+def _duplicate_case_failure_result(
+    *,
+    cases: Sequence[PublicBenchmarkCase],
+    duplicate_case_keys: Sequence[str],
+) -> dict[str, object]:
+    return {
+        "suite": PUBLIC_MEMORY_BENCHMARK_SUITE,
+        "status": "failed",
+        "ok": False,
+        "checks": {
+            "dataset_loaded": True,
+            "case_count": bool(cases),
+            "unique_case_ids": False,
+        },
+        "metrics": {
+            "case_count": len(cases),
+            "benchmark_count": len({case.benchmark for case in cases}),
+            "accuracy": 0.0,
+            "duplicate_case_id_count": len(duplicate_case_keys),
+        },
+        "benchmarks": [],
+        "cases": [],
+        "failures": [
+            {
+                "case_id": key,
+                "category": "setup",
+                "reason": "duplicate_case_id",
+            }
+            for key in duplicate_case_keys[:20]
+        ],
     }
 
 

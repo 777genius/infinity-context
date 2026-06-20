@@ -11,6 +11,7 @@ from infinity_context_server.eval import (
     run_memory_quality_scorecard,
 )
 from infinity_context_server.eval_constants import (
+    LONG_MEMORY_REQUIRED_CASE_IDS,
     MULTIMODAL_OFFLINE_GOLDEN_SUITE,
     QUALITY_GOLDEN_REQUIRED_CASE_IDS,
     SEMANTIC_LINKING_REQUIRED_CASE_IDS,
@@ -211,8 +212,10 @@ def _scorecard_fixture_results() -> dict[str, dict[str, Any]]:
             "ok": True,
             "status": "ok",
             "metrics": {
-                "case_count": 16,
-                "long_memory_case_count": 16,
+                "case_count": 19,
+                "long_memory_case_count": 19,
+                "required_case_coverage_rate": 1.0,
+                "missing_required_case_count": 0,
                 "recall_at_5": 0.96,
                 "precision_at_5": 0.95,
                 "multi_session_recall_at_5": 1.0,
@@ -231,6 +234,14 @@ def _scorecard_fixture_results() -> dict[str, dict[str, Any]]:
                 "harmful_context_rate": 0.0,
                 "context_token_overflow_count": 0,
             },
+            "cases": _case_reports(
+                (
+                    *LONG_MEMORY_REQUIRED_CASE_IDS,
+                    "long_document_scope_recall",
+                    "long_document_operations_tail_recall",
+                    "long_graphiti_decision_beats_obsidian_decoy",
+                )
+            ),
             "failures": [],
         },
         "auto-memory-golden": {
@@ -609,7 +620,12 @@ def _public_benchmark_report() -> dict[str, Any]:
                 "case_count": 500,
             },
         },
-        "metrics": {"benchmark_count": 2},
+        "checks": {"unique_case_ids": True},
+        "metrics": {
+            "benchmark_count": 2,
+            "unique_case_id_count": 1100,
+            "duplicate_case_id_count": 0,
+        },
     }
 
 
@@ -891,6 +907,8 @@ def test_memory_quality_scorecard_policy_snapshot_documents_top_evidence_floors(
     assert policy["public_benchmark"]["top_evidence_requires_dataset_path_label"] is True
     assert policy["public_benchmark"]["top_evidence_requires_dataset_source_case_count"] is True
     assert policy["public_benchmark"]["top_evidence_rejects_raw_dataset_paths"] is True
+    assert policy["public_benchmark"]["top_evidence_requires_unique_case_ids"] is True
+    assert policy["public_benchmark"]["top_evidence_rejects_duplicate_case_ids"] is True
     assert (
         policy["public_benchmark"]["top_evidence_requires_official_url_for_official_sources"]
         is True
@@ -1288,6 +1306,26 @@ def test_memory_quality_scorecard_rejects_public_benchmark_raw_dataset_path() ->
     assert evidence["public_benchmark"]["dataset_evidence_ok"] is False
     assert evidence["public_benchmark"]["dataset_evidence"]["reports"][0]["report_failures"] == [
         "dataset_path_not_redacted"
+    ]
+    assert "public_benchmark_dataset_evidence_failed" in evidence["evidence_gaps"]
+
+
+def test_memory_quality_scorecard_rejects_public_benchmark_duplicate_case_ids() -> None:
+    suite_results = _scorecard_fixture_results()
+    suite_results["infinity-context-full-provider-canary"] = _full_provider_canary_report()
+    suite_results["memory_mcp_agent_behavior"] = _agent_behavior_benchmark_report()
+    public_benchmark = _public_benchmark_report()
+    public_benchmark["checks"]["unique_case_ids"] = False
+    public_benchmark["metrics"]["duplicate_case_id_count"] = 1
+    suite_results["public-memory-benchmark"] = public_benchmark
+
+    result = build_memory_quality_scorecard(suite_results, require_top_evidence=True)
+
+    evidence = result["external_evidence"]
+    assert result["ok"] is False
+    assert evidence["public_benchmark"]["dataset_evidence_ok"] is False
+    assert evidence["public_benchmark"]["dataset_evidence"]["reports"][0]["report_failures"] == [
+        "duplicate_case_ids"
     ]
     assert "public_benchmark_dataset_evidence_failed" in evidence["evidence_gaps"]
 
@@ -2117,6 +2155,11 @@ def test_memory_quality_scorecard_fails_when_report_omits_required_case_ids() ->
         for case in suite_results["semantic-linking-golden"]["cases"]
         if case["case_id"] != "unrelated_capture_has_no_candidates"
     ]
+    suite_results["long-memory-golden"]["cases"] = [
+        case
+        for case in suite_results["long-memory-golden"]["cases"]
+        if case["case_id"] != "long_unknown_query_abstains_without_context"
+    ]
 
     result = build_memory_quality_scorecard(suite_results)
 
@@ -2136,6 +2179,10 @@ def test_memory_quality_scorecard_fails_when_report_omits_required_case_ids() ->
     )
     assert (
         "semantic_linking_required_case_unrelated_capture_has_no_candidates"
+        in result["capabilities"]["coverage_floors"]["failed_checks"]
+    )
+    assert (
+        "long_memory_required_case_long_unknown_query_abstains_without_context"
         in result["capabilities"]["coverage_floors"]["failed_checks"]
     )
 

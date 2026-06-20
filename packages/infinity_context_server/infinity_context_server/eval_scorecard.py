@@ -47,6 +47,7 @@ from infinity_context_server.eval_constants import (
     FULL_PROVIDER_CANARY_SUITE,
     GRAPH_NATIVE_GOLDEN_SUITE,
     LONG_MEMORY_GOLDEN_SUITE,
+    LONG_MEMORY_REQUIRED_CASE_IDS,
     MEMORY_QUALITY_SCORECARD_SUITE,
     MULTIMODAL_LIVE_PROVIDER_CANARY_SUITE,
     MULTIMODAL_OFFLINE_GOLDEN_SUITE,
@@ -228,6 +229,8 @@ def memory_quality_scorecard_policy_snapshot(
             "top_evidence_requires_dataset_path_label": True,
             "top_evidence_requires_dataset_source_case_count": True,
             "top_evidence_rejects_raw_dataset_paths": True,
+            "top_evidence_requires_unique_case_ids": True,
+            "top_evidence_rejects_duplicate_case_ids": True,
             "top_evidence_requires_official_url_for_official_sources": True,
             "top_evidence_allowed_dataset_source_kinds": list(
                 _PUBLIC_MEMORY_BENCHMARK_DATASET_SOURCE_KINDS
@@ -370,6 +373,7 @@ def _scorecard_coverage_floors(
 ) -> dict[str, object]:
     quality_result = suite_results.get(QUALITY_GOLDEN_SUITE)
     semantic_result = suite_results.get(SEMANTIC_LINKING_GOLDEN_SUITE)
+    long_memory_result = suite_results.get(LONG_MEMORY_GOLDEN_SUITE)
     quality_metrics = _scorecard_result_metrics(suite_results.get(QUALITY_GOLDEN_SUITE))
     semantic_metrics = _scorecard_result_metrics(suite_results.get(SEMANTIC_LINKING_GOLDEN_SUITE))
     auto_metrics = _scorecard_result_metrics(suite_results.get(AUTO_MEMORY_GOLDEN_SUITE))
@@ -401,6 +405,13 @@ def _scorecard_coverage_floors(
             semantic_result,
             prefix="semantic_linking",
             required_case_ids=SEMANTIC_LINKING_REQUIRED_CASE_IDS,
+        )
+    )
+    checks.update(
+        _scorecard_required_case_checks(
+            long_memory_result,
+            prefix="long_memory",
+            required_case_ids=LONG_MEMORY_REQUIRED_CASE_IDS,
         )
     )
     checks["auto_memory_extraction_case_count"] = (
@@ -1282,6 +1293,13 @@ def _scorecard_public_benchmark_report_failures(
     failures: list[str] = []
     if _scorecard_nonempty_string(report.get("dataset_path")):
         failures.append("dataset_path_not_redacted")
+    checks = report.get("checks")
+    if isinstance(checks, Mapping) and checks.get("unique_case_ids") is False:
+        failures.append("duplicate_case_ids")
+    metrics = _scorecard_result_metrics(dict(report))
+    duplicate_count = _scorecard_int(metrics.get("duplicate_case_id_count"))
+    if duplicate_count is not None and duplicate_count > 0 and "duplicate_case_ids" not in failures:
+        failures.append("duplicate_case_ids")
     return tuple(failures)
 
 

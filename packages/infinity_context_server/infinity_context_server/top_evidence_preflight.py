@@ -19,7 +19,7 @@ from infinity_context_server.eval_constants import (
 )
 from infinity_context_server.public_benchmark import (
     BenchmarkValidationError,
-    load_public_benchmark_case_count,
+    load_public_benchmark_dataset_profile,
 )
 
 DEFAULT_MIN_PUBLIC_CASES = max(
@@ -296,11 +296,28 @@ def run_top_evidence_preflight(
 
     locomo_dataset = _dataset_file(env, "MEMORY_PUBLIC_BENCHMARK_LOCOMO_DATASET")
     longmemeval_dataset = _dataset_file(env, "MEMORY_PUBLIC_BENCHMARK_LONGMEMEVAL_DATASET")
-    locomo_case_count = _dataset_case_count(locomo_dataset, benchmark="locomo")
-    longmemeval_case_count = _dataset_case_count(
+    locomo_profile = _dataset_profile(locomo_dataset, benchmark="locomo")
+    longmemeval_profile = _dataset_profile(
         longmemeval_dataset,
         benchmark="longmemeval",
     )
+    locomo_case_count = _profile_int(locomo_profile, "case_count")
+    longmemeval_case_count = _profile_int(longmemeval_profile, "case_count")
+    locomo_unique_case_id_count = _profile_int(locomo_profile, "unique_case_id_count")
+    longmemeval_unique_case_id_count = _profile_int(
+        longmemeval_profile,
+        "unique_case_id_count",
+    )
+    locomo_duplicate_case_id_count = _profile_int(
+        locomo_profile,
+        "duplicate_case_id_count",
+    )
+    longmemeval_duplicate_case_id_count = _profile_int(
+        longmemeval_profile,
+        "duplicate_case_id_count",
+    )
+    locomo_dataset_sha256 = _profile_str(locomo_profile, "dataset_hash")
+    longmemeval_dataset_sha256 = _profile_str(longmemeval_profile, "dataset_hash")
     checks["locomo_dataset_file"] = locomo_dataset is not None
     checks["longmemeval_dataset_file"] = longmemeval_dataset is not None
     checks["locomo_dataset_valid"] = locomo_case_count is not None and locomo_case_count > 0
@@ -322,6 +339,16 @@ def run_top_evidence_preflight(
     )
     checks["longmemeval_dataset_case_count_representative"] = (
         longmemeval_case_count is not None and longmemeval_case_count >= longmemeval_min_cases
+    )
+    checks["locomo_dataset_unique_case_ids"] = (
+        locomo_unique_case_id_count is not None
+        and locomo_unique_case_id_count >= locomo_min_cases
+        and locomo_duplicate_case_id_count == 0
+    )
+    checks["longmemeval_dataset_unique_case_ids"] = (
+        longmemeval_unique_case_id_count is not None
+        and longmemeval_unique_case_id_count >= longmemeval_min_cases
+        and longmemeval_duplicate_case_id_count == 0
     )
     _append_failure(
         checks,
@@ -365,6 +392,24 @@ def run_top_evidence_preflight(
             f"{longmemeval_min_cases} longmemeval cases"
         ),
     )
+    _append_failure(
+        checks,
+        failures,
+        "locomo_dataset_unique_case_ids",
+        (
+            "MEMORY_PUBLIC_BENCHMARK_LOCOMO_DATASET must contain at least "
+            f"{locomo_min_cases} unique locomo case IDs and no duplicate case IDs"
+        ),
+    )
+    _append_failure(
+        checks,
+        failures,
+        "longmemeval_dataset_unique_case_ids",
+        (
+            "MEMORY_PUBLIC_BENCHMARK_LONGMEMEVAL_DATASET must contain at least "
+            f"{longmemeval_min_cases} unique longmemeval case IDs and no duplicate case IDs"
+        ),
+    )
 
     commit = git.get("commit")
     dirty = git.get("dirty")
@@ -405,10 +450,16 @@ def run_top_evidence_preflight(
             "agent_bench_model": agent_model or None,
             "agent_bench_scenario_set": agent_scenario_set,
             "docker_available": bool(docker_path),
-            "locomo_dataset": str(locomo_dataset) if locomo_dataset is not None else None,
+            "locomo_dataset": locomo_dataset.name if locomo_dataset is not None else None,
+            "locomo_dataset_sha256": locomo_dataset_sha256,
+            "locomo_duplicate_case_id_count": locomo_duplicate_case_id_count,
+            "locomo_unique_case_id_count": locomo_unique_case_id_count,
             "longmemeval_dataset": (
-                str(longmemeval_dataset) if longmemeval_dataset is not None else None
+                longmemeval_dataset.name if longmemeval_dataset is not None else None
             ),
+            "longmemeval_dataset_sha256": longmemeval_dataset_sha256,
+            "longmemeval_duplicate_case_id_count": longmemeval_duplicate_case_id_count,
+            "longmemeval_unique_case_id_count": longmemeval_unique_case_id_count,
             "locomo_case_count": locomo_case_count,
             "longmemeval_case_count": longmemeval_case_count,
             "multimodal_invalid_key_probe_enabled": multimodal_invalid_key_probe,
@@ -474,16 +525,30 @@ def _dataset_file(env: Mapping[str, str], name: str) -> Path | None:
     return path if path.is_file() else None
 
 
-def _dataset_case_count(path: Path | None, *, benchmark: str) -> int | None:
+def _dataset_profile(path: Path | None, *, benchmark: str) -> dict[str, object] | None:
     if path is None:
         return None
     try:
-        return load_public_benchmark_case_count(
+        return load_public_benchmark_dataset_profile(
             dataset_path=path,
             benchmark=benchmark,
         )
     except (BenchmarkValidationError, json.JSONDecodeError, OSError, UnicodeDecodeError):
         return None
+
+
+def _profile_int(profile: Mapping[str, object] | None, key: str) -> int | None:
+    if profile is None:
+        return None
+    value = profile.get(key)
+    return value if isinstance(value, int) else None
+
+
+def _profile_str(profile: Mapping[str, object] | None, key: str) -> str | None:
+    if profile is None:
+        return None
+    value = profile.get(key)
+    return value if isinstance(value, str) and value else None
 
 
 def _public_benchmark_required_case_count(

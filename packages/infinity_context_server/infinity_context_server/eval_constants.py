@@ -53,7 +53,7 @@ _MEMORY_QUALITY_SCORECARD_MIN_CASE_COUNTS = {
     QUALITY_GOLDEN_SUITE: 16,
     SEMANTIC_LINKING_GOLDEN_SUITE: 19,
     MULTIMODAL_OFFLINE_GOLDEN_SUITE: 11,
-    LONG_MEMORY_GOLDEN_SUITE: 16,
+    LONG_MEMORY_GOLDEN_SUITE: 19,
     AUTO_MEMORY_GOLDEN_SUITE: 13,
     GRAPH_NATIVE_GOLDEN_SUITE: 8,
     PROMPT_CONTRACT_SUITE: 10,
@@ -110,6 +110,24 @@ SEMANTIC_LINKING_REQUIRED_CASE_IDS = (
     "screenshot_note_links_uploaded_document_chunk",
     "unrelated_capture_has_no_candidates",
     "cross_scope_exact_match_fact_not_suggested",
+)
+LONG_MEMORY_REQUIRED_CASE_IDS = (
+    "long_cross_session_kickoff_recall",
+    "long_current_thread_isolation",
+    "long_other_thread_isolation",
+    "long_kickoff_thread_isolation",
+    "long_temporal_update_current_only",
+    "long_deleted_fact_hidden",
+    "long_preference_and_constraint_recall",
+    "long_document_architecture_precision",
+    "long_prompt_injection_evidence_guard",
+    "long_cross_memory_scope_hidden",
+    "long_multi_memory_scope_explicit_recall",
+    "long_restricted_secret_hidden",
+    "long_tiny_budget_preference_recall",
+    "long_unknown_query_abstains_without_context",
+    "long_old_provider_query_resolves_current_fact",
+    "long_cross_session_preference_synthesis_with_kickoff",
 )
 _MEMORY_QUALITY_SCORECARD_MIN_EXTRACTION_CASES = 78
 _MEMORY_QUALITY_SCORECARD_MIN_SEMANTIC_EXTRACTION_CASES = 18

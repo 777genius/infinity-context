@@ -65,6 +65,7 @@ from infinity_context_server.eval_constants import (
     GRAPH_NATIVE_GOLDEN_SUITE,
     LOCOMO_BENCHMARK_SUITE,
     LONG_MEMORY_GOLDEN_SUITE,
+    LONG_MEMORY_REQUIRED_CASE_IDS,
     LONGMEMEVAL_BENCHMARK_SUITE,
     MEMORY_QUALITY_SCORECARD_SUITE,
     MULTIMODAL_OFFLINE_GOLDEN_SUITE,
@@ -463,7 +464,7 @@ def _execute_quality_golden(client, headers: dict[str, str]) -> dict[str, object
     gates = _quality_golden_gates(metrics)
     checks = {
         "fixture_seeded": seeded.ok,
-        "case_count": len(case_results) >= 14,
+        "case_count": len(case_results) >= len(LONG_MEMORY_REQUIRED_CASE_IDS),
         "memory_evidence_guard": all(result.evidence_guard for result in case_results),
         "no_request_failures": all(result.status_code == 200 for result in case_results),
         "quality_report_redacted": True,

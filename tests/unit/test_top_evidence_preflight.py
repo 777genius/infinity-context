@@ -68,6 +68,8 @@ def test_top_evidence_preflight_accepts_clean_publishable_config(tmp_path: Path)
     assert payload["checks"]["multimodal_live_audio_format_matrix"] is True
     assert payload["checks"]["locomo_dataset_valid"] is True
     assert payload["checks"]["longmemeval_dataset_valid"] is True
+    assert payload["checks"]["locomo_dataset_unique_case_ids"] is True
+    assert payload["checks"]["longmemeval_dataset_unique_case_ids"] is True
     assert payload["sanitized_config"]["agent_bench_scenario_set"] == "all"
     assert payload["sanitized_config"]["multimodal_required_audio_types"] == [
         ".mp3",
@@ -77,9 +79,18 @@ def test_top_evidence_preflight_accepts_clean_publishable_config(tmp_path: Path)
     assert payload["sanitized_config"]["multimodal_skip_invalid_key_probe"] is False
     assert payload["sanitized_config"]["locomo_case_count"] == 600
     assert payload["sanitized_config"]["longmemeval_case_count"] == 500
+    assert payload["sanitized_config"]["locomo_dataset"] == "locomo.json"
+    assert payload["sanitized_config"]["longmemeval_dataset"] == "longmemeval.json"
+    assert len(str(payload["sanitized_config"]["locomo_dataset_sha256"])) == 64
+    assert len(str(payload["sanitized_config"]["longmemeval_dataset_sha256"])) == 64
+    assert payload["sanitized_config"]["locomo_unique_case_id_count"] == 600
+    assert payload["sanitized_config"]["longmemeval_unique_case_id_count"] == 500
+    assert payload["sanitized_config"]["locomo_duplicate_case_id_count"] == 0
+    assert payload["sanitized_config"]["longmemeval_duplicate_case_id_count"] == 0
     assert payload["sanitized_config"]["public_benchmark_competitive_floor_mode"] is True
     assert payload["sanitized_config"]["public_benchmark_min_accuracy"] == 0.947
     assert "sk-test-secret-value" not in json.dumps(payload)
+    assert str(tmp_path) not in json.dumps(payload)
 
 
 def test_top_evidence_preflight_rejects_dirty_worktree_without_override(
@@ -330,6 +341,34 @@ def test_top_evidence_preflight_rejects_dataset_case_count_below_floor(
     assert result.checks["longmemeval_dataset_case_count_representative"] is False
     assert result.sanitized_config["locomo_case_count"] == 599
     assert result.sanitized_config["longmemeval_case_count"] == 499
+
+
+def test_top_evidence_preflight_rejects_duplicate_public_benchmark_case_ids(
+    tmp_path: Path,
+) -> None:
+    env = _top_evidence_env(tmp_path)
+    duplicate_cases = _benchmark_cases("locomo", count=600)
+    for item in duplicate_cases:
+        item["case_id"] = "duplicate-locomo-case"
+    Path(env["MEMORY_PUBLIC_BENCHMARK_LOCOMO_DATASET"]).write_text(
+        json.dumps(duplicate_cases),
+        encoding="utf-8",
+    )
+
+    result = run_top_evidence_preflight(
+        env=env,
+        cwd=tmp_path,
+        docker_path="/usr/bin/docker",
+        git={"commit": "abc123", "dirty": False},
+    )
+
+    assert result.ok is False
+    assert result.checks["locomo_dataset_case_count_representative"] is True
+    assert result.checks["locomo_dataset_unique_case_ids"] is False
+    assert result.sanitized_config["locomo_case_count"] == 600
+    assert result.sanitized_config["locomo_unique_case_id_count"] == 1
+    assert result.sanitized_config["locomo_duplicate_case_id_count"] == 599
+    assert any("unique locomo case IDs" in failure for failure in result.failures)
 
 
 def test_top_evidence_preflight_rejects_dataset_with_wrong_benchmark_cases(

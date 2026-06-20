@@ -5,6 +5,7 @@ from pathlib import Path
 
 from infinity_context_server.public_benchmark import (
     load_public_benchmark_case_count,
+    load_public_benchmark_dataset_profile,
     run_public_memory_benchmark,
 )
 
@@ -49,7 +50,10 @@ def test_public_memory_benchmark_runs_locomo_and_longmemeval_like_cases(
     assert result["ok"] is True
     assert result["suite"] == "public-memory-benchmark"
     assert result["metrics"]["case_count"] == 2
+    assert result["metrics"]["unique_case_id_count"] == 2
+    assert result["metrics"]["duplicate_case_id_count"] == 0
     assert result["metrics"]["accuracy"] == 1.0
+    assert result["checks"]["unique_case_ids"] is True
     assert result["metrics"]["locomo_accuracy"] == 1.0
     assert result["metrics"]["longmemeval_accuracy"] == 1.0
     assert isinstance(result["dataset_hash"], str)
@@ -117,6 +121,57 @@ def test_public_memory_benchmark_counts_normalized_cases_without_running(
         load_public_benchmark_case_count(dataset_path=dataset, benchmark="longmemeval")
         == 1
     )
+    profile = load_public_benchmark_dataset_profile(dataset_path=dataset)
+    assert profile["case_count"] == 2
+    assert profile["unique_case_id_count"] == 2
+    assert profile["duplicate_case_id_count"] == 0
+    assert profile["benchmark_counts"] == {"locomo": 1, "longmemeval": 1}
+    assert profile["dataset_path_label"] == dataset.name
+    assert len(str(profile["dataset_hash"])) == 64
+
+
+def test_public_memory_benchmark_profile_counts_duplicate_case_ids(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "public-benchmark-duplicates.jsonl"
+    rows = [
+        {
+            "benchmark": "locomo",
+            "case_id": "duplicate-case",
+            "question": f"Where is marker {index}?",
+            "memories": [f"marker-{index} lives in project memory."],
+            "expected_terms": [f"marker-{index}"],
+        }
+        for index in range(3)
+    ]
+    dataset.write_text("\n".join(json.dumps(row) for row in rows), encoding="utf-8")
+
+    profile = load_public_benchmark_dataset_profile(
+        dataset_path=dataset,
+        benchmark="locomo",
+    )
+
+    assert profile["case_count"] == 3
+    assert profile["unique_case_id_count"] == 1
+    assert profile["duplicate_case_id_count"] == 2
+
+    result = run_public_memory_benchmark(
+        dataset_path=dataset,
+        min_accuracy=1.0,
+    )
+
+    assert result["ok"] is False
+    assert result["status"] == "failed"
+    assert result["checks"]["unique_case_ids"] is False
+    assert result["metrics"]["duplicate_case_id_count"] == 1
+    assert result["failures"] == [
+        {
+            "case_id": "locomo:duplicate-case",
+            "category": "setup",
+            "reason": "duplicate_case_id",
+        }
+    ]
+    assert str(tmp_path) not in json.dumps(result, sort_keys=True)
 
 
 def test_public_memory_benchmark_reports_missing_expected_terms(tmp_path: Path) -> None:

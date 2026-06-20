@@ -82,7 +82,10 @@ def test_official_public_benchmark_canary_merges_locomo_and_longmemeval_reports(
     assert result["benchmark_scope"] == "official_public_memory_retrieval_canary"
     assert result["metrics"]["benchmark_count"] == 2
     assert result["metrics"]["case_count"] == 2
+    assert result["metrics"]["unique_case_id_count"] == 2
+    assert result["metrics"]["duplicate_case_id_count"] == 0
     assert result["metrics"]["accuracy"] == 1.0
+    assert result["checks"]["unique_case_ids"] is True
     assert result["competitive_floor_mode"] is True
     assert result["publishable_public_benchmark_candidate"] is True
     assert result["requested_max_cases"] == 1
@@ -157,6 +160,9 @@ def test_official_public_benchmark_canary_can_run_single_dataset(tmp_path: Path)
     assert result["ok"] is True
     assert result["metrics"]["benchmark_count"] == 1
     assert result["metrics"]["locomo_case_count"] == 1
+    assert result["metrics"]["unique_case_id_count"] == 1
+    assert result["metrics"]["duplicate_case_id_count"] == 0
+    assert result["checks"]["unique_case_ids"] is True
     assert set(result["dataset_hashes"]) == {"locomo"}
     assert set(result["dataset_sources"]) == {"locomo"}
     assert result["dataset_sources"]["locomo"]["source_kind"] == "local_override"

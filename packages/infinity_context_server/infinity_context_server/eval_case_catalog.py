@@ -981,6 +981,56 @@ def _long_memory_golden_cases(
             max_chunks=0,
         ),
         EvalCase(
+            case_id="long_unknown_query_abstains_without_context",
+            category="no_candidate",
+            space_id=space_id,
+            memory_scope_ids=(alpha_memory_scope_id,),
+            query="unrelated yakutsk cooking recipe quantum aquarium warranty",
+            must_not_include=(
+                "LONGMEM_SESSION_KICKOFF",
+                "LONGMEM_PREF_FORMAT",
+                "LONGMEM_PROVIDER_CURRENT",
+                "LONGMEM_DOC_PROJECT_SCOPE",
+            ),
+            max_facts=1,
+            max_chunks=1,
+            consistency_mode="canonical_only",
+            require_evidence_guard=False,
+            required_diagnostics=(("items_used", "eq", 0),),
+        ),
+        EvalCase(
+            case_id="long_old_provider_query_resolves_current_fact",
+            category="temporal_update",
+            space_id=space_id,
+            memory_scope_ids=(alpha_memory_scope_id,),
+            query="legacy documents pgvector graph search disabled provider",
+            must_include=("LONGMEM_PROVIDER_CURRENT",),
+            must_not_include=("LONGMEM_PROVIDER_OLD",),
+            max_facts=10,
+            max_chunks=0,
+            required_diagnostics=(
+                ("items_used", "gte", 1),
+                ("retrieval_sources_used", "contains", "postgres_facts"),
+            ),
+        ),
+        EvalCase(
+            case_id="long_cross_session_preference_synthesis_with_kickoff",
+            category="preference_synthesis",
+            space_id=space_id,
+            memory_scope_ids=(alpha_memory_scope_id,),
+            query=(
+                "first interview session active context concise Russian summaries "
+                "review gated deletes"
+            ),
+            must_include=(
+                "LONGMEM_SESSION_KICKOFF",
+                "LONGMEM_PREF_FORMAT",
+                "LONGMEM_CONSTRAINT_REVIEW",
+            ),
+            max_facts=6,
+            max_chunks=0,
+        ),
+        EvalCase(
             case_id="long_tiny_budget_preference_recall",
             category="token_budget",
             space_id=space_id,

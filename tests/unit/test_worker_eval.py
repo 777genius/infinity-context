@@ -40,6 +40,7 @@ from infinity_context_server.eval import (
     run_small_golden,
 )
 from infinity_context_server.eval_constants import (
+    LONG_MEMORY_REQUIRED_CASE_IDS,
     QUALITY_GOLDEN_REQUIRED_CASE_IDS,
     SEMANTIC_LINKING_REQUIRED_CASE_IDS,
 )
@@ -1410,7 +1411,15 @@ def test_long_memory_golden_eval_passes() -> None:
     assert result["status"] == "ok"
     assert result["suite"] == "long-memory-golden"
     assert result["checks"]["memory_evidence_guard"] is True
-    assert result["metrics"]["long_memory_case_count"] >= 16
+    assert result["metrics"]["long_memory_case_count"] >= len(LONG_MEMORY_REQUIRED_CASE_IDS)
+    assert result["metrics"]["required_case_count"] == len(LONG_MEMORY_REQUIRED_CASE_IDS)
+    assert result["metrics"]["missing_required_case_count"] == 0
+    assert result["metrics"]["required_case_coverage_rate"] == 1.0
+    assert result["gates"]["missing_required_case_count"] is True
+    assert result["gates"]["required_case_coverage_rate"] is True
+    assert set(LONG_MEMORY_REQUIRED_CASE_IDS) <= {
+        case["case_id"] for case in result["cases"]
+    }
     assert result["metrics"]["recall_at_5"] >= 0.95
     assert result["metrics"]["precision_at_5"] >= 0.90
     assert result["metrics"]["multi_session_recall_at_5"] == 1.0

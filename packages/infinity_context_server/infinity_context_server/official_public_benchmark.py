@@ -286,6 +286,7 @@ def _merge_reports(
     checks = {
         "official_sources_configured": True,
         "case_count": True,
+        "unique_case_ids": True,
         "minimum_accuracy_met": True,
         "no_request_failures": True,
     }
@@ -308,6 +309,10 @@ def _merge_reports(
             checks["no_request_failures"] = (
                 checks["no_request_failures"]
                 and report_checks.get("no_request_failures") is True
+            )
+            checks["unique_case_ids"] = (
+                checks["unique_case_ids"]
+                and report_checks.get("unique_case_ids") is not False
             )
         report_cases = report.get("cases")
         if isinstance(report_cases, list):
@@ -336,6 +341,15 @@ def _merge_reports(
                     metrics[key] = value
     metrics["case_count"] = total_cases
     metrics["accuracy"] = round(passed_cases / total_cases, 4) if total_cases else 0.0
+    metrics["duplicate_case_id_count"] = sum(
+        _report_metric_int(report, "duplicate_case_id_count") for report in reports
+    )
+    metrics["unique_case_id_count"] = sum(
+        _report_metric_int(report, "unique_case_id_count") for report in reports
+    )
+    checks["unique_case_ids"] = checks["unique_case_ids"] and (
+        metrics["duplicate_case_id_count"] == 0
+    )
     checks["case_count"] = total_cases > 0
     return {
         "suite": PUBLIC_MEMORY_BENCHMARK_SUITE,
@@ -397,6 +411,14 @@ def _dataset_source_metadata(
         "size_bytes": selection.path.stat().st_size,
         "case_count": case_count if isinstance(case_count, int) else None,
     }
+
+
+def _report_metric_int(report: Mapping[str, object], key: str) -> int:
+    metrics = report.get("metrics")
+    if not isinstance(metrics, Mapping):
+        return 0
+    value = metrics.get(key)
+    return value if isinstance(value, int) else 0
 
 
 def _write_report(result: dict[str, object], report_out: Path | None) -> None:

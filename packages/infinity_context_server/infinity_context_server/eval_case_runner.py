@@ -13,6 +13,7 @@ from infinity_context_server.eval_constants import (
     _QUALITY_GOLDEN_RECALL_GATE,
     _SMALL_GOLDEN_PRECISION_GATE,
     _SMALL_GOLDEN_RECALL_GATE,
+    LONG_MEMORY_REQUIRED_CASE_IDS,
     QUALITY_GOLDEN_REQUIRED_CASE_IDS,
 )
 from infinity_context_server.eval_types import (
@@ -664,6 +665,10 @@ def _required_case_metrics(
 
 def _long_memory_golden_metrics(case_results: tuple[EvalCaseResult, ...]) -> dict[str, object]:
     base = _quality_golden_metrics(case_results, include_required_case_metrics=False)
+    required_case_metrics = _required_case_metrics(
+        case_ids=tuple(result.case.case_id for result in case_results),
+        required_case_ids=LONG_MEMORY_REQUIRED_CASE_IDS,
+    )
     multi_session_cases = _category_results(case_results, "multi_session")
     temporal_cases = _category_results(case_results, "temporal_update")
     preference_cases = _category_results(case_results, "preference_synthesis")
@@ -681,6 +686,7 @@ def _long_memory_golden_metrics(case_results: tuple[EvalCaseResult, ...]) -> dic
     )
     return {
         **base,
+        **required_case_metrics,
         "long_memory_case_count": len(case_results),
         "multi_session_recall_at_5": _recall_rate(multi_session_cases),
         "temporal_update_accuracy": _full_pass_rate(temporal_cases),
@@ -693,7 +699,11 @@ def _long_memory_golden_metrics(case_results: tuple[EvalCaseResult, ...]) -> dic
 
 def _long_memory_golden_gates(metrics: dict[str, object]) -> dict[str, bool]:
     return {
-        "long_memory_case_count": metrics["long_memory_case_count"] >= 16,
+        "required_case_coverage_rate": metrics["required_case_coverage_rate"] == 1.0,
+        "missing_required_case_count": metrics["missing_required_case_count"] == 0,
+        "long_memory_case_count": metrics["long_memory_case_count"] >= len(
+            LONG_MEMORY_REQUIRED_CASE_IDS
+        ),
         "recall_at_5": float(metrics["recall_at_5"]) >= _LONG_MEMORY_RECALL_GATE,
         "precision_at_5": float(metrics["precision_at_5"]) >= _LONG_MEMORY_PRECISION_GATE,
         "multi_session_recall_at_5": metrics["multi_session_recall_at_5"] == 1.0,
