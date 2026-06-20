@@ -332,6 +332,19 @@ def test_anchor_extraction_keeps_explicit_person_alias_as_identity_term() -> Non
     assert people["alex"].metadata["identity_key"] == "person:aleks"
 
 
+def test_anchor_extraction_keeps_person_initial_without_duplicate_first_name() -> None:
+    anchors = extract_observed_anchors("Alex C. sent Project Atlas notes after the call.")
+
+    person_keys = {
+        (anchor.normalized_key, anchor.metadata.get("person_canonical_key"))
+        for anchor in anchors
+        if anchor.kind == MemoryAnchorKind.PERSON
+    }
+
+    assert ("alex c", "aleks c") in person_keys
+    assert ("alex", "aleks") not in person_keys
+
+
 def test_anchor_extraction_keeps_explicit_project_alias_as_identity_term() -> None:
     anchors = extract_observed_anchors(
         "Project Atlas aka Atlas Mobile owns the screenshots. "

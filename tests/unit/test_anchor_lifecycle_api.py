@@ -780,6 +780,172 @@ def test_anchor_backfill_skips_legacy_alias_conflict_without_mutating_anchor(
     assert capture_id not in {ref["source_id"] for ref in canonical_after["evidence_refs"]}
 
 
+def test_anchor_backfill_merges_unambiguous_person_initial_into_full_name(
+    tmp_path: Path,
+) -> None:
+    with make_client(tmp_path) as client:
+        seed_scope = client.post(
+            "/v1/captures",
+            json={
+                "space_slug": "anchor-initial-resolution",
+                "memory_scope_external_ref": "default",
+                "thread_external_ref": "atlas-thread",
+                "source_agent": "memo-frontend",
+                "source_kind": "manual",
+                "event_type": "QuickCapture",
+                "actor_role": "user",
+                "source_event_id": "capture-initial-resolution-seed",
+                "text": "scope seed",
+                "source_authority": "user_statement",
+            },
+            headers=auth_headers(),
+        )
+        assert seed_scope.status_code == 201, seed_scope.text
+
+        manual_person = client.post(
+            "/v1/anchors",
+            json={
+                "space_slug": "anchor-initial-resolution",
+                "memory_scope_external_ref": "default",
+                "kind": "person",
+                "label": "Alex Cooper",
+                "aliases": ["@alex.cooper"],
+                "confidence": "high",
+            },
+            headers=auth_headers(),
+        )
+        assert manual_person.status_code == 200, manual_person.text
+        manual_id = manual_person.json()["data"]["id"]
+
+        capture = client.post(
+            "/v1/captures",
+            json={
+                "space_slug": "anchor-initial-resolution",
+                "memory_scope_external_ref": "default",
+                "thread_external_ref": "atlas-thread",
+                "source_agent": "memo-frontend",
+                "source_kind": "manual",
+                "event_type": "QuickCapture",
+                "actor_role": "user",
+                "source_event_id": "capture-alex-c-initial",
+                "text": "Alex C. sent Project Atlas notes after the call.",
+                "source_authority": "user_statement",
+            },
+            headers=auth_headers(),
+        )
+        assert capture.status_code == 201, capture.text
+
+        backfill = client.post(
+            "/v1/anchors/backfill",
+            json={
+                "space_slug": "anchor-initial-resolution",
+                "memory_scope_external_ref": "default",
+                "limit_per_source": 20,
+            },
+            headers=auth_headers(),
+        )
+        assert backfill.status_code == 200, backfill.text
+
+        listed = client.get(
+            "/v1/anchors",
+            params={
+                "space_slug": "anchor-initial-resolution",
+                "memory_scope_external_ref": "default",
+                "kind": "person",
+            },
+            headers=auth_headers(),
+        )
+        assert listed.status_code == 200, listed.text
+
+    people = listed.json()["data"]
+    assert [item["normalized_key"] for item in people] == ["alex cooper"]
+    assert people[0]["id"] == manual_id
+    assert people[0]["label"] == "Alex Cooper"
+    assert "Alex C" in people[0]["aliases"]
+
+
+def test_anchor_backfill_does_not_merge_ambiguous_person_initial(
+    tmp_path: Path,
+) -> None:
+    with make_client(tmp_path) as client:
+        seed_scope = client.post(
+            "/v1/captures",
+            json={
+                "space_slug": "anchor-initial-ambiguous",
+                "memory_scope_external_ref": "default",
+                "thread_external_ref": "atlas-thread",
+                "source_agent": "memo-frontend",
+                "source_kind": "manual",
+                "event_type": "QuickCapture",
+                "actor_role": "user",
+                "source_event_id": "capture-initial-ambiguous-seed",
+                "text": "scope seed",
+                "source_authority": "user_statement",
+            },
+            headers=auth_headers(),
+        )
+        assert seed_scope.status_code == 201, seed_scope.text
+
+        for label in ("Alex Cooper", "Alex Carter"):
+            response = client.post(
+                "/v1/anchors",
+                json={
+                    "space_slug": "anchor-initial-ambiguous",
+                    "memory_scope_external_ref": "default",
+                    "kind": "person",
+                    "label": label,
+                    "confidence": "high",
+                },
+                headers=auth_headers(),
+            )
+            assert response.status_code == 200, response.text
+
+        capture = client.post(
+            "/v1/captures",
+            json={
+                "space_slug": "anchor-initial-ambiguous",
+                "memory_scope_external_ref": "default",
+                "thread_external_ref": "atlas-thread",
+                "source_agent": "memo-frontend",
+                "source_kind": "manual",
+                "event_type": "QuickCapture",
+                "actor_role": "user",
+                "source_event_id": "capture-ambiguous-alex-c-initial",
+                "text": "Alex C. sent Project Atlas notes after the call.",
+                "source_authority": "user_statement",
+            },
+            headers=auth_headers(),
+        )
+        assert capture.status_code == 201, capture.text
+
+        backfill = client.post(
+            "/v1/anchors/backfill",
+            json={
+                "space_slug": "anchor-initial-ambiguous",
+                "memory_scope_external_ref": "default",
+                "limit_per_source": 20,
+            },
+            headers=auth_headers(),
+        )
+        assert backfill.status_code == 200, backfill.text
+
+        listed = client.get(
+            "/v1/anchors",
+            params={
+                "space_slug": "anchor-initial-ambiguous",
+                "memory_scope_external_ref": "default",
+                "kind": "person",
+            },
+            headers=auth_headers(),
+        )
+        assert listed.status_code == 200, listed.text
+
+    people_by_key = {item["normalized_key"]: item for item in listed.json()["data"]}
+    assert {"alex cooper", "alex carter", "alex c"}.issubset(people_by_key)
+    assert "Alex C" not in people_by_key["alex cooper"]["aliases"]
+    assert "Alex C" not in people_by_key["alex carter"]["aliases"]
+
+
 def test_project_merge_suggestions_skip_prefix_variant_projects(tmp_path: Path) -> None:
     with make_client(tmp_path) as client:
         seed_scope = client.post(

@@ -56,11 +56,23 @@ async def find_active_by_observed_canonical_key(
             observed_key=observed_key,
         ):
             return anchor
+    if observed.kind == MemoryAnchorKind.PERSON:
+        return _single_person_initial_match(
+            anchors=anchors,
+            observed=observed,
+            observed_key=observed_key,
+        )
     return None
 
 
 def preferred_observed_label(anchor: MemoryAnchor, observed: ObservedAnchor) -> str | None:
     observed_key = observed_canonical_key(observed)
+    if observed.kind == MemoryAnchorKind.PERSON and _person_initial_matches_anchor(
+        anchor=anchor,
+        observed=observed,
+        observed_key=observed_key,
+    ):
+        return None
     if (
         observed_key
         and observed_key in canonical_anchor_keys(anchor)
@@ -87,6 +99,61 @@ def should_promote_observed_key(anchor: MemoryAnchor, observed: ObservedAnchor) 
         and anchor.normalized_key != observed.normalized_key
         and len(normalize_anchor_key(observed.label)) < len(normalize_anchor_key(anchor.label))
     )
+
+
+def _single_person_initial_match(
+    *,
+    anchors: list[MemoryAnchor],
+    observed: ObservedAnchor,
+    observed_key: str,
+) -> MemoryAnchor | None:
+    matches = [
+        anchor
+        for anchor in anchors
+        if _person_initial_matches_anchor(
+            anchor=anchor,
+            observed=observed,
+            observed_key=observed_key,
+        )
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
+def _person_initial_matches_anchor(
+    *,
+    anchor: MemoryAnchor,
+    observed: ObservedAnchor,
+    observed_key: str | None,
+) -> bool:
+    if (
+        anchor.kind != MemoryAnchorKind.PERSON
+        or observed.kind != MemoryAnchorKind.PERSON
+        or not observed_key
+        or not _same_script_family(anchor.label, observed.label)
+    ):
+        return False
+    observed_initial = _person_initial_key(observed_key)
+    if observed_initial is None:
+        return False
+    return any(
+        _initial_key_matches_full_key(observed_initial, candidate_key)
+        for candidate_key in canonical_anchor_keys(anchor)
+    )
+
+
+def _person_initial_key(value: str) -> tuple[str, str] | None:
+    parts = value.split()
+    if len(parts) != 2 or len(parts[0]) < 2 or len(parts[1]) != 1:
+        return None
+    return parts[0], parts[1]
+
+
+def _initial_key_matches_full_key(initial_key: tuple[str, str], full_key: str) -> bool:
+    parts = full_key.split()
+    if len(parts) < 2:
+        return False
+    first, initial = initial_key
+    return parts[0] == first and len(parts[1]) > 1 and parts[1].startswith(initial)
 
 
 def observed_canonical_key(observed: ObservedAnchor) -> str | None:

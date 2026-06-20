@@ -15,6 +15,8 @@ from infinity_context_core.domain.entities import MemoryAnchorKind
 _TERM_PATTERN = re.compile(r"[\w.@:/#-]+", re.UNICODE)
 _PERSON_PATTERN = re.compile(r"\b([A-Z][a-z][A-Za-z]{1,40})(?:\s+([A-Z][a-z][A-Za-z]{1,40}))?\b")
 _CYRILLIC_PERSON_PATTERN = re.compile(r"\b([А-ЯЁ][а-яё]{2,40})(?:\s+([А-ЯЁ][а-яё]{2,40}))?\b")
+_PERSON_INITIAL_PATTERN = re.compile(r"\b([A-Z][a-z][A-Za-z]{1,40})\s+([A-Z])\.(?![A-Za-z])")
+_CYRILLIC_PERSON_INITIAL_PATTERN = re.compile(r"\b([А-ЯЁ][а-яё]{2,40})\s+([А-ЯЁ])\.(?![А-Яа-яЁё])")
 _HANDLE_PERSON_TOKEN = r"@[A-Za-z][A-Za-z0-9._-]{2,39}"
 _HANDLE_PATTERN = re.compile(rf"(?<![\w.])(?P<label>{_HANDLE_PERSON_TOKEN})\b")
 _EMAIL_PATTERN = re.compile(
@@ -888,6 +890,19 @@ def _event_labels(text: str) -> tuple[str, ...]:
 def _person_labels(text: str) -> tuple[str, ...]:
     labels: list[str] = []
     labels.extend(_person_handle_labels(text))
+    for pattern in (_PERSON_INITIAL_PATTERN, _CYRILLIC_PERSON_INITIAL_PATTERN):
+        for match in pattern.finditer(text):
+            parts = tuple(part for part in match.groups() if part)
+            normalized_parts = tuple(normalize_anchor_key(part) for part in parts)
+            if normalized_parts and _is_project_qualifier(normalized_parts[0]):
+                continue
+            if _is_project_qualified_person_match(text, match.start()):
+                continue
+            if _is_project_preposition_person_false_positive(text, match.start()):
+                continue
+            label = " ".join(parts).strip()
+            if _is_probable_person_label(label):
+                labels.append(label)
     for pattern in (_PERSON_PATTERN, _CYRILLIC_PERSON_PATTERN):
         for match in pattern.finditer(text):
             parts = tuple(part for part in match.groups() if part)
@@ -899,6 +914,8 @@ def _person_labels(text: str) -> tuple[str, ...]:
             if _is_project_preposition_person_false_positive(text, match.start()):
                 continue
             if _is_followed_by_organization_suffix(text, match.end()):
+                continue
+            if len(parts) == 1 and _is_followed_by_person_initial(text, match.end()):
                 continue
             if any(part in _ORGANIZATION_SUFFIX_WORDS for part in normalized_parts[1:]):
                 continue
@@ -1026,6 +1043,10 @@ def _is_followed_by_organization_suffix(text: str, end: int) -> bool:
             tail,
         )
     )
+
+
+def _is_followed_by_person_initial(text: str, end: int) -> bool:
+    return bool(re.match(r"\s+[A-ZА-ЯЁ]\.(?![\wА-Яа-яЁё])", text[end : end + 8]))
 
 
 def _is_probable_person_label(label: str) -> bool:
