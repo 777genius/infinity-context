@@ -1,5 +1,6 @@
+import stat
 from io import BytesIO
-from zipfile import ZIP_DEFLATED, ZipFile
+from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 from infinity_context_core.application.extraction_resource_policy import (
     EXTRACTION_ARCHIVE_RESOURCE_POLICY_VERSION,
@@ -205,6 +206,95 @@ def test_extraction_archive_resource_policy_blocks_path_traversal() -> None:
     assert "secrets.txt" not in str(decision.metadata)
 
 
+def test_extraction_archive_resource_policy_blocks_symlink_members() -> None:
+    content = _zip_with_unix_mode("safe-name.txt", b"/etc/passwd", stat.S_IFLNK | 0o777)
+
+    decision = assess_extraction_archive_resource_limits(
+        filename="symlink.zip",
+        declared_content_type="application/zip",
+        detected_content_type="application/zip",
+        magic_content_type="application/zip",
+        content=content,
+        limits=ExtractionLimits(max_bytes=1_000_000),
+    )
+
+    assert decision.allowed is False
+    assert decision.code == "asset_extraction.archive_symlink_entry"
+    assert decision.message == "Archive contains symbolic link members"
+    assert decision.metadata["extraction_archive_symlink_entry_count"] == 1
+    assert decision.metadata["extraction_resource_limit_exceeded"] == "archive_symlink_entry"
+    assert "safe-name.txt" not in str(decision.metadata)
+
+
+def test_extraction_archive_resource_policy_blocks_special_file_members() -> None:
+    content = _zip_with_unix_mode("safe-name.txt", b"", stat.S_IFIFO | 0o644)
+
+    decision = assess_extraction_archive_resource_limits(
+        filename="special.zip",
+        declared_content_type="application/zip",
+        detected_content_type="application/zip",
+        magic_content_type="application/zip",
+        content=content,
+        limits=ExtractionLimits(max_bytes=1_000_000),
+    )
+
+    assert decision.allowed is False
+    assert decision.code == "asset_extraction.archive_special_file_entry"
+    assert decision.message == "Archive contains special file members"
+    assert decision.metadata["extraction_archive_special_entry_count"] == 1
+    assert decision.metadata["extraction_resource_limit_exceeded"] == (
+        "archive_special_file_entry"
+    )
+    assert "safe-name.txt" not in str(decision.metadata)
+
+
+def test_extraction_archive_resource_policy_blocks_duplicate_member_paths() -> None:
+    content = _zip_bytes(
+        {
+            "notes/summary.txt": b"first",
+            "notes\\SUMMARY.txt": b"second",
+        }
+    )
+
+    decision = assess_extraction_archive_resource_limits(
+        filename="duplicates.zip",
+        declared_content_type="application/zip",
+        detected_content_type="application/zip",
+        magic_content_type="application/zip",
+        content=content,
+        limits=ExtractionLimits(max_bytes=1_000_000),
+    )
+
+    assert decision.allowed is False
+    assert decision.code == "asset_extraction.archive_duplicate_path"
+    assert decision.message == "Archive contains duplicate member paths"
+    assert decision.metadata["extraction_archive_duplicate_path_count"] == 1
+    assert decision.metadata["extraction_resource_limit_exceeded"] == "archive_duplicate_path"
+    assert "summary.txt" not in str(decision.metadata)
+
+
+def test_extraction_archive_resource_policy_blocks_nested_archive_members() -> None:
+    content = _zip_bytes({"nested/inner.zip": _zip_bytes({"notes.txt": b"hello"})})
+
+    decision = assess_extraction_archive_resource_limits(
+        filename="nested.zip",
+        declared_content_type="application/zip",
+        detected_content_type="application/zip",
+        magic_content_type="application/zip",
+        content=content,
+        limits=ExtractionLimits(max_bytes=1_000_000),
+    )
+
+    assert decision.allowed is False
+    assert decision.code == "asset_extraction.archive_nested_archive"
+    assert decision.message == "Archive contains nested archive members"
+    assert decision.metadata["extraction_archive_nested_archive_count"] == 1
+    assert decision.metadata["extraction_resource_limit_exceeded"] == (
+        "archive_nested_archive"
+    )
+    assert "inner.zip" not in str(decision.metadata)
+
+
 def test_extraction_archive_resource_policy_blocks_malformed_zip() -> None:
     decision = assess_extraction_archive_resource_limits(
         filename="broken.docx",
@@ -286,4 +376,13 @@ def _zip_bytes(files: dict[str, bytes]) -> bytes:
     with ZipFile(buffer, "w", compression=ZIP_DEFLATED) as archive:
         for name, content in files.items():
             archive.writestr(name, content)
+    return buffer.getvalue()
+
+
+def _zip_with_unix_mode(filename: str, content: bytes, mode: int) -> bytes:
+    buffer = BytesIO()
+    info = ZipInfo(filename)
+    info.external_attr = mode << 16
+    with ZipFile(buffer, "w", compression=ZIP_DEFLATED) as archive:
+        archive.writestr(info, content)
     return buffer.getvalue()

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import stat
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import PurePosixPath, PureWindowsPath
@@ -12,7 +13,7 @@ from infinity_context_core.ports.extraction import ExtractionLimits
 
 EXTRACTION_RESOURCE_POLICY_VERSION = "asset-extraction-resource-policy-v1"
 EXTRACTION_RESULT_RESOURCE_POLICY_VERSION = "asset-extraction-result-resource-policy-v1"
-EXTRACTION_ARCHIVE_RESOURCE_POLICY_VERSION = "asset-extraction-archive-resource-policy-v1"
+EXTRACTION_ARCHIVE_RESOURCE_POLICY_VERSION = "asset-extraction-archive-resource-policy-v2"
 
 EXTRACTION_RESOURCE_LIMIT_CAPS = {
     "max_bytes": 500 * 1024 * 1024,
@@ -271,6 +272,12 @@ def assess_extraction_archive_resource_limits(
         else 0.0
     )
     unsafe_path_count = sum(1 for info in infos if _unsafe_archive_member_name(info.filename))
+    symlink_count = sum(1 for info in file_infos if _archive_member_is_symlink(info))
+    special_file_count = sum(1 for info in file_infos if _archive_member_is_special_file(info))
+    duplicate_path_count = _archive_duplicate_path_count(info.filename for info in file_infos)
+    nested_archive_count = sum(
+        1 for info in file_infos if _archive_member_is_nested_archive(info.filename)
+    )
     encrypted_count = sum(1 for info in file_infos if bool(info.flag_bits & 0x1))
     metadata.update(
         {
@@ -280,6 +287,10 @@ def assess_extraction_archive_resource_limits(
             "extraction_archive_compressed_bytes": total_compressed,
             "extraction_archive_compression_ratio": compression_ratio,
             "extraction_archive_unsafe_path_count": unsafe_path_count,
+            "extraction_archive_symlink_entry_count": symlink_count,
+            "extraction_archive_special_entry_count": special_file_count,
+            "extraction_archive_duplicate_path_count": duplicate_path_count,
+            "extraction_archive_nested_archive_count": nested_archive_count,
             "extraction_archive_encrypted_entry_count": encrypted_count,
         }
     )
@@ -293,6 +304,50 @@ def assess_extraction_archive_resource_limits(
             metadata={
                 **metadata,
                 "extraction_resource_limit_exceeded": "archive_unsafe_path",
+            },
+        )
+    if symlink_count:
+        return ExtractionResourceDecision(
+            limits=normalized,
+            allowed=False,
+            code="asset_extraction.archive_symlink_entry",
+            message="Archive contains symbolic link members",
+            metadata={
+                **metadata,
+                "extraction_resource_limit_exceeded": "archive_symlink_entry",
+            },
+        )
+    if special_file_count:
+        return ExtractionResourceDecision(
+            limits=normalized,
+            allowed=False,
+            code="asset_extraction.archive_special_file_entry",
+            message="Archive contains special file members",
+            metadata={
+                **metadata,
+                "extraction_resource_limit_exceeded": "archive_special_file_entry",
+            },
+        )
+    if duplicate_path_count:
+        return ExtractionResourceDecision(
+            limits=normalized,
+            allowed=False,
+            code="asset_extraction.archive_duplicate_path",
+            message="Archive contains duplicate member paths",
+            metadata={
+                **metadata,
+                "extraction_resource_limit_exceeded": "archive_duplicate_path",
+            },
+        )
+    if nested_archive_count:
+        return ExtractionResourceDecision(
+            limits=normalized,
+            allowed=False,
+            code="asset_extraction.archive_nested_archive",
+            message="Archive contains nested archive members",
+            metadata={
+                **metadata,
+                "extraction_resource_limit_exceeded": "archive_nested_archive",
             },
         )
     if encrypted_count:
@@ -610,6 +665,61 @@ def _unsafe_archive_member_name(name: str) -> bool:
     if posix_path.is_absolute() or windows_path.is_absolute() or windows_path.drive:
         return True
     return any(part == ".." for part in posix_path.parts)
+
+
+def _archive_member_is_symlink(info: object) -> bool:
+    mode = _archive_member_unix_mode(info)
+    return mode is not None and stat.S_ISLNK(mode)
+
+
+def _archive_member_is_special_file(info: object) -> bool:
+    mode = _archive_member_unix_mode(info)
+    if mode is None:
+        return False
+    return any(
+        predicate(mode)
+        for predicate in (
+            stat.S_ISBLK,
+            stat.S_ISCHR,
+            stat.S_ISFIFO,
+            stat.S_ISSOCK,
+        )
+    )
+
+
+def _archive_member_unix_mode(info: object) -> int | None:
+    external_attr = getattr(info, "external_attr", None)
+    if not isinstance(external_attr, int):
+        return None
+    mode = (external_attr >> 16) & 0xFFFF
+    return mode or None
+
+
+def _archive_duplicate_path_count(names: Iterable[str]) -> int:
+    seen: set[str] = set()
+    duplicate_count = 0
+    for raw_name in names:
+        name = _normalized_archive_member_name(raw_name)
+        if not name:
+            continue
+        if name in seen:
+            duplicate_count += 1
+            continue
+        seen.add(name)
+    return duplicate_count
+
+
+def _archive_member_is_nested_archive(name: str) -> bool:
+    normalized = _normalized_archive_member_name(name)
+    return normalized.endswith(
+        (".zip", ".tar", ".tgz", ".gz", ".bz2", ".xz", ".rar", ".7z")
+    )
+
+
+def _normalized_archive_member_name(name: str) -> str:
+    normalized = name.replace("\\", "/").strip().casefold()
+    parts = [part for part in PurePosixPath(normalized).parts if part not in {"", "."}]
+    return "/".join(parts)
 
 
 def _safe_content_type(value: object) -> str | None:

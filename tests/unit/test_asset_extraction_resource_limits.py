@@ -302,6 +302,55 @@ def test_run_asset_extraction_blocks_archive_entry_limit_before_extractor() -> N
     assert extractor.called is False
 
 
+def test_run_asset_extraction_blocks_archive_duplicate_paths_before_extractor() -> None:
+    content = _zip_bytes(
+        {
+            "notes/summary.txt": b"first",
+            "notes\\SUMMARY.txt": b"second",
+        }
+    )
+    asset = _asset(
+        byte_size=len(content),
+        content=content,
+        filename="unsafe.zip",
+        content_type="application/zip",
+    )
+    job = _job(asset=asset)
+    uow_factory = _UowFactory(asset=asset, job=job)
+    blob_storage = _BlobStorage(content=content)
+    detector = _SuccessfulDetector("application/zip")
+    extractor = _Extractor()
+    use_case = RunAssetExtractionUseCase(
+        uow_factory=uow_factory,
+        blob_storage=blob_storage,
+        detector=detector,
+        extractor=extractor,
+        ingest_document=object(),
+        clock=_Clock(),
+        ids=_Ids(),
+        limits=ExtractionLimits(max_bytes=1_000_000),
+    )
+
+    result = asyncio.run(use_case.execute(RunAssetExtractionCommand(job_id=str(job.id))))
+
+    assert result.job.status == AssetExtractionStatus.UNSUPPORTED
+    assert result.indexing_status == "unsupported"
+    assert result.job.safe_error_code == "asset_extraction.archive_duplicate_path"
+    assert result.job.safe_error_message == "Archive contains duplicate member paths"
+    assert result.job.parser_name == "resource_policy"
+    assert result.job.metadata["extraction_upload_policy_status"] == "allowed"
+    assert result.job.metadata["upload_archive_review_required"] is True
+    assert result.job.metadata["extraction_archive_resource_checked"] is True
+    assert result.job.metadata["extraction_archive_duplicate_path_count"] == 1
+    assert result.job.metadata["extraction_resource_limit_exceeded"] == (
+        "archive_duplicate_path"
+    )
+    assert "summary.txt" not in str(result.job.metadata)
+    assert blob_storage.reads == ["assets/asset_1.bin"]
+    assert detector.called is True
+    assert extractor.called is False
+
+
 def test_run_asset_extraction_blocks_success_result_over_media_limit_before_ingest() -> None:
     content = b"RIFF$\x00\x00\x00WAVEfmt " + (b"\x00" * 32)
     asset = _asset(byte_size=len(content), content=content)

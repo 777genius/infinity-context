@@ -619,6 +619,27 @@ def test_capabilities_return_noop_adapters() -> None:
         "extraction_archive_resource_checked"
         in body["extraction"]["resource_policy"]["diagnostic_fields"]
     )
+    assert body["extraction"]["resource_policy"]["archive_rejection_policy"] == {
+        "reject_unsafe_paths": True,
+        "reject_symlink_entries": True,
+        "reject_special_file_entries": True,
+        "reject_duplicate_paths": True,
+        "reject_nested_archives": True,
+        "reject_encrypted_entries": True,
+        "reject_entry_count_limit": True,
+        "reject_uncompressed_size_limit": True,
+        "reject_compression_ratio_limit": True,
+    }
+    assert "asset_extraction.archive_nested_archive" in (
+        body["extraction"]["resource_policy"]["archive_rejection_error_codes"]
+    )
+    for field in (
+        "extraction_archive_symlink_entry_count",
+        "extraction_archive_special_entry_count",
+        "extraction_archive_duplicate_path_count",
+        "extraction_archive_nested_archive_count",
+    ):
+        assert field in body["extraction"]["resource_policy"]["diagnostic_fields"]
     assert (
         body["extraction"]["resource_policy"]["upload_policy_rejection_error_code"]
         == "asset_extraction.upload_policy_rejected"
