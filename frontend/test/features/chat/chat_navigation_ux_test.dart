@@ -288,6 +288,58 @@ void main() {
     expect(find.textContaining('matched: alex, q3'), findsOneWidget);
   });
 
+  testWidgets('operations console reviews duplicate memory suggestions', (
+    tester,
+  ) async {
+    final repo = _UxFakeChatRepository();
+    repo.memorySuggestions = [_memorySuggestion('sug-duplicate')];
+    final store = ChatStore(repo, null);
+    addTearDown(store.dispose);
+    addTearDown(repo.close);
+
+    await store.refreshOperationsConsole();
+    await store.refreshMemorySuggestions();
+    await _pumpWithStore(
+      tester,
+      store: store,
+      child: const Scaffold(
+        body: SizedBox(width: 340, height: 620, child: ChatListSidebar()),
+      ),
+    );
+
+    expect(find.textContaining('Reviews 1'), findsOneWidget);
+    expect(find.textContaining('Duplicate memory'), findsOneWidget);
+
+    await tester
+        .tap(find.byKey(const ValueKey('memory_operations_open_button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Memory reviews'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(
+        const ValueKey('memory_operations_memory_review_sug_duplicate'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Docs retrieval should use Qdrant vectors.'),
+      findsOneWidget,
+    );
+    expect(find.text('Merge sources'), findsOneWidget);
+    expect(find.text('Keep separate'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(
+        const ValueKey('memory_review_merge_source_refs_sug_duplicate'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(repo.reviewedMemorySuggestions, ['sug-duplicate:merge_source_refs']);
+    expect(store.memorySuggestions, isEmpty);
+  });
+
   testWidgets('operations console shows reviewed suggestion feedback', (
     tester,
   ) async {
@@ -1178,11 +1230,13 @@ class _UxFakeChatRepository implements ChatRepository {
   List<MemoryContextLink> contextLinks = const <MemoryContextLink>[];
   List<MemoryContextLinkSuggestion> contextLinkSuggestions =
       const <MemoryContextLinkSuggestion>[];
+  List<MemorySuggestion> memorySuggestions = const <MemorySuggestion>[];
   Object? operationsConsoleError;
   int listExtractionCalls = 0;
   final downloadedArtifactIds = <String>[];
   final createdContextLinks = <Map<String, String>>[];
   final reviewedSuggestions = <String>[];
+  final reviewedMemorySuggestions = <String>[];
   final batchReviewedSuggestionIds = <List<String>>[];
   final reviewedSuggestionReasons = <String, String?>{};
   final reviewedSuggestionOverrides = <String, Map<String, String>>{};
@@ -1626,7 +1680,10 @@ class _UxFakeChatRepository implements ChatRepository {
     String status = 'pending',
     int limit = 50,
   }) async {
-    return const <MemorySuggestion>[];
+    return memorySuggestions
+        .where((item) => status == 'all' || item.status == status)
+        .take(limit)
+        .toList(growable: false);
   }
 
   @override
@@ -1636,7 +1693,46 @@ class _UxFakeChatRepository implements ChatRepository {
     String? reason,
     bool force = false,
   }) async {
-    throw UnimplementedError();
+    reviewedMemorySuggestions.add('$suggestionId:$action');
+    final suggestion = memorySuggestions.firstWhere(
+      (item) => item.id == suggestionId,
+    );
+    memorySuggestions = memorySuggestions
+        .where((item) => item.id != suggestionId)
+        .toList(growable: false);
+    return MemorySuggestion.fromMap({
+      'id': suggestion.id,
+      'space_id': suggestion.spaceId,
+      'memory_scope_id': suggestion.memoryScopeId,
+      'candidate_text': suggestion.candidateText,
+      'kind': suggestion.kind,
+      'operation': suggestion.operation,
+      'status': action == 'expire_candidate' ? 'expired' : 'approved',
+      'confidence': suggestion.confidence,
+      'trust_level': suggestion.trustLevel,
+      'safe_reason': suggestion.safeReason,
+      'target_fact_id': suggestion.targetFactId,
+      'target_fact_version': suggestion.targetFactVersion,
+      'review_kind': suggestion.reviewKind,
+      'review_actionable': false,
+      'available_review_actions': suggestion.availableReviewActions,
+      'review_resolution_options': suggestion.reviewResolutionOptions
+          .map(
+            (option) => {
+              'id': option.id,
+              'review_action': option.reviewAction,
+              'effect': option.effect,
+              'availability': option.availability,
+              'resolution_action': option.resolutionAction,
+            },
+          )
+          .toList(growable: false),
+      'review_payload': suggestion.reviewPayload,
+      'created_at': suggestion.createdAt.toIso8601String(),
+      'updated_at': DateTime.now().toIso8601String(),
+      'reviewed_at': DateTime.now().toIso8601String(),
+      'review_reason': reason,
+    });
   }
 }
 
@@ -1775,6 +1871,55 @@ MemoryContextLinkSuggestion _suggestion(
     reviewedAt: reviewedAt,
     reviewReason: reviewReason,
   );
+}
+
+MemorySuggestion _memorySuggestion(String id) {
+  final now = DateTime.now();
+  return MemorySuggestion.fromMap({
+    'id': id,
+    'space_id': 'space-1',
+    'memory_scope_id': 'scope-default',
+    'candidate_text': 'Docs retrieval should use Qdrant vectors.',
+    'kind': 'note',
+    'operation': 'review',
+    'status': 'pending',
+    'confidence': 'medium',
+    'trust_level': 'medium',
+    'safe_reason': 'candidate matches an active fact',
+    'target_fact_id': 'fact-1',
+    'target_fact_version': 1,
+    'review_kind': 'duplicate_fact_merge',
+    'review_actionable': true,
+    'available_review_actions': [
+      'approve',
+      'reject',
+      'expire',
+      'resolve_duplicate',
+    ],
+    'review_resolution_options': [
+      {
+        'id': 'merge_source_refs',
+        'review_action': 'resolve_duplicate',
+        'effect': 'merge_source_refs_into_existing_fact',
+        'availability': 'available',
+        'resolution_action': 'merge_source_refs',
+      },
+      {
+        'id': 'keep_separate_fact',
+        'review_action': 'resolve_duplicate',
+        'effect': 'create_new_fact_keep_existing_fact',
+        'availability': 'available',
+        'resolution_action': 'keep_separate_fact',
+      },
+    ],
+    'review_payload': {
+      'review_kind': 'duplicate_fact_merge',
+      'recommended_action': 'merge_source_refs_into_existing_fact',
+      'default_resolution': 'merge_or_keep_separate_after_review',
+    },
+    'created_at': now.toIso8601String(),
+    'updated_at': now.toIso8601String(),
+  });
 }
 
 AssetExtractionJob _job({

@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:frontend/src/features/chat/application/stores/chat_store.dart';
 import 'package:frontend/src/features/chat/domain/entities/asset_extraction.dart';
 import 'package:frontend/src/features/chat/domain/entities/memory_context_link.dart';
+import 'package:frontend/src/features/chat/domain/entities/memory_suggestion.dart';
 import 'package:frontend/src/features/chat/presentation/widgets/memory_operations_console_panel.dart';
 import 'package:frontend/src/features/chat/presentation/widgets/sidebar_formatters.dart';
 import 'package:frontend/src/presentation/theme/app_theme.dart';
@@ -23,10 +24,18 @@ class CaptureReviewDock extends StatelessWidget {
             .where((item) => item.isPending)
             .take(2)
             .toList();
+        final memoryReviews = store.memorySuggestions
+            .where((item) => item.isPending)
+            .take(2)
+            .toList();
         final hasError = store.assetExtractionError != null ||
             store.contextLinkSuggestionError.value != null ||
+            store.memorySuggestionError.value != null ||
             store.operationsConsoleError.value != null;
-        final hasWork = jobs.isNotEmpty || suggestions.isNotEmpty || hasError;
+        final hasWork = jobs.isNotEmpty ||
+            suggestions.isNotEmpty ||
+            memoryReviews.isNotEmpty ||
+            hasError;
         if (!hasWork) return const SizedBox.shrink();
 
         return Container(
@@ -55,7 +64,11 @@ class CaptureReviewDock extends StatelessWidget {
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
-                      _title(jobs.length, suggestions.length),
+                      _title(
+                        jobs.length,
+                        suggestions.length,
+                        memoryReviews.length,
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -95,6 +108,8 @@ class CaptureReviewDock extends StatelessWidget {
               for (final job in jobs) _DockExtractionRow(job: job),
               for (final suggestion in suggestions)
                 _DockSuggestionRow(suggestion: suggestion),
+              for (final suggestion in memoryReviews)
+                _DockMemoryReviewRow(suggestion: suggestion),
             ],
           ),
         );
@@ -113,10 +128,11 @@ class CaptureReviewDock extends StatelessWidget {
     return visible;
   }
 
-  String _title(int jobCount, int suggestionCount) {
+  String _title(int jobCount, int suggestionCount, int memoryReviewCount) {
     final parts = <String>[];
     if (jobCount > 0) parts.add('$jobCount processing');
     if (suggestionCount > 0) parts.add('$suggestionCount links');
+    if (memoryReviewCount > 0) parts.add('$memoryReviewCount reviews');
     if (parts.isEmpty) return 'Memory review';
     return 'Memory review - ${parts.join(', ')}';
   }
@@ -124,6 +140,7 @@ class CaptureReviewDock extends StatelessWidget {
   Future<void> _refresh(ChatStore store) async {
     await store.refreshOperationsConsole(showLoading: false);
     await store.refreshContextLinkSuggestions(showLoading: false);
+    await store.refreshMemorySuggestions(showLoading: false);
     await store.refreshAssetExtractions(showLoading: false);
   }
 }
@@ -137,6 +154,7 @@ class _DockErrorLine extends StatelessWidget {
   Widget build(BuildContext context) {
     final text = store.assetExtractionError ??
         store.contextLinkSuggestionError.value ??
+        store.memorySuggestionError.value ??
         store.operationsConsoleError.value;
     if (text == null || text.trim().isEmpty) return const SizedBox.shrink();
     return Padding(
@@ -162,6 +180,117 @@ class _DockErrorLine extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+class _DockMemoryReviewRow extends StatelessWidget {
+  final MemorySuggestion suggestion;
+
+  const _DockMemoryReviewRow({required this.suggestion});
+
+  @override
+  Widget build(BuildContext context) {
+    final store = context.read<ChatStore?>();
+    if (store == null) return const SizedBox.shrink();
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Observer(
+        builder: (_) {
+          final busy = store.memorySuggestionReviewing[suggestion.id] == true;
+          final canReview =
+              suggestion.isPending && suggestion.canResolveDuplicate && !busy;
+          final options = suggestion.reviewResolutionOptions
+              .where((item) => item.availability == 'available')
+              .take(2)
+              .toList(growable: false);
+          return Row(
+            children: [
+              Icon(
+                suggestion.isDuplicateMergeReview
+                    ? Icons.merge_type_outlined
+                    : Icons.fact_check_outlined,
+                size: 17,
+                color: scheme.primary,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Tooltip(
+                  message: suggestion.candidateText,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        suggestion.reviewTitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style:
+                            Theme.of(context).textTheme.labelMedium?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                  color: scheme.onSurface,
+                                ),
+                      ),
+                      Text(
+                        _reviewDetail(suggestion),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                            ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              if (busy)
+                const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              else
+                for (final option in options)
+                  IconButton(
+                    key: ValueKey(
+                      'capture_review_memory_${sidebarKeyPart(option.id)}_'
+                      '${sidebarKeyPart(suggestion.id)}',
+                    ),
+                    tooltip: option.label,
+                    visualDensity: VisualDensity.compact,
+                    onPressed: canReview
+                        ? () => store.resolveDuplicateMemorySuggestion(
+                              suggestion,
+                              action: option.resolutionAction.isEmpty
+                                  ? option.id
+                                  : option.resolutionAction,
+                            )
+                        : null,
+                    icon: Icon(_optionIcon(option), size: 18),
+                  ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  String _reviewDetail(MemorySuggestion suggestion) {
+    final target = suggestion.targetFactId == null
+        ? 'no target'
+        : 'fact ${shortStorageId(suggestion.targetFactId!)}';
+    return '$target - ${suggestion.confidence} - ${suggestion.safeReason}';
+  }
+
+  IconData _optionIcon(MemorySuggestionResolutionOption option) {
+    final action =
+        option.resolutionAction.isEmpty ? option.id : option.resolutionAction;
+    return switch (action) {
+      'merge_source_refs' => Icons.merge_type_outlined,
+      'keep_separate_fact' => Icons.add_circle_outline,
+      'reject_candidate' => Icons.block_outlined,
+      'expire_candidate' => Icons.visibility_off_outlined,
+      _ => Icons.done_outline,
+    };
   }
 }
 

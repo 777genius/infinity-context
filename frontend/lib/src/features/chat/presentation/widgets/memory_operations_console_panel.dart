@@ -8,8 +8,10 @@ import 'package:frontend/src/features/chat/domain/entities/asset_extraction.dart
 import 'package:frontend/src/features/chat/domain/entities/extraction_capabilities.dart';
 import 'package:frontend/src/features/chat/domain/entities/memory_context_link.dart';
 import 'package:frontend/src/features/chat/domain/entities/memory_operations_console.dart';
+import 'package:frontend/src/features/chat/domain/entities/memory_suggestion.dart';
 import 'package:frontend/src/features/chat/presentation/widgets/memory_browser_tab.dart';
 import 'package:frontend/src/features/chat/presentation/widgets/memory_operations_link_review_tab.dart';
+import 'package:frontend/src/features/chat/presentation/widgets/memory_operations_memory_review_tab.dart';
 import 'package:frontend/src/features/chat/presentation/widgets/sidebar_formatters.dart';
 import 'package:frontend/src/presentation/theme/app_theme.dart';
 
@@ -31,8 +33,13 @@ class MemoryOperationsConsolePanel extends StatelessWidget {
                 .where((item) => item.isPending)
                 .take(2)
                 .toList(growable: false);
+        final memoryReviews = store.memorySuggestions
+            .where((item) => item.isPending)
+            .take(2)
+            .toList(growable: false);
         final loading = store.operationsConsoleLoading.value;
         final error = store.operationsConsoleError.value;
+        final memoryReviewError = store.memorySuggestionError.value;
         final capabilities = store.extractionCapabilities.value;
         final capabilityError = store.extractionCapabilitiesError.value;
         final activeJobs = console?.activeExtractionCount ??
@@ -41,6 +48,8 @@ class MemoryOperationsConsolePanel extends StatelessWidget {
             store.assetExtractions.where((j) => j.canReprocess).length;
         final pendingLinks = console?.pendingLinkSuggestionCount ??
             store.contextLinkSuggestions.length;
+        final pendingMemoryReviews =
+            store.memorySuggestions.where((item) => item.isPending).length;
 
         return Container(
           key: const ValueKey('memory_operations_console_panel'),
@@ -117,12 +126,13 @@ class MemoryOperationsConsolePanel extends StatelessWidget {
                 activeJobs: activeJobs,
                 retryableJobs: retryableJobs,
                 pendingLinks: pendingLinks,
+                pendingMemoryReviews: pendingMemoryReviews,
               ),
-              if (error != null)
+              if (error != null || memoryReviewError != null)
                 Padding(
                   padding: const EdgeInsets.only(top: 6),
                   child: Text(
-                    error,
+                    error ?? memoryReviewError!,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -130,7 +140,9 @@ class MemoryOperationsConsolePanel extends StatelessWidget {
                         ),
                   ),
                 )
-              else if (jobs.isEmpty && suggestions.isEmpty)
+              else if (jobs.isEmpty &&
+                  suggestions.isEmpty &&
+                  memoryReviews.isEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 7),
                   child: Text(
@@ -146,6 +158,8 @@ class MemoryOperationsConsolePanel extends StatelessWidget {
                 for (final job in jobs) _ConsoleJobRow(job: job),
                 for (final suggestion in suggestions)
                   _ConsoleSuggestionRow(suggestion: suggestion),
+                for (final suggestion in memoryReviews)
+                  _ConsoleMemoryReviewRow(suggestion: suggestion),
               ],
             ],
           ),
@@ -176,7 +190,7 @@ class _MemoryOperationsConsoleDialog extends StatelessWidget {
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 880, maxHeight: 720),
         child: DefaultTabController(
-          length: 3,
+          length: 4,
           child: Padding(
             padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
             child: Observer(
@@ -188,6 +202,7 @@ class _MemoryOperationsConsoleDialog extends StatelessWidget {
                 final jobs = console?.extractionJobs ?? store.assetExtractions;
                 final suggestions = console?.contextLinkSuggestions ??
                     store.contextLinkSuggestions;
+                final memoryReviews = store.memorySuggestions;
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -241,6 +256,8 @@ class _MemoryOperationsConsoleDialog extends StatelessWidget {
                           jobs.where((job) => job.canReprocess).length,
                       pendingLinks: console?.pendingLinkSuggestionCount ??
                           suggestions.where((item) => item.isPending).length,
+                      pendingMemoryReviews:
+                          memoryReviews.where((item) => item.isPending).length,
                     ),
                     if (capabilities != null || capabilityError != null) ...[
                       const SizedBox(height: 8),
@@ -258,6 +275,7 @@ class _MemoryOperationsConsoleDialog extends StatelessWidget {
                       tabs: [
                         Tab(text: 'Ingestion jobs'),
                         Tab(text: 'Link suggestions'),
+                        Tab(text: 'Memory reviews'),
                         Tab(text: 'Browser'),
                       ],
                     ),
@@ -268,6 +286,9 @@ class _MemoryOperationsConsoleDialog extends StatelessWidget {
                           MemoryOperationsLinkReviewTab(
                             suggestions: suggestions.toList(growable: false),
                             console: console,
+                          ),
+                          MemoryOperationsMemoryReviewTab(
+                            suggestions: memoryReviews.toList(growable: false),
                           ),
                           MemoryBrowserTab(store: store),
                         ],
@@ -325,6 +346,7 @@ class _OperationsErrorBanner extends StatelessWidget {
 Future<void> _refreshOperationsSurface(ChatStore store) async {
   await store.refreshExtractionCapabilities(showLoading: false);
   await store.refreshOperationsConsole();
+  await store.refreshMemorySuggestions(showLoading: false);
 }
 
 class _CapabilityDiagnosticsLine extends StatelessWidget {
@@ -401,11 +423,13 @@ class _OperationsCounters extends StatelessWidget {
   final int activeJobs;
   final int retryableJobs;
   final int pendingLinks;
+  final int pendingMemoryReviews;
 
   const _OperationsCounters({
     required this.activeJobs,
     required this.retryableJobs,
     required this.pendingLinks,
+    required this.pendingMemoryReviews,
   });
 
   @override
@@ -417,6 +441,7 @@ class _OperationsCounters extends StatelessWidget {
         _CounterChip(label: 'Active', value: activeJobs),
         _CounterChip(label: 'Reprocess', value: retryableJobs),
         _CounterChip(label: 'Links', value: pendingLinks),
+        _CounterChip(label: 'Reviews', value: pendingMemoryReviews),
       ],
     );
   }
@@ -470,6 +495,66 @@ class _ConsoleJobRow extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+class _ConsoleMemoryReviewRow extends StatelessWidget {
+  final MemorySuggestion suggestion;
+
+  const _ConsoleMemoryReviewRow({required this.suggestion});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(top: 7),
+      child: Row(
+        children: [
+          Icon(
+            suggestion.isDuplicateMergeReview
+                ? Icons.merge_type_outlined
+                : Icons.fact_check_outlined,
+            size: 17,
+            color: scheme.primary,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Tooltip(
+              message: suggestion.candidateText,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    suggestion.reviewTitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: scheme.onSurface,
+                        ),
+                  ),
+                  Text(
+                    _memoryReviewDetail(suggestion),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _memoryReviewDetail(MemorySuggestion suggestion) {
+    final target = suggestion.targetFactId == null
+        ? 'no target'
+        : 'fact ${shortStorageId(suggestion.targetFactId!)}';
+    return '$target - ${suggestion.confidence} - ${suggestion.safeReason}';
   }
 }
 

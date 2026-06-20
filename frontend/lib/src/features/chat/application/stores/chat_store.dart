@@ -99,11 +99,16 @@ abstract class ChatStoreBase with Store {
           m.meta?['extractionId']?.toString().isNotEmpty ?? false;
       final hasLinkSuggestion =
           m.meta?['contextLinkSuggestionId']?.toString().isNotEmpty ?? false;
-      if (hasExtraction || hasLinkSuggestion) {
+      final hasMemorySuggestion =
+          m.meta?['memorySuggestionId']?.toString().isNotEmpty ?? false;
+      if (hasExtraction || hasLinkSuggestion || hasMemorySuggestion) {
         unawaited(refreshOperationsConsole(showLoading: false));
       }
       if (hasLinkSuggestion) {
         unawaited(refreshContextLinkSuggestions(showLoading: false));
+      }
+      if (hasMemorySuggestion) {
+        unawaited(refreshMemorySuggestions(showLoading: false));
       }
     }
   }
@@ -296,6 +301,7 @@ abstract class ChatStoreBase with Store {
     } finally {
       await refreshMemoryCaptures();
       await refreshOperationsConsole();
+      await refreshMemorySuggestions(showLoading: false);
       await refreshMemoryBrowser(showLoading: false);
     }
   }
@@ -375,6 +381,7 @@ abstract class ChatStoreBase with Store {
       }
       unawaited(refreshMemoryCaptures(showLoading: false));
       unawaited(refreshOperationsConsole(showLoading: false));
+      unawaited(refreshMemorySuggestions(showLoading: false));
       unawaited(refreshMemoryBrowser(showLoading: false));
     } catch (e) {
       _appendMessageTo(
@@ -1235,6 +1242,7 @@ abstract class ChatStoreBase with Store {
     createNewChat(memoryScopeExternalRef: ref);
     unawaited(refreshMemoryCaptures());
     unawaited(refreshOperationsConsole());
+    unawaited(refreshMemorySuggestions());
     unawaited(refreshMemoryBrowser());
   }
 
@@ -1270,6 +1278,7 @@ abstract class ChatStoreBase with Store {
     } catch (_) {}
     unawaited(refreshMemoryCaptures());
     unawaited(refreshOperationsConsole());
+    unawaited(refreshMemorySuggestions());
     unawaited(refreshMemoryBrowser());
     return id;
   }
@@ -1279,6 +1288,7 @@ abstract class ChatStoreBase with Store {
     if (id == activeChatId) {
       await refreshMemoryCaptures();
       await refreshOperationsConsole();
+      await refreshMemorySuggestions(showLoading: false);
       await refreshMemoryBrowser();
       return;
     }
@@ -1317,6 +1327,7 @@ abstract class ChatStoreBase with Store {
     _restoreContext(id, loaded);
     await refreshMemoryCaptures();
     await refreshOperationsConsole();
+    await refreshMemorySuggestions(showLoading: false);
     await refreshMemoryBrowser();
   }
 
