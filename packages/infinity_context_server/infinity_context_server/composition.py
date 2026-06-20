@@ -405,6 +405,13 @@ def build_container(settings: Settings | None = None) -> Container:
         parser_timeout_seconds=resolved_settings.extraction_parser_timeout_seconds,
         subprocess_timeout_seconds=resolved_settings.extraction_subprocess_timeout_seconds,
         max_image_pixels=resolved_settings.extraction_max_image_pixels,
+        max_archive_entries=resolved_settings.extraction_max_archive_entries,
+        max_archive_uncompressed_bytes=(
+            resolved_settings.extraction_max_archive_uncompressed_bytes
+        ),
+        max_archive_compression_ratio=(
+            resolved_settings.extraction_max_archive_compression_ratio
+        ),
         enable_ocr=resolved_settings.extraction_ocr_enabled,
         enable_external_ai=resolved_settings.extraction_external_ai_enabled,
     )

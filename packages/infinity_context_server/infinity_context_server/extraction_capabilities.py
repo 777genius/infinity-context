@@ -23,6 +23,7 @@ from infinity_context_adapters.extraction.transcription.openai_adapter import (
     OPENAI_TRANSCRIPTION_SUPPORTED_FILE_SUFFIXES,
 )
 from infinity_context_core.application.extraction_resource_policy import (
+    EXTRACTION_ARCHIVE_RESOURCE_POLICY_VERSION,
     EXTRACTION_RESOURCE_LIMIT_CAPS,
     EXTRACTION_RESOURCE_POLICY_VERSION,
 )
@@ -826,6 +827,8 @@ def _resource_policy_payload() -> dict[str, object]:
         "rejects_oversized_asset_before_blob_read": True,
         "rejects_blob_content_length_overflow_before_provider": True,
         "revalidates_upload_policy_after_blob_read": True,
+        "inspects_zip_central_directory_before_provider": True,
+        "archive_policy_version": EXTRACTION_ARCHIVE_RESOURCE_POLICY_VERSION,
         "upload_policy_rejection_status": "unsupported",
         "upload_policy_rejection_error_code": "asset_extraction.upload_policy_rejected",
         "oversized_asset_status": "unsupported",
@@ -841,6 +844,18 @@ def _resource_policy_payload() -> dict[str, object]:
             "extraction_upload_policy_status",
             "extraction_upload_policy_rejection",
             "extraction_upload_magic_content_type",
+            "extraction_archive_resource_policy_version",
+            "extraction_archive_resource_checked",
+            "extraction_archive_entries",
+            "extraction_archive_file_entries",
+            "extraction_archive_uncompressed_bytes",
+            "extraction_archive_compressed_bytes",
+            "extraction_archive_compression_ratio",
+            "extraction_archive_unsafe_path_count",
+            "extraction_archive_encrypted_entry_count",
+            "extraction_max_archive_entries",
+            "extraction_max_archive_uncompressed_bytes",
+            "extraction_max_archive_compression_ratio",
         ],
         "hard_caps": dict(EXTRACTION_RESOURCE_LIMIT_CAPS),
         "public_api_policy": "bounded_metadata_without_raw_bytes_or_provider_payloads",
@@ -1061,6 +1076,13 @@ def _limits_payload(settings: Settings) -> dict[str, object]:
         "max_tables": settings.extraction_max_tables,
         "ocr_enabled": settings.extraction_ocr_enabled,
         "max_image_pixels": settings.extraction_max_image_pixels,
+        "max_archive_entries": settings.extraction_max_archive_entries,
+        "max_archive_uncompressed_bytes": (
+            settings.extraction_max_archive_uncompressed_bytes
+        ),
+        "max_archive_compression_ratio": (
+            settings.extraction_max_archive_compression_ratio
+        ),
         "parser_timeout_seconds": settings.extraction_parser_timeout_seconds,
         "subprocess_timeout_seconds": settings.extraction_subprocess_timeout_seconds,
         "provider_timeout_seconds": settings.extraction_provider_timeout_seconds,

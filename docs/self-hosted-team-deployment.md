@@ -75,6 +75,19 @@ how many claimed extraction jobs run concurrently inside one process and
 defaults to `1`; scale it only after parser/provider limits are sized for the
 host.
 
+Archive-like documents are inspected before parser/provider execution. Tune
+these limits for extraction workers that accept DOCX/PPTX/XLSX/EPUB/ZIP inputs:
+
+```text
+MEMORY_EXTRACTION_MAX_ARCHIVE_ENTRIES=2000
+MEMORY_EXTRACTION_MAX_ARCHIVE_UNCOMPRESSED_BYTES=262144000
+MEMORY_EXTRACTION_MAX_ARCHIVE_COMPRESSION_RATIO=100
+```
+
+Path traversal, encrypted entries, excessive entry counts, excessive declared
+uncompressed size and suspicious compression ratios are rejected as unsupported
+extractions with bounded public diagnostics.
+
 ## Full provider profile
 
 The default self-hosted stack keeps Qdrant, Graphiti and external embeddings

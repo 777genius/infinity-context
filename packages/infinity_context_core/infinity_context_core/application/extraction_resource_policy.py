@@ -4,11 +4,15 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from io import BytesIO
+from pathlib import PurePosixPath, PureWindowsPath
+from zipfile import BadZipFile, ZipFile, is_zipfile
 
 from infinity_context_core.ports.extraction import ExtractionLimits
 
 EXTRACTION_RESOURCE_POLICY_VERSION = "asset-extraction-resource-policy-v1"
 EXTRACTION_RESULT_RESOURCE_POLICY_VERSION = "asset-extraction-result-resource-policy-v1"
+EXTRACTION_ARCHIVE_RESOURCE_POLICY_VERSION = "asset-extraction-archive-resource-policy-v1"
 
 EXTRACTION_RESOURCE_LIMIT_CAPS = {
     "max_bytes": 500 * 1024 * 1024,
@@ -19,6 +23,9 @@ EXTRACTION_RESOURCE_LIMIT_CAPS = {
     "parser_timeout_seconds": 24 * 60 * 60,
     "subprocess_timeout_seconds": 60 * 60,
     "max_image_pixels": 500_000_000,
+    "max_archive_entries": 100_000,
+    "max_archive_uncompressed_bytes": 10 * 1024 * 1024 * 1024,
+    "max_archive_compression_ratio": 10_000,
 }
 
 _DEFAULT_MAX_BYTES = 25 * 1024 * 1024
@@ -29,6 +36,18 @@ _DEFAULT_MAX_TABLES = 100
 _DEFAULT_PARSER_TIMEOUT_SECONDS = 300.0
 _DEFAULT_SUBPROCESS_TIMEOUT_SECONDS = 60.0
 _DEFAULT_MAX_IMAGE_PIXELS = 50_000_000
+_DEFAULT_MAX_ARCHIVE_ENTRIES = 2_000
+_DEFAULT_MAX_ARCHIVE_UNCOMPRESSED_BYTES = 250 * 1024 * 1024
+_DEFAULT_MAX_ARCHIVE_COMPRESSION_RATIO = 100
+_ZIP_CONTAINER_TYPES = frozenset(
+    {
+        "application/zip",
+        "application/epub+zip",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -92,6 +111,24 @@ def normalize_extraction_limits(limits: ExtractionLimits) -> ExtractionLimits:
             maximum=EXTRACTION_RESOURCE_LIMIT_CAPS["max_image_pixels"],
             default=_DEFAULT_MAX_IMAGE_PIXELS,
         ),
+        max_archive_entries=_bounded_int(
+            limits.max_archive_entries,
+            minimum=1,
+            maximum=EXTRACTION_RESOURCE_LIMIT_CAPS["max_archive_entries"],
+            default=_DEFAULT_MAX_ARCHIVE_ENTRIES,
+        ),
+        max_archive_uncompressed_bytes=_bounded_int(
+            limits.max_archive_uncompressed_bytes,
+            minimum=1,
+            maximum=EXTRACTION_RESOURCE_LIMIT_CAPS["max_archive_uncompressed_bytes"],
+            default=_DEFAULT_MAX_ARCHIVE_UNCOMPRESSED_BYTES,
+        ),
+        max_archive_compression_ratio=_bounded_int(
+            limits.max_archive_compression_ratio,
+            minimum=1,
+            maximum=EXTRACTION_RESOURCE_LIMIT_CAPS["max_archive_compression_ratio"],
+            default=_DEFAULT_MAX_ARCHIVE_COMPRESSION_RATIO,
+        ),
         enable_ocr=bool(limits.enable_ocr),
         enable_external_ai=bool(limits.enable_external_ai),
     )
@@ -112,6 +149,13 @@ def extraction_limits_metadata(limits: ExtractionLimits) -> dict[str, object]:
         "extraction_parser_timeout_seconds": normalized.parser_timeout_seconds,
         "extraction_subprocess_timeout_seconds": normalized.subprocess_timeout_seconds,
         "extraction_max_image_pixels": normalized.max_image_pixels,
+        "extraction_max_archive_entries": normalized.max_archive_entries,
+        "extraction_max_archive_uncompressed_bytes": (
+            normalized.max_archive_uncompressed_bytes
+        ),
+        "extraction_max_archive_compression_ratio": (
+            normalized.max_archive_compression_ratio
+        ),
         "extraction_ocr_enabled": normalized.enable_ocr,
         "extraction_external_ai_enabled": normalized.enable_external_ai,
     }
@@ -141,6 +185,168 @@ def assess_extraction_resource_limits(
                 "extraction_resource_limit_exceeded": "max_bytes",
             },
         )
+    return ExtractionResourceDecision(
+        limits=normalized,
+        allowed=True,
+        code=None,
+        message=None,
+        metadata=metadata,
+    )
+
+
+def assess_extraction_archive_resource_limits(
+    *,
+    filename: str,
+    declared_content_type: str,
+    detected_content_type: str,
+    magic_content_type: str | None,
+    content: bytes,
+    limits: ExtractionLimits,
+) -> ExtractionResourceDecision:
+    normalized = normalize_extraction_limits(limits)
+    metadata = {
+        "extraction_archive_resource_policy_version": (
+            EXTRACTION_ARCHIVE_RESOURCE_POLICY_VERSION
+        ),
+        "extraction_archive_resource_checked": False,
+        "extraction_archive_magic_content_type": _safe_content_type(magic_content_type),
+        "extraction_archive_detected_content_type": _safe_content_type(detected_content_type),
+        "extraction_archive_declared_content_type": _safe_content_type(declared_content_type),
+        "extraction_max_archive_entries": normalized.max_archive_entries,
+        "extraction_max_archive_uncompressed_bytes": (
+            normalized.max_archive_uncompressed_bytes
+        ),
+        "extraction_max_archive_compression_ratio": (
+            normalized.max_archive_compression_ratio
+        ),
+    }
+    if not _should_inspect_zip_container(
+        magic_content_type=magic_content_type,
+        detected_content_type=detected_content_type,
+        declared_content_type=declared_content_type,
+        filename=filename,
+    ):
+        return ExtractionResourceDecision(
+            limits=normalized,
+            allowed=True,
+            code=None,
+            message=None,
+            metadata=metadata,
+        )
+
+    metadata["extraction_archive_resource_checked"] = True
+    if not is_zipfile(BytesIO(content)):
+        return ExtractionResourceDecision(
+            limits=normalized,
+            allowed=False,
+            code="asset_extraction.archive_parse_failed",
+            message="Archive metadata could not be inspected safely",
+            metadata={
+                **metadata,
+                "extraction_resource_limit_exceeded": "archive_parse",
+            },
+        )
+
+    try:
+        with ZipFile(BytesIO(content)) as archive:
+            infos = tuple(archive.infolist())
+    except (BadZipFile, RuntimeError, OSError):
+        return ExtractionResourceDecision(
+            limits=normalized,
+            allowed=False,
+            code="asset_extraction.archive_parse_failed",
+            message="Archive metadata could not be inspected safely",
+            metadata={
+                **metadata,
+                "extraction_resource_limit_exceeded": "archive_parse",
+            },
+        )
+
+    file_infos = tuple(info for info in infos if not info.is_dir())
+    total_uncompressed = sum(max(0, int(info.file_size)) for info in file_infos)
+    total_compressed = sum(max(0, int(info.compress_size)) for info in file_infos)
+    compression_ratio = (
+        round(total_uncompressed / max(total_compressed, 1), 4)
+        if total_uncompressed
+        else 0.0
+    )
+    unsafe_path_count = sum(1 for info in infos if _unsafe_archive_member_name(info.filename))
+    encrypted_count = sum(1 for info in file_infos if bool(info.flag_bits & 0x1))
+    metadata.update(
+        {
+            "extraction_archive_entries": len(infos),
+            "extraction_archive_file_entries": len(file_infos),
+            "extraction_archive_uncompressed_bytes": total_uncompressed,
+            "extraction_archive_compressed_bytes": total_compressed,
+            "extraction_archive_compression_ratio": compression_ratio,
+            "extraction_archive_unsafe_path_count": unsafe_path_count,
+            "extraction_archive_encrypted_entry_count": encrypted_count,
+        }
+    )
+
+    if unsafe_path_count:
+        return ExtractionResourceDecision(
+            limits=normalized,
+            allowed=False,
+            code="asset_extraction.archive_unsafe_path",
+            message="Archive contains unsafe member paths",
+            metadata={
+                **metadata,
+                "extraction_resource_limit_exceeded": "archive_unsafe_path",
+            },
+        )
+    if encrypted_count:
+        return ExtractionResourceDecision(
+            limits=normalized,
+            allowed=False,
+            code="asset_extraction.archive_encrypted",
+            message="Archive contains encrypted members",
+            metadata={
+                **metadata,
+                "extraction_resource_limit_exceeded": "archive_encrypted",
+            },
+        )
+    if len(infos) > normalized.max_archive_entries:
+        return ExtractionResourceDecision(
+            limits=normalized,
+            allowed=False,
+            code="asset_extraction.archive_too_many_entries",
+            message="Archive contains too many entries",
+            metadata={
+                **metadata,
+                "extraction_resource_limit_exceeded": "max_archive_entries",
+            },
+        )
+    if total_uncompressed > normalized.max_archive_uncompressed_bytes:
+        return ExtractionResourceDecision(
+            limits=normalized,
+            allowed=False,
+            code="asset_extraction.archive_uncompressed_too_large",
+            message="Archive uncompressed size exceeds extraction resource limit",
+            metadata={
+                **metadata,
+                "extraction_resource_limit_exceeded": (
+                    "max_archive_uncompressed_bytes"
+                ),
+            },
+        )
+    if (
+        compression_ratio > normalized.max_archive_compression_ratio
+        and total_uncompressed > normalized.max_bytes
+    ):
+        return ExtractionResourceDecision(
+            limits=normalized,
+            allowed=False,
+            code="asset_extraction.archive_compression_ratio_too_high",
+            message="Archive compression ratio exceeds extraction resource limit",
+            metadata={
+                **metadata,
+                "extraction_resource_limit_exceeded": (
+                    "max_archive_compression_ratio"
+                ),
+            },
+        )
+
     return ExtractionResourceDecision(
         limits=normalized,
         allowed=True,
@@ -367,7 +573,47 @@ def _clamped_limit_fields(
         "parser_timeout_seconds",
         "subprocess_timeout_seconds",
         "max_image_pixels",
+        "max_archive_entries",
+        "max_archive_uncompressed_bytes",
+        "max_archive_compression_ratio",
         "enable_ocr",
         "enable_external_ai",
     )
     return [field for field in fields if getattr(raw, field) != getattr(normalized, field)]
+
+
+def _should_inspect_zip_container(
+    *,
+    magic_content_type: str | None,
+    detected_content_type: str,
+    declared_content_type: str,
+    filename: str,
+) -> bool:
+    if magic_content_type == "application/zip":
+        return True
+    content_types = {
+        _safe_content_type(detected_content_type),
+        _safe_content_type(declared_content_type),
+    }
+    if content_types & _ZIP_CONTAINER_TYPES:
+        return True
+    extension = filename.rsplit(".", 1)[-1].strip().lower() if "." in filename else ""
+    return extension in {"zip", "docx", "pptx", "xlsx", "epub"}
+
+
+def _unsafe_archive_member_name(name: str) -> bool:
+    if not name or "\x00" in name:
+        return True
+    normalized = name.replace("\\", "/")
+    posix_path = PurePosixPath(normalized)
+    windows_path = PureWindowsPath(name)
+    if posix_path.is_absolute() or windows_path.is_absolute() or windows_path.drive:
+        return True
+    return any(part == ".." for part in posix_path.parts)
+
+
+def _safe_content_type(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    text = value.split(";", 1)[0].strip().lower()
+    return text[:160] if text else None

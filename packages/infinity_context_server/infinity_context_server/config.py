@@ -94,6 +94,13 @@ class Settings(BaseSettings):
     extraction_subprocess_timeout_seconds: int = Field(default=60, ge=1, le=60 * 60)
     extraction_provider_timeout_seconds: int = Field(default=60, ge=1, le=60 * 60)
     extraction_max_image_pixels: int = Field(default=50_000_000, ge=1_000, le=500_000_000)
+    extraction_max_archive_entries: int = Field(default=2_000, ge=1, le=100_000)
+    extraction_max_archive_uncompressed_bytes: int = Field(
+        default=250 * 1024 * 1024,
+        ge=1,
+        le=10 * 1024 * 1024 * 1024,
+    )
+    extraction_max_archive_compression_ratio: int = Field(default=100, ge=1, le=10_000)
     extraction_ocr_enabled: bool = True
     extraction_vision_model: str = "gpt-4.1-mini"
     extraction_vision_detail: str = "high"

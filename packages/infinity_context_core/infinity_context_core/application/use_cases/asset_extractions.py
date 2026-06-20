@@ -39,6 +39,7 @@ from infinity_context_core.application.dto import (
     RunAssetExtractionCommand,
 )
 from infinity_context_core.application.extraction_resource_policy import (
+    assess_extraction_archive_resource_limits,
     assess_extraction_resource_limits,
     assess_extraction_result_resource_limits,
     extraction_limits_metadata,
@@ -570,6 +571,29 @@ class RunAssetExtractionUseCase:
                 job,
                 metadata=_file_type_detection_metadata(detection),
             )
+            archive_decision = assess_extraction_archive_resource_limits(
+                filename=asset.filename,
+                declared_content_type=asset.content_type,
+                detected_content_type=detection.content_type,
+                magic_content_type=detect_magic_content_type(content),
+                content=content,
+                limits=self._limits,
+            )
+            job = await self._update_job_metadata(
+                job,
+                metadata=archive_decision.metadata,
+            )
+            if not archive_decision.allowed:
+                unsupported = await self._mark_unsupported(
+                    job,
+                    result=_resource_limit_result(
+                        asset=asset,
+                        code=archive_decision.code,
+                        message=archive_decision.message,
+                        metadata={**archive_decision.metadata, **self._limits_metadata},
+                    ),
+                )
+                return AssetExtractionResult(job=unsupported, indexing_status="unsupported")
             job = await self._save_progress(
                 job,
                 stage="extracting_content",

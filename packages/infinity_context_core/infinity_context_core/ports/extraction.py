@@ -35,6 +35,9 @@ class ExtractionLimits:
     parser_timeout_seconds: float = 300
     subprocess_timeout_seconds: float = 60
     max_image_pixels: int = 50_000_000
+    max_archive_entries: int = 2_000
+    max_archive_uncompressed_bytes: int = 250 * 1024 * 1024
+    max_archive_compression_ratio: int = 100
     enable_ocr: bool = True
     enable_external_ai: bool = False
 

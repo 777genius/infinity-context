@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from io import BytesIO
 from pathlib import Path
+from zipfile import ZIP_DEFLATED, ZipFile
 
 import httpx
 from infinity_context_server_harness import run_infinity_context_server
@@ -115,7 +117,8 @@ def test_multimodal_ingestion_bad_inputs_limits_and_mime_review_gate_e2e(
             database_name="multimodal-ingestion-bad-inputs.db",
             extra_env={
                 "MEMORY_ASSET_STORAGE_DIR": str(tmp_path / "assets"),
-                "MEMORY_EXTRACTION_MAX_BYTES": "64",
+                "MEMORY_EXTRACTION_MAX_BYTES": "512",
+                "MEMORY_EXTRACTION_MAX_ARCHIVE_ENTRIES": "1",
             },
         ) as server,
         httpx.Client(
@@ -150,7 +153,7 @@ def test_multimodal_ingestion_bad_inputs_limits_and_mime_review_gate_e2e(
             client,
             filename="oversized-for-extraction.txt",
             content_type="text/plain",
-            content=b"Project Atlas " + (b"x" * 90),
+            content=b"Project Atlas " + (b"x" * 600),
             extract=True,
             thread_external_ref="limits",
         )
@@ -161,6 +164,21 @@ def test_multimodal_ingestion_bad_inputs_limits_and_mime_review_gate_e2e(
             content=("%PDF-1.4\n" + raw_secret + "\n%%EOF").encode("utf-8"),
             extract=True,
             thread_external_ref="corrupted",
+        )
+        archive_entry_limit = _upload_asset(
+            client,
+            filename="too-many-entries.docx",
+            content_type=(
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            ),
+            content=_zip_bytes(
+                {
+                    "[Content_Types].xml": b"<Types />",
+                    "word/document.xml": b"Project Atlas safe archive entries",
+                }
+            ),
+            extract=True,
+            thread_external_ref="archive-entry-limit",
         )
 
         _run_worker(server.env, limit=20)
@@ -231,6 +249,30 @@ def test_multimodal_ingestion_bad_inputs_limits_and_mime_review_gate_e2e(
         public_payload = json.dumps(corrupted_extraction, sort_keys=True)
         assert raw_secret not in public_payload
         assert "Traceback" not in public_payload
+
+        archive_entry_extraction = _get_extraction(
+            client,
+            archive_entry_limit["extraction"]["id"],
+        )
+        assert archive_entry_extraction["status"] == "unsupported"
+        assert archive_entry_extraction["safe_error_code"] == (
+            "asset_extraction.archive_too_many_entries"
+        )
+        assert archive_entry_extraction["safe_error_message"] == (
+            "Archive contains too many entries"
+        )
+        assert archive_entry_extraction["parser_name"] == "resource_policy"
+        assert archive_entry_extraction["metadata"][
+            "extraction_archive_resource_checked"
+        ] is True
+        assert archive_entry_extraction["metadata"]["extraction_archive_entries"] == 2
+        assert archive_entry_extraction["metadata"]["extraction_max_archive_entries"] == 1
+        assert archive_entry_extraction["metadata"]["extraction_resource_limit_exceeded"] == (
+            "max_archive_entries"
+        )
+        archive_payload = json.dumps(archive_entry_extraction, sort_keys=True)
+        assert "document.xml" not in archive_payload
+        assert "Traceback" not in archive_payload
 
 
 def test_extracted_prompt_injection_evidence_is_review_gated_e2e(tmp_path: Path) -> None:
@@ -528,3 +570,11 @@ def _scope_json(*, thread_external_ref: str | None = None) -> dict[str, str]:
     if thread_external_ref is not None:
         payload["thread_external_ref"] = thread_external_ref
     return payload
+
+
+def _zip_bytes(files: dict[str, bytes]) -> bytes:
+    buffer = BytesIO()
+    with ZipFile(buffer, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in files.items():
+            archive.writestr(name, content)
+    return buffer.getvalue()
