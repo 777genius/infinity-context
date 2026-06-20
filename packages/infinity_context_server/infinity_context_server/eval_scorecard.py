@@ -117,10 +117,12 @@ def memory_quality_scorecard_policy_snapshot(
                 "empty_audio_no_candidate_rate",
                 "prompt_injection_guard_rate",
                 "evidence_metadata_exposed",
+                "retrieval_evidence_coverage_profile",
             ],
             "requires_no_false_positives": True,
             "requires_prompt_injection_guard": True,
             "requires_evidence_metadata": True,
+            "requires_retrieval_evidence_coverage_profile": True,
         },
         "full_provider": {
             "required_adapters": list(_FULL_PROVIDER_REQUIRED_ADAPTERS),
@@ -552,16 +554,28 @@ def _scorecard_multimodal_evidence_retrieval(
         "prompt_injection_guard_rate": (
             metrics.get("prompt_injection_guard_rate") == 1.0
         ),
+        "retrieval_evidence_location_coverage_rate": (
+            metrics.get("retrieval_evidence_location_coverage_rate") == 1.0
+        ),
+        "retrieval_evidence_location_gap_count": (
+            metrics.get("retrieval_evidence_location_gap_count") == 0
+        ),
         "gate_case_count": gates.get("case_count") is True,
         "gate_all_cases_passed": gates.get("all_cases_passed") is True,
         "gate_evidence_metadata_exposed": (
             gates.get("evidence_metadata_exposed") is True
+        ),
+        "gate_retrieval_evidence_coverage_profile": (
+            gates.get("retrieval_evidence_coverage_profile") is True
         ),
         "check_prompt_injection_guard": (
             check_map.get("prompt_injection_guard") is True
         ),
         "check_evidence_metadata_exposed": (
             check_map.get("evidence_metadata_exposed") is True
+        ),
+        "check_retrieval_evidence_coverage_profile": (
+            check_map.get("retrieval_evidence_coverage_profile") is True
         ),
     }
     return _scorecard_capability("multimodal_evidence_retrieval", checks)

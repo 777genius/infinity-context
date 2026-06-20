@@ -145,6 +145,7 @@ def _scorecard_fixture_results() -> dict[str, dict[str, Any]]:
                 "prompt_injection_guard": True,
                 "unrelated_capture_has_no_candidates": True,
                 "evidence_metadata_exposed": True,
+                "retrieval_evidence_coverage_profile": True,
             },
             "metrics": {
                 "case_count": 10,
@@ -159,6 +160,8 @@ def _scorecard_fixture_results() -> dict[str, dict[str, Any]]:
                 "similar_wrong_project_precision": 1.0,
                 "empty_audio_no_candidate_rate": 1.0,
                 "prompt_injection_guard_rate": 1.0,
+                "retrieval_evidence_location_coverage_rate": 1.0,
+                "retrieval_evidence_location_gap_count": 0,
             },
             "gates": {
                 "case_count": True,
@@ -166,6 +169,18 @@ def _scorecard_fixture_results() -> dict[str, dict[str, Any]]:
                 "false_positive_count": True,
                 "prompt_injection_guard": True,
                 "evidence_metadata_exposed": True,
+                "retrieval_evidence_coverage_profile": True,
+            },
+            "evidence_coverage_profile": {
+                "schema_version": "evidence-coverage-v1",
+                "evidence_items_total": 5,
+                "precise_evidence_location_coverage_ratio": 1.0,
+                "transcript_time_range_coverage_ratio": 1.0,
+                "image_bbox_coverage_ratio": 1.0,
+                "video_time_range_coverage_ratio": 1.0,
+                "evidence_location_gap_count": 0,
+                "evidence_location_gaps": [],
+                "prompt_ready_multimodal_evidence": True,
             },
             "cases": _case_reports(
                 (
@@ -659,7 +674,15 @@ def test_memory_quality_scorecard_policy_snapshot_documents_top_evidence_floors(
     assert policy["min_case_counts"][MULTIMODAL_OFFLINE_GOLDEN_SUITE] == 10
     assert policy["multimodal_offline"]["requires_evidence_metadata"] is True
     assert policy["multimodal_offline"]["requires_prompt_injection_guard"] is True
+    assert (
+        policy["multimodal_offline"]["requires_retrieval_evidence_coverage_profile"]
+        is True
+    )
     assert "audio_linking_accuracy" in policy["multimodal_offline"]["required_checks"]
+    assert (
+        "retrieval_evidence_coverage_profile"
+        in policy["multimodal_offline"]["required_checks"]
+    )
     assert policy["full_provider"]["required_adapters"] == [
         "qdrant",
         "graphiti",
@@ -1798,6 +1821,26 @@ def test_memory_quality_scorecard_fails_on_multimodal_metadata_regression() -> N
     assert capability["ok"] is False
     assert "check_evidence_metadata_exposed" in capability["failed_checks"]
     assert "gate_evidence_metadata_exposed" in capability["failed_checks"]
+    assert result["gates"]["all_capabilities_ok"] is False
+
+
+def test_memory_quality_scorecard_fails_on_multimodal_retrieval_profile_regression() -> None:
+    suite_results = _scorecard_fixture_results()
+    multimodal = suite_results[MULTIMODAL_OFFLINE_GOLDEN_SUITE]
+    multimodal["checks"]["retrieval_evidence_coverage_profile"] = False
+    multimodal["gates"]["retrieval_evidence_coverage_profile"] = False
+    multimodal["metrics"]["retrieval_evidence_location_coverage_rate"] = 0.5
+    multimodal["metrics"]["retrieval_evidence_location_gap_count"] = 2
+
+    result = build_memory_quality_scorecard(suite_results)
+
+    assert result["ok"] is False
+    capability = result["capabilities"]["multimodal_evidence_retrieval"]
+    assert capability["ok"] is False
+    assert "check_retrieval_evidence_coverage_profile" in capability["failed_checks"]
+    assert "gate_retrieval_evidence_coverage_profile" in capability["failed_checks"]
+    assert "retrieval_evidence_location_coverage_rate" in capability["failed_checks"]
+    assert "retrieval_evidence_location_gap_count" in capability["failed_checks"]
     assert result["gates"]["all_capabilities_ok"] is False
 
 

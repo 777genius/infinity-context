@@ -8,9 +8,13 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from infinity_context_core.application.context_diagnostics import (
+    normalize_context_bundle_diagnostics,
+)
 from infinity_context_core.application.document_text import document_chunk_retrieval_text
-from infinity_context_core.application.dto import SuggestContextLinksCommand
+from infinity_context_core.application.dto import ContextItem, SuggestContextLinksCommand
 from infinity_context_core.application.normalize import normalize_text
+from infinity_context_core.application.source_refs import chunk_source_refs
 from infinity_context_core.application.use_cases.context_link_suggestions import (
     SuggestContextLinksUseCase,
 )
@@ -147,7 +151,8 @@ async def _execute_multimodal_offline_golden() -> dict[str, object]:
         )
         for spec in case_specs
     ]
-    checks = _checks(cases)
+    evidence_profile = _retrieval_evidence_coverage_profile(chunks)
+    checks = _checks(cases, evidence_profile=evidence_profile)
     failures = [
         {
             "case_id": str(case["case_id"]),
@@ -194,6 +199,12 @@ async def _execute_multimodal_offline_golden() -> dict[str, object]:
             cases,
             ("prompt_injection_screenshot_stays_review_evidence",),
         ),
+        "retrieval_evidence_location_coverage_rate": evidence_profile[
+            "precise_evidence_location_coverage_ratio"
+        ],
+        "retrieval_evidence_location_gap_count": evidence_profile[
+            "evidence_location_gap_count"
+        ],
     }
     gates = {
         "case_count": metrics["case_count"] >= 10,
@@ -201,6 +212,9 @@ async def _execute_multimodal_offline_golden() -> dict[str, object]:
         "false_positive_count": metrics["false_positive_count"] == 0,
         "prompt_injection_guard": checks["prompt_injection_guard"],
         "evidence_metadata_exposed": checks["evidence_metadata_exposed"],
+        "retrieval_evidence_coverage_profile": checks[
+            "retrieval_evidence_coverage_profile"
+        ],
     }
     return {
         "suite": MULTIMODAL_OFFLINE_GOLDEN_SUITE,
@@ -209,6 +223,7 @@ async def _execute_multimodal_offline_golden() -> dict[str, object]:
         "checks": checks,
         "metrics": metrics,
         "gates": gates,
+        "evidence_coverage_profile": evidence_profile,
         "cases": cases,
         "failures": failures,
     }
@@ -293,7 +308,11 @@ def _failure_reason(
     return None
 
 
-def _checks(cases: list[dict[str, object]]) -> dict[str, bool]:
+def _checks(
+    cases: list[dict[str, object]],
+    *,
+    evidence_profile: dict[str, object],
+) -> dict[str, bool]:
     by_id = {str(case["case_id"]): case for case in cases}
     return {
         "ocr_visual_text_links_image_chunk": bool(by_id["ocr_visual_text_links_image_chunk"]["ok"]),
@@ -326,6 +345,13 @@ def _checks(cases: list[dict[str, object]]) -> dict[str, bool]:
             bool(case.get("evidence_has_bbox_ref") or case.get("evidence_has_time_range_ref"))
             for case in cases
             if case["category"] != "precision"
+        ),
+        "retrieval_evidence_coverage_profile": (
+            evidence_profile.get("prompt_ready_multimodal_evidence") is True
+            and evidence_profile.get("transcript_time_range_coverage_ratio") == 1.0
+            and evidence_profile.get("image_bbox_coverage_ratio") == 1.0
+            and evidence_profile.get("video_time_range_coverage_ratio") == 1.0
+            and evidence_profile.get("evidence_location_gap_count") == 0
         ),
     }
 
@@ -455,6 +481,53 @@ def _fixture_chunks() -> tuple[MemoryChunk, ...]:
             },
         ),
     )
+
+
+def _retrieval_evidence_coverage_profile(chunks: tuple[MemoryChunk, ...]) -> dict[str, object]:
+    items = tuple(
+        ContextItem(
+            item_id=str(chunk.id),
+            item_type="chunk",
+            text=chunk.text,
+            score=1.0,
+            source_refs=chunk_source_refs(chunk, text_preview=chunk.text[:160]),
+            diagnostics={
+                "evidence_kind": _chunk_evidence_kind(chunk),
+                "evidence_modality": _chunk_evidence_modality(chunk),
+                "retrieval_source": "multimodal_offline_fixture",
+            },
+        )
+        for chunk in chunks
+        if _chunk_evidence_kind(chunk) and _chunk_evidence_modality(chunk)
+    )
+    diagnostics = normalize_context_bundle_diagnostics(
+        {"context_assembly_version": "multimodal-offline-golden"},
+        items=items,
+    )
+    profile = diagnostics.get("evidence_coverage_profile")
+    return profile if isinstance(profile, dict) else {}
+
+
+def _chunk_evidence_kind(chunk: MemoryChunk) -> str:
+    refs = chunk.metadata.get("source_refs")
+    if not isinstance(refs, list):
+        return ""
+    first = next((item for item in refs if isinstance(item, dict)), None)
+    if first is None:
+        return ""
+    kind = first.get("kind")
+    return kind if isinstance(kind, str) else ""
+
+
+def _chunk_evidence_modality(chunk: MemoryChunk) -> str:
+    content_type = str(chunk.metadata.get("normalized_content_type") or "").casefold()
+    if content_type.startswith("image/"):
+        return "image"
+    if content_type.startswith("audio/"):
+        return "audio"
+    if content_type.startswith("video/"):
+        return "video"
+    return ""
 
 
 def _chunk(

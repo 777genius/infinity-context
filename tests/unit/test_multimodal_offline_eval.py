@@ -21,6 +21,7 @@ def test_multimodal_offline_golden_eval_passes() -> None:
     assert result["checks"]["prompt_injection_guard"] is True
     assert result["checks"]["unrelated_capture_has_no_candidates"] is True
     assert result["checks"]["evidence_metadata_exposed"] is True
+    assert result["checks"]["retrieval_evidence_coverage_profile"] is True
     assert result["metrics"]["case_count"] == 10
     assert result["metrics"]["pass_rate"] == 1.0
     assert result["metrics"]["false_positive_count"] == 0
@@ -32,6 +33,12 @@ def test_multimodal_offline_golden_eval_passes() -> None:
     assert result["metrics"]["similar_wrong_project_precision"] == 1.0
     assert result["metrics"]["empty_audio_no_candidate_rate"] == 1.0
     assert result["metrics"]["prompt_injection_guard_rate"] == 1.0
+    assert result["metrics"]["retrieval_evidence_location_coverage_rate"] == 1.0
+    assert result["metrics"]["retrieval_evidence_location_gap_count"] == 0
+    assert result["evidence_coverage_profile"]["prompt_ready_multimodal_evidence"] is True
+    assert result["evidence_coverage_profile"]["image_bbox_coverage_ratio"] == 1.0
+    assert result["evidence_coverage_profile"]["transcript_time_range_coverage_ratio"] == 1.0
+    assert result["evidence_coverage_profile"]["video_time_range_coverage_ratio"] == 1.0
     assert result["failures"] == []
 
 
@@ -45,6 +52,8 @@ def test_multimodal_offline_golden_eval_writes_redacted_report(tmp_path: Path) -
     assert result["ok"] is True
     assert payload["suite"] == "multimodal-offline-golden"
     assert payload["metrics"]["false_positive_count"] == 0
+    assert payload["gates"]["retrieval_evidence_coverage_profile"] is True
+    assert payload["evidence_coverage_profile"]["evidence_location_gap_count"] == 0
     assert payload["failures"] == []
     assert "Bearer " not in report_text
     assert "sk-" not in report_text
