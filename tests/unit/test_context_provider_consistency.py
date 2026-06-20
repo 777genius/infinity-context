@@ -2824,7 +2824,17 @@ def test_context_surfaces_pending_duplicate_merge_suggestions_for_visible_facts(
     assert diagnostics["retrieval_source"] == "pending_duplicate_merge_suggestion"
     assert diagnostics["review_kind"] == "duplicate_fact_merge"
     assert diagnostics["review_recommended_action"] == "merge_source_refs_into_existing_fact"
+    assert diagnostics["review_recommended_resolution_action"] == "merge_source_refs"
     assert diagnostics["review_default_resolution"] == "merge_or_keep_separate_after_review"
+    assert diagnostics["review_policy_version"] == "duplicate-merge-review-v1"
+    assert diagnostics["review_risk"] == "medium"
+    assert diagnostics["review_recommendation_confidence"] == "medium"
+    assert diagnostics["review_requires_review"] is True
+    assert diagnostics["review_auto_merge_eligible"] is False
+    assert diagnostics["review_recommendation_reason_codes"] == [
+        "human_review_required",
+        "legacy_payload",
+    ]
     assert diagnostics["review_resolution_options"][0]["id"] == "merge_source_refs"
     assert diagnostics["review_resolution_options"][0]["review_action"] == "resolve_duplicate"
     assert diagnostics["review_resolution_options"][1]["id"] == "keep_separate_fact"

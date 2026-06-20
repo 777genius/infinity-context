@@ -1199,6 +1199,30 @@ def test_sdk_build_typed_context_returns_bounded_safe_diagnostics() -> None:
                                 "citations_returned": 20,
                                 "citations_truncated": True,
                                 "review_only": True,
+                                "review_recommended_action": (
+                                    "merge_source_refs_into_existing_fact"
+                                ),
+                                "review_recommended_resolution_action": "merge_source_refs",
+                                "review_default_resolution": (
+                                    "merge_or_keep_separate_after_review"
+                                ),
+                                "review_risk": "medium",
+                                "review_recommendation_confidence": "medium",
+                                "review_policy_version": "duplicate-merge-review-v1",
+                                "review_requires_review": True,
+                                "review_auto_merge_eligible": False,
+                                "review_recommendation_reason_codes": [
+                                    "human_review_required",
+                                    "structured_identity_overlap",
+                                ],
+                                "review_resolution_options": [
+                                    {
+                                        "id": "merge_source_refs",
+                                        "review_action": "resolve_duplicate",
+                                        "effect": "merge_source_refs_into_existing_fact",
+                                        "availability": "available",
+                                    }
+                                ],
                                 "stale_reason": "fact_status_superseded",
                                 "score_signals": {
                                     "base_score": 0.91,
@@ -1438,7 +1462,24 @@ def test_sdk_build_typed_context_returns_bounded_safe_diagnostics() -> None:
     assert item.diagnostics.ranking_reason == "hybrid match via vector_chunks, keyword_chunks"
     assert item.diagnostics.review_only is True
     assert item.diagnostics.stale_reason == "fact_status_superseded"
+    assert item.diagnostics.review_recommended_action == (
+        "merge_source_refs_into_existing_fact"
+    )
+    assert item.diagnostics.review_recommended_resolution_action == "merge_source_refs"
+    assert item.diagnostics.review_default_resolution == "merge_or_keep_separate_after_review"
+    assert item.diagnostics.review_risk == "medium"
+    assert item.diagnostics.review_recommendation_confidence == "medium"
+    assert item.diagnostics.review_policy_version == "duplicate-merge-review-v1"
+    assert item.diagnostics.review_requires_review is True
+    assert item.diagnostics.review_auto_merge_eligible is False
+    assert item.diagnostics.review_recommendation_reason_codes == (
+        "human_review_required",
+        "structured_identity_overlap",
+    )
+    assert item.diagnostics.review_resolution_options[0]["id"] == "merge_source_refs"
+    assert item.diagnostics.review_resolution_options[0]["review_action"] == "resolve_duplicate"
     assert item.diagnostics.raw["review_only"] is True
+    assert item.diagnostics.raw["review_auto_merge_eligible"] is False
     assert item.diagnostics.score_signals["base_score"] == 0.91
     assert item.diagnostics.score_signals["provider_note"] == "[redacted]"
     assert "nested" not in item.diagnostics.score_signals
@@ -1783,6 +1824,16 @@ def test_sdk_typed_context_defaults_legacy_item_diagnostics() -> None:
     assert item.diagnostics.provenance == {}
     assert item.diagnostics.review_only is False
     assert item.diagnostics.stale_reason is None
+    assert item.diagnostics.review_recommended_action is None
+    assert item.diagnostics.review_recommended_resolution_action is None
+    assert item.diagnostics.review_default_resolution is None
+    assert item.diagnostics.review_risk is None
+    assert item.diagnostics.review_recommendation_confidence is None
+    assert item.diagnostics.review_policy_version is None
+    assert item.diagnostics.review_requires_review is False
+    assert item.diagnostics.review_auto_merge_eligible is False
+    assert item.diagnostics.review_recommendation_reason_codes == ()
+    assert item.diagnostics.review_resolution_options == ()
     assert item.diagnostics.raw["retrieval_sources"] == []
     assert item.diagnostics.raw["ranking_reason"] == (
         "matched without retrieval channel diagnostics"

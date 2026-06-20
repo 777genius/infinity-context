@@ -714,11 +714,43 @@ def _suggestion_review_resolution_diagnostics(suggestion) -> dict[str, object]:
     payload = review_payload_with_default_contract(suggestion.review_payload or {})
     diagnostics: dict[str, object] = {}
     recommended_action = _bounded_metadata_text(payload.get("recommended_action"), limit=80)
+    recommended_resolution_action = _bounded_metadata_text(
+        payload.get("recommended_resolution_action"),
+        limit=80,
+    )
     default_resolution = _bounded_metadata_text(payload.get("default_resolution"), limit=80)
+    review_risk = _bounded_metadata_text(payload.get("review_risk"), limit=40)
+    recommendation_confidence = _bounded_metadata_text(
+        payload.get("recommendation_confidence"),
+        limit=40,
+    )
+    policy_version = _bounded_metadata_text(
+        payload.get("duplicate_merge_policy_version"),
+        limit=80,
+    )
     if recommended_action:
         diagnostics["review_recommended_action"] = recommended_action
+    if recommended_resolution_action:
+        diagnostics["review_recommended_resolution_action"] = recommended_resolution_action
     if default_resolution:
         diagnostics["review_default_resolution"] = default_resolution
+    if review_risk:
+        diagnostics["review_risk"] = review_risk
+    if recommendation_confidence:
+        diagnostics["review_recommendation_confidence"] = recommendation_confidence
+    if policy_version:
+        diagnostics["review_policy_version"] = policy_version
+    if isinstance(payload.get("requires_review"), bool):
+        diagnostics["review_requires_review"] = payload["requires_review"]
+    if isinstance(payload.get("auto_merge_eligible"), bool):
+        diagnostics["review_auto_merge_eligible"] = payload["auto_merge_eligible"]
+    recommendation_reason_codes = _bounded_metadata_text_list(
+        payload.get("recommendation_reason_codes"),
+        limit=80,
+        max_items=12,
+    )
+    if recommendation_reason_codes:
+        diagnostics["review_recommendation_reason_codes"] = recommendation_reason_codes
     options = payload.get("resolution_options")
     if not isinstance(options, list):
         return diagnostics

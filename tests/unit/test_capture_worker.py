@@ -925,6 +925,10 @@ def test_auto_apply_safe_active_duplicate_creates_merge_review_suggestion(
     assert suggestion["target_fact_id"] == fact.json()["data"]["id"]
     assert suggestion["review_payload"]["review_kind"] == "duplicate_fact_merge"
     assert suggestion["review_payload"]["dedupe_match_type"] == "exact_normalized_text"
+    assert suggestion["review_payload"]["review_risk"] == "low"
+    assert suggestion["review_payload"]["recommendation_confidence"] == "high"
+    assert suggestion["review_payload"]["requires_review"] is True
+    assert suggestion["review_payload"]["auto_merge_eligible"] is False
     assert len(facts.json()["data"]) == 1
     assert facts.json()["data"][0]["text"] == marker
 

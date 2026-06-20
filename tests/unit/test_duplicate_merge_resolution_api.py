@@ -235,6 +235,11 @@ def test_duplicate_merge_review_response_adds_default_options_for_legacy_payload
     assert suggestion["review_payload"]["recommended_action"] == (
         "merge_source_refs_into_existing_fact"
     )
+    assert suggestion["review_payload"]["recommended_resolution_action"] == "merge_source_refs"
+    assert suggestion["review_payload"]["review_risk"] == "medium"
+    assert suggestion["review_payload"]["requires_review"] is True
+    assert suggestion["review_payload"]["auto_merge_eligible"] is False
+    assert "legacy_payload" in suggestion["review_payload"]["recommendation_reason_codes"]
 
 
 def _capture_app(tmp_path: Path, database_name: str):

@@ -34,6 +34,21 @@ _SAFE_CONTEXT_LINK_DIAGNOSTIC_KEYS = (
     "context_link_relation_type",
     "context_link_confidence",
 )
+_SAFE_REVIEW_TEXT_DIAGNOSTIC_KEYS = (
+    "review_recommended_action",
+    "review_recommended_resolution_action",
+    "review_default_resolution",
+    "review_risk",
+    "review_recommendation_confidence",
+    "review_policy_version",
+)
+_SAFE_REVIEW_BOOL_DIAGNOSTIC_KEYS = (
+    "review_requires_review",
+    "review_auto_merge_eligible",
+)
+_SAFE_REVIEW_LIST_DIAGNOSTIC_KEYS = (
+    "review_recommendation_reason_codes",
+)
 _BUNDLE_COUNTER_KEYS = (
     "facts_considered",
     "anchors_considered",
@@ -344,6 +359,7 @@ def normalize_context_diagnostics(diagnostics: object) -> dict[str, object]:
     normalized.update(_safe_query_snippet_diagnostics(raw))
     normalized.update(_safe_recall_diagnostics(raw))
     normalized.update(_safe_context_link_diagnostics(raw))
+    normalized.update(_safe_review_diagnostics(raw))
     normalized["retrieval_sources"] = list(retrieval_sources)
     normalized["retrieval_sources_total"] = len(all_retrieval_sources)
     normalized["retrieval_sources_returned"] = len(retrieval_sources)
@@ -557,6 +573,68 @@ def _safe_context_link_diagnostics(raw: dict[str, Any]) -> dict[str, object]:
         value = _safe_optional_text(raw.get(key), limit=_MAX_DIAGNOSTIC_STRING_CHARS)
         if value:
             diagnostics[key] = value
+    return diagnostics
+
+
+def _safe_review_diagnostics(raw: dict[str, Any]) -> dict[str, object]:
+    diagnostics: dict[str, object] = {}
+    for key in _SAFE_REVIEW_TEXT_DIAGNOSTIC_KEYS:
+        value = _safe_optional_text(raw.get(key), limit=_MAX_DIAGNOSTIC_STRING_CHARS)
+        if value:
+            diagnostics[key] = value
+    for key in _SAFE_REVIEW_BOOL_DIAGNOSTIC_KEYS:
+        value = raw.get(key)
+        if isinstance(value, bool):
+            diagnostics[key] = value
+    for key in _SAFE_REVIEW_LIST_DIAGNOSTIC_KEYS:
+        value = raw.get(key)
+        if not isinstance(value, list | tuple):
+            continue
+        safe_values = [
+            text
+            for raw_text in value[:_MAX_DIAGNOSTIC_LIST_ITEMS]
+            if (text := _safe_optional_text(raw_text, limit=_MAX_DIAGNOSTIC_KEY_CHARS))
+        ]
+        if safe_values:
+            diagnostics[key] = safe_values
+    options = raw.get("review_resolution_options")
+    if isinstance(options, list | tuple):
+        safe_options: list[dict[str, str]] = []
+        for option in options[:_MAX_DIAGNOSTIC_LIST_ITEMS]:
+            if not isinstance(option, dict):
+                continue
+            safe_option = {
+                key: value
+                for key, value in (
+                    ("id", _safe_optional_text(option.get("id"), limit=_MAX_DIAGNOSTIC_KEY_CHARS)),
+                    (
+                        "review_action",
+                        _safe_optional_text(
+                            option.get("review_action"),
+                            limit=_MAX_DIAGNOSTIC_KEY_CHARS,
+                        ),
+                    ),
+                    (
+                        "effect",
+                        _safe_optional_text(
+                            option.get("effect"),
+                            limit=_MAX_DIAGNOSTIC_STRING_CHARS,
+                        ),
+                    ),
+                    (
+                        "availability",
+                        _safe_optional_text(
+                            option.get("availability"),
+                            limit=_MAX_DIAGNOSTIC_KEY_CHARS,
+                        ),
+                    ),
+                )
+                if value
+            }
+            if safe_option:
+                safe_options.append(safe_option)
+        if safe_options:
+            diagnostics["review_resolution_options"] = safe_options
     return diagnostics
 
 

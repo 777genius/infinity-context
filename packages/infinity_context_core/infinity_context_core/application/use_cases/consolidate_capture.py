@@ -23,6 +23,7 @@ from infinity_context_core.application.semantic_dedupe import (
     looks_conflicting_fact,
     looks_equivalent_fact,
     normalize_memory_text,
+    recommend_duplicate_fact_merge_review,
 )
 from infinity_context_core.application.sensitive_text import redact_sensitive_text
 from infinity_context_core.domain.capture import (
@@ -273,6 +274,9 @@ class ConsolidateCaptureUseCase:
                         resolver_rejected_codes.append("pending_suggestion_limit_reached")
                         continue
                     duplicate_expires_at = _expires_at(now, duplicate_taxonomy.ttl_policy.duration)
+                    duplicate_recommendation = recommend_duplicate_fact_merge_review(
+                        duplicate_match
+                    )
                     suggestion = MemorySuggestion.create(
                         suggestion_id=MemorySuggestionId(self._ids.new_id("sug")),
                         space_id=current.space_id,
@@ -297,6 +301,7 @@ class ConsolidateCaptureUseCase:
                         candidate_fingerprint=duplicate_fingerprint,
                         review_payload={
                             **duplicate_fact_merge_review_contract(),
+                            **duplicate_recommendation.to_review_payload(),
                             "operation": SuggestionOperation.REVIEW.value,
                             "category": duplicate_taxonomy.category,
                             "tags": list(duplicate_taxonomy.tags),

@@ -80,6 +80,16 @@ class ContextItemDiagnostics:
     citations_total: int = 0
     citations_returned: int = 0
     citations_truncated: bool = False
+    review_recommended_action: str | None = None
+    review_recommended_resolution_action: str | None = None
+    review_default_resolution: str | None = None
+    review_risk: str | None = None
+    review_recommendation_confidence: str | None = None
+    review_policy_version: str | None = None
+    review_requires_review: bool = False
+    review_auto_merge_eligible: bool = False
+    review_recommendation_reason_codes: tuple[str, ...] = ()
+    review_resolution_options: tuple[Mapping[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -566,6 +576,47 @@ def _item_diagnostics_from_payload(value: object) -> ContextItemDiagnostics:
     safe_raw["citations_total"] = citations_total
     safe_raw["citations_returned"] = citations_returned
     safe_raw["citations_truncated"] = citations_truncated
+    review_recommended_action = _optional_text(
+        raw.get("review_recommended_action"),
+        limit=MAX_KEY_CHARS,
+    )
+    review_recommended_resolution_action = _optional_text(
+        raw.get("review_recommended_resolution_action"),
+        limit=MAX_KEY_CHARS,
+    )
+    review_default_resolution = _optional_text(
+        raw.get("review_default_resolution"),
+        limit=MAX_KEY_CHARS,
+    )
+    review_risk = _optional_text(raw.get("review_risk"), limit=MAX_KEY_CHARS)
+    review_recommendation_confidence = _optional_text(
+        raw.get("review_recommendation_confidence"),
+        limit=MAX_KEY_CHARS,
+    )
+    review_policy_version = _optional_text(raw.get("review_policy_version"), limit=MAX_KEY_CHARS)
+    review_requires_review = _safe_bool(raw.get("review_requires_review"))
+    review_auto_merge_eligible = _safe_bool(raw.get("review_auto_merge_eligible"))
+    review_recommendation_reason_codes = _safe_text_tuple(
+        raw.get("review_recommendation_reason_codes"),
+        limit=MAX_LIST_ITEMS,
+    )
+    review_resolution_options = _safe_review_resolution_options(
+        raw.get("review_resolution_options")
+    )
+    for key, value in (
+        ("review_recommended_action", review_recommended_action),
+        ("review_recommended_resolution_action", review_recommended_resolution_action),
+        ("review_default_resolution", review_default_resolution),
+        ("review_risk", review_risk),
+        ("review_recommendation_confidence", review_recommendation_confidence),
+        ("review_policy_version", review_policy_version),
+    ):
+        if value:
+            safe_raw[key] = value
+    safe_raw["review_requires_review"] = review_requires_review
+    safe_raw["review_auto_merge_eligible"] = review_auto_merge_eligible
+    safe_raw["review_recommendation_reason_codes"] = list(review_recommendation_reason_codes)
+    safe_raw["review_resolution_options"] = [dict(option) for option in review_resolution_options]
     return ContextItemDiagnostics(
         retrieval_source=retrieval_source,
         retrieval_sources=retrieval_sources,
@@ -581,6 +632,16 @@ def _item_diagnostics_from_payload(value: object) -> ContextItemDiagnostics:
         citations_total=citations_total,
         citations_returned=citations_returned,
         citations_truncated=citations_truncated,
+        review_recommended_action=review_recommended_action,
+        review_recommended_resolution_action=review_recommended_resolution_action,
+        review_default_resolution=review_default_resolution,
+        review_risk=review_risk,
+        review_recommendation_confidence=review_recommendation_confidence,
+        review_policy_version=review_policy_version,
+        review_requires_review=review_requires_review,
+        review_auto_merge_eligible=review_auto_merge_eligible,
+        review_recommendation_reason_codes=review_recommendation_reason_codes,
+        review_resolution_options=review_resolution_options,
     )
 
 
@@ -1105,6 +1166,34 @@ def _safe_text_tuple(value: object, *, limit: int) -> tuple[str, ...]:
         if len(result) >= limit:
             break
     return tuple(result)
+
+
+def _safe_review_resolution_options(value: object) -> tuple[Mapping[str, str], ...]:
+    options: list[Mapping[str, str]] = []
+    for option in _as_list(value):
+        if not isinstance(option, Mapping):
+            continue
+        safe_option = {
+            key: text
+            for key, text in (
+                ("id", _optional_text(option.get("id"), limit=MAX_KEY_CHARS)),
+                (
+                    "review_action",
+                    _optional_text(option.get("review_action"), limit=MAX_KEY_CHARS),
+                ),
+                ("effect", _optional_text(option.get("effect"), limit=MAX_STRING_CHARS)),
+                (
+                    "availability",
+                    _optional_text(option.get("availability"), limit=MAX_KEY_CHARS),
+                ),
+            )
+            if text and "[redacted]" not in text
+        }
+        if safe_option:
+            options.append(safe_option)
+        if len(options) >= MAX_LIST_ITEMS:
+            break
+    return tuple(options)
 
 
 def _optional_int(value: object) -> int | None:

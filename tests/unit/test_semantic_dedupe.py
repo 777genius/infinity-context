@@ -4,6 +4,7 @@ from infinity_context_core.application.semantic_dedupe import (
     looks_conflicting_fact,
     looks_equivalent_fact,
     normalize_memory_text,
+    recommend_duplicate_fact_merge_review,
     semantic_memory_terms,
 )
 
@@ -297,6 +298,54 @@ def test_semantic_dedupe_keeps_exact_numeric_fact_duplicate() -> None:
 
     assert match is not None
     assert match.match_type == "exact_normalized_text"
+
+
+def test_duplicate_merge_recommendation_keeps_exact_match_review_gated() -> None:
+    match = describe_duplicate_fact_match(
+        "Project Atlas keeps 3 Qdrant replicas.",
+        "Project Atlas keeps 3 Qdrant replicas.",
+    )
+
+    assert match is not None
+    recommendation = recommend_duplicate_fact_merge_review(match)
+    payload = recommendation.to_review_payload()
+    assert payload["recommended_resolution_action"] == "merge_source_refs"
+    assert payload["review_risk"] == "low"
+    assert payload["recommendation_confidence"] == "high"
+    assert payload["requires_review"] is True
+    assert payload["auto_merge_eligible"] is False
+    assert "human_review_required" in payload["recommendation_reason_codes"]
+
+
+def test_duplicate_merge_recommendation_marks_identity_match_as_medium_risk() -> None:
+    match = describe_duplicate_fact_match(
+        "Позвонил Алексу по Атласу час назад про billing cutoff.",
+        "Call with Alex about Atlas an hour ago covered billing cutoff.",
+    )
+
+    assert match is not None
+    recommendation = recommend_duplicate_fact_merge_review(match)
+    assert recommendation.review_risk == "medium"
+    assert recommendation.recommendation_confidence == "medium"
+    assert recommendation.auto_merge_eligible is False
+    assert "structured_identity_overlap" in recommendation.reason_codes
+
+
+def test_duplicate_merge_recommendation_marks_anchor_overlap_as_high_risk() -> None:
+    match = describe_duplicate_fact_match(
+        "Qdrant graph memory adapter.",
+        "Qdrant graph memory adapter owns canonical temporal truth storage retrieval "
+        "dashboard vector document.",
+    )
+
+    assert match is not None
+    assert match.match_type == "semantic_anchor_overlap"
+    recommendation = recommend_duplicate_fact_merge_review(match)
+    assert recommendation.review_risk == "high"
+    assert recommendation.recommendation_confidence == "low"
+    assert recommendation.requires_review is True
+    assert recommendation.auto_merge_eligible is False
+    assert "keep_separate_available" in recommendation.reason_codes
 
 
 def test_semantic_dedupe_flags_engine_conflict_without_equivalence() -> None:

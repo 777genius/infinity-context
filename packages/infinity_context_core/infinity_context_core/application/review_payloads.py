@@ -57,7 +57,14 @@ def duplicate_fact_merge_review_contract() -> dict[str, Any]:
     return {
         "review_kind": DUPLICATE_FACT_MERGE_REVIEW_KIND,
         "recommended_action": "merge_source_refs_into_existing_fact",
+        "recommended_resolution_action": "merge_source_refs",
         "default_resolution": "merge_or_keep_separate_after_review",
+        "duplicate_merge_policy_version": "duplicate-merge-review-v1",
+        "review_risk": "medium",
+        "recommendation_confidence": "medium",
+        "requires_review": True,
+        "auto_merge_eligible": False,
+        "recommendation_reason_codes": ["human_review_required", "legacy_payload"],
         "resolution_options": [
             {
                 "id": "merge_source_refs",

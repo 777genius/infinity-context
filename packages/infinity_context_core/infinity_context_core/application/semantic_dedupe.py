@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from dataclasses import dataclass
+from typing import Any
 
 from infinity_context_core.application.anchor_extraction import (
     ObservedAnchor,
@@ -75,6 +76,30 @@ class FactDuplicateMatch:
 
 
 @dataclass(frozen=True)
+class FactDuplicateMergeRecommendation:
+    policy_version: str
+    recommended_action: str
+    recommended_resolution_action: str
+    review_risk: str
+    recommendation_confidence: str
+    requires_review: bool
+    auto_merge_eligible: bool
+    reason_codes: tuple[str, ...]
+
+    def to_review_payload(self) -> dict[str, Any]:
+        return {
+            "duplicate_merge_policy_version": self.policy_version,
+            "recommended_action": self.recommended_action,
+            "recommended_resolution_action": self.recommended_resolution_action,
+            "review_risk": self.review_risk,
+            "recommendation_confidence": self.recommendation_confidence,
+            "requires_review": self.requires_review,
+            "auto_merge_eligible": self.auto_merge_eligible,
+            "recommendation_reason_codes": list(self.reason_codes),
+        }
+
+
+@dataclass(frozen=True)
 class FactConflictMatch:
     match_type: str
     score: float
@@ -112,6 +137,53 @@ def meaningful_memory_terms(text: str) -> set[str]:
 
 def looks_equivalent_fact(candidate_text: str, existing_text: str) -> bool:
     return describe_duplicate_fact_match(candidate_text, existing_text) is not None
+
+
+def recommend_duplicate_fact_merge_review(
+    match: FactDuplicateMatch,
+) -> FactDuplicateMergeRecommendation:
+    risk = _duplicate_merge_review_risk(match)
+    confidence = {
+        "low": "high",
+        "medium": "medium",
+        "high": "low",
+    }[risk]
+    reason_codes = [
+        "human_review_required",
+        f"dedupe_match:{match.match_type}",
+        f"review_risk:{risk}",
+    ]
+    if match.score >= 0.85:
+        reason_codes.append("strong_duplicate_score")
+    if any(_is_identity_term(term) for term in match.overlap_terms):
+        reason_codes.append("structured_identity_overlap")
+    if risk == "high":
+        reason_codes.append("keep_separate_available")
+    return FactDuplicateMergeRecommendation(
+        policy_version="duplicate-merge-review-v1",
+        recommended_action="merge_source_refs_into_existing_fact",
+        recommended_resolution_action="merge_source_refs",
+        review_risk=risk,
+        recommendation_confidence=confidence,
+        requires_review=True,
+        auto_merge_eligible=False,
+        reason_codes=tuple(reason_codes),
+    )
+
+
+def _duplicate_merge_review_risk(match: FactDuplicateMatch) -> str:
+    if match.match_type == "exact_normalized_text" and match.score >= 1.0:
+        return "low"
+    has_identity_overlap = any(_is_identity_term(term) for term in match.overlap_terms)
+    if match.match_type == "semantic_token_overlap":
+        if match.score >= 0.75 or (match.score >= 0.6 and has_identity_overlap):
+            return "medium"
+        return "high"
+    if match.match_type == "semantic_identity_overlap":
+        if match.score >= 0.78 and has_identity_overlap:
+            return "medium"
+        return "high"
+    return "high"
 
 
 def describe_duplicate_fact_match(
