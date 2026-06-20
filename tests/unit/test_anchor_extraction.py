@@ -456,6 +456,87 @@ def test_anchor_extraction_structures_event_project_identity_metadata() -> None:
     ]
 
 
+def test_anchor_extraction_handles_lowercase_direct_event_participant_and_project() -> None:
+    anchors = extract_observed_anchors(
+        "call alex about atlas last week. созвон алекс по атлас неделю назад."
+    )
+
+    people = {
+        (anchor.normalized_key, anchor.metadata.get("person_canonical_key"))
+        for anchor in anchors
+        if anchor.kind.value == "person"
+    }
+    projects = {
+        (anchor.normalized_key, anchor.metadata.get("project_canonical_key"))
+        for anchor in anchors
+        if anchor.kind.value == "project"
+    }
+    events = {
+        anchor.normalized_key: anchor.metadata for anchor in anchors if anchor.kind.value == "event"
+    }
+
+    assert ("alex", "aleks") in people
+    assert ("алекс", "aleks") in people
+    assert ("atlas", "atlas") in projects
+    assert ("атлас", "atlas") in projects
+    assert "call with alex about atlas last week" in events
+    assert events["call with alex about atlas last week"]["event_identity_terms"] == [
+        "call",
+        "aleks",
+        "atlas",
+        "last_week:1:week",
+    ]
+    assert "созвон с алекс по атлас неделю назад" in events
+    assert events["созвон с алекс по атлас неделю назад"]["event_identity_terms"] == [
+        "sozvon",
+        "aleks",
+        "atlas",
+        "last_week:1:week",
+    ]
+
+
+def test_anchor_extraction_handles_lowercase_actor_before_message_event() -> None:
+    anchors = extract_observed_anchors("alex wrote about atlas hour ago.")
+
+    people = {
+        (anchor.normalized_key, anchor.metadata.get("person_canonical_key"))
+        for anchor in anchors
+        if anchor.kind.value == "person"
+    }
+    events = {
+        anchor.normalized_key: anchor.metadata for anchor in anchors if anchor.kind.value == "event"
+    }
+
+    assert ("alex", "aleks") in people
+    assert "wrote with alex about atlas hour ago" in events
+    assert events["wrote with alex about atlas hour ago"]["event_participant_canonical_key"] == (
+        "aleks"
+    )
+    assert events["wrote with alex about atlas hour ago"]["event_project_canonical_key"] == (
+        "atlas"
+    )
+    assert events["wrote with alex about atlas hour ago"]["event_temporal_hint_code"] == (
+        "hours_ago"
+    )
+
+
+def test_anchor_extraction_does_not_promote_temporal_or_topic_words_from_event_context() -> None:
+    anchors = extract_observed_anchors(
+        "the call last week covered notes. weekly sync yesterday. call about documents last week."
+    )
+
+    people = {anchor.normalized_key for anchor in anchors if anchor.kind.value == "person"}
+    projects = {anchor.normalized_key for anchor in anchors if anchor.kind.value == "project"}
+    events = {anchor.normalized_key for anchor in anchors if anchor.kind.value == "event"}
+
+    assert people == set()
+    assert projects == set()
+    assert "call last week" in events
+    assert "sync yesterday" in events
+    assert "call with last last week" not in events
+    assert "documents" not in projects
+
+
 def test_anchor_extraction_normalizes_russian_locative_event_project() -> None:
     anchors = extract_observed_anchors("Созвон с Алексом в Атласе час назад про документы.")
 

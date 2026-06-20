@@ -40,7 +40,7 @@ def _anchor(
 def test_query_anchor_intent_extracts_lowercase_ru_event_hints() -> None:
     intent = build_query_anchor_intent("созвон с алексом в атласе час назад")
 
-    assert intent.diagnostics()["query_anchor_hint_count"] == 3
+    assert intent.diagnostics()["query_anchor_hint_count"] == 5
     assert intent.keys_for_kind(MemoryAnchorKind.PERSON) == {"aleks"}
     assert intent.keys_for_kind(MemoryAnchorKind.PROJECT) == {"atlas"}
     assert intent.temporal_keys() == {"hours_ago", "hours_ago:1:hour"}
@@ -63,6 +63,49 @@ def test_query_anchor_intent_matches_cross_language_event_identity() -> None:
         "query_event_temporal_match",
     )
     assert set(match.matched_keys) >= {"aleks", "atlas", "hours_ago:1:hour"}
+
+
+def test_query_anchor_intent_matches_lowercase_direct_event_actor() -> None:
+    intent = build_query_anchor_intent("call alex about atlas last week")
+    anchor = _anchor(
+        kind=MemoryAnchorKind.EVENT,
+        label="Call with Alex about Atlas last week",
+    )
+
+    match = match_query_anchor_intent(intent, anchor)
+
+    assert intent.keys_for_kind(MemoryAnchorKind.PERSON) == {"aleks"}
+    assert intent.keys_for_kind(MemoryAnchorKind.PROJECT) == {"atlas"}
+    assert intent.temporal_keys() == {"last_week", "last_week:1:week"}
+    assert match is not None
+    assert match.reasons == (
+        "query_event_identity_match",
+        "query_event_participant_match",
+        "query_event_project_match",
+        "query_event_temporal_match",
+    )
+    assert set(match.matched_keys) >= {"aleks", "atlas", "last_week:1:week"}
+
+
+def test_query_anchor_intent_matches_lowercase_actor_before_message_event() -> None:
+    intent = build_query_anchor_intent("alex wrote about atlas hour ago")
+    anchor = _anchor(
+        kind=MemoryAnchorKind.EVENT,
+        label="Wrote with Alex about Atlas hour ago",
+    )
+
+    match = match_query_anchor_intent(intent, anchor)
+
+    assert intent.keys_for_kind(MemoryAnchorKind.PERSON) == {"aleks"}
+    assert intent.keys_for_kind(MemoryAnchorKind.PROJECT) == {"atlas"}
+    assert intent.temporal_keys() == {"hours_ago", "hours_ago:1:hour"}
+    assert match is not None
+    assert match.reasons == (
+        "query_event_identity_match",
+        "query_event_participant_match",
+        "query_event_project_match",
+        "query_event_temporal_match",
+    )
 
 
 def test_query_anchor_intent_rejects_wrong_event_participant() -> None:
