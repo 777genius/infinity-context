@@ -143,6 +143,8 @@ class ContextBundleDiagnostics:
     facts_considered: int = 0
     anchors_considered: int = 0
     anchors_used: int = 0
+    anchor_relation_candidates_considered: int = 0
+    anchor_relation_items_used: int = 0
     keyword_chunks_considered: int = 0
     vector_candidate_count: int = 0
     vector_hydrated_count: int = 0
@@ -584,6 +586,10 @@ def _bundle_diagnostics_from_payload(value: object) -> ContextBundleDiagnostics:
         facts_considered=_non_negative_int(raw.get("facts_considered")),
         anchors_considered=_non_negative_int(raw.get("anchors_considered")),
         anchors_used=_non_negative_int(raw.get("anchors_used")),
+        anchor_relation_candidates_considered=_non_negative_int(
+            raw.get("anchor_relation_candidates_considered")
+        ),
+        anchor_relation_items_used=_non_negative_int(raw.get("anchor_relation_items_used")),
         keyword_chunks_considered=_non_negative_int(raw.get("keyword_chunks_considered")),
         vector_candidate_count=_non_negative_int(raw.get("vector_candidate_count")),
         vector_hydrated_count=_non_negative_int(raw.get("vector_hydrated_count")),

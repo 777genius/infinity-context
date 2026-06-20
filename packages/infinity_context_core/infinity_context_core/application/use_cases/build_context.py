@@ -5,6 +5,9 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import datetime
 
+from infinity_context_core.application.context_anchor_relations import (
+    related_anchor_context_items,
+)
 from infinity_context_core.application.context_anchors import (
     anchor_context_item,
     anchor_identity_retrieval_text,
@@ -56,6 +59,7 @@ from infinity_context_core.application.source_refs import (
 )
 from infinity_context_core.application.temporal_validity import is_temporal_window_current
 from infinity_context_core.domain.entities import (
+    MemoryAnchor,
     MemoryChunk,
     MemoryFact,
     MemoryFactRelation,
@@ -128,6 +132,8 @@ class BuildContextUseCase:
             "keyword_chunks_considered": len(canonical.keyword_chunks),
             "anchors_considered": len(canonical.anchors),
             "anchors_used": 0,
+            "anchor_relation_candidates_considered": 0,
+            "anchor_relation_items_used": 0,
             "vector_status": "disabled",
             "graph_status": "disabled",
             "rag_status": "disabled",
@@ -192,6 +198,7 @@ class BuildContextUseCase:
         for fact in canonical.facts:
             items.append(_fact_context_item(fact, now=now, query_text=query.query))
         anchors_used = 0
+        selected_anchor_items: list[tuple[MemoryAnchor, ContextItem]] = []
         for anchor in canonical.anchors:
             if not is_context_anchor_visible(
                 anchor,
@@ -210,16 +217,26 @@ class BuildContextUseCase:
                 query=query.query,
                 text=anchor_identity_retrieval_text(anchor),
             )
-            items.append(
-                anchor_context_item(
-                    anchor,
-                    relevance=relevance,
-                    identity_relevance=identity_relevance,
-                    now=now,
-                )
+            anchor_item = anchor_context_item(
+                anchor,
+                relevance=relevance,
+                identity_relevance=identity_relevance,
+                now=now,
             )
+            items.append(anchor_item)
+            selected_anchor_items.append((anchor, anchor_item))
             anchors_used += 1
         diagnostics["anchors_used"] = anchors_used
+        related_anchor_items, related_anchor_candidates = related_anchor_context_items(
+            anchors=canonical.anchors,
+            selected_anchor_items=tuple(selected_anchor_items),
+            query=query,
+            memory_scope_ids=memory_scope_ids,
+            now=now,
+        )
+        diagnostics["anchor_relation_candidates_considered"] = related_anchor_candidates
+        diagnostics["anchor_relation_items_used"] = len(related_anchor_items)
+        items.extend(related_anchor_items)
         for chunk in canonical.keyword_chunks:
             chunk_text = document_chunk_retrieval_text(
                 text=chunk.text,
@@ -558,6 +575,7 @@ class BuildContextUseCase:
                     if len(items) >= max_items:
                         return tuple(items)
         return tuple(items)
+
 
 def _suggestion_conflict_fact_id(suggestion) -> str | None:
     payload = suggestion.review_payload or {}

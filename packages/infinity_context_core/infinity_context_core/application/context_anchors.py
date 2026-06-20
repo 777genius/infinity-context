@@ -126,6 +126,71 @@ def anchor_context_item(
     )
 
 
+def related_anchor_context_item(
+    anchor: MemoryAnchor,
+    *,
+    source_anchor: MemoryAnchor,
+    relation_type: str,
+    relation_key: str,
+    parent_score: float,
+    now: datetime | None,
+) -> ContextItem:
+    metadata = _anchor_identity_metadata(anchor)
+    score = _related_anchor_score(anchor, parent_score=parent_score, now=now)
+    safe_relation_type = _metadata_text(relation_type, limit=80) or "related_anchor"
+    safe_relation_key = _metadata_text(relation_key, limit=160) or anchor.normalized_key
+    return ContextItem(
+        item_id=str(anchor.id),
+        item_type="anchor",
+        text=_anchor_render_text(anchor, metadata=metadata),
+        score=score,
+        source_refs=anchor.evidence_refs,
+        diagnostics={
+            "memory_scope_id": str(anchor.memory_scope_id),
+            "retrieval_source": "canonical_anchor_relations",
+            "retrieval_sources": ["canonical_anchor_relations"],
+            "ranking_reason": (
+                "canonical anchor related to selected event anchor via structured identity metadata"
+            ),
+            "score_signals": {
+                "base_score": 0.62,
+                "final_score": score,
+                "retrieval_channel": "canonical_anchor_relations",
+                "parent_anchor_score": round(parent_score, 4),
+                "anchor_kind": anchor.kind.value,
+                "confidence": anchor.confidence.value,
+            },
+            "provenance": {
+                "retrieval_sources": ["canonical_anchor_relations"],
+                "source_ref_count": len(anchor.evidence_refs),
+                "anchor_kind": anchor.kind.value,
+                "anchor_status": anchor.status.value,
+                "normalized_key": anchor.normalized_key,
+                "observed_at": anchor.observed_at.isoformat(),
+                "valid_from": anchor.valid_from.isoformat() if anchor.valid_from else None,
+                "valid_to": anchor.valid_to.isoformat() if anchor.valid_to else None,
+                "identity_metadata": metadata,
+                "relation_source_anchor_id": str(source_anchor.id),
+                "relation_source_anchor_kind": source_anchor.kind.value,
+                "relation_source_anchor_key": source_anchor.normalized_key,
+                "relation_type": safe_relation_type,
+                "relation_key": safe_relation_key,
+            },
+            "anchor_kind": anchor.kind.value,
+            "normalized_key": anchor.normalized_key,
+            "confidence": anchor.confidence.value,
+            "observed_at": anchor.observed_at.isoformat(),
+            "updated_at": anchor.updated_at.isoformat(),
+            "identity_metadata": metadata,
+            "related_anchor_source_id": str(source_anchor.id),
+            "related_anchor_source_kind": source_anchor.kind.value,
+            "related_anchor_relation_type": safe_relation_type,
+            "related_anchor_relation_key": safe_relation_key,
+            **metadata,
+        },
+    )
+
+
 def _anchor_render_text(anchor: MemoryAnchor, *, metadata: dict[str, object]) -> str:
     alias_text = ", ".join(alias for alias in anchor.aliases if alias != anchor.label)
     parts = [f"{anchor.kind.value}: {anchor.label}"]
@@ -206,6 +271,23 @@ def _anchor_score(
             + confidence_boost
             + freshness_boost,
             4,
+        ),
+    )
+
+
+def _related_anchor_score(
+    anchor: MemoryAnchor,
+    *,
+    parent_score: float,
+    now: datetime | None,
+) -> float:
+    confidence_boost = _level_boost(anchor.confidence.value, low=0.005, medium=0.015, high=0.025)
+    freshness_boost = _freshness_boost(anchor.updated_at, now=now) * 0.5
+    return min(
+        0.88,
+        max(
+            0.6,
+            round(parent_score - 0.065 + confidence_boost + freshness_boost, 4),
         ),
     )
 
