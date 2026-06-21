@@ -619,6 +619,60 @@ def test_document_title_is_indexed_and_rendered_for_context_recall(tmp_path: Pat
     assert "Postgres remains canonical" in rendered
 
 
+def test_context_citation_snippet_preserves_nearby_document_evidence_prefix(
+    tmp_path: Path,
+) -> None:
+    line_prefix = "D4:5 Caroline: "
+    source_line = (
+        line_prefix
+        + "Yep, Melanie. The hand-painted bowl has sentimental value because "
+        + "a friend made it during a ceramics workshop before gifting it for my "
+        + "18th birthday ten years ago, and the colors still remind me of art."
+    )
+    text = "\n".join(
+        [
+            "LoCoMo conv-26 session_4",
+            "Background context that should not be the citation focus. " * 8,
+            source_line,
+            "D4:6 Melanie: That sounds great, Caroline.",
+            "Trailing context that should not be the citation focus. " * 8,
+        ]
+    )
+    with make_client(tmp_path) as client:
+        document = client.post(
+            "/v1/documents",
+            json={
+                "space_id": "space_client_app",
+                "memory_scope_id": "memory_scope_default",
+                "title": "LoCoMo conv-26 session_4",
+                "text": text,
+                "source_type": "locomo_session",
+                "source_external_id": "locomo:conv-26:session_4",
+            },
+            headers=auth_headers(),
+        )
+        context = client.post(
+            "/v1/context",
+            json={
+                "space_id": "space_client_app",
+                "memory_scope_ids": ["memory_scope_default"],
+                "query": "18th birthday ten years",
+                "token_budget": 512,
+                "max_facts": 0,
+                "max_chunks": 1,
+                "max_evidence_items": 0,
+            },
+            headers=auth_headers(),
+        )
+
+    assert document.status_code == 201
+    assert context.status_code == 200, context.text
+    items = context.json()["data"]["items"]
+    quote_preview = items[0]["source_refs"][0]["quote_preview"]
+    assert line_prefix in quote_preview
+    assert "18th birthday ten years ago" in quote_preview
+
+
 def test_document_ingest_returns_backpressure_when_outbox_high(tmp_path: Path) -> None:
     with make_client_with_settings(
         tmp_path,

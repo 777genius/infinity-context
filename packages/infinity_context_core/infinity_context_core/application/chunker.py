@@ -18,6 +18,7 @@ class ChunkTextOptions:
     target_chars: int = 1200
     overlap_chars: int = 120
     min_chars: int = 160
+    line_prefix_scan_chars: int = 240
 
 
 def chunk_text(text: str, options: ChunkTextOptions | None = None) -> tuple[TextChunk, ...]:
@@ -48,7 +49,13 @@ def chunk_text(text: str, options: ChunkTextOptions | None = None) -> tuple[Text
             sequence += 1
         if end >= len(cleaned):
             break
-        start = max(end - opts.overlap_chars, start + 1)
+        proposed_start = max(end - opts.overlap_chars, start + 1)
+        start = _best_start_boundary(
+            cleaned,
+            current_start=start,
+            proposed_start=proposed_start,
+            scan_chars=opts.line_prefix_scan_chars,
+        )
     return tuple(chunks)
 
 
@@ -62,3 +69,25 @@ def _best_boundary(text: str, start: int, hard_end: int, min_chars: int) -> int:
         if idx >= 0:
             return lower_bound + idx + len(marker)
     return hard_end
+
+
+def _best_start_boundary(
+    text: str,
+    *,
+    current_start: int,
+    proposed_start: int,
+    scan_chars: int,
+) -> int:
+    cursor = min(max(proposed_start, current_start + 1), len(text))
+    if scan_chars <= 0 or cursor <= current_start + 1:
+        return cursor
+
+    lower_bound = max(current_start + 1, cursor - scan_chars)
+    line_start = text.rfind("\n", lower_bound, cursor)
+    if line_start < 0:
+        return cursor
+
+    adjusted_start = line_start + 1
+    if adjusted_start <= current_start:
+        return cursor
+    return adjusted_start

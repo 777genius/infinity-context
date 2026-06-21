@@ -26,6 +26,28 @@ def test_query_focused_snippet_selects_window_around_query_terms() -> None:
     assert len(snippet.text) < len(text)
 
 
+def test_query_focused_snippet_preserves_nearby_line_evidence_prefix() -> None:
+    text = (
+        "LoCoMo conv-26 session_4\n\n"
+        "D4:5 Caroline: Yep, Melanie! I've got some other stuff with sentimental "
+        "value, like my hand-painted bowl. A friend made it for my 18th birthday "
+        "ten years ago. The colors remind me of art and self-expression.\n"
+        "D4:6 Melanie: That sounds great, Caroline."
+    )
+
+    snippet = query_focused_snippet(
+        query="How long ago was Caroline's 18th birthday?",
+        text=text,
+        window_chars=90,
+    )
+
+    assert snippet is not None
+    assert "D4:5 Caroline:" in snippet.text
+    assert "18th birthday ten years ago" in snippet.text
+    assert text.index("18th birthday") - text.index("D4:5") > 120
+    assert snippet.char_start == text.index("D4:5")
+
+
 def test_source_refs_with_query_snippet_preserves_location_metadata() -> None:
     source_ref = SourceRef(
         source_type="asset_extraction",

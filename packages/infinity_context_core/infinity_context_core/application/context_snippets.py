@@ -16,6 +16,7 @@ _DEFAULT_WINDOW_CHARS = 320
 _MAX_QUERY_TERMS = 12
 _MAX_SNIPPET_CHARS = 360
 _MAX_BOUNDARY_SCAN_CHARS = 40
+_MAX_LINE_PREFIX_SCAN_CHARS = 240
 
 
 @dataclass(frozen=True)
@@ -50,6 +51,7 @@ def query_focused_snippet(
         window_chars=window,
     )
     start = _left_word_boundary(text, start)
+    start = _left_line_boundary(text, start)
     end = _right_word_boundary(text, end)
     snippet = _render_snippet(text=text, start=start, end=end)
     if not snippet:
@@ -172,6 +174,18 @@ def _left_word_boundary(text: str, start: int) -> int:
     while cursor > 0 and not text[cursor - 1].isspace() and scanned < _MAX_BOUNDARY_SCAN_CHARS:
         cursor -= 1
         scanned += 1
+    return cursor
+
+
+def _left_line_boundary(text: str, start: int) -> int:
+    cursor = max(0, start)
+    if cursor == 0:
+        return 0
+    line_start = text.rfind("\n", max(0, cursor - _MAX_LINE_PREFIX_SCAN_CHARS), cursor)
+    if line_start >= 0:
+        return line_start + 1
+    if cursor <= _MAX_LINE_PREFIX_SCAN_CHARS:
+        return 0
     return cursor
 
 
