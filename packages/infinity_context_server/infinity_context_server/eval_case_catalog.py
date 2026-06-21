@@ -964,7 +964,24 @@ def _quality_golden_cases(
             max_chunks=1,
             consistency_mode="canonical_only",
             require_evidence_guard=False,
-            required_diagnostics=(("items_used", "eq", 0),),
+            required_diagnostics=(
+                ("items_used", "eq", 0),
+                (
+                    "retrieval_quality_summary.answerability_status",
+                    "eq",
+                    "insufficient_context",
+                ),
+                (
+                    "retrieval_quality_summary.recommended_response_policy",
+                    "eq",
+                    "ask_for_more_context",
+                ),
+                (
+                    "retrieval_quality_summary.answerability_reasons",
+                    "contains",
+                    "no_context_items",
+                ),
+            ),
         ),
         EvalCase(
             case_id="identifier_like_query_deflects_partial_marker",
@@ -977,7 +994,24 @@ def _quality_golden_cases(
             max_chunks=0,
             consistency_mode="canonical_only",
             require_evidence_guard=False,
-            required_diagnostics=(("items_used", "eq", 0),),
+            required_diagnostics=(
+                ("items_used", "eq", 0),
+                (
+                    "retrieval_quality_summary.answerability_status",
+                    "eq",
+                    "insufficient_context",
+                ),
+                (
+                    "retrieval_quality_summary.recommended_response_policy",
+                    "eq",
+                    "ask_for_more_context",
+                ),
+                (
+                    "retrieval_quality_summary.answerability_reasons",
+                    "contains",
+                    "no_context_items",
+                ),
+            ),
         ),
     )
 
@@ -1170,7 +1204,24 @@ def _long_memory_golden_cases(
             max_chunks=1,
             consistency_mode="canonical_only",
             require_evidence_guard=False,
-            required_diagnostics=(("items_used", "eq", 0),),
+            required_diagnostics=(
+                ("items_used", "eq", 0),
+                (
+                    "retrieval_quality_summary.answerability_status",
+                    "eq",
+                    "insufficient_context",
+                ),
+                (
+                    "retrieval_quality_summary.recommended_response_policy",
+                    "eq",
+                    "ask_for_more_context",
+                ),
+                (
+                    "retrieval_quality_summary.answerability_reasons",
+                    "contains",
+                    "no_context_items",
+                ),
+            ),
         ),
         EvalCase(
             case_id="long_old_provider_query_resolves_current_fact",

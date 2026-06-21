@@ -39,7 +39,10 @@ from infinity_context_server.eval import (
     run_semantic_linking_golden,
     run_small_golden,
 )
-from infinity_context_server.eval_case_catalog import _quality_golden_cases
+from infinity_context_server.eval_case_catalog import (
+    _long_memory_golden_cases,
+    _quality_golden_cases,
+)
 from infinity_context_server.eval_constants import (
     LONG_MEMORY_REQUIRED_CASE_IDS,
     QUALITY_GOLDEN_REQUIRED_CASE_IDS,
@@ -1371,6 +1374,73 @@ def test_quality_golden_anchor_recall_cases_require_typed_anchor_items() -> None
             ("diagnostics.anchor_identity_profile.event_type", "eq", "call"),
         ),
     )
+
+
+def test_quality_golden_no_candidate_cases_require_abstention_answerability() -> None:
+    cases = {
+        case.case_id: case
+        for case in _quality_golden_cases(
+            space_id="space",
+            alpha_memory_scope_id="alpha",
+            beta_memory_scope_id="beta",
+            current_thread_id="thread_current",
+            other_thread_id="thread_other",
+        )
+    }
+
+    for case_id in (
+        "unrelated_query_returns_no_context_items",
+        "identifier_like_query_deflects_partial_marker",
+    ):
+        required = cases[case_id].required_diagnostics
+        assert ("items_used", "eq", 0) in required
+        assert (
+            "retrieval_quality_summary.answerability_status",
+            "eq",
+            "insufficient_context",
+        ) in required
+        assert (
+            "retrieval_quality_summary.recommended_response_policy",
+            "eq",
+            "ask_for_more_context",
+        ) in required
+        assert (
+            "retrieval_quality_summary.answerability_reasons",
+            "contains",
+            "no_context_items",
+        ) in required
+
+
+def test_long_memory_golden_no_candidate_case_requires_abstention_answerability() -> None:
+    cases = {
+        case.case_id: case
+        for case in _long_memory_golden_cases(
+            space_id="space",
+            alpha_memory_scope_id="alpha",
+            beta_memory_scope_id="beta",
+            kickoff_thread_id="thread_kickoff",
+            current_thread_id="thread_current",
+            other_thread_id="thread_other",
+        )
+    }
+
+    required = cases["long_unknown_query_abstains_without_context"].required_diagnostics
+    assert ("items_used", "eq", 0) in required
+    assert (
+        "retrieval_quality_summary.answerability_status",
+        "eq",
+        "insufficient_context",
+    ) in required
+    assert (
+        "retrieval_quality_summary.recommended_response_policy",
+        "eq",
+        "ask_for_more_context",
+    ) in required
+    assert (
+        "retrieval_quality_summary.answerability_reasons",
+        "contains",
+        "no_context_items",
+    ) in required
 
 
 def test_quality_golden_eval_writes_redacted_report(tmp_path: Path) -> None:
