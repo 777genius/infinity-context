@@ -21,19 +21,23 @@ OPENAI_TRANSCRIPTION_DOCS_URL = "https://developers.openai.com/api/docs/guides/s
 OPENAI_TRANSCRIPTION_ENDPOINT = "/v1/audio/transcriptions"
 OPENAI_TRANSCRIPTION_MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 OPENAI_TRANSCRIPTION_SUPPORTED_FILE_SUFFIXES = (
+    ".flac",
     ".m4a",
     ".mp3",
     ".mp4",
     ".mpeg",
     ".mpga",
+    ".ogg",
     ".wav",
     ".webm",
 )
 OPENAI_TRANSCRIPTION_SUPPORTED_CONTENT_TYPES = (
+    "audio/flac",
     "audio/m4a",
     "audio/mpeg",
     "audio/mpga",
     "audio/mp4",
+    "audio/ogg",
     "audio/vnd.wave",
     "audio/wav",
     "audio/x-wav",
@@ -207,9 +211,11 @@ def _safe_filename(filename: str, content_type: str) -> str:
         return clean
     extension = {
         "audio/m4a": ".m4a",
+        "audio/flac": ".flac",
         "audio/mpeg": ".mp3",
         "audio/mpga": ".mpga",
         "audio/mp4": ".m4a",
+        "audio/ogg": ".ogg",
         "audio/vnd.wave": ".wav",
         "audio/wav": ".wav",
         "audio/x-wav": ".wav",

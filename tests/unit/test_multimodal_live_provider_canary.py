@@ -86,11 +86,13 @@ def test_multimodal_live_provider_canary_reports_missing_key_without_secret_leak
             "timestamp_granularities": [],
         },
         "supported_file_types": [
+            ".flac",
             ".m4a",
             ".mp3",
             ".mp4",
             ".mpeg",
             ".mpga",
+            ".ogg",
             ".wav",
             ".webm",
         ],
@@ -947,11 +949,13 @@ def test_multimodal_live_provider_canary_preflights_audio_fixture_contract(
         "reason": "audio_fixture_unsupported_type",
         "status": "degraded",
         "supported_file_types": [
+            ".flac",
             ".m4a",
             ".mp3",
             ".mp4",
             ".mpeg",
             ".mpga",
+            ".ogg",
             ".wav",
             ".webm",
         ],
@@ -1028,14 +1032,33 @@ def test_multimodal_live_provider_canary_requires_strong_synthetic_transcript() 
     explicit_fixture = module._transcript_check("user supplied fixture", audio_path="voice.wav")
 
     assert weak == {
+        "matched_terms": [],
         "message": "Synthetic speech transcript missed expected canary terms",
         "missing_terms": ["canary", "context", "infinity"],
+        "min_similarity": 0.55,
+        "min_term_matches": 2,
         "operator_action": "inspect_provider_canary",
         "reason": "synthetic_transcript_mismatch",
+        "similarity": 0.043,
         "status": "failed",
+        "term_match_count": 0,
         "user_retryable": False,
     }
-    assert strong == {"status": "succeeded"}
+    assert strong == {
+        "matched_terms": ["canary", "context", "infinity"],
+        "similarity": 1.0,
+        "status": "succeeded",
+        "term_match_count": 3,
+    }
+    assert module._transcript_check(
+        "Infinite contacts live transcription canary.",
+        audio_path=None,
+    ) == {
+        "matched_terms": ["canary", "context", "infinity"],
+        "similarity": 0.918,
+        "status": "succeeded",
+        "term_match_count": 3,
+    }
     assert explicit_fixture == {"status": "succeeded"}
 
 

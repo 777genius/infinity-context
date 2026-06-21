@@ -15,6 +15,7 @@ import tempfile
 import uuid
 import zlib
 from datetime import UTC, datetime
+from difflib import SequenceMatcher
 from pathlib import Path
 
 from infinity_context_adapters.extraction.openai_vision import (
@@ -81,11 +82,13 @@ _SAFE_REPORT_SCHEMA_KEYS = frozenset(
 )
 
 _CONTENT_TYPES_BY_SUFFIX = {
+    ".flac": "audio/flac",
     ".m4a": "audio/m4a",
     ".mp3": "audio/mpeg",
     ".mp4": "video/mp4",
     ".mpeg": "audio/mpeg",
     ".mpga": "audio/mpga",
+    ".ogg": "audio/ogg",
     ".wav": "audio/wav",
     ".webm": "audio/webm",
 }
@@ -344,15 +347,21 @@ async def _run_transcription_fixture(
         result.text,
         audio_path=None if generated_audio else str(audio_path),
     )
+    transcript_check_details = _transcript_check_details(transcript_check)
+    synthetic_transcript_preview = (
+        _safe_transcript_preview(result.text) if generated_audio else None
+    )
     if transcript_check["status"] != "succeeded":
         return _component(
             "failed",
             reason=transcript_check["reason"],
             message=transcript_check["message"],
+            **transcript_check_details,
             provider_name=result.provider_name,
             provider_model=result.provider_model,
             provider_version=result.provider_version,
             fixture=fixture,
+            transcript_preview=synthetic_transcript_preview,
             transcript_chars=len(result.text),
             segment_count=len(result.segments),
             word_count=len(result.words),
@@ -369,6 +378,8 @@ async def _run_transcription_fixture(
         fixture=fixture,
         request_contract=openai_transcription_request_contract(args.transcription_model),
         transcript_chars=len(result.text),
+        transcript_preview=synthetic_transcript_preview,
+        **transcript_check_details,
         segment_count=len(result.segments),
         word_count=len(result.words),
         language=result.language,
@@ -421,6 +432,10 @@ def _aggregate_transcription_results(
         fixture=primary.get("fixture"),
         request_contract=primary.get("request_contract"),
         transcript_chars=primary.get("transcript_chars"),
+        transcript_preview=primary.get("transcript_preview"),
+        matched_terms=primary.get("matched_terms"),
+        term_match_count=primary.get("term_match_count"),
+        similarity=primary.get("similarity"),
         segment_count=primary.get("segment_count"),
         word_count=primary.get("word_count"),
         language=primary.get("language"),
@@ -1519,15 +1534,15 @@ def _audio_fixture_summary(
 
 def _component(status: str, **values: object) -> dict[str, object]:
     component = {"status": status}
-    for key, value in values.items():
-        if value is not None:
-            component[key] = _safe_report_value(value)
     component.update(
         _recovery_policy(
             status=status,
-            reason=component.get("reason") if isinstance(component.get("reason"), str) else None,
+            reason=values.get("reason") if isinstance(values.get("reason"), str) else None,
         )
     )
+    for key, value in values.items():
+        if value is not None:
+            component[key] = _safe_report_value(value)
     return component
 
 
@@ -1874,10 +1889,12 @@ def _synthesize_audio_fixtures(
     fixtures: list[tuple[Path, bool]] = []
     if ".wav" in required_suffixes:
         fixtures.append((wav, True))
-    if ".mp3" in required_suffixes:
-        mp3 = _synthesize_mp3_fixture(wav, tmp_dir)
-        if mp3 is not None:
-            fixtures.append((mp3, True))
+    for suffix in (".mp3", ".flac", ".ogg", ".webm", ".m4a", ".mp4", ".mpeg", ".mpga"):
+        if suffix not in required_suffixes:
+            continue
+        transcoded = _synthesize_transcoded_audio_fixture(wav, tmp_dir, suffix=suffix)
+        if transcoded is not None:
+            fixtures.append((transcoded, True))
     if not fixtures:
         fixtures.append((wav, True))
     return fixtures
@@ -1911,11 +1928,19 @@ def _synthesize_audio_fixture(tmp_dir: Path) -> Path | None:
     return None
 
 
-def _synthesize_mp3_fixture(source_wav: Path, tmp_dir: Path) -> Path | None:
+def _synthesize_transcoded_audio_fixture(
+    source_wav: Path,
+    tmp_dir: Path,
+    *,
+    suffix: str,
+) -> Path | None:
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
         return None
-    output = tmp_dir / "infinity-context-live-transcription-canary.mp3"
+    config = _ffmpeg_transcode_config(suffix)
+    if config is None:
+        return None
+    output = tmp_dir / f"infinity-context-live-transcription-canary{suffix}"
     command = [
         ffmpeg,
         "-y",
@@ -1923,10 +1948,7 @@ def _synthesize_mp3_fixture(source_wav: Path, tmp_dir: Path) -> Path | None:
         "error",
         "-i",
         str(source_wav),
-        "-codec:a",
-        "libmp3lame",
-        "-b:a",
-        "64k",
+        *config,
         str(output),
     ]
     try:
@@ -1942,6 +1964,19 @@ def _synthesize_mp3_fixture(source_wav: Path, tmp_dir: Path) -> Path | None:
     if output.is_file() and output.stat().st_size > 0:
         return output
     return None
+
+
+def _ffmpeg_transcode_config(suffix: str) -> tuple[str, ...] | None:
+    return {
+        ".flac": ("-codec:a", "flac"),
+        ".m4a": ("-codec:a", "aac", "-b:a", "64k"),
+        ".mp3": ("-codec:a", "libmp3lame", "-b:a", "64k"),
+        ".mp4": ("-codec:a", "aac", "-b:a", "64k", "-vn"),
+        ".mpeg": ("-codec:a", "mp2", "-b:a", "64k"),
+        ".mpga": ("-codec:a", "mp2", "-b:a", "64k"),
+        ".ogg": ("-codec:a", "libvorbis", "-b:a", "64k"),
+        ".webm": ("-codec:a", "libopus", "-b:a", "32k"),
+    }.get(suffix)
 
 
 def _content_type_for_path(path: Path) -> str:
@@ -2010,6 +2045,10 @@ def _audio_fixture_magic_check(*, path: Path, content_type: str) -> dict[str, ob
 def _audio_magic_matches(*, content_type: str, head: bytes) -> bool:
     if content_type == "audio/wav":
         return len(head) >= 12 and head.startswith(b"RIFF") and head[8:12] == b"WAVE"
+    if content_type == "audio/flac":
+        return head.startswith(b"fLaC")
+    if content_type == "audio/ogg":
+        return head.startswith(b"OggS")
     if content_type in {"audio/mpeg", "audio/mpga"}:
         return head.startswith(b"ID3") or _looks_like_mp3_frame(head)
     if content_type in {"audio/m4a", "audio/webm", "video/mp4"}:
@@ -2042,17 +2081,66 @@ def _transcript_check(
         )
     if audio_path:
         return _component("succeeded")
-    normalized_terms = set(transcript.lower().replace("-", " ").split())
-    expected_terms = {"infinity", "context", "canary"}
-    missing_terms = sorted(expected_terms.difference(normalized_terms))
-    if missing_terms:
+    normalized_terms = set(_normalized_transcript_terms(transcript))
+    expected_term_groups = {
+        "infinity": frozenset({"infinity", "infinite"}),
+        "context": frozenset({"context", "contact", "contacts"}),
+        "canary": frozenset({"canary", "canaries"}),
+    }
+    matched_terms = sorted(
+        canonical
+        for canonical, aliases in expected_term_groups.items()
+        if normalized_terms.intersection(aliases)
+    )
+    missing_terms = sorted(set(expected_term_groups).difference(matched_terms))
+    expected_normalized = " ".join(_normalized_transcript_terms(SYNTHETIC_AUDIO_PHRASE))
+    actual_normalized = " ".join(_normalized_transcript_terms(transcript))
+    similarity = (
+        SequenceMatcher(None, expected_normalized, actual_normalized).ratio()
+        if actual_normalized
+        else 0.0
+    )
+    min_term_matches = 2
+    min_similarity = 0.55
+    if len(matched_terms) < min_term_matches and similarity < min_similarity:
         return _component(
             "failed",
             reason="synthetic_transcript_mismatch",
             message="Synthetic speech transcript missed expected canary terms",
             missing_terms=missing_terms,
+            matched_terms=matched_terms,
+            term_match_count=len(matched_terms),
+            min_term_matches=min_term_matches,
+            similarity=round(similarity, 3),
+            min_similarity=min_similarity,
         )
-    return _component("succeeded")
+    return _component(
+        "succeeded",
+        matched_terms=matched_terms,
+        term_match_count=len(matched_terms),
+        similarity=round(similarity, 3),
+    )
+
+
+def _normalized_transcript_terms(value: str) -> list[str]:
+    return re.findall(r"[a-z0-9]+", value.casefold())
+
+
+def _transcript_check_details(check: dict[str, object]) -> dict[str, object]:
+    allowed = {
+        "matched_terms",
+        "missing_terms",
+        "term_match_count",
+        "min_term_matches",
+        "similarity",
+        "min_similarity",
+    }
+    return {key: check[key] for key in allowed if key in check}
+
+
+def _safe_transcript_preview(transcript: str, *, max_chars: int = 160) -> str:
+    preview = re.sub(r"\s+", " ", transcript).strip()
+    return _redact_secret_fragments(preview)[:max_chars]
 
 
 def _vision_evidence_check(

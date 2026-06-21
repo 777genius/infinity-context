@@ -59,7 +59,7 @@ REQUIRED_DOCKER_FILES = frozenset(
     }
 )
 REQUIRED_OPENAI_AUDIO_SUFFIXES = frozenset(
-    {".m4a", ".mp3", ".mp4", ".mpeg", ".mpga", ".wav", ".webm"}
+    {".flac", ".m4a", ".mp3", ".mp4", ".mpeg", ".mpga", ".ogg", ".wav", ".webm"}
 )
 REQUIRED_OPENAI_VISION_SUFFIXES = frozenset({".gif", ".jpeg", ".jpg", ".png", ".webp"})
 REQUIRED_OPENAI_VISION_BASE_DETAIL_LEVELS = frozenset({"low", "high", "auto"})
