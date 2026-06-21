@@ -65,6 +65,39 @@ def test_query_relevance_expands_relationship_context_terms() -> None:
     assert is_query_relevance_sufficient(relevance) is True
 
 
+def test_query_relevance_expands_activity_category_intent() -> None:
+    relevance = score_query_relevance(
+        query="What activities has Melanie done with her family?",
+        text="D8:4 Melanie: The kids made pottery pieces from clay.",
+    )
+
+    assert relevance.unique_term_hits >= 3
+    assert relevance.distinctive_term_hits >= 3
+    assert is_query_relevance_sufficient(relevance) is True
+
+
+def test_query_relevance_expands_lgbtq_participation_intent() -> None:
+    relevance = score_query_relevance(
+        query="What LGBTQ events did Caroline participate in?",
+        text="D8:17 Caroline: A special memory was the pride parade march.",
+    )
+
+    assert relevance.unique_term_hits >= 3
+    assert relevance.distinctive_term_hits >= 3
+    assert is_query_relevance_sufficient(relevance) is True
+
+
+def test_query_relevance_expands_preference_intent() -> None:
+    relevance = score_query_relevance(
+        query="What do Melanie's kids like?",
+        text="D6:6 Melanie: They love learning about animals and dinosaur bones.",
+    )
+
+    assert relevance.unique_term_hits >= 2
+    assert relevance.distinctive_term_hits >= 2
+    assert is_query_relevance_sufficient(relevance) is True
+
+
 def test_query_relevance_matches_underscore_metadata_parts() -> None:
     relevance = score_query_relevance(
         query="api key rotation",

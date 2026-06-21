@@ -486,6 +486,57 @@ def test_public_memory_benchmark_accepts_official_locomo_shape(tmp_path: Path) -
     assert result["cases"][0]["case_id"] == "conv-mini:qa:1"
 
 
+def test_public_memory_benchmark_indexes_official_locomo_visual_queries(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "locomo10-visual-query-mini.json"
+    dataset.write_text(
+        json.dumps(
+            [
+                {
+                    "sample_id": "conv-visual-query-mini",
+                    "conversation": {
+                        "session_1_date_time": "7 May 2023",
+                        "session_1": [
+                            {
+                                "speaker": "Melanie",
+                                "dia_id": "D1:12",
+                                "text": "I made something new. Take a look at this.",
+                                "blip_caption": (
+                                    "a photo of a painting of a sunset over a lake"
+                                ),
+                                "query": "painting sunrise",
+                            }
+                        ],
+                    },
+                    "qa": [
+                        {
+                            "question": "What creative activity did Melanie show?",
+                            "answer": "painting sunrise",
+                            "evidence": ["D1:12"],
+                            "category": 2,
+                        }
+                    ],
+                    "event_summary": [],
+                    "observation": [],
+                    "session_summary": [],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    case = _load_cases(dataset)[0]
+    session_doc = next(
+        document for document in case.documents if document.source_type == "locomo_session"
+    )
+    result = run_public_memory_benchmark(dataset_path=dataset, min_accuracy=1.0)
+
+    assert "D1:12 Melanie image caption: a photo of a painting" in session_doc.text
+    assert "D1:12 Melanie visual query: painting sunrise" in session_doc.text
+    assert result["ok"] is True
+
+
 def test_public_memory_benchmark_indexes_official_locomo_observations(
     tmp_path: Path,
 ) -> None:

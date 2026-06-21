@@ -757,12 +757,24 @@ def _official_locomo_evidence_lookup(raw: Mapping[str, object]) -> dict[str, str
             if not isinstance(turn, Mapping):
                 continue
             dia_id = _first_str(turn, "dia_id", "id")
-            text = _first_str(turn, "text", "content", "utterance")
-            caption = _first_str(turn, "blip_caption", "caption")
-            evidence_text = text or caption
+            evidence_text = "\n".join(_official_locomo_turn_evidence_parts(turn))
             if dia_id and evidence_text:
                 lookup[dia_id] = evidence_text
     return lookup
+
+
+def _official_locomo_turn_evidence_parts(turn: Mapping[str, object]) -> tuple[str, ...]:
+    text = _first_str(turn, "text", "content", "utterance")
+    caption = _first_str(turn, "blip_caption", "caption")
+    visual_query = _first_str(turn, "query", "image_query", "visual_query")
+    parts: list[str] = []
+    if text:
+        parts.append(text)
+    if caption:
+        parts.append(f"image caption: {caption}")
+    if visual_query:
+        parts.append(f"visual query: {visual_query}")
+    return tuple(_unique(parts))
 
 
 def _official_locomo_session_turns(
@@ -783,9 +795,7 @@ def _official_locomo_session_turns(
             if not isinstance(turn, Mapping):
                 continue
             dia_id = _first_str(turn, "dia_id", "id")
-            text = _first_str(turn, "text", "content", "utterance")
-            caption = _first_str(turn, "blip_caption", "caption")
-            evidence_text = text or caption
+            evidence_text = "\n".join(_official_locomo_turn_evidence_parts(turn))
             if not dia_id or not evidence_text:
                 continue
             session_turns.append(
@@ -840,12 +850,15 @@ def _official_locomo_documents(
             dia_id = _first_str(turn, "dia_id", "id")
             speaker = _first_str(turn, "speaker", "role", "author") or "speaker"
             text = _first_str(turn, "text", "content", "utterance")
+            prefix = f"{dia_id} " if dia_id else ""
             if text:
-                prefix = f"{dia_id} " if dia_id else ""
                 lines.append(f"{prefix}{speaker}: {text}")
             caption = _first_str(turn, "blip_caption", "caption")
             if caption:
-                lines.append(f"{speaker} image caption: {caption}")
+                lines.append(f"{prefix}{speaker} image caption: {caption}")
+            visual_query = _first_str(turn, "query", "image_query", "visual_query")
+            if visual_query:
+                lines.append(f"{prefix}{speaker} visual query: {visual_query}")
         if len(lines) > 1:
             documents.append(
                 BenchmarkDocumentInput(
