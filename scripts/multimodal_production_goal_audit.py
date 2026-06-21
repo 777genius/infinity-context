@@ -132,6 +132,7 @@ class GoalAuditResult:
     failures: tuple[str, ...]
     reports: dict[str, object]
     git: dict[str, object]
+    environment: dict[str, object]
     blocked_requirements: tuple[dict[str, object], ...] = ()
     not_evaluable_checks: tuple[str, ...] = ()
 
@@ -146,6 +147,7 @@ class GoalAuditResult:
             "not_evaluable_checks": list(self.not_evaluable_checks),
             "reports": dict(self.reports),
             "git": dict(self.git),
+            "environment": dict(self.environment),
             "secrets_redacted": True,
         }
 
@@ -181,6 +183,7 @@ def run_goal_audit(
     quality_scorecard_report: Path = Path(DEFAULT_QUALITY_SCORECARD_REPORT),
     require_clean_git: bool = True,
     git: Mapping[str, object] | None = None,
+    environment: Mapping[str, object] | None = None,
 ) -> GoalAuditResult:
     root = root.resolve()
     frontend = _load_report(root / frontend_report)
@@ -188,6 +191,9 @@ def run_goal_audit(
     provider = _load_report(root / provider_report)
     quality_scorecard = _load_report(root / quality_scorecard_report)
     git = dict(git) if git is not None else _git_info(root)
+    environment = (
+        dict(environment) if environment is not None else _provider_credential_environment()
+    )
 
     checks: dict[str, bool] = {}
     failures: list[str] = []
@@ -227,6 +233,7 @@ def run_goal_audit(
     _audit_provider_report(
         provider,
         current_commit=current_commit,
+        environment=environment,
         checks=checks,
         failures=failures,
     )
@@ -271,6 +278,7 @@ def run_goal_audit(
         failures=tuple(failures),
         reports=reports,
         git=git,
+        environment=dict(environment),
         blocked_requirements=blocked_requirements,
         not_evaluable_checks=_not_evaluable_checks(blocked_requirements),
     )
@@ -672,6 +680,7 @@ def _audit_provider_report(
     report: Mapping[str, object] | None,
     *,
     current_commit: str,
+    environment: Mapping[str, object],
     checks: dict[str, bool],
     failures: list[str],
 ) -> None:
@@ -718,6 +727,14 @@ def _audit_provider_report(
         "live_provider_current_commit",
         bool(current_commit) and git.get("commit") == current_commit,
         "Live provider proof must be generated for the current git commit",
+    )
+    _check(
+        checks,
+        failures,
+        "live_provider_credential_configured_for_rerun",
+        (bool(current_commit) and git.get("commit") == current_commit)
+        or environment.get("provider_credential_configured") is True,
+        "Live provider proof is stale and no provider credential is configured for rerun",
     )
     _check(
         checks,
@@ -1420,6 +1437,18 @@ def _git_info(root: Path) -> dict[str, object]:
         "commit": commit,
         "short_commit": short_commit,
         "dirty": bool(dirty),
+    }
+
+
+def _provider_credential_environment() -> dict[str, object]:
+    env_key_present = bool(
+        os.environ.get("MEMORY_OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    )
+    key_file_configured = bool(os.environ.get("MEMORY_OPENAI_API_KEY_FILE"))
+    return {
+        "provider_credential_configured": env_key_present or key_file_configured,
+        "provider_credential_env_key_present": env_key_present,
+        "provider_credential_key_file_configured": key_file_configured,
     }
 
 

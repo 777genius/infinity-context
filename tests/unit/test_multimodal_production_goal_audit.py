@@ -36,6 +36,7 @@ def test_multimodal_production_goal_audit_accepts_complete_proof(tmp_path: Path)
         provider_report=provider_report.relative_to(tmp_path),
         require_clean_git=False,
         git={"commit": "abc", "short_commit": "abc", "dirty": False},
+        environment={"provider_credential_configured": False},
     )
 
     payload = result.as_dict()
@@ -48,7 +49,9 @@ def test_multimodal_production_goal_audit_accepts_complete_proof(tmp_path: Path)
     assert all(result.checks.values())
     assert result.checks["live_provider_proof_matrix_timeout_live_probe"] is True
     assert result.checks["live_provider_proof_matrix_timeout_live_probe_observed"] is True
+    assert result.checks["live_provider_credential_configured_for_rerun"] is True
     assert payload["suite"] == "infinity-context-multimodal-production-goal-audit"
+    assert payload["environment"]["provider_credential_configured"] is False
     assert payload["secrets_redacted"] is True
 
 
@@ -458,17 +461,22 @@ def test_multimodal_production_goal_audit_rejects_stale_report_commits(
         provider_report=provider_report.relative_to(tmp_path),
         require_clean_git=False,
         git={"commit": "current", "short_commit": "current", "dirty": False},
+        environment={"provider_credential_configured": False},
     )
 
     assert result.ok is False
     assert result.checks["frontend_marionette_current_commit"] is False
     assert result.checks["docker_live_current_commit"] is False
     assert result.checks["live_provider_current_commit"] is False
+    assert result.checks["live_provider_credential_configured_for_rerun"] is False
     assert result.checks["memory_quality_scorecard_current_commit"] is False
     assert any(
         "Frontend Marionette proof must be generated" in failure for failure in result.failures
     )
     assert any("Docker live proof must be generated" in failure for failure in result.failures)
+    assert any(
+        "no provider credential is configured" in failure for failure in result.failures
+    )
     assert any(
         "Memory quality scorecard must be generated" in failure
         for failure in result.failures
