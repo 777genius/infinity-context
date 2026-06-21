@@ -580,7 +580,25 @@ def test_multimodal_live_provider_canary_timeout_probe_succeeds_on_timeout(
             diagnostics={"request_timeout_seconds": args.timeout_seconds},
         )
 
+    async def fake_run_timeout_transcription_probe(
+        *,
+        api_key: str,
+        args: object,
+    ) -> dict[str, object]:
+        assert api_key == "sk-test-provider-key"
+        observed_timeouts.append(args.timeout_seconds)
+        return module._component(
+            "failed",
+            reason="asset_extraction.transcription.timeout",
+            diagnostics={"request_timeout_seconds": args.timeout_seconds},
+        )
+
     monkeypatch.setattr(module, "_run_vision", fake_run_vision)
+    monkeypatch.setattr(
+        module,
+        "_run_timeout_transcription_probe",
+        fake_run_timeout_transcription_probe,
+    )
 
     result = asyncio.run(
         module._run_timeout_probe(
@@ -589,10 +607,18 @@ def test_multimodal_live_provider_canary_timeout_probe_succeeds_on_timeout(
         )
     )
 
-    assert observed_timeouts == [0.001]
+    assert observed_timeouts == [0.001, 0.001]
     assert result["status"] == "succeeded"
     assert result["proof"] == "live_timeout_call"
-    assert result["observed_reason"] == "asset_extraction.vision.timeout"
+    assert result["observed_reason"] == (
+        "vision:asset_extraction.vision.timeout; "
+        "transcription:asset_extraction.transcription.timeout"
+    )
+    assert result["observed_reasons"] == {
+        "vision": "asset_extraction.vision.timeout",
+        "transcription": "asset_extraction.transcription.timeout",
+    }
+    assert result["provider_probe_count"] == 2
     assert result["requires_provider_key"] is True
 
 
@@ -612,7 +638,23 @@ def test_multimodal_live_provider_canary_timeout_probe_rejects_non_timeout(
             diagnostics={"request_timeout_seconds": args.timeout_seconds},
         )
 
+    async def fake_run_timeout_transcription_probe(
+        *,
+        api_key: str,
+        args: object,
+    ) -> dict[str, object]:
+        return module._component(
+            "failed",
+            reason="asset_extraction.transcription.timeout",
+            diagnostics={"request_timeout_seconds": args.timeout_seconds},
+        )
+
     monkeypatch.setattr(module, "_run_vision", fake_run_vision)
+    monkeypatch.setattr(
+        module,
+        "_run_timeout_transcription_probe",
+        fake_run_timeout_transcription_probe,
+    )
 
     result = asyncio.run(
         module._run_timeout_probe(
@@ -623,7 +665,15 @@ def test_multimodal_live_provider_canary_timeout_probe_rejects_non_timeout(
 
     assert result["status"] == "failed"
     assert result["reason"] == "timeout_probe_unexpected_result"
-    assert result["observed_reason"] == "asset_extraction.vision.rate_limited"
+    assert result["observed_reason"] == (
+        "vision:asset_extraction.vision.rate_limited; "
+        "transcription:asset_extraction.transcription.timeout"
+    )
+    assert result["observed_reasons"] == {
+        "vision": "asset_extraction.vision.rate_limited",
+        "transcription": "asset_extraction.transcription.timeout",
+    }
+    assert result["failed_providers"] == ["vision"]
     assert result["timeout_seconds"] == 0.25
 
 
@@ -707,7 +757,15 @@ def test_multimodal_live_provider_canary_proof_matrix_tracks_live_artifacts() ->
             "invalid_key_probe": {"status": "skipped"},
             "timeout_probe": {
                 "status": "succeeded",
-                "observed_reason": "asset_extraction.vision.timeout",
+                "observed_reason": (
+                    "vision:asset_extraction.vision.timeout; "
+                    "transcription:asset_extraction.transcription.timeout"
+                ),
+                "observed_reasons": {
+                    "vision": "asset_extraction.vision.timeout",
+                    "transcription": "asset_extraction.transcription.timeout",
+                },
+                "provider_probe_count": 2,
                 "timeout_seconds": 0.001,
             },
         },
@@ -733,7 +791,15 @@ def test_multimodal_live_provider_canary_proof_matrix_tracks_live_artifacts() ->
                     "invalid_key_probe": {"status": "skipped"},
                     "timeout_probe": {
                         "status": "succeeded",
-                        "observed_reason": "asset_extraction.vision.timeout",
+                        "observed_reason": (
+                            "vision:asset_extraction.vision.timeout; "
+                            "transcription:asset_extraction.transcription.timeout"
+                        ),
+                        "observed_reasons": {
+                            "vision": "asset_extraction.vision.timeout",
+                            "transcription": "asset_extraction.transcription.timeout",
+                        },
+                        "provider_probe_count": 2,
                         "timeout_seconds": 0.001,
                     },
                 },
@@ -773,8 +839,16 @@ def test_multimodal_live_provider_canary_proof_matrix_tracks_live_artifacts() ->
     }
     assert proof["requirements"]["timeout_live_probe"] == {
         "ok": True,
-        "observed_reason": "asset_extraction.vision.timeout",
+        "observed_reason": (
+            "vision:asset_extraction.vision.timeout; "
+            "transcription:asset_extraction.transcription.timeout"
+        ),
+        "observed_reasons": {
+            "transcription": "asset_extraction.transcription.timeout",
+            "vision": "asset_extraction.vision.timeout",
+        },
         "proof": "live_timeout_call",
+        "provider_probe_count": 2,
         "requires_provider_key": True,
         "status": "succeeded",
         "timeout_seconds": 0.001,

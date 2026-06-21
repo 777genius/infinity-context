@@ -609,40 +609,88 @@ async def _run_timeout_probe(
     probe_args = argparse.Namespace(**vars(args))
     probe_args.timeout_seconds = _timeout_probe_seconds(args)
     vision_result = await _run_vision(api_key=api_key, args=probe_args)
-    probe_result = _timeout_probe_result(vision_result)
-    if probe_result["ok"] is True:
+    transcription_result = await _run_timeout_transcription_probe(
+        api_key=api_key,
+        args=probe_args,
+    )
+    provider_results = {
+        "vision": _timeout_probe_result(vision_result),
+        "transcription": _timeout_probe_result(transcription_result),
+    }
+    failed_providers = [
+        provider for provider, result in provider_results.items() if result["ok"] is not True
+    ]
+    observed_reasons = {
+        provider: str(result["reason"])
+        for provider, result in provider_results.items()
+        if isinstance(result.get("reason"), str) and result["reason"]
+    }
+    observed_statuses = {
+        provider: str(result["status"])
+        for provider, result in provider_results.items()
+        if isinstance(result.get("status"), str) and result["status"]
+    }
+    diagnostics = {
+        provider: _safe_diagnostics(
+            raw_result.get("diagnostics")
+            if isinstance(raw_result.get("diagnostics"), dict)
+            else {}
+        )
+        for provider, raw_result in (
+            ("vision", vision_result),
+            ("transcription", transcription_result),
+        )
+    }
+    observed_reason = "; ".join(
+        f"{provider}:{reason}" for provider, reason in observed_reasons.items()
+    )
+    if not failed_providers:
         return _component(
             "succeeded",
             proof="live_timeout_call",
             probe_mode=probe_mode,
             requires_provider_key=True,
-            provider="vision",
             timeout_seconds=probe_args.timeout_seconds,
-            observed_reason=probe_result["reason"],
-            observed_status=probe_result["status"],
-            diagnostics=_safe_diagnostics(
-                vision_result.get("diagnostics")
-                if isinstance(vision_result.get("diagnostics"), dict)
-                else {}
-            ),
+            observed_reason=observed_reason,
+            observed_reasons=observed_reasons,
+            observed_statuses=observed_statuses,
+            provider_probe_count=len(provider_results),
+            diagnostics=diagnostics,
         )
     return _component(
         "failed",
         reason="timeout_probe_unexpected_result",
-        message="Live timeout probe did not produce timeout classification",
+        message=(
+            "Live timeout probe did not produce timeout classification for "
+            "every provider endpoint"
+        ),
         proof="live_timeout_call",
         probe_mode=probe_mode,
         requires_provider_key=True,
-        provider="vision",
         timeout_seconds=probe_args.timeout_seconds,
-        observed_reason=probe_result["reason"],
-        observed_status=probe_result["status"],
-        diagnostics=_safe_diagnostics(
-            vision_result.get("diagnostics")
-            if isinstance(vision_result.get("diagnostics"), dict)
-            else {}
-        ),
+        observed_reason=observed_reason,
+        observed_reasons=observed_reasons,
+        observed_statuses=observed_statuses,
+        failed_providers=failed_providers,
+        provider_probe_count=len(provider_results),
+        diagnostics=diagnostics,
     )
+
+
+async def _run_timeout_transcription_probe(
+    *,
+    api_key: str,
+    args: argparse.Namespace,
+) -> dict[str, object]:
+    with tempfile.TemporaryDirectory(prefix="infinity-context-timeout-asr-") as tmp:
+        audio_path = Path(tmp) / "timeout-probe.wav"
+        audio_path.write_bytes(_sample_wav_bytes())
+        return await _run_transcription_fixture(
+            api_key=api_key,
+            args=args,
+            audio_path=audio_path,
+            generated_audio=False,
+        )
 
 
 def _timeout_probe_result(result: dict[str, object]) -> dict[str, object]:
@@ -1445,22 +1493,40 @@ def _timeout_probe_requirement(
         if isinstance(component.get("observed_reason"), str)
         else None
     )
+    observed_reasons = (
+        component.get("observed_reasons")
+        if isinstance(component.get("observed_reasons"), dict)
+        else {}
+    )
     reason = component.get("reason") if isinstance(component.get("reason"), str) else None
     timeout_seconds = (
         component.get("timeout_seconds")
         if isinstance(component.get("timeout_seconds"), int | float)
         else None
     )
+    provider_timeout_reasons_ok = _provider_timeout_reasons_ok(observed_reasons)
+    provider_probe_count = component.get("provider_probe_count")
     return {
         "status": status,
         "proof": "live_timeout_call",
         "requires_provider_key": True,
-        "ok": status == "succeeded" and isinstance(observed_reason, str)
-        and ".timeout" in observed_reason,
+        "ok": status == "succeeded" and provider_timeout_reasons_ok,
         **({"reason": reason} if reason else {}),
         **({"observed_reason": observed_reason} if observed_reason else {}),
+        **({"observed_reasons": observed_reasons} if observed_reasons else {}),
+        **({"provider_probe_count": provider_probe_count} if provider_probe_count else {}),
         **({"timeout_seconds": timeout_seconds} if timeout_seconds is not None else {}),
     }
+
+
+def _provider_timeout_reasons_ok(observed_reasons: object) -> bool:
+    if not isinstance(observed_reasons, dict):
+        return False
+    return all(
+        isinstance(observed_reasons.get(provider), str)
+        and ".timeout" in str(observed_reasons[provider])
+        for provider in ("vision", "transcription")
+    )
 
 
 def _readiness_summary(report: dict[str, object]) -> dict[str, object]:

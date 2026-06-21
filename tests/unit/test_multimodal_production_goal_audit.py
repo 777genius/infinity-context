@@ -49,6 +49,12 @@ def test_multimodal_production_goal_audit_accepts_complete_proof(tmp_path: Path)
     assert all(result.checks.values())
     assert result.checks["live_provider_proof_matrix_timeout_live_probe"] is True
     assert result.checks["live_provider_proof_matrix_timeout_live_probe_observed"] is True
+    assert (
+        result.checks[
+            "live_provider_proof_matrix_timeout_probe_covers_vision_and_transcription"
+        ]
+        is True
+    )
     assert result.checks["live_provider_credential_configured_for_rerun"] is True
     assert payload["suite"] == "infinity-context-multimodal-production-goal-audit"
     assert payload["environment"]["provider_credential_configured"] is False
@@ -731,6 +737,53 @@ def test_multimodal_production_goal_audit_requires_live_timeout_probe(
     assert result.ok is False
     assert result.checks["live_provider_proof_matrix_timeout_live_probe"] is False
     assert result.checks["live_provider_proof_matrix_timeout_live_probe_observed"] is False
+    assert (
+        result.checks[
+            "live_provider_proof_matrix_timeout_probe_covers_vision_and_transcription"
+        ]
+        is False
+    )
+    assert any("timeout probe" in failure for failure in result.failures)
+
+
+def test_multimodal_production_goal_audit_requires_timeout_probe_for_both_providers(
+    tmp_path: Path,
+) -> None:
+    module = _load_module()
+    _write_core(tmp_path)
+    frontend_report = tmp_path / "frontend.json"
+    docker_report = tmp_path / "docker.json"
+    provider_report = tmp_path / "provider.json"
+    provider = _provider_report()
+    proof_matrix = provider["proof_matrix"]
+    assert isinstance(proof_matrix, dict)
+    requirements = proof_matrix["requirements"]
+    assert isinstance(requirements, dict)
+    timeout_live_probe = requirements["timeout_live_probe"]
+    assert isinstance(timeout_live_probe, dict)
+    timeout_live_probe["observed_reasons"] = {
+        "vision": "asset_extraction.vision.timeout",
+    }
+    frontend_report.write_text(json.dumps(_frontend_report()), encoding="utf-8")
+    docker_report.write_text(json.dumps(_docker_report()), encoding="utf-8")
+    provider_report.write_text(json.dumps(provider), encoding="utf-8")
+
+    result = module.run_goal_audit(
+        root=tmp_path,
+        frontend_report=frontend_report.relative_to(tmp_path),
+        docker_report=docker_report.relative_to(tmp_path),
+        provider_report=provider_report.relative_to(tmp_path),
+        require_clean_git=False,
+        git={"commit": "abc", "short_commit": "abc", "dirty": False},
+    )
+
+    assert result.ok is False
+    assert (
+        result.checks[
+            "live_provider_proof_matrix_timeout_probe_covers_vision_and_transcription"
+        ]
+        is False
+    )
     assert any("timeout probe" in failure for failure in result.failures)
 
 
@@ -1370,7 +1423,15 @@ def _provider_proof_matrix() -> dict[str, object]:
                 "proof": "live_timeout_call",
                 "requires_provider_key": True,
                 "ok": True,
-                "observed_reason": "asset_extraction.vision.timeout",
+                "observed_reason": (
+                    "vision:asset_extraction.vision.timeout; "
+                    "transcription:asset_extraction.transcription.timeout"
+                ),
+                "observed_reasons": {
+                    "vision": "asset_extraction.vision.timeout",
+                    "transcription": "asset_extraction.transcription.timeout",
+                },
+                "provider_probe_count": 2,
                 "timeout_seconds": 0.001,
             },
             "vision_fixture_contract": {

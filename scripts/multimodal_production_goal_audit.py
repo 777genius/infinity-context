@@ -953,6 +953,16 @@ def _audit_provider_proof_matrix(
         else {}
     )
     timeout_observed_reason = timeout_probe.get("observed_reason")
+    timeout_observed_reasons = (
+        timeout_probe.get("observed_reasons")
+        if isinstance(timeout_probe.get("observed_reasons"), dict)
+        else {}
+    )
+    timeout_provider_reasons_ok = all(
+        isinstance(timeout_observed_reasons.get(provider), str)
+        and ".timeout" in str(timeout_observed_reasons[provider])
+        for provider in ("vision", "transcription")
+    )
     _check(
         checks,
         failures,
@@ -962,6 +972,13 @@ def _audit_provider_proof_matrix(
         and isinstance(timeout_observed_reason, str)
         and ".timeout" in timeout_observed_reason,
         "Live provider proof matrix timeout probe did not prove timeout classification",
+    )
+    _check(
+        checks,
+        failures,
+        "live_provider_proof_matrix_timeout_probe_covers_vision_and_transcription",
+        timeout_provider_reasons_ok,
+        "Live provider timeout probe must cover both vision and transcription endpoints",
     )
 
 
