@@ -105,6 +105,7 @@ PROVIDER_REQUIREMENT_CHECKS = {
     "rate_limit_classification": "live_provider_proof_matrix_rate_limit_classification",
     "timeout_classification": "live_provider_proof_matrix_timeout_classification",
     "no_secret_leak_guard": "live_provider_proof_matrix_no_secret_leak_guard",
+    "report_safety_contract": "live_provider_proof_matrix_report_safety_contract",
 }
 REQUIRED_MEMORY_QUALITY_CAPABILITIES = frozenset(
     {
@@ -868,6 +869,7 @@ def _audit_provider_proof_matrix(
         "rate_limit_classification": "contract_covered",
         "timeout_classification": "contract_covered",
         "no_secret_leak_guard": "contract_covered",
+        "report_safety_contract": "contract_covered",
     }
     for name, status in expected.items():
         case = requirements.get(name) if isinstance(requirements.get(name), dict) else {}

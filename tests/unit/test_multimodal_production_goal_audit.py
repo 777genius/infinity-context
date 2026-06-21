@@ -578,6 +578,44 @@ def test_multimodal_production_goal_audit_rejects_missing_provider_proof_matrix(
     assert any("provider proof matrix" in failure for failure in result.failures)
 
 
+def test_multimodal_production_goal_audit_rejects_failed_provider_report_safety(
+    tmp_path: Path,
+) -> None:
+    module = _load_module()
+    _write_core(tmp_path)
+    frontend_report = tmp_path / "frontend.json"
+    docker_report = tmp_path / "docker.json"
+    provider_report = tmp_path / "provider.json"
+    provider = _provider_report()
+    proof_matrix = provider["proof_matrix"]
+    assert isinstance(proof_matrix, dict)
+    requirements = proof_matrix["requirements"]
+    assert isinstance(requirements, dict)
+    requirements["report_safety_contract"] = {
+        "failed_checks": ["no_raw_provider_payloads"],
+        "ok": False,
+        "proof": "bounded_report_surface",
+        "requires_provider_key": False,
+        "status": "failed",
+    }
+    frontend_report.write_text(json.dumps(_frontend_report()), encoding="utf-8")
+    docker_report.write_text(json.dumps(_docker_report()), encoding="utf-8")
+    provider_report.write_text(json.dumps(provider), encoding="utf-8")
+
+    result = module.run_goal_audit(
+        root=tmp_path,
+        frontend_report=frontend_report.relative_to(tmp_path),
+        docker_report=docker_report.relative_to(tmp_path),
+        provider_report=provider_report.relative_to(tmp_path),
+        require_clean_git=False,
+        git={"commit": "abc", "short_commit": "abc", "dirty": False},
+    )
+
+    assert result.ok is False
+    assert result.checks["live_provider_proof_matrix_report_safety_contract"] is False
+    assert any("report_safety_contract" in failure for failure in result.failures)
+
+
 def test_multimodal_production_goal_audit_requires_live_invalid_key_probe(
     tmp_path: Path,
 ) -> None:
@@ -1232,12 +1270,21 @@ def _provider_proof_matrix() -> dict[str, object]:
                 "requires_provider_key": False,
                 "ok": True,
             },
+            "report_safety_contract": {
+                "status": "contract_covered",
+                "proof": "bounded_report_surface",
+                "requires_provider_key": False,
+                "ok": True,
+                "failed_checks": [],
+                "max_depth": 12,
+                "max_string_chars": 4096,
+            },
         },
         "summary": {
-            "live_requirements_passed": 5,
-            "live_requirements_total": 5,
-            "contract_requirements_passed": 5,
-            "contract_requirements_total": 5,
+            "live_requirements_passed": 6,
+            "live_requirements_total": 6,
+            "contract_requirements_passed": 9,
+            "contract_requirements_total": 9,
         },
     }
 
