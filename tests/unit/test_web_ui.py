@@ -24,6 +24,7 @@ def test_web_ui_serves_browser_without_openapi_noise(tmp_path) -> None:
         index = client.get("/ui/")
         css = client.get("/ui/assets/memory-browser.css")
         js = client.get("/ui/assets/memory-browser.js")
+        capture_js = client.get("/ui/assets/memory-browser-capture.js")
         review_js = client.get("/ui/assets/memory-browser-review.js")
         operations_js = client.get("/ui/assets/memory-browser-operations.js")
         openapi = client.get("/openapi.json")
@@ -32,7 +33,16 @@ def test_web_ui_serves_browser_without_openapi_noise(tmp_path) -> None:
     assert redirect.headers["location"] == "/ui/"
     assert index.status_code == 200
     assert "Infinity Context Browser" in index.text
+    assert "Capture" in index.text
+    assert "Overview" in index.text
+    assert "capturePanel" in index.text
+    assert "overviewPanel" in index.text
+    assert "captureTextInput" in index.text
+    assert "assetFileInput" in index.text
+    assert "Save Note" in index.text
+    assert "Upload File" in index.text
     assert "memory-browser.js" in index.text
+    assert "memory-browser-capture.js" in index.text
     assert "memory-browser-review.js" in index.text
     assert "memory-browser-operations.js" in index.text
     assert "Operations" in index.text
@@ -40,13 +50,34 @@ def test_web_ui_serves_browser_without_openapi_noise(tmp_path) -> None:
     assert "Bearer " not in index.text
     assert css.status_code == 200
     assert "graph-panel" in css.text
+    assert "capture-grid" in css.text
+    assert "capture-status" in css.text
+    assert "overview-grid" in css.text
+    assert "overview-card" in css.text
     assert "section-label" in css.text
     assert js.status_code == 200
+    assert capture_js.status_code == 200
     assert review_js.status_code == 200
     assert operations_js.status_code == 200
     assert "localStorage" in js.text
     assert "Authorization" in js.text
     assert "infinityContextBrowser" in js.text
+    assert "infinityContextCapture" in capture_js.text
+    assert "saveQuickCapture" in capture_js.text
+    assert "uploadAssetEvidence" in capture_js.text
+    assert "/v1/captures" in capture_js.text
+    assert "/v1/assets" in capture_js.text
+    assert "apiRaw" in capture_js.text
+    assert "requestExtractionForAsset" in capture_js.text
+    assert "retryExtractionJob" in capture_js.text
+    assert "cancelExtractionJob" in capture_js.text
+    assert "extraction_job" in js.text
+    assert "renderOverview" in js.text
+    assert "Visual Memory" in js.text
+    assert "Review Queue" in js.text
+    assert "Recent Memory" in js.text
+    assert "Anchor Map" in js.text
+    assert "Source Mix" in js.text
     assert "anchorCount" in index.text
     assert "Create Anchor" in index.text
     assert "Backfill Anchors" in index.text
@@ -153,7 +184,10 @@ def test_review_modal_focus_trap_and_escape_keyboard_flow() -> None:
         return
     review_js = (
         Path(__file__).resolve().parents[2]
-        / "packages/infinity_context_server/infinity_context_server/web/assets/memory-browser-review.js"
+        / (
+            "packages/infinity_context_server/infinity_context_server/web/assets/"
+            "memory-browser-review.js"
+        )
     )
     script = r"""
 const fs = require("fs");

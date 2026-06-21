@@ -82,6 +82,11 @@ def _build_parser() -> argparse.ArgumentParser:
     quickstart_parser.add_argument("--all-agents", action="store_true")
     quickstart_parser.add_argument("--no-start", action="store_true")
     quickstart_parser.add_argument("--no-wait", action="store_true")
+    quickstart_parser.add_argument(
+        "--open-ui",
+        action="store_true",
+        help="Open the local memory browser after setup.",
+    )
     quickstart_parser.add_argument("--wait-seconds", type=float, default=90.0)
     quickstart_parser.add_argument("--force", action="store_true")
     quickstart_parser.add_argument(
@@ -305,13 +310,17 @@ def _cmd_quickstart(args: argparse.Namespace) -> int:
         "status": status,
         "mcp_configs": mcp_configs,
         "token_included": bool(args.include_token),
+        "opened_ui": False,
         "next_steps": _quickstart_next_steps(
             agents=agents,
             home=config.home,
             include_token=args.include_token,
             no_start=args.no_start,
+            open_ui=args.open_ui,
         ),
     }
+    if args.open_ui and payload["ok"]:
+        payload["opened_ui"] = bool(webbrowser.open(payload["ui_url"]))
     _print_quickstart_payload(payload, as_json=args.json)
     return 0 if payload["ok"] else 1
 
@@ -678,12 +687,16 @@ def _quickstart_next_steps(
     home: Path,
     include_token: bool,
     no_start: bool,
+    open_ui: bool,
 ) -> list[str]:
     steps = []
     if no_start:
         steps.append("Start the local runtime with: infinity-context up --lite")
     steps.append("Check readiness with: infinity-context status")
-    steps.append("Open visual memory with: infinity-context ui --open")
+    if open_ui:
+        steps.append("Visual memory opened with: infinity-context ui --open")
+    else:
+        steps.append("Open visual memory with: infinity-context ui --open")
     if include_token:
         steps.append("Add the generated MCP config path to your agent.")
     else:
@@ -712,6 +725,10 @@ def _print_quickstart_payload(payload: dict[str, Any], *, as_json: bool) -> None
     status = payload.get("status")
     if isinstance(status, dict):
         print(f"status: {'ready' if status.get('ok') else 'not_ready'}")
+    if payload.get("opened_ui"):
+        print(f"ui: opened {payload.get('ui_url')}")
+    else:
+        print(f"ui: {payload.get('ui_url')}")
     for item in payload.get("mcp_configs", []):
         if isinstance(item, dict):
             token_note = (

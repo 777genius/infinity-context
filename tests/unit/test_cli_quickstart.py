@@ -41,6 +41,7 @@ def test_cli_quickstart_initializes_and_writes_redacted_mcp_config(
     assert exit_code == 0
     assert payload["ok"] is True
     assert payload["runtime"] is None
+    assert payload["opened_ui"] is False
     assert payload["ui_url"] == "http://127.0.0.1:7788/ui/"
     assert payload["mcp_configs"][0]["agent"] == "codex"
     assert payload["mcp_configs"][0]["token_included"] is False
@@ -49,6 +50,42 @@ def test_cli_quickstart_initializes_and_writes_redacted_mcp_config(
     assert "${MEMORY_MCP_AUTH_TOKEN}" in mcp_path.read_text(encoding="utf-8")
     assert str(home / ".env") in "\n".join(payload["next_steps"])
     assert "infinity-context ui --open" in "\n".join(payload["next_steps"])
+
+
+def test_cli_quickstart_can_open_visual_memory(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    home = tmp_path / "home"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.setenv("INFINITY_CONTEXT_HOME", str(home))
+    opened: list[str] = []
+    monkeypatch.setattr(cli.webbrowser, "open", lambda url: opened.append(url) or True)
+
+    exit_code = cli.main(
+        [
+            "quickstart",
+            "--home",
+            str(home),
+            "--repo-dir",
+            str(repo),
+            "--no-start",
+            "--open-ui",
+            "--json",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+
+    assert exit_code == 0
+    assert payload["opened_ui"] is True
+    assert opened == ["http://127.0.0.1:7788/ui/"]
+    assert "Visual memory opened with: infinity-context ui --open" in "\n".join(
+        payload["next_steps"]
+    )
 
 
 def test_cli_quickstart_starts_runtime_waits_for_status_and_redacts_output(

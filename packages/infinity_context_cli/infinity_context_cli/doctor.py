@@ -8,6 +8,7 @@ from typing import Any
 import httpx
 
 from infinity_context_cli.config import DEFAULT_SERVICE_TOKEN, InfinityContextCliConfig
+from infinity_context_cli.mcp_config import SUPPORTED_AGENTS
 from infinity_context_cli.runtime import docker_available, docker_compose_available
 
 
@@ -55,6 +56,7 @@ def run_doctor(config: InfinityContextCliConfig, *, timeout: float = 3.0) -> lis
             ),
             details={"default_local_token": config.service_token == DEFAULT_SERVICE_TOKEN},
         ),
+        _mcp_generated_config_check(config),
     ]
     checks.extend(_api_checks(config, timeout=timeout))
     return checks
@@ -109,6 +111,24 @@ def _api_checks(config: InfinityContextCliConfig, *, timeout: float) -> list[Doc
                     details=_safe_json(capabilities),
                 )
             )
+            ui = client.get("/ui/")
+            title_present = "Infinity Context Browser" in ui.text
+            checks.append(
+                DoctorCheck(
+                    name="ui_browser",
+                    ok=ui.is_success and title_present,
+                    message=(
+                        "visual memory browser reachable"
+                        if ui.is_success and title_present
+                        else f"visual memory browser returned HTTP {ui.status_code}"
+                    ),
+                    details={
+                        "status_code": ui.status_code,
+                        "title_present": title_present,
+                        "path": "/ui/",
+                    },
+                )
+            )
     except httpx.HTTPError as exc:
         checks.append(
             DoctorCheck(
@@ -119,6 +139,30 @@ def _api_checks(config: InfinityContextCliConfig, *, timeout: float) -> list[Doc
             )
         )
     return checks
+
+
+def _mcp_generated_config_check(config: InfinityContextCliConfig) -> DoctorCheck:
+    generated_dir = config.home / "generated"
+    existing_agents = []
+    for agent in sorted(SUPPORTED_AGENTS):
+        if (generated_dir / f"{agent}-mcp.json").exists():
+            existing_agents.append(agent)
+    return DoctorCheck(
+        name="mcp_generated_configs",
+        ok=bool(existing_agents),
+        message=(
+            f"generated MCP config found for {', '.join(existing_agents)}"
+            if existing_agents
+            else "no generated MCP config found"
+        ),
+        details={
+            "generated_dir": str(generated_dir),
+            "agents": existing_agents,
+            "missing_agents": [
+                agent for agent in sorted(SUPPORTED_AGENTS) if agent not in existing_agents
+            ],
+        },
+    )
 
 
 def _safe_json(response: httpx.Response) -> dict[str, Any]:

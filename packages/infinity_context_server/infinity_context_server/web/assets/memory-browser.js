@@ -39,6 +39,9 @@
     episodes: [],
     documents: [],
     chunks: [],
+    extractionJobs: [],
+    captures: [],
+    assets: [],
     suggestions: [],
     anchors: [],
     anchorMergeSuggestions: [],
@@ -65,6 +68,10 @@
     els,
     apiJson: (...args) => apiJson(...args),
     refreshAll: (...args) => refreshAll(...args),
+    readSettingsFromInputs: (...args) => readSettingsFromInputs(...args),
+    saveSettings: (...args) => saveSettings(...args),
+    scopeParams: (...args) => scopeParams(...args),
+    scopeBody: (...args) => scopeBody(...args),
     renderSuggestionList: (...args) => renderSuggestionList(...args),
     selectNode: (...args) => selectNode(...args),
     listItem: (...args) => listItem(...args),
@@ -76,6 +83,7 @@
     scoreLabel: (...args) => scoreLabel(...args),
     temporalWindowLabel: (...args) => temporalWindowLabel(...args),
     arrayOf: (...args) => arrayOf(...args),
+    withoutEmpty: (...args) => withoutEmpty(...args),
     keyValueItem: (...args) => keyValueItem(...args),
     sourceSection: (...args) => sourceSection(...args),
     contextLinkEditForm: (...args) => contextLinkEditForm(...args),
@@ -126,6 +134,14 @@
       "zoomInButton",
       "zoomOutButton",
       "fitButton",
+      "captureTextInput",
+      "captureConsolidateInput",
+      "saveCaptureButton",
+      "assetFileInput",
+      "assetParserProfileInput",
+      "assetExtractInput",
+      "uploadAssetButton",
+      "captureStatusOutput",
       "buildDigestButton",
       "runRecallButton",
       "createAnchorButton",
@@ -143,6 +159,8 @@
       "pendingCount",
       "lastRefresh",
       "graphSvg",
+      "capturePanel",
+      "overviewPanel",
       "detailsPanel",
       "digestOutput",
       "recallOutput",
@@ -326,6 +344,9 @@
       state.episodes = sortBrowserItems(memoryBrowser?.episodes);
       state.documents = sortBrowserItems(memoryBrowser?.documents);
       state.chunks = sortBrowserItems(memoryBrowser?.chunks);
+      state.extractionJobs = sortBrowserItems(memoryBrowser?.extraction_jobs);
+      state.captures = sortBrowserItems(memoryBrowser?.captures);
+      state.assets = sortBrowserItems(memoryBrowser?.assets);
       state.suggestions = suggestions;
       state.anchors = anchors;
       state.anchorMergeSuggestions = anchorMergeSuggestions;
@@ -1041,6 +1062,7 @@
     renderMetrics();
     buildGraphData();
     renderGraph();
+    renderOverview();
     renderDetails();
     renderSuggestionList();
     window.infinityContextOperations?.renderOperations();
@@ -1089,6 +1111,12 @@
     for (const suggestion of state.contextLinkSuggestions) {
       sourceIds.add(`${suggestion.source_type}:${suggestion.source_id}`);
     }
+    for (const capture of state.captures) {
+      sourceIds.add(`capture:${capture.id}`);
+    }
+    for (const asset of state.assets) {
+      sourceIds.add(`asset:${asset.id}`);
+    }
     const activeContextLinks = state.contextLinks.filter((link) => link.status === "active");
     const activeAnchors = state.anchors.filter((anchor) => anchor.status === "active");
     for (const link of activeContextLinks) {
@@ -1104,7 +1132,8 @@
       els.pendingCount,
       String(
         state.suggestions.filter((suggestion) => suggestion.status === "pending").length +
-          state.contextLinkSuggestions.filter((suggestion) => suggestion.status === "pending").length,
+          state.contextLinkSuggestions.filter((suggestion) => suggestion.status === "pending").length +
+          state.extractionJobs.filter((job) => ["pending", "running"].includes(job.status)).length,
       ),
     );
     setText(els.lastRefresh, state.lastRefreshAt ? formatShortTime(state.lastRefreshAt) : "Never");
@@ -1137,6 +1166,21 @@
         type: "chunk",
         item: chunk,
         updated_at: chunk.updated_at || chunk.created_at,
+      })),
+      ...state.captures.map((capture) => ({
+        type: "capture",
+        item: capture,
+        updated_at: capture.updated_at || capture.created_at,
+      })),
+      ...state.assets.map((asset) => ({
+        type: "asset",
+        item: asset,
+        updated_at: asset.updated_at || asset.created_at,
+      })),
+      ...state.extractionJobs.map((job) => ({
+        type: "extraction_job",
+        item: job,
+        updated_at: job.updated_at || job.created_at,
       })),
       ...state.suggestions.map((suggestion) => ({
         type: "suggestion",
@@ -1177,6 +1221,12 @@
         addDocumentGraph(graph, memory.item, relationNodes);
       } else if (memory.type === "chunk") {
         addChunkGraph(graph, memory.item, relationNodes);
+      } else if (memory.type === "capture") {
+        addCaptureGraph(graph, memory.item, relationNodes);
+      } else if (memory.type === "asset") {
+        addAssetGraph(graph, memory.item, relationNodes);
+      } else if (memory.type === "extraction_job") {
+        addExtractionJobGraph(graph, memory.item, relationNodes);
       } else if (memory.type === "suggestion") {
         addSuggestionGraph(graph, memory.item, relationNodes);
       } else if (memory.type === "anchor") {
@@ -1198,6 +1248,9 @@
         "episode",
         "document",
         "chunk",
+        "capture",
+        "asset",
+        "extraction_job",
         "suggestion",
         "anchor",
         "context_link_suggestion",
@@ -1296,6 +1349,81 @@
     if (chunk.episode_id) {
       ensureContextObjectNode(graph, "episode", chunk.episode_id, "episode");
       addEdge(graph, nodeId, `episode:${chunk.episode_id}`, "episode", true);
+    }
+  }
+
+  function addCaptureGraph(graph, capture, relationNodes) {
+    const nodeId = `capture:${capture.id}`;
+    addNode(graph, {
+      id: nodeId,
+      type: "capture",
+      status: capture.status,
+      label: compactLabel(capture.text_preview || capture.event_type),
+      text: capture.text_preview,
+      data: capture,
+      degree: 0,
+    });
+    addRelation(graph, nodeId, `status:${capture.status}`, "status", capture.status, relationNodes);
+    addRelation(
+      graph,
+      nodeId,
+      `source_type:${capture.source_kind || capture.source_agent}`,
+      "source",
+      capture.source_kind || capture.source_agent,
+      relationNodes,
+    );
+    if (capture.thread_id) {
+      addRelation(graph, nodeId, `thread:${capture.thread_id}`, "thread", capture.thread_id, relationNodes);
+    }
+    for (const ref of capture.evidence_refs || []) {
+      addSourceRelation(graph, nodeId, ref, relationNodes);
+    }
+  }
+
+  function addAssetGraph(graph, asset, relationNodes) {
+    const nodeId = `asset:${asset.id}`;
+    addNode(graph, {
+      id: nodeId,
+      type: "asset",
+      status: asset.status,
+      label: compactLabel(asset.filename),
+      text: `${asset.filename || "asset"}\n${asset.content_type || ""}\n${asset.byte_size || 0} bytes`,
+      data: asset,
+      degree: 0,
+    });
+    addRelation(graph, nodeId, `status:${asset.status}`, "status", asset.status, relationNodes);
+    addRelation(
+      graph,
+      nodeId,
+      `content_type:${asset.content_type || "unknown"}`,
+      "kind",
+      asset.content_type || "unknown",
+      relationNodes,
+    );
+    if (asset.thread_id) {
+      addRelation(graph, nodeId, `thread:${asset.thread_id}`, "thread", asset.thread_id, relationNodes);
+    }
+  }
+
+  function addExtractionJobGraph(graph, job, relationNodes) {
+    const nodeId = `extraction_job:${job.id}`;
+    addNode(graph, {
+      id: nodeId,
+      type: "extraction_job",
+      status: job.status,
+      label: compactLabel(`${job.parser_profile || "extract"}: ${job.status}`),
+      text: job.safe_error_message || job.progress?.message || job.status,
+      data: job,
+      degree: 0,
+    });
+    addRelation(graph, nodeId, `status:${job.status}`, "status", job.status, relationNodes);
+    if (job.asset_id) {
+      ensureContextObjectNode(graph, "asset", job.asset_id, "asset");
+      addEdge(graph, nodeId, `asset:${job.asset_id}`, "asset", true);
+    }
+    for (const documentId of job.result_document_ids || []) {
+      ensureContextObjectNode(graph, "document", documentId, "document");
+      addEdge(graph, nodeId, `document:${documentId}`, "document", true);
     }
   }
 
@@ -1735,6 +1863,49 @@
       panel.append(anchorSection(node.data));
       panel.append(sourceSection(node.data?.evidence_refs || []));
     }
+    if (node.type === "capture") {
+      panel.append(captureSection(node.data));
+      panel.append(sourceSection(node.data?.evidence_refs || []));
+    }
+    if (node.type === "asset") {
+      panel.append(assetSection(node.data));
+      const actions = document.createElement("div");
+      actions.className = "action-row one-action";
+      actions.append(
+        actionButton(
+          "Request Extraction",
+          () => window.infinityContextCapture.requestExtractionForAsset(node.data.id),
+          "primary-button",
+        ),
+      );
+      panel.append(actions);
+    }
+    if (node.type === "extraction_job") {
+      panel.append(extractionJobSection(node.data));
+      const availableActions = arrayOf(node.data?.execution?.available_actions);
+      if (availableActions.length) {
+        const actions = document.createElement("div");
+        actions.className = "action-row two-actions";
+        if (availableActions.includes("retry")) {
+          actions.append(
+            actionButton(
+              "Retry Extraction",
+              () => window.infinityContextCapture.retryExtractionJob(node.data.id),
+              "primary-button",
+            ),
+          );
+        }
+        if (availableActions.includes("cancel")) {
+          actions.append(
+            actionButton(
+              "Cancel Extraction",
+              () => window.infinityContextCapture.cancelExtractionJob(node.data.id),
+            ),
+          );
+        }
+        panel.append(actions);
+      }
+    }
     if (node.type === "anchor" && node.data?.status === "active" && (node.data?.aliases || []).length) {
       const actions = document.createElement("div");
       actions.className = "action-row";
@@ -1781,6 +1952,337 @@
       panel.append(actions);
       panel.append(contextLinkEditForm(node.data));
     }
+  }
+
+  function renderOverview() {
+    const panel = els.overviewPanel;
+    panel.replaceChildren();
+    const grid = document.createElement("div");
+    grid.className = "overview-grid";
+    const activeFacts = state.facts.filter((fact) => fact.status === "active");
+    const activeAnchors = state.anchors.filter((anchor) => anchor.status === "active");
+    const activeLinks = state.contextLinks.filter((link) => link.status === "active");
+    const pendingFactReviews = state.suggestions.filter(
+      (suggestion) => suggestion.status === "pending",
+    );
+    const pendingLinkReviews = state.contextLinkSuggestions.filter(
+      (suggestion) => suggestion.status === "pending",
+    );
+    grid.append(
+      overviewCard(
+        "Visual Memory",
+        String(
+          activeFacts.length +
+            state.documents.length +
+            state.episodes.length +
+            state.chunks.length +
+            state.captures.length +
+            state.assets.length,
+        ),
+        `${activeFacts.length} facts, ${state.documents.length} docs, ${state.captures.length} captures, ${state.assets.length} assets`,
+      ),
+      overviewCard(
+        "Review Queue",
+        String(pendingFactReviews.length + pendingLinkReviews.length + state.anchorMergeSuggestions.length),
+        `${pendingLinkReviews.length} link reviews, ${pendingFactReviews.length} fact reviews, ${state.anchorMergeSuggestions.length} anchor merges`,
+      ),
+      overviewCard(
+        "Connections",
+        String(activeLinks.length),
+        `${activeAnchors.length} active anchors, ${state.contextLinkSuggestions.length} link suggestions`,
+      ),
+      overviewCard(
+        "Extraction Jobs",
+        String(state.extractionJobs.length),
+        extractionOverviewText(),
+      ),
+      overviewCard(
+        "Runtime",
+        state.health?.status === "ok" ? "Ready" : "Check",
+        adapterOverviewText(),
+      ),
+      overviewRowsCard("Recent Memory", recentOverviewItems(), "No memory yet.", true),
+      overviewRowsCard("Anchor Map", anchorOverviewRows(), "No anchors yet.", false),
+      overviewRowsCard("Source Mix", sourceOverviewRows(), "No sources yet.", false),
+    );
+    panel.append(grid);
+  }
+
+  function overviewCard(title, value, meta) {
+    const card = document.createElement("section");
+    card.className = "overview-card";
+    const titleEl = document.createElement("div");
+    titleEl.className = "overview-title";
+    titleEl.textContent = title;
+    const valueEl = document.createElement("div");
+    valueEl.className = "overview-value";
+    valueEl.textContent = value;
+    const metaEl = document.createElement("div");
+    metaEl.className = "overview-meta";
+    metaEl.textContent = meta || "";
+    card.append(titleEl, valueEl, metaEl);
+    return card;
+  }
+
+  function overviewRowsCard(title, rows, emptyText, wide) {
+    const card = document.createElement("section");
+    card.className = wide ? "overview-card wide" : "overview-card";
+    const titleEl = document.createElement("div");
+    titleEl.className = "overview-title";
+    titleEl.textContent = title;
+    const list = document.createElement("div");
+    list.className = "overview-list";
+    if (!rows.length) {
+      list.append(emptyItem(emptyText));
+    } else {
+      for (const row of rows) {
+        list.append(overviewRow(row));
+      }
+    }
+    card.append(titleEl, list);
+    return card;
+  }
+
+  function overviewRow({ title, text, meta, onClick }) {
+    const row = document.createElement("div");
+    row.className = "overview-row";
+    if (onClick) {
+      row.tabIndex = 0;
+      row.setAttribute("role", "button");
+      row.addEventListener("click", onClick);
+      row.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onClick();
+        }
+      });
+    }
+    const titleEl = document.createElement("div");
+    titleEl.className = "overview-row-title";
+    titleEl.textContent = title || "";
+    const textEl = document.createElement("div");
+    textEl.className = "overview-row-text";
+    textEl.textContent = text || "";
+    row.append(titleEl, textEl);
+    if (meta) {
+      const metaEl = document.createElement("span");
+      metaEl.className = "pill";
+      metaEl.textContent = meta;
+      row.append(metaEl);
+    }
+    return row;
+  }
+
+  function recentOverviewItems() {
+    return [
+      ...state.contextLinkSuggestions.map((suggestion) => ({
+        id: `context_link_suggestion:${suggestion.id}`,
+        title: `link review / ${suggestion.status}`,
+        text: suggestion.metadata?.target_preview || suggestion.reason,
+        updated_at: suggestion.updated_at,
+      })),
+      ...state.contextLinks.map((link) => ({
+        id: `context_link:${link.id}`,
+        title: `link / ${link.status}`,
+        text: `${link.source_type}:${shortId(link.source_id)} -> ${link.target_type}:${shortId(link.target_id)}`,
+        updated_at: link.updated_at,
+      })),
+      ...state.anchors.map((anchor) => ({
+        id: `anchor:${anchor.id}`,
+        title: `anchor / ${anchor.kind}`,
+        text: anchor.label,
+        updated_at: anchor.updated_at,
+      })),
+      ...state.suggestions.map((suggestion) => ({
+        id: `suggestion:${suggestion.id}`,
+        title: `suggestion / ${suggestion.status}`,
+        text: suggestion.candidate_text,
+        updated_at: suggestion.updated_at,
+      })),
+      ...state.extractionJobs.map((job) => ({
+        id: `extraction_job:${job.id}`,
+        title: `extraction / ${job.status}`,
+        text: job.safe_error_message || job.progress?.message || job.parser_profile,
+        updated_at: job.updated_at || job.created_at,
+      })),
+      ...state.assets.map((asset) => ({
+        id: `asset:${asset.id}`,
+        title: `asset / ${asset.status}`,
+        text: `${asset.filename} (${asset.content_type || "unknown"})`,
+        updated_at: asset.updated_at || asset.created_at,
+      })),
+      ...state.captures.map((capture) => ({
+        id: `capture:${capture.id}`,
+        title: `capture / ${capture.consolidation_status || capture.status}`,
+        text: capture.text_preview,
+        updated_at: capture.updated_at || capture.created_at,
+      })),
+      ...state.facts.map((fact) => ({
+        id: `fact:${fact.id}`,
+        title: `fact / ${fact.status}`,
+        text: fact.text,
+        updated_at: fact.updated_at,
+      })),
+      ...state.documents.map((documentItem) => ({
+        id: `document:${documentItem.id}`,
+        title: "document",
+        text: documentItem.title || documentItem.source_external_id,
+        updated_at: documentItem.updated_at || documentItem.created_at,
+      })),
+      ...state.episodes.map((episode) => ({
+        id: `episode:${episode.id}`,
+        title: "episode",
+        text: episode.text,
+        updated_at: episode.occurred_at || episode.created_at,
+      })),
+    ]
+      .sort(compareUpdatedDesc)
+      .slice(0, 8)
+      .map((item) => ({
+        title: item.title,
+        text: item.text,
+        meta: formatDate(item.updated_at),
+        onClick: () => selectNode(item.id),
+      }));
+  }
+
+  function anchorOverviewRows() {
+    const counts = countBy(
+      state.anchors.filter((anchor) => anchor.status === "active"),
+      (anchor) => anchor.kind || "unknown",
+    );
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .slice(0, 5)
+      .map(([kind, count]) => ({
+        title: kind,
+        text: `${count} active`,
+      }));
+  }
+
+  function sourceOverviewRows() {
+    const counts = new Map();
+    const add = (sourceType) => {
+      const key = sourceType || "unknown";
+      counts.set(key, (counts.get(key) || 0) + 1);
+    };
+    for (const fact of state.facts) {
+      for (const ref of fact.source_refs || []) {
+        add(ref.source_type);
+      }
+    }
+    for (const suggestion of state.suggestions) {
+      for (const ref of suggestion.source_refs || []) {
+        add(ref.source_type);
+      }
+    }
+    for (const documentItem of state.documents) {
+      add(documentItem.source_type);
+    }
+    for (const episode of state.episodes) {
+      add(episode.source_type);
+    }
+    for (const capture of state.captures) {
+      add(capture.source_kind || capture.source_agent);
+    }
+    for (const asset of state.assets) {
+      add(asset.content_type || "asset");
+    }
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .slice(0, 6)
+      .map(([sourceType, count]) => ({
+        title: sourceType,
+        text: `${count} evidence refs`,
+      }));
+  }
+
+  function extractionOverviewText() {
+    if (!state.extractionJobs.length) {
+      return "no extraction jobs";
+    }
+    const counts = countBy(state.extractionJobs, (job) => job.status || "unknown");
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([status, count]) => `${count} ${status}`)
+      .join(", ");
+  }
+
+  function adapterOverviewText() {
+    const adapters = state.capabilities?.adapters || {};
+    const names = Object.keys(adapters);
+    if (!names.length) {
+      return state.health?.error || "capabilities unavailable";
+    }
+    const enabled = names.filter((name) => adapters[name]?.enabled).length;
+    const healthy = names.filter((name) => adapters[name]?.healthy).length;
+    const degraded = names
+      .filter((name) => adapters[name]?.enabled && !adapters[name]?.healthy)
+      .slice(0, 3);
+    const suffix = degraded.length ? `; check ${degraded.join(", ")}` : "";
+    return `${healthy}/${enabled || names.length} enabled adapters healthy${suffix}`;
+  }
+
+  function captureSection(capture) {
+    const section = document.createElement("section");
+    section.className = "source-list";
+    const heading = document.createElement("h3");
+    heading.className = "detail-title";
+    heading.textContent = "Capture";
+    section.append(
+      heading,
+      keyValueItem("Source", `${capture.source_agent || "unknown"} / ${capture.source_kind || ""}`),
+      keyValueItem("Event", capture.event_type || ""),
+      keyValueItem("Status", capture.status || ""),
+      keyValueItem("Consolidation", capture.consolidation_status || ""),
+      keyValueItem("Trust", capture.trust_level || ""),
+      keyValueItem("Classification", capture.data_classification || ""),
+      keyValueItem("Created", formatDate(capture.created_at)),
+      keyValueItem("Updated", formatDate(capture.updated_at)),
+    );
+    return section;
+  }
+
+  function assetSection(asset) {
+    const section = document.createElement("section");
+    section.className = "source-list";
+    const heading = document.createElement("h3");
+    heading.className = "detail-title";
+    heading.textContent = "Asset";
+    section.append(
+      heading,
+      keyValueItem("Filename", asset.filename || ""),
+      keyValueItem("Content type", asset.content_type || ""),
+      keyValueItem("Size", `${asset.byte_size || 0} bytes`),
+      keyValueItem("Status", asset.status || ""),
+      keyValueItem("SHA-256", asset.sha256_hex || ""),
+      keyValueItem("Classification", asset.classification || ""),
+      keyValueItem("Created", formatDate(asset.created_at)),
+      keyValueItem("Updated", formatDate(asset.updated_at)),
+    );
+    return section;
+  }
+
+  function extractionJobSection(job) {
+    const section = document.createElement("section");
+    section.className = "source-list";
+    const heading = document.createElement("h3");
+    heading.className = "detail-title";
+    heading.textContent = "Extraction Job";
+    section.append(
+      heading,
+      keyValueItem("Status", job.status || ""),
+      keyValueItem("Progress", `${job.progress?.percent ?? 0}% ${job.progress?.message || ""}`),
+      keyValueItem("Parser", `${job.parser_name || ""} ${job.parser_version || ""}`.trim()),
+      keyValueItem("Profile", job.parser_profile || "auto"),
+      keyValueItem("Attempts", String(job.attempt_count ?? 0)),
+      keyValueItem("Error", job.safe_error_message || job.safe_error_code || ""),
+      keyValueItem("Lease", job.execution?.lease_state || ""),
+      keyValueItem("Retry", job.execution?.retry_state_reason || ""),
+      keyValueItem("Cancel", job.execution?.cancel_state_reason || ""),
+      keyValueItem("Updated", formatDate(job.updated_at)),
+    );
+    return section;
   }
 
   function contextLinkSuggestionSection(suggestion) {
@@ -2146,6 +2648,24 @@
         text: chunk.text,
         updated_at: chunk.updated_at || chunk.created_at,
       })),
+      ...state.captures.map((capture) => ({
+        id: `capture:${capture.id}`,
+        title: `capture / ${capture.consolidation_status || capture.status}`,
+        text: capture.text_preview,
+        updated_at: capture.updated_at || capture.created_at,
+      })),
+      ...state.assets.map((asset) => ({
+        id: `asset:${asset.id}`,
+        title: `asset / ${asset.status}`,
+        text: `${asset.filename} (${asset.content_type || "unknown"})`,
+        updated_at: asset.updated_at || asset.created_at,
+      })),
+      ...state.extractionJobs.map((job) => ({
+        id: `extraction_job:${job.id}`,
+        title: `extraction / ${job.status}`,
+        text: job.safe_error_message || job.progress?.message || job.parser_profile,
+        updated_at: job.updated_at || job.created_at,
+      })),
       ...state.suggestions.map((suggestion) => ({
         id: `suggestion:${suggestion.id}`,
         title: `suggestion / ${suggestion.status}`,
@@ -2194,9 +2714,12 @@
   function preferredNode() {
     return (
       state.nodes.find((node) => node.type === "context_link_suggestion" && node.status === "pending") ||
+      state.nodes.find((node) => node.type === "extraction_job" && ["pending", "running"].includes(node.status)) ||
       state.nodes.find((node) => node.type === "context_link" && node.status === "active") ||
       state.nodes.find((node) => node.type === "anchor" && node.status === "active") ||
       state.nodes.find((node) => node.type === "suggestion" && node.status === "pending") ||
+      state.nodes.find((node) => node.type === "capture") ||
+      state.nodes.find((node) => node.type === "asset") ||
       state.nodes.find((node) => node.type === "fact") ||
       state.nodes[0]
     );
@@ -2211,6 +2734,9 @@
         "episode",
         "document",
         "chunk",
+        "capture",
+        "asset",
+        "extraction_job",
         "suggestion",
         "anchor",
         "context_link_suggestion",
@@ -2238,6 +2764,15 @@
       memory.item.operation,
       memory.item.source_type,
       memory.item.source_external_id,
+      memory.item.source_agent,
+      memory.item.source_kind,
+      memory.item.event_type,
+      memory.item.text_preview,
+      memory.item.filename,
+      memory.item.content_type,
+      memory.item.safe_error_code,
+      memory.item.safe_error_message,
+      memory.item.progress?.message,
       memory.item.source_id,
       memory.item.target_type,
       memory.item.target_id,
@@ -2269,6 +2804,15 @@
     }
     if (node.type === "chunk") {
       return `Chunk ${node.data?.id || ""}`.trim();
+    }
+    if (node.type === "capture") {
+      return `Capture ${node.data?.id || ""}`.trim();
+    }
+    if (node.type === "asset") {
+      return `Asset ${node.data?.filename || node.data?.id || ""}`.trim();
+    }
+    if (node.type === "extraction_job") {
+      return `Extraction ${node.data?.id || ""}`.trim();
     }
     if (node.type === "suggestion") {
       return `Suggestion ${node.data?.id || ""}`.trim();
@@ -2345,6 +2889,18 @@
     }
     if (node.type === "document" || node.type === "chunk") {
       return "#2563eb";
+    }
+    if (node.type === "extraction_job") {
+      if (node.status === "succeeded") {
+        return "#16835f";
+      }
+      if (node.status === "failed" || node.status === "unsupported") {
+        return "#c2413b";
+      }
+      if (node.status === "pending" || node.status === "running") {
+        return "#c76b14";
+      }
+      return "#64738a";
     }
     if (node.type === "asset" || node.type === "capture") {
       return "#0e7490";
@@ -2549,6 +3105,15 @@
 
   function arrayOf(value) {
     return Array.isArray(value) ? value : [];
+  }
+
+  function countBy(items, keyFor) {
+    const counts = new Map();
+    for (const item of items) {
+      const key = keyFor(item);
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+    return counts;
   }
 
   function aliasesWithoutLabel(anchor) {

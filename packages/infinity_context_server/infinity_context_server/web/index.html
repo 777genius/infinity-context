@@ -69,6 +69,9 @@
               <option value="episode">Episodes</option>
               <option value="document">Documents</option>
               <option value="chunk">Chunks</option>
+              <option value="capture">Captures</option>
+              <option value="asset">Assets</option>
+              <option value="extraction_job">Extraction Jobs</option>
               <option value="suggestion">Suggestions</option>
               <option value="context_link_suggestion">Link Reviews</option>
               <option value="context_link">Links</option>
@@ -95,14 +98,56 @@
 
         <aside class="side-panel">
           <nav class="tabs" aria-label="Memory panels">
-            <button class="active" data-tab="details" type="button">Details</button>
+            <button class="active" data-tab="capture" type="button">Capture</button>
+            <button data-tab="overview" type="button">Overview</button>
+            <button data-tab="details" type="button">Details</button>
             <button data-tab="digest" type="button">Digest</button>
             <button data-tab="suggestions" type="button">Review</button>
             <button data-tab="operations" type="button">Operations</button>
             <button data-tab="timeline" type="button">Timeline</button>
           </nav>
 
-          <section class="tab-panel active" id="detailsPanel"></section>
+          <section class="tab-panel active" id="capturePanel">
+            <div class="capture-grid">
+              <section class="capture-box">
+                <h2 class="detail-title">Quick Note</h2>
+                <textarea
+                  id="captureTextInput"
+                  rows="7"
+                  placeholder="Save a note, decision, meeting detail, or pasted snippet"
+                ></textarea>
+                <label class="inline-check">
+                  <input id="captureConsolidateInput" type="checkbox" checked />
+                  <span>Generate review suggestions</span>
+                </label>
+                <button id="saveCaptureButton" class="primary-button" type="button">
+                  Save Note
+                </button>
+              </section>
+              <section class="capture-box">
+                <h2 class="detail-title">File Evidence</h2>
+                <input id="assetFileInput" type="file" />
+                <label>
+                  Parser profile
+                  <input id="assetParserProfileInput" autocomplete="off" placeholder="auto" />
+                </label>
+                <label class="inline-check">
+                  <input id="assetExtractInput" type="checkbox" checked />
+                  <span>Extract text, OCR, audio, video metadata when supported</span>
+                </label>
+                <button id="uploadAssetButton" class="primary-button" type="button">
+                  Upload File
+                </button>
+              </section>
+            </div>
+            <div id="captureStatusOutput" class="capture-status empty-state">
+              No capture action yet.
+            </div>
+          </section>
+
+          <section class="tab-panel" id="overviewPanel"></section>
+
+          <section class="tab-panel" id="detailsPanel"></section>
 
           <section class="tab-panel" id="digestPanel">
             <div class="panel-actions">
@@ -182,6 +227,7 @@
       </section>
     </div>
     <script src="/ui/assets/memory-browser.js"></script>
+    <script src="/ui/assets/memory-browser-capture.js"></script>
     <script src="/ui/assets/memory-browser-review.js"></script>
     <script src="/ui/assets/memory-browser-operations.js"></script>
   </body>

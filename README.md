@@ -140,8 +140,7 @@ After install:
 
 ```bash
 export PATH="$HOME/.infinity-context/bin:$PATH"
-infinity-context quickstart --agent codex
-infinity-context ui --open
+infinity-context quickstart --agent codex --open-ui
 ```
 
 Manual local controls remain available:
@@ -159,7 +158,11 @@ runtime, waits for readiness and writes an MCP config under
 `~/.infinity-context/generated/`. `quickstart` and `mcp-config` redact the local
 service token by default. Use `--include-token` only when intentionally writing a
 private local config file. `infinity-context ui` prints the local memory browser
-URL, and `infinity-context ui --open` opens it in your browser.
+URL, `infinity-context ui --open` opens it in your browser, and
+`quickstart --open-ui` opens the visual memory browser immediately after setup.
+`infinity-context doctor` also verifies the generated MCP config and `/ui/`
+browser entrypoint. The browser starts with a quick Capture panel for text notes
+and file evidence, then shows overview, graph, review, operations and timeline.
 
 Agent-assisted local setup is also available through MCP, but it is off by
 default so agents do not create files or start background services unexpectedly:
