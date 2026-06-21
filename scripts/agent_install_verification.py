@@ -20,13 +20,15 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
+from infinity_context_core.reporting import with_report_provenance
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
-from infinity_context_core.reporting import with_report_provenance
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PLUGIN_ROOT = PROJECT_ROOT / "plugins" / "infinity-context-agent-plugin"
-CURSOR_WORKSPACE_PLUGIN_ROOT = PROJECT_ROOT / "plugins" / "infinity-context-agent-plugin-cursor-workspace"
+CURSOR_WORKSPACE_PLUGIN_ROOT = (
+    PROJECT_ROOT / "plugins" / "infinity-context-agent-plugin-cursor-workspace"
+)
 GEMINI_HOOK_PLUGIN_ROOT = PROJECT_ROOT / "plugins" / "infinity-context-agent-plugin-gemini-hooks"
 NO_DEFAULT_THREAD_SENTINEL = "__INFINITY_CONTEXT_NO_DEFAULT_THREAD__"
 MCP_SERVER_ALIAS = "infinity-context"
@@ -97,6 +99,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         type=float,
         default=float(os.getenv("MEMORY_AGENT_CLI_TIMEOUT_SECONDS", "90")),
     )
+    live_smoke.add_argument(
+        "--report-out",
+        type=Path,
+        default=(
+            Path(os.environ["MEMORY_AGENT_LIVE_SMOKE_REPORT_OUT"])
+            if os.getenv("MEMORY_AGENT_LIVE_SMOKE_REPORT_OUT")
+            else None
+        ),
+    )
 
     auth_doctor = subparsers.add_parser("agent-auth-doctor")
     auth_doctor.add_argument(
@@ -136,7 +147,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 1
 
-    print(json.dumps(redact_payload(payload), ensure_ascii=False, sort_keys=True))
+    redacted_payload = redact_payload(payload)
+    report_out = getattr(args, "report_out", None)
+    if isinstance(report_out, Path):
+        report_out.parent.mkdir(parents=True, exist_ok=True)
+        report_out.write_text(
+            json.dumps(redacted_payload, ensure_ascii=False, indent=2, sort_keys=True)
+            + "\n",
+            encoding="utf-8",
+        )
+
+    print(json.dumps(redacted_payload, ensure_ascii=False, sort_keys=True))
     return 0 if payload.get("ok") is True else 1
 
 
@@ -158,7 +179,9 @@ def run_install_doctor(*, strict_codex: bool, skip_cli_lists: bool) -> dict[str,
         raise VerificationFailure("infinity-context-agent-plugin targets must be an object")
     gemini_hook_targets = gemini_hook_installation.get("targets", {})
     if not isinstance(gemini_hook_targets, dict):
-        raise VerificationFailure("infinity-context-agent-plugin-gemini-hooks targets must be an object")
+        raise VerificationFailure(
+            "infinity-context-agent-plugin-gemini-hooks targets must be an object"
+        )
 
     required_installed = ("claude", "cursor", "opencode")
     target_checks: dict[str, dict[str, Any]] = {}

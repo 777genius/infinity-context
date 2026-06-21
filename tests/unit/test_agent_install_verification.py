@@ -11,7 +11,13 @@ ROOT = Path(__file__).parents[2]
 SCRIPT_PATH = ROOT / "scripts" / "agent_install_verification.py"
 PLUGIN_SKILL_PATHS = (
     ROOT / "plugins" / "infinity-context-agent-plugin" / "skills" / "memory" / "SKILL.md",
-    ROOT / "plugins" / "infinity-context-agent-plugin" / "plugin" / "skills" / "memory" / "SKILL.md",
+    ROOT
+    / "plugins"
+    / "infinity-context-agent-plugin"
+    / "plugin"
+    / "skills"
+    / "memory"
+    / "SKILL.md",
     ROOT
     / "plugins"
     / "infinity-context-agent-plugin"
@@ -423,9 +429,11 @@ def test_agent_cli_smokes_run_agent_commands_in_parallel(monkeypatch) -> None:
     assert "--output-format" in calls["gemini"]
     assert "mcp_infinity-context_memory_status" in " ".join(calls["gemini"])
     assert "--plugin-dir" in calls["claude"]
-    assert f'mcp_servers.infinity-context.command="{module.PLUGIN_ROOT / "bin" / "infinity-context-mcp"}"' in (
-        calls["codex"]
+    codex_mcp_command = (
+        "mcp_servers.infinity-context.command="
+        f'"{module.PLUGIN_ROOT / "bin" / "infinity-context-mcp"}"'
     )
+    assert codex_mcp_command in calls["codex"]
     assert "unit-live-token" not in " ".join(calls["codex"])
     assert "MEMORY_MCP_AUTH_TOKEN" not in " ".join(calls["codex"])
     assert "MEMORY_MCP_RUNTIME_AUTH_TOKEN" not in " ".join(calls["codex"])
@@ -751,6 +759,40 @@ def test_live_smoke_non_strict_agent_cli_failures_are_advisory(monkeypatch) -> N
     assert result["ok"] is True
     assert result["agent_cli_failures"] == ["gemini"]
     assert result["failures"] == []
+
+
+def test_live_smoke_main_writes_redacted_report_out(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    module = _load_script()
+    report_path = tmp_path / "agent-live-smoke.json"
+
+    async def fake_live_smoke(**_kwargs: Any) -> dict[str, Any]:
+        return {
+            "suite": "infinity-context-agent-live-smoke",
+            "ok": True,
+            "stdout": "sk-proj-unit-secret-value",
+        }
+
+    monkeypatch.setattr(module, "run_live_smoke", fake_live_smoke)
+
+    exit_code = module.main(
+        (
+            "live-smoke",
+            "--report-out",
+            str(report_path),
+        )
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(report_path.read_text(encoding="utf-8"))
+    assert exit_code == 0
+    assert payload["ok"] is True
+    assert "sk-proj-unit-secret-value" not in report_path.read_text(encoding="utf-8")
+    assert "sk-proj-unit-secret-value" not in captured.out
+    assert "<redacted>" in payload["stdout"]
 
 
 def _target(state: str, *, activation_state: str = "not_required") -> dict[str, object]:

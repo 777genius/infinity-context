@@ -5,6 +5,9 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Any
 
+from infinity_context_core.application.context_item_evidence import (
+    with_context_item_evidence_diagnostics,
+)
 from infinity_context_core.application.context_quality import retrieval_quality_summary
 from infinity_context_core.application.context_requirement_coverage import (
     sanitize_context_requirement_coverage,
@@ -48,6 +51,32 @@ _SAFE_REVIEW_BOOL_DIAGNOSTIC_KEYS = (
 )
 _SAFE_REVIEW_LIST_DIAGNOSTIC_KEYS = (
     "review_recommendation_reason_codes",
+)
+_SAFE_ANCHOR_TEXT_DIAGNOSTIC_KEYS = (
+    "anchor_kind",
+    "normalized_key",
+    "identity_scope",
+    "identity_key",
+    "canonical_key",
+    "person_canonical_key",
+    "project_canonical_key",
+    "organization_canonical_key",
+    "event_type",
+    "event_type_canonical",
+    "event_participant_label",
+    "event_participant_relation",
+    "event_participant_canonical_key",
+    "event_project_label",
+    "event_project_relation",
+    "event_project_canonical_key",
+    "event_temporal_phrase",
+    "event_temporal_hint_code",
+    "event_temporal_quantity",
+    "event_temporal_unit",
+)
+_SAFE_ANCHOR_LIST_DIAGNOSTIC_KEYS = (
+    "event_identity_terms",
+    "alias_identity_terms",
 )
 _BUNDLE_COUNTER_KEYS = (
     "facts_considered",
@@ -336,7 +365,11 @@ def context_duplicate_primary_key(
 
 
 def normalize_context_item_diagnostics(item: ContextItem) -> ContextItem:
-    return replace(item, diagnostics=normalize_context_diagnostics(item.diagnostics))
+    diagnostics = normalize_context_diagnostics(item.diagnostics)
+    return replace(
+        item,
+        diagnostics=with_context_item_evidence_diagnostics(item, diagnostics),
+    )
 
 
 def normalize_context_diagnostics(diagnostics: object) -> dict[str, object]:
@@ -360,6 +393,7 @@ def normalize_context_diagnostics(diagnostics: object) -> dict[str, object]:
     normalized.update(_safe_recall_diagnostics(raw))
     normalized.update(_safe_context_link_diagnostics(raw))
     normalized.update(_safe_review_diagnostics(raw))
+    normalized.update(_safe_anchor_diagnostics(raw))
     normalized["retrieval_sources"] = list(retrieval_sources)
     normalized["retrieval_sources_total"] = len(all_retrieval_sources)
     normalized["retrieval_sources_returned"] = len(retrieval_sources)
@@ -635,6 +669,32 @@ def _safe_review_diagnostics(raw: dict[str, Any]) -> dict[str, object]:
                 safe_options.append(safe_option)
         if safe_options:
             diagnostics["review_resolution_options"] = safe_options
+    return diagnostics
+
+
+def _safe_anchor_diagnostics(raw: dict[str, Any]) -> dict[str, object]:
+    diagnostics: dict[str, object] = {}
+    for key in _SAFE_ANCHOR_TEXT_DIAGNOSTIC_KEYS:
+        value = _safe_optional_text(raw.get(key), limit=_MAX_DIAGNOSTIC_STRING_CHARS)
+        if value:
+            diagnostics[key] = value
+    for key in _SAFE_ANCHOR_LIST_DIAGNOSTIC_KEYS:
+        value = raw.get(key)
+        if not isinstance(value, list | tuple):
+            continue
+        safe_values = [
+            text
+            for raw_text in value[:_MAX_DIAGNOSTIC_LIST_ITEMS]
+            if (text := _safe_optional_text(raw_text, limit=_MAX_DIAGNOSTIC_KEY_CHARS))
+        ]
+        if safe_values:
+            diagnostics[key] = safe_values
+    profile = safe_diagnostic_mapping(raw.get("anchor_identity_profile"))
+    if profile:
+        diagnostics["anchor_identity_profile"] = profile
+    identity_metadata = safe_diagnostic_mapping(raw.get("identity_metadata"))
+    if identity_metadata:
+        diagnostics["identity_metadata"] = identity_metadata
     return diagnostics
 
 

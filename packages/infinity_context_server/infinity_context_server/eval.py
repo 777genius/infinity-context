@@ -117,6 +117,14 @@ _STANDARD_SCORECARD_EXTERNAL_REPORT_PATHS: tuple[tuple[str, Path], ...] = (
         MULTIMODAL_LIVE_PROVIDER_CANARY_SUITE,
         Path(".e2e-artifacts/multimodal-live-provider-canary.json"),
     ),
+    (
+        PUBLIC_MEMORY_BENCHMARK_SUITE,
+        Path(".e2e-artifacts/public-benchmark-canary.json"),
+    ),
+    (
+        AGENT_LIVE_SMOKE_SUITE,
+        Path(".e2e-artifacts/agent-live-smoke.json"),
+    ),
 )
 
 __all__ = (

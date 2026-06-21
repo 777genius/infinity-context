@@ -714,6 +714,17 @@ def test_memory_quality_scorecard_passes_with_required_capabilities(tmp_path: Pa
         "agent_live_smoke_missing",
         "public_benchmark_evidence_missing",
     ]
+    readiness = result["external_evidence"]["readiness"]
+    assert readiness["level"] == "internal_deterministic_only"
+    assert readiness["score_10"] == 0.0
+    assert readiness["ok_components"] == []
+    assert readiness["next_actions"] == [
+        "run_full_provider_canary",
+        "run_multimodal_live_provider_canary",
+        "run_agent_behavior_benchmark",
+        "run_agent_live_smoke",
+        "run_official_public_benchmark_canary",
+    ]
     assert result["metrics"]["safety_leak_count"] == 0
     assert result["metrics"]["multimodal_offline_pass_rate"] == 1.0
     assert result["metrics"]["multimodal_offline_false_positive_count"] == 0
@@ -1090,6 +1101,36 @@ def test_memory_quality_scorecard_auto_discovers_standard_external_report(
     )
 
 
+def test_memory_quality_scorecard_auto_discovers_standard_public_benchmark_report(
+    tmp_path: Path,
+) -> None:
+    report_path = tmp_path / "public-benchmark-canary.json"
+    report_path.write_text(
+        json.dumps(_public_benchmark_report()),
+        encoding="utf-8",
+    )
+    results = _scorecard_fixture_results()
+
+    _merge_standard_scorecard_external_reports(
+        results,
+        report_paths=(
+            (
+                "public-memory-benchmark",
+                report_path,
+            ),
+        ),
+    )
+
+    scorecard = build_memory_quality_scorecard(results)
+    public = scorecard["external_evidence"]["public_benchmark"]
+    assert public["present"] is True
+    assert public["ok"] is True
+    assert public["benchmark_count"] == 2
+    assert "public_benchmark_evidence_missing" not in (
+        scorecard["external_evidence"]["evidence_gaps"]
+    )
+
+
 def test_memory_quality_scorecard_auto_discovery_keeps_existing_suite_result(
     tmp_path: Path,
 ) -> None:
@@ -1198,6 +1239,68 @@ def test_memory_quality_scorecard_requires_live_agent_smoke_for_top_ready() -> N
     assert evidence["evidence_gaps"] == ["agent_live_smoke_missing"]
 
 
+def test_memory_quality_scorecard_auto_discovers_agent_live_smoke_report(
+    tmp_path: Path,
+) -> None:
+    report_path = tmp_path / "agent-live-smoke.json"
+    report_path.write_text(json.dumps(_agent_live_smoke_report()), encoding="utf-8")
+    suite_results = _scorecard_fixture_results()
+
+    _merge_standard_scorecard_external_reports(
+        suite_results,
+        report_paths=(("infinity-context-agent-live-smoke", report_path),),
+    )
+    result = build_memory_quality_scorecard(suite_results)
+
+    evidence = result["external_evidence"]
+    assert evidence["agent_live_smoke"]["present"] is True
+    assert evidence["agent_live_smoke"]["ok"] is True
+    assert (
+        evidence["agent_live_smoke"]["generated_mcp"]["codex_claude_cursor_package"]
+        is True
+    )
+    assert "agent_live_smoke_missing" not in evidence["evidence_gaps"]
+    assert "agent_live_smoke_failed" not in evidence["evidence_gaps"]
+
+
+def test_memory_quality_scorecard_reports_public_benchmark_canary_scale_gap() -> None:
+    suite_results = _scorecard_fixture_results()
+    suite_results["infinity-context-full-provider-canary"] = _full_provider_canary_report()
+    suite_results["infinity-context-multimodal-live-provider-canary"] = (
+        _multimodal_live_provider_canary_report()
+    )
+    suite_results["memory_mcp_agent_behavior"] = _agent_behavior_benchmark_report()
+    suite_results["infinity-context-agent-live-smoke"] = _agent_live_smoke_report()
+    public_benchmark = _public_benchmark_report()
+    for benchmark in public_benchmark["benchmarks"]:
+        benchmark["metrics"]["accuracy"] = 1.0
+        benchmark["metrics"]["case_count"] = 2
+    public_benchmark["metrics"]["unique_case_id_count"] = 4
+    public_benchmark["dataset_sources"]["locomo"]["case_count"] = 2
+    public_benchmark["dataset_sources"]["longmemeval"]["case_count"] = 2
+    suite_results["public-memory-benchmark"] = public_benchmark
+
+    result = build_memory_quality_scorecard(suite_results)
+
+    evidence = result["external_evidence"]
+    public = evidence["public_benchmark"]
+    assert result["ok"] is True
+    assert evidence["top_library_comparison_ready"] is False
+    assert public["present"] is True
+    assert public["quality_ok"] is False
+    assert public["competitive_floor_ok"] is False
+    assert public["competitive_floor"]["failed_benchmarks"] == [
+        "locomo",
+        "longmemeval",
+    ]
+    assert evidence["readiness"]["level"] == "external_partial"
+    assert evidence["readiness"]["score_10"] == 8.0
+    assert "public_benchmark_competitive_floor_failed" in evidence["evidence_gaps"]
+    assert "increase_public_benchmark_case_count_to_competitive_floor" in (
+        evidence["readiness"]["next_actions"]
+    )
+
+
 def test_memory_quality_scorecard_reports_degraded_multimodal_live_provider() -> None:
     suite_results = _scorecard_fixture_results()
     suite_results["infinity-context-full-provider-canary"] = _full_provider_canary_report()
@@ -1223,6 +1326,18 @@ def test_memory_quality_scorecard_reports_degraded_multimodal_live_provider() ->
     assert "vision_real_provider_ok" in provider["failed_required_checks"]
     assert "multimodal_live_provider_canary_failed" in evidence["evidence_gaps"]
     assert "multimodal_live_provider_key_missing" in evidence["evidence_gaps"]
+    assert evidence["readiness"]["level"] == "external_partial"
+    assert evidence["readiness"]["score_10"] == 8.0
+    assert evidence["readiness"]["ok_components"] == [
+        "full_provider",
+        "agent_behavior",
+        "agent_live_smoke",
+        "public_benchmark",
+    ]
+    assert evidence["readiness"]["next_actions"][:2] == [
+        "configure_live_provider_key",
+        "rerun_multimodal_live_provider_canary_after_fix",
+    ]
 
 
 def test_memory_quality_scorecard_requires_multimodal_report_safety_contract() -> None:
@@ -1307,6 +1422,20 @@ def test_memory_quality_scorecard_reports_top_library_ready_with_public_benchmar
         "full_provider_and_multimodal_live_provider_and_agent_behavior_and_agent_live_smoke_and_public_benchmark_evaluated"
     )
     assert evidence["top_library_comparison_ready"] is True
+    assert evidence["readiness"] == {
+        "schema_version": "memory-external-evidence-readiness-v1",
+        "level": "top_library_comparison_ready",
+        "score_10": 10.0,
+        "ok_components": [
+            "full_provider",
+            "multimodal_live_provider",
+            "agent_behavior",
+            "agent_live_smoke",
+            "public_benchmark",
+        ],
+        "blocking_gaps": [],
+        "next_actions": [],
+    }
     assert evidence["evidence_gaps"] == []
     assert evidence["agent_live_smoke"]["ok"] is True
     assert evidence["agent_live_smoke"]["agent_cli"]["claude"] == "ok"

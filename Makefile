@@ -9,6 +9,7 @@ FRONTEND_DIR ?= frontend
 FLUTTER ?= $(shell command -v flutter 2>/dev/null || if [ -x "$$HOME/dev/flutter/bin/flutter" ]; then echo "$$HOME/dev/flutter/bin/flutter"; elif [ -x "$$HOME/dev/projects/flutter/bin/flutter" ]; then echo "$$HOME/dev/projects/flutter/bin/flutter"; else echo flutter; fi)
 MEMORY_FRONTEND_MARIONETTE_REPORT ?= .e2e-artifacts/frontend-marionette-local-e2e.json
 MEMORY_MULTIMODAL_PROVIDER_CANARY_REPORT_OUT ?= .e2e-artifacts/multimodal-live-provider-canary.json
+MEMORY_AGENT_LIVE_SMOKE_REPORT_OUT ?= .e2e-artifacts/agent-live-smoke.json
 MEMORY_SERVER_ENV ?= MEMORY_AUTO_CREATE_SCHEMA=true MEMORY_SERVICE_TOKEN=local-dev-token
 PLUGIN_KIT_AI ?= scripts/plugin-kit-ai-local
 MEMORY_AGENT_PLUGIN_ROOT ?= plugins/infinity-context-agent-plugin
@@ -248,7 +249,7 @@ infinity-context-official-public-benchmark-canary:
 	if [ -n "$${MEMORY_PUBLIC_BENCHMARK_MIN_ACCURACY:-}" ]; then set -- "$$@" --min-accuracy "$${MEMORY_PUBLIC_BENCHMARK_MIN_ACCURACY}"; fi; \
 	if [ -n "$${MEMORY_PUBLIC_BENCHMARK_API_URL:-}" ]; then set -- "$$@" --api-url "$${MEMORY_PUBLIC_BENCHMARK_API_URL}"; fi; \
 	if [ -n "$${MEMORY_PUBLIC_BENCHMARK_AUTH_TOKEN:-}" ]; then set -- "$$@" --auth-token "$${MEMORY_PUBLIC_BENCHMARK_AUTH_TOKEN}"; fi; \
-	if [ -n "$${MEMORY_PUBLIC_BENCHMARK_REPORT_OUT:-}" ]; then set -- "$$@" --report-out "$${MEMORY_PUBLIC_BENCHMARK_REPORT_OUT}"; fi; \
+	set -- "$$@" --report-out "$${MEMORY_PUBLIC_BENCHMARK_REPORT_OUT:-.e2e-artifacts/public-benchmark-canary.json}"; \
 	case "$${MEMORY_PUBLIC_BENCHMARK_COMPETITIVE_FLOOR:-}" in 1|true|yes|on) set -- "$$@" --competitive-floor;; esac; \
 	$(PYTHON) scripts/official_public_benchmark_canary.py "$$@"
 
@@ -399,17 +400,17 @@ infinity-context-agent-install-doctor:
 .PHONY: infinity-context-agent-live-smoke
 infinity-context-agent-live-smoke:
 	MEMORY_POSTGRES_PORT=$${MEMORY_POSTGRES_PORT:-$(MEMORY_AGENT_SMOKE_POSTGRES_PORT)} MEMORY_SERVER_PORT=$${MEMORY_SERVER_PORT:-$(MEMORY_AGENT_SMOKE_SERVER_PORT)} $(MAKE) infinity-context-up-lite
-	MEMORY_MCP_API_URL=$${MEMORY_MCP_API_URL:-http://127.0.0.1:$${MEMORY_SERVER_PORT:-$(MEMORY_AGENT_SMOKE_SERVER_PORT)}} MEMORY_MCP_AUTH_TOKEN=$${MEMORY_MCP_AUTH_TOKEN:-local-dev-token} $(PYTHON) scripts/agent_install_verification.py live-smoke
+	MEMORY_MCP_API_URL=$${MEMORY_MCP_API_URL:-http://127.0.0.1:$${MEMORY_SERVER_PORT:-$(MEMORY_AGENT_SMOKE_SERVER_PORT)}} MEMORY_MCP_AUTH_TOKEN=$${MEMORY_MCP_AUTH_TOKEN:-local-dev-token} $(PYTHON) scripts/agent_install_verification.py live-smoke --report-out "$(MEMORY_AGENT_LIVE_SMOKE_REPORT_OUT)"
 
 .PHONY: infinity-context-agent-live-smoke-agents
 infinity-context-agent-live-smoke-agents:
 	MEMORY_POSTGRES_PORT=$${MEMORY_POSTGRES_PORT:-$(MEMORY_AGENT_SMOKE_POSTGRES_PORT)} MEMORY_SERVER_PORT=$${MEMORY_SERVER_PORT:-$(MEMORY_AGENT_SMOKE_SERVER_PORT)} $(MAKE) infinity-context-up-lite
-	MEMORY_MCP_API_URL=$${MEMORY_MCP_API_URL:-http://127.0.0.1:$${MEMORY_SERVER_PORT:-$(MEMORY_AGENT_SMOKE_SERVER_PORT)}} MEMORY_MCP_AUTH_TOKEN=$${MEMORY_MCP_AUTH_TOKEN:-local-dev-token} $(PYTHON) scripts/agent_install_verification.py live-smoke --run-agent-cli
+	MEMORY_MCP_API_URL=$${MEMORY_MCP_API_URL:-http://127.0.0.1:$${MEMORY_SERVER_PORT:-$(MEMORY_AGENT_SMOKE_SERVER_PORT)}} MEMORY_MCP_AUTH_TOKEN=$${MEMORY_MCP_AUTH_TOKEN:-local-dev-token} $(PYTHON) scripts/agent_install_verification.py live-smoke --run-agent-cli --report-out "$(MEMORY_AGENT_LIVE_SMOKE_REPORT_OUT)"
 
 .PHONY: infinity-context-agent-live-smoke-agents-strict
 infinity-context-agent-live-smoke-agents-strict:
 	MEMORY_POSTGRES_PORT=$${MEMORY_POSTGRES_PORT:-$(MEMORY_AGENT_SMOKE_POSTGRES_PORT)} MEMORY_SERVER_PORT=$${MEMORY_SERVER_PORT:-$(MEMORY_AGENT_SMOKE_SERVER_PORT)} $(MAKE) infinity-context-up-lite
-	MEMORY_MCP_API_URL=$${MEMORY_MCP_API_URL:-http://127.0.0.1:$${MEMORY_SERVER_PORT:-$(MEMORY_AGENT_SMOKE_SERVER_PORT)}} MEMORY_MCP_AUTH_TOKEN=$${MEMORY_MCP_AUTH_TOKEN:-local-dev-token} $(PYTHON) scripts/agent_install_verification.py live-smoke --run-agent-cli --strict-agent-cli
+	MEMORY_MCP_API_URL=$${MEMORY_MCP_API_URL:-http://127.0.0.1:$${MEMORY_SERVER_PORT:-$(MEMORY_AGENT_SMOKE_SERVER_PORT)}} MEMORY_MCP_AUTH_TOKEN=$${MEMORY_MCP_AUTH_TOKEN:-local-dev-token} $(PYTHON) scripts/agent_install_verification.py live-smoke --run-agent-cli --strict-agent-cli --report-out "$(MEMORY_AGENT_LIVE_SMOKE_REPORT_OUT)"
 
 .PHONY: infinity-context-agent-auth-doctor
 infinity-context-agent-auth-doctor:

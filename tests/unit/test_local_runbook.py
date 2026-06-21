@@ -636,6 +636,10 @@ def test_makefile_has_agent_install_and_full_canary_targets() -> None:
     assert ".PHONY: infinity-context-agent-auth-repair" in makefile
     assert "MEMORY_AGENT_SMOKE_POSTGRES_PORT ?= 55429" in makefile
     assert "MEMORY_AGENT_SMOKE_SERVER_PORT ?= 17788" in makefile
+    assert (
+        "MEMORY_AGENT_LIVE_SMOKE_REPORT_OUT ?= "
+        ".e2e-artifacts/agent-live-smoke.json"
+    ) in makefile
     assert "MEMORY_PROD_CONFIDENCE_POSTGRES_PORT ?= 55431" in makefile
     assert "MEMORY_PROD_CONFIDENCE_SERVER_PORT ?= 17791" in makefile
     assert "MEMORY_AGENT_INSTALL_TARGETS ?= codex claude opencode cursor" in makefile
@@ -648,7 +652,8 @@ def test_makefile_has_agent_install_and_full_canary_targets() -> None:
     assert "$(PYTHON) scripts/install_memory_agent_plugin.py --dry-run" in makefile
     assert "$(PYTHON) scripts/install_memory_agent_plugin.py" in makefile
     assert (
-        "$(PYTHON) scripts/agent_install_verification.py live-smoke\n"
+        "$(PYTHON) scripts/agent_install_verification.py live-smoke "
+        '--report-out "$(MEMORY_AGENT_LIVE_SMOKE_REPORT_OUT)"'
     ) in makefile
     assert (
         "MEMORY_POSTGRES_PORT=$${MEMORY_POSTGRES_PORT:-$(MEMORY_AGENT_SMOKE_POSTGRES_PORT)} "
@@ -661,11 +666,13 @@ def test_makefile_has_agent_install_and_full_canary_targets() -> None:
     ) in makefile
     assert (
         "$(PYTHON) scripts/agent_install_verification.py live-smoke "
-        "--run-agent-cli\n"
+        "--run-agent-cli "
+        '--report-out "$(MEMORY_AGENT_LIVE_SMOKE_REPORT_OUT)"'
     ) in makefile
     assert (
         "$(PYTHON) scripts/agent_install_verification.py live-smoke "
-        "--run-agent-cli --strict-agent-cli"
+        "--run-agent-cli --strict-agent-cli "
+        '--report-out "$(MEMORY_AGENT_LIVE_SMOKE_REPORT_OUT)"'
     ) in makefile
     assert "$(PYTHON) scripts/agent_install_verification.py agent-auth-doctor\n" in makefile
     assert (

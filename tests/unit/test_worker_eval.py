@@ -1332,6 +1332,18 @@ def test_quality_golden_anchor_recall_cases_require_typed_anchor_items() -> None
             ("text", "contains", "project: Project Atlas"),
             ("diagnostics.retrieval_source", "eq", "canonical_anchors"),
             ("diagnostics.anchor_kind", "eq", "project"),
+            (
+                "diagnostics.anchor_identity_profile.schema_version",
+                "eq",
+                "anchor-identity-profile-v1",
+            ),
+            ("diagnostics.anchor_identity_profile.anchor_kind", "eq", "project"),
+            (
+                "diagnostics.anchor_identity_profile.primary_identity_key",
+                "eq",
+                "project:atlas",
+            ),
+            ("diagnostics.anchor_identity_profile.identity_term_count", "gte", 1),
         ),
     )
 
@@ -1342,6 +1354,16 @@ def test_quality_golden_anchor_recall_cases_require_typed_anchor_items() -> None
             ("text", "contains", "event: Atlas billing call"),
             ("diagnostics.retrieval_source", "eq", "canonical_anchors"),
             ("diagnostics.anchor_kind", "eq", "event"),
+            (
+                "diagnostics.anchor_identity_profile.schema_version",
+                "eq",
+                "anchor-identity-profile-v1",
+            ),
+            ("diagnostics.anchor_identity_profile.anchor_kind", "eq", "event"),
+            ("diagnostics.anchor_identity_profile.has_event_participant", "eq", True),
+            ("diagnostics.anchor_identity_profile.has_event_project", "eq", True),
+            ("diagnostics.anchor_identity_profile.has_event_temporal_hint", "eq", True),
+            ("diagnostics.anchor_identity_profile.event_type", "eq", "call"),
         ),
     )
 

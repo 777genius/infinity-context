@@ -102,7 +102,7 @@ services:
   infinity_context_server:
     <<: *infinity-context-server-common
     profiles: ["lite"]
-    command: sh -c "pip install -e \".[${INFINITY_CONTEXT_LITE_RUNTIME_EXTRAS:-dev,docling}]\" && python -m infinity_context_server.db upgrade && python -m infinity_context_server.admin seed-defaults && python -m infinity_context_server.main"
+    command: sh -c "pip install -e \".[${INFINITY_CONTEXT_LITE_RUNTIME_EXTRAS:-dev}]\" && python -m infinity_context_server.db upgrade && python -m infinity_context_server.admin seed-defaults && python -m infinity_context_server.main"
     environment:
       <<: *infinity-context-server-base-env
       MEMORY_QDRANT_ENABLED: "false"
@@ -122,7 +122,7 @@ services:
   infinity_context_worker:
     <<: *infinity-context-server-common
     profiles: ["lite"]
-    command: sh -c "pip install -e \".[${INFINITY_CONTEXT_LITE_RUNTIME_EXTRAS:-dev,docling}]\" && python -m infinity_context_server.worker --loop --role projection --sleep-seconds 2"
+    command: sh -c "pip install -e \".[${INFINITY_CONTEXT_LITE_RUNTIME_EXTRAS:-dev}]\" && python -m infinity_context_server.worker --loop --role projection --sleep-seconds 2"
     environment:
       <<: *infinity-context-server-base-env
       MEMORY_QDRANT_ENABLED: "false"
@@ -142,7 +142,7 @@ services:
   infinity_context_extraction_worker:
     <<: *infinity-context-server-common
     profiles: ["lite"]
-    command: sh -c "pip install -e \".[${INFINITY_CONTEXT_LITE_RUNTIME_EXTRAS:-dev,docling}]\" && python -m infinity_context_server.worker --loop --role extraction --limit 2 --concurrency ${MEMORY_EXTRACTION_WORKER_CONCURRENCY:-1} --sleep-seconds 2"
+    command: sh -c "pip install -e \".[${INFINITY_CONTEXT_LITE_RUNTIME_EXTRAS:-dev}]\" && python -m infinity_context_server.worker --loop --role extraction --limit 2 --concurrency ${MEMORY_EXTRACTION_WORKER_CONCURRENCY:-1} --sleep-seconds 2"
     environment:
       <<: *infinity-context-server-base-env
       MEMORY_QDRANT_ENABLED: "false"

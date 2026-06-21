@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from infinity_context_core.application.context_anchor_identity import anchor_identity_profile
 from infinity_context_core.application.context_query_intent import QueryAnchorMatch
 from infinity_context_core.application.context_relevance import (
     QueryRelevance,
@@ -80,6 +81,7 @@ def anchor_context_item(
         query_anchor_match=query_anchor_match,
     )
     metadata = _anchor_identity_metadata(anchor)
+    identity_profile = anchor_identity_profile(anchor, metadata=metadata)
     ranking_reason = (
         "canonical semantic anchor matched query via structured identity metadata"
         if identity_relevance.unique_term_hits > 0 or query_anchor_match is not None
@@ -105,6 +107,10 @@ def anchor_context_item(
                 "retrieval_channel": "canonical_anchors",
                 "anchor_kind": anchor.kind.value,
                 "confidence": anchor.confidence.value,
+                "anchor_identity_term_count": identity_profile["identity_term_count"],
+                "anchor_alias_identity_term_count": identity_profile[
+                    "alias_identity_term_count"
+                ],
                 **query_relevance_score_signals(relevance),
                 "identity_unique_term_hits": identity_relevance.unique_term_hits,
                 "identity_hit_ratio": identity_relevance.hit_ratio,
@@ -122,6 +128,7 @@ def anchor_context_item(
                 "observed_at": anchor.observed_at.isoformat(),
                 "valid_from": anchor.valid_from.isoformat() if anchor.valid_from else None,
                 "valid_to": anchor.valid_to.isoformat() if anchor.valid_to else None,
+                "anchor_identity_profile": identity_profile,
                 "identity_metadata": metadata,
                 **match_diagnostics,
             },
@@ -130,6 +137,7 @@ def anchor_context_item(
             "confidence": anchor.confidence.value,
             "observed_at": anchor.observed_at.isoformat(),
             "updated_at": anchor.updated_at.isoformat(),
+            "anchor_identity_profile": identity_profile,
             "identity_metadata": metadata,
             **match_diagnostics,
             **metadata,
@@ -147,6 +155,7 @@ def related_anchor_context_item(
     now: datetime | None,
 ) -> ContextItem:
     metadata = _anchor_identity_metadata(anchor)
+    identity_profile = anchor_identity_profile(anchor, metadata=metadata)
     score = _related_anchor_score(anchor, parent_score=parent_score, now=now)
     safe_relation_type = _metadata_text(relation_type, limit=80) or "related_anchor"
     safe_relation_key = _metadata_text(relation_key, limit=160) or anchor.normalized_key
@@ -170,6 +179,7 @@ def related_anchor_context_item(
                 "parent_anchor_score": round(parent_score, 4),
                 "anchor_kind": anchor.kind.value,
                 "confidence": anchor.confidence.value,
+                "anchor_identity_term_count": identity_profile["identity_term_count"],
             },
             "provenance": {
                 "retrieval_sources": ["canonical_anchor_relations"],
@@ -180,6 +190,7 @@ def related_anchor_context_item(
                 "observed_at": anchor.observed_at.isoformat(),
                 "valid_from": anchor.valid_from.isoformat() if anchor.valid_from else None,
                 "valid_to": anchor.valid_to.isoformat() if anchor.valid_to else None,
+                "anchor_identity_profile": identity_profile,
                 "identity_metadata": metadata,
                 "relation_source_anchor_id": str(source_anchor.id),
                 "relation_source_anchor_kind": source_anchor.kind.value,
@@ -192,6 +203,7 @@ def related_anchor_context_item(
             "confidence": anchor.confidence.value,
             "observed_at": anchor.observed_at.isoformat(),
             "updated_at": anchor.updated_at.isoformat(),
+            "anchor_identity_profile": identity_profile,
             "identity_metadata": metadata,
             "related_anchor_source_id": str(source_anchor.id),
             "related_anchor_source_kind": source_anchor.kind.value,

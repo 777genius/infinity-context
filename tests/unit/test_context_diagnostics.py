@@ -899,3 +899,83 @@ def test_context_item_diagnostics_always_report_retrieval_source_counts() -> Non
     assert normalized["retrieval_sources_returned"] == 1
     assert normalized["retrieval_sources_truncated"] is False
     assert normalized["ranking_reason"] == "canonical active fact matched query and filters"
+
+
+def test_context_item_diagnostics_include_computed_evidence_profile() -> None:
+    item = ContextItem(
+        item_id="artifact_video_segment",
+        item_type="extraction_artifact",
+        text="Video transcript mentions Atlas renewal.",
+        score=0.93,
+        source_refs=(
+            SourceRef(
+                source_type="extraction_artifact",
+                source_id="video_artifact",
+                chunk_id="segment_1",
+                char_start=12,
+                char_end=44,
+                page_number=2,
+                time_start_ms=1_500,
+                time_end_ms=4_200,
+                bbox=(10.0, 20.0, 120.0, 80.0),
+                quote_preview="Atlas renewal moved to Friday.",
+            ),
+            SourceRef(
+                source_type="manual",
+                source_id="note_1",
+            ),
+        ),
+        diagnostics={"retrieval_source": "artifact_evidence"},
+    )
+
+    normalized = normalize_context_item_diagnostics(item).diagnostics
+
+    assert normalized["citation_count"] == 2
+    assert normalized["has_citations"] is True
+    assert normalized["has_quote_preview"] is True
+    assert normalized["has_precise_location"] is True
+    assert normalized["has_multimodal_location"] is True
+    assert normalized["source_refs_with_quote_preview_count"] == 1
+    assert normalized["source_refs_with_char_range_count"] == 1
+    assert normalized["source_refs_with_page_count"] == 1
+    assert normalized["source_refs_with_bbox_count"] == 1
+    assert normalized["source_refs_with_time_range_count"] == 1
+    assert normalized["evidence_profile"] == {
+        "schema_version": "context-item-evidence-profile-v1",
+        "citation_count": 2,
+        "source_ref_count": 2,
+        "has_citations": True,
+        "has_quote_preview": True,
+        "has_precise_location": True,
+        "has_multimodal_location": True,
+        "source_refs_with_quote_preview_count": 1,
+        "source_refs_with_char_range_count": 1,
+        "source_refs_with_page_count": 1,
+        "source_refs_with_bbox_count": 1,
+        "source_refs_with_time_range_count": 1,
+        "location_kinds": ["char_range", "page", "bbox", "time_range"],
+    }
+    assert normalized["provenance"]["source_ref_count"] == 2
+
+
+def test_context_item_evidence_profile_does_not_copy_quote_text() -> None:
+    secretish_quote = "sk-proj-provider-secret should never be mirrored into diagnostics"
+    item = ContextItem(
+        item_id="fact_secret_quote",
+        item_type="fact",
+        text="Fact with sensitive quoted evidence.",
+        score=0.9,
+        source_refs=(
+            SourceRef(
+                source_type="manual",
+                source_id="source_1",
+                quote_preview=secretish_quote,
+            ),
+        ),
+        diagnostics={},
+    )
+
+    normalized = normalize_context_item_diagnostics(item).diagnostics
+
+    assert normalized["evidence_profile"]["has_quote_preview"] is True
+    assert secretish_quote not in str(normalized["evidence_profile"])

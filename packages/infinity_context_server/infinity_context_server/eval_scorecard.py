@@ -1011,15 +1011,28 @@ def _scorecard_external_evidence(
             evidence_gaps.append("public_benchmark_dataset_evidence_failed")
         if public_benchmark_summary.get("competitive_floor_ok") is False:
             evidence_gaps.append("public_benchmark_competitive_floor_failed")
+    top_library_ready = (
+        full_provider_ok
+        and multimodal_live_provider_ok
+        and agent_behavior_ok
+        and agent_live_smoke_ok
+        and public_benchmark_ok
+    )
+    readiness = _scorecard_external_evidence_readiness(
+        full_provider_ok=full_provider_ok,
+        multimodal_live_provider_ok=multimodal_live_provider_ok,
+        agent_behavior_ok=agent_behavior_ok,
+        agent_live_smoke_ok=agent_live_smoke_ok,
+        public_benchmark_ok=public_benchmark_ok,
+        top_library_ready=top_library_ready,
+        evidence_gaps=evidence_gaps,
+    )
 
     return {
         "confidence_tier": confidence_tier,
         "required_for_gate": require_top_evidence,
-        "top_library_comparison_ready": full_provider_ok
-        and multimodal_live_provider_ok
-        and agent_behavior_ok
-        and agent_live_smoke_ok
-        and public_benchmark_ok,
+        "top_library_comparison_ready": top_library_ready,
+        "readiness": readiness,
         "benchmark_note": (
             "Internal deterministic suites are the local quality gate. "
             "Full-provider, multimodal live-provider, real-agent and public benchmark reports are "
@@ -1032,6 +1045,84 @@ def _scorecard_external_evidence(
         "agent_live_smoke": agent_live_smoke_summary,
         "public_benchmark": public_benchmark_summary,
     }
+
+
+def _scorecard_external_evidence_readiness(
+    *,
+    full_provider_ok: bool,
+    multimodal_live_provider_ok: bool,
+    agent_behavior_ok: bool,
+    agent_live_smoke_ok: bool,
+    public_benchmark_ok: bool,
+    top_library_ready: bool,
+    evidence_gaps: Sequence[str],
+) -> dict[str, object]:
+    ok_components = [
+        name
+        for name, ok in (
+            ("full_provider", full_provider_ok),
+            ("multimodal_live_provider", multimodal_live_provider_ok),
+            ("agent_behavior", agent_behavior_ok),
+            ("agent_live_smoke", agent_live_smoke_ok),
+            ("public_benchmark", public_benchmark_ok),
+        )
+        if ok
+    ]
+    if top_library_ready:
+        level = "top_library_comparison_ready"
+    elif full_provider_ok and multimodal_live_provider_ok and public_benchmark_ok:
+        level = "provider_and_public_benchmark_verified"
+    elif ok_components:
+        level = "external_partial"
+    else:
+        level = "internal_deterministic_only"
+    return {
+        "schema_version": "memory-external-evidence-readiness-v1",
+        "level": level,
+        "score_10": round(10 * len(ok_components) / 5, 2),
+        "ok_components": ok_components,
+        "blocking_gaps": list(evidence_gaps),
+        "next_actions": _scorecard_external_evidence_next_actions(evidence_gaps),
+    }
+
+
+def _scorecard_external_evidence_next_actions(
+    evidence_gaps: Sequence[str],
+) -> list[str]:
+    actions: list[str] = []
+    gap_set = set(evidence_gaps)
+    if "multimodal_live_provider_key_missing" in gap_set:
+        actions.append("configure_live_provider_key")
+    for gap, action in (
+        ("full_provider_canary_missing", "run_full_provider_canary"),
+        ("full_provider_canary_failed", "fix_full_provider_canary"),
+        (
+            "multimodal_live_provider_canary_missing",
+            "run_multimodal_live_provider_canary",
+        ),
+        (
+            "multimodal_live_provider_canary_failed",
+            "rerun_multimodal_live_provider_canary_after_fix",
+        ),
+        ("agent_behavior_benchmark_missing", "run_agent_behavior_benchmark"),
+        ("agent_behavior_benchmark_failed", "fix_agent_behavior_benchmark"),
+        ("agent_live_smoke_missing", "run_agent_live_smoke"),
+        ("agent_live_smoke_failed", "fix_agent_live_smoke"),
+        ("public_benchmark_evidence_missing", "run_official_public_benchmark_canary"),
+        ("public_benchmark_evidence_failed", "fix_public_benchmark_evidence"),
+        (
+            "public_benchmark_competitive_floor_failed",
+            "increase_public_benchmark_case_count_to_competitive_floor",
+        ),
+        ("public_benchmark_dataset_evidence_failed", "fix_public_benchmark_dataset_metadata"),
+    ):
+        if gap in gap_set:
+            actions.append(action)
+    if any(gap.endswith("_provenance_failed") for gap in gap_set):
+        actions.append("regenerate_external_reports_on_clean_commit")
+    if any(gap.endswith("_safety_failed") for gap in gap_set):
+        actions.append("fix_external_report_secret_redaction")
+    return list(dict.fromkeys(actions))
 
 
 def _scorecard_find_full_provider_report(
