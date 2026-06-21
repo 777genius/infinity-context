@@ -9,6 +9,7 @@ from typing import Any
 from infinity_context_cli.config import InfinityContextCliConfig
 
 SUPPORTED_AGENTS = {"codex", "claude", "cursor", "gemini", "opencode"}
+_SERVICE_TOKEN_ENV_KEY = "MEMORY_SERVICE_TOKEN"
 
 
 def build_mcp_config(
@@ -58,6 +59,8 @@ def write_mcp_config(
     config: InfinityContextCliConfig,
     include_token: bool = False,
 ) -> Path:
+    if not include_token:
+        sync_token_file(config)
     output_dir = config.home / "generated"
     output_dir.mkdir(parents=True, exist_ok=True)
     path = output_dir / f"{agent}-mcp.json"
@@ -68,6 +71,28 @@ def write_mcp_config(
     if include_token:
         path.chmod(0o600)
     return path
+
+
+def sync_token_file(config: InfinityContextCliConfig) -> None:
+    config.env_path.parent.mkdir(parents=True, exist_ok=True)
+    lines = (
+        config.env_path.read_text(encoding="utf-8").splitlines()
+        if config.env_path.exists()
+        else []
+    )
+    token_line = f"{_SERVICE_TOKEN_ENV_KEY}={config.service_token}"
+    updated = False
+    rendered: list[str] = []
+    for line in lines:
+        if line.startswith(f"{_SERVICE_TOKEN_ENV_KEY}="):
+            rendered.append(token_line)
+            updated = True
+        else:
+            rendered.append(line)
+    if not updated:
+        rendered.insert(0, token_line)
+    config.env_path.write_text("\n".join([*rendered, ""]), encoding="utf-8")
+    config.env_path.chmod(0o600)
 
 
 def _mcp_command(repo_dir: Path) -> str:

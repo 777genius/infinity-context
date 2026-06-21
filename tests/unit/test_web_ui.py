@@ -37,6 +37,11 @@ def test_web_ui_serves_browser_without_openapi_noise(tmp_path) -> None:
     assert "Overview" in index.text
     assert "capturePanel" in index.text
     assert "overviewPanel" in index.text
+    assert "firstMemoryNoteButton" in index.text
+    assert "firstMemoryFileButton" in index.text
+    assert "firstMemoryReviewButton" in index.text
+    assert "firstMemoryGraphButton" in index.text
+    assert "firstMemoryScopeLabel" in index.text
     assert "captureTextInput" in index.text
     assert "assetFileInput" in index.text
     assert "Save Note" in index.text
@@ -51,6 +56,8 @@ def test_web_ui_serves_browser_without_openapi_noise(tmp_path) -> None:
     assert css.status_code == 200
     assert "graph-panel" in css.text
     assert "capture-grid" in css.text
+    assert "first-memory-rail" in css.text
+    assert "first-memory-action" in css.text
     assert "capture-status" in css.text
     assert "overview-grid" in css.text
     assert "overview-card" in css.text
@@ -60,8 +67,13 @@ def test_web_ui_serves_browser_without_openapi_noise(tmp_path) -> None:
     assert review_js.status_code == 200
     assert operations_js.status_code == 200
     assert "localStorage" in js.text
+    assert "TAB_HASH_ALIASES" in js.text
     assert "Authorization" in js.text
     assert "infinityContextBrowser" in js.text
+    assert "renderFirstMemoryRail" in js.text
+    assert "tabNameFromHash" in js.text
+    assert "firstMemoryNoteButton" in js.text
+    assert "firstMemoryReviewCount" in js.text
     assert "infinityContextCapture" in capture_js.text
     assert "saveQuickCapture" in capture_js.text
     assert "uploadAssetEvidence" in capture_js.text

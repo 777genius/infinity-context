@@ -10,6 +10,7 @@ FLUTTER ?= $(shell command -v flutter 2>/dev/null || if [ -x "$$HOME/dev/flutter
 MEMORY_FRONTEND_MARIONETTE_REPORT ?= .e2e-artifacts/frontend-marionette-local-e2e.json
 MEMORY_MULTIMODAL_PROVIDER_CANARY_REPORT_OUT ?= .e2e-artifacts/multimodal-live-provider-canary.json
 MEMORY_AGENT_LIVE_SMOKE_REPORT_OUT ?= .e2e-artifacts/agent-live-smoke.json
+MEMORY_LOCAL_VISUAL_SMOKE_REPORT_OUT ?= .e2e-artifacts/local-mcp-visual-memory-smoke.json
 MEMORY_SERVER_ENV ?= MEMORY_AUTO_CREATE_SCHEMA=true MEMORY_SERVICE_TOKEN=local-dev-token
 PLUGIN_KIT_AI ?= scripts/plugin-kit-ai-local
 MEMORY_AGENT_PLUGIN_ROOT ?= plugins/infinity-context-agent-plugin
@@ -333,6 +334,11 @@ infinity-context-snapshot-thread-smoke:
 .PHONY: infinity-context-mcp-smoke
 infinity-context-mcp-smoke:
 	MEMORY_MCP_API_URL=$${MEMORY_MCP_API_URL:-http://127.0.0.1:7788} MEMORY_MCP_AUTH_TOKEN=$${MEMORY_MCP_AUTH_TOKEN:-local-dev-token} MEMORY_MCP_WRITE_MODE=direct MEMORY_MCP_DELETE_MODE=explicit MEMORY_MCP_INGEST_MODE=allowed $(PYTHON) examples/mcp_agent_smoke.py
+
+.PHONY: infinity-context-local-visual-smoke
+infinity-context-local-visual-smoke:
+	MEMORY_POSTGRES_PORT=$${MEMORY_POSTGRES_PORT:-$(MEMORY_AGENT_SMOKE_POSTGRES_PORT)} MEMORY_SERVER_PORT=$${MEMORY_SERVER_PORT:-$(MEMORY_AGENT_SMOKE_SERVER_PORT)} $(MAKE) infinity-context-up-lite
+	MEMORY_API_URL=$${MEMORY_API_URL:-http://127.0.0.1:$${MEMORY_SERVER_PORT:-$(MEMORY_AGENT_SMOKE_SERVER_PORT)}} MEMORY_SERVICE_TOKEN=$${MEMORY_SERVICE_TOKEN:-local-dev-token} $(PYTHON) scripts/local_mcp_visual_memory_smoke.py --report-out "$(MEMORY_LOCAL_VISUAL_SMOKE_REPORT_OUT)"
 
 .PHONY: infinity-context-plugin-generate
 infinity-context-plugin-generate:

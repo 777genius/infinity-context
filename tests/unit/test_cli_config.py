@@ -61,6 +61,30 @@ def test_mcp_config_redacts_token_by_default(tmp_path: Path) -> None:
     assert written.read_text(encoding="utf-8") == rendered + "\n"
 
 
+def test_mcp_config_write_syncs_backing_token_file(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    config = init_local_config(home=home, repo_dir=repo)
+    config.env_path.write_text(
+        "\n".join(
+            [
+                "MEMORY_SERVICE_TOKEN=stale-token",
+                "MEMORY_POLICY_MODE=active_context",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    written = write_mcp_config(agent="codex", config=config)
+    env_text = config.env_path.read_text(encoding="utf-8")
+
+    assert f"MEMORY_SERVICE_TOKEN={config.service_token}" in env_text
+    assert "MEMORY_POLICY_MODE=active_context" in env_text
+    assert config.service_token not in written.read_text(encoding="utf-8")
+
+
 def test_mcp_config_with_token_is_private(tmp_path: Path) -> None:
     home = tmp_path / "home"
     repo = tmp_path / "repo"

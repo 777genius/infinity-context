@@ -164,16 +164,35 @@ at the private `~/.infinity-context/.env` token file instead. Use
 `quickstart --open-ui` opens the visual memory browser immediately after setup.
 `infinity-context doctor` also verifies the generated MCP config and `/ui/`
 browser entrypoint. The browser starts with a quick Capture panel for text notes
-and file evidence, then shows overview, graph, review, operations and timeline.
+and file evidence, including a first-memory rail for the current memory scope,
+capture count, file count, pending reviews and graph nodes. Direct local browser
+links are available as `/ui/#capture` and `/ui/#review`, then the browser shows
+overview, graph, review, operations and timeline.
 Both `quickstart --json` and `doctor --json` include a `local_experience`
 summary with `status`, `ui_url`, `visual_memory_ready`, `mcp_ready`,
 `ready_agents`, a first-use readiness score, the first Capture surface and a
-`one_minute_path` checklist. When the runtime is available, the Capture summary
-is derived from `/v1/capabilities`, so it only advertises active modalities:
-for example, local audio/video metadata is shown separately from API-backed
-transcription. A fresh local setup should reach `status=ready`;
+`one_minute_path` checklist with human labels, short descriptions,
+`blocked_by` or `degraded_reason` diagnostics, and Capture/Review deep links.
+When the runtime is available, the Capture summary is derived from
+`/v1/capabilities`, so it only advertises active modalities: for example, local
+audio/video metadata is shown separately from API-backed transcription. A fresh
+local setup should reach `status=ready`;
 `configured_not_started` means the MCP config was generated but the local runtime
-still needs `infinity-context up --lite`.
+still needs `infinity-context up --lite`. If Docker is running on a different
+published port than the configured API URL, `status --json` and `doctor --json`
+include `docker_published_api_urls` and `suggested_api_url` diagnostics instead
+of silently failing with only `ConnectError`.
+
+The fastest local proof for the first-memory flow is:
+
+```bash
+make infinity-context-local-visual-smoke
+```
+
+It starts the lite stack if needed, writes a Codex MCP config without embedding
+the raw token, checks MCP `memory_status`, saves a sandbox Capture, waits for
+consolidation, and verifies that pending review plus the Capture are visible in
+the local memory browser.
 
 Agent-assisted local setup is also available through MCP, but it is off by
 default so agents do not create files or start background services unexpectedly:
@@ -237,6 +256,7 @@ Recommended local MVP:
 make infinity-context-up-lite
 make infinity-context-smoke
 make infinity-context-mcp-smoke
+make infinity-context-local-visual-smoke
 ```
 
 `infinity-context-smoke` covers the SDK lifecycle path plus MemoryScope snapshot thread transfer.

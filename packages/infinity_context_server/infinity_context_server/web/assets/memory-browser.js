@@ -15,6 +15,9 @@
     "suggestion",
     "thread",
   ];
+  const TAB_HASH_ALIASES = {
+    review: "suggestions",
+  };
 
   const defaults = {
     apiBase: "",
@@ -142,6 +145,15 @@
       "assetExtractInput",
       "uploadAssetButton",
       "captureStatusOutput",
+      "firstMemoryScopeLabel",
+      "firstMemoryNoteButton",
+      "firstMemoryFileButton",
+      "firstMemoryReviewButton",
+      "firstMemoryGraphButton",
+      "firstMemoryCaptureCount",
+      "firstMemoryAssetCount",
+      "firstMemoryReviewCount",
+      "firstMemoryGraphCount",
       "buildDigestButton",
       "runRecallButton",
       "createAnchorButton",
@@ -195,6 +207,21 @@
     els.runRecallButton.addEventListener("click", () => void runRecall());
     els.createAnchorButton.addEventListener("click", () => void createAnchor());
     els.backfillAnchorsButton.addEventListener("click", () => void backfillAnchors());
+    els.firstMemoryNoteButton.addEventListener("click", () => {
+      activateTab("capture");
+      els.captureTextInput.focus();
+    });
+    els.firstMemoryFileButton.addEventListener("click", () => {
+      activateTab("capture");
+      els.assetFileInput.click();
+    });
+    els.firstMemoryReviewButton.addEventListener("click", () => {
+      activateTab("suggestions");
+      els.reviewTargetFilter.focus();
+    });
+    els.firstMemoryGraphButton.addEventListener("click", () => {
+      els.graphSearchInput.focus();
+    });
     els.graphSearchInput.addEventListener("input", renderAll);
     els.typeFilter.addEventListener("change", renderAll);
     els.statusFilter.addEventListener("change", renderAll);
@@ -234,6 +261,12 @@
     for (const tab of document.querySelectorAll(".tabs button")) {
       tab.addEventListener("click", () => activateTab(tab.dataset.tab));
     }
+    window.addEventListener("hashchange", () => {
+      const tabName = tabNameFromHash();
+      if (tabName) activateTab(tabName, { syncHash: false });
+    });
+    const initialTab = tabNameFromHash();
+    if (initialTab) activateTab(initialTab, { syncHash: false });
     bindGraphPointerEvents();
   }
 
@@ -1061,6 +1094,7 @@
     renderStatus();
     renderMetrics();
     buildGraphData();
+    renderFirstMemoryRail();
     renderGraph();
     renderOverview();
     renderDetails();
@@ -1137,6 +1171,21 @@
       ),
     );
     setText(els.lastRefresh, state.lastRefreshAt ? formatShortTime(state.lastRefreshAt) : "Never");
+  }
+
+  function renderFirstMemoryRail() {
+    const pendingReviewCount =
+      state.suggestions.filter((suggestion) => suggestion.status === "pending").length +
+      state.contextLinkSuggestions.filter((suggestion) => suggestion.status === "pending").length +
+      state.anchorMergeSuggestions.length;
+    setText(
+      els.firstMemoryScopeLabel,
+      `${state.spaceSlug || "default"} / ${state.memoryScopeRef || "default"}`,
+    );
+    setText(els.firstMemoryCaptureCount, pluralCount(state.captures.length, "capture"));
+    setText(els.firstMemoryAssetCount, pluralCount(state.assets.length, "file"));
+    setText(els.firstMemoryReviewCount, `${pendingReviewCount} pending`);
+    setText(els.firstMemoryGraphCount, pluralCount(state.nodes.length, "node"));
   }
 
   function updateScopeSummary() {
@@ -2936,13 +2985,33 @@
     return "";
   }
 
-  function activateTab(name) {
+  function activateTab(name, options = {}) {
+    if (!tabNameExists(name)) return;
     for (const tab of document.querySelectorAll(".tabs button")) {
       tab.classList.toggle("active", tab.dataset.tab === name);
     }
     for (const panel of document.querySelectorAll(".tab-panel")) {
       panel.classList.toggle("active", panel.id === `${name}Panel`);
     }
+    if (options.syncHash !== false && window.location.hash !== `#${name}`) {
+      window.history.replaceState(null, "", `#${name}`);
+    }
+  }
+
+  function tabNameFromHash() {
+    const rawName = window.location.hash.replace(/^#/, "").trim();
+    const name = TAB_HASH_ALIASES[rawName] || rawName;
+    return tabNameExists(name) ? name : null;
+  }
+
+  function tabNameExists(name) {
+    if (!name) return false;
+    return Boolean(document.querySelector(`.tabs button[data-tab="${cssEscape(name)}"]`));
+  }
+
+  function cssEscape(value) {
+    if (window.CSS?.escape) return window.CSS.escape(value);
+    return String(value).replace(/[^a-zA-Z0-9_-]/g, "\\$&");
   }
 
   function listItem({ title, text, meta, onClick }) {
@@ -3044,6 +3113,10 @@
   function compactLabel(value) {
     const text = String(value || "").replace(/\s+/g, " ").trim();
     return text.length > 42 ? `${text.slice(0, 39)}...` : text || "n/a";
+  }
+
+  function pluralCount(count, singular) {
+    return `${count} ${count === 1 ? singular : `${singular}s`}`;
   }
 
   function sourceKey(ref) {

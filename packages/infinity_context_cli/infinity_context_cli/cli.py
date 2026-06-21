@@ -28,7 +28,7 @@ from infinity_context_cli.local_experience import (
     local_experience_score,
 )
 from infinity_context_cli.mcp_config import SUPPORTED_AGENTS, render_mcp_config, write_mcp_config
-from infinity_context_cli.runtime import DockerComposeRuntime
+from infinity_context_cli.runtime import DockerComposeRuntime, docker_compose_published_server_urls
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -367,14 +367,14 @@ def _cmd_restart(args: argparse.Namespace) -> int:
 def _cmd_status(args: argparse.Namespace) -> int:
     config = load_config()
     payload = _status_payload(config)
-    _print_payload(payload, as_json=args.json)
+    _print_status_payload(payload, as_json=args.json)
     return 0 if payload["ok"] else 1
 
 
 def _cmd_doctor(args: argparse.Namespace) -> int:
     config = load_config()
     payload = doctor_payload(config, run_doctor(config))
-    _print_payload(payload, as_json=args.json)
+    _print_doctor_payload(payload, as_json=args.json)
     return 0 if payload["ok"] else 1
 
 
@@ -411,6 +411,11 @@ def _cmd_ui(args: argparse.Namespace) -> int:
 def _cmd_mcp_config(args: argparse.Namespace) -> int:
     config = load_config()
     if args.write:
+        config = init_local_config(
+            home=config.home,
+            repo_dir=config.repo_dir,
+            api_url=config.api_url,
+        )
         path = write_mcp_config(
             agent=args.agent,
             config=config,
@@ -666,6 +671,10 @@ def _status_payload(config) -> dict[str, Any]:
             )
     except httpx.HTTPError as exc:
         payload["error"] = exc.__class__.__name__
+        published_urls = docker_compose_published_server_urls(config)
+        if published_urls:
+            payload["docker_published_api_urls"] = published_urls
+            payload["suggested_api_url"] = published_urls[0]
     return payload
 
 
@@ -859,14 +868,122 @@ def _print_local_experience_summary(experience: dict[str, Any]) -> None:
         None,
     )
     if isinstance(next_item, dict):
-        next_label = next_item.get("command") or next_item.get("id")
+        next_label = _local_experience_step_label(next_item)
         print(f"first_use_next: {next_label}")
     print("first_use_path:")
     for item in one_minute_path:
         if not isinstance(item, dict):
             continue
-        label = item.get("command") or item.get("tab") or item.get("id")
+        label = _local_experience_step_label(item)
         print(f"  - [{item.get('status')}] {item.get('id')}: {label}")
+
+
+def _print_status_payload(payload: dict[str, Any], *, as_json: bool) -> None:
+    if as_json:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return
+    print(f"ok: {payload.get('ok')}")
+    print(f"api_url: {payload.get('api_url')}")
+    print(f"home: {payload.get('home')}")
+    print(f"repo_dir: {payload.get('repo_dir')}")
+    error = payload.get("error")
+    if error:
+        print(f"error: {error}")
+    print(f"health: {_http_payload_label(payload.get('health'))}")
+    print(f"capabilities: {_http_payload_label(payload.get('capabilities'))}")
+    ui = payload.get("ui")
+    ui_ready = _ui_payload_ready(ui)
+    print(
+        "visual_memory: "
+        f"{'ready' if ui_ready else 'not_ready'} ({payload.get('api_url', '').rstrip('/')}/ui/)"
+    )
+    if _http_payload_ready(payload.get("capabilities")):
+        first_capture = build_first_capture_surface(capabilities=payload.get("capabilities"))
+        supports = first_capture.get("supports") or []
+        if supports:
+            print(f"capture_supports: {', '.join(str(item) for item in supports)}")
+        artifact_previews = first_capture.get("artifact_previews") or []
+        if artifact_previews:
+            print(f"visual_previews: {', '.join(str(item) for item in artifact_previews)}")
+        if ui_ready:
+            print(f"first_use_next: Capture ({payload.get('api_url', '').rstrip('/')}/ui/#capture)")
+        if first_capture.get("review_supported"):
+            print(f"review: ready ({payload.get('api_url', '').rstrip('/')}/ui/#review)")
+    suggested_api_url = payload.get("suggested_api_url")
+    if suggested_api_url:
+        print(f"suggested_api_url: {suggested_api_url}")
+    published_urls = payload.get("docker_published_api_urls")
+    if isinstance(published_urls, list) and published_urls:
+        print(f"docker_published_api_urls: {', '.join(str(url) for url in published_urls)}")
+
+
+def _print_doctor_payload(payload: dict[str, Any], *, as_json: bool) -> None:
+    if as_json:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return
+    print(f"ok: {payload.get('ok')}")
+    print(f"api_url: {payload.get('api_url')}")
+    print(f"ui_url: {payload.get('ui_url')}")
+    print(f"home: {payload.get('home')}")
+    print(f"repo_dir: {payload.get('repo_dir')}")
+    experience = payload.get("local_experience")
+    if isinstance(experience, dict):
+        _print_local_experience_summary(experience)
+        next_actions = experience.get("next_actions")
+        if isinstance(next_actions, list) and next_actions:
+            print("next_actions:")
+            for action in next_actions:
+                print(f"  - {action}")
+    checks = payload.get("checks")
+    if isinstance(checks, list):
+        print("checks:")
+        for check in checks:
+            if not isinstance(check, dict):
+                continue
+            status = "ok" if check.get("ok") else "failed"
+            print(f"  - [{status}] {check.get('name')}: {check.get('message')}")
+
+
+def _local_experience_step_label(item: dict[str, Any]) -> str:
+    label = str(item.get("command") or item.get("tab") or item.get("label") or item.get("id"))
+    url = item.get("url")
+    if url and url not in label:
+        label = f"{label} ({url})"
+    blocked_by = item.get("blocked_by")
+    if blocked_by:
+        label = f"{label} - blocked_by: {blocked_by}"
+    degraded_reason = item.get("degraded_reason")
+    if degraded_reason:
+        label = f"{label} - degraded: {degraded_reason}"
+    return label
+
+
+def _http_payload_ready(value: object) -> bool:
+    if not isinstance(value, dict):
+        return False
+    status_code = value.get("status_code")
+    return isinstance(status_code, int) and 200 <= status_code < 300
+
+
+def _http_payload_label(value: object) -> str:
+    if not isinstance(value, dict):
+        return "not_checked"
+    status_code = value.get("status_code")
+    if not isinstance(status_code, int):
+        return "unknown"
+    status = "ready" if 200 <= status_code < 300 else "not_ready"
+    return f"{status} (HTTP {status_code})"
+
+
+def _ui_payload_ready(value: object) -> bool:
+    if not isinstance(value, dict):
+        return False
+    status_code = value.get("status_code")
+    return (
+        isinstance(status_code, int)
+        and 200 <= status_code < 300
+        and value.get("title_present") is True
+    )
 
 
 def _print_runtime_result(result) -> None:

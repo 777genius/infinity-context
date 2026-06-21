@@ -62,11 +62,19 @@ def test_cli_quickstart_initializes_and_writes_redacted_mcp_config(
         "Timeline",
     ]
     assert payload["local_experience"]["readiness"]["score"] == 4.0
-    assert payload["local_experience"]["one_minute_path"][0] == {
-        "id": "start_runtime",
-        "status": "todo",
-        "command": "infinity-context up --lite",
-    }
+    start_step = payload["local_experience"]["one_minute_path"][0]
+    assert start_step["id"] == "start_runtime"
+    assert start_step["label"] == "Start Runtime"
+    assert start_step["status"] == "todo"
+    assert start_step["command"] == "infinity-context up --lite"
+    assert start_step["blocked_by"] == "local_runtime_not_started"
+    assert start_step["description"] == "Start the local API, worker and storage services."
+    assert payload["local_experience"]["one_minute_path"][3]["url"] == (
+        "http://127.0.0.1:7788/ui/#capture"
+    )
+    assert payload["local_experience"]["one_minute_path"][4]["url"] == (
+        "http://127.0.0.1:7788/ui/#review"
+    )
     assert payload["mcp_configs"][0]["agent"] == "codex"
     assert payload["mcp_configs"][0]["token_included"] is False
     assert config.service_token not in captured.out
@@ -118,6 +126,7 @@ def test_cli_quickstart_human_output_shows_first_use_path(
     assert "  - [todo] open_visual_memory: infinity-context ui --open" in captured.out
     assert (
         "  - [done] connect_agent_mcp: "
+        "MEMORY_API_URL=http://127.0.0.1:7788 "
         "infinity-context mcp-config --agent codex --write"
     ) in captured.out
     assert "  - [blocked] save_first_memory: Capture" in captured.out
@@ -158,6 +167,34 @@ def test_cli_quickstart_can_open_visual_memory(
     assert "Visual memory opened with: infinity-context ui --open" in "\n".join(
         payload["next_steps"]
     )
+
+
+def test_cli_mcp_config_write_initializes_missing_token_file(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    home = tmp_path / "home"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.setenv("INFINITY_CONTEXT_HOME", str(home))
+    monkeypatch.setenv("INFINITY_CONTEXT_REPO_ROOT", str(repo))
+    monkeypatch.setenv("MEMORY_API_URL", "http://127.0.0.1:17788")
+
+    exit_code = cli.main(["mcp-config", "--agent", "codex", "--write"])
+
+    captured = capsys.readouterr()
+    config = load_config(home)
+    generated = Path(captured.out.strip())
+    generated_text = generated.read_text(encoding="utf-8")
+
+    assert exit_code == 0
+    assert generated == home / "generated" / "codex-mcp.json"
+    assert config.env_path.exists()
+    assert "MEMORY_SERVICE_TOKEN=" in config.env_path.read_text(encoding="utf-8")
+    assert "MEMORY_MCP_AUTH_TOKEN_FILE" in generated_text
+    assert "http://127.0.0.1:17788" in generated_text
+    assert config.service_token not in generated_text
 
 
 def test_cli_quickstart_starts_runtime_waits_for_status_and_redacts_output(
@@ -358,3 +395,37 @@ def test_cli_status_payload_requires_visual_memory_browser(
         "title_present": False,
         "path": "/ui/",
     }
+
+
+def test_cli_status_payload_suggests_docker_published_url_on_connect_error(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    home = tmp_path / "home"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    config = init_local_config(home=home, repo_dir=repo)
+
+    class FakeClient:
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+        def __enter__(self) -> FakeClient:
+            raise httpx.ConnectError("configured API is not reachable")
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+    monkeypatch.setattr(cli.httpx, "Client", FakeClient)
+    monkeypatch.setattr(
+        cli,
+        "docker_compose_published_server_urls",
+        lambda _config: ["http://127.0.0.1:17788"],
+    )
+
+    payload = cli._status_payload(config)
+
+    assert payload["ok"] is False
+    assert payload["error"] == "ConnectError"
+    assert payload["docker_published_api_urls"] == ["http://127.0.0.1:17788"]
+    assert payload["suggested_api_url"] == "http://127.0.0.1:17788"

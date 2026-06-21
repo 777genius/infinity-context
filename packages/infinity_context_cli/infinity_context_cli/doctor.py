@@ -15,9 +15,14 @@ from infinity_context_cli.local_experience import (
     build_first_capture_surface,
     build_one_minute_path,
     local_experience_score,
+    mcp_config_command,
 )
 from infinity_context_cli.mcp_config import SUPPORTED_AGENTS
-from infinity_context_cli.runtime import docker_available, docker_compose_available
+from infinity_context_cli.runtime import (
+    docker_available,
+    docker_compose_available,
+    docker_compose_published_server_urls,
+)
 
 
 @dataclass(frozen=True)
@@ -95,7 +100,11 @@ def _local_experience_payload(
     checks: list[DoctorCheck],
 ) -> dict[str, Any]:
     by_name = {check.name: check for check in checks}
-    api_ready = bool(by_name.get("api_health") and by_name["api_health"].ok)
+    api_health_ready = bool(by_name.get("api_health") and by_name["api_health"].ok)
+    api_capabilities_ready = bool(
+        by_name.get("api_capabilities") and by_name["api_capabilities"].ok
+    )
+    api_ready = api_health_ready and api_capabilities_ready
     visual_ready = bool(by_name.get("ui_browser") and by_name["ui_browser"].ok)
     mcp_check = by_name.get("mcp_generated_configs")
     mcp_details = mcp_check.details if mcp_check is not None else {}
@@ -107,9 +116,16 @@ def _local_experience_payload(
     ]
     capabilities_check = by_name.get("api_capabilities")
     capabilities = capabilities_check.details if capabilities_check is not None else {}
+    api_check = by_name.get("api")
+    published_urls = (
+        list(api_check.details.get("docker_published_api_urls", []))
+        if api_check is not None
+        else []
+    )
+    suggested_api_url = published_urls[0] if published_urls else None
     first_capture = build_first_capture_surface(capabilities=capabilities)
     mcp_ready = bool(ready_agents)
-    return {
+    payload = {
         "status": _local_experience_status(
             docker_ready=bool(by_name.get("docker") and by_name["docker"].ok),
             compose_ready=bool(by_name.get("docker_compose") and by_name["docker_compose"].ok),
@@ -139,11 +155,21 @@ def _local_experience_payload(
             first_capture=first_capture,
         ),
         "next_actions": _local_experience_next_actions(
+            api_url=config.api_url,
             api_ready=api_ready,
+            api_health_ready=api_health_ready,
+            api_capabilities_status_code=_check_status_code(
+                by_name.get("api_capabilities")
+            ),
             visual_ready=visual_ready,
             mcp_ready=mcp_ready,
+            suggested_api_url=suggested_api_url,
         ),
     }
+    if published_urls:
+        payload["docker_published_api_urls"] = published_urls
+        payload["suggested_api_url"] = suggested_api_url
+    return payload
 
 
 def _local_experience_status(
@@ -167,22 +193,42 @@ def _local_experience_status(
 
 def _local_experience_next_actions(
     *,
+    api_url: str,
     api_ready: bool,
+    api_health_ready: bool,
+    api_capabilities_status_code: int | None,
     visual_ready: bool,
     mcp_ready: bool,
+    suggested_api_url: str | None = None,
 ) -> list[str]:
     actions: list[str] = []
-    if not api_ready:
+    if not api_ready and api_health_ready and api_capabilities_status_code in {401, 403}:
+        actions.append(
+            "API is reachable but auth is rejected; align the MCP token file with the "
+            "running server token or restart the local runtime after updating the token file."
+        )
+    elif not api_ready and suggested_api_url:
+        actions.append(
+            "Configured API is unreachable; try the detected Docker URL with: "
+            f"MEMORY_API_URL={suggested_api_url} infinity-context status"
+        )
+    elif not api_ready:
         actions.append("Start the local runtime with: infinity-context up --lite")
     if not visual_ready:
         actions.append("Open and verify visual memory with: infinity-context ui --open --check")
     if not mcp_ready:
-        actions.append(
-            "Generate an MCP config with: infinity-context mcp-config --agent codex --write"
-        )
+        command = mcp_config_command(api_url=api_url, agent="codex")
+        actions.append(f"Generate an MCP config with: {command}")
     if api_ready and visual_ready and mcp_ready:
         actions.append("Open visual memory and save a Quick Note or File Evidence capture.")
     return actions
+
+
+def _check_status_code(check: DoctorCheck | None) -> int | None:
+    if check is None:
+        return None
+    status_code = check.details.get("status_code")
+    return status_code if isinstance(status_code, int) else None
 
 
 def _ui_url(config: InfinityContextCliConfig) -> str:
@@ -239,12 +285,17 @@ def _api_checks(config: InfinityContextCliConfig, *, timeout: float) -> list[Doc
                 )
             )
     except httpx.HTTPError as exc:
+        published_urls = docker_compose_published_server_urls(config)
+        details: dict[str, Any] = {"error": exc.__class__.__name__}
+        if published_urls:
+            details["docker_published_api_urls"] = published_urls
+            details["suggested_api_url"] = published_urls[0]
         checks.append(
             DoctorCheck(
                 name="api",
                 ok=False,
                 message="api unreachable",
-                details={"error": exc.__class__.__name__},
+                details=details,
             )
         )
     return checks
@@ -341,5 +392,6 @@ def _safe_json(response: httpx.Response) -> dict[str, Any]:
     if isinstance(payload, dict):
         payload.pop("token", None)
         payload.pop("auth_token", None)
+        payload.setdefault("status_code", response.status_code)
         return payload
     return {"status_code": response.status_code}

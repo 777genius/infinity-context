@@ -78,16 +78,10 @@ class DockerComposeRuntime:
                 stdout="",
                 stderr=f"docker-compose.yml not found under {self._config.repo_dir}",
             )
-        env = os.environ.copy()
-        env.setdefault("MEMORY_SERVICE_TOKEN", self._config.service_token)
-        env.setdefault("COMPOSE_PROJECT_NAME", self._config.compose_project_name)
-        env_file = self._config.env_path
-        if env_file.exists():
-            env.setdefault("INFINITY_CONTEXT_ENV_FILE", str(env_file))
         process = subprocess.run(
             command,
             cwd=self._config.repo_dir,
-            env=env,
+            env=_compose_env(self._config),
             text=True,
             capture_output=True,
             check=False,
@@ -104,6 +98,22 @@ class DockerComposeRuntime:
         return self._config.repo_dir / "docker-compose.yml"
 
 
+def docker_compose_published_server_urls(config: InfinityContextCliConfig) -> list[str]:
+    """Return published local API URLs from docker compose, without mutating runtime state."""
+    if not docker_compose_available() or not (config.repo_dir / "docker-compose.yml").exists():
+        return []
+    urls: list[str] = []
+    for env in _compose_detection_envs(config):
+        for service in ("infinity_context_server", "infinity_context_server_full"):
+            process = _compose_port(config=config, service=service, env=env)
+            if process is None or process.returncode != 0:
+                continue
+            url = _published_url_from_compose_port(process.stdout)
+            if url and url not in urls:
+                urls.append(url)
+    return urls
+
+
 def docker_available() -> bool:
     return shutil.which("docker") is not None
 
@@ -118,3 +128,52 @@ def docker_compose_available() -> bool:
         check=False,
     )
     return process.returncode == 0
+
+
+def _compose_env(config: InfinityContextCliConfig) -> dict[str, str]:
+    env = os.environ.copy()
+    env.setdefault("MEMORY_SERVICE_TOKEN", config.service_token)
+    env.setdefault("COMPOSE_PROJECT_NAME", config.compose_project_name)
+    if config.env_path.exists():
+        env.setdefault("INFINITY_CONTEXT_ENV_FILE", str(config.env_path))
+    return env
+
+
+def _compose_detection_envs(config: InfinityContextCliConfig) -> list[dict[str, str]]:
+    configured = _compose_env(config)
+    default_project = configured.copy()
+    default_project.pop("COMPOSE_PROJECT_NAME", None)
+    return [configured, default_project]
+
+
+def _compose_port(
+    *,
+    config: InfinityContextCliConfig,
+    service: str,
+    env: dict[str, str],
+) -> subprocess.CompletedProcess[str] | None:
+    try:
+        return subprocess.run(
+            ("docker", "compose", "port", service, "7788"),
+            cwd=config.repo_dir,
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=3.0,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
+def _published_url_from_compose_port(output: str) -> str | None:
+    first_line = next((line.strip() for line in output.splitlines() if line.strip()), "")
+    if not first_line:
+        return None
+    host, separator, port = first_line.rpartition(":")
+    if not separator or not port.isdigit():
+        return None
+    clean_host = host.strip("[]")
+    if clean_host in {"", "0.0.0.0", "::", "[::]"}:
+        clean_host = "127.0.0.1"
+    return f"http://{clean_host}:{port}"

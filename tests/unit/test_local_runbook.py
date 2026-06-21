@@ -465,6 +465,16 @@ def test_makefile_has_clean_full_mcp_smoke_target() -> None:
     assert "infinity-context-full-provider-canary" in clean_full_smoke
 
 
+def test_makefile_has_local_visual_mcp_smoke_target() -> None:
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+
+    assert ".PHONY: infinity-context-local-visual-smoke" in makefile
+    assert "infinity-context-local-visual-smoke:" in makefile
+    assert "$(MAKE) infinity-context-up-lite" in makefile
+    assert "scripts/local_mcp_visual_memory_smoke.py" in makefile
+    assert "MEMORY_LOCAL_VISUAL_SMOKE_REPORT_OUT" in makefile
+
+
 def test_makefile_has_manual_prod_load_canary_target() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
     recipe = _make_target_recipe(makefile, "infinity-context-prod-load-canary")
