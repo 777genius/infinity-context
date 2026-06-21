@@ -968,6 +968,11 @@ def _storage_readiness_summary(storage: dict[str, Any]) -> dict[str, Any]:
     scope_storage_quota_bytes = _positive_int(readiness.get("scope_storage_quota_bytes"))
     degraded_reasons = _string_list(readiness.get("degraded_reasons"))
     warnings = _string_list(readiness.get("warnings"))
+    production_readiness = (
+        readiness.get("production_readiness")
+        if isinstance(readiness.get("production_readiness"), dict)
+        else {}
+    )
     return {
         "ok": (
             readiness.get("schema_version") == "asset-storage-deployment-readiness-v2"
@@ -1021,6 +1026,7 @@ def _storage_readiness_summary(storage: dict[str, Any]) -> dict[str, Any]:
         "safe_diagnostics": readiness.get("safe_diagnostics"),
         "degraded_reasons": degraded_reasons,
         "warnings": warnings,
+        "production_readiness": production_readiness,
     }
 
 

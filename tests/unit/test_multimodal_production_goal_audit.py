@@ -833,6 +833,40 @@ def test_multimodal_production_goal_audit_rejects_docker_without_storage_readine
     assert any("storage deployment readiness" in failure for failure in result.failures)
 
 
+def test_multimodal_production_goal_audit_rejects_docker_without_storage_production_targets(
+    tmp_path: Path,
+) -> None:
+    module = _load_module()
+    _write_core(tmp_path)
+    frontend_report = tmp_path / "frontend.json"
+    docker_report = tmp_path / "docker.json"
+    provider_report = tmp_path / "provider.json"
+    docker = _docker_report()
+    docker_capabilities = docker["components"]["capabilities"]
+    assert isinstance(docker_capabilities, dict)
+    storage_readiness = docker_capabilities["storage_readiness"]
+    assert isinstance(storage_readiness, dict)
+    storage_readiness.pop("production_readiness", None)
+    frontend_report.write_text(json.dumps(_frontend_report()), encoding="utf-8")
+    docker_report.write_text(json.dumps(docker), encoding="utf-8")
+    provider_report.write_text(json.dumps(_provider_report()), encoding="utf-8")
+
+    result = module.run_goal_audit(
+        root=tmp_path,
+        frontend_report=frontend_report.relative_to(tmp_path),
+        docker_report=docker_report.relative_to(tmp_path),
+        provider_report=provider_report.relative_to(tmp_path),
+        require_clean_git=False,
+        git={"commit": "abc", "short_commit": "abc", "dirty": False},
+    )
+
+    assert result.ok is False
+    assert result.checks[
+        "docker_live_capabilities_storage_production_readiness_contract_present"
+    ] is False
+    assert any("storage production readiness" in failure for failure in result.failures)
+
+
 def test_multimodal_production_goal_audit_rejects_core_boundary_and_secret_leak(
     tmp_path: Path,
 ) -> None:
@@ -1126,6 +1160,56 @@ def _docker_report() -> dict[str, object]:
                         "asset_storage_backup_policy_not_confirmed",
                         "asset_storage_maintenance_not_enabled",
                     ],
+                    "production_readiness": {
+                        "schema_version": "asset-storage-production-readiness-v1",
+                        "requirement_status": {
+                            "asset_storage_configured": True,
+                            "asset_storage_ready": True,
+                            "s3_compatible_backend": False,
+                            "external_migration_runner": False,
+                            "backup_policy": False,
+                            "object_lifecycle_policy": False,
+                            "maintenance_worker": False,
+                            "cleanup_apply": False,
+                            "s3_region": False,
+                        },
+                        "self_host": {
+                            "production_ready": False,
+                            "blocking_requirements": [
+                                "external_migration_runner",
+                                "backup_policy",
+                                "maintenance_worker",
+                                "cleanup_apply",
+                            ],
+                            "operator_actions": [
+                                "disable_auto_schema_and_run_migrations",
+                                "configure_asset_storage_backup_policy",
+                                "enable_asset_storage_maintenance_worker",
+                                "enable_asset_storage_cleanup_apply",
+                            ],
+                        },
+                        "hosted_team": {
+                            "production_ready": False,
+                            "blocking_requirements": [
+                                "s3_compatible_backend",
+                                "external_migration_runner",
+                                "backup_policy",
+                                "object_lifecycle_policy",
+                                "maintenance_worker",
+                                "cleanup_apply",
+                                "s3_region",
+                            ],
+                            "operator_actions": [
+                                "use_s3_compatible_asset_storage",
+                                "disable_auto_schema_and_run_migrations",
+                                "configure_asset_storage_backup_policy",
+                                "configure_s3_object_lifecycle_policy",
+                                "enable_asset_storage_maintenance_worker",
+                                "enable_asset_storage_cleanup_apply",
+                                "configure_s3_region",
+                            ],
+                        },
+                    },
                 },
                 "manifest_contract_present": True,
                 "evidence_contract_present": True,

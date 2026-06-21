@@ -737,6 +737,7 @@ def _scorecard_cloud_self_host_readiness(
     }
     if isinstance(docker_report, Mapping):
         storage = _scorecard_docker_storage_readiness(docker_report)
+        production = _scorecard_storage_production_readiness(storage)
         checks.update(
             {
                 "docker_live_storage_readiness_report_present": bool(storage),
@@ -775,6 +776,15 @@ def _scorecard_cloud_self_host_readiness(
                     == "infinity_context_migrate"
                     and storage.get("migration_strategy") == "external_forward_migrations"
                 ),
+                "docker_live_storage_production_readiness_contract": (
+                    production.get("ok") is True
+                ),
+                "docker_live_storage_production_targets_present": (
+                    production.get("targets_present") is True
+                ),
+                "docker_live_storage_operator_actions_bounded": (
+                    production.get("operator_actions_bounded") is True
+                ),
             }
         )
     return _scorecard_capability("cloud_self_host_readiness", checks)
@@ -791,6 +801,73 @@ def _scorecard_docker_storage_readiness(
         return {}
     storage = capabilities.get("storage_readiness")
     return storage if isinstance(storage, Mapping) else {}
+
+
+def _scorecard_storage_production_readiness(
+    storage: Mapping[str, object],
+) -> dict[str, object]:
+    production = storage.get("production_readiness")
+    if not isinstance(production, Mapping):
+        return {
+            "ok": False,
+            "targets_present": False,
+            "operator_actions_bounded": False,
+        }
+    requirement_status = production.get("requirement_status")
+    self_host = production.get("self_host")
+    hosted_team = production.get("hosted_team")
+    required_status_keys = {
+        "asset_storage_configured",
+        "asset_storage_ready",
+        "s3_compatible_backend",
+        "external_migration_runner",
+        "backup_policy",
+        "object_lifecycle_policy",
+        "maintenance_worker",
+        "cleanup_apply",
+        "s3_region",
+    }
+    status_ok = isinstance(requirement_status, Mapping) and all(
+        isinstance(requirement_status.get(key), bool) for key in required_status_keys
+    )
+    self_host_ok = _scorecard_storage_production_target_ok(self_host)
+    hosted_team_ok = _scorecard_storage_production_target_ok(hosted_team)
+    operator_actions_bounded = all(
+        _scorecard_storage_operator_actions_bounded(target)
+        for target in (self_host, hosted_team)
+    )
+    targets_present = self_host_ok and hosted_team_ok
+    return {
+        "ok": (
+            production.get("schema_version") == "asset-storage-production-readiness-v1"
+            and status_ok
+            and targets_present
+            and operator_actions_bounded
+        ),
+        "targets_present": targets_present,
+        "operator_actions_bounded": operator_actions_bounded,
+    }
+
+
+def _scorecard_storage_production_target_ok(target: object) -> bool:
+    if not isinstance(target, Mapping):
+        return False
+    return (
+        isinstance(target.get("production_ready"), bool)
+        and isinstance(target.get("blocking_requirements"), list)
+        and isinstance(target.get("operator_actions"), list)
+    )
+
+
+def _scorecard_storage_operator_actions_bounded(target: object) -> bool:
+    if not isinstance(target, Mapping):
+        return False
+    actions = target.get("operator_actions")
+    if not isinstance(actions, list):
+        return False
+    return len(actions) <= 12 and all(
+        isinstance(action, str) and 0 < len(action) <= 80 for action in actions
+    )
 
 
 def _scorecard_multimodal_evidence_retrieval(

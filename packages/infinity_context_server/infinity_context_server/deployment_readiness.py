@@ -52,6 +52,17 @@ def build_storage_deployment_readiness(
     migration_runner_required = not auto_create_schema_enabled
     if migration_runner_required:
         warnings.append("database_migration_runner_required")
+    production_readiness = _storage_production_readiness(
+        backend=backend,
+        configured=configured,
+        ready=ready,
+        migration_runner_required=migration_runner_required,
+        backup_policy_configured=backup_policy_configured,
+        object_lifecycle_policy_configured=object_lifecycle_policy_configured,
+        maintenance_enabled=maintenance_enabled,
+        cleanup_apply_enabled=cleanup_apply_enabled,
+        s3_region_configured=bool(settings.asset_storage_s3_region),
+    )
     return {
         "schema_version": "asset-storage-deployment-readiness-v2",
         "status": "ok" if ready and configured else "misconfigured",
@@ -97,4 +108,98 @@ def build_storage_deployment_readiness(
         "safe_diagnostics": True,
         "degraded_reasons": degraded_reasons,
         "warnings": warnings,
+        "production_readiness": production_readiness,
     }
+
+
+def _storage_production_readiness(
+    *,
+    backend: str,
+    configured: bool,
+    ready: bool,
+    migration_runner_required: bool,
+    backup_policy_configured: bool,
+    object_lifecycle_policy_configured: bool,
+    maintenance_enabled: bool,
+    cleanup_apply_enabled: bool,
+    s3_region_configured: bool,
+) -> dict[str, Any]:
+    requirement_status = {
+        "asset_storage_configured": configured,
+        "asset_storage_ready": ready,
+        "s3_compatible_backend": backend == "s3",
+        "external_migration_runner": migration_runner_required,
+        "backup_policy": backup_policy_configured,
+        "object_lifecycle_policy": object_lifecycle_policy_configured,
+        "maintenance_worker": maintenance_enabled,
+        "cleanup_apply": cleanup_apply_enabled,
+        "s3_region": s3_region_configured,
+    }
+    self_host_requirements = (
+        "asset_storage_configured",
+        "asset_storage_ready",
+        "external_migration_runner",
+        "backup_policy",
+        "maintenance_worker",
+        "cleanup_apply",
+    )
+    hosted_team_requirements = (
+        "asset_storage_configured",
+        "asset_storage_ready",
+        "s3_compatible_backend",
+        "external_migration_runner",
+        "backup_policy",
+        "object_lifecycle_policy",
+        "maintenance_worker",
+        "cleanup_apply",
+        "s3_region",
+    )
+    return {
+        "schema_version": "asset-storage-production-readiness-v1",
+        "requirement_status": requirement_status,
+        "self_host": _target_readiness(
+            requirement_status=requirement_status,
+            requirement_names=self_host_requirements,
+        ),
+        "hosted_team": _target_readiness(
+            requirement_status=requirement_status,
+            requirement_names=hosted_team_requirements,
+        ),
+    }
+
+
+def _target_readiness(
+    *,
+    requirement_status: dict[str, bool],
+    requirement_names: tuple[str, ...],
+) -> dict[str, Any]:
+    blocking = [
+        requirement
+        for requirement in requirement_names
+        if requirement_status.get(requirement) is not True
+    ]
+    return {
+        "production_ready": not blocking,
+        "blocking_requirements": blocking,
+        "operator_actions": _operator_actions(blocking),
+    }
+
+
+def _operator_actions(blocking_requirements: list[str]) -> list[str]:
+    actions_by_requirement = {
+        "asset_storage_configured": "configure_asset_storage_backend",
+        "asset_storage_ready": "fix_asset_storage_health",
+        "s3_compatible_backend": "use_s3_compatible_asset_storage",
+        "external_migration_runner": "disable_auto_schema_and_run_migrations",
+        "backup_policy": "configure_asset_storage_backup_policy",
+        "object_lifecycle_policy": "configure_s3_object_lifecycle_policy",
+        "maintenance_worker": "enable_asset_storage_maintenance_worker",
+        "cleanup_apply": "enable_asset_storage_cleanup_apply",
+        "s3_region": "configure_s3_region",
+    }
+    actions: list[str] = []
+    for requirement in blocking_requirements:
+        action = actions_by_requirement.get(requirement)
+        if action and action not in actions:
+            actions.append(action)
+    return actions

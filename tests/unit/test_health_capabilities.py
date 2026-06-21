@@ -176,14 +176,60 @@ def test_capabilities_return_noop_adapters() -> None:
             "object_lifecycle_policy_configured": False,
             "safe_diagnostics": True,
             "degraded_reasons": [],
-            "warnings": [
-                "hosted_team_deployments_should_use_s3_compatible_storage",
-                "asset_storage_backup_policy_not_confirmed",
-                "asset_storage_maintenance_not_enabled",
-                "database_migration_runner_required",
-            ],
-        },
-    }
+                "warnings": [
+                    "hosted_team_deployments_should_use_s3_compatible_storage",
+                    "asset_storage_backup_policy_not_confirmed",
+                    "asset_storage_maintenance_not_enabled",
+                    "database_migration_runner_required",
+                ],
+                "production_readiness": {
+                    "schema_version": "asset-storage-production-readiness-v1",
+                    "requirement_status": {
+                        "asset_storage_configured": True,
+                        "asset_storage_ready": True,
+                        "s3_compatible_backend": False,
+                        "external_migration_runner": True,
+                        "backup_policy": False,
+                        "object_lifecycle_policy": False,
+                        "maintenance_worker": False,
+                        "cleanup_apply": False,
+                        "s3_region": False,
+                    },
+                    "self_host": {
+                        "production_ready": False,
+                        "blocking_requirements": [
+                            "backup_policy",
+                            "maintenance_worker",
+                            "cleanup_apply",
+                        ],
+                        "operator_actions": [
+                            "configure_asset_storage_backup_policy",
+                            "enable_asset_storage_maintenance_worker",
+                            "enable_asset_storage_cleanup_apply",
+                        ],
+                    },
+                    "hosted_team": {
+                        "production_ready": False,
+                        "blocking_requirements": [
+                            "s3_compatible_backend",
+                            "backup_policy",
+                            "object_lifecycle_policy",
+                            "maintenance_worker",
+                            "cleanup_apply",
+                            "s3_region",
+                        ],
+                        "operator_actions": [
+                            "use_s3_compatible_asset_storage",
+                            "configure_asset_storage_backup_policy",
+                            "configure_s3_object_lifecycle_policy",
+                            "enable_asset_storage_maintenance_worker",
+                            "enable_asset_storage_cleanup_apply",
+                            "configure_s3_region",
+                        ],
+                    },
+                },
+            },
+        }
     assert body["plans"]["current"] == "free"
     assert body["plans"]["resources"]["asset_storage_bytes_per_memory_scope"] == {
         "limit": 5 * 1024 * 1024 * 1024,
@@ -875,6 +921,30 @@ def test_capabilities_storage_readiness_redacts_s3_values(tmp_path: Path) -> Non
         "safe_diagnostics": True,
         "degraded_reasons": [],
         "warnings": [],
+        "production_readiness": {
+            "schema_version": "asset-storage-production-readiness-v1",
+            "requirement_status": {
+                "asset_storage_configured": True,
+                "asset_storage_ready": True,
+                "s3_compatible_backend": True,
+                "external_migration_runner": False,
+                "backup_policy": True,
+                "object_lifecycle_policy": True,
+                "maintenance_worker": True,
+                "cleanup_apply": True,
+                "s3_region": True,
+            },
+            "self_host": {
+                "production_ready": False,
+                "blocking_requirements": ["external_migration_runner"],
+                "operator_actions": ["disable_auto_schema_and_run_migrations"],
+            },
+            "hosted_team": {
+                "production_ready": False,
+                "blocking_requirements": ["external_migration_runner"],
+                "operator_actions": ["disable_auto_schema_and_run_migrations"],
+            },
+        },
     }
     serialized = repr(payload)
     assert "private-memory-bucket" not in serialized
@@ -914,6 +984,23 @@ def test_capabilities_storage_readiness_warns_when_s3_governance_is_unconfirmed(
         "asset_storage_maintenance_not_enabled",
         "s3_region_not_configured",
     }
+    production = readiness["production_readiness"]
+    assert production["hosted_team"]["blocking_requirements"] == [
+        "external_migration_runner",
+        "backup_policy",
+        "object_lifecycle_policy",
+        "maintenance_worker",
+        "cleanup_apply",
+        "s3_region",
+    ]
+    assert production["hosted_team"]["operator_actions"] == [
+        "disable_auto_schema_and_run_migrations",
+        "configure_asset_storage_backup_policy",
+        "configure_s3_object_lifecycle_policy",
+        "enable_asset_storage_maintenance_worker",
+        "enable_asset_storage_cleanup_apply",
+        "configure_s3_region",
+    ]
 
 
 def test_capabilities_storage_readiness_requires_cleanup_apply_for_production(
@@ -947,6 +1034,11 @@ def test_capabilities_storage_readiness_requires_cleanup_apply_for_production(
     assert readiness["maintenance_enabled"] is True
     assert readiness["cleanup_apply_enabled"] is False
     assert "asset_storage_cleanup_apply_disabled" in readiness["warnings"]
+    assert readiness["production_readiness"]["hosted_team"] == {
+        "production_ready": False,
+        "blocking_requirements": ["cleanup_apply"],
+        "operator_actions": ["enable_asset_storage_cleanup_apply"],
+    }
     assert "private-memory-bucket" not in repr(payload)
 
 
@@ -978,6 +1070,12 @@ def test_capabilities_storage_readiness_reports_external_migration_runner_for_s3
     assert readiness["schema_version"] == "asset-storage-deployment-readiness-v2"
     assert readiness["hosted_team_ready"] is True
     assert readiness["hosted_team_production_ready"] is True
+    assert readiness["production_readiness"]["hosted_team"] == {
+        "production_ready": True,
+        "blocking_requirements": [],
+        "operator_actions": [],
+    }
+    assert readiness["production_readiness"]["self_host"]["production_ready"] is True
     assert readiness["schema_management_mode"] == "external_migration_runner"
     assert readiness["auto_create_schema_enabled"] is False
     assert readiness["auto_create_schema_allowed_in_server_profile"] is False

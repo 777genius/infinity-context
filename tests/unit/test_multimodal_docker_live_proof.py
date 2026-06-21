@@ -119,6 +119,56 @@ def test_docker_live_proof_runs_compose_flow_and_redacts_token(monkeypatch) -> N
                             "asset_storage_backup_policy_not_confirmed",
                             "asset_storage_maintenance_not_enabled",
                         ],
+                        "production_readiness": {
+                            "schema_version": "asset-storage-production-readiness-v1",
+                            "requirement_status": {
+                                "asset_storage_configured": True,
+                                "asset_storage_ready": True,
+                                "s3_compatible_backend": False,
+                                "external_migration_runner": False,
+                                "backup_policy": False,
+                                "object_lifecycle_policy": False,
+                                "maintenance_worker": False,
+                                "cleanup_apply": False,
+                                "s3_region": False,
+                            },
+                            "self_host": {
+                                "production_ready": False,
+                                "blocking_requirements": [
+                                    "external_migration_runner",
+                                    "backup_policy",
+                                    "maintenance_worker",
+                                    "cleanup_apply",
+                                ],
+                                "operator_actions": [
+                                    "disable_auto_schema_and_run_migrations",
+                                    "configure_asset_storage_backup_policy",
+                                    "enable_asset_storage_maintenance_worker",
+                                    "enable_asset_storage_cleanup_apply",
+                                ],
+                            },
+                            "hosted_team": {
+                                "production_ready": False,
+                                "blocking_requirements": [
+                                    "s3_compatible_backend",
+                                    "external_migration_runner",
+                                    "backup_policy",
+                                    "object_lifecycle_policy",
+                                    "maintenance_worker",
+                                    "cleanup_apply",
+                                    "s3_region",
+                                ],
+                                "operator_actions": [
+                                    "use_s3_compatible_asset_storage",
+                                    "disable_auto_schema_and_run_migrations",
+                                    "configure_asset_storage_backup_policy",
+                                    "configure_s3_object_lifecycle_policy",
+                                    "enable_asset_storage_maintenance_worker",
+                                    "enable_asset_storage_cleanup_apply",
+                                    "configure_s3_region",
+                                ],
+                            },
+                        },
                     },
                 },
                 "extraction": {
@@ -417,6 +467,56 @@ def test_docker_live_proof_runs_compose_flow_and_redacts_token(monkeypatch) -> N
             "asset_storage_backup_policy_not_confirmed",
             "asset_storage_maintenance_not_enabled",
         ],
+        "production_readiness": {
+            "schema_version": "asset-storage-production-readiness-v1",
+            "requirement_status": {
+                "asset_storage_configured": True,
+                "asset_storage_ready": True,
+                "s3_compatible_backend": False,
+                "external_migration_runner": False,
+                "backup_policy": False,
+                "object_lifecycle_policy": False,
+                "maintenance_worker": False,
+                "cleanup_apply": False,
+                "s3_region": False,
+            },
+            "self_host": {
+                "production_ready": False,
+                "blocking_requirements": [
+                    "external_migration_runner",
+                    "backup_policy",
+                    "maintenance_worker",
+                    "cleanup_apply",
+                ],
+                "operator_actions": [
+                    "disable_auto_schema_and_run_migrations",
+                    "configure_asset_storage_backup_policy",
+                    "enable_asset_storage_maintenance_worker",
+                    "enable_asset_storage_cleanup_apply",
+                ],
+            },
+            "hosted_team": {
+                "production_ready": False,
+                "blocking_requirements": [
+                    "s3_compatible_backend",
+                    "external_migration_runner",
+                    "backup_policy",
+                    "object_lifecycle_policy",
+                    "maintenance_worker",
+                    "cleanup_apply",
+                    "s3_region",
+                ],
+                "operator_actions": [
+                    "use_s3_compatible_asset_storage",
+                    "disable_auto_schema_and_run_migrations",
+                    "configure_asset_storage_backup_policy",
+                    "configure_s3_object_lifecycle_policy",
+                    "enable_asset_storage_maintenance_worker",
+                    "enable_asset_storage_cleanup_apply",
+                    "configure_s3_region",
+                ],
+            },
+        },
     }
     assert report["components"]["capabilities"]["manifest_contract_present"] is True
     assert report["components"]["capabilities"]["evidence_contract_present"] is True

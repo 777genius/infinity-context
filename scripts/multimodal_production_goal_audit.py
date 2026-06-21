@@ -652,6 +652,15 @@ def _audit_docker_report(
     _check(
         checks,
         failures,
+        "docker_live_capabilities_storage_production_readiness_contract_present",
+        _storage_production_readiness_contract_ok(
+            storage_readiness.get("production_readiness")
+        ),
+        "Docker live proof is missing asset storage production readiness targets",
+    )
+    _check(
+        checks,
+        failures,
         "docker_live_extraction_cases_complete",
         REQUIRED_DOCKER_FILES.issubset(filenames),
         "Docker live proof did not extract every required multimodal file type",
@@ -1312,6 +1321,47 @@ def _string_list(value: object) -> tuple[str, ...]:
     if not isinstance(value, list):
         return ()
     return tuple(str(item) for item in value)
+
+
+def _storage_production_readiness_contract_ok(value: object) -> bool:
+    if not isinstance(value, Mapping):
+        return False
+    if value.get("schema_version") != "asset-storage-production-readiness-v1":
+        return False
+    requirement_status = value.get("requirement_status")
+    if not isinstance(requirement_status, Mapping):
+        return False
+    required_keys = {
+        "asset_storage_configured",
+        "asset_storage_ready",
+        "s3_compatible_backend",
+        "external_migration_runner",
+        "backup_policy",
+        "object_lifecycle_policy",
+        "maintenance_worker",
+        "cleanup_apply",
+        "s3_region",
+    }
+    if any(not isinstance(requirement_status.get(key), bool) for key in required_keys):
+        return False
+    return _storage_production_target_ok(
+        value.get("self_host")
+    ) and _storage_production_target_ok(value.get("hosted_team"))
+
+
+def _storage_production_target_ok(value: object) -> bool:
+    if not isinstance(value, Mapping):
+        return False
+    blocking = value.get("blocking_requirements")
+    actions = value.get("operator_actions")
+    return (
+        isinstance(value.get("production_ready"), bool)
+        and isinstance(blocking, list)
+        and all(isinstance(item, str) and 0 < len(item) <= 80 for item in blocking)
+        and isinstance(actions, list)
+        and len(actions) <= 12
+        and all(isinstance(item, str) and 0 < len(item) <= 80 for item in actions)
+    )
 
 
 def _positive_int(value: object) -> int | None:
