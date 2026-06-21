@@ -308,6 +308,7 @@ def _execute_cases(
     scope_slug = f"public-benchmark-{dataset_hash[:16]}"
     run_results: list[CaseRunResult] = []
     failures: list[dict[str, object]] = []
+    seeded_source_keys: set[tuple[str, str, str, str]] = set()
 
     for case in cases:
         try:
@@ -318,6 +319,7 @@ def _execute_cases(
                     scope_slug=scope_slug,
                     dataset_hash=dataset_hash,
                     case=case,
+                    seeded_source_keys=seeded_source_keys,
                 )
             )
         except Exception as exc:
@@ -400,6 +402,7 @@ def _run_case(
     scope_slug: str,
     dataset_hash: str,
     case: PublicBenchmarkCase,
+    seeded_source_keys: set[tuple[str, str, str, str]],
 ) -> CaseRunResult:
     memory_scope_ref = case.memory_scope_external_ref or f"{case.benchmark}-{case.case_id}"
     thread_ref = case.thread_external_ref or f"{case.benchmark}-{case.case_id}"
@@ -408,49 +411,55 @@ def _run_case(
             memory.source_external_id or f"{dataset_hash}:{case.case_id}:memory:{index}",
             max_chars=160,
         )
-        _post_required(
-            adapter,
-            "/v1/facts",
-            headers=headers,
-            payload={
-                "space_slug": scope_slug,
-                "memory_scope_external_ref": memory_scope_ref,
-                "thread_external_ref": thread_ref,
-                "text": memory.text,
-                "kind": memory.kind,
-                "source_refs": [
-                    {
-                        "source_type": "public_benchmark",
-                        "source_id": source_id,
-                        "quote_preview": memory.text[:240],
-                    }
-                ],
-                "classification": "internal",
-            },
-            idempotency_key=source_id,
-        )
+        seed_key = (memory_scope_ref, thread_ref, "fact", source_id)
+        if seed_key not in seeded_source_keys:
+            _post_required(
+                adapter,
+                "/v1/facts",
+                headers=headers,
+                payload={
+                    "space_slug": scope_slug,
+                    "memory_scope_external_ref": memory_scope_ref,
+                    "thread_external_ref": thread_ref,
+                    "text": memory.text,
+                    "kind": memory.kind,
+                    "source_refs": [
+                        {
+                            "source_type": "public_benchmark",
+                            "source_id": source_id,
+                            "quote_preview": memory.text[:240],
+                        }
+                    ],
+                    "classification": "internal",
+                },
+                idempotency_key=source_id,
+            )
+            seeded_source_keys.add(seed_key)
 
     for index, document in enumerate(case.documents):
         source_id = _safe_identifier(
             document.source_external_id or f"{dataset_hash}:{case.case_id}:doc:{index}",
             max_chars=240,
         )
-        _post_required(
-            adapter,
-            "/v1/documents",
-            headers=headers,
-            payload={
-                "space_slug": scope_slug,
-                "memory_scope_external_ref": memory_scope_ref,
-                "thread_external_ref": thread_ref,
-                "title": document.title,
-                "text": document.text,
-                "source_type": document.source_type,
-                "source_external_id": source_id,
-                "classification": document.classification,
-            },
-            idempotency_key=source_id,
-        )
+        seed_key = (memory_scope_ref, thread_ref, "document", source_id)
+        if seed_key not in seeded_source_keys:
+            _post_required(
+                adapter,
+                "/v1/documents",
+                headers=headers,
+                payload={
+                    "space_slug": scope_slug,
+                    "memory_scope_external_ref": memory_scope_ref,
+                    "thread_external_ref": thread_ref,
+                    "title": document.title,
+                    "text": document.text,
+                    "source_type": document.source_type,
+                    "source_external_id": source_id,
+                    "classification": document.classification,
+                },
+                idempotency_key=source_id,
+            )
+            seeded_source_keys.add(seed_key)
 
     started = time.perf_counter()
     response = _post_required(

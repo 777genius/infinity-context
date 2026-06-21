@@ -1,14 +1,57 @@
 from __future__ import annotations
 
 import json
+import time
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 from infinity_context_server.public_benchmark import (
+    BenchmarkDocumentInput,
+    BenchmarkHttpResponsePort,
+    PublicBenchmarkCase,
+    _execute_cases,
     _load_cases,
     load_public_benchmark_case_count,
     load_public_benchmark_dataset_profile,
     run_public_memory_benchmark,
 )
+
+
+class _FakeBenchmarkResponse:
+    def __init__(self, status_code: int, payload: Mapping[str, object]) -> None:
+        self.status_code = status_code
+        self._payload = dict(payload)
+        self.text = json.dumps(payload)
+
+    def json(self) -> Any:
+        return self._payload
+
+
+class _CountingBenchmarkAdapter:
+    def __init__(self) -> None:
+        self.posts: list[tuple[str, Mapping[str, object]]] = []
+
+    def post(
+        self,
+        path: str,
+        *,
+        json_body: Mapping[str, object],
+        headers: Mapping[str, str],
+    ) -> BenchmarkHttpResponsePort:
+        del headers
+        self.posts.append((path, dict(json_body)))
+        if path == "/v1/context":
+            return _FakeBenchmarkResponse(
+                200,
+                {
+                    "data": {
+                        "rendered_text": "SHARED_MARKER",
+                        "items": [{"item_id": "chunk_shared", "text": "SHARED_MARKER"}],
+                    }
+                },
+            )
+        return _FakeBenchmarkResponse(201, {"data": {}})
 
 
 def test_public_memory_benchmark_runs_locomo_and_longmemeval_like_cases(
@@ -201,6 +244,44 @@ def test_public_memory_benchmark_reports_missing_expected_terms(tmp_path: Path) 
     assert result["benchmarks"][0]["ok"] is False
     assert result["cases"][0]["missing_terms"] == ["Notion"]
     assert result["failures"][0]["reason"] == "missing_expected_terms"
+
+
+def test_public_memory_benchmark_seeds_duplicate_sources_once(tmp_path: Path) -> None:
+    adapter = _CountingBenchmarkAdapter()
+    dataset = tmp_path / "dataset.json"
+    dataset.write_text("[]", encoding="utf-8")
+    shared_document = BenchmarkDocumentInput(
+        title="Shared document",
+        text="SHARED_MARKER lives in a shared public benchmark document.",
+        source_external_id="shared-document",
+    )
+    cases = tuple(
+        PublicBenchmarkCase(
+            benchmark="locomo",
+            case_id=f"case-{index}",
+            question="Where is the shared marker?",
+            expected_terms=("SHARED_MARKER",),
+            documents=(shared_document,),
+            memory_scope_external_ref="shared-scope",
+            thread_external_ref="shared-thread",
+        )
+        for index in range(2)
+    )
+
+    result = _execute_cases(
+        adapter=adapter,
+        headers={"Authorization": "Bearer test-token"},
+        cases=cases,
+        dataset_path=dataset,
+        min_accuracy=1.0,
+        started=time.perf_counter(),
+    )
+
+    document_posts = [post for post in adapter.posts if post[0] == "/v1/documents"]
+    context_posts = [post for post in adapter.posts if post[0] == "/v1/context"]
+    assert len(document_posts) == 1
+    assert len(context_posts) == 2
+    assert result["ok"] is True
 
 
 def test_public_memory_benchmark_accepts_official_locomo_shape(tmp_path: Path) -> None:
