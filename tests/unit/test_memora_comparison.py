@@ -61,9 +61,14 @@ def test_comparison_credits_memora_direct_smoke_strengths() -> None:
     assert smoke["provenance"]["git"]["commit"] == "abc123"
 
     by_id = {item["id"]: item for item in report["dimensions"]}
-    assert by_id["retrieval_and_digest_quality"]["winner"] == "infinity_context"
+    assert by_id["retrieval_and_digest_quality"]["winner"] == "memora"
+    assert by_id["retrieval_and_digest_quality"]["infinity_context_score"] == 7.8
     assert by_id["large_docs_and_architecture_notes"]["winner"] == "infinity_context"
     assert by_id["large_docs_and_architecture_notes"]["infinity_context_score"] >= 9.4
+    assert by_id["local_mcp_visual_ux"]["winner"] == "memora"
+    assert by_id["local_mcp_visual_ux"]["memora_score"] > by_id["local_mcp_visual_ux"][
+        "infinity_context_score"
+    ]
     assert by_id["graph_relationships"]["infinity_context_score"] > by_id["graph_relationships"][
         "memora_score"
     ]
@@ -84,6 +89,11 @@ def test_comparison_does_not_overclaim_when_memora_was_not_run() -> None:
     assert (
         "Do not claim Infinity Context live provider proof is current "
         "unless production audit passes."
+        in report["evidence_policy"]["do_not_claim"]
+    )
+    assert (
+        "Do not claim Infinity Context has top-tier public retrieval "
+        "quality without a fresh large LoCoMo/LongMemEval report."
         in report["evidence_policy"]["do_not_claim"]
     )
 

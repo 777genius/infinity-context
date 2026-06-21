@@ -43,6 +43,16 @@ def test_cli_quickstart_initializes_and_writes_redacted_mcp_config(
     assert payload["runtime"] is None
     assert payload["opened_ui"] is False
     assert payload["ui_url"] == "http://127.0.0.1:7788/ui/"
+    assert payload["local_experience"]["status"] == "configured_not_started"
+    assert payload["local_experience"]["visual_memory_ready"] is False
+    assert payload["local_experience"]["mcp_ready"] is True
+    assert payload["local_experience"]["ready_agents"] == ["codex"]
+    assert payload["local_experience"]["mcp_config_paths"] == [str(mcp_path)]
+    assert payload["local_experience"]["first_capture"] == {
+        "surface": "visual_memory_browser",
+        "tab": "Capture",
+        "supports": ["text_note", "file_evidence"],
+    }
     assert payload["mcp_configs"][0]["agent"] == "codex"
     assert payload["mcp_configs"][0]["token_included"] is False
     assert config.service_token not in captured.out
@@ -153,6 +163,9 @@ def test_cli_quickstart_starts_runtime_waits_for_status_and_redacts_output(
     assert payload["ok"] is True
     assert payload["runtime"]["ok"] is True
     assert payload["status"]["ok"] is True
+    assert payload["local_experience"]["status"] == "ready"
+    assert payload["local_experience"]["visual_memory_ready"] is True
+    assert payload["local_experience"]["mcp_ready"] is True
     assert raw_secret not in captured.out
     assert "[redacted]" in payload["runtime"]["stdout"]
 

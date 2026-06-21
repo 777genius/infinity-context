@@ -132,8 +132,8 @@ DIMENSIONS: tuple[Dimension, ...] = (
         id="retrieval_and_digest_quality",
         label="Retrieve the right facts for a coding agent",
         weight=0.14,
-        infinity_context_score=9.5,
-        memora_score=9.0,
+        infinity_context_score=7.8,
+        memora_score=8.4,
         infinity_context_rationale=(
             "Context API, memory_search, memory_digest, ranking, token packing "
             "canonical category plus tags_any/tags_all/tags_none filters, "
@@ -141,11 +141,15 @@ DIMENSIONS: tuple[Dimension, ...] = (
             "and graph/vector adapters are covered by deterministic gates. "
             "Semantic-equivalent duplicate checks now run in core consolidation "
             "and MCP preflight, while conflict-aware auto-apply keeps competing "
-            "decisions in review before they pollute recall."
+            "decisions in review before they pollute recall. Current confidence "
+            "is provisional: internal smoke/golden gates are strong, but a fresh "
+            "large public LoCoMo/LongMemEval run is required before claiming "
+            "top-tier retrieval quality."
         ),
         memora_rationale=(
             "Memora has hybrid search, semantic search, memory_digest, related "
-            "hops, lineage and tag/date/metadata filters."
+            "hops, lineage and tag/date/metadata filters, plus direct local MCP "
+            "smoke evidence. Its paid/OpenAI mode was not verified here."
         ),
         requirement="fact_retrieval",
     ),
@@ -191,18 +195,39 @@ DIMENSIONS: tuple[Dimension, ...] = (
         id="agent_hooks_and_plugin_distribution",
         label="Agent hooks, plugins and real agent ergonomics",
         weight=0.10,
-        infinity_context_score=9.2,
-        memora_score=7.8,
+        infinity_context_score=8.8,
+        memora_score=8.4,
         infinity_context_rationale=(
             "Repo includes plugin-kit-ai generated artifacts, MCP doctor, stdio "
             "e2e, hook capture tests, CLI memory operations and bounded MCP batch "
-            "suggestion create/review for agent workflows."
+            "suggestion create/review for agent workflows. Local onboarding now "
+            "exposes quickstart/doctor local_experience readiness, but the first-use "
+            "flow is still less polished than Memora's graph-first MCP setup."
         ),
         memora_rationale=(
-            "Memora ships MCP config and Claude/Cursor integration examples. "
-            "Public docs do not show the same multi-agent generated plugin gate."
+            "Memora ships MCP config, Claude/Cursor/Codex examples and a graph UI "
+            "that is immediately useful after local setup. Public docs do not show "
+            "the same multi-agent generated plugin gate."
         ),
         requirement="coding_agent_integration",
+    ),
+    Dimension(
+        id="local_mcp_visual_ux",
+        label="Local MCP setup and visual memory UX",
+        weight=0.10,
+        infinity_context_score=7.8,
+        memora_score=9.3,
+        infinity_context_rationale=(
+            "Infinity Context now has quickstart, generated MCP config, doctor, "
+            "ui --open, a browser Capture panel, graph, review and timeline, plus "
+            "structured local_experience readiness in quickstart/doctor. The flow "
+            "is usable but still needs a more polished zero-to-first-memory path."
+        ),
+        memora_rationale=(
+            "Memora's README and direct smoke show a simpler local MCP server path "
+            "with built-in live graph, timeline, history and chat-oriented memory UI."
+        ),
+        requirement="local_mcp_visual_experience",
     ),
     Dimension(
         id="scope_isolation_team_memory_scopes",
@@ -224,7 +249,7 @@ DIMENSIONS: tuple[Dimension, ...] = (
         id="ops_and_production_evidence",
         label="Operational confidence and benchmark evidence",
         weight=0.10,
-        infinity_context_score=9.3,
+        infinity_context_score=8.6,
         memora_score=7.7,
         infinity_context_rationale=(
             "Quality scorecard, full-provider canary, public benchmark canary, "
@@ -233,7 +258,9 @@ DIMENSIONS: tuple[Dimension, ...] = (
             "dedicated read-only import previews via API, SDK, MCP and CLI exist. "
             "MemoryScope snapshots now include durable typed fact relations. Memory "
             "insights, recent activity, duplicate/similar fact review actions and "
-            "safe consolidation plans are available via API, SDK, MCP and CLI."
+            "safe consolidation plans are available via API, SDK, MCP and CLI. "
+            "This is capped below 9 until live provider proof and a large public "
+            "retrieval benchmark are current on the latest commit."
         ),
         memora_rationale=(
             "Direct temp-db smoke passed and public repo is active, but we did "
@@ -295,6 +322,10 @@ def build_memora_agent_memory_comparison(
                 (
                     "Do not claim Infinity Context live provider proof is current "
                     "unless production audit passes."
+                ),
+                (
+                    "Do not claim Infinity Context has top-tier public retrieval "
+                    "quality without a fresh large LoCoMo/LongMemEval report."
                 ),
             ],
         },

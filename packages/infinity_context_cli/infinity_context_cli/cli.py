@@ -311,6 +311,13 @@ def _cmd_quickstart(args: argparse.Namespace) -> int:
         "mcp_configs": mcp_configs,
         "token_included": bool(args.include_token),
         "opened_ui": False,
+        "local_experience": _quickstart_local_experience(
+            config=config,
+            agents=agents,
+            mcp_configs=mcp_configs,
+            status=status,
+            no_start=args.no_start,
+        ),
         "next_steps": _quickstart_next_steps(
             agents=agents,
             home=config.home,
@@ -707,6 +714,51 @@ def _quickstart_next_steps(
     return steps
 
 
+def _quickstart_local_experience(
+    *,
+    config,
+    agents: list[str],
+    mcp_configs: list[dict[str, Any]],
+    status: dict[str, Any] | None,
+    no_start: bool,
+) -> dict[str, Any]:
+    runtime_ready = bool(status and status.get("ok"))
+    mcp_paths = [item["path"] for item in mcp_configs if item.get("path")]
+    return {
+        "status": _quickstart_local_experience_status(
+            no_start=no_start,
+            runtime_ready=runtime_ready,
+            mcp_ready=bool(mcp_paths),
+        ),
+        "api_url": config.api_url,
+        "ui_url": _ui_url(config),
+        "visual_memory_ready": runtime_ready,
+        "mcp_ready": bool(mcp_paths),
+        "ready_agents": agents,
+        "mcp_config_paths": mcp_paths,
+        "first_capture": {
+            "surface": "visual_memory_browser",
+            "tab": "Capture",
+            "supports": ["text_note", "file_evidence"],
+        },
+    }
+
+
+def _quickstart_local_experience_status(
+    *,
+    no_start: bool,
+    runtime_ready: bool,
+    mcp_ready: bool,
+) -> str:
+    if no_start and mcp_ready:
+        return "configured_not_started"
+    if runtime_ready and mcp_ready:
+        return "ready"
+    if not runtime_ready:
+        return "runtime_not_ready"
+    return "mcp_config_not_ready"
+
+
 def _print_quickstart_payload(payload: dict[str, Any], *, as_json: bool) -> None:
     if as_json:
         print(json.dumps(payload, indent=2, sort_keys=True))
@@ -724,6 +776,17 @@ def _print_quickstart_payload(payload: dict[str, Any], *, as_json: bool) -> None
     status = payload.get("status")
     if isinstance(status, dict):
         print(f"status: {'ready' if status.get('ok') else 'not_ready'}")
+    experience = payload.get("local_experience")
+    if isinstance(experience, dict):
+        print(f"experience: {experience.get('status')}")
+        print(
+            "visual_memory: "
+            f"{'ready' if experience.get('visual_memory_ready') else 'not_ready'} "
+            f"({experience.get('ui_url')})"
+        )
+        ready_agents = experience.get("ready_agents") or []
+        if ready_agents:
+            print(f"mcp_ready_for: {', '.join(str(agent) for agent in ready_agents)}")
     if payload.get("opened_ui"):
         print(f"ui: opened {payload.get('ui_url')}")
     else:

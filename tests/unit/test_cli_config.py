@@ -55,7 +55,9 @@ def test_mcp_config_redacts_token_by_default(tmp_path: Path) -> None:
     written = write_mcp_config(agent="codex", config=config)
 
     assert config.service_token not in rendered
-    assert "${MEMORY_MCP_AUTH_TOKEN}" in rendered
+    assert "${MEMORY_MCP_AUTH_TOKEN}" not in rendered
+    assert "MEMORY_MCP_AUTH_TOKEN_FILE" in rendered
+    assert str(config.env_path) in rendered
     assert written.read_text(encoding="utf-8") == rendered + "\n"
 
 

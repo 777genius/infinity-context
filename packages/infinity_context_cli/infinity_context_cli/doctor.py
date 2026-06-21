@@ -69,8 +69,10 @@ def doctor_payload(config: InfinityContextCliConfig, checks: list[DoctorCheck]) 
     return {
         "ok": all(check.ok for check in checks),
         "api_url": config.api_url,
+        "ui_url": _ui_url(config),
         "home": str(config.home),
         "repo_dir": str(config.repo_dir),
+        "local_experience": _local_experience_payload(config, checks),
         "checks": [
             {
                 "name": check.name,
@@ -81,6 +83,91 @@ def doctor_payload(config: InfinityContextCliConfig, checks: list[DoctorCheck]) 
             for check in checks
         ],
     }
+
+
+def _local_experience_payload(
+    config: InfinityContextCliConfig,
+    checks: list[DoctorCheck],
+) -> dict[str, Any]:
+    by_name = {check.name: check for check in checks}
+    api_ready = bool(by_name.get("api_health") and by_name["api_health"].ok)
+    visual_ready = bool(by_name.get("ui_browser") and by_name["ui_browser"].ok)
+    mcp_check = by_name.get("mcp_generated_configs")
+    mcp_details = mcp_check.details if mcp_check is not None else {}
+    ready_agents = list(mcp_details.get("ready_agents") or [])
+    mcp_paths = [
+        entry.get("path")
+        for entry in mcp_details.get("configs", [])
+        if isinstance(entry, dict) and entry.get("ready") and entry.get("path")
+    ]
+    return {
+        "status": _local_experience_status(
+            docker_ready=bool(by_name.get("docker") and by_name["docker"].ok),
+            compose_ready=bool(by_name.get("docker_compose") and by_name["docker_compose"].ok),
+            api_ready=api_ready,
+            visual_ready=visual_ready,
+            mcp_ready=bool(ready_agents),
+        ),
+        "api_url": config.api_url,
+        "ui_url": _ui_url(config),
+        "visual_memory_ready": visual_ready,
+        "mcp_ready": bool(ready_agents),
+        "ready_agents": ready_agents,
+        "mcp_config_paths": mcp_paths,
+        "first_capture": {
+            "surface": "visual_memory_browser",
+            "tab": "Capture",
+            "supports": ["text_note", "file_evidence"],
+        },
+        "next_actions": _local_experience_next_actions(
+            api_ready=api_ready,
+            visual_ready=visual_ready,
+            mcp_ready=bool(ready_agents),
+        ),
+    }
+
+
+def _local_experience_status(
+    *,
+    docker_ready: bool,
+    compose_ready: bool,
+    api_ready: bool,
+    visual_ready: bool,
+    mcp_ready: bool,
+) -> str:
+    if api_ready and visual_ready and mcp_ready:
+        return "ready"
+    if not docker_ready or not compose_ready:
+        return "missing_runtime_prerequisites"
+    if not api_ready:
+        return "runtime_not_ready"
+    if not visual_ready:
+        return "visual_memory_not_ready"
+    return "mcp_config_not_ready"
+
+
+def _local_experience_next_actions(
+    *,
+    api_ready: bool,
+    visual_ready: bool,
+    mcp_ready: bool,
+) -> list[str]:
+    actions: list[str] = []
+    if not api_ready:
+        actions.append("Start the local runtime with: infinity-context up --lite")
+    if not visual_ready:
+        actions.append("Open and verify visual memory with: infinity-context ui --open --check")
+    if not mcp_ready:
+        actions.append(
+            "Generate an MCP config with: infinity-context mcp-config --agent codex --write"
+        )
+    if api_ready and visual_ready and mcp_ready:
+        actions.append("Open visual memory and save a Quick Note or File Evidence capture.")
+    return actions
+
+
+def _ui_url(config: InfinityContextCliConfig) -> str:
+    return f"{config.api_url.rstrip('/')}/ui/"
 
 
 def _api_checks(config: InfinityContextCliConfig, *, timeout: float) -> list[DoctorCheck]:

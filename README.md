@@ -165,6 +165,11 @@ at the private `~/.infinity-context/.env` token file instead. Use
 `infinity-context doctor` also verifies the generated MCP config and `/ui/`
 browser entrypoint. The browser starts with a quick Capture panel for text notes
 and file evidence, then shows overview, graph, review, operations and timeline.
+Both `quickstart --json` and `doctor --json` include a `local_experience`
+summary with `status`, `ui_url`, `visual_memory_ready`, `mcp_ready`,
+`ready_agents` and the first Capture surface. A fresh local setup should reach
+`status=ready`; `configured_not_started` means the MCP config was generated but
+the local runtime still needs `infinity-context up --lite`.
 
 Agent-assisted local setup is also available through MCP, but it is off by
 default so agents do not create files or start background services unexpectedly:

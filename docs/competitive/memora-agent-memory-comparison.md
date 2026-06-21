@@ -114,13 +114,13 @@ strong.
 
 Fresh Infinity Context evidence from the latest local run:
 
-- official public memory benchmark: 1100 cases, overall accuracy `0.8245`;
-- LoCoMo: `0.7283`, currently the main competitive weakness;
-- LongMemEval: `0.94`, strong long-memory retrieval evidence;
-- duplicate public benchmark case ids: `0`;
-- local multimodal Docker proof, frontend Marionette proof and quality scorecard:
-  green on the current commit;
-- production goal audit: still blocked by stale live-provider proof because the
+- local multimodal Docker proof, frontend Marionette proof and quality scorecard
+  are green on the current commit;
+- internal deterministic retrieval, linking, multimodal and safety gates are
+  strong, but they are not a substitute for a fresh large public benchmark;
+- the current public benchmark artifact in the workspace is canary-sized, so
+  retrieval quality must be treated as provisional rather than top-tier proven;
+- production goal audit is still blocked by stale live-provider proof because the
   OpenAI/vision/transcription provider canary has not been regenerated for the
   current commit with a safely configured credential.
 
@@ -133,9 +133,9 @@ python -m infinity_context_server.memora_comparison \
 ```
 
 This keeps the competitive claim honest: Infinity Context is stronger on
-governed multimodal evidence and verified architecture, while Memora is still
-stronger as a ready-to-use personal MCP graph UI with action history and simple
-local setup.
+governed multimodal evidence, scope isolation, review policy and verified
+architecture. Memora is still stronger as a ready-to-use personal MCP graph UI
+with action history, simple local setup and immediately obvious visual memory.
 
 ## Scorecard
 
@@ -150,18 +150,19 @@ make infinity-context-compare-memora
 | Remember durable coding facts | 9.2 | 9.0 | Tie |
 | Update facts without stale answers | 9.2 | 8.1 | Infinity Context |
 | Forget/delete and review-gated control | 9.5 | 7.8 | Infinity Context |
-| Retrieve the right facts for a coding agent | 9.5 | 9.0 | Infinity Context |
+| Retrieve the right facts for a coding agent | 7.8 | 8.4 | Memora |
 | Large documents and architecture notes | 9.4 | 9.1 | Infinity Context |
 | Graph relationships and temporal context | 9.5 | 8.4 | Infinity Context |
-| Agent hooks, plugins and real agent ergonomics | 9.2 | 7.8 | Infinity Context |
+| Agent hooks, plugins and real agent ergonomics | 8.8 | 8.4 | Infinity Context |
+| Local MCP setup and visual memory UX | 7.8 | 9.3 | Memora |
 | Project/team/memory scope isolation | 9.2 | 7.5 | Infinity Context |
-| Operational confidence and benchmark evidence | 9.3 | 7.7 | Infinity Context |
+| Operational confidence and benchmark evidence | 8.6 | 7.7 | Infinity Context |
 | Clean Architecture and extensibility | 9.1 | 6.8 | Infinity Context |
 
 Weighted total:
 
-- Infinity Context: 9.32
-- Memora: 8.19
+- Infinity Context: 8.90
+- Memora: 8.26
 
 ## Honest conclusion
 
@@ -198,7 +199,8 @@ CLI for pending review load, expired facts, document indexing coverage,
 taxonomy hotspots, recent activity, duplicate/similar fact review, a safe
 consolidation plan and cleanup action items.
 Memora still has
-more polished local graph UI. Infinity Context now also has `memory_related_facts` and
+more polished local graph UI and a stronger zero-to-first-memory local MCP
+experience. Infinity Context now also has `memory_related_facts` and
 `GET /v1/facts/{fact_id}/related`, giving agents read-only related fact
 traversal with explainable relation reasons before update/delete or summary
 work.
@@ -213,8 +215,8 @@ without their durable semantic links.
 
 The main honest caveats after the latest proof run:
 
-- LoCoMo category 1 and category 3 retrieval/reasoning still need work before
-  claiming top-tier public benchmark strength;
+- Retrieval quality is currently an honest `7.5-8/10`: strong smoke and internal
+  evals, but not enough fresh large public benchmark evidence to claim top-tier;
 - live provider proof must be rerun on the current commit before calling the
   OpenAI vision/audio provider slice production-ready;
 - Memora's local graph/action-history UX is more immediately polished.
