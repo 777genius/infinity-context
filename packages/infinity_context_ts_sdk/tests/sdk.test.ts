@@ -569,6 +569,80 @@ describe("InfinityContextClient", () => {
     expect(transport.bodies).toContainEqual({ force: true });
     expect(transport.bodies).toContainEqual({ reason: "privacy_request" });
   });
+
+  it("reads typed memory browser and operations console projections", async () => {
+    const transport = new RecordingTransport([
+      jsonResponse({
+        data: {
+          generated_at: "2026-06-06T00:00:00.000Z",
+          memory_scope: scopeRecord("scope_1", "scope"),
+          facts: [factRecord("fact_1")],
+          episodes: [{ id: "episode_1", status: "active" }],
+          documents: [{ id: "document_1", title: "Digest source", status: "active" }],
+          chunks: [{ id: "chunk_1", status: "active" }],
+          extraction_jobs: [{ id: "job_1", status: "complete" }],
+          threads: [{ id: "thread_1", status: "active" }],
+          captures: [captureRecord("capture_1")],
+          assets: [{ id: "asset_1", filename: "source.md", status: "stored" }],
+          anchors: [{ id: "anchor_1", kind: "topic", label: "AI agents", status: "active" }],
+          context_links: [contextLinkRecord("link_1")],
+          context_link_suggestions: [contextLinkSuggestionRecord("suggestion_1")],
+          stats: { facts: 1, captures: 1, context_links: 1 },
+          visual_summary: { status: "ready", evidence_count: 3 },
+          quick_actions: [{ id: "review_links", priority: 1 }],
+          diagnostics: { browser_version: "memory-browser-v1" },
+        },
+      }),
+      jsonResponse({
+        data: {
+          generated_at: "2026-06-06T00:00:00.000Z",
+          scope: { space_id: "space_1", memory_scope_id: "scope_1", thread_id: "thread_1" },
+          extraction_status_counts: { complete: 1 },
+          link_suggestion_status_counts: { pending: 1 },
+          extraction_jobs: [{ id: "job_1", status: "complete" }],
+          context_link_suggestions: [contextLinkSuggestionRecord("suggestion_1")],
+          diagnostics: { console_version: "memory-operations-console-v1" },
+        },
+      }),
+    ]);
+    const client = new InfinityContextClient({
+      baseUrl: "http://memory.test",
+      transport,
+      retryPolicy: { maxAttempts: 1 },
+    });
+
+    const browser = await client.readModels.getMemoryBrowser({
+      spaceSlug: "workspace",
+      memoryScopeExternalRef: "scope",
+      limit: 25,
+      captureStatus: "active",
+      linkStatus: "active",
+      suggestionStatus: "pending",
+    });
+    const operations = await client.readModels.getOperationsConsole({
+      spaceSlug: "workspace",
+      memoryScopeExternalRef: "scope",
+      threadExternalRef: "review-thread",
+      limit: 10,
+    });
+
+    expect(browser.data.facts[0]?.id).toBe("fact_1");
+    expect(browser.data.context_links[0]?.id).toBe("link_1");
+    expect(operations.data.context_link_suggestions[0]?.id).toBe("suggestion_1");
+    expect(transport.requests.map((request) => `${request.method} ${request.url.pathname}`)).toEqual([
+      "GET /v1/memory-browser",
+      "GET /v1/operations-console",
+    ]);
+    expect(transport.requests[0]?.url.searchParams.get("space_slug")).toBe("workspace");
+    expect(transport.requests[0]?.url.searchParams.get("memory_scope_external_ref")).toBe("scope");
+    expect(transport.requests[0]?.url.searchParams.get("fact_status")).toBe("active");
+    expect(transport.requests[0]?.url.searchParams.get("capture_status")).toBe("active");
+    expect(transport.requests[0]?.url.searchParams.get("link_status")).toBe("active");
+    expect(transport.requests[0]?.url.searchParams.get("suggestion_status")).toBe("pending");
+    expect(transport.requests[0]?.url.searchParams.has("thread_external_ref")).toBe(false);
+    expect(transport.requests[1]?.url.searchParams.get("thread_external_ref")).toBe("review-thread");
+    expect(transport.requests[1]?.url.searchParams.get("limit")).toBe("10");
+  });
 });
 
 function jsonResponse(body: unknown, status = 200): HttpResponse {

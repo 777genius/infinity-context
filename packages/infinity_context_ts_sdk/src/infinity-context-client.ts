@@ -8,6 +8,7 @@ import { DiagnosticsClient } from "./resources/diagnostics.js";
 import { DocumentsClient } from "./resources/documents.js";
 import { ExportsClient } from "./resources/exports.js";
 import { FactsClient } from "./resources/facts.js";
+import { ReadModelsClient } from "./resources/read-models.js";
 import { SpacesClient } from "./resources/spaces.js";
 import { SuggestionsClient } from "./resources/suggestions.js";
 import { SystemClient } from "./resources/system.js";
@@ -27,6 +28,7 @@ export class InfinityContextClient {
   readonly users: UsersClient;
   readonly diagnostics: DiagnosticsClient;
   readonly exports: ExportsClient;
+  readonly readModels: ReadModelsClient;
 
   constructor(options: InfinityContextClientOptions = {}) {
     const http = new HttpClient(options);
@@ -43,5 +45,6 @@ export class InfinityContextClient {
     this.users = new UsersClient(http);
     this.diagnostics = new DiagnosticsClient(http);
     this.exports = new ExportsClient(http);
+    this.readModels = new ReadModelsClient(http);
   }
 }

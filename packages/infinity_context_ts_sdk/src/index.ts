@@ -35,6 +35,12 @@ export type {
   ReviewContextLinkSuggestionsBatchData,
   SuggestContextLinksData,
 } from "./resources/context-links.js";
+export type {
+  MemoryBrowserData,
+  MemoryBrowserInput,
+  OperationsConsoleData,
+  OperationsConsoleInput,
+} from "./resources/read-models.js";
 export { MemoryScope, ReadScope, ValueError } from "./payload.js";
 export { DEFAULT_RETRY_POLICY, shouldRetry, type RetryPolicy } from "./retry.js";
 export { FetchTransport, type HttpRequest, type HttpResponse, type HttpTransport } from "./transport.js";

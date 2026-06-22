@@ -107,6 +107,28 @@ const capture = await memory.captures.createCapture({
 await memory.captures.consolidateCapture(capture.data.id, { force: false });
 ```
 
+## Read models
+
+Use read models to inspect the memory browser projection and operations queue from a typed SDK surface.
+
+```ts
+const browser = await memory.readModels.getMemoryBrowser({
+  spaceSlug: "social-monitor:tenant_1:workspace_1",
+  memoryScopeExternalRef: "topic:ai-agents:feedback",
+  captureStatus: "active",
+  linkStatus: "active",
+  suggestionStatus: "pending",
+});
+
+const operations = await memory.readModels.getOperationsConsole({
+  spaceSlug: "social-monitor:tenant_1:workspace_1",
+  memoryScopeExternalRef: "topic:ai-agents:feedback",
+  limit: 25,
+});
+
+console.log(browser.data.visual_summary, operations.data.link_suggestion_status_counts);
+```
+
 ## Recommended Social Monitor mapping
 
 - `spaceSlug`: `social-monitor:{tenantId}:{workspaceId}`
