@@ -1110,6 +1110,136 @@ describe("InfinityContextClient", () => {
     ]);
   });
 
+  it("runs a durable memory summary loop across topology, readiness, evidence and brief", async () => {
+    const transport = new RecordingTransport([
+      jsonResponse({ data: [] }),
+      jsonResponse({ data: spaceRecord("space_1", "workspace") }, 201),
+      jsonResponse({ data: [] }),
+      jsonResponse({ data: scopeRecord("scope_topic", "topic:ai-agents") }, 201),
+      jsonResponse({ enabled_adapters: ["qdrant", "graphiti"], supports_qdrant: true, supports_graphiti: true }),
+      jsonResponse(contextResponse("loop-readiness", {
+        vector_query_count: 2,
+        graph_query_count: 1,
+      })),
+      jsonResponse({ data: factRecord("fact_reddit") }, 201),
+      jsonResponse({ data: factRecord("fact_github") }, 201),
+      jsonResponse(contextResponse("loop-brief", {
+        retrieval_sources_used: ["vector", "graph"],
+        vector_query_count: 4,
+        graph_query_count: 2,
+      })),
+      jsonResponse(searchResponse({
+        retrieval_sources_used: ["graph"],
+        vector_query_count: 3,
+        graph_query_count: 2,
+      })),
+      jsonResponse(digestResponse("loop-brief")),
+    ]);
+    const client = new InfinityContextClient({
+      baseUrl: "http://memory.test",
+      transport,
+      retryPolicy: { maxAttempts: 1 },
+    });
+
+    const loop = await client.workflows.runMemorySummaryLoop({
+      headers: { "x-trace-id": "trace_loop" },
+      topology: {
+        spaceSlug: "workspace",
+        spaceName: "Workspace",
+        memoryScopes: [{ externalRef: "topic:ai-agents", name: "AI agents" }],
+      },
+      readiness: {
+        query: "Prove memory before generating the AI agents summary",
+        spaceSlug: "workspace",
+        memoryScopeExternalRefs: ["topic:ai-agents"],
+        assertReady: true,
+      },
+      sourceEvidence: {
+        concurrency: 1,
+        items: [
+          {
+            spaceSlug: "workspace",
+            memoryScopeExternalRef: "topic:ai-agents",
+            sourceAgent: "social-monitor",
+            sourceType: "reddit",
+            sourceId: "reddit:t3_ai",
+            text: "Reddit discussion mentions agent memory evals.",
+            idempotencyKey: "reddit:t3_ai",
+            document: false,
+            episode: false,
+            capture: false,
+            fact: true,
+            linkSuggestions: false,
+          },
+          {
+            spaceSlug: "workspace",
+            memoryScopeExternalRef: "topic:ai-agents",
+            sourceAgent: "social-monitor",
+            sourceType: "github",
+            sourceId: "github:issue_1",
+            text: "GitHub issue tracks Graphiti temporal memory integration.",
+            idempotencyKey: "github:issue_1",
+            document: false,
+            episode: false,
+            capture: false,
+            fact: true,
+            linkSuggestions: false,
+          },
+        ],
+      },
+      brief: {
+        query: "What should the AI agents digest highlight?",
+        topic: "AI agents digest",
+        spaceSlug: "workspace",
+        memoryScopeExternalRefs: ["topic:ai-agents"],
+        tokenBudget: 1200,
+      },
+    });
+
+    expect(loop.topology?.created).toMatchObject({
+      space: true,
+      memoryScopes: ["topic:ai-agents"],
+    });
+    expect(loop.readiness?.readiness.ok).toBe(true);
+    expect(loop.sourceEvidenceSummary).toMatchObject({
+      total: 2,
+      succeeded: 2,
+      failed: 0,
+      bySourceType: { reddit: 1, github: 1 },
+    });
+    expect(loop.brief.digest?.data.digest_id).toBe("digest_1");
+    expect(loop.diagnostics).toEqual({
+      ok: true,
+      readinessOk: true,
+      sourceEvidenceOk: true,
+      warnings: [],
+    });
+    expect(transport.requests.map((request) => `${request.method} ${request.url.pathname}`)).toEqual([
+      "GET /v1/spaces",
+      "POST /v1/spaces",
+      "GET /v1/memory-scopes",
+      "POST /v1/memory-scopes",
+      "GET /v1/capabilities",
+      "POST /v1/context",
+      "POST /v1/facts",
+      "POST /v1/facts",
+      "POST /v1/context",
+      "POST /v1/search",
+      "POST /v1/digest",
+    ]);
+    expect(transport.requests.map((request) => request.headers.get("x-trace-id"))).toEqual(
+      Array.from({ length: 11 }, () => "trace_loop"),
+    );
+    expect(transport.bodies[3]).toMatchObject({
+      source_refs: [{ source_type: "reddit", source_id: "reddit:t3_ai" }],
+      ttl_policy: "durable",
+    });
+    expect(transport.bodies[7]).toMatchObject({
+      topic: "AI agents digest",
+      token_budget: 1200,
+    });
+  });
+
   it("inspects memory across read models, diagnostics, graph and snapshot preview", async () => {
     const controller = new AbortController();
     const transport = new RecordingTransport([

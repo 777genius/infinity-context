@@ -183,6 +183,37 @@ const batchSummary = summarizeSourceEvidenceBatch(batch);
 console.log(batchSummary.succeeded, batchSummary.failed, batchSummary.retryableFailures);
 ```
 
+For product loops that should bootstrap memory, check runtime readiness, ingest provider evidence and return a readable summary in one call, use `runMemorySummaryLoop`.
+
+```ts
+const loop = await memory.workflows.runMemorySummaryLoop({
+  headers: { "x-trace-id": "scan:2026-06-22" },
+  topology: {
+    spaceSlug: "social-monitor:tenant_1:workspace_1",
+    spaceName: "Social Monitor workspace 1",
+    memoryScopes: [{ externalRef: "topic:ai-agents", name: "AI agents" }],
+  },
+  readiness: {
+    query: "runtime readiness before AI agents digest",
+    spaceSlug: "social-monitor:tenant_1:workspace_1",
+    memoryScopeExternalRefs: ["topic:ai-agents"],
+  },
+  sourceEvidence: {
+    concurrency: 4,
+    continueOnError: true,
+    items: providerItems,
+  },
+  brief: {
+    query: "What matters most in AI agents today?",
+    topic: "AI agents digest",
+    spaceSlug: "social-monitor:tenant_1:workspace_1",
+    memoryScopeExternalRefs: ["topic:ai-agents"],
+  },
+});
+
+console.log(loop.sourceEvidenceSummary?.successRate, loop.brief.digest?.data.rendered_markdown);
+```
+
 Use `inspectMemory` when an operator, beta smoke or backend job needs one typed view over read models, usage, runtime diagnostics and optional graph/snapshot checks.
 
 ```ts

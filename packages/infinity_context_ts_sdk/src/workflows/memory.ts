@@ -148,6 +148,30 @@ export interface BuildMemoryBriefResult {
   readonly diagnostics: MemoryBriefDiagnostics;
 }
 
+export interface RunMemorySummaryLoopInput extends RequestControls {
+  readonly topology?: WorkflowStepOptions<EnsureMemoryTopologyInput>;
+  readonly readiness?: WorkflowStepOptions<CheckFullMemoryReadinessInput>;
+  readonly sourceEvidence?: RecordSourceEvidenceBatchInput;
+  readonly brief: BuildMemoryBriefInput;
+  readonly stopOnSourceEvidenceFailure?: boolean;
+}
+
+export interface RunMemorySummaryLoopDiagnostics {
+  readonly ok: boolean;
+  readonly readinessOk: boolean | null;
+  readonly sourceEvidenceOk: boolean | null;
+  readonly warnings: readonly string[];
+}
+
+export interface RunMemorySummaryLoopResult {
+  readonly topology?: EnsureMemoryTopologyResult;
+  readonly readiness?: CheckFullMemoryReadinessResult;
+  readonly sourceEvidence?: RecordSourceEvidenceBatchResult;
+  readonly sourceEvidenceSummary?: RecordSourceEvidenceBatchSummary;
+  readonly brief: BuildMemoryBriefResult;
+  readonly diagnostics: RunMemorySummaryLoopDiagnostics;
+}
+
 export interface CheckFullMemoryReadinessInput extends ReadScopeInput, RequestControls {
   readonly readScope?: ReadScope;
   readonly query?: string;
@@ -820,6 +844,59 @@ export class MemoryWorkflows {
       ...(search ? { search } : {}),
       ...(digest ? { digest } : {}),
       diagnostics: briefDiagnostics(context, search),
+    };
+  }
+
+  async runMemorySummaryLoop(input: RunMemorySummaryLoopInput): Promise<RunMemorySummaryLoopResult> {
+    const topology = isEnabled(input.topology, false)
+      ? await this.ensureMemoryTopology(withWorkflowControls(
+          input,
+          requiredStepOptions(input.topology, "runMemorySummaryLoop topology requires options"),
+        ))
+      : undefined;
+    const readiness = isEnabled(input.readiness, true)
+      ? await this.checkFullMemoryReadiness(withWorkflowControls(input, stepOptions(input.readiness)))
+      : undefined;
+    const sourceEvidence = input.sourceEvidence === undefined
+      ? undefined
+      : await this.recordSourceEvidenceBatch(withWorkflowControls(input, input.sourceEvidence));
+    const sourceEvidenceSummary = sourceEvidence === undefined
+      ? undefined
+      : summarizeSourceEvidenceBatch(sourceEvidence);
+
+    if ((input.stopOnSourceEvidenceFailure ?? false) && sourceEvidenceSummary !== undefined) {
+      if (sourceEvidenceSummary.failed > 0 || sourceEvidenceSummary.stopped) {
+        throw new ValueError(
+          `runMemorySummaryLoop source evidence failed: ${sourceEvidenceSummary.failed} failed, ${sourceEvidenceSummary.skipped} skipped`,
+        );
+      }
+    }
+
+    const brief = await this.buildMemoryBrief(withWorkflowControls(input, input.brief));
+    const readinessOk = readiness?.readiness.ok ?? null;
+    const sourceEvidenceOk = sourceEvidenceSummary === undefined
+      ? null
+      : sourceEvidenceSummary.failed === 0 && !sourceEvidenceSummary.stopped;
+    const warnings = uniqueStrings([
+      ...(readiness?.diagnostics.warnings ?? []),
+      ...(sourceEvidenceSummary !== undefined && !sourceEvidenceOk
+        ? [`source evidence batch has ${sourceEvidenceSummary.failed} failed item(s)`]
+        : []),
+      ...brief.diagnostics.warnings,
+    ]);
+
+    return {
+      ...(topology ? { topology } : {}),
+      ...(readiness ? { readiness } : {}),
+      ...(sourceEvidence ? { sourceEvidence } : {}),
+      ...(sourceEvidenceSummary ? { sourceEvidenceSummary } : {}),
+      brief,
+      diagnostics: {
+        ok: (readinessOk ?? true) && (sourceEvidenceOk ?? true),
+        readinessOk,
+        sourceEvidenceOk,
+        warnings,
+      },
     };
   }
 
@@ -1801,10 +1878,10 @@ function workflowControls(input: RequestControls): RequestControls {
   };
 }
 
-function withWorkflowControls(
+function withWorkflowControls<TInput extends RequestControls>(
   batchControls: RequestControls,
-  input: RecordSourceEvidenceInput,
-): RecordSourceEvidenceInput {
+  input: TInput,
+): TInput {
   return {
     ...input,
     ...mergeWorkflowControls(batchControls, input),
@@ -1884,6 +1961,16 @@ function stepOptions<TOptions extends object>(
   value: WorkflowStepOptions<TOptions> | undefined,
 ): Partial<TOptions> {
   return typeof value === "object" ? value : {};
+}
+
+function requiredStepOptions<TOptions extends object>(
+  value: WorkflowStepOptions<TOptions> | undefined,
+  message: string,
+): TOptions {
+  if (typeof value !== "object" || value === null) {
+    throw new ValueError(message);
+  }
+  return value;
 }
 
 function stringField(input: JsonObject, key: string): string | undefined {
