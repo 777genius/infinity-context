@@ -1022,11 +1022,10 @@ def _official_locomo_cases(raw: Mapping[str, object]) -> tuple[PublicBenchmarkCa
         if not isinstance(qa, Mapping):
             continue
         question = _first_str(qa, "question", "query")
-        expected_terms = _official_locomo_evidence_terms(qa, evidence_lookup) or _terms(
+        evidence_terms = _official_locomo_evidence_terms(qa, evidence_lookup)
+        expected_terms = evidence_terms or _official_locomo_supported_answer_terms(
             qa,
-            "answer",
-            "expected_answer",
-            "answers",
+            documents=documents,
         )
         if not question or not expected_terms:
             continue
@@ -1136,6 +1135,20 @@ def _official_locomo_evidence_terms(
         if evidence_id and evidence_id in evidence_lookup:
             terms.append(evidence_id)
     return tuple(_unique(terms))
+
+
+def _official_locomo_supported_answer_terms(
+    qa: Mapping[str, object],
+    *,
+    documents: Sequence[BenchmarkDocumentInput],
+) -> tuple[str, ...]:
+    answer_terms = _terms(qa, "answer", "expected_answer", "answers")
+    if not answer_terms:
+        return ()
+    searchable_text = _normalize_text("\n".join(document.text for document in documents))
+    return tuple(
+        term for term in answer_terms if _normalize_text(term) in searchable_text
+    )
 
 
 def _official_locomo_documents(

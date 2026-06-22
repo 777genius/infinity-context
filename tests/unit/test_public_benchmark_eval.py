@@ -614,6 +614,60 @@ def test_public_memory_benchmark_accepts_official_locomo_shape(tmp_path: Path) -
     assert result["cases"][0]["case_id"] == "conv-mini:qa:1"
 
 
+def test_public_memory_benchmark_skips_unsupported_official_locomo_inference(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "locomo10-no-evidence-mini.json"
+    dataset.write_text(
+        json.dumps(
+            [
+                {
+                    "sample_id": "conv-no-evidence-mini",
+                    "conversation": {
+                        "session_1": [
+                            {
+                                "speaker": "Caroline",
+                                "dia_id": "D1:1",
+                                "text": "I checked in with Melanie today.",
+                            }
+                        ],
+                    },
+                    "qa": [
+                        {
+                            "question": "Would Melanie be considered an ally?",
+                            "answer": "Yes, she is supportive",
+                            "evidence": [],
+                            "category": 3,
+                        },
+                        {
+                            "question": "What launch window did Caroline discuss?",
+                            "answer": "Q4 launch window",
+                            "evidence": [],
+                            "category": 2,
+                        },
+                    ],
+                    "session_summary": {
+                        "session_1_summary": (
+                            "Caroline discussed the Q4 launch window with Melanie."
+                        )
+                    },
+                    "event_summary": [],
+                    "observation": [],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    cases = _load_cases(dataset)
+    result = run_public_memory_benchmark(dataset_path=dataset, min_accuracy=1.0)
+
+    assert [case.case_id for case in cases] == ["conv-no-evidence-mini:qa:2"]
+    assert cases[0].expected_terms == ("Q4 launch window",)
+    assert result["ok"] is True
+    assert result["metrics"]["locomo_case_count"] == 1
+
+
 def test_public_memory_benchmark_indexes_official_locomo_visual_queries(
     tmp_path: Path,
 ) -> None:

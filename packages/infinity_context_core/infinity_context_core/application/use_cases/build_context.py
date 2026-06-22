@@ -98,13 +98,25 @@ from infinity_context_core.ports.unit_of_work import UnitOfWorkFactoryPort
 _KEYWORD_NEIGHBOR_SEQUENCE_OFFSETS = (1, -1, 2, -2, 3, -3)
 _KEYWORD_EXPANSION_SCORE_CAPS = {
     "career_intent_bridge": 0.91,
+    "support_career_motivation_bridge": 0.96,
     "support_counterfactual_bridge": 0.94,
     "support_origin_bridge": 0.94,
     "outdoor_preference_bridge": 0.94,
     "outdoor_nature_memory_bridge": 0.94,
+    "personality_trait_bridge": 0.94,
+    "personality_authenticity_bridge": 0.94,
+    "personality_drive_bridge": 0.94,
+    "personality_thoughtfulness_bridge": 0.94,
+    "adverse_trip_bridge": 0.94,
 }
 _KEYWORD_EXPANSION_REASON_BOOSTS = {
+    "adverse_trip_bridge": 0.012,
     "outdoor_nature_memory_bridge": 0.018,
+    "personality_authenticity_bridge": 0.014,
+    "personality_drive_bridge": 0.014,
+    "personality_thoughtfulness_bridge": 0.014,
+    "personality_trait_bridge": 0.012,
+    "support_career_motivation_bridge": 0.022,
     "support_origin_bridge": 0.01,
 }
 

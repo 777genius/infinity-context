@@ -42,6 +42,14 @@ _EXPANSION_RULES: tuple[tuple[frozenset[str], str, str], ...] = (
         "career_intent_bridge",
     ),
     (
+        frozenset({"support", "career"}),
+        (
+            "motivation motivated mattered made difference support got counseling "
+            "support groups improved life mental health help people safe inviting grow"
+        ),
+        "support_career_motivation_bridge",
+    ),
+    (
         frozenset({"support", "growing"}),
         "journey love support acceptance community hope",
         "support_counterfactual_bridge",
@@ -120,6 +128,34 @@ _EXPANSION_RULES: tuple[tuple[frozenset[str], str, str], ...] = (
         frozenset({"partake"}),
         "pottery camping painting swimming running hobbies activities creative outdoors",
         "activity_aggregation_bridge",
+    ),
+    (
+        frozenset({"personality", "traits"}),
+        (
+            "thoughtful authentic driven drive determined dedicated passionate "
+            "real care concern help helpful kind plan pitch awesome"
+        ),
+        "personality_trait_bridge",
+    ),
+    (
+        frozenset({"personality", "traits"}),
+        "thoughtful concern caring considerate precaution sign",
+        "personality_thoughtfulness_bridge",
+    ),
+    (
+        frozenset({"personality", "traits"}),
+        "authentic real genuine true self care helping others",
+        "personality_authenticity_bridge",
+    ),
+    (
+        frozenset({"personality", "traits"}),
+        "driven drive determined dedicated passionate plan pitch help awesome",
+        "personality_drive_bridge",
+    ),
+    (
+        frozenset({"roadtrip"}),
+        "roadtrip accident scary scared bad start freaked lucky okay family",
+        "adverse_trip_bridge",
     ),
 )
 _TOKEN_RE = re.compile(r"\w+", re.UNICODE)

@@ -77,6 +77,34 @@ def test_query_expansion_covers_activity_location_and_destress_bridges() -> None
     )
 
 
+def test_query_expansion_covers_trait_and_adverse_trip_bridges() -> None:
+    traits = build_query_expansion_plan(
+        "What personality traits might Melanie say Caroline has?"
+    )
+    roadtrip = build_query_expansion_plan("Would Melanie go on another roadtrip soon?")
+
+    assert "thoughtful authentic driven" in _expansion_query(
+        traits,
+        "personality_trait_bridge",
+    )
+    assert "thoughtful concern" in _expansion_query(
+        traits,
+        "personality_thoughtfulness_bridge",
+    )
+    assert "authentic real genuine" in _expansion_query(
+        traits,
+        "personality_authenticity_bridge",
+    )
+    assert "driven drive determined" in _expansion_query(
+        traits,
+        "personality_drive_bridge",
+    )
+    assert "accident scary scared bad start" in _expansion_query(
+        roadtrip,
+        "adverse_trip_bridge",
+    )
+
+
 def test_best_query_relevance_uses_expansion_for_low_overlap_evidence() -> None:
     plan = build_query_expansion_plan("Where did Caroline move from 4 years ago?")
 
@@ -111,6 +139,113 @@ def test_best_query_relevance_uses_specific_support_origin_bridge() -> None:
 
     assert reason == "support_origin_bridge"
     assert relevance.distinctive_term_hits >= 6
+
+
+def test_best_query_relevance_uses_support_career_motivation_bridge() -> None:
+    plan = build_query_expansion_plan(
+        "Would Caroline still want to pursue counseling as a career if she hadn't "
+        "received support growing up?"
+    )
+
+    _, reason, relevance = _best_query_relevance(
+        plan,
+        text=(
+            "D4:15 Caroline: My own journey and the support I got made a huge "
+            "difference. I saw how counseling and support groups improved my life, "
+            "so I started caring more about mental health. Now I'm passionate "
+            "about creating a safe, inviting place for people to grow."
+        ),
+    )
+    focused = score_query_relevance(
+        query=_expansion_query(plan, "support_career_motivation_bridge"),
+        text=(
+            "D4:15 Caroline: My own journey and the support I got made a huge "
+            "difference. I saw how counseling and support groups improved my life, "
+            "so I started caring more about mental health. Now I'm passionate "
+            "about creating a safe, inviting place for people to grow."
+        ),
+    )
+    looser = score_query_relevance(
+        query=_expansion_query(plan, "support_career_motivation_bridge"),
+        text=(
+            "D7:7 Caroline: I struggled with mental health, and support I got was "
+            "really helpful. It made me realize how important it is for others to "
+            "have a support system, so I started looking into counseling jobs."
+        ),
+    )
+
+    assert reason == "support_career_motivation_bridge"
+    assert relevance.distinctive_term_hits >= 10
+    assert _keyword_chunk_score(
+        focused,
+        query_expansion_reason="support_career_motivation_bridge",
+    ) > _keyword_chunk_score(
+        looser,
+        query_expansion_reason="support_career_motivation_bridge",
+    )
+
+
+def test_best_query_relevance_uses_trait_and_adverse_trip_bridges() -> None:
+    traits = build_query_expansion_plan(
+        "What personality traits might Melanie say Caroline has?"
+    )
+    roadtrip = build_query_expansion_plan("Would Melanie go on another roadtrip soon?")
+
+    _, trait_reason, trait_relevance = _best_query_relevance(
+        traits,
+        text=(
+            "D16:18 Melanie: Thank you for your concern, you're so thoughtful. "
+            "D13:16 Melanie: You really care about being real and helping others. "
+            "D7:4 Melanie: Your drive to help is awesome."
+        ),
+    )
+    _, trip_reason, trip_relevance = _best_query_relevance(
+        roadtrip,
+        text=(
+            "D18:1 Melanie: That roadtrip was insane and we were all freaked "
+            "when my son got into an accident. D18:3 Melanie: Our trip got off "
+            "to a bad start. I was really scared."
+        ),
+    )
+
+    assert trait_reason == "personality_trait_bridge"
+    assert trait_relevance.distinctive_term_hits >= 5
+    assert trip_reason == "adverse_trip_bridge"
+    assert trip_relevance.distinctive_term_hits >= 5
+
+
+def test_trait_query_decomposition_targets_single_trait_turns() -> None:
+    plan = build_query_expansion_plan(
+        "What personality traits might Melanie say Caroline has?"
+    )
+
+    _, thoughtful_reason, thoughtful = _best_query_relevance(
+        plan,
+        text=(
+            "D16:18 Melanie: The sign was just a precaution, but thank you for "
+            "your concern, you're so thoughtful!"
+        ),
+    )
+    _, authentic_reason, authentic = _best_query_relevance(
+        plan,
+        text=(
+            "D13:16 Melanie: You really care about being real and helping others."
+        ),
+    )
+    _, drive_reason, drive = _best_query_relevance(
+        plan,
+        text=(
+            "D7:4 Melanie: Your drive to help is awesome! What's your plan to "
+            "pitch in?"
+        ),
+    )
+
+    assert thoughtful_reason == "personality_thoughtfulness_bridge"
+    assert thoughtful.distinctive_term_hits >= 4
+    assert authentic_reason == "personality_authenticity_bridge"
+    assert authentic.distinctive_term_hits >= 4
+    assert drive_reason == "personality_drive_bridge"
+    assert drive.distinctive_term_hits >= 5
 
 
 def test_best_query_relevance_uses_specific_outdoor_nature_memory_bridge() -> None:
