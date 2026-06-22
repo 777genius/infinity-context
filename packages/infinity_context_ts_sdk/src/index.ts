@@ -71,6 +71,13 @@ export type {
 export type { UsageSummaryInput } from "./resources/usage.js";
 export { MemoryScope, ReadScope, ValueError } from "./payload.js";
 export { DEFAULT_RETRY_POLICY, shouldRetry, type RetryPolicy } from "./retry.js";
+export { assertFullMemoryReady, assertRuntimeReadiness, evaluateRuntimeReadiness } from "./runtime.js";
+export type {
+  MemoryRuntimeAdapter,
+  MemoryRuntimeMode,
+  RuntimeReadinessInput,
+  RuntimeReadinessReport,
+} from "./runtime.js";
 export { FetchTransport, type HttpRequest, type HttpResponse, type HttpTransport } from "./transport.js";
 export type {
   ApiEnvelope,

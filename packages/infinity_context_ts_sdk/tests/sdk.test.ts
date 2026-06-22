@@ -5,6 +5,8 @@ import {
   MemoryScope,
   ReadScope,
   ValueError,
+  assertFullMemoryReady,
+  evaluateRuntimeReadiness,
   healthyRetrievalComponents,
   retrievalDiagnostics,
   runFullMemoryProof,
@@ -147,6 +149,66 @@ describe("InfinityContextClient", () => {
       max_chunks: 30,
     });
     expect(transport.bodies[0]).not.toHaveProperty("include_stale");
+  });
+
+  it("evaluates full memory runtime readiness from capabilities and retrieval diagnostics", () => {
+    const report = evaluateRuntimeReadiness({
+      capabilities: {
+        enabled_adapters: ["qdrant", "graphiti"],
+        supports_qdrant: true,
+        supports_graphiti: true,
+      },
+      diagnostics: {
+        vector_status: "ok",
+        graph_status: "ok",
+        vector_query_count: 4,
+        graph_query_count: 3,
+      },
+      requireDerivedRetrieval: true,
+    });
+
+    expect(report).toMatchObject({
+      ok: true,
+      mode: "full",
+      missingAdapters: [],
+      unhealthyRetrieval: [],
+      derivedRetrievalUsed: true,
+      supportsQdrant: true,
+      supportsGraphiti: true,
+    });
+  });
+
+  it("throws a typed error when full memory runtime is not ready", () => {
+    try {
+      assertFullMemoryReady(
+        {
+          enabled_adapters: [],
+          supports_qdrant: true,
+          supports_graphiti: true,
+        },
+        {
+          vector_status: "degraded",
+          graph_status: "ok",
+          vector_query_count: 0,
+          graph_query_count: 0,
+        },
+      );
+      throw new Error("expected runtime readiness failure");
+    } catch (error) {
+      expect(error).toBeInstanceOf(InfinityContextError);
+      expect((error as InfinityContextError).code).toBe("memory.runtime_not_ready");
+      expect((error as InfinityContextError).message).toContain("Missing runtime adapter: qdrant");
+      expect((error as InfinityContextError).message).toContain("Unhealthy vector retrieval: degraded");
+      expect((error as InfinityContextError).details).toMatchObject({
+        mode: "lite",
+        missingAdapters: ["qdrant", "graphiti"],
+        unhealthyRetrieval: ["vector"],
+        warnings: [
+          "Qdrant is supported by this service but not enabled in the current runtime",
+          "Graphiti is supported by this service but not enabled in the current runtime",
+        ],
+      });
+    }
   });
 
   it("collects paginated facts through typed cursor helpers", async () => {

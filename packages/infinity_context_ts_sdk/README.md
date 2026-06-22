@@ -16,6 +16,7 @@ npm install @infinity-context/sdk
 import {
   InfinityContextClient,
   ReadScope,
+  assertFullMemoryReady,
   healthyRetrievalComponents,
   retrievalDiagnostics,
   usedDerivedRetrieval,
@@ -95,6 +96,23 @@ const brief = await memory.workflows.buildMemoryBrief({
 console.log(brief.context.data.rendered_text);
 console.log(brief.digest?.data.rendered_markdown);
 console.log(brief.diagnostics);
+```
+
+## Runtime readiness
+
+Use runtime guards in CI, beta smoke tests or app boot checks before relying on full memory retrieval.
+
+```ts
+const capabilities = await memory.system.capabilities();
+const context = await memory.context.buildContext({
+  query: "runtime readiness probe",
+  readScope: ReadScope.external({
+    spaceSlug: "social-monitor:tenant_1:workspace_1",
+    memoryScopeExternalRefs: ["workspace-global"],
+  }),
+});
+
+assertFullMemoryReady(capabilities, context.data.diagnostics);
 ```
 
 ## Pagination helpers
