@@ -269,6 +269,7 @@ def test_context_revalidation_drops_provider_only_raw_items(tmp_path: Path) -> N
             query: BuildContextQuery,
             memory_scope_ids: tuple[str, ...],
             diagnostics: dict[str, object],
+            query_plan: object | None = None,
         ) -> tuple[ContextItem, ...]:
             diagnostics["graph_status"] = "ok"
             return (
@@ -442,6 +443,103 @@ def test_context_marks_keyword_and_vector_hits_as_hybrid_evidence(tmp_path: Path
         "vector_chunks",
         "keyword_chunks",
     ]
+
+
+def test_vector_retrieval_uses_decomposed_queries(tmp_path: Path) -> None:
+    class RecordingEmbeddingAdapter:
+        texts: tuple[str, ...] = ()
+
+        async def embed_texts(self, texts: tuple[str, ...]) -> EmbeddingResult:
+            self.texts = texts
+            return EmbeddingResult(
+                status=PortStatus.OK,
+                vectors=tuple((float(index),) for index, _ in enumerate(texts)),
+            )
+
+    class RecordingVectorAdapter:
+        def __init__(self, chunk_id: str) -> None:
+            self._chunk_id = chunk_id
+            self.search_calls: list[dict[str, object]] = []
+
+        async def capabilities(self) -> AdapterCapabilities:
+            return AdapterCapabilities(
+                name="recording-vector",
+                enabled=True,
+                healthy=True,
+                supports_upsert=True,
+                supports_delete=True,
+                supports_search=True,
+                supports_filters=True,
+            )
+
+        async def search_chunks(self, **kwargs: object) -> VectorSearchResult:
+            self.search_calls.append(kwargs)
+            return VectorSearchResult.ok(
+                [
+                    VectorCandidate(
+                        chunk_id=self._chunk_id,
+                        space_id="space_client_app",
+                        memory_scope_id="memory_scope_default",
+                        score=1.0,
+                        projection_version="test",
+                    )
+                ]
+            )
+
+    with make_client(tmp_path) as client:
+        document = client.post(
+            "/v1/documents",
+            json={
+                "space_id": "space_client_app",
+                "memory_scope_id": "memory_scope_default",
+                "title": "Vector decomposition source",
+                "text": (
+                    "VECTOR_DECOMPOSED_SCREENSHOT_MARKER comes from OCR evidence "
+                    "after the Alex Atlas call."
+                ),
+                "source_type": "document",
+                "source_external_id": "vector-decomposition-doc",
+            },
+            headers=auth_headers(),
+        )
+        document_id = document.json()["data"]["id"]
+        chunk_id = client.get(
+            f"/v1/documents/{document_id}/chunks",
+            headers=auth_headers(),
+        ).json()["data"][0]["id"]
+        container = client.app.state.container
+        embedder = RecordingEmbeddingAdapter()
+        vector_adapter = RecordingVectorAdapter(chunk_id)
+        use_case = BuildContextUseCase(
+            uow_factory=container.uow_factory,
+            ids=container.ids,
+            vector_index=vector_adapter,
+            graph_index=NoopGraphMemoryAdapter(),
+            embedder=embedder,
+        )
+        context = asyncio.run(
+            use_case.execute(
+                BuildContextQuery(
+                    space_id=SpaceId("space_client_app"),
+                    memory_scope_ids=(MemoryScopeId("memory_scope_default"),),
+                    query=(
+                        "What changed after the call with Alex about Atlas and "
+                        "what was written in the screenshot?"
+                    ),
+                    token_budget=512,
+                )
+            )
+        )
+
+    assert document.status_code == 201
+    assert "VECTOR_DECOMPOSED_SCREENSHOT_MARKER" in context.rendered_text
+    assert len(embedder.texts) > 1
+    assert any("artifact file screenshot" in query for query in embedder.texts)
+    assert len(vector_adapter.search_calls) == len(embedder.texts)
+    assert context.diagnostics["vector_query_count"] == len(embedder.texts)
+    assert context.diagnostics["vector_search_count"] == len(embedder.texts)
+    assert context.diagnostics["vector_candidate_count"] == len(embedder.texts)
+    assert context.diagnostics["vector_hydrated_count"] == 1
 
 
 def test_context_preserves_multimodal_chunk_source_ref_citations(tmp_path: Path) -> None:
@@ -3102,6 +3200,97 @@ def test_context_can_include_rag_recall_candidates_when_adapter_is_enabled(
     assert "RAG_METADATA_SECRET_TOKEN" not in str(context.items[0].diagnostics)
 
 
+def test_rag_recall_uses_decomposed_artifact_query(tmp_path: Path) -> None:
+    class DecomposedRagRecall:
+        queries: list[str]
+
+        def __init__(self) -> None:
+            self.queries = []
+
+        async def recall(self, query: CapabilityRecallQuery) -> CapabilityRecallResult:
+            self.queries.append(query.query)
+            if "artifact file screenshot" not in query.query:
+                return CapabilityRecallResult(status=CapabilityStatus.OK, items=())
+            return CapabilityRecallResult(
+                status=CapabilityStatus.OK,
+                items=(
+                    CapabilityRecallCandidate(
+                        item_id=chunk_id,
+                        item_type="chunk",
+                        text="PROVIDER_RAG_DECOMPOSED_TEXT_SHOULD_NOT_RENDER",
+                        score=0.91,
+                        source_refs=(
+                            SourceRef(
+                                source_type="chunk",
+                                source_id=chunk_id,
+                                chunk_id=chunk_id,
+                            ),
+                        ),
+                        capability=MemoryCapability.RAG_RECALL,
+                        adapter_name="decomposed-rag",
+                    ),
+                ),
+            )
+
+    with make_client(tmp_path) as client:
+        container = client.app.state.container
+        document = asyncio.run(
+            container.ingest_document.execute(
+                IngestDocumentCommand(
+                    space_id=SpaceId("space_client_app"),
+                    memory_scope_id=MemoryScopeId("memory_scope_default"),
+                    title="RAG decomposition source",
+                    text=(
+                        "RAG_DECOMPOSED_SCREENSHOT_MARKER is canonical OCR evidence "
+                        "from an Alex Atlas screenshot."
+                    ),
+                    source_type="asset_extraction",
+                    source_external_id="rag-decomposition-source",
+                    classification="internal",
+                )
+            )
+        )
+        chunk_id = str(document.chunks[0].id)
+        rag = DecomposedRagRecall()
+        use_case = BuildContextUseCase(
+            uow_factory=container.uow_factory,
+            ids=container.ids,
+            vector_index=NoopVectorMemoryAdapter(),
+            graph_index=NoopGraphMemoryAdapter(),
+            embedder=NoopEmbeddingAdapter(),
+            rag_recall=rag,
+        )
+        context = asyncio.run(
+            use_case.execute(
+                BuildContextQuery(
+                    space_id=SpaceId("space_client_app"),
+                    memory_scope_ids=(MemoryScopeId("memory_scope_default"),),
+                    query=(
+                        "What changed after the call with Alex about Atlas and "
+                        "what was written in the screenshot?"
+                    ),
+                    token_budget=512,
+                )
+            )
+        )
+
+    assert "RAG_DECOMPOSED_SCREENSHOT_MARKER" in context.rendered_text
+    assert "PROVIDER_RAG_DECOMPOSED_TEXT_SHOULD_NOT_RENDER" not in context.rendered_text
+    assert len(rag.queries) > 1
+    assert any("artifact file screenshot" in query for query in rag.queries)
+    assert context.diagnostics["rag_query_count"] == len(rag.queries)
+    assert context.diagnostics["rag_candidate_count"] == 1
+    assert context.diagnostics["rag_hydrated_count"] == 1
+    rag_item = next(
+        item
+        for item in context.items
+        if "rag_recall" in item.diagnostics["retrieval_sources"]
+    )
+    assert rag_item.diagnostics["provenance"]["rag_query_reason"] == (
+        "decomposition_artifact_evidence"
+    )
+
+
 def test_context_drops_rag_recall_without_canonical_chunk_source(tmp_path: Path) -> None:
     class FakeRagRecall:
         async def recall(self, _query: CapabilityRecallQuery) -> CapabilityRecallResult:
@@ -4165,6 +4354,86 @@ def test_graph_relation_from_deleted_fact_not_rendered(tmp_path: Path) -> None:
     assert deleted.diagnostics["graph_candidate_count"] == 1
     assert deleted.diagnostics["graph_hydrated_count"] == 0
     assert deleted.diagnostics["stale_graph_drop_count"] == 1
+
+
+def test_graph_retrieval_uses_decomposed_temporal_query(tmp_path: Path) -> None:
+    class DecomposedGraphAdapter:
+        def __init__(self, fact_id: str) -> None:
+            self._fact_id = fact_id
+            self.search_calls: list[dict[str, object]] = []
+
+        async def capabilities(self) -> AdapterCapabilities:
+            return AdapterCapabilities(
+                name="decomposed-graph",
+                enabled=True,
+                healthy=True,
+                supports_upsert=True,
+                supports_delete=True,
+                supports_search=True,
+                supports_filters=True,
+                supports_temporal_queries=True,
+            )
+
+        async def search(self, **kwargs: object) -> GraphSearchResult:
+            self.search_calls.append(kwargs)
+            if "changed updated current previous" not in str(kwargs.get("query", "")):
+                return GraphSearchResult.ok([])
+            return GraphSearchResult.ok(
+                [
+                    GraphCandidate(
+                        source_fact_ids=(self._fact_id,),
+                        source_chunk_ids=(),
+                        relation_label="changed_after_call",
+                        score=1.0,
+                        diagnostics={},
+                    )
+                ]
+            )
+
+    with make_client(tmp_path) as client:
+        fact = client.post(
+            "/v1/facts",
+            json={
+                "space_id": "space_client_app",
+                "memory_scope_id": "memory_scope_default",
+                "text": (
+                    "GRAPH_DECOMPOSED_CHANGE_MARKER Alex Atlas changed after "
+                    "the call."
+                ),
+                "kind": "note",
+                "source_refs": [{"source_type": "manual", "source_id": "manual-graph"}],
+            },
+            headers=auth_headers(),
+        )
+        fact_id = fact.json()["data"]["id"]
+        container = client.app.state.container
+        graph_adapter = DecomposedGraphAdapter(fact_id)
+        use_case = BuildContextUseCase(
+            uow_factory=container.uow_factory,
+            ids=container.ids,
+            vector_index=NoopVectorMemoryAdapter(),
+            graph_index=graph_adapter,
+            embedder=NoopEmbeddingAdapter(),
+        )
+        context = asyncio.run(
+            use_case.execute(
+                BuildContextQuery(
+                    space_id=SpaceId("space_client_app"),
+                    memory_scope_ids=(MemoryScopeId("memory_scope_default"),),
+                    query="What changed after the call with Alex about Atlas?",
+                    token_budget=512,
+                )
+            )
+        )
+
+    assert fact.status_code == 201
+    assert "GRAPH_DECOMPOSED_CHANGE_MARKER" in context.rendered_text
+    graph_queries = [str(call["query"]) for call in graph_adapter.search_calls]
+    assert len(graph_queries) > 1
+    assert any("changed updated current previous" in query for query in graph_queries)
+    assert context.diagnostics["graph_query_count"] == len(graph_queries)
+    assert context.diagnostics["graph_candidate_count"] == 1
+    assert context.diagnostics["graph_hydrated_count"] == 1
 
 
 def test_graph_candidate_without_canonical_source_is_low_confidence_or_dropped(

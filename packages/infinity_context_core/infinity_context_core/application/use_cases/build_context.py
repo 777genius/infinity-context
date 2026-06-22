@@ -250,16 +250,19 @@ class BuildContextUseCase:
                 query=query,
                 memory_scope_ids=memory_scope_ids,
                 diagnostics=diagnostics,
+                query_plan=query_expansion_plan,
             )
             graph_items = await self._graph_collector.collect(
                 query=query,
                 memory_scope_ids=memory_scope_ids,
                 diagnostics=diagnostics,
+                query_plan=query_expansion_plan,
             )
             rag_items = await self._rag_collector.collect(
                 query=query,
                 memory_scope_ids=memory_scope_ids,
                 diagnostics=diagnostics,
+                query_plan=query_expansion_plan,
             )
 
         items: list[ContextItem] = []

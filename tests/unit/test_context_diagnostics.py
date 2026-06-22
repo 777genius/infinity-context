@@ -170,6 +170,43 @@ def test_context_bundle_diagnostics_preserve_query_plan_when_bounded() -> None:
     ]
 
 
+def test_context_bundle_diagnostics_preserve_derived_multi_query_counters() -> None:
+    diagnostics = normalize_context_bundle_diagnostics(
+        {
+            **{f"extra_{index}": "x" * 500 for index in range(90)},
+            "vector_query_count": 6,
+            "vector_embedding_vector_count": 6,
+            "vector_search_count": 6,
+            "vector_query_limit": 15,
+            "vector_query_degraded_count": 1,
+            "graph_query_count": 4,
+            "graph_query_limit": 10,
+            "graph_query_degraded_count": 1,
+            "rag_query_count": 5,
+            "rag_query_limit": 12,
+            "rag_candidate_count": 7,
+            "rag_hydrated_count": 3,
+            "rag_query_degraded_count": 1,
+        },
+        items=(),
+    )
+
+    assert diagnostics["diagnostics_truncated"] is True
+    assert diagnostics["vector_query_count"] == 6
+    assert diagnostics["vector_embedding_vector_count"] == 6
+    assert diagnostics["vector_search_count"] == 6
+    assert diagnostics["vector_query_limit"] == 15
+    assert diagnostics["vector_query_degraded_count"] == 1
+    assert diagnostics["graph_query_count"] == 4
+    assert diagnostics["graph_query_limit"] == 10
+    assert diagnostics["graph_query_degraded_count"] == 1
+    assert diagnostics["rag_query_count"] == 5
+    assert diagnostics["rag_query_limit"] == 12
+    assert diagnostics["rag_candidate_count"] == 7
+    assert diagnostics["rag_hydrated_count"] == 3
+    assert diagnostics["rag_query_degraded_count"] == 1
+
+
 def test_context_bundle_diagnostics_preserve_artifact_coordinate_drop_counters() -> None:
     diagnostics = normalize_context_bundle_diagnostics(
         {

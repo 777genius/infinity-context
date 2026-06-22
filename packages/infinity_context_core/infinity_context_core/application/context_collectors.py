@@ -9,6 +9,10 @@ from typing import TypeVar
 
 from infinity_context_core.application.context_hydration import ContextHydrator
 from infinity_context_core.application.context_media_time import enrich_context_item_with_media_time
+from infinity_context_core.application.context_query_expansion import (
+    QueryExpansion,
+    QueryExpansionPlan,
+)
 from infinity_context_core.application.context_relevance import (
     has_project_identity_mismatch,
     score_query_relevance,
@@ -59,6 +63,9 @@ _SENSITIVE_VALUE_MARKERS = (
     "token",
     "private_",
 )
+_MAX_DERIVED_RETRIEVAL_QUERIES = 6
+_FUSION_RANK_CONSTANT = 60.0
+_FUSION_MAX_RANK_PER_QUERY = 50
 _T = TypeVar("_T")
 
 
@@ -271,10 +278,13 @@ class VectorContextCollector:
         query: BuildContextQuery,
         memory_scope_ids: tuple[str, ...],
         diagnostics: dict[str, object],
+        query_plan: QueryExpansionPlan | None = None,
     ) -> tuple[MemoryChunk, ...]:
         if query.max_chunks <= 0:
             diagnostics["vector_status"] = "skipped"
             return ()
+        retrieval_queries = _bounded_derived_retrieval_queries(query_plan, fallback=query.query)
+        diagnostics["vector_query_count"] = len(retrieval_queries)
         try:
             capabilities = await _await_with_deadline(
                 self._vector_index.capabilities(),
@@ -304,7 +314,9 @@ class VectorContextCollector:
 
         try:
             embedding = await _await_with_deadline(
-                self._embedder.embed_texts((query.query,)),
+                self._embedder.embed_texts(
+                    tuple(item.query for item in retrieval_queries)
+                ),
                 timeout_seconds=self._deadlines.vector_embedding_seconds,
             )
         except Exception as exc:
@@ -321,33 +333,53 @@ class VectorContextCollector:
             if embedding.diagnostics:
                 diagnostics["vector_degraded_reason"] = embedding.diagnostics[0].code
             return ()
-        try:
-            result = await _await_with_deadline(
-                self._vector_index.search_chunks(
-                    space_id=str(query.space_id),
-                    memory_scope_ids=memory_scope_ids,
-                    thread_id=str(query.thread_id) if query.thread_id else None,
-                    query_vector=embedding.vectors[0],
-                    limit=query.max_chunks,
-                ),
-                timeout_seconds=self._deadlines.vector_search_seconds,
+        vector_queries = tuple(
+            zip(retrieval_queries, embedding.vectors, strict=False)
+        )
+        diagnostics["vector_embedding_vector_count"] = len(embedding.vectors)
+        diagnostics["vector_search_count"] = len(vector_queries)
+        diagnostics["vector_query_limit"] = _per_query_retrieval_limit(
+            total_limit=query.max_chunks,
+            query_count=len(vector_queries),
+        )
+        rankings: dict[str, tuple[str, ...]] = {}
+        total_candidates = 0
+        degraded_count = 0
+        degraded_reason: str | None = None
+        for index, (retrieval_query, vector) in enumerate(vector_queries):
+            try:
+                result = await _await_with_deadline(
+                    self._vector_index.search_chunks(
+                        space_id=str(query.space_id),
+                        memory_scope_ids=memory_scope_ids,
+                        thread_id=str(query.thread_id) if query.thread_id else None,
+                        query_vector=vector,
+                        limit=int(diagnostics["vector_query_limit"]),
+                    ),
+                    timeout_seconds=self._deadlines.vector_search_seconds,
+                )
+            except Exception as exc:
+                degraded_count += 1
+                degraded_reason = _exception_code("vector", exc)
+                continue
+            if result.status != PortStatus.OK:
+                degraded_count += 1
+                if result.diagnostics:
+                    degraded_reason = result.diagnostics[0].code
+                continue
+            total_candidates += len(result.items)
+            rankings[_retrieval_query_rank_key(index, retrieval_query)] = tuple(
+                candidate.chunk_id for candidate in result.items
             )
-        except Exception as exc:
-            _mark_derived_retrieval_degraded(
-                diagnostics,
-                component="vector",
-                reason=_exception_code("vector", exc),
-                step="search",
-                deadline_seconds=self._deadlines.vector_search_seconds,
-            )
+        diagnostics["vector_candidate_count"] = total_candidates
+        diagnostics["vector_query_degraded_count"] = degraded_count
+        if degraded_reason:
+            diagnostics["vector_degraded_reason"] = degraded_reason
+        chunk_ids = _fused_ranked_keys(rankings, limit=_candidate_pool_limit(query.max_chunks))
+        if not chunk_ids:
+            diagnostics["vector_status"] = "degraded" if degraded_count else "ok"
             return ()
-        diagnostics["vector_status"] = result.status.value
-        if result.diagnostics:
-            diagnostics["vector_degraded_reason"] = result.diagnostics[0].code
-        diagnostics["vector_candidate_count"] = len(result.items)
-        if result.status != PortStatus.OK or not result.items:
-            return ()
-        chunk_ids = tuple(candidate.chunk_id for candidate in result.items)
+        diagnostics["vector_status"] = "ok"
         try:
             chunks = await _await_with_deadline(
                 self._hydrator.hydrate_visible_chunks(
@@ -392,10 +424,17 @@ class GraphContextCollector:
         query: BuildContextQuery,
         memory_scope_ids: tuple[str, ...],
         diagnostics: dict[str, object],
+        query_plan: QueryExpansionPlan | None = None,
     ) -> tuple[ContextItem, ...]:
         if not query.include_graph or query.max_facts <= 0:
             diagnostics["graph_status"] = "skipped"
             return ()
+        retrieval_queries = _bounded_derived_retrieval_queries(query_plan, fallback=query.query)
+        diagnostics["graph_query_count"] = len(retrieval_queries)
+        diagnostics["graph_query_limit"] = _per_query_retrieval_limit(
+            total_limit=query.max_facts,
+            query_count=len(retrieval_queries),
+        )
         try:
             capabilities = await _await_with_deadline(
                 self._graph_index.capabilities(),
@@ -422,46 +461,53 @@ class GraphContextCollector:
             if capabilities.degraded_reason:
                 diagnostics["graph_degraded_reason"] = capabilities.degraded_reason
             return ()
-        try:
-            result = await _await_with_deadline(
-                self._graph_index.search(
-                    space_id=str(query.space_id),
-                    memory_scope_ids=memory_scope_ids,
-                    thread_id=str(query.thread_id) if query.thread_id else None,
-                    query=query.query,
-                    limit=query.max_facts,
-                ),
-                timeout_seconds=self._deadlines.graph_search_seconds,
+        rankings: dict[str, tuple[str, ...]] = {}
+        orphan_candidate_count = 0
+        total_candidates = 0
+        degraded_count = 0
+        degraded_reason: str | None = None
+        for index, retrieval_query in enumerate(retrieval_queries):
+            try:
+                result = await _await_with_deadline(
+                    self._graph_index.search(
+                        space_id=str(query.space_id),
+                        memory_scope_ids=memory_scope_ids,
+                        thread_id=str(query.thread_id) if query.thread_id else None,
+                        query=retrieval_query.query,
+                        limit=int(diagnostics["graph_query_limit"]),
+                    ),
+                    timeout_seconds=self._deadlines.graph_search_seconds,
+                )
+            except Exception as exc:
+                degraded_count += 1
+                degraded_reason = _exception_code("graph", exc)
+                continue
+            if result.status != PortStatus.OK:
+                degraded_count += 1
+                if result.diagnostics:
+                    degraded_reason = result.diagnostics[0].code
+                continue
+            total_candidates += len(result.items)
+            orphan_candidate_count += sum(
+                1
+                for candidate in result.items
+                if not candidate.source_fact_ids and not candidate.source_chunk_ids
             )
-        except Exception as exc:
-            _mark_derived_retrieval_degraded(
-                diagnostics,
-                component="graph",
-                reason=_exception_code("graph", exc),
-                step="search",
-                deadline_seconds=self._deadlines.graph_search_seconds,
+            rankings[_retrieval_query_rank_key(index, retrieval_query)] = tuple(
+                fact_id
+                for candidate in result.items
+                for fact_id in candidate.source_fact_ids
             )
-            return ()
-        diagnostics["graph_status"] = result.status.value
-        if result.diagnostics:
-            diagnostics["graph_degraded_reason"] = result.diagnostics[0].code
-        diagnostics["graph_candidate_count"] = len(result.items)
-        if result.status != PortStatus.OK or not result.items:
-            return ()
-
-        orphan_candidate_count = sum(
-            1
-            for candidate in result.items
-            if not candidate.source_fact_ids and not candidate.source_chunk_ids
-        )
-        fact_ids = tuple(
-            dict.fromkeys(
-                fact_id for candidate in result.items for fact_id in candidate.source_fact_ids
-            )
-        )
+        diagnostics["graph_candidate_count"] = total_candidates
+        diagnostics["graph_query_degraded_count"] = degraded_count
+        if degraded_reason:
+            diagnostics["graph_degraded_reason"] = degraded_reason
+        fact_ids = _fused_ranked_keys(rankings, limit=_candidate_pool_limit(query.max_facts))
         if not fact_ids:
+            diagnostics["graph_status"] = "degraded" if degraded_count else "ok"
             diagnostics["stale_graph_drop_count"] = orphan_candidate_count
             return ()
+        diagnostics["graph_status"] = "ok"
         try:
             items, stale_count = await _await_with_deadline(
                 self._hydrator.hydrate_graph_facts(
@@ -503,44 +549,75 @@ class RagContextCollector:
         query: BuildContextQuery,
         memory_scope_ids: tuple[str, ...],
         diagnostics: dict[str, object],
+        query_plan: QueryExpansionPlan | None = None,
     ) -> tuple[ContextItem, ...]:
         if self._rag_recall is None or query.max_chunks <= 0:
             diagnostics["rag_status"] = "skipped"
             return ()
-        try:
-            result = await _await_with_deadline(
-                self._rag_recall.recall(
-                    CapabilityRecallQuery(
-                        scope=MemoryScopeFilter(
-                            space_id=str(query.space_id),
-                            memory_scope_ids=memory_scope_ids,
-                            thread_id=str(query.thread_id) if query.thread_id else None,
-                        ),
-                        query=query.query,
-                        limit=query.max_chunks,
-                    )
-                ),
-                timeout_seconds=self._deadlines.rag_recall_seconds,
-            )
-        except Exception as exc:
-            _mark_derived_retrieval_degraded(
-                diagnostics,
-                component="rag",
-                reason=_exception_code("rag", exc),
-                step="recall",
-                deadline_seconds=self._deadlines.rag_recall_seconds,
-            )
-            return ()
-        diagnostics["rag_status"] = result.status.value
-        if result.diagnostics:
-            diagnostics["rag_degraded_reason"] = result.diagnostics[0].code
-        if result.status != CapabilityStatus.OK:
+        retrieval_queries = _bounded_derived_retrieval_queries(query_plan, fallback=query.query)
+        diagnostics["rag_query_count"] = len(retrieval_queries)
+        diagnostics["rag_query_limit"] = _per_query_retrieval_limit(
+            total_limit=query.max_chunks,
+            query_count=len(retrieval_queries),
+        )
+        rankings: dict[str, tuple[str, ...]] = {}
+        candidates_by_key: dict[str, tuple[CapabilityRecallCandidate, QueryExpansion]] = {}
+        total_candidates = 0
+        degraded_count = 0
+        degraded_reason: str | None = None
+        for index, retrieval_query in enumerate(retrieval_queries):
+            try:
+                result = await _await_with_deadline(
+                    self._rag_recall.recall(
+                        CapabilityRecallQuery(
+                            scope=MemoryScopeFilter(
+                                space_id=str(query.space_id),
+                                memory_scope_ids=memory_scope_ids,
+                                thread_id=str(query.thread_id) if query.thread_id else None,
+                            ),
+                            query=retrieval_query.query,
+                            limit=int(diagnostics["rag_query_limit"]),
+                        )
+                    ),
+                    timeout_seconds=self._deadlines.rag_recall_seconds,
+                )
+            except Exception as exc:
+                degraded_count += 1
+                degraded_reason = _exception_code("rag", exc)
+                continue
+            if result.status != CapabilityStatus.OK:
+                degraded_count += 1
+                if result.diagnostics:
+                    degraded_reason = result.diagnostics[0].code
+                continue
+            total_candidates += len(result.items)
+            ranking_keys: list[str] = []
+            for candidate in result.items:
+                candidate_key = _candidate_primary_chunk_key(candidate)
+                if not candidate_key:
+                    continue
+                ranking_keys.append(candidate_key)
+                existing = candidates_by_key.get(candidate_key)
+                if existing is None or candidate.score > existing[0].score:
+                    candidates_by_key[candidate_key] = (candidate, retrieval_query)
+            rankings[_retrieval_query_rank_key(index, retrieval_query)] = tuple(ranking_keys)
+        diagnostics["rag_candidate_count"] = total_candidates
+        diagnostics["rag_query_degraded_count"] = degraded_count
+        if degraded_reason:
+            diagnostics["rag_degraded_reason"] = degraded_reason
+        candidate_keys = _fused_ranked_keys(
+            rankings,
+            limit=_candidate_pool_limit(query.max_chunks),
+        )
+        if not candidate_keys:
+            diagnostics["rag_status"] = "degraded" if degraded_count else "ok"
             return ()
 
         chunk_ids = tuple(
             dict.fromkeys(
                 chunk_id
-                for candidate in result.items
+                for candidate_key in candidate_keys
+                for candidate, _ in (candidates_by_key[candidate_key],)
                 for chunk_id in _candidate_chunk_ids(candidate)
             )
         )
@@ -565,7 +642,8 @@ class RagContextCollector:
         chunks_by_id = {str(chunk.id): chunk for chunk in chunks}
         items: list[ContextItem] = []
         dropped = 0
-        for candidate in result.items:
+        for candidate_key in candidate_keys:
+            candidate, retrieval_query = candidates_by_key[candidate_key]
             visible_chunk = next(
                 (
                     chunks_by_id[chunk_id]
@@ -577,7 +655,16 @@ class RagContextCollector:
             if visible_chunk is None:
                 dropped += 1
                 continue
-            items.append(_rag_chunk_item(candidate, visible_chunk, query_text=query.query))
+            items.append(
+                _rag_chunk_item(
+                    candidate,
+                    visible_chunk,
+                    query_text=retrieval_query.query,
+                    query_reason=retrieval_query.reason,
+                )
+            )
+        diagnostics["rag_status"] = "ok"
+        diagnostics["rag_hydrated_count"] = len(items)
         diagnostics["stale_rag_drop_count"] = dropped
         return tuple(items)
 
@@ -594,11 +681,20 @@ def _candidate_chunk_ids(candidate: CapabilityRecallCandidate) -> tuple[str, ...
     return tuple(dict.fromkeys(chunk_id for chunk_id in chunk_ids if chunk_id.strip()))
 
 
+def _candidate_primary_chunk_key(candidate: CapabilityRecallCandidate) -> str | None:
+    chunk_ids = _candidate_chunk_ids(candidate)
+    if chunk_ids:
+        return chunk_ids[0]
+    candidate_id = candidate.item_id.strip()
+    return candidate_id or None
+
+
 def _rag_chunk_item(
     candidate: CapabilityRecallCandidate,
     chunk: MemoryChunk,
     *,
     query_text: str,
+    query_reason: str = "original_query",
 ) -> ContextItem:
     chunk_text = document_chunk_retrieval_text(text=chunk.text, metadata=chunk.metadata)
     snippet = query_focused_snippet(query=query_text, text=chunk_text)
@@ -623,11 +719,13 @@ def _rag_chunk_item(
                 "score_signals": {
                     "base_score": candidate.score,
                     "retrieval_channel": "rag_recall",
+                    "rag_query_reason": query_reason,
                     "source_ref_count": len(source_refs),
                     **query_snippet_score_signals(snippet),
                 },
                 "provenance": {
                     "retrieval_sources": ["rag_recall"],
+                    "rag_query_reason": query_reason,
                     "source_ref_count": len(source_refs),
                     "adapter_name": _safe_adapter_name(candidate.adapter_name),
                     "chunk_id": str(chunk.id),
@@ -671,6 +769,85 @@ def _safe_metadata_value(value: object) -> str:
 def _looks_sensitive(value: str) -> bool:
     lowered = value.lower()
     return any(marker in lowered for marker in _SENSITIVE_VALUE_MARKERS)
+
+
+def _bounded_derived_retrieval_queries(
+    plan: QueryExpansionPlan | None,
+    *,
+    fallback: str,
+    limit: int = _MAX_DERIVED_RETRIEVAL_QUERIES,
+) -> tuple[QueryExpansion, ...]:
+    raw_queries = (
+        plan.retrieval_queries
+        if plan is not None
+        else (QueryExpansion(query=fallback, reason="original_query"),)
+    )
+    selected: list[QueryExpansion] = []
+    seen: set[str] = set()
+    for raw_query in raw_queries:
+        query_text = " ".join(raw_query.query.split())
+        key = query_text.casefold()
+        if not query_text or key in seen:
+            continue
+        seen.add(key)
+        selected.append(QueryExpansion(query=query_text, reason=raw_query.reason))
+        if len(selected) >= limit:
+            break
+    if selected:
+        return tuple(selected)
+    return (QueryExpansion(query=fallback, reason="original_query"),)
+
+
+def _per_query_retrieval_limit(*, total_limit: int, query_count: int) -> int:
+    if total_limit <= 0:
+        return 0
+    if query_count <= 1:
+        return total_limit
+    return min(total_limit, max(4, (total_limit + 1) // 2))
+
+
+def _candidate_pool_limit(total_limit: int) -> int:
+    if total_limit <= 0:
+        return 0
+    return min(240, max(total_limit * 4, total_limit))
+
+
+def _retrieval_query_rank_key(index: int, query: QueryExpansion) -> str:
+    return f"{index}:{query.reason}"
+
+
+def _fused_ranked_keys(
+    rankings: dict[str, tuple[str, ...]],
+    *,
+    limit: int,
+) -> tuple[str, ...]:
+    if limit <= 0:
+        return ()
+    scores: dict[str, float] = {}
+    first_seen: dict[str, int] = {}
+    sequence = 0
+    for ranked_keys in rankings.values():
+        seen_in_ranking: set[str] = set()
+        for rank, raw_key in enumerate(ranked_keys, start=1):
+            if rank > _FUSION_MAX_RANK_PER_QUERY:
+                break
+            key = raw_key.strip()
+            if not key or key in seen_in_ranking:
+                continue
+            seen_in_ranking.add(key)
+            if key not in first_seen:
+                first_seen[key] = sequence
+                sequence += 1
+            scores[key] = scores.get(key, 0.0) + 1.0 / (
+                _FUSION_RANK_CONSTANT + rank
+            )
+    return tuple(
+        key
+        for key, _ in sorted(
+            scores.items(),
+            key=lambda item: (-item[1], first_seen[item[0]], item[0]),
+        )[:limit]
+    )
 
 
 async def _await_with_deadline(
