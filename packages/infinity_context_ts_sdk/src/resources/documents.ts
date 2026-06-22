@@ -1,4 +1,4 @@
-import type { RequestExecutor } from "../client.js";
+import { requestControls, type RequestControls, type RequestExecutor } from "../client.js";
 import {
   collectCursorItems,
   iterateCursorItems,
@@ -8,27 +8,51 @@ import {
 import { scopeQuery, singleScopePayload, withoutUndefined, type SingleScopeInput } from "../payload.js";
 import type { ApiEnvelope, DocumentRecord, JsonObject, SourceRef } from "../types.js";
 
-export interface ListDocumentChunksInput {
+export interface ListDocumentChunksInput extends RequestControls {
   readonly limit?: number;
   readonly cursor?: string;
+}
+
+export interface IngestDocumentInput extends SingleScopeInput, RequestControls {
+  readonly title: string;
+  readonly text: string;
+  readonly sourceExternalId: string;
+  readonly sourceType?: string;
+  readonly classification?: string;
+  readonly sourceRefs?: readonly SourceRef[];
+  readonly idempotencyKey?: string;
+}
+
+export interface IngestEpisodeInput extends SingleScopeInput, RequestControls {
+  readonly sourceExternalId: string;
+  readonly text: string;
+  readonly sourceType?: string;
+  readonly occurredAt?: string;
+  readonly speaker?: string;
+  readonly trustLevel?: string;
+  readonly kindHint?: string;
+  readonly language?: string;
+  readonly metadata?: JsonObject;
+  readonly idempotencyKey?: string;
+}
+
+export interface ProcessDocumentInput extends RequestControls {
+  readonly idempotencyKey?: string;
+}
+
+export interface ListScopeDocumentsInput extends SingleScopeInput, RequestControls {
+  readonly limit?: number;
 }
 
 export class DocumentsClient {
   constructor(private readonly http: RequestExecutor) {}
 
-  ingestDocument(input: SingleScopeInput & {
-    readonly title: string;
-    readonly text: string;
-    readonly sourceExternalId: string;
-    readonly sourceType?: string;
-    readonly classification?: string;
-    readonly sourceRefs?: readonly SourceRef[];
-    readonly idempotencyKey?: string;
-  }): Promise<ApiEnvelope<DocumentRecord>> {
+  ingestDocument(input: IngestDocumentInput): Promise<ApiEnvelope<DocumentRecord>> {
     return this.http.request<ApiEnvelope<DocumentRecord>>({
       method: "POST",
       path: "/v1/documents",
       idempotencyKey: input.idempotencyKey,
+      ...requestControls(input),
       json: withoutUndefined({
         ...singleScopePayload(input),
         title: input.title,
@@ -41,22 +65,12 @@ export class DocumentsClient {
     });
   }
 
-  ingestEpisode(input: SingleScopeInput & {
-    readonly sourceExternalId: string;
-    readonly text: string;
-    readonly sourceType?: string;
-    readonly occurredAt?: string;
-    readonly speaker?: string;
-    readonly trustLevel?: string;
-    readonly kindHint?: string;
-    readonly language?: string;
-    readonly metadata?: JsonObject;
-    readonly idempotencyKey?: string;
-  }): Promise<ApiEnvelope<JsonObject>> {
+  ingestEpisode(input: IngestEpisodeInput): Promise<ApiEnvelope<JsonObject>> {
     return this.http.request<ApiEnvelope<JsonObject>>({
       method: "POST",
       path: "/v1/episodes",
       idempotencyKey: input.idempotencyKey,
+      ...requestControls(input),
       json: withoutUndefined({
         ...singleScopePayload(input),
         source_type: input.sourceType ?? "unknown",
@@ -72,10 +86,11 @@ export class DocumentsClient {
     });
   }
 
-  getDocument(documentId: string): Promise<ApiEnvelope<DocumentRecord>> {
+  getDocument(documentId: string, input: RequestControls = {}): Promise<ApiEnvelope<DocumentRecord>> {
     return this.http.request<ApiEnvelope<DocumentRecord>>({
       method: "GET",
       path: `/v1/documents/${documentId}`,
+      ...requestControls(input),
     });
   }
 
@@ -86,6 +101,7 @@ export class DocumentsClient {
     return this.http.request<PaginatedEnvelope<JsonObject[]>>({
       method: "GET",
       path: `/v1/documents/${documentId}/chunks`,
+      ...requestControls(input),
       params: withoutUndefined({ limit: input.limit ?? 100, cursor: input.cursor }),
     });
   }
@@ -112,26 +128,29 @@ export class DocumentsClient {
 
   processDocument(
     documentId: string,
-    input: { readonly idempotencyKey?: string } = {},
+    input: ProcessDocumentInput = {},
   ): Promise<ApiEnvelope<DocumentRecord>> {
     return this.http.request<ApiEnvelope<DocumentRecord>>({
       method: "POST",
       path: `/v1/documents/${documentId}/process`,
       idempotencyKey: input.idempotencyKey,
+      ...requestControls(input),
     });
   }
 
-  deleteDocument(documentId: string): Promise<ApiEnvelope<DocumentRecord>> {
+  deleteDocument(documentId: string, input: RequestControls = {}): Promise<ApiEnvelope<DocumentRecord>> {
     return this.http.request<ApiEnvelope<DocumentRecord>>({
       method: "DELETE",
       path: `/v1/documents/${documentId}`,
+      ...requestControls(input),
     });
   }
 
-  listScopeDocuments(input: SingleScopeInput & { readonly limit?: number }): Promise<ApiEnvelope<DocumentRecord[]>> {
+  listScopeDocuments(input: ListScopeDocumentsInput): Promise<ApiEnvelope<DocumentRecord[]>> {
     return this.http.request<ApiEnvelope<DocumentRecord[]>>({
       method: "GET",
       path: "/v1/documents",
+      ...requestControls(input),
       params: withoutUndefined({ ...scopeQuery(input), limit: input.limit ?? 100 }),
     });
   }

@@ -149,6 +149,31 @@ const chunks = await memory.documents.listAllDocumentChunks("doc_123", {
 });
 ```
 
+## Per-request controls
+
+Every high-volume memory read/write surface accepts scoped request controls. Use them for cancellation, worker tracing and request correlation without changing the shared client.
+
+```ts
+const controller = new AbortController();
+
+const facts = await memory.facts.listAllFacts(
+  {
+    spaceSlug: "social-monitor:tenant_1:workspace_1",
+    memoryScopeExternalRef: "topic:ai-agents:preferences",
+  },
+  {
+    pageLimit: 100,
+    maxItems: 1000,
+    signal: controller.signal,
+    headers: {
+      "x-trace-id": "digest-run:2026-06-22",
+    },
+  },
+);
+
+console.log(facts.length);
+```
+
 ## Context links
 
 Use context links when source evidence, documents, assets or facts should be explicitly connected for graph-aware retrieval and review workflows.

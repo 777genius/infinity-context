@@ -1,4 +1,4 @@
-import type { RequestExecutor } from "../client.js";
+import { requestControls, type RequestControls, type RequestExecutor } from "../client.js";
 import {
   collectCursorItems,
   iterateCursorItems,
@@ -8,7 +8,7 @@ import {
 import { MemoryScope, scopeQuery, singleScopePayload, withoutUndefined, type SingleScopeInput } from "../payload.js";
 import type { ApiEnvelope, FactRecord, JsonObject, SourceRef } from "../types.js";
 
-export interface RememberFactInput extends SingleScopeInput {
+export interface RememberFactInput extends SingleScopeInput, RequestControls {
   readonly scope?: MemoryScope;
   readonly text: string;
   readonly sourceRefs: readonly SourceRef[];
@@ -20,12 +20,35 @@ export interface RememberFactInput extends SingleScopeInput {
   readonly ttlPolicy?: string;
 }
 
-export interface ListFactsInput extends SingleScopeInput {
+export interface ListFactsInput extends SingleScopeInput, RequestControls {
   readonly status?: string | null;
   readonly category?: string;
   readonly tag?: string;
   readonly limit?: number;
   readonly cursor?: string;
+}
+
+export interface UpdateFactInput extends RequestControls {
+  readonly expectedVersion: number;
+  readonly text: string;
+  readonly reason: string;
+  readonly sourceRefs: readonly SourceRef[];
+}
+
+export interface GetRelatedFactsInput extends RequestControls {
+  readonly limit?: number;
+  readonly includeOtherThreads?: boolean;
+}
+
+export interface LinkFactsInput extends RequestControls {
+  readonly targetFactId: string;
+  readonly relationType?: string;
+  readonly reason: string;
+}
+
+export interface ListFactRelationsInput extends RequestControls {
+  readonly status?: string | null;
+  readonly limit?: number;
 }
 
 export class FactsClient {
@@ -37,6 +60,7 @@ export class FactsClient {
       method: "POST",
       path: "/v1/facts",
       idempotencyKey: input.idempotencyKey,
+      ...requestControls(input),
       json: withoutUndefined({
         ...scope,
         text: input.text,
@@ -52,16 +76,12 @@ export class FactsClient {
 
   updateFact(
     factId: string,
-    input: {
-      readonly expectedVersion: number;
-      readonly text: string;
-      readonly reason: string;
-      readonly sourceRefs: readonly SourceRef[];
-    },
+    input: UpdateFactInput,
   ): Promise<ApiEnvelope<FactRecord>> {
     return this.http.request<ApiEnvelope<FactRecord>>({
       method: "PATCH",
       path: `/v1/facts/${factId}`,
+      ...requestControls(input),
       json: {
         expected_version: input.expectedVersion,
         text: input.text,
@@ -71,17 +91,19 @@ export class FactsClient {
     });
   }
 
-  forgetFact(factId: string): Promise<ApiEnvelope<FactRecord>> {
+  forgetFact(factId: string, input: RequestControls = {}): Promise<ApiEnvelope<FactRecord>> {
     return this.http.request<ApiEnvelope<FactRecord>>({
       method: "DELETE",
       path: `/v1/facts/${factId}`,
+      ...requestControls(input),
     });
   }
 
-  getFact(factId: string): Promise<ApiEnvelope<FactRecord>> {
+  getFact(factId: string, input: RequestControls = {}): Promise<ApiEnvelope<FactRecord>> {
     return this.http.request<ApiEnvelope<FactRecord>>({
       method: "GET",
       path: `/v1/facts/${factId}`,
+      ...requestControls(input),
     });
   }
 
@@ -89,6 +111,7 @@ export class FactsClient {
     return this.http.request<PaginatedEnvelope<FactRecord[]>>({
       method: "GET",
       path: "/v1/facts",
+      ...requestControls(input),
       params: withoutUndefined({
         ...scopeQuery(input),
         status: input.status === undefined ? "active" : input.status,
@@ -122,11 +145,12 @@ export class FactsClient {
 
   getRelatedFacts(
     factId: string,
-    input: { readonly limit?: number; readonly includeOtherThreads?: boolean } = {},
+    input: GetRelatedFactsInput = {},
   ): Promise<ApiEnvelope<FactRecord[]>> {
     return this.http.request<ApiEnvelope<FactRecord[]>>({
       method: "GET",
       path: `/v1/facts/${factId}/related`,
+      ...requestControls(input),
       params: {
         limit: input.limit ?? 10,
         include_other_threads: input.includeOtherThreads ?? false,
@@ -136,11 +160,12 @@ export class FactsClient {
 
   linkFacts(
     sourceFactId: string,
-    input: { readonly targetFactId: string; readonly relationType?: string; readonly reason: string },
+    input: LinkFactsInput,
   ): Promise<ApiEnvelope<JsonObject>> {
     return this.http.request<ApiEnvelope<JsonObject>>({
       method: "POST",
       path: `/v1/facts/${sourceFactId}/relations`,
+      ...requestControls(input),
       json: {
         target_fact_id: input.targetFactId,
         relation_type: input.relationType ?? "related_to",
@@ -151,11 +176,12 @@ export class FactsClient {
 
   listFactRelations(
     factId: string,
-    input: { readonly status?: string | null; readonly limit?: number } = {},
+    input: ListFactRelationsInput = {},
   ): Promise<ApiEnvelope<JsonObject[]>> {
     return this.http.request<ApiEnvelope<JsonObject[]>>({
       method: "GET",
       path: `/v1/facts/${factId}/relations`,
+      ...requestControls(input),
       params: withoutUndefined({
         status: input.status === undefined ? "active" : input.status,
         limit: input.limit ?? 50,
@@ -163,17 +189,19 @@ export class FactsClient {
     });
   }
 
-  unlinkFactRelation(relationId: string): Promise<ApiEnvelope<JsonObject>> {
+  unlinkFactRelation(relationId: string, input: RequestControls = {}): Promise<ApiEnvelope<JsonObject>> {
     return this.http.request<ApiEnvelope<JsonObject>>({
       method: "DELETE",
       path: `/v1/facts/relations/${relationId}`,
+      ...requestControls(input),
     });
   }
 
-  listFactVersions(factId: string): Promise<ApiEnvelope<JsonObject[]>> {
+  listFactVersions(factId: string, input: RequestControls = {}): Promise<ApiEnvelope<JsonObject[]>> {
     return this.http.request<ApiEnvelope<JsonObject[]>>({
       method: "GET",
       path: `/v1/facts/${factId}/versions`,
+      ...requestControls(input),
     });
   }
 }

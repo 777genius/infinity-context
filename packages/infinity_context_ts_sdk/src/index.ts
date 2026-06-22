@@ -1,5 +1,12 @@
 export { resolveAuthToken, type AuthTokenProvider } from "./auth.js";
-export { HttpClient, type InfinityContextClientOptions, type RequestExecutor, type RequestOptions } from "./client.js";
+export {
+  HttpClient,
+  requestControls,
+  type InfinityContextClientOptions,
+  type RequestControls,
+  type RequestExecutor,
+  type RequestOptions,
+} from "./client.js";
 export type {
   ApiMeta,
   ContextAnswerSupport,
@@ -63,8 +70,27 @@ export type {
   ReviewContextLinkSuggestionsBatchData,
   SuggestContextLinksData,
 } from "./resources/context-links.js";
-export type { ListDocumentChunksInput } from "./resources/documents.js";
-export type { ListFactsInput } from "./resources/facts.js";
+export type {
+  BuildContextInput,
+  BuildDigestInput,
+  BuildInsightsInput,
+  ContextScopeInput,
+} from "./resources/context.js";
+export type {
+  IngestDocumentInput,
+  IngestEpisodeInput,
+  ListDocumentChunksInput,
+  ListScopeDocumentsInput,
+  ProcessDocumentInput,
+} from "./resources/documents.js";
+export type {
+  GetRelatedFactsInput,
+  LinkFactsInput,
+  ListFactRelationsInput,
+  ListFactsInput,
+  RememberFactInput,
+  UpdateFactInput,
+} from "./resources/facts.js";
 export type {
   CreateSuggestionInput,
   CreateSuggestionsBatchData,

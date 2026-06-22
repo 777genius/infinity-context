@@ -115,6 +115,77 @@ describe("InfinityContextClient", () => {
     ]);
   });
 
+  it("passes per-request controls through context calls", async () => {
+    const controller = new AbortController();
+    const transport = new RecordingTransport([
+      jsonResponse(contextResponse("controls", {
+        vector_status: "ok",
+        graph_status: "ok",
+      })),
+    ]);
+    const client = new InfinityContextClient({
+      baseUrl: "http://memory.test",
+      transport,
+      retryPolicy: { maxAttempts: 1 },
+    });
+
+    await client.context.buildContext({
+      query: "daily digest preferences",
+      readScope: ReadScope.external({
+        spaceSlug: "social-monitor:tenant:workspace",
+        memoryScopeExternalRefs: ["workspace-global", "user:user_1"],
+      }),
+      signal: controller.signal,
+      headers: { "x-trace-id": "trace_1" },
+    });
+
+    const requestSignal = transport.requests[0]?.signal;
+    expect(requestSignal).toBeDefined();
+    expect(requestSignal?.aborted).toBe(false);
+    controller.abort("cancel context");
+    expect(requestSignal?.aborted).toBe(true);
+    expect(requestSignal?.reason).toBe("cancel context");
+    expect(transport.requests[0]?.headers.get("x-trace-id")).toBe("trace_1");
+    expect(transport.bodies[0]).not.toHaveProperty("headers");
+    expect(transport.bodies[0]).not.toHaveProperty("signal");
+  });
+
+  it("passes per-request controls through paginated fact scans", async () => {
+    const controller = new AbortController();
+    const transport = new RecordingTransport([
+      jsonResponse({ data: [factRecord("fact_1")], next_cursor: "cursor_2" }),
+      jsonResponse({ data: [factRecord("fact_2")], next_cursor: null }),
+    ]);
+    const client = new InfinityContextClient({
+      baseUrl: "http://memory.test",
+      transport,
+      retryPolicy: { maxAttempts: 1 },
+    });
+
+    const facts = await client.facts.listAllFacts(
+      {
+        spaceSlug: "social-monitor:tenant:workspace",
+        memoryScopeExternalRef: "topic:ai-agents:preferences",
+      },
+      {
+        pageLimit: 1,
+        signal: controller.signal,
+        headers: { "x-worker-id": "worker_1" },
+      },
+    );
+
+    expect(facts.map((fact) => fact.id)).toEqual(["fact_1", "fact_2"]);
+    const requestSignals = transport.requests.map((request) => request.signal);
+    expect(requestSignals.every((signal) => signal !== undefined && !signal.aborted)).toBe(true);
+    controller.abort("cancel scan");
+    expect(requestSignals.every((signal) => signal?.aborted === true)).toBe(true);
+    expect(requestSignals.map((signal) => signal?.reason)).toEqual(["cancel scan", "cancel scan"]);
+    expect(transport.requests.map((request) => request.headers.get("x-worker-id"))).toEqual([
+      "worker_1",
+      "worker_1",
+    ]);
+  });
+
   it("keeps instrumentation hook failures from changing request results", async () => {
     const transport = new RecordingTransport([jsonResponse({ data: { id: "fact_1" } })]);
     const client = new InfinityContextClient({

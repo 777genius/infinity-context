@@ -39,6 +39,18 @@ export interface RequestExecutor {
   request<T = JsonValue>(options: RequestOptions): Promise<T>;
 }
 
+export interface RequestControls {
+  readonly headers?: Record<string, string>;
+  readonly signal?: AbortSignal;
+}
+
+export function requestControls(input: RequestControls): Pick<RequestOptions, "headers" | "signal"> {
+  return {
+    ...(input.headers !== undefined ? { headers: input.headers } : {}),
+    ...(input.signal !== undefined ? { signal: input.signal } : {}),
+  };
+}
+
 export class HttpClient implements RequestExecutor {
   readonly #baseUrl: string;
   readonly #token: AuthTokenProvider;

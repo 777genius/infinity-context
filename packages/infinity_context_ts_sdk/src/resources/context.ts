@@ -1,4 +1,4 @@
-import type { RequestExecutor } from "../client.js";
+import { requestControls, type RequestControls, type RequestExecutor } from "../client.js";
 import type {
   ContextBundleData,
   ContextEnvelope,
@@ -8,7 +8,7 @@ import type {
 import { ReadScope, readScopePayload, withoutUndefined, type ReadScopeInput } from "../payload.js";
 import type { ApiEnvelope, JsonObject } from "../types.js";
 
-interface ContextScopeInput extends ReadScopeInput {
+export interface ContextScopeInput extends ReadScopeInput, RequestControls {
   readonly readScope?: ReadScope;
 }
 
@@ -40,6 +40,15 @@ export interface BuildDigestInput extends ContextScopeInput {
   readonly format?: string;
 }
 
+export interface BuildInsightsInput extends ContextScopeInput {
+  readonly maxFacts?: number;
+  readonly maxDocuments?: number;
+  readonly maxEpisodes?: number;
+  readonly maxSuggestions?: number;
+  readonly maxCaptures?: number;
+  readonly maxActivity?: number;
+}
+
 export class ContextClient {
   constructor(private readonly http: RequestExecutor) {}
 
@@ -47,6 +56,7 @@ export class ContextClient {
     return this.http.request<ContextEnvelope<ContextBundleData>>({
       method: "POST",
       path: "/v1/context",
+      ...requestControls(input),
       json: contextPayload(input),
     });
   }
@@ -55,6 +65,7 @@ export class ContextClient {
     return this.http.request<ContextEnvelope<SearchMemoryData>>({
       method: "POST",
       path: "/v1/search",
+      ...requestControls(input),
       json: contextPayload(input),
     });
   }
@@ -63,6 +74,7 @@ export class ContextClient {
     return this.http.request<ContextEnvelope<MemoryDigestData>>({
       method: "POST",
       path: "/v1/digest",
+      ...requestControls(input),
       json: withoutUndefined({
         ...scopePayload(input),
         topic: input.topic,
@@ -78,17 +90,11 @@ export class ContextClient {
     });
   }
 
-  buildInsights(input: ContextScopeInput & {
-    readonly maxFacts?: number;
-    readonly maxDocuments?: number;
-    readonly maxEpisodes?: number;
-    readonly maxSuggestions?: number;
-    readonly maxCaptures?: number;
-    readonly maxActivity?: number;
-  }): Promise<ApiEnvelope<JsonObject>> {
+  buildInsights(input: BuildInsightsInput): Promise<ApiEnvelope<JsonObject>> {
     return this.http.request<ApiEnvelope<JsonObject>>({
       method: "POST",
       path: "/v1/insights",
+      ...requestControls(input),
       json: withoutUndefined({
         ...scopePayload(input),
         max_facts: input.maxFacts ?? 200,
