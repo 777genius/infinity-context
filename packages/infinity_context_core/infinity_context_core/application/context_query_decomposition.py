@@ -186,6 +186,18 @@ _ATTRIBUTE_AGGREGATION_TERMS = frozenset(
         "traits",
     }
 )
+_ACTIVITY_PARTICIPATION_TERMS = frozenset(
+    {
+        "activities",
+        "activity",
+        "hobbies",
+        "hobby",
+        "partake",
+        "participate",
+        "participates",
+        "participated",
+    }
+)
 _IDENTITY_ATTRIBUTE_TERMS = frozenset(
     {
         "gender",
@@ -449,6 +461,19 @@ def build_query_decomposition_plan(
             ),
             reason="decomposition_comparison_preference",
         )
+    if _requests_activity_participation(raw_tokens=raw_tokens, variants=variants):
+        _append_candidate(
+            candidates,
+            query=_compose_query(
+                (*identities, *salient_terms),
+                (
+                    "activities hobbies activity partake participate observed "
+                    "painting swimming pottery camping running creative outdoors "
+                    "exercise family kids"
+                ),
+            ),
+            reason="decomposition_activity_participation",
+        )
     if variants.intersection(_ATTRIBUTE_AGGREGATION_TERMS):
         _append_candidate(
             candidates,
@@ -616,6 +641,16 @@ def _requests_relationship_status(variants: frozenset[str]) -> bool:
         variants.intersection({"single", "married", "dating", "partner", "spouse"})
         and variants.intersection(_RELATIONSHIP_STATUS_TERMS)
     )
+
+
+def _requests_activity_participation(
+    *,
+    raw_tokens: frozenset[str],
+    variants: frozenset[str],
+) -> bool:
+    if not variants.intersection({"activity", "hobby"}):
+        return False
+    return bool(raw_tokens.intersection(_ACTIVITY_PARTICIPATION_TERMS))
 
 
 def _with_missing_identities(clause: str, identities: tuple[str, ...]) -> str:

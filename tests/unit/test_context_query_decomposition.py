@@ -201,6 +201,14 @@ def test_query_decomposition_keeps_existing_activity_bridge_unshadowed() -> None
     assert "decomposition_attribute_aggregation" not in {
         item.reason for item in plan.decompositions
     }
+    activity = next(
+        item
+        for item in plan.decompositions
+        if item.reason == "decomposition_activity_participation"
+    )
+    assert activity.query.casefold().startswith("melanie ")
+    assert "painting swimming pottery camping" in activity.query
+    assert "family kids" in activity.query
 
 
 def test_query_decomposition_adds_current_goal_for_career_path_typo() -> None:
