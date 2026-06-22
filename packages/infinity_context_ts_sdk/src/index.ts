@@ -7,6 +7,7 @@ export {
   type RequestExecutor,
   type RequestOptions,
 } from "./client.js";
+export { runRuntimeCanary, type RuntimeCanaryOptions, type RuntimeCanaryReport } from "./runtime-canary.js";
 export type {
   ApiMeta,
   ContextAnswerSupport,

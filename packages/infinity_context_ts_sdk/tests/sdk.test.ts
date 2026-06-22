@@ -10,6 +10,7 @@ import {
   healthyRetrievalComponents,
   retrievalDiagnostics,
   runFullMemoryProof,
+  runRuntimeCanary,
   summarizeSourceEvidenceBatch,
   usedDerivedRetrieval,
   type HttpRequest,
@@ -555,6 +556,117 @@ describe("InfinityContextClient", () => {
         ],
       });
     }
+  });
+
+  it("runs a non-mutating runtime canary against full memory retrieval", async () => {
+    const transport = new RecordingTransport([
+      jsonResponse({ enabled_adapters: ["qdrant", "graphiti"], supports_qdrant: true, supports_graphiti: true }),
+      jsonResponse(contextResponse("canary", {
+        retrieval_sources_used: ["vector", "graph"],
+        vector_status: "ok",
+        graph_status: "ok",
+        vector_query_count: 3,
+        graph_query_count: 2,
+      })),
+      jsonResponse(searchResponse({
+        retrieval_sources_used: ["vector"],
+        vector_status: "ok",
+        graph_status: "ok",
+        vector_query_count: 2,
+        graph_query_count: 1,
+      })),
+    ]);
+    const client = new InfinityContextClient({
+      baseUrl: "http://memory.test",
+      transport,
+      retryPolicy: { maxAttempts: 1 },
+    });
+
+    const report = await runRuntimeCanary({
+      client,
+      query: "Prove full memory runtime without mutating state",
+      spaceSlug: "workspace",
+      memoryScopeExternalRefs: ["workspace-global", "topic:ai-agents"],
+      includeSearchProbe: true,
+      tokenBudget: 900,
+      maxFacts: 8,
+      maxChunks: 6,
+    });
+
+    expect(report).toMatchObject({
+      ok: true,
+      mode: "full",
+      query: "Prove full memory runtime without mutating state",
+      probes: { context: true, search: true, diagnosticsSource: "context" },
+      capabilities: {
+        enabledAdapters: ["qdrant", "graphiti"],
+        supportsQdrant: true,
+        supportsGraphiti: true,
+      },
+      errors: [],
+    });
+    expect(report.readiness).toMatchObject({
+      ok: true,
+      missingAdapters: [],
+      unhealthyRetrieval: [],
+      derivedRetrievalUsed: true,
+    });
+    expect(report.diagnostics?.context?.vector_query_count).toBe(3);
+    expect(transport.requests.map((request) => `${request.method} ${request.url.pathname}`)).toEqual([
+      "GET /v1/capabilities",
+      "POST /v1/context",
+      "POST /v1/search",
+    ]);
+    expect(transport.bodies[0]).toMatchObject({
+      query: "Prove full memory runtime without mutating state",
+      space_slug: "workspace",
+      memory_scope_external_refs: ["workspace-global", "topic:ai-agents"],
+      token_budget: 900,
+      max_facts: 8,
+      max_chunks: 6,
+    });
+  });
+
+  it("reports runtime canary failures without mutating memory", async () => {
+    const transport = new RecordingTransport([
+      jsonResponse({ enabled_adapters: [], supports_qdrant: true, supports_graphiti: true }),
+      jsonResponse(contextResponse("canary-lite", {
+        vector_status: "degraded",
+        graph_status: "disabled",
+        vector_query_count: 0,
+        graph_query_count: 0,
+      })),
+    ]);
+    const client = new InfinityContextClient({
+      baseUrl: "http://memory.test",
+      transport,
+      retryPolicy: { maxAttempts: 1 },
+    });
+
+    const report = await runRuntimeCanary({
+      client,
+      query: "Detect lite runtime before beta promotion",
+      spaceSlug: "workspace",
+      memoryScopeExternalRefs: ["workspace-global"],
+    });
+
+    expect(report.ok).toBe(false);
+    expect(report.mode).toBe("lite");
+    expect(report.errors).toEqual([
+      "Missing runtime adapter: qdrant",
+      "Missing runtime adapter: graphiti",
+      "Unhealthy vector retrieval: degraded",
+      "Unhealthy graph retrieval: disabled",
+      "Derived retrieval was not used",
+    ]);
+    expect(report.warnings).toEqual([
+      "Qdrant is supported by this service but not enabled in the current runtime",
+      "Graphiti is supported by this service but not enabled in the current runtime",
+    ]);
+    expect(transport.requests.map((request) => `${request.method} ${request.url.pathname}`)).toEqual([
+      "GET /v1/capabilities",
+      "POST /v1/context",
+    ]);
   });
 
   it("collects paginated facts through typed cursor helpers", async () => {

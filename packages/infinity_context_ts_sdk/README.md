@@ -15,6 +15,7 @@ Stable entry points:
 - `@infinity-context/sdk`: full SDK.
 - `@infinity-context/sdk/instrumentation`: request instrumentation types.
 - `@infinity-context/sdk/runtime`: runtime readiness guards.
+- `@infinity-context/sdk/canary`: non-mutating runtime canary reports.
 - `@infinity-context/sdk/pagination`: reusable cursor helpers.
 - `@infinity-context/sdk/workflows`: workflow facade types and classes.
 
@@ -27,6 +28,7 @@ import {
   assertFullMemoryReady,
   healthyRetrievalComponents,
   retrievalDiagnostics,
+  runRuntimeCanary,
   summarizeSourceEvidenceBatch,
   usedDerivedRetrieval,
 } from "@infinity-context/sdk";
@@ -294,6 +296,35 @@ const context = await memory.context.buildContext({
 
 assertFullMemoryReady(capabilities, context.data.diagnostics);
 ```
+
+Use the canary when CI or deploy smoke tests need a non-mutating full-memory gate without running the heavier proof loop.
+
+```ts
+const canary = await runRuntimeCanary({
+  client: memory,
+  query: "runtime readiness probe",
+  spaceSlug: "social-monitor:tenant_1:workspace_1",
+  memoryScopeExternalRefs: ["workspace-global"],
+  includeSearchProbe: true,
+});
+
+if (!canary.ok) {
+  console.error(canary.errors);
+  process.exitCode = 1;
+}
+```
+
+Or run the packaged CLI:
+
+```bash
+INFINITY_CONTEXT_URL=http://127.0.0.1:7788 \
+INFINITY_CONTEXT_TOKEN=... \
+INFINITY_CONTEXT_CANARY_SPACE_SLUG=social-monitor:tenant_1:workspace_1 \
+INFINITY_CONTEXT_CANARY_MEMORY_SCOPE_EXTERNAL_REFS=workspace-global \
+npm run canary:runtime
+```
+
+Set `INFINITY_CONTEXT_CANARY_REQUIRE_READY=false` to write/read the report in lite/local mode without failing the process.
 
 ## Pagination helpers
 
