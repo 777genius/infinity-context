@@ -396,6 +396,12 @@ const extraction = await memory.assets.requestAssetExtraction(assetId, {
   parserProfile: "markdown-strict",
 });
 
+const completed = await memory.assets.waitForAssetExtraction(extraction.data.id, {
+  pollIntervalMs: 1000,
+  maxAttempts: 60,
+  throwOnFailure: true,
+});
+
 const pending = await memory.assets.listScopeAssetExtractions({
   spaceSlug: "social-monitor:tenant_1:workspace_1",
   memoryScopeExternalRef: "topic:ai-agents:feedback",
@@ -407,8 +413,7 @@ for (const job of pending.data) {
   await memory.assets.retryAssetExtraction(job.id);
 }
 
-const details = await memory.assets.getAssetExtraction(extraction.data.id);
-const artifact = details.data.artifacts[0];
+const artifact = completed.data.artifacts[0];
 if (artifact) {
   await memory.assets.downloadExtractionArtifact(artifact.id);
 }

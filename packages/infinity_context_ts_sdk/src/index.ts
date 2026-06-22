@@ -48,7 +48,11 @@ export type {
   PaginatedEnvelope,
 } from "./pagination.js";
 export type { AnchorBackfillData, AnchorBackfillSource, AnchorMergeCandidate } from "./resources/anchors.js";
-export type { AssetExtractionListInput } from "./resources/assets.js";
+export type {
+  AssetExtractionListInput,
+  AssetExtractionTerminalStatus,
+  WaitAssetExtractionInput,
+} from "./resources/assets.js";
 export type {
   CaptureActorRole,
   CaptureDataClassification,

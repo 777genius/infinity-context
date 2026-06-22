@@ -1899,6 +1899,74 @@ describe("InfinityContextClient", () => {
     expect(transport.requests[2]?.url.searchParams.get("limit")).toBe("15");
   });
 
+  it("waits for asset extraction terminal status", async () => {
+    const controller = new AbortController();
+    const sleeps: number[] = [];
+    const running = assetExtractionJobRecord("job_1");
+    const succeeded = {
+      ...running,
+      status: "succeeded",
+      finished_at: "2026-06-06T00:02:00.000Z",
+      artifacts: [extractionArtifactRecord("artifact_1")],
+    };
+    const failed = {
+      ...running,
+      status: "failed",
+      safe_error_code: "asset_extraction.pdf_parse_failed",
+      safe_error_message: "PDF text extraction failed",
+      artifacts: [],
+    };
+    const transport = new RecordingTransport([
+      jsonResponse({ data: { ...running, artifacts: [] } }),
+      jsonResponse({ data: { ...running, status: "running", artifacts: [] } }),
+      jsonResponse({ data: succeeded }),
+      jsonResponse({ data: failed }),
+    ]);
+    const client = new InfinityContextClient({
+      baseUrl: "http://memory.test",
+      transport,
+      retryPolicy: { maxAttempts: 1 },
+    });
+
+    const completed = await client.assets.waitForAssetExtraction("job_1", {
+      maxAttempts: 3,
+      pollIntervalMs: 5,
+      signal: controller.signal,
+      headers: { "x-trace-id": "trace_extraction_wait" },
+      sleep: async (ms) => {
+        sleeps.push(ms);
+      },
+    });
+
+    expect(completed.data.status).toBe("succeeded");
+    expect(completed.data.artifacts[0]?.id).toBe("artifact_1");
+    expect(sleeps).toEqual([5, 5]);
+    await expect(
+      client.assets.waitForAssetExtraction("job_1", {
+        maxAttempts: 1,
+        throwOnFailure: true,
+      }),
+    ).rejects.toMatchObject({
+      code: "asset_extraction.pdf_parse_failed",
+      retryable: false,
+    });
+    expect(transport.requests.map((request) => `${request.method} ${request.url.pathname}`)).toEqual([
+      "GET /v1/asset-extractions/job_1",
+      "GET /v1/asset-extractions/job_1",
+      "GET /v1/asset-extractions/job_1",
+      "GET /v1/asset-extractions/job_1",
+    ]);
+    expect(transport.requests.slice(0, 3).map((request) => request.headers.get("x-trace-id"))).toEqual([
+      "trace_extraction_wait",
+      "trace_extraction_wait",
+      "trace_extraction_wait",
+    ]);
+    const requestSignals = transport.requests.slice(0, 3).map((request) => request.signal);
+    expect(requestSignals.every((signal) => signal !== undefined && !signal.aborted)).toBe(true);
+    controller.abort("cancel extraction wait");
+    expect(requestSignals.every((signal) => signal?.aborted === true)).toBe(true);
+  });
+
   it("validates mixed canonical and external scopes", () => {
     expect(() =>
       MemoryScope.canonical({ spaceId: "space_1", memoryScopeId: "scope_1" }).toPayload(),
