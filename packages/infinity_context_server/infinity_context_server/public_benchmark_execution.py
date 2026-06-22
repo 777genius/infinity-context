@@ -14,7 +14,7 @@ from infinity_context_server.public_benchmark_checkpoint import (
 
 MAX_PUBLIC_BENCHMARK_PARALLELISM = 32
 SourceKey = tuple[str, str, str, str]
-CorpusIdentity = tuple[str, str, int, int]
+CorpusIdentity = tuple[str, str, str]
 CaseCapabilityResolver = Callable[[Any], str]
 RunCase = Callable[
     [

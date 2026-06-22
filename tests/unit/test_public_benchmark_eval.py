@@ -517,17 +517,32 @@ def test_public_memory_benchmark_bounds_reused_source_progress_details(
         )
         for index in range(5)
     ]
-    cases = tuple(
+    cases = (
         PublicBenchmarkCase(
             benchmark="locomo",
-            case_id=f"case-{index}",
+            case_id="case-one",
             question="Where is the shared marker?",
             expected_terms=("SHARED_MARKER",),
             documents=tuple(shared_documents),
             memory_scope_external_ref="shared-scope",
             thread_external_ref="shared-thread",
-        )
-        for index in range(2)
+        ),
+        PublicBenchmarkCase(
+            benchmark="locomo",
+            case_id="case-two",
+            question="Where is the shared marker?",
+            expected_terms=("SHARED_MARKER",),
+            documents=(
+                *shared_documents,
+                BenchmarkDocumentInput(
+                    title="Extra document",
+                    text="SHARED_MARKER also lives in an extra document.",
+                    source_external_id="extra-document",
+                ),
+            ),
+            memory_scope_external_ref="shared-scope",
+            thread_external_ref="shared-thread",
+        ),
     )
 
     result = _execute_cases(
@@ -554,8 +569,8 @@ def test_public_memory_benchmark_bounds_reused_source_progress_details(
     rendered = progress_out.read_text(encoding="utf-8")
 
     assert result["ok"] is True
-    assert result["metrics"]["seed_source_attempt_count"] == 10
-    assert result["metrics"]["seeded_source_count"] == 5
+    assert result["metrics"]["seed_source_attempt_count"] == 11
+    assert result["metrics"]["seeded_source_count"] == 6
     assert result["metrics"]["seed_cache_hit_count"] == 5
     assert len(reused_events) == 3
     assert [event["reuse_detail_event_index"] for event in reused_events] == [1, 2, 3]
@@ -564,6 +579,7 @@ def test_public_memory_benchmark_bounds_reused_source_progress_details(
     assert summary["reuse_detail_event_count"] == 3
     assert summary["seed_cache_hit_count"] == 5
     assert "shared-document-4" not in rendered
+    assert "extra-document" not in rendered
 
 
 def test_public_memory_benchmark_reuses_seeded_corpus_without_per_source_scan(
@@ -870,8 +886,8 @@ def test_public_memory_benchmark_writes_progress_and_checkpoint(
         for event in progress_events
     )
     assert any(
-        event["event_type"] == "source_seed_reused"
-        and event["source_kind"] == "document"
+        event["event_type"] == "source_seed_corpus_reused"
+        and event["reused_source_kind_counts"] == {"document": 1}
         and event["seed_cache_hit_count"] == 1
         for event in progress_events
     )
@@ -1010,6 +1026,116 @@ def test_public_memory_benchmark_resumes_from_compatible_checkpoint(
     assert not any(
         event["event_type"] == "case_started" and event["case_id"] == "resume-one"
         for event in progress_events
+    )
+
+
+def test_public_memory_benchmark_resumes_seeded_corpus_by_stable_fingerprint(
+    tmp_path: Path,
+) -> None:
+    adapter = _CountingBenchmarkAdapter()
+    dataset = tmp_path / "dataset.json"
+    progress_out = tmp_path / "progress.jsonl"
+    checkpoint_out = tmp_path / "checkpoint.json"
+    dataset.write_text("[]", encoding="utf-8")
+    dataset_hash = hashlib.sha256(dataset.read_bytes()).hexdigest()
+
+    def documents() -> tuple[BenchmarkDocumentInput, ...]:
+        return tuple(
+            BenchmarkDocumentInput(
+                title=f"Shared document {index}",
+                text=f"SHARED_MARKER lives in shared document {index}.",
+                source_external_id=f"shared-document-{index}",
+            )
+            for index in range(3)
+        )
+
+    cases = (
+        PublicBenchmarkCase(
+            benchmark="locomo",
+            case_id="resume-corpus-one",
+            question="Where is the shared marker?",
+            expected_terms=("SHARED_MARKER",),
+            documents=documents(),
+            memory_scope_external_ref="resume-corpus-scope",
+            thread_external_ref="resume-corpus-thread",
+        ),
+        PublicBenchmarkCase(
+            benchmark="locomo",
+            case_id="resume-corpus-two",
+            question="Where is the shared marker?",
+            expected_terms=("SHARED_MARKER",),
+            documents=documents(),
+            memory_scope_external_ref="resume-corpus-scope",
+            thread_external_ref="resume-corpus-thread",
+        ),
+    )
+    checkpoint_out.write_text(
+        json.dumps(
+            {
+                "schema_version": "public-benchmark-checkpoint-v1",
+                "status": "running",
+                "dataset_hash": dataset_hash,
+                "case_selection": {},
+                "progress": {
+                    "processed_case_count": 1,
+                    "total_case_count": 2,
+                    "seeded_source_count": 3,
+                    "seed_source_attempt_count": 3,
+                    "seed_cache_hit_count": 0,
+                },
+                "cases": [
+                    {
+                        "benchmark": "locomo",
+                        "case_id": "resume-corpus-one",
+                        "capability": "locomo_unknown",
+                        "status": "ok",
+                        "expected_ok": True,
+                        "forbidden_ok": True,
+                        "missing_terms": [],
+                        "leaked_terms": [],
+                        "item_ids": ["chunk_shared"],
+                        "latency_ms": 10.0,
+                    }
+                ],
+                "failures": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = _execute_cases(
+        adapter=adapter,
+        headers={"Authorization": "Bearer test-token"},
+        cases=cases,
+        dataset_path=dataset,
+        min_accuracy=1.0,
+        started=time.perf_counter(),
+        progress_out=progress_out,
+        checkpoint_out=checkpoint_out,
+        checkpoint_every_cases=1,
+        resume_from_checkpoint=True,
+    )
+
+    progress_events = [
+        json.loads(line) for line in progress_out.read_text(encoding="utf-8").splitlines()
+    ]
+    corpus_reused = next(
+        event
+        for event in progress_events
+        if event["event_type"] == "source_seed_corpus_reused"
+    )
+
+    assert result["ok"] is True
+    assert [path for path, _ in adapter.posts] == ["/v1/context"]
+    assert result["metrics"]["resumed_case_count"] == 1
+    assert result["metrics"]["pending_case_count"] == 1
+    assert result["metrics"]["seed_source_attempt_count"] == 6
+    assert result["metrics"]["seed_cache_hit_count"] == 3
+    assert corpus_reused["case_id"] == "resume-corpus-two"
+    assert corpus_reused["reused_source_count"] == 3
+    assert corpus_reused["reused_source_kind_counts"] == {"document": 3}
+    assert not any(
+        event["event_type"] == "source_seed_reused" for event in progress_events
     )
 
 

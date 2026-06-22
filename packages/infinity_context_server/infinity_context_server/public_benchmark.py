@@ -512,7 +512,7 @@ def _execute_cases(
     run_results: list[CaseRunResult] = []
     failures: list[dict[str, object]] = []
     seeded_source_keys: set[tuple[str, str, str, str]] = set()
-    seeded_corpus_identities: set[tuple[str, str, int, int]] = set()
+    seeded_corpus_identities: set[tuple[str, str, str]] = set()
     seed_corpus_metadata_cache: dict[tuple[int, int], _SeedCorpusMetadata] = {}
     seed_stats = _BenchmarkSeedStats()
     progress = _BenchmarkProgress(
@@ -604,7 +604,7 @@ def _execute_cases(
     def run_case_adapter(
         case: PublicBenchmarkCase,
         source_keys: set[tuple[str, str, str, str]],
-        corpus_identities: set[tuple[str, str, int, int]],
+        corpus_identities: set[tuple[str, str, str]],
         metadata_cache: dict[tuple[int, int], _SeedCorpusMetadata],
         stats: _BenchmarkSeedStats,
         case_progress: _BenchmarkProgress | None,
@@ -944,7 +944,7 @@ def _run_case(
     dataset_hash: str,
     case: PublicBenchmarkCase,
     seeded_source_keys: set[tuple[str, str, str, str]],
-    seeded_corpus_identities: set[tuple[str, str, int, int]],
+    seeded_corpus_identities: set[tuple[str, str, str]],
     seed_corpus_metadata_cache: dict[tuple[int, int], _SeedCorpusMetadata],
     seed_stats: _BenchmarkSeedStats,
     progress: _BenchmarkProgress | None = None,

@@ -44,7 +44,7 @@ class BenchmarkResumeState:
     run_results: tuple[CaseRunResult, ...]
     failures: tuple[Mapping[str, object], ...]
     seeded_source_keys: frozenset[tuple[str, str, str, str]]
-    seeded_corpus_identities: frozenset[tuple[str, str, int, int]]
+    seeded_corpus_identities: frozenset[tuple[str, str, str]]
     seed_stats: BenchmarkSeedStats
 
 
@@ -192,9 +192,9 @@ def resume_seed_state(
     *,
     cases: Iterable[Any],
     dataset_hash: str,
-) -> tuple[set[tuple[str, str, str, str]], set[tuple[str, str, int, int]]]:
+) -> tuple[set[tuple[str, str, str, str]], set[tuple[str, str, str]]]:
     source_keys: set[tuple[str, str, str, str]] = set()
-    corpus_identities: set[tuple[str, str, int, int]] = set()
+    corpus_identities: set[tuple[str, str, str]] = set()
     metadata_cache: dict[tuple[int, int], SeedCorpusMetadata] = {}
     for case in cases:
         memory_scope_ref = case.memory_scope_external_ref or f"{case.benchmark}-{case.case_id}"
@@ -234,13 +234,64 @@ def seed_corpus_identity(
     *,
     memory_scope_ref: str,
     thread_ref: str,
-) -> tuple[str, str, int, int]:
+) -> tuple[str, str, str]:
     return (
         memory_scope_ref,
         thread_ref,
-        id(case.memories),
-        id(case.documents),
+        _seed_corpus_fingerprint(case),
     )
+
+
+def _seed_corpus_fingerprint(case: Any) -> str:
+    parts: list[tuple[str, int, str, str]] = []
+    for index, memory in enumerate(case.memories):
+        source_id = memory.source_external_id or _content_fingerprint(
+            "fact",
+            index=index,
+            fields=(memory.kind, memory.text),
+        )
+        parts.append(
+            ("fact", index, memory.kind, safe_identifier(source_id, max_chars=160))
+        )
+    for index, document in enumerate(case.documents):
+        source_id = document.source_external_id or _content_fingerprint(
+            "document",
+            index=index,
+            fields=(
+                document.source_type,
+                document.classification,
+                document.title,
+                document.text,
+            ),
+        )
+        parts.append(
+            (
+                "document",
+                index,
+                document.source_type,
+                safe_identifier(source_id, max_chars=240),
+            )
+        )
+    encoded = json.dumps(parts, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _content_fingerprint(
+    source_kind: str,
+    *,
+    index: int,
+    fields: tuple[str, ...],
+) -> str:
+    encoded = json.dumps(
+        {
+            "source_kind": source_kind,
+            "index": index,
+            "fields": fields,
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
 def seed_corpus_metadata(
