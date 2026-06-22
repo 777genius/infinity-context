@@ -37,8 +37,9 @@ _EVENTISH_QUERY_RE = re.compile(
 _RELATIVE_TIME_RE = re.compile(
     r"\b("
     r"earlier today|this morning|this afternoon|this evening|"
-    r"last week|week ago|yesterday|today|tomorrow|an hour ago|hour ago|"
-    r"\d{1,3}\s+hours?\s+ago|\d{1,3}\s+days?\s+ago|"
+    r"last week|previous week|week ago|yesterday|today|tomorrow|an hour ago|hour ago|"
+    r"(?:\d{1,3}|one|two|three|four|five|six)\s+hours?\s+ago|"
+    r"\d{1,3}\s+days?\s+ago|"
     r"\d{1,2}\s+weeks?\s+ago|"
     r"ранее сегодня|сегодня утром|утром сегодня|"
     r"сегодня д[нн]ём|д[нн]ём сегодня|сегодня днем|днем сегодня|"

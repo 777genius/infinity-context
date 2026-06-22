@@ -13,10 +13,20 @@ from infinity_context_core.application.anchor_identity_normalization import (
 
 _TERM_PATTERN = re.compile(r"[\w.@:/#-]+", re.UNICODE)
 _HANDLE_PERSON_TOKEN = r"@[A-Za-z][A-Za-z0-9._-]{2,39}"
+_EN_NUMBER_WORD = r"one|two|three|four|five|six"
+_NUMBER_WORDS = {
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+}
 _TEMPORAL_PHRASE = (
     r"earlier today|this morning|this afternoon|this evening|"
-    r"last week|yesterday|today|tomorrow|an hour ago|hour ago|"
-    r"\d{1,3}\s+hours?\s+ago|\d{1,3}\s+days?\s+ago|\d{1,2}\s+weeks?\s+ago|"
+    r"last week|previous week|yesterday|today|tomorrow|an hour ago|hour ago|"
+    rf"(?:\d{{1,3}}|{_EN_NUMBER_WORD})\s+hours?\s+ago|"
+    r"\d{1,3}\s+days?\s+ago|\d{1,2}\s+weeks?\s+ago|"
     r"ранее сегодня|сегодня утром|утром сегодня|"
     r"сегодня д[нн]ём|д[нн]ём сегодня|сегодня днем|днем сегодня|"
     r"сегодня вечером|вечером сегодня|"
@@ -461,6 +471,7 @@ def _temporal_hint_payload(phrase: str) -> tuple[str, int | None, str]:
         return "tomorrow", 1, "day"
     if normalized in {
         "last week",
+        "previous week",
         "week ago",
         "1 week ago",
         "неделю назад",
@@ -471,8 +482,11 @@ def _temporal_hint_payload(phrase: str) -> tuple[str, int | None, str]:
         return "last_week", 1, "week"
     if normalized in {"an hour ago", "hour ago", "1 hour ago", "час назад"}:
         return "hours_ago", 1, "hour"
-    if match := re.match(r"(?P<count>\d{1,3}) hours? ago$", normalized):
-        return "hours_ago", int(match.group("count")), "hour"
+    if match := re.match(
+        rf"(?P<count>\d{{1,3}}|{_EN_NUMBER_WORD}) hours? ago$",
+        normalized,
+    ):
+        return "hours_ago", _temporal_count(match.group("count")), "hour"
     if match := re.match(r"(?P<count>\d{1,3}) час(?:а|ов)? назад$", normalized):
         return "hours_ago", int(match.group("count")), "hour"
     if match := re.match(r"(?P<count>\d{1,3}) days? ago$", normalized):
@@ -484,6 +498,12 @@ def _temporal_hint_payload(phrase: str) -> tuple[str, int | None, str]:
     if match := re.match(r"(?P<count>\d{1,2}) недел[юи] назад$", normalized):
         return "weeks_ago", int(match.group("count")), "week"
     return "relative_time", None, ""
+
+
+def _temporal_count(value: str) -> int:
+    if value.isdigit():
+        return int(value)
+    return _NUMBER_WORDS.get(value, 0)
 
 
 def _nearby_temporal_after(text: str, start: int) -> str:

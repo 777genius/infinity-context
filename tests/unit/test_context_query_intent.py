@@ -140,6 +140,36 @@ def test_query_anchor_intent_matches_lowercase_actor_before_message_event() -> N
     )
 
 
+def test_query_anchor_intent_matches_word_number_relative_time() -> None:
+    intent = build_query_anchor_intent("alex said about atlas two hours ago")
+    anchor = _anchor(
+        kind=MemoryAnchorKind.EVENT,
+        label="Told with Alex about Atlas 2 hours ago",
+    )
+
+    match = match_query_anchor_intent(intent, anchor)
+
+    assert intent.temporal_keys() == {"hours_ago", "hours_ago:2:hour"}
+    assert match is not None
+    assert "query_event_temporal_match" in match.reasons
+    assert "hours_ago:2:hour" in match.matched_keys
+
+
+def test_query_anchor_intent_matches_previous_week_temporal_phrase() -> None:
+    intent = build_query_anchor_intent("call alex about atlas previous week")
+    anchor = _anchor(
+        kind=MemoryAnchorKind.EVENT,
+        label="Call with Alex about Atlas last week",
+    )
+
+    match = match_query_anchor_intent(intent, anchor)
+
+    assert intent.temporal_keys() == {"last_week", "last_week:1:week"}
+    assert match is not None
+    assert "query_event_temporal_match" in match.reasons
+    assert "last_week:1:week" in match.matched_keys
+
+
 def test_query_anchor_intent_matches_lowercase_actor_before_said_event() -> None:
     intent = build_query_anchor_intent("alex said about atlas yesterday")
     anchor = _anchor(
