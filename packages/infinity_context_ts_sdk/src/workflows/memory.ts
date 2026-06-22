@@ -6,7 +6,7 @@ import {
   type ContextRetrievalComponent,
 } from "../diagnostics.js";
 import { ValueError, type ReadScope, type ReadScopeInput, type SingleScopeInput } from "../payload.js";
-import type { AnchorsClient, AnchorMergeCandidate } from "../resources/anchors.js";
+import type { AnchorsClient } from "../resources/anchors.js";
 import type { AssetsClient } from "../resources/assets.js";
 import type { CapturesClient, CreateCaptureData, CreateCaptureInput } from "../resources/captures.js";
 import type { ContextLinksClient } from "../resources/context-links.js";
@@ -15,7 +15,7 @@ import type { DiagnosticsClient, OutboxDrainResult, WaitForOutboxDrainInput } fr
 import type { DocumentsClient } from "../resources/documents.js";
 import type { ExportsClient } from "../resources/exports.js";
 import type { FactsClient, RememberFactInput } from "../resources/facts.js";
-import type { MemoryBrowserData, OperationsConsoleData, ReadModelsClient } from "../resources/read-models.js";
+import type { ReadModelsClient } from "../resources/read-models.js";
 import type { SpacesClient } from "../resources/spaces.js";
 import type { SuggestionsClient } from "../resources/suggestions.js";
 import type { SystemClient } from "../resources/system.js";
@@ -29,20 +29,13 @@ import {
 } from "../runtime.js";
 import type {
   ApiEnvelope,
-  AssetExtractionJobRecord,
-  CaptureRecord,
-  ContextLinkSuggestionRecord,
   FactRecord,
   InfinityContextCapabilities,
   JsonObject,
   SourceRef,
-  SuggestionRecord,
-  UsageSummaryData,
 } from "../types.js";
 import {
-  isDefined,
   isEnabled,
-  jsonObjectField,
   optional,
   requiredStepOptions,
   requiredWorkflowText,
@@ -50,7 +43,6 @@ import {
   stepOptions,
   uniqueStrings,
   workflowControls,
-  workflowErrorData,
   withWorkflowControls,
   type WorkflowStepOptions,
 } from "./workflow-helpers.js";
@@ -73,6 +65,16 @@ import {
   type TransferMemorySnapshotResult,
 } from "./memory-snapshot-transfer.js";
 import {
+  inspectMemory as inspectMemoryWorkflow,
+  type InspectMemoryInput,
+  type InspectMemoryResult,
+} from "./memory-inspection.js";
+import {
+  planMemoryMaintenance as planMemoryMaintenanceWorkflow,
+  type PlanMemoryMaintenanceInput,
+  type PlanMemoryMaintenanceResult,
+} from "./memory-maintenance.js";
+import {
   recordSourceEvidence as recordSourceEvidenceWorkflow,
   recordSourceEvidenceBatch as recordSourceEvidenceBatchWorkflow,
   summarizeSourceEvidenceBatch,
@@ -92,6 +94,22 @@ export {
 export {
   summarizeSourceEvidenceBatch,
 } from "./memory-source-evidence.js";
+export type {
+  InspectMemoryDiagnostics,
+  InspectMemoryInput,
+  InspectMemoryIssue,
+  InspectMemoryResult,
+  InspectMemoryRuntimeDiagnostics,
+} from "./memory-inspection.js";
+export type {
+  MemoryMaintenanceAction,
+  MemoryMaintenanceActionKind,
+  MemoryMaintenanceDiagnostics,
+  MemoryMaintenanceQueues,
+  MemoryMaintenanceSummary,
+  PlanMemoryMaintenanceInput,
+  PlanMemoryMaintenanceResult,
+} from "./memory-maintenance.js";
 export type {
   EnsureMemoryScopeInput,
   EnsureMemoryTopologyCreated,
@@ -150,23 +168,6 @@ export interface MemoryWorkflowResources {
   readonly system?: SystemClient;
   readonly usage?: UsageClient;
   readonly users?: UsersClient;
-}
-
-interface MemoryInspectionResources {
-  readonly diagnostics: DiagnosticsClient;
-  readonly exports: ExportsClient;
-  readonly readModels: ReadModelsClient;
-  readonly system: SystemClient;
-  readonly usage: UsageClient;
-}
-
-interface MemoryMaintenanceResources {
-  readonly anchors: AnchorsClient;
-  readonly assets: AssetsClient;
-  readonly captures: CapturesClient;
-  readonly contextLinks: ContextLinksClient;
-  readonly readModels: ReadModelsClient;
-  readonly suggestions: SuggestionsClient;
 }
 
 interface MemoryRuntimeReadinessResources {
@@ -336,116 +337,6 @@ export interface CheckFullMemoryReadinessResult {
   readonly context?: ContextEnvelope<ContextBundleData>;
   readonly search?: ContextEnvelope<SearchMemoryData>;
   readonly diagnostics: CheckFullMemoryReadinessDiagnostics;
-}
-
-export interface InspectMemoryInput extends SingleScopeInput, RequestControls {
-  readonly limit?: number;
-  readonly continueOnError?: boolean;
-  readonly includeOperations?: boolean;
-  readonly includeUsage?: boolean;
-  readonly includeCapabilities?: boolean;
-  readonly includeDiagnostics?: boolean;
-  readonly includeGraph?: boolean;
-  readonly includeSnapshotPreview?: boolean;
-  readonly graphIncludeDeleted?: boolean;
-  readonly graphIncludeRestricted?: boolean;
-  readonly graphMaxFacts?: number;
-  readonly graphMaxDocuments?: number;
-  readonly graphMaxEpisodes?: number;
-  readonly graphMaxChunks?: number;
-  readonly snapshotMergeStrategy?: string;
-}
-
-export interface InspectMemoryRuntimeDiagnostics {
-  readonly adapters?: JsonObject;
-  readonly metrics?: JsonObject;
-  readonly storage?: JsonObject;
-  readonly memoryScope?: JsonObject;
-}
-
-export interface InspectMemoryIssue {
-  readonly section: string;
-  readonly error: MemoryWorkflowErrorData;
-}
-
-export interface InspectMemoryDiagnostics {
-  readonly partial: boolean;
-  readonly warnings: readonly string[];
-  readonly issues: readonly InspectMemoryIssue[];
-  readonly optionalSections: readonly string[];
-}
-
-export interface InspectMemoryResult {
-  readonly memoryBrowser: ApiEnvelope<MemoryBrowserData>;
-  readonly operationsConsole?: ApiEnvelope<OperationsConsoleData>;
-  readonly usage?: ApiEnvelope<UsageSummaryData>;
-  readonly capabilities?: InfinityContextCapabilities;
-  readonly runtimeDiagnostics?: InspectMemoryRuntimeDiagnostics;
-  readonly graph?: JsonObject;
-  readonly snapshot?: JsonObject;
-  readonly snapshotPreview?: JsonObject;
-  readonly inspection: InspectMemoryDiagnostics;
-}
-
-export interface PlanMemoryMaintenanceInput extends SingleScopeInput, RequestControls {
-  readonly limit?: number;
-  readonly continueOnError?: boolean;
-  readonly includeOperations?: boolean;
-  readonly includeContextLinkSuggestions?: boolean;
-  readonly includeMemorySuggestions?: boolean;
-  readonly includeAnchorMergeCandidates?: boolean;
-  readonly includeCaptureDiagnostics?: boolean;
-  readonly includeExtractionJobs?: boolean;
-  readonly contextLinkSuggestionStatus?: string | null;
-  readonly memorySuggestionStatus?: string | null;
-  readonly captureConsolidationStatus?: string | null;
-  readonly extractionStatus?: string | null;
-  readonly anchorKind?: string;
-}
-
-export interface MemoryMaintenanceQueues {
-  readonly operationsConsole?: ApiEnvelope<OperationsConsoleData>;
-  readonly contextLinkSuggestions?: ApiEnvelope<ContextLinkSuggestionRecord[]>;
-  readonly memorySuggestions?: ApiEnvelope<SuggestionRecord[]>;
-  readonly anchorMergeCandidates?: ApiEnvelope<AnchorMergeCandidate[]>;
-  readonly captureDiagnostics?: ApiEnvelope<CaptureRecord[]>;
-  readonly extractionJobs?: ApiEnvelope<AssetExtractionJobRecord[]>;
-}
-
-export type MemoryMaintenanceActionKind =
-  | "review_context_links"
-  | "resolve_memory_suggestions"
-  | "merge_duplicate_anchors"
-  | "consolidate_captures"
-  | "retry_or_triage_extractions";
-
-export interface MemoryMaintenanceAction {
-  readonly kind: MemoryMaintenanceActionKind;
-  readonly priority: "low" | "medium" | "high";
-  readonly count: number;
-  readonly reason: string;
-}
-
-export interface MemoryMaintenanceSummary {
-  readonly totalActionable: number;
-  readonly contextLinkSuggestions: number;
-  readonly memorySuggestions: number;
-  readonly anchorMergeCandidates: number;
-  readonly capturesPendingConsolidation: number;
-  readonly extractionJobs: number;
-  readonly suggestedActions: readonly MemoryMaintenanceAction[];
-}
-
-export interface MemoryMaintenanceDiagnostics {
-  readonly partial: boolean;
-  readonly issues: readonly InspectMemoryIssue[];
-  readonly optionalSections: readonly string[];
-}
-
-export interface PlanMemoryMaintenanceResult {
-  readonly queues: MemoryMaintenanceQueues;
-  readonly summary: MemoryMaintenanceSummary;
-  readonly diagnostics: MemoryMaintenanceDiagnostics;
 }
 
 export class MemoryWorkflows {
@@ -748,207 +639,16 @@ export class MemoryWorkflows {
   }
 
   async inspectMemory(input: InspectMemoryInput = {}): Promise<InspectMemoryResult> {
-    const resources = inspectionResources(this.resources);
-    const controls = workflowControls(input);
-    const issues: InspectMemoryIssue[] = [];
-    const warnings: string[] = [];
-    const continueOnError = input.continueOnError ?? false;
-    const optionalSections = enabledInspectionSections(input);
-
-    const memoryBrowser = await resources.readModels.getMemoryBrowser({
-      ...memoryBrowserScopeInput(input),
-      ...controls,
-      ...optional("limit", input.limit),
-    });
-
-    const [operationsConsole, usage, capabilities, runtimeDiagnostics, graph, snapshotBundle] = await Promise.all([
-      optionalInspectionSection("operationsConsole", continueOnError, issues, () =>
-        resources.readModels.getOperationsConsole({
-          ...singleScopeInput(input),
-          ...controls,
-          ...optional("limit", input.limit),
-        }),
-      input.includeOperations ?? true),
-      optionalInspectionSection("usage", continueOnError, issues, () =>
-        resources.usage.summary({
-          ...controls,
-          ...optional("spaceId", input.spaceId),
-          ...optional("spaceSlug", input.spaceSlug),
-        }),
-      input.includeUsage ?? true),
-      optionalInspectionSection("capabilities", continueOnError, issues, () =>
-        resources.system.capabilities(controls),
-      input.includeCapabilities ?? true),
-      optionalInspectionSection("runtimeDiagnostics", continueOnError, issues, () =>
-        inspectRuntimeDiagnostics(resources, input, controls, continueOnError, issues),
-      input.includeDiagnostics ?? true),
-      optionalInspectionSection("graph", continueOnError, issues, () =>
-        resources.exports.exportGraph({
-          ...singleScopeInput(input),
-          ...controls,
-          ...optional("includeDeleted", input.graphIncludeDeleted),
-          ...optional("includeRestricted", input.graphIncludeRestricted),
-          ...optional("maxFacts", input.graphMaxFacts),
-          ...optional("maxDocuments", input.graphMaxDocuments),
-          ...optional("maxEpisodes", input.graphMaxEpisodes),
-          ...optional("maxChunks", input.graphMaxChunks),
-        }),
-      input.includeGraph ?? false),
-      optionalInspectionSection("snapshotPreview", continueOnError, issues, () =>
-        previewMemorySnapshot(resources, input, controls, warnings),
-      input.includeSnapshotPreview ?? false),
-    ]);
-
-    return {
-      memoryBrowser,
-      ...(operationsConsole ? { operationsConsole } : {}),
-      ...(usage ? { usage } : {}),
-      ...(capabilities ? { capabilities } : {}),
-      ...(runtimeDiagnostics ? { runtimeDiagnostics } : {}),
-      ...(graph ? { graph } : {}),
-      ...(snapshotBundle?.snapshot ? { snapshot: snapshotBundle.snapshot } : {}),
-      ...(snapshotBundle?.snapshotPreview ? { snapshotPreview: snapshotBundle.snapshotPreview } : {}),
-      inspection: {
-        partial: issues.length > 0,
-        warnings,
-        issues,
-        optionalSections,
-      },
-    };
+    return inspectMemoryWorkflow(this.resources, input);
   }
 
   async planMemoryMaintenance(input: PlanMemoryMaintenanceInput = {}): Promise<PlanMemoryMaintenanceResult> {
-    const resources = maintenanceResources(this.resources);
-    const controls = workflowControls(input);
-    const issues: InspectMemoryIssue[] = [];
-    const continueOnError = input.continueOnError ?? false;
-    const optionalSections = enabledMaintenanceSections(input);
-    const limit = input.limit ?? 50;
-
-    const [
-      operationsConsole,
-      contextLinkSuggestions,
-      memorySuggestions,
-      anchorMergeCandidates,
-      captureDiagnostics,
-      extractionJobs,
-    ] = await Promise.all([
-      optionalInspectionSection("operationsConsole", continueOnError, issues, () =>
-        resources.readModels.getOperationsConsole({
-          ...singleScopeInput(input),
-          ...controls,
-          limit,
-        }),
-      input.includeOperations ?? true),
-      optionalInspectionSection("contextLinkSuggestions", continueOnError, issues, () =>
-        resources.contextLinks.listContextLinkSuggestions({
-          ...singleScopeInput(input),
-          ...controls,
-          status: input.contextLinkSuggestionStatus === undefined ? "pending" : input.contextLinkSuggestionStatus,
-          limit,
-        }),
-      input.includeContextLinkSuggestions ?? true),
-      optionalInspectionSection("memorySuggestions", continueOnError, issues, () =>
-        resources.suggestions.listSuggestions({
-          ...singleScopeInput(input),
-          ...controls,
-          status: input.memorySuggestionStatus === undefined ? "pending" : input.memorySuggestionStatus,
-          limit,
-        }),
-      input.includeMemorySuggestions ?? true),
-      optionalInspectionSection("anchorMergeCandidates", continueOnError, issues, () =>
-        resources.anchors.listAnchorMergeSuggestions({
-          ...memoryBrowserScopeInput(input),
-          ...controls,
-          ...optional("kind", input.anchorKind),
-          limit,
-        }),
-      input.includeAnchorMergeCandidates ?? true),
-      optionalInspectionSection("captureDiagnostics", continueOnError, issues, () =>
-        resources.captures.captureDiagnostics({
-          ...singleScopeInput(input),
-          ...controls,
-          consolidationStatus: input.captureConsolidationStatus === undefined
-            ? "pending"
-            : input.captureConsolidationStatus,
-          limit,
-        }),
-      input.includeCaptureDiagnostics ?? true),
-      optionalInspectionSection("extractionJobs", continueOnError, issues, () =>
-        resources.assets.listScopeAssetExtractions({
-          ...singleScopeInput(input),
-          ...controls,
-          status: input.extractionStatus === undefined ? "failed" : input.extractionStatus,
-          limit,
-        }),
-      input.includeExtractionJobs ?? true),
-    ]);
-
-    const queues = {
-      ...(operationsConsole ? { operationsConsole } : {}),
-      ...(contextLinkSuggestions ? { contextLinkSuggestions } : {}),
-      ...(memorySuggestions ? { memorySuggestions } : {}),
-      ...(anchorMergeCandidates ? { anchorMergeCandidates } : {}),
-      ...(captureDiagnostics ? { captureDiagnostics } : {}),
-      ...(extractionJobs ? { extractionJobs } : {}),
-    };
-
-    return {
-      queues,
-      summary: maintenanceSummary(queues),
-      diagnostics: {
-        partial: issues.length > 0,
-        issues,
-        optionalSections,
-      },
-    };
+    return planMemoryMaintenanceWorkflow(this.resources, input);
   }
 
   async transferMemorySnapshot(input: TransferMemorySnapshotInput): Promise<TransferMemorySnapshotResult> {
     return transferMemorySnapshotWorkflow(snapshotResources(this.resources), input);
   }
-}
-
-interface MemorySnapshotPreviewBundle {
-  readonly snapshot: JsonObject;
-  readonly snapshotPreview: JsonObject;
-}
-
-function inspectionResources(resources: MemoryWorkflowResources): MemoryInspectionResources {
-  const diagnostics = resources.diagnostics;
-  const exportsClient = resources.exports;
-  const readModels = resources.readModels;
-  const system = resources.system;
-  const usage = resources.usage;
-  const missing: string[] = [];
-
-  if (diagnostics === undefined) {
-    missing.push("diagnostics");
-  }
-  if (exportsClient === undefined) {
-    missing.push("exports");
-  }
-  if (readModels === undefined) {
-    missing.push("readModels");
-  }
-  if (system === undefined) {
-    missing.push("system");
-  }
-  if (usage === undefined) {
-    missing.push("usage");
-  }
-
-  if (
-    diagnostics === undefined ||
-    exportsClient === undefined ||
-    readModels === undefined ||
-    system === undefined ||
-    usage === undefined
-  ) {
-    throw new ValueError(`inspectMemory requires MemoryWorkflowResources: ${missing.join(", ")}`);
-  }
-
-  return { diagnostics, exports: exportsClient, readModels, system, usage };
 }
 
 function topologyResources(resources: MemoryWorkflowResources): MemoryTopologyResources {
@@ -985,251 +685,12 @@ function diagnosticsResource(resources: MemoryWorkflowResources, operationName: 
   return resources.diagnostics;
 }
 
-function maintenanceResources(resources: MemoryWorkflowResources): MemoryMaintenanceResources {
-  const anchors = resources.anchors;
-  const assets = resources.assets;
-  const readModels = resources.readModels;
-  const suggestions = resources.suggestions;
-  const missing: string[] = [];
-
-  if (anchors === undefined) {
-    missing.push("anchors");
-  }
-  if (assets === undefined) {
-    missing.push("assets");
-  }
-  if (readModels === undefined) {
-    missing.push("readModels");
-  }
-  if (suggestions === undefined) {
-    missing.push("suggestions");
-  }
-
-  if (anchors === undefined || assets === undefined || readModels === undefined || suggestions === undefined) {
-    throw new ValueError(`planMemoryMaintenance requires MemoryWorkflowResources: ${missing.join(", ")}`);
-  }
-
-  return {
-    anchors,
-    assets,
-    captures: resources.captures,
-    contextLinks: resources.contextLinks,
-    readModels,
-    suggestions,
-  };
-}
-
 function snapshotResources(resources: MemoryWorkflowResources): ExportsClient {
   const exportsClient = resources.exports;
   if (exportsClient === undefined) {
     throw new ValueError("transferMemorySnapshot requires MemoryWorkflowResources: exports");
   }
   return exportsClient;
-}
-
-function enabledInspectionSections(input: InspectMemoryInput): readonly string[] {
-  const sections = ["memoryBrowser"];
-  if (input.includeOperations ?? true) {
-    sections.push("operationsConsole");
-  }
-  if (input.includeUsage ?? true) {
-    sections.push("usage");
-  }
-  if (input.includeCapabilities ?? true) {
-    sections.push("capabilities");
-  }
-  if (input.includeDiagnostics ?? true) {
-    sections.push("runtimeDiagnostics");
-  }
-  if (input.includeGraph === true) {
-    sections.push("graph");
-  }
-  if (input.includeSnapshotPreview === true) {
-    sections.push("snapshotPreview");
-  }
-  return sections;
-}
-
-function enabledMaintenanceSections(input: PlanMemoryMaintenanceInput): readonly string[] {
-  const sections: string[] = [];
-  if (input.includeOperations ?? true) {
-    sections.push("operationsConsole");
-  }
-  if (input.includeContextLinkSuggestions ?? true) {
-    sections.push("contextLinkSuggestions");
-  }
-  if (input.includeMemorySuggestions ?? true) {
-    sections.push("memorySuggestions");
-  }
-  if (input.includeAnchorMergeCandidates ?? true) {
-    sections.push("anchorMergeCandidates");
-  }
-  if (input.includeCaptureDiagnostics ?? true) {
-    sections.push("captureDiagnostics");
-  }
-  if (input.includeExtractionJobs ?? true) {
-    sections.push("extractionJobs");
-  }
-  return sections;
-}
-
-async function optionalInspectionSection<TValue>(
-  section: string,
-  continueOnError: boolean,
-  issues: InspectMemoryIssue[],
-  task: () => Promise<TValue>,
-  enabled: boolean,
-): Promise<TValue | undefined> {
-  if (!enabled) {
-    return undefined;
-  }
-
-  try {
-    return await task();
-  } catch (error) {
-    if (!continueOnError) {
-      throw error;
-    }
-    issues.push({ section, error: workflowErrorData(error) });
-    return undefined;
-  }
-}
-
-async function inspectRuntimeDiagnostics(
-  resources: MemoryInspectionResources,
-  input: InspectMemoryInput,
-  controls: RequestControls,
-  continueOnError: boolean,
-  issues: InspectMemoryIssue[],
-): Promise<InspectMemoryRuntimeDiagnostics> {
-  const [adapters, metrics, storage, memoryScope] = await Promise.all([
-    optionalInspectionSection("diagnostics.adapters", continueOnError, issues, () =>
-      resources.diagnostics.adapters(controls),
-    true),
-    optionalInspectionSection("diagnostics.metrics", continueOnError, issues, () =>
-      resources.diagnostics.metrics(controls),
-    true),
-    optionalInspectionSection("diagnostics.storage", continueOnError, issues, () =>
-      resources.diagnostics.storage(controls),
-    true),
-    optionalInspectionSection("diagnostics.memoryScope", continueOnError, issues, () =>
-      resources.diagnostics.memoryScope(input.memoryScopeId ?? "", controls),
-    input.memoryScopeId !== undefined),
-  ]);
-
-  return {
-    ...(adapters ? { adapters } : {}),
-    ...(metrics ? { metrics } : {}),
-    ...(storage ? { storage } : {}),
-    ...(memoryScope ? { memoryScope } : {}),
-  };
-}
-
-async function previewMemorySnapshot(
-  resources: MemoryInspectionResources,
-  input: InspectMemoryInput,
-  controls: RequestControls,
-  warnings: string[],
-): Promise<MemorySnapshotPreviewBundle> {
-  if (!input.spaceSlug || !input.memoryScopeExternalRef) {
-    warnings.push("snapshotPreview requires spaceSlug and memoryScopeExternalRef");
-    throw new ValueError("snapshotPreview requires spaceSlug and memoryScopeExternalRef");
-  }
-
-  const snapshot = await resources.exports.exportMemoryScopeSnapshot({
-    ...controls,
-    spaceSlug: input.spaceSlug,
-    memoryScopeExternalRef: input.memoryScopeExternalRef,
-    redacted: true,
-  });
-  const snapshotData = jsonObjectField(snapshot, "data");
-  if (snapshotData === undefined) {
-    throw new ValueError("Snapshot export response did not include data");
-  }
-
-  const snapshotPreview = await resources.exports.previewMemoryScopeSnapshotImport({
-    ...controls,
-    spaceSlug: input.spaceSlug,
-    memoryScopeExternalRef: input.memoryScopeExternalRef,
-    snapshot: snapshotData,
-    ...optional("manifest", jsonObjectField(snapshot, "manifest")),
-    ...optional("mergeStrategy", input.snapshotMergeStrategy),
-  });
-
-  return { snapshot, snapshotPreview };
-}
-
-function maintenanceSummary(queues: MemoryMaintenanceQueues): MemoryMaintenanceSummary {
-  const contextLinkSuggestions = queues.contextLinkSuggestions?.data.length ?? 0;
-  const memorySuggestions = queues.memorySuggestions?.data.length ?? 0;
-  const anchorMergeCandidates = queues.anchorMergeCandidates?.data.length ?? 0;
-  const capturesPendingConsolidation = queues.captureDiagnostics?.data.length ?? 0;
-  const extractionJobs = queues.extractionJobs?.data.length ?? 0;
-
-  const suggestedActions = [
-    maintenanceAction(
-      "review_context_links",
-      contextLinkSuggestions,
-      "Pending context link suggestions can improve graph-aware retrieval when reviewed.",
-    ),
-    maintenanceAction(
-      "resolve_memory_suggestions",
-      memorySuggestions,
-      "Pending memory suggestions should be approved, rejected or expired before beta reads rely on them.",
-    ),
-    maintenanceAction(
-      "merge_duplicate_anchors",
-      anchorMergeCandidates,
-      "Anchor merge candidates reduce duplicate graph nodes and improve retrieval precision.",
-    ),
-    maintenanceAction(
-      "consolidate_captures",
-      capturesPendingConsolidation,
-      "Pending captures should be consolidated into durable facts or review suggestions.",
-    ),
-    maintenanceAction(
-      "retry_or_triage_extractions",
-      extractionJobs,
-      "Failed or queued extraction jobs can leave document evidence unavailable for summaries.",
-    ),
-  ].filter(isDefined);
-
-  return {
-    totalActionable: contextLinkSuggestions + memorySuggestions + anchorMergeCandidates +
-      capturesPendingConsolidation + extractionJobs,
-    contextLinkSuggestions,
-    memorySuggestions,
-    anchorMergeCandidates,
-    capturesPendingConsolidation,
-    extractionJobs,
-    suggestedActions,
-  };
-}
-
-function maintenanceAction(
-  kind: MemoryMaintenanceActionKind,
-  count: number,
-  reason: string,
-): MemoryMaintenanceAction | undefined {
-  if (count <= 0) {
-    return undefined;
-  }
-
-  return {
-    kind,
-    count,
-    priority: count >= 10 ? "high" : count >= 3 ? "medium" : "low",
-    reason,
-  };
-}
-
-function memoryBrowserScopeInput(input: SingleScopeInput): Omit<SingleScopeInput, "threadId" | "threadExternalRef"> {
-  return {
-    ...optional("spaceId", input.spaceId),
-    ...optional("memoryScopeId", input.memoryScopeId),
-    ...optional("spaceSlug", input.spaceSlug),
-    ...optional("memoryScopeExternalRef", input.memoryScopeExternalRef),
-  };
 }
 
 function feedbackSourceRefs(input: RecordMemoryFeedbackInput): readonly SourceRef[] {
