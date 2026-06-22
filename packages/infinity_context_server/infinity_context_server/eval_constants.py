@@ -59,6 +59,7 @@ _MEMORY_QUALITY_SCORECARD_MIN_CASE_COUNTS = {
     PROMPT_CONTRACT_SUITE: 10,
 }
 QUALITY_GOLDEN_REQUIRED_CASE_IDS = (
+    "longmemeval_knowledge_update_current_truth",
     "updated_provider_current_only",
     "temporal_supersedes_current_only",
     "linked_temporal_supersedes_current_only",
@@ -81,9 +82,11 @@ QUALITY_GOLDEN_REQUIRED_CASE_IDS = (
     "event_anchor_relation_expands_linked_person_project_facts",
     "person_event_project_precision",
     "multilingual_recent_person_project_recall",
+    "longmemeval_multilingual_entity_abstention",
     "same_person_time_wrong_project_does_not_pull_atlas",
     "mixed_language_wrong_project_returns_no_context",
     "wrong_project_anchor_deflects_generic_match",
+    "longmemeval_source_attribution_project_anchor",
     "identifier_like_query_deflects_partial_marker",
     "unrelated_query_returns_no_context_items",
     "cross_memory_scope_secret_hidden",
@@ -93,6 +96,38 @@ QUALITY_GOLDEN_REQUIRED_CASE_IDS = (
     "prompt_injection_evidence_only",
     "mixed_script_event_anchor_recall_by_query_intent",
 )
+QUALITY_GOLDEN_MEMORY_ABILITY_CASE_IDS = {
+    "information_extraction": (
+        "current_model_beats_decoy",
+        "architecture_roles_recall",
+    ),
+    "multi_session_reasoning": (
+        "thread_current_visible_without_neighbor",
+        "thread_other_visible_without_current",
+    ),
+    "temporal_reasoning": (
+        "relative_time_current_fact_not_last_week_fact",
+        "canonical_event_anchor_recall_by_identity",
+    ),
+    "knowledge_update": (
+        "longmemeval_knowledge_update_current_truth",
+        "updated_provider_current_only",
+        "contradicted_fact_hidden_by_default",
+    ),
+    "abstention": (
+        "mixed_language_wrong_project_returns_no_context",
+        "longmemeval_multilingual_entity_abstention",
+        "unrelated_query_returns_no_context_items",
+    ),
+    "source_attribution": (
+        "longmemeval_source_attribution_project_anchor",
+        "multimodal_source_refs_recall_with_citations",
+    ),
+    "multilingual_entity_disambiguation": (
+        "multilingual_recent_person_project_recall",
+        "mixed_script_event_anchor_recall_by_query_intent",
+    ),
+}
 SEMANTIC_LINKING_REQUIRED_CASE_IDS = (
     "specific_target_beats_similar_project",
     "person_project_and_org_anchors_suggested",
@@ -129,9 +164,41 @@ LONG_MEMORY_REQUIRED_CASE_IDS = (
     "long_restricted_secret_hidden",
     "long_tiny_budget_preference_recall",
     "long_unknown_query_abstains_without_context",
+    "long_lme_abstention_unknown_multilingual",
     "long_old_provider_query_resolves_current_fact",
+    "long_lme_knowledge_update_old_query_current_truth",
     "long_cross_session_preference_synthesis_with_kickoff",
+    "long_lme_multilingual_preference_recall",
 )
+LONG_MEMORY_ABILITY_CASE_IDS = {
+    "information_extraction": (
+        "long_graphiti_decision_beats_obsidian_decoy",
+        "long_document_architecture_precision",
+    ),
+    "multi_session_reasoning": (
+        "long_cross_session_kickoff_recall",
+        "long_cross_session_preference_synthesis_with_kickoff",
+    ),
+    "temporal_reasoning": (
+        "long_temporal_update_current_only",
+        "long_old_provider_query_resolves_current_fact",
+    ),
+    "knowledge_update": (
+        "long_temporal_update_current_only",
+        "long_lme_knowledge_update_old_query_current_truth",
+    ),
+    "abstention": (
+        "long_unknown_query_abstains_without_context",
+        "long_lme_abstention_unknown_multilingual",
+    ),
+    "source_attribution": (
+        "long_document_architecture_precision",
+        "long_document_operations_tail_recall",
+    ),
+    "multilingual_entity_disambiguation": (
+        "long_lme_multilingual_preference_recall",
+    ),
+}
 _MEMORY_QUALITY_SCORECARD_MIN_EXTRACTION_CASES = 78
 _MEMORY_QUALITY_SCORECARD_MIN_SEMANTIC_EXTRACTION_CASES = 18
 _FULL_PROVIDER_CANARY_SUITE_ALIASES = (

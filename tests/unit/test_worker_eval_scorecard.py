@@ -13,8 +13,10 @@ from infinity_context_server.eval import (
     run_memory_quality_scorecard,
 )
 from infinity_context_server.eval_constants import (
+    LONG_MEMORY_ABILITY_CASE_IDS,
     LONG_MEMORY_REQUIRED_CASE_IDS,
     MULTIMODAL_OFFLINE_GOLDEN_SUITE,
+    QUALITY_GOLDEN_MEMORY_ABILITY_CASE_IDS,
     QUALITY_GOLDEN_REQUIRED_CASE_IDS,
     SEMANTIC_LINKING_REQUIRED_CASE_IDS,
 )
@@ -57,6 +59,11 @@ def _scorecard_fixture_results() -> dict[str, dict[str, Any]]:
                 "case_count": 16,
                 "required_case_coverage_rate": 1.0,
                 "missing_required_case_count": 0,
+                "memory_ability_count": len(QUALITY_GOLDEN_MEMORY_ABILITY_CASE_IDS),
+                "memory_abilities_covered": len(QUALITY_GOLDEN_MEMORY_ABILITY_CASE_IDS),
+                "memory_ability_coverage_rate": 1.0,
+                "missing_memory_ability_cases": {},
+                "failed_memory_ability_cases": {},
                 "recall_at_5": 0.96,
                 "precision_at_5": 0.95,
                 "answer_support_rate": 1.0,
@@ -220,6 +227,11 @@ def _scorecard_fixture_results() -> dict[str, dict[str, Any]]:
                 "long_memory_case_count": 19,
                 "required_case_coverage_rate": 1.0,
                 "missing_required_case_count": 0,
+                "memory_ability_count": len(LONG_MEMORY_ABILITY_CASE_IDS),
+                "memory_abilities_covered": len(LONG_MEMORY_ABILITY_CASE_IDS),
+                "memory_ability_coverage_rate": 1.0,
+                "missing_memory_ability_cases": {},
+                "failed_memory_ability_cases": {},
                 "recall_at_5": 0.96,
                 "precision_at_5": 0.95,
                 "multi_session_recall_at_5": 1.0,
@@ -785,6 +797,14 @@ def test_memory_quality_scorecard_passes_with_required_capabilities(tmp_path: Pa
         "run_official_public_benchmark_canary",
     ]
     assert result["metrics"]["safety_leak_count"] == 0
+    assert result["metrics"]["quality_memory_ability_coverage_rate"] == 1.0
+    assert result["metrics"]["quality_memory_ability_count"] == len(
+        QUALITY_GOLDEN_MEMORY_ABILITY_CASE_IDS
+    )
+    assert result["metrics"]["long_memory_ability_coverage_rate"] == 1.0
+    assert result["metrics"]["long_memory_ability_count"] == len(
+        LONG_MEMORY_ABILITY_CASE_IDS
+    )
     assert result["metrics"]["multimodal_offline_pass_rate"] == 1.0
     assert result["metrics"]["multimodal_offline_false_positive_count"] == 0
     assert result["metrics"]["multimodal_offline_prompt_injection_guard_rate"] == 1.0
@@ -940,14 +960,25 @@ def test_memory_quality_scorecard_policy_snapshot_documents_top_evidence_floors(
     assert policy["retrieval_context_memory_layer"]["requires_citations"] is True
     assert policy["retrieval_context_memory_layer"]["requires_answer_support"] is True
     assert policy["retrieval_context_memory_layer"]["requires_stale_filtering"] is True
+    assert policy["retrieval_context_memory_layer"]["required_memory_abilities"] == sorted(
+        QUALITY_GOLDEN_MEMORY_ABILITY_CASE_IDS
+    )
     assert (
         policy["retrieval_context_memory_layer"]["requires_multimodal_evidence_locations"]
         is True
     )
+    assert policy["longitudinal_memory"]["required_memory_abilities"] == sorted(
+        LONG_MEMORY_ABILITY_CASE_IDS
+    )
+    assert policy["longitudinal_memory"]["requires_knowledge_update"] is True
+    assert policy["longitudinal_memory"]["requires_abstention"] is True
     assert (
         policy["retrieval_context_memory_layer"]["source_text_policy"]
         == "untrusted_evidence"
     )
+    assert "longmemeval_knowledge_update_current_truth" in policy[
+        "retrieval_context_memory_layer"
+    ]["required_quality_case_ids"]
     assert "wrong_project_anchor_deflects_generic_match" in policy[
         "retrieval_context_memory_layer"
     ]["required_quality_case_ids"]
@@ -2525,6 +2556,49 @@ def test_memory_quality_scorecard_fails_on_missing_retrieval_context_case() -> N
         in capability["failed_checks"]
     )
     assert result["gates"]["all_capabilities_ok"] is False
+
+
+def test_memory_quality_scorecard_fails_on_memory_ability_regression() -> None:
+    suite_results = _scorecard_fixture_results()
+    suite_results["quality-golden"]["metrics"].update(
+        {
+            "memory_ability_coverage_rate": 0.8571,
+            "memory_abilities_covered": len(QUALITY_GOLDEN_MEMORY_ABILITY_CASE_IDS) - 1,
+            "failed_memory_ability_cases": {
+                "abstention": ["mixed_language_wrong_project_returns_no_context"]
+            },
+        }
+    )
+    suite_results["long-memory-golden"]["metrics"].update(
+        {
+            "memory_ability_coverage_rate": 0.8571,
+            "memory_abilities_covered": len(LONG_MEMORY_ABILITY_CASE_IDS) - 1,
+            "missing_memory_ability_cases": {
+                "knowledge_update": ["long_lme_knowledge_update_old_query_current_truth"]
+            },
+        }
+    )
+
+    result = build_memory_quality_scorecard(suite_results)
+
+    assert result["ok"] is False
+    assert result["capabilities"]["coverage_floors"]["ok"] is False
+    assert "quality_failed_memory_ability_cases" in result["capabilities"][
+        "coverage_floors"
+    ]["failed_checks"]
+    assert "long_memory_missing_memory_ability_cases" in result["capabilities"][
+        "coverage_floors"
+    ]["failed_checks"]
+    assert result["capabilities"]["retrieval_context_memory_layer"]["ok"] is False
+    assert "failed_memory_ability_cases" in result["capabilities"][
+        "retrieval_context_memory_layer"
+    ]["failed_checks"]
+    assert result["capabilities"]["longitudinal_memory"]["ok"] is False
+    assert "missing_memory_ability_cases" in result["capabilities"][
+        "longitudinal_memory"
+    ]["failed_checks"]
+    assert result["metrics"]["quality_memory_ability_coverage_rate"] == 0.8571
+    assert result["metrics"]["long_memory_ability_coverage_rate"] == 0.8571
 
 
 def test_memory_quality_scorecard_fails_on_dedup_merge_conflict_regression() -> None:

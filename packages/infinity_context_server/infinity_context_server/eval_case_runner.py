@@ -13,7 +13,9 @@ from infinity_context_server.eval_constants import (
     _QUALITY_GOLDEN_RECALL_GATE,
     _SMALL_GOLDEN_PRECISION_GATE,
     _SMALL_GOLDEN_RECALL_GATE,
+    LONG_MEMORY_ABILITY_CASE_IDS,
     LONG_MEMORY_REQUIRED_CASE_IDS,
+    QUALITY_GOLDEN_MEMORY_ABILITY_CASE_IDS,
     QUALITY_GOLDEN_REQUIRED_CASE_IDS,
 )
 from infinity_context_server.eval_types import (
@@ -439,6 +441,10 @@ def _quality_golden_metrics(
         if include_required_case_metrics
         else {}
     )
+    memory_ability_metrics = _memory_ability_coverage_metrics(
+        case_results=case_results,
+        ability_case_ids=QUALITY_GOLDEN_MEMORY_ABILITY_CASE_IDS,
+    )
     answer_support_cases = tuple(
         result for result in case_results if result.case.category == "answer_support"
     )
@@ -507,6 +513,7 @@ def _quality_golden_metrics(
     return {
         **base,
         **required_case_metrics,
+        **memory_ability_metrics,
         "answer_support_rate": _ratio(
             sum(
                 1
@@ -603,6 +610,9 @@ def _quality_golden_gates(metrics: dict[str, object]) -> dict[str, bool]:
     return {
         "required_case_coverage_rate": metrics["required_case_coverage_rate"] == 1.0,
         "missing_required_case_count": metrics["missing_required_case_count"] == 0,
+        "memory_ability_coverage_rate": metrics["memory_ability_coverage_rate"] == 1.0,
+        "missing_memory_ability_cases": metrics["missing_memory_ability_cases"] == {},
+        "failed_memory_ability_cases": metrics["failed_memory_ability_cases"] == {},
         "recall_at_5": float(metrics["recall_at_5"]) >= _QUALITY_GOLDEN_RECALL_GATE,
         "precision_at_5": float(metrics["precision_at_5"]) >= _QUALITY_GOLDEN_PRECISION_GATE,
         "answer_support_rate": metrics["answer_support_rate"] == 1.0,
@@ -676,11 +686,57 @@ def _required_case_metrics(
     }
 
 
+def _memory_ability_coverage_metrics(
+    *,
+    case_results: tuple[EvalCaseResult, ...],
+    ability_case_ids: dict[str, tuple[str, ...]],
+) -> dict[str, object]:
+    case_by_id = {result.case.case_id: result for result in case_results}
+    covered: list[str] = []
+    missing: dict[str, list[str]] = {}
+    failed: dict[str, list[str]] = {}
+    for ability, case_ids in ability_case_ids.items():
+        missing_ids = [case_id for case_id in case_ids if case_id not in case_by_id]
+        failed_ids = [
+            case_id
+            for case_id in case_ids
+            if case_id in case_by_id and _memory_ability_case_failed(case_by_id[case_id])
+        ]
+        if not missing_ids and not failed_ids:
+            covered.append(ability)
+            continue
+        if missing_ids:
+            missing[ability] = missing_ids
+        if failed_ids:
+            failed[ability] = failed_ids
+    return {
+        "memory_ability_count": len(ability_case_ids),
+        "memory_abilities_covered": len(covered),
+        "memory_ability_coverage_rate": _ratio(len(covered), len(ability_case_ids)),
+        "memory_ability_names": sorted(ability_case_ids),
+        "covered_memory_abilities": sorted(covered),
+        "missing_memory_ability_cases": missing,
+        "failed_memory_ability_cases": failed,
+    }
+
+
+def _memory_ability_case_failed(result: EvalCaseResult) -> bool:
+    return (
+        bool(result.failures)
+        or not result.precision_ok
+        or bool(result.case.must_include and not result.recall_ok)
+    )
+
+
 def _long_memory_golden_metrics(case_results: tuple[EvalCaseResult, ...]) -> dict[str, object]:
     base = _quality_golden_metrics(case_results, include_required_case_metrics=False)
     required_case_metrics = _required_case_metrics(
         case_ids=tuple(result.case.case_id for result in case_results),
         required_case_ids=LONG_MEMORY_REQUIRED_CASE_IDS,
+    )
+    memory_ability_metrics = _memory_ability_coverage_metrics(
+        case_results=case_results,
+        ability_case_ids=LONG_MEMORY_ABILITY_CASE_IDS,
     )
     multi_session_cases = _category_results(case_results, "multi_session")
     temporal_cases = _category_results(case_results, "temporal_update")
@@ -700,6 +756,7 @@ def _long_memory_golden_metrics(case_results: tuple[EvalCaseResult, ...]) -> dic
     return {
         **base,
         **required_case_metrics,
+        **memory_ability_metrics,
         "long_memory_case_count": len(case_results),
         "multi_session_recall_at_5": _recall_rate(multi_session_cases),
         "temporal_update_accuracy": _full_pass_rate(temporal_cases),
@@ -714,6 +771,9 @@ def _long_memory_golden_gates(metrics: dict[str, object]) -> dict[str, bool]:
     return {
         "required_case_coverage_rate": metrics["required_case_coverage_rate"] == 1.0,
         "missing_required_case_count": metrics["missing_required_case_count"] == 0,
+        "memory_ability_coverage_rate": metrics["memory_ability_coverage_rate"] == 1.0,
+        "missing_memory_ability_cases": metrics["missing_memory_ability_cases"] == {},
+        "failed_memory_ability_cases": metrics["failed_memory_ability_cases"] == {},
         "long_memory_case_count": metrics["long_memory_case_count"] >= len(
             LONG_MEMORY_REQUIRED_CASE_IDS
         ),

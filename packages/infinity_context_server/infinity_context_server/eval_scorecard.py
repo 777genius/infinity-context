@@ -46,6 +46,7 @@ from infinity_context_server.eval_constants import (
     AUTO_MEMORY_GOLDEN_SUITE,
     FULL_PROVIDER_CANARY_SUITE,
     GRAPH_NATIVE_GOLDEN_SUITE,
+    LONG_MEMORY_ABILITY_CASE_IDS,
     LONG_MEMORY_GOLDEN_SUITE,
     LONG_MEMORY_REQUIRED_CASE_IDS,
     MEMORY_QUALITY_SCORECARD_SUITE,
@@ -53,6 +54,7 @@ from infinity_context_server.eval_constants import (
     MULTIMODAL_OFFLINE_GOLDEN_SUITE,
     PROMPT_CONTRACT_SUITE,
     PUBLIC_MEMORY_BENCHMARK_SUITE,
+    QUALITY_GOLDEN_MEMORY_ABILITY_CASE_IDS,
     QUALITY_GOLDEN_REQUIRED_CASE_IDS,
     QUALITY_GOLDEN_SUITE,
     SEMANTIC_LINKING_GOLDEN_SUITE,
@@ -96,6 +98,7 @@ _DEDUP_MERGE_SEMANTIC_CHECKS = (
     "cross_scope_fact_not_suggested",
 )
 _RETRIEVAL_CONTEXT_QUALITY_CASE_IDS = (
+    "longmemeval_knowledge_update_current_truth",
     "updated_provider_current_only",
     "temporal_supersedes_current_only",
     "linked_temporal_supersedes_current_only",
@@ -116,9 +119,11 @@ _RETRIEVAL_CONTEXT_QUALITY_CASE_IDS = (
     "event_anchor_relation_expands_linked_person_project_facts",
     "person_event_project_precision",
     "multilingual_recent_person_project_recall",
+    "longmemeval_multilingual_entity_abstention",
     "same_person_time_wrong_project_does_not_pull_atlas",
     "mixed_language_wrong_project_returns_no_context",
     "wrong_project_anchor_deflects_generic_match",
+    "longmemeval_source_attribution_project_anchor",
     "identifier_like_query_deflects_partial_marker",
     "unrelated_query_returns_no_context_items",
     "cross_memory_scope_secret_hidden",
@@ -174,6 +179,7 @@ def memory_quality_scorecard_policy_snapshot(
         },
         "retrieval_context_memory_layer": {
             "required_quality_case_ids": list(_RETRIEVAL_CONTEXT_QUALITY_CASE_IDS),
+            "required_memory_abilities": sorted(QUALITY_GOLDEN_MEMORY_ABILITY_CASE_IDS),
             "requires_hybrid_retrieval": True,
             "requires_document_recall": True,
             "requires_citations": True,
@@ -184,6 +190,16 @@ def memory_quality_scorecard_policy_snapshot(
             "requires_multimodal_evidence_locations": True,
             "requires_no_scope_thread_or_restricted_leaks": True,
             "source_text_policy": "untrusted_evidence",
+        },
+        "longitudinal_memory": {
+            "required_case_ids": list(LONG_MEMORY_REQUIRED_CASE_IDS),
+            "required_memory_abilities": sorted(LONG_MEMORY_ABILITY_CASE_IDS),
+            "requires_multi_session_reasoning": True,
+            "requires_temporal_reasoning": True,
+            "requires_knowledge_update": True,
+            "requires_abstention": True,
+            "requires_source_attribution": True,
+            "requires_multilingual_entity_disambiguation": True,
         },
         "dedup_merge_conflict_resolution": {
             "required_quality_case_ids": list(_DEDUP_MERGE_QUALITY_CASE_IDS),
@@ -424,6 +440,7 @@ def _scorecard_coverage_floors(
     long_memory_result = suite_results.get(LONG_MEMORY_GOLDEN_SUITE)
     quality_metrics = _scorecard_result_metrics(suite_results.get(QUALITY_GOLDEN_SUITE))
     semantic_metrics = _scorecard_result_metrics(suite_results.get(SEMANTIC_LINKING_GOLDEN_SUITE))
+    long_memory_metrics = _scorecard_result_metrics(suite_results.get(LONG_MEMORY_GOLDEN_SUITE))
     auto_metrics = _scorecard_result_metrics(suite_results.get(AUTO_MEMORY_GOLDEN_SUITE))
     checks = {
         f"{suite}_case_count": int(suites[suite].get("case_count", 0)) >= minimum
@@ -435,11 +452,29 @@ def _scorecard_coverage_floors(
     checks["quality_missing_required_case_count"] = (
         quality_metrics.get("missing_required_case_count") == 0
     )
+    checks["quality_memory_ability_coverage_rate"] = (
+        quality_metrics.get("memory_ability_coverage_rate") == 1.0
+    )
+    checks["quality_missing_memory_ability_cases"] = (
+        quality_metrics.get("missing_memory_ability_cases") == {}
+    )
+    checks["quality_failed_memory_ability_cases"] = (
+        quality_metrics.get("failed_memory_ability_cases") == {}
+    )
     checks["semantic_linking_required_case_coverage_rate"] = (
         semantic_metrics.get("required_case_coverage_rate") == 1.0
     )
     checks["semantic_linking_missing_required_case_count"] = (
         semantic_metrics.get("missing_required_case_count") == 0
+    )
+    checks["long_memory_ability_coverage_rate"] = (
+        long_memory_metrics.get("memory_ability_coverage_rate") == 1.0
+    )
+    checks["long_memory_missing_memory_ability_cases"] = (
+        long_memory_metrics.get("missing_memory_ability_cases") == {}
+    )
+    checks["long_memory_failed_memory_ability_cases"] = (
+        long_memory_metrics.get("failed_memory_ability_cases") == {}
     )
     checks.update(
         _scorecard_required_case_checks(
@@ -534,6 +569,15 @@ def _scorecard_canonical_recall_precision(
             quality.get("no_candidate_abstention_rate") == 1.0
         ),
         "no_candidate_leak_count": quality.get("no_candidate_leak_count") == 0,
+        "memory_ability_coverage_rate": (
+            quality.get("memory_ability_coverage_rate") == 1.0
+        ),
+        "missing_memory_ability_cases": (
+            quality.get("missing_memory_ability_cases") == {}
+        ),
+        "failed_memory_ability_cases": (
+            quality.get("failed_memory_ability_cases") == {}
+        ),
         "precise_citation_contract_rate": (
             quality.get("precise_citation_contract_rate") == 1.0
         ),
@@ -584,6 +628,15 @@ def _scorecard_retrieval_context_memory_layer(
             quality.get("no_candidate_abstention_rate") == 1.0
         ),
         "no_candidate_leak_count": quality.get("no_candidate_leak_count") == 0,
+        "memory_ability_coverage_rate": (
+            quality.get("memory_ability_coverage_rate") == 1.0
+        ),
+        "missing_memory_ability_cases": (
+            quality.get("missing_memory_ability_cases") == {}
+        ),
+        "failed_memory_ability_cases": (
+            quality.get("failed_memory_ability_cases") == {}
+        ),
         "precise_citation_contract_rate": (
             quality.get("precise_citation_contract_rate") == 1.0
         ),
@@ -635,6 +688,15 @@ def _scorecard_longitudinal_memory(
             metrics.get("no_candidate_abstention_rate") == 1.0
         ),
         "no_candidate_leak_count": metrics.get("no_candidate_leak_count") == 0,
+        "memory_ability_coverage_rate": (
+            metrics.get("memory_ability_coverage_rate") == 1.0
+        ),
+        "missing_memory_ability_cases": (
+            metrics.get("missing_memory_ability_cases") == {}
+        ),
+        "failed_memory_ability_cases": (
+            metrics.get("failed_memory_ability_cases") == {}
+        ),
         "long_safety_leak_count": metrics.get("long_safety_leak_count") == 0,
         "stale_memory_rate": metrics.get("stale_memory_rate") == 0.0,
     }
@@ -2213,6 +2275,12 @@ def _scorecard_metrics(
         ),
         "quality_required_case_coverage_rate": quality.get("required_case_coverage_rate", 0.0),
         "quality_missing_required_case_count": quality.get("missing_required_case_count", 0),
+        "quality_memory_ability_coverage_rate": quality.get(
+            "memory_ability_coverage_rate",
+            0.0,
+        ),
+        "quality_memory_abilities_covered": quality.get("memory_abilities_covered", 0),
+        "quality_memory_ability_count": quality.get("memory_ability_count", 0),
         "quality_multi_memory_scope_recall_at_5": quality.get(
             "multi_memory_scope_recall_at_5",
             0.0,
@@ -2242,6 +2310,12 @@ def _scorecard_metrics(
         "long_no_candidate_leak_count": long.get("no_candidate_leak_count", 0),
         "long_multi_session_recall_at_5": long.get("multi_session_recall_at_5", 0.0),
         "long_temporal_update_accuracy": long.get("temporal_update_accuracy", 0.0),
+        "long_memory_ability_coverage_rate": long.get(
+            "memory_ability_coverage_rate",
+            0.0,
+        ),
+        "long_memory_abilities_covered": long.get("memory_abilities_covered", 0),
+        "long_memory_ability_count": long.get("memory_ability_count", 0),
         "auto_extraction_positive_recall_rate": auto.get(
             "extraction_positive_recall_rate",
             0.0,

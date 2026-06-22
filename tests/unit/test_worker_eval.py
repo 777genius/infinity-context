@@ -44,7 +44,9 @@ from infinity_context_server.eval_case_catalog import (
     _quality_golden_cases,
 )
 from infinity_context_server.eval_constants import (
+    LONG_MEMORY_ABILITY_CASE_IDS,
     LONG_MEMORY_REQUIRED_CASE_IDS,
+    QUALITY_GOLDEN_MEMORY_ABILITY_CASE_IDS,
     QUALITY_GOLDEN_REQUIRED_CASE_IDS,
     SEMANTIC_LINKING_REQUIRED_CASE_IDS,
 )
@@ -1303,6 +1305,15 @@ def test_quality_golden_eval_passes() -> None:
     assert result["metrics"]["required_case_coverage_rate"] == 1.0
     assert result["gates"]["missing_required_case_count"] is True
     assert result["gates"]["required_case_coverage_rate"] is True
+    assert result["metrics"]["memory_ability_count"] == len(
+        QUALITY_GOLDEN_MEMORY_ABILITY_CASE_IDS
+    )
+    assert result["metrics"]["memory_ability_coverage_rate"] == 1.0
+    assert result["metrics"]["missing_memory_ability_cases"] == {}
+    assert result["metrics"]["failed_memory_ability_cases"] == {}
+    assert result["gates"]["memory_ability_coverage_rate"] is True
+    assert result["gates"]["missing_memory_ability_cases"] is True
+    assert result["gates"]["failed_memory_ability_cases"] is True
     assert result["metrics"]["multi_memory_scope_recall_at_5"] == 1.0
     assert result["metrics"]["thread_recall_at_5"] == 1.0
     assert result["metrics"]["stale_memory_rate"] == 0.0
@@ -1392,6 +1403,7 @@ def test_quality_golden_no_candidate_cases_require_abstention_answerability() ->
         "unrelated_query_returns_no_context_items",
         "identifier_like_query_deflects_partial_marker",
         "mixed_language_wrong_project_returns_no_context",
+        "longmemeval_multilingual_entity_abstention",
     ):
         required = cases[case_id].required_diagnostics
         assert ("items_used", "eq", 0) in required
@@ -1425,23 +1437,27 @@ def test_long_memory_golden_no_candidate_case_requires_abstention_answerability(
         )
     }
 
-    required = cases["long_unknown_query_abstains_without_context"].required_diagnostics
-    assert ("items_used", "eq", 0) in required
-    assert (
-        "retrieval_quality_summary.answerability_status",
-        "eq",
-        "insufficient_context",
-    ) in required
-    assert (
-        "retrieval_quality_summary.recommended_response_policy",
-        "eq",
-        "ask_for_more_context",
-    ) in required
-    assert (
-        "retrieval_quality_summary.answerability_reasons",
-        "contains",
-        "no_context_items",
-    ) in required
+    for case_id in (
+        "long_unknown_query_abstains_without_context",
+        "long_lme_abstention_unknown_multilingual",
+    ):
+        required = cases[case_id].required_diagnostics
+        assert ("items_used", "eq", 0) in required
+        assert (
+            "retrieval_quality_summary.answerability_status",
+            "eq",
+            "insufficient_context",
+        ) in required
+        assert (
+            "retrieval_quality_summary.recommended_response_policy",
+            "eq",
+            "ask_for_more_context",
+        ) in required
+        assert (
+            "retrieval_quality_summary.answerability_reasons",
+            "contains",
+            "no_context_items",
+        ) in required
 
 
 def test_quality_golden_eval_writes_redacted_report(tmp_path: Path) -> None:
@@ -1551,6 +1567,13 @@ def test_long_memory_golden_eval_passes() -> None:
     assert result["metrics"]["required_case_coverage_rate"] == 1.0
     assert result["gates"]["missing_required_case_count"] is True
     assert result["gates"]["required_case_coverage_rate"] is True
+    assert result["metrics"]["memory_ability_count"] == len(LONG_MEMORY_ABILITY_CASE_IDS)
+    assert result["metrics"]["memory_ability_coverage_rate"] == 1.0
+    assert result["metrics"]["missing_memory_ability_cases"] == {}
+    assert result["metrics"]["failed_memory_ability_cases"] == {}
+    assert result["gates"]["memory_ability_coverage_rate"] is True
+    assert result["gates"]["missing_memory_ability_cases"] is True
+    assert result["gates"]["failed_memory_ability_cases"] is True
     assert set(LONG_MEMORY_REQUIRED_CASE_IDS) <= {
         case["case_id"] for case in result["cases"]
     }
