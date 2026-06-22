@@ -209,6 +209,13 @@ class _BenchmarkSeedStats:
     seed_cache_hit_count: int = 0
 
 
+@dataclass(frozen=True)
+class _SeedCorpusMetadata:
+    reusable_by_identity: bool
+    source_count: int
+    source_kind_counts: Mapping[str, int]
+
+
 class _TestClientBenchmarkAdapter:
     def __init__(self, client: Any) -> None:
         self._client = client
@@ -467,6 +474,8 @@ def _execute_cases(
     run_results: list[CaseRunResult] = []
     failures: list[dict[str, object]] = []
     seeded_source_keys: set[tuple[str, str, str, str]] = set()
+    seeded_corpus_identities: set[tuple[str, str, int, int]] = set()
+    seed_corpus_metadata_cache: dict[tuple[int, int], _SeedCorpusMetadata] = {}
     seed_stats = _BenchmarkSeedStats()
     progress = _BenchmarkProgress(
         dataset_path=dataset_path,
@@ -503,6 +512,8 @@ def _execute_cases(
                 dataset_hash=dataset_hash,
                 case=case,
                 seeded_source_keys=seeded_source_keys,
+                seeded_corpus_identities=seeded_corpus_identities,
+                seed_corpus_metadata_cache=seed_corpus_metadata_cache,
                 seed_stats=seed_stats,
                 progress=progress,
                 case_index=case_index,
@@ -732,6 +743,43 @@ def _case_selection_group(case: PublicBenchmarkCase) -> str:
     return f"{case.benchmark}:{capability or 'uncategorized'}"
 
 
+def _seed_corpus_identity(
+    case: PublicBenchmarkCase,
+    *,
+    memory_scope_ref: str,
+    thread_ref: str,
+) -> tuple[str, str, int, int]:
+    return (memory_scope_ref, thread_ref, id(case.memories), id(case.documents))
+
+
+def _seed_corpus_metadata(
+    case: PublicBenchmarkCase,
+    *,
+    cache: dict[tuple[int, int], _SeedCorpusMetadata],
+) -> _SeedCorpusMetadata:
+    cache_key = (id(case.memories), id(case.documents))
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    source_kind_counts = {
+        "document": len(case.documents),
+        "fact": len(case.memories),
+    }
+    metadata = _SeedCorpusMetadata(
+        reusable_by_identity=(
+            bool(case.memories or case.documents)
+            and all(memory.source_external_id for memory in case.memories)
+            and all(document.source_external_id for document in case.documents)
+        ),
+        source_count=len(case.memories) + len(case.documents),
+        source_kind_counts={
+            key: count for key, count in source_kind_counts.items() if count > 0
+        },
+    )
+    cache[cache_key] = metadata
+    return metadata
+
+
 def _run_case(
     *,
     adapter: BenchmarkHttpClientPort,
@@ -740,6 +788,8 @@ def _run_case(
     dataset_hash: str,
     case: PublicBenchmarkCase,
     seeded_source_keys: set[tuple[str, str, str, str]],
+    seeded_corpus_identities: set[tuple[str, str, int, int]],
+    seed_corpus_metadata_cache: dict[tuple[int, int], _SeedCorpusMetadata],
     seed_stats: _BenchmarkSeedStats,
     progress: _BenchmarkProgress | None = None,
     case_index: int | None = None,
@@ -747,6 +797,15 @@ def _run_case(
 ) -> CaseRunResult:
     memory_scope_ref = case.memory_scope_external_ref or f"{case.benchmark}-{case.case_id}"
     thread_ref = case.thread_external_ref or f"{case.benchmark}-{case.case_id}"
+    seed_corpus_identity = _seed_corpus_identity(
+        case,
+        memory_scope_ref=memory_scope_ref,
+        thread_ref=thread_ref,
+    )
+    seed_corpus_metadata = _seed_corpus_metadata(
+        case,
+        cache=seed_corpus_metadata_cache,
+    )
     reused_source_count = 0
     reused_source_detail_event_count = 0
     reused_source_kind_counts: dict[str, int] = defaultdict(int)
@@ -786,129 +845,153 @@ def _run_case(
         progress.event("source_seed_reused", **event_fields)
         reused_source_detail_event_count += 1
 
-    for index, memory in enumerate(case.memories):
-        source_id = _safe_identifier(
-            memory.source_external_id or f"{dataset_hash}:{case.case_id}:memory:{index}",
-            max_chars=160,
-        )
-        seed_key = (memory_scope_ref, thread_ref, "fact", source_id)
-        seed_stats.source_attempt_count += 1
-        if seed_key not in seeded_source_keys:
-            if progress is not None:
-                progress.event(
-                    "source_seed_started",
-                    case_index=case_index,
-                    total_case_count=total_case_count,
-                    case_id=case.case_id,
-                    benchmark=case.benchmark,
+    if (
+        seed_corpus_metadata.reusable_by_identity
+        and seed_corpus_identity in seeded_corpus_identities
+    ):
+        seed_stats.source_attempt_count += seed_corpus_metadata.source_count
+        seed_stats.seed_cache_hit_count += seed_corpus_metadata.source_count
+        if progress is not None:
+            progress.event(
+                "source_seed_corpus_reused",
+                case_index=case_index,
+                total_case_count=total_case_count,
+                case_id=case.case_id,
+                benchmark=case.benchmark,
+                reused_source_count=seed_corpus_metadata.source_count,
+                reused_source_kind_counts=dict(seed_corpus_metadata.source_kind_counts),
+                seeded_source_count=len(seeded_source_keys),
+                seed_cache_hit_count=seed_stats.seed_cache_hit_count,
+            )
+    else:
+        for index, memory in enumerate(case.memories):
+            source_id = _safe_identifier(
+                memory.source_external_id
+                or f"{dataset_hash}:{case.case_id}:memory:{index}",
+                max_chars=160,
+            )
+            seed_key = (memory_scope_ref, thread_ref, "fact", source_id)
+            seed_stats.source_attempt_count += 1
+            if seed_key not in seeded_source_keys:
+                if progress is not None:
+                    progress.event(
+                        "source_seed_started",
+                        case_index=case_index,
+                        total_case_count=total_case_count,
+                        case_id=case.case_id,
+                        benchmark=case.benchmark,
+                        source_kind="fact",
+                        source_index=index + 1,
+                        source_id_hash=_short_hash(source_id),
+                        payload_chars=len(memory.text),
+                        seeded_source_count=len(seeded_source_keys),
+                    )
+                _post_required(
+                    adapter,
+                    "/v1/facts",
+                    headers=headers,
+                    payload={
+                        "space_slug": scope_slug,
+                        "memory_scope_external_ref": memory_scope_ref,
+                        "thread_external_ref": thread_ref,
+                        "text": memory.text,
+                        "kind": memory.kind,
+                        "source_refs": [
+                            {
+                                "source_type": "public_benchmark",
+                                "source_id": source_id,
+                                "quote_preview": memory.text[:240],
+                            }
+                        ],
+                        "classification": "internal",
+                    },
+                    idempotency_key=source_id,
+                )
+                seeded_source_keys.add(seed_key)
+                seed_stats.seeded_source_count = len(seeded_source_keys)
+                if progress is not None:
+                    progress.event(
+                        "source_seed_completed",
+                        case_index=case_index,
+                        total_case_count=total_case_count,
+                        case_id=case.case_id,
+                        benchmark=case.benchmark,
+                        source_kind="fact",
+                        source_index=index + 1,
+                        source_id_hash=_short_hash(source_id),
+                        seeded_source_count=len(seeded_source_keys),
+                    )
+            else:
+                record_reused_source(
                     source_kind="fact",
                     source_index=index + 1,
-                    source_id_hash=_short_hash(source_id),
-                    payload_chars=len(memory.text),
-                    seeded_source_count=len(seeded_source_keys),
+                    source_id=source_id,
                 )
-            _post_required(
-                adapter,
-                "/v1/facts",
-                headers=headers,
-                payload={
-                    "space_slug": scope_slug,
-                    "memory_scope_external_ref": memory_scope_ref,
-                    "thread_external_ref": thread_ref,
-                    "text": memory.text,
-                    "kind": memory.kind,
-                    "source_refs": [
-                        {
-                            "source_type": "public_benchmark",
-                            "source_id": source_id,
-                            "quote_preview": memory.text[:240],
-                        }
-                    ],
-                    "classification": "internal",
-                },
-                idempotency_key=source_id,
-            )
-            seeded_source_keys.add(seed_key)
-            seed_stats.seeded_source_count = len(seeded_source_keys)
-            if progress is not None:
-                progress.event(
-                    "source_seed_completed",
-                    case_index=case_index,
-                    total_case_count=total_case_count,
-                    case_id=case.case_id,
-                    benchmark=case.benchmark,
-                    source_kind="fact",
-                    source_index=index + 1,
-                    source_id_hash=_short_hash(source_id),
-                    seeded_source_count=len(seeded_source_keys),
-                )
-        else:
-            record_reused_source(
-                source_kind="fact",
-                source_index=index + 1,
-                source_id=source_id,
-            )
 
-    for index, document in enumerate(case.documents):
-        source_id = _safe_identifier(
-            document.source_external_id or f"{dataset_hash}:{case.case_id}:doc:{index}",
-            max_chars=240,
-        )
-        seed_key = (memory_scope_ref, thread_ref, "document", source_id)
-        seed_stats.source_attempt_count += 1
-        if seed_key not in seeded_source_keys:
-            if progress is not None:
-                progress.event(
-                    "source_seed_started",
-                    case_index=case_index,
-                    total_case_count=total_case_count,
-                    case_id=case.case_id,
-                    benchmark=case.benchmark,
+        for index, document in enumerate(case.documents):
+            source_id = _safe_identifier(
+                document.source_external_id
+                or f"{dataset_hash}:{case.case_id}:doc:{index}",
+                max_chars=240,
+            )
+            seed_key = (memory_scope_ref, thread_ref, "document", source_id)
+            seed_stats.source_attempt_count += 1
+            if seed_key not in seeded_source_keys:
+                if progress is not None:
+                    progress.event(
+                        "source_seed_started",
+                        case_index=case_index,
+                        total_case_count=total_case_count,
+                        case_id=case.case_id,
+                        benchmark=case.benchmark,
+                        source_kind="document",
+                        source_index=index + 1,
+                        source_id_hash=_short_hash(source_id),
+                        source_type=document.source_type,
+                        payload_chars=len(document.text),
+                        seeded_source_count=len(seeded_source_keys),
+                    )
+                _post_required(
+                    adapter,
+                    "/v1/documents",
+                    headers=headers,
+                    payload={
+                        "space_slug": scope_slug,
+                        "memory_scope_external_ref": memory_scope_ref,
+                        "thread_external_ref": thread_ref,
+                        "title": document.title,
+                        "text": document.text,
+                        "source_type": document.source_type,
+                        "source_external_id": source_id,
+                        "classification": document.classification,
+                    },
+                    idempotency_key=source_id,
+                )
+                seeded_source_keys.add(seed_key)
+                seed_stats.seeded_source_count = len(seeded_source_keys)
+                if progress is not None:
+                    progress.event(
+                        "source_seed_completed",
+                        case_index=case_index,
+                        total_case_count=total_case_count,
+                        case_id=case.case_id,
+                        benchmark=case.benchmark,
+                        source_kind="document",
+                        source_index=index + 1,
+                        source_id_hash=_short_hash(source_id),
+                        source_type=document.source_type,
+                        seeded_source_count=len(seeded_source_keys),
+                    )
+            else:
+                record_reused_source(
                     source_kind="document",
                     source_index=index + 1,
-                    source_id_hash=_short_hash(source_id),
+                    source_id=source_id,
                     source_type=document.source_type,
-                    payload_chars=len(document.text),
-                    seeded_source_count=len(seeded_source_keys),
                 )
-            _post_required(
-                adapter,
-                "/v1/documents",
-                headers=headers,
-                payload={
-                    "space_slug": scope_slug,
-                    "memory_scope_external_ref": memory_scope_ref,
-                    "thread_external_ref": thread_ref,
-                    "title": document.title,
-                    "text": document.text,
-                    "source_type": document.source_type,
-                    "source_external_id": source_id,
-                    "classification": document.classification,
-                },
-                idempotency_key=source_id,
-            )
-            seeded_source_keys.add(seed_key)
-            seed_stats.seeded_source_count = len(seeded_source_keys)
-            if progress is not None:
-                progress.event(
-                    "source_seed_completed",
-                    case_index=case_index,
-                    total_case_count=total_case_count,
-                    case_id=case.case_id,
-                    benchmark=case.benchmark,
-                    source_kind="document",
-                    source_index=index + 1,
-                    source_id_hash=_short_hash(source_id),
-                    source_type=document.source_type,
-                    seeded_source_count=len(seeded_source_keys),
-                )
-        else:
-            record_reused_source(
-                source_kind="document",
-                source_index=index + 1,
-                source_id=source_id,
-                source_type=document.source_type,
-            )
+
+        if seed_corpus_metadata.reusable_by_identity:
+            seeded_corpus_identities.add(seed_corpus_identity)
 
     if progress is not None and reused_source_count:
         progress.event(

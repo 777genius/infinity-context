@@ -458,21 +458,21 @@ def test_public_memory_benchmark_bounds_reused_source_progress_details(
     dataset = tmp_path / "dataset.json"
     progress_out = tmp_path / "progress.jsonl"
     dataset.write_text("[]", encoding="utf-8")
-    shared_documents = tuple(
+    shared_documents = [
         BenchmarkDocumentInput(
             title=f"Shared document {index}",
             text=f"SHARED_MARKER lives in shared public benchmark document {index}.",
             source_external_id=f"shared-document-{index}",
         )
         for index in range(5)
-    )
+    ]
     cases = tuple(
         PublicBenchmarkCase(
             benchmark="locomo",
             case_id=f"case-{index}",
             question="Where is the shared marker?",
             expected_terms=("SHARED_MARKER",),
-            documents=shared_documents,
+            documents=tuple(shared_documents),
             memory_scope_external_ref="shared-scope",
             thread_external_ref="shared-thread",
         )
@@ -513,6 +513,77 @@ def test_public_memory_benchmark_bounds_reused_source_progress_details(
     assert summary["reuse_detail_event_count"] == 3
     assert summary["seed_cache_hit_count"] == 5
     assert "shared-document-4" not in rendered
+
+
+def test_public_memory_benchmark_reuses_seeded_corpus_without_per_source_scan(
+    tmp_path: Path,
+) -> None:
+    adapter = _CountingBenchmarkAdapter()
+    dataset = tmp_path / "dataset.json"
+    progress_out = tmp_path / "progress.jsonl"
+    dataset.write_text("[]", encoding="utf-8")
+    shared_documents = tuple(
+        BenchmarkDocumentInput(
+            title=f"Shared document {index}",
+            text=f"SHARED_MARKER lives in shared public benchmark document {index}.",
+            source_external_id=f"shared-document-{index}",
+        )
+        for index in range(5)
+    )
+    cases = tuple(
+        PublicBenchmarkCase(
+            benchmark="locomo",
+            case_id=f"case-{index}",
+            question="Where is the shared marker?",
+            expected_terms=("SHARED_MARKER",),
+            documents=shared_documents,
+            memory_scope_external_ref="shared-scope",
+            thread_external_ref="shared-thread",
+        )
+        for index in range(2)
+    )
+
+    result = _execute_cases(
+        adapter=adapter,
+        headers={"Authorization": "Bearer test-token"},
+        cases=cases,
+        dataset_path=dataset,
+        min_accuracy=1.0,
+        started=time.perf_counter(),
+        progress_out=progress_out,
+    )
+
+    progress_events = [
+        json.loads(line) for line in progress_out.read_text(encoding="utf-8").splitlines()
+    ]
+    event_counts = {
+        event_type: sum(1 for event in progress_events if event["event_type"] == event_type)
+        for event_type in {
+            "source_seed_completed",
+            "source_seed_corpus_reused",
+            "source_seed_reuse_summary",
+            "source_seed_reused",
+        }
+    }
+    corpus_reused = next(
+        event
+        for event in progress_events
+        if event["event_type"] == "source_seed_corpus_reused"
+    )
+
+    assert result["ok"] is True
+    assert result["metrics"]["seed_source_attempt_count"] == 10
+    assert result["metrics"]["seeded_source_count"] == 5
+    assert result["metrics"]["seed_cache_hit_count"] == 5
+    assert len([post for post in adapter.posts if post[0] == "/v1/documents"]) == 5
+    assert event_counts == {
+        "source_seed_completed": 5,
+        "source_seed_corpus_reused": 1,
+        "source_seed_reuse_summary": 0,
+        "source_seed_reused": 0,
+    }
+    assert corpus_reused["reused_source_count"] == 5
+    assert corpus_reused["reused_source_kind_counts"] == {"document": 5}
 
 
 def test_public_memory_benchmark_uses_recall_oriented_context_budget(
