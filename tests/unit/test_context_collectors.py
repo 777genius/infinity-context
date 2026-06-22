@@ -96,6 +96,21 @@ def test_rank_facts_for_query_prefers_phrase_signal_over_loose_decoy_terms() -> 
     assert ranked == (target,)
 
 
+def test_rank_facts_for_query_drops_long_query_with_single_weak_hit() -> None:
+    weak = _fact(
+        "fact_warranty",
+        "Billing warranty terms are tracked separately from project memories.",
+    )
+
+    ranked = _rank_facts_for_query(
+        (weak,),
+        query_text="unrelated yakutsk cooking recipe quantum aquarium warranty",
+        limit=1,
+    )
+
+    assert ranked == ()
+
+
 def _fact(fact_id: str, text: str) -> MemoryFact:
     now = datetime(2026, 1, 1, tzinfo=UTC)
     return MemoryFact.create(

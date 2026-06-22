@@ -146,6 +146,22 @@ def is_query_relevance_sufficient(relevance: QueryRelevance) -> bool:
     return relevance.distinctive_term_count <= 0 or relevance.distinctive_term_hits > 0
 
 
+def is_fact_candidate_relevance_sufficient(relevance: QueryRelevance) -> bool:
+    if not is_query_relevance_sufficient(relevance):
+        return False
+    if relevance.query_term_count < 6:
+        return True
+    return (
+        relevance.phrase_bigram_hits > 0
+        or relevance.distinctive_term_hits >= 2
+        or (
+            relevance.unique_term_hits >= 2
+            and relevance.distinctive_term_hits >= 1
+            and relevance.hit_ratio >= 0.25
+        )
+    )
+
+
 def has_project_identity_mismatch(*, query: str, text: str) -> bool:
     query_projects = _project_identity_variant_sets(query)
     text_projects = _project_identity_variant_sets(text)

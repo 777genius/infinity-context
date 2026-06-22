@@ -15,6 +15,7 @@ from infinity_context_core.application.context_query_expansion import (
 )
 from infinity_context_core.application.context_relevance import (
     has_project_identity_mismatch,
+    is_fact_candidate_relevance_sufficient,
     score_query_relevance,
 )
 from infinity_context_core.application.context_snippets import (
@@ -243,6 +244,8 @@ def _rank_facts_for_query(
         if has_project_identity_mismatch(query=query_text, text=fact.text):
             continue
         relevance = score_query_relevance(query=query_text, text=fact.text)
+        if not is_fact_candidate_relevance_sufficient(relevance):
+            continue
         ranked.append((relevance, index, fact))
     ranked.sort(
         key=lambda item: (

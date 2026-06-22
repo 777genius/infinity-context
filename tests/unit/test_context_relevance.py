@@ -1,6 +1,7 @@
 from infinity_context_core.application.context_lexical import query_terms
 from infinity_context_core.application.context_relevance import (
     has_project_identity_mismatch,
+    is_fact_candidate_relevance_sufficient,
     is_query_relevance_sufficient,
     score_query_relevance,
 )
@@ -288,6 +289,44 @@ def test_query_relevance_policy_keeps_entity_partial_match() -> None:
     assert relevance.distinctive_term_count == 1
     assert relevance.distinctive_term_hits == 1
     assert is_query_relevance_sufficient(relevance) is True
+
+
+def test_fact_candidate_relevance_rejects_long_query_with_single_weak_hit() -> None:
+    relevance = score_query_relevance(
+        query="unrelated yakutsk cooking recipe quantum aquarium warranty",
+        text="Billing warranty terms are tracked separately from project memories.",
+    )
+
+    assert relevance.query_term_count >= 6
+    assert relevance.unique_term_hits == 1
+    assert relevance.distinctive_term_hits == 1
+    assert is_query_relevance_sufficient(relevance) is True
+    assert is_fact_candidate_relevance_sufficient(relevance) is False
+
+
+def test_fact_candidate_relevance_keeps_strong_long_query_match() -> None:
+    relevance = score_query_relevance(
+        query="primary runtime temporal fact engine Graphiti Obsidian 3D graph",
+        text="LONGMEM_DECISION_GRAPHITI: Graphiti remains the temporal fact engine.",
+    )
+
+    assert relevance.query_term_count >= 6
+    assert relevance.distinctive_term_hits >= 2
+    assert is_fact_candidate_relevance_sufficient(relevance) is True
+
+
+def test_fact_candidate_relevance_keeps_current_temporal_fact_for_old_query() -> None:
+    relevance = score_query_relevance(
+        query="legacy documents pgvector graph search disabled provider",
+        text=(
+            "LONGMEM_PROVIDER_CURRENT: documents use Qdrant RAG while Graphiti "
+            "handles temporal facts."
+        ),
+    )
+
+    assert relevance.unique_term_hits >= 2
+    assert relevance.distinctive_term_hits >= 1
+    assert is_fact_candidate_relevance_sufficient(relevance) is True
 
 
 def test_query_relevance_phrase_signal_beats_loose_decoy_terms() -> None:
