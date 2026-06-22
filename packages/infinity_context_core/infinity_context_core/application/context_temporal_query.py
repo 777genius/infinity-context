@@ -12,6 +12,7 @@ from infinity_context_core.application.context_diagnostics import (
     safe_score_signals,
 )
 from infinity_context_core.application.context_lexical import query_terms
+from infinity_context_core.application.context_temporal_hints import temporal_hint_codes
 from infinity_context_core.application.dto import ContextItem
 
 _TOKEN_RE = re.compile(r"\w+", re.UNICODE)
@@ -74,37 +75,6 @@ _CHANGE_TERMS = frozenset(
 )
 _AFTER_TERMS = frozenset({"after", "following", "later", "после", "позже", "затем"})
 _BEFORE_TERMS = frozenset({"before", "earlier", "prior", "до", "перед", "раньше"})
-_RELATIVE_TIME_HINT_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
-    (re.compile(r"\b(?:last|previous)\s+week\b", re.IGNORECASE), "last_week"),
-    (
-        re.compile(
-            r"\b(?:\d+|one|two|three|four|five|six)\s+hours?\s+ago\b",
-            re.IGNORECASE,
-        ),
-        "hours_ago",
-    ),
-    (re.compile(r"\bhours?\s+ago\b", re.IGNORECASE), "hours_ago"),
-    (re.compile(r"\byesterday\b", re.IGNORECASE), "yesterday"),
-    (re.compile(r"\bearlier\s+today\b", re.IGNORECASE), "earlier_today"),
-    (re.compile(r"\bthis\s+morning\b", re.IGNORECASE), "today_morning"),
-    (re.compile(r"\bthis\s+afternoon\b", re.IGNORECASE), "today_afternoon"),
-    (re.compile(r"\bthis\s+evening\b", re.IGNORECASE), "today_evening"),
-    (re.compile(r"\btoday\b", re.IGNORECASE), "today"),
-    (
-        re.compile(
-            r"(?:прошл\w*\s+недел\w*|недел\w*\s+назад)",
-            re.IGNORECASE,
-        ),
-        "last_week",
-    ),
-    (re.compile(r"(?:\d+\s+час\w*|час)\s+назад", re.IGNORECASE), "hours_ago"),
-    (re.compile(r"\bвчера\b", re.IGNORECASE), "yesterday"),
-    (re.compile(r"ранее\s+сегодня", re.IGNORECASE), "earlier_today"),
-    (re.compile(r"сегодня\s+утром", re.IGNORECASE), "today_morning"),
-    (re.compile(r"сегодня\s+д[нн]ем", re.IGNORECASE), "today_afternoon"),
-    (re.compile(r"сегодня\s+вечером", re.IGNORECASE), "today_evening"),
-    (re.compile(r"\bсегодня\b", re.IGNORECASE), "today"),
-)
 
 
 @dataclass(frozen=True)
@@ -169,7 +139,7 @@ class TemporalQueryIntent:
 
 def build_temporal_query_intent(query: str) -> TemporalQueryIntent:
     variants = _query_variant_set(query)
-    relative_time_hints = _relative_time_hints(query)
+    relative_time_hints = temporal_hint_codes(query)
     excludes_stale = bool(_EXCLUDE_STALE_RE.search(query))
     requests_change = bool(variants.intersection(_CHANGE_TERMS))
     requests_previous = (
@@ -283,19 +253,6 @@ def _query_variant_set(query: str) -> frozenset[str]:
         if len(token) >= 2:
             variants.add(token)
     return frozenset(variants)
-
-
-def _relative_time_hints(query: str) -> tuple[str, ...]:
-    hints: list[str] = []
-    seen: set[str] = set()
-    for pattern, hint in _RELATIVE_TIME_HINT_PATTERNS:
-        if hint in seen or not pattern.search(query):
-            continue
-        hints.append(hint)
-        seen.add(hint)
-        if len(hints) >= 4:
-            break
-    return tuple(hints)
 
 
 def _temporal_hint_code(

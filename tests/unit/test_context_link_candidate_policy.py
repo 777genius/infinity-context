@@ -177,6 +177,15 @@ def test_query_terms_and_temporal_hints_include_partial_day_event_identity() -> 
     assert [hint.code for hint in hints] == ["earlier_today", "today_morning", "today"]
 
 
+def test_temporal_hints_expose_specific_and_canonical_codes() -> None:
+    hints = temporal_hints("Alex notes two hours ago and previous week.")
+
+    assert [(hint.code, hint.canonical_code) for hint in hints] == [
+        ("2_hours_ago", "hours_ago"),
+        ("last_week", "last_week"),
+    ]
+
+
 def test_partial_day_temporal_hint_boosts_recent_candidate_without_text_hit() -> None:
     now = datetime(2026, 6, 19, 15, tzinfo=UTC)
 

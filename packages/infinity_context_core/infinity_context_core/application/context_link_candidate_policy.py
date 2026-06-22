@@ -4,11 +4,17 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from math import log
 
-from infinity_context_core.application.dto import ContextLinkCandidate, SuggestContextLinksCommand
+from infinity_context_core.application.context_temporal_hints import (
+    TemporalHint,
+    temporal_hint_windows,
+)
+from infinity_context_core.application.dto import (
+    ContextLinkCandidate,
+    SuggestContextLinksCommand,
+)
 from infinity_context_core.application.safe_payload import safe_metadata_text
 from infinity_context_core.application.semantic_dedupe import semantic_memory_terms
 from infinity_context_core.application.sensitive_text import (
@@ -111,62 +117,6 @@ _LINK_STOP_TERMS = {
     "часов",
     "утром",
 }
-_NUMERIC_TEMPORAL_HINT_PATTERNS: tuple[tuple[str, re.Pattern[str], float, int], ...] = (
-    (
-        "hours",
-        re.compile(
-            r"\b(?:(?:about|around)\s+)?(?P<count>\d{1,3})\s+hours?\s+ago\b",
-            re.IGNORECASE,
-        ),
-        1.0,
-        24 * 14,
-    ),
-    (
-        "hours",
-        re.compile(
-            r"\b(?:около\s+)?(?P<count>\d{1,3})\s+час(?:а|ов)?\s+назад\b",
-            re.IGNORECASE,
-        ),
-        1.0,
-        24 * 14,
-    ),
-    (
-        "days",
-        re.compile(
-            r"\b(?:(?:about|around)\s+)?(?P<count>\d{1,3})\s+days?\s+ago\b",
-            re.IGNORECASE,
-        ),
-        24.0,
-        365,
-    ),
-    (
-        "days",
-        re.compile(
-            r"\b(?:около\s+)?(?P<count>\d{1,3})\s+д(?:ень|ня|ней)\s+назад\b",
-            re.IGNORECASE,
-        ),
-        24.0,
-        365,
-    ),
-    (
-        "weeks",
-        re.compile(
-            r"\b(?:(?:about|around)\s+)?(?P<count>\d{1,2})\s+weeks?\s+ago\b",
-            re.IGNORECASE,
-        ),
-        24.0 * 7,
-        52,
-    ),
-    (
-        "weeks",
-        re.compile(
-            r"\b(?:около\s+)?(?P<count>\d{1,2})\s+недел[юи]\s+назад\b",
-            re.IGNORECASE,
-        ),
-        24.0 * 7,
-        52,
-    ),
-)
 _PROMPT_INJECTION_SIGNAL_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "ignore_instructions",
@@ -206,82 +156,6 @@ _PROMPT_INJECTION_SIGNAL_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
         ),
     ),
 )
-_TEMPORAL_HINT_PATTERNS: tuple[tuple[str, re.Pattern[str], float, float], ...] = (
-    (
-        "earlier_today",
-        re.compile(r"\b(?:earlier\s+today|ранее\s+сегодня)\b", re.IGNORECASE),
-        0.0,
-        30.0,
-    ),
-    (
-        "today_morning",
-        re.compile(
-            r"\b(?:this\s+morning|сегодня\s+утром|утром\s+сегодня)\b",
-            re.IGNORECASE,
-        ),
-        0.0,
-        18.0,
-    ),
-    (
-        "today_afternoon",
-        re.compile(
-            r"\b(?:this\s+afternoon|сегодня\s+д[нн]ём|д[нн]ём\s+сегодня|"
-            r"сегодня\s+днем|днем\s+сегодня)\b",
-            re.IGNORECASE,
-        ),
-        0.0,
-        12.0,
-    ),
-    (
-        "today_evening",
-        re.compile(
-            r"\b(?:this\s+evening|сегодня\s+вечером|вечером\s+сегодня)\b",
-            re.IGNORECASE,
-        ),
-        0.0,
-        8.0,
-    ),
-    (
-        "hour_ago",
-        re.compile(
-            r"\b(?:an?\s+hour\s+ago|1\s+hour\s+ago|last\s+hour|"
-            r"(?<!\d\s)(?:около\s+)?час(?:а|ов)?\s+назад)\b",
-            re.IGNORECASE,
-        ),
-        0.0,
-        2.5,
-    ),
-    (
-        "today",
-        re.compile(r"\b(?:today|сегодня)\b", re.IGNORECASE),
-        0.0,
-        30.0,
-    ),
-    (
-        "yesterday",
-        re.compile(r"\b(?:yesterday|вчера)\b", re.IGNORECASE),
-        18.0,
-        54.0,
-    ),
-    (
-        "last_week",
-        re.compile(
-            r"\b(?:last\s+week|(?:a\s+)?week\s+ago|1\s+week\s+ago|"
-            r"на\s+прошлой\s+неделе|прошл(?:ой|ую)\s+недел[юе]|"
-            r"недел[юи]\s+назад)\b",
-            re.IGNORECASE,
-        ),
-        24.0,
-        24.0 * 10,
-    ),
-)
-
-
-@dataclass(frozen=True)
-class TemporalHint:
-    code: str
-    min_hours: float
-    max_hours: float
 
 
 def terms(text: str) -> tuple[str, ...]:
@@ -318,6 +192,10 @@ def excluded_term_hits(
         return ()
     lowered = f"{candidate.label} {candidate.preview}".lower()
     return tuple(term for term in excluded_query_terms if term in lowered)
+
+
+def temporal_hints(text: str) -> tuple[TemporalHint, ...]:
+    return temporal_hint_windows(text)
 
 
 def score_text_candidate(
@@ -478,20 +356,6 @@ def has_link_signal(*, matched_terms: tuple[str, ...], reasons: list[str]) -> bo
         }
         for reason in reasons
     )
-
-
-def temporal_hints(text: str) -> tuple[TemporalHint, ...]:
-    hints: list[TemporalHint] = []
-    seen: set[str] = set()
-    for hint in _numeric_temporal_hints(text):
-        seen.add(hint.code)
-        hints.append(hint)
-    for code, pattern, min_hours, max_hours in _TEMPORAL_HINT_PATTERNS:
-        if code in seen or not pattern.search(text):
-            continue
-        seen.add(code)
-        hints.append(TemporalHint(code=code, min_hours=min_hours, max_hours=max_hours))
-    return tuple(hints)
 
 
 def prompt_injection_signal_codes(text: str) -> tuple[str, ...]:
@@ -724,33 +588,6 @@ def is_same_source(
     command: SuggestContextLinksCommand,
 ) -> bool:
     return key[0] == command.source_type and key[1] == command.source_id
-
-
-def _numeric_temporal_hints(text: str) -> tuple[TemporalHint, ...]:
-    hints: list[TemporalHint] = []
-    seen: set[str] = set()
-    for unit, pattern, unit_hours, max_count in _NUMERIC_TEMPORAL_HINT_PATTERNS:
-        for match in pattern.finditer(text):
-            count = int(match.group("count"))
-            if count <= 0 or count > max_count:
-                continue
-            code = f"{count}_{unit}_ago"
-            if code in seen:
-                continue
-            seen.add(code)
-            min_hours, max_hours = _numeric_temporal_window(count * unit_hours)
-            hints.append(TemporalHint(code=code, min_hours=min_hours, max_hours=max_hours))
-    return tuple(hints)
-
-
-def _numeric_temporal_window(target_hours: float) -> tuple[float, float]:
-    if target_hours <= 24:
-        tolerance = max(1.0, target_hours * 0.3)
-    elif target_hours <= 24 * 7:
-        tolerance = max(6.0, target_hours * 0.2)
-    else:
-        tolerance = max(24.0, target_hours * 0.15)
-    return max(0.0, target_hours - tolerance), target_hours + tolerance
 
 
 def _matches_temporal_hint(hints: tuple[TemporalHint, ...], age_hours: float) -> bool:

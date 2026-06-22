@@ -34,11 +34,15 @@ def test_temporal_query_intent_detects_change_and_previous_state() -> None:
 
 def test_temporal_query_intent_detects_relative_time_hints() -> None:
     last_week = build_temporal_query_intent("What did Alex say last week?")
+    previous_week = build_temporal_query_intent("What did Alex say previous week?")
     hours_ago = build_temporal_query_intent("What did Alex say 2 hours ago?")
+    word_hours_ago = build_temporal_query_intent("What did Alex say two hours ago?")
     russian = build_temporal_query_intent("Что Алекс сказал на прошлой неделе?")
 
     assert last_week.relative_time_hints == ("last_week",)
+    assert previous_week.relative_time_hints == ("last_week",)
     assert hours_ago.relative_time_hints == ("hours_ago",)
+    assert word_hours_ago.relative_time_hints == ("hours_ago",)
     assert russian.relative_time_hints == ("last_week",)
     assert "relative_time_hint" in last_week.diagnostics()[
         "temporal_query_intent_reasons"
