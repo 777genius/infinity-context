@@ -35,6 +35,9 @@ from infinity_context_core.application.context_policy import (
     is_context_fact_visible,
     is_context_review_fact_visible,
 )
+from infinity_context_core.application.context_query_decomposition import (
+    build_query_decomposition_plan,
+)
 from infinity_context_core.application.context_query_expansion import (
     build_query_expansion_plan,
 )
@@ -46,7 +49,7 @@ from infinity_context_core.application.context_query_intent import (
     query_anchor_lookup_keys,
 )
 from infinity_context_core.application.context_ranking import (
-    apply_bm25_lexical_boosts,
+    apply_query_plan_bm25_lexical_boosts,
     apply_rank_fusion_boosts,
     best_query_relevance,
     dedupe_rank_items,
@@ -160,9 +163,17 @@ class BuildContextUseCase:
 
     async def execute(self, query: BuildContextQuery) -> ContextBundle:
         memory_scope_ids = tuple(str(memory_scope_id) for memory_scope_id in query.memory_scope_ids)
-        query_expansion_plan = build_query_expansion_plan(query.query)
         query_anchor_intent = build_query_anchor_intent(query.query)
         temporal_query_intent = build_temporal_query_intent(query.query)
+        query_decomposition_plan = build_query_decomposition_plan(
+            query.query,
+            anchor_intent=query_anchor_intent,
+            temporal_intent=temporal_query_intent,
+        )
+        query_expansion_plan = build_query_expansion_plan(
+            query.query,
+            decomposition_plan=query_decomposition_plan,
+        )
         canonical = await self._canonical_collector.collect(
             query=query,
             memory_scope_ids=memory_scope_ids,
@@ -382,7 +393,10 @@ class BuildContextUseCase:
         deduped = await self._hydrator.revalidate_visible_items(
             dedupe_rank_items(
                 apply_rank_fusion_boosts(
-                    apply_bm25_lexical_boosts(tuple(items), query=query.query)
+                    apply_query_plan_bm25_lexical_boosts(
+                        tuple(items),
+                        plan=query_expansion_plan,
+                    )
                 )
             ),
             query=query,
@@ -441,7 +455,7 @@ class BuildContextUseCase:
         )
         candidate_items = dedupe_rank_items(
             apply_rank_fusion_boosts(
-                apply_bm25_lexical_boosts(
+                apply_query_plan_bm25_lexical_boosts(
                     apply_temporal_query_intent_boosts(
                         (
                             *temporal_items,
@@ -452,7 +466,7 @@ class BuildContextUseCase:
                         ),
                         intent=temporal_query_intent,
                     ),
-                    query=query.query,
+                    plan=query_expansion_plan,
                 )
             )
         )

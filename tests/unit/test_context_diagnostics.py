@@ -133,6 +133,43 @@ def test_context_bundle_diagnostics_preserve_temporal_query_intent_when_bounded(
     ]
 
 
+def test_context_bundle_diagnostics_preserve_query_plan_when_bounded() -> None:
+    diagnostics = normalize_context_bundle_diagnostics(
+        {
+            **{f"extra_{index}": "x" * 500 for index in range(90)},
+            "query_expansion_status": "available",
+            "query_expansion_count": 2,
+            "query_expansion_reasons": [
+                "visual_text_evidence_bridge",
+                "change_over_time_bridge",
+            ],
+            "query_decomposition_status": "available",
+            "query_decomposition_count": 3,
+            "query_decomposition_reasons": [
+                "decomposition_clause",
+                "decomposition_temporal_change",
+                "decomposition_artifact_evidence",
+            ],
+        },
+        items=(),
+    )
+
+    assert diagnostics["diagnostics_truncated"] is True
+    assert diagnostics["query_expansion_status"] == "available"
+    assert diagnostics["query_expansion_count"] == 2
+    assert diagnostics["query_expansion_reasons"] == [
+        "visual_text_evidence_bridge",
+        "change_over_time_bridge",
+    ]
+    assert diagnostics["query_decomposition_status"] == "available"
+    assert diagnostics["query_decomposition_count"] == 3
+    assert diagnostics["query_decomposition_reasons"] == [
+        "decomposition_clause",
+        "decomposition_temporal_change",
+        "decomposition_artifact_evidence",
+    ]
+
+
 def test_context_bundle_diagnostics_preserve_artifact_coordinate_drop_counters() -> None:
     diagnostics = normalize_context_bundle_diagnostics(
         {

@@ -129,24 +129,7 @@ def apply_bm25_lexical_boosts(
     terms = query_terms(query)
     if not terms:
         return items
-    documents = tuple(_bm25_document(item=item, terms=terms) for item in items)
-    average_length = sum(document.length for document in documents) / len(documents)
-    document_frequencies = tuple(
-        sum(1 for document in documents if document.term_frequencies[index] > 0)
-        for index, _ in enumerate(terms)
-    )
-    raw_scores = tuple(
-        _bm25_score(
-            term_frequencies=document.term_frequencies,
-            document_frequencies=document_frequencies,
-            document_count=len(documents),
-            document_length=document.length,
-            average_document_length=max(1.0, average_length),
-            k1=k1,
-            b=b,
-        )
-        for document in documents
-    )
+    documents, raw_scores = _bm25_raw_scores(items=items, terms=terms, k1=k1, b=b)
     max_raw_score = max(raw_scores, default=0.0)
     if max_raw_score <= 0:
         return items
@@ -162,6 +145,34 @@ def apply_bm25_lexical_boosts(
             ),
         )
         for document, raw_score in zip(documents, raw_scores, strict=True)
+    )
+
+
+def apply_query_plan_bm25_lexical_boosts(
+    items: tuple[ContextItem, ...],
+    *,
+    plan: QueryExpansionPlan,
+    k1: float = _BM25_K1,
+    b: float = _BM25_B,
+    max_boost: float = _BM25_MAX_BOOST,
+) -> tuple[ContextItem, ...]:
+    if len(items) <= 1 or k1 <= 0 or not 0 <= b <= 1 or max_boost <= 0:
+        return items
+    matches = _best_bm25_query_matches(items=items, plan=plan, k1=k1, b=b)
+    if not any(match.normalized_score > 0 for match in matches):
+        return items
+    return tuple(
+        _with_bm25_lexical_boost(
+            item,
+            raw_score=match.normalized_score,
+            max_raw_score=1.0,
+            max_boost=max_boost,
+            query_term_count=match.query_term_count,
+            matched_term_count=match.matched_term_count,
+            query_reason=match.query_reason,
+            query_coverage=match.query_coverage,
+        )
+        for item, match in zip(items, matches, strict=True)
     )
 
 
@@ -352,6 +363,127 @@ class _Bm25Document:
     length: int
 
 
+@dataclass(frozen=True)
+class _Bm25QueryMatch:
+    normalized_score: float
+    query_term_count: int
+    matched_term_count: int
+    query_reason: str
+    query_coverage: float = 0.0
+
+
+def _best_bm25_query_matches(
+    *,
+    items: tuple[ContextItem, ...],
+    plan: QueryExpansionPlan,
+    k1: float,
+    b: float,
+) -> tuple[_Bm25QueryMatch, ...]:
+    best_matches = tuple(
+        _Bm25QueryMatch(
+            normalized_score=0.0,
+            query_term_count=0,
+            matched_term_count=0,
+            query_reason="",
+            query_coverage=0.0,
+        )
+        for _ in items
+    )
+    for expansion in plan.retrieval_queries:
+        terms = query_terms(expansion.query)
+        if not terms:
+            continue
+        documents, raw_scores = _bm25_raw_scores(
+            items=items,
+            terms=terms,
+            k1=k1,
+            b=b,
+        )
+        max_raw_score = max(raw_scores, default=0.0)
+        if max_raw_score <= 0:
+            continue
+        query_matches: list[_Bm25QueryMatch] = []
+        for document, raw_score in zip(documents, raw_scores, strict=True):
+            matched_term_count = sum(
+                1 for frequency in document.term_frequencies if frequency > 0
+            )
+            coverage = _bm25_query_coverage(
+                matched_term_count=matched_term_count,
+                query_term_count=len(terms),
+            )
+            query_matches.append(
+                _Bm25QueryMatch(
+                    normalized_score=round(
+                        min(1.0, raw_score / max_raw_score) * coverage,
+                        6,
+                    ),
+                    query_term_count=len(terms),
+                    matched_term_count=matched_term_count,
+                    query_reason=expansion.reason,
+                    query_coverage=coverage,
+                )
+            )
+        best_matches = tuple(
+            _select_bm25_query_match(best, candidate)
+            for best, candidate in zip(best_matches, tuple(query_matches), strict=True)
+        )
+    return best_matches
+
+
+def _select_bm25_query_match(
+    best: _Bm25QueryMatch,
+    candidate: _Bm25QueryMatch,
+) -> _Bm25QueryMatch:
+    if candidate.matched_term_count <= 0:
+        return best
+    if candidate.normalized_score > best.normalized_score:
+        return candidate
+    if candidate.normalized_score < best.normalized_score:
+        return best
+    if candidate.matched_term_count > best.matched_term_count:
+        return candidate
+    if candidate.matched_term_count < best.matched_term_count:
+        return best
+    if candidate.query_reason == "original_query" and best.query_reason != "original_query":
+        return candidate
+    return best
+
+
+def _bm25_raw_scores(
+    *,
+    items: tuple[ContextItem, ...],
+    terms: tuple[LexicalQueryTerm, ...],
+    k1: float,
+    b: float,
+) -> tuple[tuple[_Bm25Document, ...], tuple[float, ...]]:
+    documents = tuple(_bm25_document(item=item, terms=terms) for item in items)
+    average_length = sum(document.length for document in documents) / len(documents)
+    document_frequencies = tuple(
+        sum(1 for document in documents if document.term_frequencies[index] > 0)
+        for index, _ in enumerate(terms)
+    )
+    raw_scores = tuple(
+        _bm25_score(
+            term_frequencies=document.term_frequencies,
+            document_frequencies=document_frequencies,
+            document_count=len(documents),
+            document_length=document.length,
+            average_document_length=max(1.0, average_length),
+            k1=k1,
+            b=b,
+        )
+        for document in documents
+    )
+    return documents, raw_scores
+
+
+def _bm25_query_coverage(*, matched_term_count: int, query_term_count: int) -> float:
+    if matched_term_count <= 0 or query_term_count <= 0:
+        return 0.0
+    denominator = min(8, max(3, query_term_count))
+    return round(min(1.0, matched_term_count / denominator), 4)
+
+
 def _bm25_document(
     *,
     item: ContextItem,
@@ -402,6 +534,8 @@ def _with_bm25_lexical_boost(
     max_boost: float,
     query_term_count: int,
     matched_term_count: int,
+    query_reason: str = "original_query",
+    query_coverage: float | None = None,
 ) -> ContextItem:
     if _bm25_lexical_already_applied(item):
         return item
@@ -420,10 +554,17 @@ def _with_bm25_lexical_boost(
         "bm25_lexical_boost": boost,
         "bm25_lexical_query_term_count": query_term_count,
         "bm25_lexical_matched_term_count": matched_term_count,
+        "bm25_lexical_query_reason": query_reason,
     }
+    if query_coverage is not None:
+        diagnostics["score_signals"]["bm25_lexical_query_coverage"] = round(
+            query_coverage,
+            4,
+        )
     diagnostics["provenance"] = {
         **safe_diagnostic_mapping(diagnostics.get("provenance")),
         "bm25_lexical_applied": True,
+        "bm25_lexical_query_reason": query_reason,
     }
     return replace(
         item,

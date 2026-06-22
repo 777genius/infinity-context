@@ -325,6 +325,18 @@ _BUNDLE_STATUS_DEFAULTS = {
     "artifact_evidence_status": "unknown",
     "requirement_guard_status": "not_triggered",
 }
+_BUNDLE_QUERY_PLAN_TEXT_KEYS = (
+    "query_expansion_status",
+    "query_decomposition_status",
+)
+_BUNDLE_QUERY_PLAN_COUNTER_KEYS = (
+    "query_expansion_count",
+    "query_decomposition_count",
+)
+_BUNDLE_QUERY_PLAN_LIST_KEYS = (
+    "query_expansion_reasons",
+    "query_decomposition_reasons",
+)
 _BUNDLE_TEMPORAL_QUERY_TEXT_KEYS = (
     "temporal_query_intent_status",
 )
@@ -473,6 +485,7 @@ def normalize_context_bundle_diagnostics(
         normalized[key] = (
             _safe_optional_text(raw.get(key), limit=_MAX_DIAGNOSTIC_KEY_CHARS) or default
         )
+    normalized.update(_safe_bundle_query_plan_diagnostics(raw))
     normalized.update(_safe_bundle_temporal_query_diagnostics(raw))
     all_retrieval_sources = _bundle_retrieval_sources(
         items,
@@ -727,6 +740,29 @@ def _safe_anchor_diagnostics(raw: dict[str, Any]) -> dict[str, object]:
     identity_metadata = safe_diagnostic_mapping(raw.get("identity_metadata"))
     if identity_metadata:
         diagnostics["identity_metadata"] = identity_metadata
+    return diagnostics
+
+
+def _safe_bundle_query_plan_diagnostics(raw: dict[str, Any]) -> dict[str, object]:
+    diagnostics: dict[str, object] = {}
+    for key in _BUNDLE_QUERY_PLAN_TEXT_KEYS:
+        value = _safe_optional_text(raw.get(key), limit=_MAX_DIAGNOSTIC_KEY_CHARS)
+        if value:
+            diagnostics[key] = value
+    for key in _BUNDLE_QUERY_PLAN_COUNTER_KEYS:
+        if key in raw:
+            diagnostics[key] = _non_negative_int(raw.get(key), default=0)
+    for key in _BUNDLE_QUERY_PLAN_LIST_KEYS:
+        value = raw.get(key)
+        if not isinstance(value, list | tuple):
+            continue
+        safe_values = [
+            text
+            for raw_text in value[:_MAX_DIAGNOSTIC_LIST_ITEMS]
+            if (text := _safe_optional_text(raw_text, limit=_MAX_DIAGNOSTIC_KEY_CHARS))
+        ]
+        if safe_values:
+            diagnostics[key] = safe_values
     return diagnostics
 
 

@@ -7,6 +7,10 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 
 from infinity_context_core.application.context_lexical import query_terms
+from infinity_context_core.application.context_query_decomposition import (
+    QueryDecompositionPlan,
+    build_query_decomposition_plan,
+)
 
 
 @dataclass(frozen=True)
@@ -19,11 +23,13 @@ class QueryExpansion:
 class QueryExpansionPlan:
     original_query: str
     expansions: tuple[QueryExpansion, ...]
+    decompositions: tuple[QueryExpansion, ...] = ()
 
     @property
     def retrieval_queries(self) -> tuple[QueryExpansion, ...]:
         return (
             QueryExpansion(query=self.original_query, reason="original_query"),
+            *self.decompositions,
             *self.expansions,
         )
 
@@ -32,6 +38,13 @@ class QueryExpansionPlan:
             "query_expansion_status": "available" if self.expansions else "empty",
             "query_expansion_count": len(self.expansions),
             "query_expansion_reasons": [item.reason for item in self.expansions],
+            "query_decomposition_status": (
+                "available" if self.decompositions else "empty"
+            ),
+            "query_decomposition_count": len(self.decompositions),
+            "query_decomposition_reasons": [
+                item.reason for item in self.decompositions
+            ],
         }
 
 
@@ -327,7 +340,12 @@ _CAPITALIZED_IDENTITY_STOPWORDS = frozenset(
 )
 
 
-def build_query_expansion_plan(query: str) -> QueryExpansionPlan:
+def build_query_expansion_plan(
+    query: str,
+    *,
+    decomposition_plan: QueryDecompositionPlan | None = None,
+) -> QueryExpansionPlan:
+    decomposition_plan = decomposition_plan or build_query_decomposition_plan(query)
     query_term_variants = _query_variant_set(query)
     identity_terms = _capitalized_identity_terms(query)
     expansions: list[QueryExpansion] = []
@@ -347,7 +365,14 @@ def build_query_expansion_plan(query: str) -> QueryExpansionPlan:
         seen_reasons.add(reason)
         if len(expansions) >= 8:
             break
-    return QueryExpansionPlan(original_query=query, expansions=tuple(expansions))
+    return QueryExpansionPlan(
+        original_query=query,
+        expansions=tuple(expansions),
+        decompositions=tuple(
+            QueryExpansion(query=item.query, reason=item.reason)
+            for item in decomposition_plan.decompositions
+        ),
+    )
 
 
 def _query_variant_set(query: str) -> frozenset[str]:

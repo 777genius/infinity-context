@@ -1,5 +1,9 @@
+from infinity_context_core.application.context_query_expansion import (
+    build_query_expansion_plan,
+)
 from infinity_context_core.application.context_ranking import (
     apply_bm25_lexical_boosts,
+    apply_query_plan_bm25_lexical_boosts,
     apply_rank_fusion_boosts,
     reciprocal_rank_fusion_scores,
 )
@@ -144,6 +148,38 @@ def test_bm25_lexical_boost_does_not_apply_twice() -> None:
     )
 
     assert second_pass[0].score == first_pass[0].score
+
+
+def test_query_plan_bm25_lexical_boost_uses_best_decomposed_query() -> None:
+    artifact = _item(
+        "artifact",
+        score=0.7,
+        retrieval_source="artifact_evidence",
+        text="Screenshot OCR detected text: Atlas launch deadline moved after Alex call.",
+    )
+    decoy = _item(
+        "decoy",
+        score=0.7,
+        retrieval_source="keyword_chunks",
+        text="Alex and Atlas were mentioned in a broad planning note.",
+    )
+    plan = build_query_expansion_plan(
+        "What changed after the call with Alex about Atlas and what was written in the screenshot?"
+    )
+
+    boosted = apply_query_plan_bm25_lexical_boosts(
+        (artifact, decoy),
+        plan=plan,
+        max_boost=0.04,
+    )
+
+    assert boosted[0].score > boosted[1].score
+    assert boosted[0].diagnostics["score_signals"]["bm25_lexical_query_reason"] == (
+        "decomposition_artifact_evidence"
+    )
+    assert boosted[0].diagnostics["provenance"]["bm25_lexical_query_reason"] == (
+        "decomposition_artifact_evidence"
+    )
 
 
 def _item(
