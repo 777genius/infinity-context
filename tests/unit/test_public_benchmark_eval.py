@@ -996,11 +996,103 @@ def test_public_memory_benchmark_resumes_from_compatible_checkpoint(
     assert result["metrics"]["seed_source_attempt_count"] == 2
     assert result["metrics"]["seeded_source_count"] == 1
     assert result["metrics"]["seed_cache_hit_count"] == 1
+    assert result["metrics"]["resumed_case_count"] == 1
+    assert result["metrics"]["pending_case_count"] == 1
+    assert result["resume"] == {
+        "requested": True,
+        "status": "loaded",
+        "reason": "compatible_checkpoint",
+        "resumed_case_count": 1,
+        "selected_case_count": 2,
+        "checkpoint_case_count": 1,
+    }
     assert any(event["event_type"] == "run_resumed" for event in progress_events)
     assert not any(
         event["event_type"] == "case_started" and event["case_id"] == "resume-one"
         for event in progress_events
     )
+
+
+def test_public_memory_benchmark_reports_resume_skip_reason(
+    tmp_path: Path,
+) -> None:
+    adapter = _CountingBenchmarkAdapter()
+    dataset = tmp_path / "dataset.json"
+    progress_out = tmp_path / "progress.jsonl"
+    checkpoint_out = tmp_path / "checkpoint.json"
+    dataset.write_text("[]", encoding="utf-8")
+    checkpoint_out.write_text(
+        json.dumps(
+            {
+                "schema_version": "public-benchmark-checkpoint-v1",
+                "status": "running",
+                "dataset_hash": "different-dataset-hash",
+                "case_selection": {},
+                "cases": [
+                    {
+                        "benchmark": "locomo",
+                        "case_id": "resume-skip",
+                        "capability": "locomo_unknown",
+                        "status": "ok",
+                        "expected_ok": True,
+                        "forbidden_ok": True,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    cases = (
+        PublicBenchmarkCase(
+            benchmark="locomo",
+            case_id="resume-skip",
+            question="Where is the shared marker?",
+            expected_terms=("SHARED_MARKER",),
+            documents=(
+                BenchmarkDocumentInput(
+                    title="Shared document",
+                    text="SHARED_MARKER lives in a shared public benchmark document.",
+                    source_external_id="shared-document",
+                ),
+            ),
+            memory_scope_external_ref="resume-skip-scope",
+            thread_external_ref="resume-skip-thread",
+        ),
+    )
+
+    result = _execute_cases(
+        adapter=adapter,
+        headers={"Authorization": "Bearer test-token"},
+        cases=cases,
+        dataset_path=dataset,
+        min_accuracy=1.0,
+        started=time.perf_counter(),
+        progress_out=progress_out,
+        checkpoint_out=checkpoint_out,
+        checkpoint_every_cases=1,
+        resume_from_checkpoint=True,
+    )
+
+    progress_events = [
+        json.loads(line) for line in progress_out.read_text(encoding="utf-8").splitlines()
+    ]
+    resume_skipped = next(
+        event for event in progress_events if event["event_type"] == "run_resume_skipped"
+    )
+
+    assert result["ok"] is True
+    assert result["resume"] == {
+        "requested": True,
+        "status": "skipped",
+        "reason": "dataset_hash_mismatch",
+        "resumed_case_count": 0,
+        "selected_case_count": 1,
+        "checkpoint_case_count": 0,
+    }
+    assert result["metrics"]["resumed_case_count"] == 0
+    assert result["metrics"]["pending_case_count"] == 1
+    assert resume_skipped["reason"] == "dataset_hash_mismatch"
+    assert [path for path, _ in adapter.posts] == ["/v1/documents", "/v1/context"]
 
 
 def test_public_memory_benchmark_accepts_official_locomo_shape(tmp_path: Path) -> None:

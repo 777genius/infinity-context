@@ -48,6 +48,15 @@ class BenchmarkResumeState:
     seed_stats: BenchmarkSeedStats
 
 
+@dataclass(frozen=True)
+class BenchmarkResumeLoadResult:
+    state: BenchmarkResumeState | None
+    status: str
+    reason: str
+    selected_case_count: int
+    checkpoint_case_count: int = 0
+
+
 def load_checkpoint_resume_state(
     *,
     checkpoint_out: Path | None,
@@ -55,24 +64,61 @@ def load_checkpoint_resume_state(
     case_selection: Mapping[str, object] | None,
     cases: Sequence[Any],
 ) -> BenchmarkResumeState | None:
+    return load_checkpoint_resume_state_with_diagnostics(
+        checkpoint_out=checkpoint_out,
+        dataset_hash=dataset_hash,
+        case_selection=case_selection,
+        cases=cases,
+    ).state
+
+
+def load_checkpoint_resume_state_with_diagnostics(
+    *,
+    checkpoint_out: Path | None,
+    dataset_hash: str,
+    case_selection: Mapping[str, object] | None,
+    cases: Sequence[Any],
+) -> BenchmarkResumeLoadResult:
+    selected_case_count = len(cases)
     if checkpoint_out is None or not checkpoint_out.exists():
-        return None
+        return _resume_load_skipped(
+            "checkpoint_missing" if checkpoint_out is not None else "checkpoint_not_configured",
+            selected_case_count=selected_case_count,
+        )
     try:
         payload = json.loads(checkpoint_out.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return None
+        return _resume_load_skipped(
+            "checkpoint_unreadable",
+            selected_case_count=selected_case_count,
+        )
     if not isinstance(payload, Mapping):
-        return None
+        return _resume_load_skipped(
+            "checkpoint_payload_invalid",
+            selected_case_count=selected_case_count,
+        )
     if payload.get("schema_version") != "public-benchmark-checkpoint-v1":
-        return None
+        return _resume_load_skipped(
+            "checkpoint_schema_mismatch",
+            selected_case_count=selected_case_count,
+        )
     if payload.get("dataset_hash") != dataset_hash:
-        return None
+        return _resume_load_skipped(
+            "dataset_hash_mismatch",
+            selected_case_count=selected_case_count,
+        )
     if dict(_as_mapping(payload.get("case_selection"))) != dict(case_selection or {}):
-        return None
+        return _resume_load_skipped(
+            "case_selection_mismatch",
+            selected_case_count=selected_case_count,
+        )
     selected_cases = {case_result_key(case.benchmark, case.case_id): case for case in cases}
     raw_cases = payload.get("cases")
     if not isinstance(raw_cases, Sequence) or isinstance(raw_cases, str | bytes):
-        return None
+        return _resume_load_skipped(
+            "checkpoint_cases_invalid",
+            selected_case_count=selected_case_count,
+        )
     run_results: list[CaseRunResult] = []
     seen: set[tuple[str, str]] = set()
     for raw_case in raw_cases:
@@ -85,7 +131,11 @@ def load_checkpoint_resume_state(
         run_results.append(result)
         seen.add(key)
     if not run_results:
-        return None
+        return _resume_load_skipped(
+            "no_selected_case_results",
+            selected_case_count=selected_case_count,
+            checkpoint_case_count=len(raw_cases),
+        )
     seeded_source_keys, seeded_corpus_identities = resume_seed_state(
         cases=(selected_cases[key] for key in seen),
         dataset_hash=dataset_hash,
@@ -108,12 +158,33 @@ def load_checkpoint_resume_state(
         for item in _as_sequence(payload.get("failures"))
         if isinstance(item, Mapping)
     )
-    return BenchmarkResumeState(
-        run_results=tuple(run_results),
-        failures=failures,
-        seeded_source_keys=frozenset(seeded_source_keys),
-        seeded_corpus_identities=frozenset(seeded_corpus_identities),
-        seed_stats=seed_stats,
+    return BenchmarkResumeLoadResult(
+        state=BenchmarkResumeState(
+            run_results=tuple(run_results),
+            failures=failures,
+            seeded_source_keys=frozenset(seeded_source_keys),
+            seeded_corpus_identities=frozenset(seeded_corpus_identities),
+            seed_stats=seed_stats,
+        ),
+        status="loaded",
+        reason="compatible_checkpoint",
+        selected_case_count=selected_case_count,
+        checkpoint_case_count=len(raw_cases),
+    )
+
+
+def _resume_load_skipped(
+    reason: str,
+    *,
+    selected_case_count: int,
+    checkpoint_case_count: int = 0,
+) -> BenchmarkResumeLoadResult:
+    return BenchmarkResumeLoadResult(
+        state=None,
+        status="skipped",
+        reason=reason,
+        selected_case_count=selected_case_count,
+        checkpoint_case_count=checkpoint_case_count,
     )
 
 

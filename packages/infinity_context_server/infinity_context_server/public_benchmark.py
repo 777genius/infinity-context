@@ -33,7 +33,7 @@ from infinity_context_server.public_benchmark_checkpoint import (
 from infinity_context_server.public_benchmark_checkpoint import (
     CaseRunResult,
     case_result_key,
-    load_checkpoint_resume_state,
+    load_checkpoint_resume_state_with_diagnostics,
     safe_identifier,
     seed_corpus_identity,
     seed_corpus_metadata,
@@ -533,13 +533,30 @@ def _execute_cases(
         requested_parallelism=requested_parallelism,
     )
     resumed_case_keys: set[tuple[str, str]] = set()
+    resume_report: dict[str, object] = {
+        "requested": resume_from_checkpoint,
+        "status": "disabled",
+        "reason": "not_requested",
+        "resumed_case_count": 0,
+        "selected_case_count": len(cases),
+        "checkpoint_case_count": 0,
+    }
     if resume_from_checkpoint:
-        resume_state = load_checkpoint_resume_state(
+        resume_load = load_checkpoint_resume_state_with_diagnostics(
             checkpoint_out=checkpoint_out,
             dataset_hash=dataset_hash,
             case_selection=case_selection,
             cases=cases,
         )
+        resume_report = {
+            "requested": True,
+            "status": resume_load.status,
+            "reason": resume_load.reason,
+            "resumed_case_count": 0,
+            "selected_case_count": resume_load.selected_case_count,
+            "checkpoint_case_count": resume_load.checkpoint_case_count,
+        }
+        resume_state = resume_load.state
         if resume_state is not None:
             run_results.extend(resume_state.run_results)
             failures.extend(dict(item) for item in resume_state.failures)
@@ -550,15 +567,23 @@ def _execute_cases(
                 case_result_key(result.benchmark, result.case_id)
                 for result in resume_state.run_results
             }
+            resume_report["resumed_case_count"] = len(resumed_case_keys)
             progress.event(
                 "run_resumed",
+                reason=resume_load.reason,
                 resumed_case_count=len(resumed_case_keys),
+                checkpoint_case_count=resume_load.checkpoint_case_count,
                 seeded_source_count=len(seeded_source_keys),
                 seed_source_attempt_count=seed_stats.source_attempt_count,
                 seed_cache_hit_count=seed_stats.seed_cache_hit_count,
             )
         else:
-            progress.event("run_resume_skipped", reason="no_compatible_checkpoint")
+            progress.event(
+                "run_resume_skipped",
+                reason=resume_load.reason,
+                selected_case_count=resume_load.selected_case_count,
+                checkpoint_case_count=resume_load.checkpoint_case_count,
+            )
     pending_entries = tuple(
         _CaseExecutionEntry(case_index=case_index, case=case)
         for case_index, case in enumerate(cases, start=1)
@@ -772,7 +797,10 @@ def _execute_cases(
             "requested_parallelism": requested_parallelism,
             "effective_parallelism": effective_parallelism,
             "parallelism_degraded": parallelism_degraded_reason is not None,
+            "resumed_case_count": len(resumed_case_keys),
+            "pending_case_count": len(pending_entries),
         },
+        "resume": resume_report,
         "benchmarks": benchmarks,
         "cases": [_case_payload(item) for item in run_results],
         "failures": failures + _case_failures(run_results),
