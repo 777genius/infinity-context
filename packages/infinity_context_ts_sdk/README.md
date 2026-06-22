@@ -31,6 +31,7 @@ import {
   runRuntimeCanary,
   summarizeSourceEvidenceBatch,
   usedDerivedRetrieval,
+  waitForRuntimeCanary,
 } from "@infinity-context/sdk";
 
 const memory = new InfinityContextClient({
@@ -312,6 +313,17 @@ if (!canary.ok) {
   console.error(canary.errors);
   process.exitCode = 1;
 }
+
+const ready = await waitForRuntimeCanary({
+  client: memory,
+  query: "runtime readiness probe",
+  spaceSlug: "social-monitor:tenant_1:workspace_1",
+  memoryScopeExternalRefs: ["workspace-global"],
+  maxAttempts: 12,
+  pollIntervalMs: 5000,
+});
+
+console.log(ready.mode, ready.attempts);
 ```
 
 Or run the packaged CLI:
@@ -321,6 +333,9 @@ INFINITY_CONTEXT_URL=http://127.0.0.1:7788 \
 INFINITY_CONTEXT_TOKEN=... \
 INFINITY_CONTEXT_CANARY_SPACE_SLUG=social-monitor:tenant_1:workspace_1 \
 INFINITY_CONTEXT_CANARY_MEMORY_SCOPE_EXTERNAL_REFS=workspace-global \
+INFINITY_CONTEXT_CANARY_WAIT=true \
+INFINITY_CONTEXT_CANARY_MAX_ATTEMPTS=12 \
+INFINITY_CONTEXT_CANARY_POLL_INTERVAL_MS=5000 \
 npm run canary:runtime
 ```
 

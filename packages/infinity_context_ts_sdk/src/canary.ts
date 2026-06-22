@@ -1,2 +1,2 @@
-export { runRuntimeCanary } from "./runtime-canary.js";
-export type { RuntimeCanaryOptions, RuntimeCanaryReport } from "./runtime-canary.js";
+export { runRuntimeCanary, waitForRuntimeCanary } from "./runtime-canary.js";
+export type { RuntimeCanaryOptions, RuntimeCanaryReport, WaitRuntimeCanaryOptions } from "./runtime-canary.js";

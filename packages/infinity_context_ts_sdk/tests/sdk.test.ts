@@ -13,6 +13,7 @@ import {
   runRuntimeCanary,
   summarizeSourceEvidenceBatch,
   usedDerivedRetrieval,
+  waitForRuntimeCanary,
   type HttpRequest,
   type HttpResponse,
   type HttpTransport,
@@ -667,6 +668,112 @@ describe("InfinityContextClient", () => {
       "GET /v1/capabilities",
       "POST /v1/context",
     ]);
+  });
+
+  it("waits for runtime canary readiness with abortable polling", async () => {
+    const controller = new AbortController();
+    const sleeps: number[] = [];
+    const transport = new RecordingTransport([
+      jsonResponse({ enabled_adapters: [], supports_qdrant: true, supports_graphiti: true }),
+      jsonResponse(contextResponse("canary-wait-lite", {
+        vector_status: "disabled",
+        graph_status: "disabled",
+        vector_query_count: 0,
+        graph_query_count: 0,
+      })),
+      jsonResponse({ enabled_adapters: ["qdrant", "graphiti"], supports_qdrant: true, supports_graphiti: true }),
+      jsonResponse(contextResponse("canary-wait-full", {
+        retrieval_sources_used: ["vector", "graph"],
+        vector_status: "ok",
+        graph_status: "ok",
+        vector_query_count: 2,
+        graph_query_count: 1,
+      })),
+    ]);
+    const client = new InfinityContextClient({
+      baseUrl: "http://memory.test",
+      transport,
+      retryPolicy: { maxAttempts: 1 },
+    });
+
+    const report = await waitForRuntimeCanary({
+      client,
+      query: "Wait until full memory runtime is serving derived retrieval",
+      spaceSlug: "workspace",
+      memoryScopeExternalRefs: ["workspace-global"],
+      maxAttempts: 3,
+      pollIntervalMs: 5,
+      signal: controller.signal,
+      headers: { "x-trace-id": "trace_canary_wait" },
+      sleep: async (ms) => {
+        sleeps.push(ms);
+      },
+    });
+
+    expect(report.ok).toBe(true);
+    expect(report.attempts).toBe(2);
+    expect(report.mode).toBe("full");
+    expect(sleeps).toEqual([5]);
+    expect(transport.requests.map((request) => `${request.method} ${request.url.pathname}`)).toEqual([
+      "GET /v1/capabilities",
+      "POST /v1/context",
+      "GET /v1/capabilities",
+      "POST /v1/context",
+    ]);
+    expect(transport.requests.map((request) => request.headers.get("x-trace-id"))).toEqual([
+      "trace_canary_wait",
+      "trace_canary_wait",
+      "trace_canary_wait",
+      "trace_canary_wait",
+    ]);
+    const requestSignals = transport.requests.map((request) => request.signal);
+    expect(requestSignals.every((signal) => signal !== undefined && !signal.aborted)).toBe(true);
+    controller.abort("cancel runtime canary wait");
+    expect(requestSignals.every((signal) => signal?.aborted === true)).toBe(true);
+  });
+
+  it("times out runtime canary waits with typed readiness details", async () => {
+    const transport = new RecordingTransport([
+      jsonResponse({ enabled_adapters: [], supports_qdrant: true, supports_graphiti: true }),
+      jsonResponse(contextResponse("canary-timeout-1", {
+        vector_status: "disabled",
+        graph_status: "disabled",
+        vector_query_count: 0,
+        graph_query_count: 0,
+      })),
+      jsonResponse({ enabled_adapters: [], supports_qdrant: true, supports_graphiti: true }),
+      jsonResponse(contextResponse("canary-timeout-2", {
+        vector_status: "degraded",
+        graph_status: "disabled",
+        vector_query_count: 0,
+        graph_query_count: 0,
+      })),
+    ]);
+    const client = new InfinityContextClient({
+      baseUrl: "http://memory.test",
+      transport,
+      retryPolicy: { maxAttempts: 1 },
+    });
+
+    await expect(
+      waitForRuntimeCanary({
+        client,
+        query: "Wait for full memory runtime",
+        spaceSlug: "workspace",
+        memoryScopeExternalRefs: ["workspace-global"],
+        maxAttempts: 2,
+        pollIntervalMs: 0,
+      }),
+    ).rejects.toMatchObject({
+      code: "memory.runtime_canary_timeout",
+      retryable: true,
+      details: {
+        max_attempts: 2,
+        last_attempts: 2,
+        last_mode: "lite",
+        last_enabled_adapters: [],
+      },
+    });
   });
 
   it("collects paginated facts through typed cursor helpers", async () => {

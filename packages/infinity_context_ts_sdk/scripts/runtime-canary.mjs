@@ -2,7 +2,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
-import { InfinityContextClient, runRuntimeCanary } from "../dist/index.js";
+import { InfinityContextClient, runRuntimeCanary, waitForRuntimeCanary } from "../dist/index.js";
 
 const env = process.env;
 const baseUrl = env.INFINITY_CONTEXT_URL ?? "http://127.0.0.1:7788";
@@ -11,8 +11,9 @@ const outputPath = env.INFINITY_CONTEXT_CANARY_OUTPUT;
 const requireReady = env.INFINITY_CONTEXT_CANARY_REQUIRE_READY === undefined
   ? true
   : !["0", "false", "no"].includes(env.INFINITY_CONTEXT_CANARY_REQUIRE_READY.toLowerCase());
+const shouldWait = parseBoolean(env.INFINITY_CONTEXT_CANARY_WAIT, false);
 
-const report = await runRuntimeCanary({
+const canaryOptions = {
   client: new InfinityContextClient({
     baseUrl,
     token: () => token,
@@ -36,7 +37,12 @@ const report = await runRuntimeCanary({
   ...(env.INFINITY_CONTEXT_CANARY_CONSISTENCY_MODE !== undefined
     ? { consistencyMode: env.INFINITY_CONTEXT_CANARY_CONSISTENCY_MODE }
     : {}),
-});
+  maxAttempts: parsePositiveInteger(env.INFINITY_CONTEXT_CANARY_MAX_ATTEMPTS),
+  pollIntervalMs: parseNonNegativeNumber(env.INFINITY_CONTEXT_CANARY_POLL_INTERVAL_MS),
+};
+const report = shouldWait
+  ? await waitForRuntimeCanary(canaryOptions)
+  : await runRuntimeCanary(canaryOptions);
 
 const serialized = `${JSON.stringify(report, null, 2)}\n`;
 if (outputPath === undefined || outputPath.trim().length === 0) {
@@ -59,6 +65,15 @@ function parsePositiveInteger(value) {
   const parsed = Number(value);
 
   return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function parseNonNegativeNumber(value) {
+  if (value === undefined) {
+    return undefined;
+  }
+  const parsed = Number(value);
+
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
 }
 
 function parseBoolean(value, fallback) {
