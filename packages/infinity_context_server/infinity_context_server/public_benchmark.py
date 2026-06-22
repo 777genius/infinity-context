@@ -40,6 +40,7 @@ _DEFAULT_MIN_ACCURACY = 0.85
 _PUBLIC_BENCHMARK_CONTEXT_TOKEN_BUDGET = 4000
 _PUBLIC_BENCHMARK_MAX_FACTS = 20
 _PUBLIC_BENCHMARK_MAX_CHUNKS = 50
+_PUBLIC_BENCHMARK_MAX_REUSE_DETAIL_EVENTS_PER_CASE = 3
 
 
 class BenchmarkValidationError(ValueError):
@@ -746,6 +747,45 @@ def _run_case(
 ) -> CaseRunResult:
     memory_scope_ref = case.memory_scope_external_ref or f"{case.benchmark}-{case.case_id}"
     thread_ref = case.thread_external_ref or f"{case.benchmark}-{case.case_id}"
+    reused_source_count = 0
+    reused_source_detail_event_count = 0
+    reused_source_kind_counts: dict[str, int] = defaultdict(int)
+
+    def record_reused_source(
+        *,
+        source_kind: str,
+        source_index: int,
+        source_id: str,
+        source_type: str | None = None,
+    ) -> None:
+        nonlocal reused_source_count, reused_source_detail_event_count
+        seed_stats.seed_cache_hit_count += 1
+        reused_source_count += 1
+        reused_source_kind_counts[source_kind] += 1
+        if (
+            progress is None
+            or reused_source_detail_event_count
+            >= _PUBLIC_BENCHMARK_MAX_REUSE_DETAIL_EVENTS_PER_CASE
+        ):
+            return
+        event_fields: dict[str, object] = {
+            "case_index": case_index,
+            "total_case_count": total_case_count,
+            "case_id": case.case_id,
+            "benchmark": case.benchmark,
+            "source_kind": source_kind,
+            "source_index": source_index,
+            "source_id_hash": _short_hash(source_id),
+            "seeded_source_count": len(seeded_source_keys),
+            "seed_cache_hit_count": seed_stats.seed_cache_hit_count,
+            "reuse_detail_event_index": reused_source_detail_event_count + 1,
+            "reuse_detail_event_limit": _PUBLIC_BENCHMARK_MAX_REUSE_DETAIL_EVENTS_PER_CASE,
+        }
+        if source_type:
+            event_fields["source_type"] = source_type
+        progress.event("source_seed_reused", **event_fields)
+        reused_source_detail_event_count += 1
+
     for index, memory in enumerate(case.memories):
         source_id = _safe_identifier(
             memory.source_external_id or f"{dataset_hash}:{case.case_id}:memory:{index}",
@@ -803,20 +843,11 @@ def _run_case(
                     seeded_source_count=len(seeded_source_keys),
                 )
         else:
-            seed_stats.seed_cache_hit_count += 1
-            if progress is not None:
-                progress.event(
-                    "source_seed_reused",
-                    case_index=case_index,
-                    total_case_count=total_case_count,
-                    case_id=case.case_id,
-                    benchmark=case.benchmark,
-                    source_kind="fact",
-                    source_index=index + 1,
-                    source_id_hash=_short_hash(source_id),
-                    seeded_source_count=len(seeded_source_keys),
-                    seed_cache_hit_count=seed_stats.seed_cache_hit_count,
-                )
+            record_reused_source(
+                source_kind="fact",
+                source_index=index + 1,
+                source_id=source_id,
+            )
 
     for index, document in enumerate(case.documents):
         source_id = _safe_identifier(
@@ -872,21 +903,27 @@ def _run_case(
                     seeded_source_count=len(seeded_source_keys),
                 )
         else:
-            seed_stats.seed_cache_hit_count += 1
-            if progress is not None:
-                progress.event(
-                    "source_seed_reused",
-                    case_index=case_index,
-                    total_case_count=total_case_count,
-                    case_id=case.case_id,
-                    benchmark=case.benchmark,
-                    source_kind="document",
-                    source_index=index + 1,
-                    source_id_hash=_short_hash(source_id),
-                    source_type=document.source_type,
-                    seeded_source_count=len(seeded_source_keys),
-                    seed_cache_hit_count=seed_stats.seed_cache_hit_count,
-                )
+            record_reused_source(
+                source_kind="document",
+                source_index=index + 1,
+                source_id=source_id,
+                source_type=document.source_type,
+            )
+
+    if progress is not None and reused_source_count:
+        progress.event(
+            "source_seed_reuse_summary",
+            case_index=case_index,
+            total_case_count=total_case_count,
+            case_id=case.case_id,
+            benchmark=case.benchmark,
+            reused_source_count=reused_source_count,
+            reused_source_kind_counts=dict(sorted(reused_source_kind_counts.items())),
+            reuse_detail_event_count=reused_source_detail_event_count,
+            reuse_detail_event_limit=_PUBLIC_BENCHMARK_MAX_REUSE_DETAIL_EVENTS_PER_CASE,
+            seeded_source_count=len(seeded_source_keys),
+            seed_cache_hit_count=seed_stats.seed_cache_hit_count,
+        )
 
     if progress is not None:
         progress.event(
