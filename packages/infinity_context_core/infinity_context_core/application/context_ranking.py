@@ -34,6 +34,9 @@ from infinity_context_core.application.context_relevance import (
     is_query_relevance_sufficient,
     score_query_relevance,
 )
+from infinity_context_core.application.context_requirement_coverage import (
+    context_requirement_coverage,
+)
 from infinity_context_core.application.dto import ContextItem
 from infinity_context_core.domain.entities import MAX_SOURCE_REFS_PER_ITEM, SourceRef
 
@@ -54,6 +57,10 @@ _BM25_K1 = 1.2
 _BM25_B = 0.75
 _BM25_MAX_BOOST = 0.035
 _QUERY_ANCHOR_INTENT_MAX_BOOST = 0.035
+_CONTEXT_REQUIREMENT_MAX_BOOST = 0.04
+_CONTEXT_REQUIREMENT_ANCHOR_BOOST = 0.008
+_CONTEXT_REQUIREMENT_MODALITY_BOOST = 0.022
+_CONTEXT_REQUIREMENT_FEATURE_BOOST = 0.014
 _KEYWORD_EXPANSION_SCORE_CAPS = {
     "career_intent_bridge": 0.91,
     "support_career_motivation_bridge": 0.96,
@@ -210,6 +217,39 @@ def apply_query_anchor_intent_boosts(
         _with_query_anchor_intent_boost(
             item,
             match=match_query_anchor_intent_to_text(intent, item.text),
+            max_boost=max_boost,
+        )
+        for item in items
+    )
+
+
+def apply_context_requirement_boosts(
+    items: tuple[ContextItem, ...],
+    *,
+    query: str,
+    query_anchor_intent: QueryAnchorIntent,
+    max_boost: float = _CONTEXT_REQUIREMENT_MAX_BOOST,
+) -> tuple[ContextItem, ...]:
+    if not items or max_boost <= 0:
+        return items
+    requested = context_requirement_coverage(
+        query=query,
+        query_anchor_intent=query_anchor_intent,
+        items=(),
+    )
+    requested_anchor_kinds = _coverage_value_set(requested.get("requested_anchor_kinds"))
+    requested_modalities = _coverage_value_set(requested.get("requested_modalities"))
+    requested_features = _coverage_value_set(requested.get("requested_evidence_features"))
+    if not requested_anchor_kinds and not requested_modalities and not requested_features:
+        return items
+    return tuple(
+        _with_context_requirement_boost(
+            item,
+            query=query,
+            query_anchor_intent=query_anchor_intent,
+            requested_anchor_kinds=requested_anchor_kinds,
+            requested_modalities=requested_modalities,
+            requested_features=requested_features,
             max_boost=max_boost,
         )
         for item in items
@@ -662,6 +702,89 @@ def _query_anchor_intent_already_applied(item: ContextItem) -> bool:
     diagnostics = normalize_context_diagnostics(item.diagnostics)
     provenance = safe_diagnostic_mapping(diagnostics.get("provenance"))
     return provenance.get("query_anchor_intent_applied") is True
+
+
+def _with_context_requirement_boost(
+    item: ContextItem,
+    *,
+    query: str,
+    query_anchor_intent: QueryAnchorIntent,
+    requested_anchor_kinds: frozenset[str],
+    requested_modalities: frozenset[str],
+    requested_features: frozenset[str],
+    max_boost: float,
+) -> ContextItem:
+    if _context_requirement_boost_already_applied(item):
+        return item
+    coverage = context_requirement_coverage(
+        query=query,
+        query_anchor_intent=query_anchor_intent,
+        items=(item,),
+    )
+    matched_anchor_kinds = _sorted_coverage_matches(
+        requested_anchor_kinds,
+        coverage.get("covered_anchor_kinds"),
+    )
+    matched_modalities = _sorted_coverage_matches(
+        requested_modalities,
+        coverage.get("covered_modalities"),
+    )
+    matched_features = _sorted_coverage_matches(
+        requested_features,
+        coverage.get("covered_evidence_features"),
+    )
+    raw_boost = (
+        len(matched_anchor_kinds) * _CONTEXT_REQUIREMENT_ANCHOR_BOOST
+        + len(matched_modalities) * _CONTEXT_REQUIREMENT_MODALITY_BOOST
+        + len(matched_features) * _CONTEXT_REQUIREMENT_FEATURE_BOOST
+    )
+    boost = min(max_boost, round(raw_boost, 4))
+    if boost <= 0:
+        return item
+    diagnostics = normalize_context_diagnostics(item.diagnostics)
+    diagnostics["context_requirement_reason"] = "explicit query requirement matched item evidence"
+    diagnostics["score_signals"] = {
+        **safe_score_signals(diagnostics.get("score_signals")),
+        "context_requirement_boost": boost,
+        "context_requirement_matched_anchor_kind_count": len(matched_anchor_kinds),
+        "context_requirement_matched_modality_count": len(matched_modalities),
+        "context_requirement_matched_feature_count": len(matched_features),
+    }
+    diagnostics["provenance"] = {
+        **safe_diagnostic_mapping(diagnostics.get("provenance")),
+        "context_requirement_boost_applied": True,
+        "context_requirement_matched_anchor_kinds": list(matched_anchor_kinds),
+        "context_requirement_matched_modalities": list(matched_modalities),
+        "context_requirement_matched_evidence_features": list(matched_features),
+    }
+    return replace(
+        item,
+        score=min(0.99, round(item.score + boost, 4)),
+        diagnostics=normalize_context_diagnostics(diagnostics),
+    )
+
+
+def _context_requirement_boost_already_applied(item: ContextItem) -> bool:
+    diagnostics = normalize_context_diagnostics(item.diagnostics)
+    provenance = safe_diagnostic_mapping(diagnostics.get("provenance"))
+    return provenance.get("context_requirement_boost_applied") is True
+
+
+def _coverage_value_set(value: object) -> frozenset[str]:
+    if not isinstance(value, list | tuple):
+        return frozenset()
+    return frozenset(
+        text
+        for item in value
+        if isinstance(item, str) and (text := item.strip().casefold())
+    )
+
+
+def _sorted_coverage_matches(
+    requested: frozenset[str],
+    covered: object,
+) -> tuple[str, ...]:
+    return tuple(sorted(requested & _coverage_value_set(covered)))
 
 
 def _with_rank_fusion_boost(

@@ -4,6 +4,7 @@ from infinity_context_core.application.context_query_expansion import (
 from infinity_context_core.application.context_query_intent import build_query_anchor_intent
 from infinity_context_core.application.context_ranking import (
     apply_bm25_lexical_boosts,
+    apply_context_requirement_boosts,
     apply_query_anchor_intent_boosts,
     apply_query_plan_bm25_lexical_boosts,
     apply_rank_fusion_boosts,
@@ -260,6 +261,160 @@ def test_query_anchor_intent_boost_does_not_apply_twice() -> None:
 
     first_pass = apply_query_anchor_intent_boosts((item,), intent=intent)
     second_pass = apply_query_anchor_intent_boosts(first_pass, intent=intent)
+
+    assert second_pass[0].score == first_pass[0].score
+
+
+def test_context_requirement_boost_prefers_requested_image_text_evidence() -> None:
+    generic = _item(
+        "generic",
+        score=0.72,
+        retrieval_source="keyword_chunks",
+        text="Atlas billing changed in a broad planning note.",
+    )
+    image_evidence = ContextItem(
+        item_id="artifact_image_ocr",
+        item_type="extraction_artifact",
+        text="Screenshot OCR detected text: Atlas billing threshold is 25k.",
+        score=0.7,
+        source_refs=(
+            SourceRef(
+                source_type="extraction_artifact",
+                source_id="image-1",
+                chunk_id="ocr-region-1",
+                bbox=(10.0, 20.0, 120.0, 80.0),
+            ),
+        ),
+        diagnostics={
+            "retrieval_source": "artifact_evidence",
+            "retrieval_sources": ["artifact_evidence"],
+            "evidence_modality": "image",
+            "evidence_kind": "ocr_region",
+            "score_signals": {"base_score": 0.7},
+            "provenance": {"retrieval_sources": ["artifact_evidence"]},
+        },
+    )
+    query = "What text is written in the screenshot about Atlas?"
+
+    boosted = apply_context_requirement_boosts(
+        (generic, image_evidence),
+        query=query,
+        query_anchor_intent=build_query_anchor_intent(query),
+        max_boost=0.04,
+    )
+
+    assert boosted[1].score > image_evidence.score
+    assert boosted[1].score > boosted[0].score
+    assert boosted[1].diagnostics["score_signals"]["context_requirement_boost"] > (
+        boosted[0].diagnostics["score_signals"]["context_requirement_boost"]
+    )
+    assert boosted[1].diagnostics["provenance"][
+        "context_requirement_matched_modalities"
+    ] == ["image"]
+    assert "extracted_text" in boosted[1].diagnostics["provenance"][
+        "context_requirement_matched_evidence_features"
+    ]
+
+
+def test_context_requirement_boost_prefers_audio_timestamp_evidence() -> None:
+    note = _item(
+        "note",
+        score=0.72,
+        retrieval_source="keyword_chunks",
+        text="Alex mentioned Atlas follow-up in a text note.",
+    )
+    transcript = ContextItem(
+        item_id="artifact_audio_transcript",
+        item_type="extraction_artifact",
+        text="Call transcript: Alex said the Atlas follow-up is approved.",
+        score=0.7,
+        source_refs=(
+            SourceRef(
+                source_type="extraction_artifact",
+                source_id="audio-1",
+                chunk_id="segment-1",
+                time_start_ms=1_200,
+                time_end_ms=4_400,
+            ),
+        ),
+        diagnostics={
+            "retrieval_source": "artifact_evidence",
+            "retrieval_sources": ["artifact_evidence"],
+            "evidence_modality": "audio",
+            "evidence_kind": "transcript_segment",
+            "score_signals": {"base_score": 0.7},
+            "provenance": {"retrieval_sources": ["artifact_evidence"]},
+        },
+    )
+    query = "What did Alex say in the call, with timestamp?"
+
+    boosted = apply_context_requirement_boosts(
+        (note, transcript),
+        query=query,
+        query_anchor_intent=build_query_anchor_intent(query),
+        max_boost=0.04,
+    )
+
+    assert boosted[1].score > transcript.score
+    assert boosted[1].score > boosted[0].score
+    assert boosted[1].diagnostics["provenance"][
+        "context_requirement_matched_modalities"
+    ] == ["audio"]
+    assert "time_range" in boosted[1].diagnostics["provenance"][
+        "context_requirement_matched_evidence_features"
+    ]
+
+
+def test_context_requirement_boost_skips_queries_without_explicit_requirements() -> None:
+    item = _item(
+        "status",
+        score=0.72,
+        retrieval_source="keyword_chunks",
+        text="Status is ready.",
+    )
+    query = "status update"
+
+    boosted = apply_context_requirement_boosts(
+        (item,),
+        query=query,
+        query_anchor_intent=build_query_anchor_intent(query),
+    )
+
+    assert boosted == (item,)
+
+
+def test_context_requirement_boost_does_not_apply_twice() -> None:
+    item = ContextItem(
+        item_id="artifact_image_ocr",
+        item_type="extraction_artifact",
+        text="Screenshot OCR detected text: Atlas billing threshold is 25k.",
+        score=0.7,
+        source_refs=(
+            SourceRef(
+                source_type="extraction_artifact",
+                source_id="image-1",
+                chunk_id="ocr-region-1",
+                bbox=(10.0, 20.0, 120.0, 80.0),
+            ),
+        ),
+        diagnostics={
+            "retrieval_source": "artifact_evidence",
+            "retrieval_sources": ["artifact_evidence"],
+            "evidence_modality": "image",
+            "evidence_kind": "ocr_region",
+            "score_signals": {"base_score": 0.7},
+            "provenance": {"retrieval_sources": ["artifact_evidence"]},
+        },
+    )
+    query = "What text is written in the screenshot about Atlas?"
+    intent = build_query_anchor_intent(query)
+
+    first_pass = apply_context_requirement_boosts((item,), query=query, query_anchor_intent=intent)
+    second_pass = apply_context_requirement_boosts(
+        first_pass,
+        query=query,
+        query_anchor_intent=intent,
+    )
 
     assert second_pass[0].score == first_pass[0].score
 

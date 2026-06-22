@@ -49,6 +49,7 @@ from infinity_context_core.application.context_query_intent import (
     query_anchor_lookup_keys,
 )
 from infinity_context_core.application.context_ranking import (
+    apply_context_requirement_boosts,
     apply_query_anchor_intent_boosts,
     apply_query_plan_bm25_lexical_boosts,
     apply_rank_fusion_boosts,
@@ -460,18 +461,22 @@ class BuildContextUseCase:
         candidate_items = dedupe_rank_items(
             apply_rank_fusion_boosts(
                 apply_query_plan_bm25_lexical_boosts(
-                    apply_query_anchor_intent_boosts(
-                        apply_temporal_query_intent_boosts(
-                            (
-                                *temporal_items,
-                                *artifact_evidence_items,
-                                *linked_temporal_items,
-                                *stale_review_items,
-                                *pending_review_items,
+                    apply_context_requirement_boosts(
+                        apply_query_anchor_intent_boosts(
+                            apply_temporal_query_intent_boosts(
+                                (
+                                    *temporal_items,
+                                    *artifact_evidence_items,
+                                    *linked_temporal_items,
+                                    *stale_review_items,
+                                    *pending_review_items,
+                                ),
+                                intent=temporal_query_intent,
                             ),
-                            intent=temporal_query_intent,
+                            intent=query_anchor_intent,
                         ),
-                        intent=query_anchor_intent,
+                        query=query.query,
+                        query_anchor_intent=query_anchor_intent,
                     ),
                     plan=query_expansion_plan,
                 )
