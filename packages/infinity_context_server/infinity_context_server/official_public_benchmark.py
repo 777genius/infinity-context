@@ -434,6 +434,7 @@ def _merge_reports(
     requested_parallelism_values: list[int] = []
     effective_parallelism_values: list[int] = []
     parallelism_degraded_count = 0
+    parallelism_degraded_reasons: set[str] = set()
     for report in reports:
         ok = ok and report.get("ok") is True
         report_checks = report.get("checks")
@@ -488,6 +489,9 @@ def _merge_reports(
                 effective_parallelism_values.append(effective_parallelism)
             if report_metrics.get("parallelism_degraded") is True:
                 parallelism_degraded_count += 1
+                degraded_reason = report_metrics.get("parallelism_degraded_reason")
+                if isinstance(degraded_reason, str) and degraded_reason.strip():
+                    parallelism_degraded_reasons.add(degraded_reason.strip())
     metrics["case_count"] = total_cases
     metrics["accuracy"] = round(passed_cases / total_cases, 4) if total_cases else 0.0
     metrics["duplicate_case_id_count"] = sum(
@@ -506,6 +510,8 @@ def _merge_reports(
         metrics["effective_parallelism_max"] = max(effective_parallelism_values)
     metrics["parallelism_degraded_count"] = parallelism_degraded_count
     metrics["parallelism_degraded"] = parallelism_degraded_count > 0
+    if parallelism_degraded_reasons:
+        metrics["parallelism_degraded_reasons"] = sorted(parallelism_degraded_reasons)
     return {
         "suite": PUBLIC_MEMORY_BENCHMARK_SUITE,
         "status": "ok" if ok else "failed",

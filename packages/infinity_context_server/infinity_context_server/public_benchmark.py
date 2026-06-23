@@ -410,6 +410,7 @@ def run_public_memory_benchmark(
                         resume_from_checkpoint and local_state_dir is not None
                     ),
                     parallelism=parallelism,
+                    force_sequential_reason="local_in_process_transport",
                 )
 
     result = _with_public_benchmark_provenance(result, dataset_path=dataset_path)
@@ -508,6 +509,7 @@ def _execute_cases(
     checkpoint_every_cases: int = 25,
     resume_from_checkpoint: bool = False,
     parallelism: int = 1,
+    force_sequential_reason: str | None = None,
 ) -> dict[str, object]:
     requested_parallelism = _normalize_parallelism(
         parallelism,
@@ -595,10 +597,18 @@ def _execute_cases(
         for case_index, case in enumerate(cases, start=1)
         if case_result_key(case.benchmark, case.case_id) not in resumed_case_keys
     )
-    effective_parallelism, parallelism_degraded_reason = _case_execution_parallelism(
-        pending_entries,
-        requested_parallelism=requested_parallelism,
-    )
+    if (
+        force_sequential_reason is not None
+        and requested_parallelism > 1
+        and len(pending_entries) > 1
+    ):
+        effective_parallelism = 1
+        parallelism_degraded_reason = force_sequential_reason
+    else:
+        effective_parallelism, parallelism_degraded_reason = _case_execution_parallelism(
+            pending_entries,
+            requested_parallelism=requested_parallelism,
+        )
     progress.event(
         "run_execution_configured",
         pending_case_count=len(pending_entries),
@@ -816,6 +826,7 @@ def _execute_cases(
             "requested_parallelism": requested_parallelism,
             "effective_parallelism": effective_parallelism,
             "parallelism_degraded": parallelism_degraded_reason is not None,
+            "parallelism_degraded_reason": parallelism_degraded_reason,
             "resumed_case_count": len(resumed_case_keys),
             "pending_case_count": len(pending_entries),
         },

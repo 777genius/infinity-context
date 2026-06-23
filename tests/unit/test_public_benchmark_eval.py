@@ -361,6 +361,62 @@ def test_public_memory_benchmark_first_case_selection_preserves_old_order(
     assert result["case_selection"]["selected_capability_count"] == 1
 
 
+def test_public_memory_benchmark_local_parallel_degrades_to_safe_transport(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "public-benchmark-parallel.jsonl"
+    progress_out = tmp_path / "progress.jsonl"
+    rows = [
+        {
+            "benchmark": "locomo",
+            "case_id": f"local-parallel-{index}",
+            "memory_scope_external_ref": f"parallel-scope-{index}",
+            "thread_external_ref": f"parallel-thread-{index}",
+            "question": "Where is the local parallel marker?",
+            "documents": [
+                {
+                    "title": f"Parallel marker {index}",
+                    "text": (
+                        f"LOCAL_PARALLEL_MARKER_{index} lives in an isolated "
+                        "public benchmark document."
+                    ),
+                }
+            ],
+            "expected_terms": [f"LOCAL_PARALLEL_MARKER_{index}"],
+        }
+        for index in range(2)
+    ]
+    dataset.write_text("\n".join(json.dumps(row) for row in rows), encoding="utf-8")
+
+    result = run_public_memory_benchmark(
+        dataset_path=dataset,
+        min_accuracy=1.0,
+        parallelism=2,
+        progress_out=progress_out,
+    )
+    progress_events = [
+        json.loads(line) for line in progress_out.read_text(encoding="utf-8").splitlines()
+    ]
+    execution_configured = next(
+        event
+        for event in progress_events
+        if event["event_type"] == "run_execution_configured"
+    )
+
+    assert result["ok"] is True
+    assert result["metrics"]["requested_parallelism"] == 2
+    assert result["metrics"]["effective_parallelism"] == 1
+    assert result["metrics"]["parallelism_degraded"] is True
+    assert result["metrics"]["parallelism_degraded_reason"] == (
+        "local_in_process_transport"
+    )
+    assert result["metrics"]["accuracy"] == 1.0
+    assert execution_configured["effective_parallelism"] == 1
+    assert execution_configured["parallelism_degraded_reason"] == (
+        "local_in_process_transport"
+    )
+
+
 def test_public_memory_benchmark_rejects_unknown_case_selection_strategy(
     tmp_path: Path,
 ) -> None:

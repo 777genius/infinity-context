@@ -211,6 +211,69 @@ def test_official_public_benchmark_canary_can_run_single_dataset(tmp_path: Path)
     assert result["publishable_public_benchmark_candidate"] is False
 
 
+def test_official_public_benchmark_reports_local_parallel_degraded_reason(
+    tmp_path: Path,
+) -> None:
+    locomo = tmp_path / "locomo10-mini.json"
+    locomo.write_text(
+        json.dumps(
+            [
+                {
+                    "sample_id": "conv-mini",
+                    "conversation": {
+                        "session_1_date_time": "7 May 2023",
+                        "session_1": [
+                            {
+                                "speaker": "Caroline",
+                                "dia_id": "D1:1",
+                                "text": "I went to the LGBTQ support group today.",
+                            },
+                            {
+                                "speaker": "Melanie",
+                                "dia_id": "D1:2",
+                                "text": "I painted a blue sunrise yesterday.",
+                            },
+                        ],
+                    },
+                    "qa": [
+                        {
+                            "question": "Where did Caroline go?",
+                            "answer": "LGBTQ support group",
+                            "evidence": ["D1:1"],
+                            "category": 1,
+                        },
+                        {
+                            "question": "What did Melanie paint?",
+                            "answer": "blue sunrise",
+                            "evidence": ["D1:2"],
+                            "category": 1,
+                        },
+                    ],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = canary.run_official_public_benchmark_canary(
+        benchmark="locomo",
+        locomo_dataset=locomo,
+        max_cases=2,
+        min_accuracy=1.0,
+        case_selection_strategy=canary.CASE_SELECTION_FIRST,
+        parallelism=2,
+    )
+
+    assert result["ok"] is True
+    assert result["metrics"]["requested_parallelism_max"] == 2
+    assert result["metrics"]["effective_parallelism_max"] == 1
+    assert result["metrics"]["parallelism_degraded"] is True
+    assert result["metrics"]["parallelism_degraded_count"] == 1
+    assert result["metrics"]["parallelism_degraded_reasons"] == [
+        "local_in_process_transport"
+    ]
+
+
 def test_official_public_benchmark_script_is_thin_wrapper() -> None:
     script = (ROOT / "scripts" / "official_public_benchmark_canary.py").read_text(
         encoding="utf-8"
