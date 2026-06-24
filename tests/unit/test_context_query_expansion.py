@@ -643,7 +643,7 @@ def test_query_expansion_covers_event_participation_bridges() -> None:
     assert "transgender_poetry_event_bridge" not in {
         expansion.reason for expansion in events.expansions
     }
-    assert "lgbtq youth center volunteer volunteering talent show" in _expansion_query(
+    assert "transgender youth center talent show kids stage band" in _expansion_query(
         transgender_events,
         "transgender_youth_center_event_bridge",
     )

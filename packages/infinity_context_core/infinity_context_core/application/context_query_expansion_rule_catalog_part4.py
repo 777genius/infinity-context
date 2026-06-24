@@ -121,8 +121,8 @@ EXPANSION_RULES_PART_4: tuple[tuple[frozenset[str], str, str], ...] = (
     (
             frozenset({"transgender", "event", "specific"}),
             (
-                "lgbtq youth center volunteer volunteering talent show kids community "
-                "stage band live music performance"
+                "transgender youth center talent show kids stage band colorful "
+                "lights microphone music performance volunteer community"
             ),
             "transgender_youth_center_event_bridge",
         ),

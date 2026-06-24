@@ -524,6 +524,24 @@ def test_pottery_type_bridge_beats_generic_inventory_for_visual_cup_evidence() -
     assert score >= 0.87
 
 
+def test_transgender_youth_center_bridge_scores_talent_show_visual_evidence() -> None:
+    plan = build_query_expansion_plan("What transgender-specific events has Caroline attended?")
+
+    _, reason, relevance = best_query_relevance(
+        plan,
+        text=(
+            "D15:13 Caroline: Wow! Did you see that band? D15:12 blip_caption: "
+            "a photo of a band playing on a stage in a park. query: talent "
+            "show stage colorful lights microphone."
+        ),
+    )
+    score = keyword_chunk_score(relevance, query_expansion_reason=reason)
+
+    assert reason == "transgender_youth_center_event_bridge"
+    assert relevance.distinctive_term_hits >= 7
+    assert score >= 0.91
+
+
 def test_keyword_chunk_score_boosts_adoption_current_goal_bridge() -> None:
     plan = build_query_expansion_plan("Would Caroline want to move back to her home country soon?")
 
