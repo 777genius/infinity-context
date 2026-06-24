@@ -47,6 +47,28 @@ def test_relation_requirement_penalizes_wrong_named_object() -> None:
     assert signal.reason == "relation_requirement_object_mismatch"
 
 
+def test_relation_requirement_matches_russian_mention_query() -> None:
+    signal = relation_requirement_signal(
+        query="Алекс упоминал Project Atlas?",
+        text="Алекс упоминал Атлас на созвоне по биллингу.",
+    )
+
+    assert signal.boost > 0
+    assert signal.penalty == 0
+    assert signal.reason == "relation_requirement_match"
+
+
+def test_relation_requirement_penalizes_russian_wrong_object() -> None:
+    signal = relation_requirement_signal(
+        query="Алекс упоминал Project Atlas?",
+        text="Алекс упоминал Project Apollo на созвоне.",
+    )
+
+    assert signal.boost == 0
+    assert signal.penalty > 0
+    assert signal.reason == "relation_requirement_object_mismatch"
+
+
 def test_relation_requirement_accepts_negative_possession_evidence() -> None:
     signal = relation_requirement_signal(
         query="Is there any evidence that Alex has a cat?",

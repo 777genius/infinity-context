@@ -43,7 +43,7 @@ _QUESTION_RE = re.compile(
     r"\b(?:do\s+we\s+know|is\s+there\s+any|are\s+there\s+any|"
     r"any\s+(?:evidence|proof|source|record|mention)|"
     r"(?:did|does|has|have)\b|ever\b|"
-    r"известно\s+ли|есть\s+ли|когда-либо|упоминал(?:а)?\s+ли)\b",
+    r"известно\s+ли|есть\s+ли|когда-либо|упоминал(?:а)?\s+ли)\b|\?",
     re.IGNORECASE,
 )
 _SUBJECT_STOP_VARIANTS = frozenset(
@@ -132,13 +132,15 @@ _RELATION_GROUPS: tuple[_RelationGroup, ...] = (
         query_re=re.compile(
             r"\b(?:mention(?:ed|s|ing)?|say|said|tell|told|write|wrote|"
             r"brought\s+up|bring\s+up|raise(?:d)?|refer(?:red)?\s+to|"
-            r"упомянул\w*|сказал\w*|написал\w*)\b",
+            r"упомянул\w*|упомина\w*|говорил\w*|сказал\w*|рассказал\w*|"
+            r"писал\w*|написал\w*)\b",
             re.IGNORECASE,
         ),
         text_re=re.compile(
             r"\b(?:mention(?:ed|s|ing)?|said|told|wrote|noted|reported|"
             r"brought\s+up|raised|referred\s+to|discussed|talked\s+about|"
-            r"упомянул\w*|сказал\w*|написал\w*|сообщил\w*)\b",
+            r"упомянул\w*|упомина\w*|говорил\w*|сказал\w*|рассказал\w*|"
+            r"писал\w*|написал\w*|сообщил\w*)\b",
             re.IGNORECASE,
         ),
     ),
@@ -159,12 +161,13 @@ _RELATION_GROUPS: tuple[_RelationGroup, ...] = (
         key="visit",
         query_re=re.compile(
             r"\b(?:visit(?:ed|s|ing)?|went\s+to|go\s+to|attend(?:ed|s|ing)?|"
-            r"join(?:ed|s|ing)?|посетил\w*|сходил\w*)\b",
+            r"join(?:ed|s|ing)?|посетил\w*|посещал\w*|сходил\w*|ездил\w*)\b",
             re.IGNORECASE,
         ),
         text_re=re.compile(
             r"\b(?:visit(?:ed|s|ing)?|went\s+to|go\s+to|attend(?:ed|s|ing)?|"
-            r"join(?:ed|s|ing)?|participat(?:ed|es|ing)|посетил\w*|сходил\w*)\b",
+            r"join(?:ed|s|ing)?|participat(?:ed|es|ing)|посетил\w*|посещал\w*|"
+            r"сходил\w*|ездил\w*)\b",
             re.IGNORECASE,
         ),
     ),
