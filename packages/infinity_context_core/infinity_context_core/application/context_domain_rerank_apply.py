@@ -23,6 +23,7 @@ from infinity_context_core.application.context_domain_rerank_signals import (
     relationship_status_rerank_signal,
     state_transition_rerank_signal,
     support_network_rerank_signal,
+    symbol_importance_rerank_signal,
 )
 from infinity_context_core.application.context_activity_duration_rerank import (
     activity_duration_rerank_signal,
@@ -154,6 +155,11 @@ def _domain_rerank_signals(
             relevance=relevance,
         ),
         birthplace_rerank_signal(
+            query_reason=query_reason,
+            item=item,
+            relevance=relevance,
+        ),
+        symbol_importance_rerank_signal(
             query_reason=query_reason,
             item=item,
             relevance=relevance,

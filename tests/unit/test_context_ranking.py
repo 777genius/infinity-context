@@ -3662,6 +3662,65 @@ def test_keyword_chunk_source_score_boost_prefers_inference_observations() -> No
         assert boosted > score
 
 
+def test_deterministic_rerank_prefers_symbol_importance_evidence() -> None:
+    query = "What symbols are important to Caroline?"
+    plan = build_query_expansion_plan(query)
+    query_anchor_intent = build_query_anchor_intent(query)
+    meaning_evidence = _item(
+        "meaning_evidence",
+        score=0.7,
+        retrieval_source="keyword_chunks",
+        text=(
+            "Caroline said the rainbow flag mural and eagle symbolize freedom, "
+            "pride, courage, and resilience."
+        ),
+    )
+    technical_symbol = _item(
+        "technical_symbol",
+        score=0.72,
+        retrieval_source="keyword_chunks",
+        text="Caroline documented an important unicode symbol icon in the UI interface.",
+    )
+    personal_object = _item(
+        "personal_object",
+        score=0.69,
+        retrieval_source="keyword_chunks",
+        text=(
+            "Caroline shared a pendant necklace with a transgender symbol, "
+            "a cross, and a heart."
+        ),
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (meaning_evidence, technical_symbol, personal_object),
+        query=query,
+        plan=plan,
+        query_anchor_intent=query_anchor_intent,
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert by_id["meaning_evidence"].score > by_id["technical_symbol"].score
+    assert by_id["personal_object"].score > by_id["technical_symbol"].score
+    assert (
+        "symbol_importance_exact_evidence"
+        in by_id["meaning_evidence"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+    assert (
+        "symbol_importance_personal_object"
+        in by_id["personal_object"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+    assert (
+        "symbol_importance_weak_evidence"
+        in by_id["technical_symbol"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+
+
 def test_patriotic_service_source_boost_accepts_precise_turn_evidence() -> None:
     plan = build_query_expansion_plan("Would John be considered a patriotic person?")
     _, reason, relevance = best_query_relevance(

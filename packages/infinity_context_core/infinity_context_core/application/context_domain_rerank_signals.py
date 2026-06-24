@@ -99,6 +99,7 @@ _CURRENT_STATE_RERANK_REASONS = frozenset(
 _STALE_STATE_RERANK_REASONS = frozenset(("stale_state_temporal_bridge",))
 _AGE_BIRTHDAY_RERANK_REASONS = frozenset(("age_birthday_bridge",))
 _BIRTHPLACE_RERANK_REASONS = frozenset(("birthplace_origin_bridge",))
+_SYMBOL_IMPORTANCE_RERANK_REASONS = frozenset(("symbol_importance_bridge",))
 _INVENTORY_POTTERY_QUERY_RE = re.compile(
     r"\b(?:pottery|ceramic|clay|pots?|bowls?|cups?|mugs?|plates?)\b",
     re.IGNORECASE,
@@ -466,6 +467,39 @@ _BIRTHPLACE_EXACT_RE = re.compile(
 _BIRTHPLACE_BIRTHDATE_NOISE_RE = re.compile(
     r"\bborn\s+in\s+\d{4}\b|\b(?:birthday|date\s+of\s+birth|birthdate)\b|"
     r"\bродил(?:ся|ась|ись)\s+в\s+\d{4}\b|\b(?:дата\s+рождения|день\s+рождения)\b",
+    re.IGNORECASE,
+)
+_SYMBOL_IMPORTANCE_EXACT_RE = re.compile(
+    r"\b(?:symboli[sz](?:e|es|ed|ing)|represents?|meaning|means|stands?\s+for|"
+    r"important|reminds?\s+(?:me|her|him|them)\s+of|pride|freedom|courage|"
+    r"resilience|identity|acceptance)\b|"
+    r"\b(?:символизир\w*|значит|значение|важн\w*|напомина\w*|гордост\w*|"
+    r"свобод\w*|смелост\w*|идентичност\w*|приняти\w*)\b",
+    re.IGNORECASE,
+)
+_SYMBOL_IMPORTANCE_MEANING_RE = re.compile(
+    r"\b(?:symboli[sz](?:e|es|ed|ing)|represents?|meaning|means|stands?\s+for|"
+    r"reminds?\s+(?:me|her|him|them)\s+of|pride|freedom|courage|resilience|"
+    r"identity|acceptance)\b|"
+    r"\b(?:символизир\w*|значит|значение|напомина\w*|гордост\w*|свобод\w*|"
+    r"смелост\w*|идентичност\w*|приняти\w*)\b",
+    re.IGNORECASE,
+)
+_SYMBOL_IMPORTANCE_OBJECT_RE = re.compile(
+    r"\b(?:rainbow\s+flag|flag|mural|eagle|pendant|necklace|"
+    r"transgender\s+symbol|cross|heart|symbol|symbols)\b|"
+    r"\b(?:радужн\w+\s+флаг|флаг|орел|орёл|кулон|ожерелье|крест|"
+    r"сердце|символ\w*)\b",
+    re.IGNORECASE,
+)
+_SYMBOL_IMPORTANCE_PERSONAL_OBJECT_RE = re.compile(
+    r"\b(?:pendant|necklace)\b(?=.{0,100}\b(?:symbol|cross|heart|transgender)\b)|"
+    r"\b(?:symbol|cross|heart|transgender)\b(?=.{0,100}\b(?:pendant|necklace)\b)",
+    re.IGNORECASE | re.DOTALL,
+)
+_SYMBOL_IMPORTANCE_TECHNICAL_NOISE_RE = re.compile(
+    r"\b(?:unicode|currency|math(?:ematical)?|keyboard|font|icon|icons|"
+    r"svg|css|ui|interface|variable|operator|code|programming)\b",
     re.IGNORECASE,
 )
 
@@ -876,6 +910,36 @@ def birthplace_rerank_signal(
     return DomainRerankSignal()
 
 
+def symbol_importance_rerank_signal(
+    *,
+    query_reason: str,
+    item: ContextItem,
+    relevance: QueryRelevance,
+) -> DomainRerankSignal:
+    if not _is_symbol_importance_candidate(query_reason=query_reason, item=item):
+        return DomainRerankSignal()
+    has_symbol_object = _SYMBOL_IMPORTANCE_OBJECT_RE.search(item.text) is not None
+    has_personal_object = _SYMBOL_IMPORTANCE_PERSONAL_OBJECT_RE.search(item.text) is not None
+    has_meaning = _SYMBOL_IMPORTANCE_MEANING_RE.search(item.text) is not None
+    if (
+        _SYMBOL_IMPORTANCE_TECHNICAL_NOISE_RE.search(item.text) is not None
+        and not has_personal_object
+        and not has_meaning
+    ):
+        return DomainRerankSignal(penalty=0.042, reason="symbol_importance_weak_evidence")
+    if has_symbol_object and _SYMBOL_IMPORTANCE_EXACT_RE.search(item.text) is not None:
+        return DomainRerankSignal(boost=0.028, reason="symbol_importance_exact_evidence")
+    if has_personal_object:
+        return DomainRerankSignal(boost=0.02, reason="symbol_importance_personal_object")
+    if (
+        _SYMBOL_IMPORTANCE_TECHNICAL_NOISE_RE.search(item.text) is not None
+        or not has_symbol_object
+        or relevance.distinctive_term_hits < 3
+    ):
+        return DomainRerankSignal(penalty=0.042, reason="symbol_importance_weak_evidence")
+    return DomainRerankSignal()
+
+
 def _support_network_exact_evidence(*, query_reason: str, item: ContextItem) -> bool:
     if not _is_support_network_candidate(query_reason=query_reason, item=item):
         return False
@@ -1065,6 +1129,12 @@ def _is_birthplace_candidate(*, query_reason: str, item: ContextItem) -> bool:
     if query_reason in _BIRTHPLACE_RERANK_REASONS:
         return True
     return _score_signal_reason(item) in _BIRTHPLACE_RERANK_REASONS
+
+
+def _is_symbol_importance_candidate(*, query_reason: str, item: ContextItem) -> bool:
+    if query_reason in _SYMBOL_IMPORTANCE_RERANK_REASONS:
+        return True
+    return _score_signal_reason(item) in _SYMBOL_IMPORTANCE_RERANK_REASONS
 
 
 def _event_sequence_anchor_terms(query: str) -> tuple[str, ...]:
