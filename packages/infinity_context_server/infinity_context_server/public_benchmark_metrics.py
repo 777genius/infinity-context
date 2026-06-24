@@ -128,21 +128,29 @@ def progress_timing_fields(
     processed_case_count: int,
     total_case_count: int,
     started: float,
-) -> dict[str, float]:
+) -> dict[str, object]:
     if processed_case_count <= 0 or total_case_count <= 0:
         return {
+            "average_case_ms": 0.0,
             "cases_per_second": 0.0,
             "estimated_remaining_ms": 0.0,
+            "estimated_total_ms": 0.0,
+            "eta_confidence": "unavailable",
         }
     elapsed_seconds = max(0.001, time.perf_counter() - started)
     cases_per_second = processed_case_count / elapsed_seconds
+    average_case_ms = elapsed_seconds / processed_case_count * 1000
     remaining_case_count = max(0, total_case_count - processed_case_count)
     estimated_remaining_ms = (
         remaining_case_count / cases_per_second * 1000 if cases_per_second > 0 else 0.0
     )
+    estimated_total_ms = elapsed_seconds * 1000 + estimated_remaining_ms
     return {
+        "average_case_ms": round(average_case_ms, 2),
         "cases_per_second": round(cases_per_second, 4),
         "estimated_remaining_ms": round(estimated_remaining_ms, 2),
+        "estimated_total_ms": round(estimated_total_ms, 2),
+        "eta_confidence": "stable" if processed_case_count >= 3 else "warming_up",
     }
 
 

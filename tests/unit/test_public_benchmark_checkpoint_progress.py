@@ -70,6 +70,9 @@ def test_public_benchmark_progress_writes_time_interval_checkpoint(
     assert payload["progress"]["last_case_id"] == "case-one"
     assert payload["progress"]["last_case_status"] == "ok"
     assert payload["progress"]["elapsed_since_checkpoint_ms"] >= 1000
+    assert payload["progress"]["average_case_ms"] > 0
+    assert payload["progress"]["estimated_total_ms"] >= payload["progress"]["estimated_remaining_ms"]
+    assert payload["progress"]["eta_confidence"] == "warming_up"
 
 
 def test_public_benchmark_progress_checkpoint_includes_recent_failure_diagnostics(

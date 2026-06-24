@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -8,7 +9,11 @@ from infinity_context_server.public_benchmark_checkpoint import (
     CaseRunResult,
     load_checkpoint_resume_state_with_diagnostics,
 )
-from infinity_context_server.public_benchmark_metrics import case_failures, case_payload
+from infinity_context_server.public_benchmark_metrics import (
+    case_failures,
+    case_payload,
+    progress_timing_fields,
+)
 
 
 def test_public_benchmark_case_payload_includes_bounded_question_preview() -> None:
@@ -40,6 +45,47 @@ def test_public_benchmark_case_failures_include_question_preview() -> None:
             "question_preview": "Who supports Caroline?",
         }
     ]
+
+
+def test_public_benchmark_progress_timing_includes_eta_diagnostics() -> None:
+    fields = progress_timing_fields(
+        processed_case_count=2,
+        total_case_count=4,
+        started=time.perf_counter() - 10,
+    )
+
+    assert fields["eta_confidence"] == "warming_up"
+    assert 4_900 <= fields["average_case_ms"] <= 5_100
+    assert 9_800 <= fields["estimated_remaining_ms"] <= 10_300
+    assert 19_800 <= fields["estimated_total_ms"] <= 20_400
+
+
+def test_public_benchmark_progress_timing_marks_stable_after_three_cases() -> None:
+    fields = progress_timing_fields(
+        processed_case_count=3,
+        total_case_count=3,
+        started=time.perf_counter() - 3,
+    )
+
+    assert fields["eta_confidence"] == "stable"
+    assert fields["estimated_remaining_ms"] == 0.0
+    assert fields["estimated_total_ms"] >= 3_000
+
+
+def test_public_benchmark_progress_timing_handles_unavailable_eta() -> None:
+    fields = progress_timing_fields(
+        processed_case_count=0,
+        total_case_count=4,
+        started=time.perf_counter(),
+    )
+
+    assert fields == {
+        "average_case_ms": 0.0,
+        "cases_per_second": 0.0,
+        "estimated_remaining_ms": 0.0,
+        "estimated_total_ms": 0.0,
+        "eta_confidence": "unavailable",
+    }
 
 
 def test_public_benchmark_resume_accepts_checkpoint_without_question_preview(
