@@ -11,6 +11,9 @@ from infinity_context_server.public_benchmark_case_diagnostics import (
     case_answer_preview as _case_answer_preview,
 )
 from infinity_context_server.public_benchmark_case_diagnostics import (
+    case_evidence_ref_previews as _case_evidence_ref_previews,
+)
+from infinity_context_server.public_benchmark_case_diagnostics import (
     case_evidence_refs as _case_evidence_refs,
 )
 from infinity_context_server.public_benchmark_case_diagnostics import (
@@ -358,7 +361,9 @@ def case_error_result(
         answer_preview=_case_answer_preview(case),
         expected_terms_preview=_case_expected_terms_preview(case),
         evidence_refs=_case_evidence_refs(case),
+        evidence_ref_previews=_case_evidence_ref_previews(case),
         missing_evidence_refs=_case_evidence_refs(case),
+        missing_evidence_ref_previews=_case_evidence_ref_previews(case),
     )
 
 

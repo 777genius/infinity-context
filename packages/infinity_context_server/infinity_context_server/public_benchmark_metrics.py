@@ -96,6 +96,14 @@ def case_payload(item: CaseRunResult) -> dict[str, object]:
         ]
     if not item.ok and item.evidence_refs:
         payload["evidence_refs"] = [value[:120] for value in item.evidence_refs[:20]]
+    if not item.ok and item.evidence_ref_previews:
+        payload["evidence_ref_previews"] = [
+            value[:360] for value in item.evidence_ref_previews[:20]
+        ]
+    if not item.ok and item.missing_evidence_ref_previews:
+        payload["missing_evidence_ref_previews"] = [
+            value[:360] for value in item.missing_evidence_ref_previews[:20]
+        ]
     return payload
 
 
@@ -122,6 +130,10 @@ def _case_failure_payload(item: CaseRunResult) -> dict[str, object]:
         ]
     if item.evidence_refs:
         payload["evidence_refs"] = [value[:120] for value in item.evidence_refs[:20]]
+    if item.evidence_ref_previews:
+        payload["evidence_ref_previews"] = [
+            value[:360] for value in item.evidence_ref_previews[:20]
+        ]
     if item.covered_terms:
         payload["covered_terms"] = [value[:120] for value in item.covered_terms[:20]]
     if item.covered_evidence_refs:
@@ -131,6 +143,10 @@ def _case_failure_payload(item: CaseRunResult) -> dict[str, object]:
     if item.missing_evidence_refs:
         payload["missing_evidence_refs"] = [
             value[:120] for value in item.missing_evidence_refs[:20]
+        ]
+    if item.missing_evidence_ref_previews:
+        payload["missing_evidence_ref_previews"] = [
+            value[:360] for value in item.missing_evidence_ref_previews[:20]
         ]
     return payload
 

@@ -40,6 +40,9 @@ from infinity_context_server.public_benchmark_case_diagnostics import (
     case_answer_preview as _case_answer_preview,
 )
 from infinity_context_server.public_benchmark_case_diagnostics import (
+    case_evidence_ref_previews as _case_evidence_ref_previews,
+)
+from infinity_context_server.public_benchmark_case_diagnostics import (
     case_evidence_refs as _case_evidence_refs,
 )
 from infinity_context_server.public_benchmark_case_diagnostics import (
@@ -1394,6 +1397,11 @@ def _run_case(
     missing_evidence_refs = tuple(
         ref for ref in evidence_refs if _normalize_text(ref) not in normalized_evidence
     )
+    evidence_ref_previews = _case_evidence_ref_previews(case, refs=evidence_refs)
+    missing_evidence_ref_previews = _case_evidence_ref_previews(
+        case,
+        refs=missing_evidence_refs,
+    )
     return CaseRunResult(
         benchmark=case.benchmark,
         case_id=case.case_id,
@@ -1409,9 +1417,11 @@ def _run_case(
         answer_preview=_case_answer_preview(case),
         expected_terms_preview=_case_expected_terms_preview(case),
         evidence_refs=evidence_refs,
+        evidence_ref_previews=evidence_ref_previews,
         covered_terms=covered_terms,
         covered_evidence_refs=covered_evidence_refs,
         missing_evidence_refs=missing_evidence_refs,
+        missing_evidence_ref_previews=missing_evidence_ref_previews,
     )
 
 
@@ -1513,6 +1523,10 @@ def _official_locomo_cases(raw: Mapping[str, object]) -> tuple[PublicBenchmarkCa
                     "category": category,
                     "answer_preview": _preview_value(qa.get("answer")),
                     "evidence": qa.get("evidence") if isinstance(qa.get("evidence"), list) else [],
+                    "evidence_previews": _official_locomo_evidence_previews(
+                        qa,
+                        evidence_lookup=evidence_lookup,
+                    ),
                 },
             )
         )
@@ -1600,6 +1614,20 @@ def _official_locomo_evidence_terms(
         if evidence_id and evidence_id in evidence_lookup:
             terms.append(evidence_id)
     return tuple(_unique(terms))
+
+
+def _official_locomo_evidence_previews(
+    qa: Mapping[str, object],
+    *,
+    evidence_lookup: Mapping[str, str],
+) -> dict[str, str]:
+    previews: dict[str, str] = {}
+    for item in _flatten_benchmark_scalar_values(qa.get("evidence")):
+        evidence_id = str(item).strip()
+        evidence_text = evidence_lookup.get(evidence_id)
+        if evidence_id and evidence_text:
+            previews[evidence_id] = _preview_value(evidence_text, max_chars=240)
+    return previews
 
 
 def _official_locomo_supported_answer_terms(

@@ -58,6 +58,11 @@ def test_public_benchmark_case_failures_include_answer_and_evidence_diagnostics(
         answer_preview="Her mentors, family, and friends",
         expected_terms_preview=("D12:1", "D3:11"),
         evidence_refs=("D12:1", "D3:11"),
+        evidence_ref_previews=(
+            "D12:1: Caroline values support from friends.",
+            "D3:11: Caroline is supported by mentors.",
+        ),
+        missing_evidence_ref_previews=("D3:11: Caroline is supported by mentors.",),
     )
 
     failures = case_failures((result,))
@@ -66,9 +71,19 @@ def test_public_benchmark_case_failures_include_answer_and_evidence_diagnostics(
     assert failures[0]["answer_preview"] == "Her mentors, family, and friends"
     assert failures[0]["expected_terms_preview"] == ["D12:1", "D3:11"]
     assert failures[0]["evidence_refs"] == ["D12:1", "D3:11"]
+    assert failures[0]["evidence_ref_previews"] == [
+        "D12:1: Caroline values support from friends.",
+        "D3:11: Caroline is supported by mentors.",
+    ]
+    assert failures[0]["missing_evidence_ref_previews"] == [
+        "D3:11: Caroline is supported by mentors.",
+    ]
     assert payload["answer_preview"] == "Her mentors, family, and friends"
     assert payload["expected_terms_preview"] == ["D12:1", "D3:11"]
     assert payload["evidence_refs"] == ["D12:1", "D3:11"]
+    assert payload["missing_evidence_ref_previews"] == [
+        "D3:11: Caroline is supported by mentors.",
+    ]
 
 
 def test_public_benchmark_case_payload_includes_bounded_coverage() -> None:
@@ -248,6 +263,13 @@ def test_public_benchmark_resume_preserves_checkpoint_failure_diagnostics(
                         "answer_preview": "Her mentors, family, and friends",
                         "expected_terms_preview": ["D12:1", "D3:11"],
                         "evidence_refs": ["D12:1", "D3:11"],
+                        "evidence_ref_previews": [
+                            "D12:1: Caroline values support from friends.",
+                            "D3:11: Caroline is supported by mentors.",
+                        ],
+                        "missing_evidence_ref_previews": [
+                            "D3:11: Caroline is supported by mentors.",
+                        ],
                     },
                 ],
                 "failures": [
@@ -288,6 +310,13 @@ def test_public_benchmark_resume_preserves_checkpoint_failure_diagnostics(
             "answer_preview": "Her mentors, family, and friends",
             "expected_terms_preview": ["D12:1", "D3:11"],
             "evidence_refs": ["D12:1", "D3:11"],
+            "evidence_ref_previews": [
+                "D12:1: Caroline values support from friends.",
+                "D3:11: Caroline is supported by mentors.",
+            ],
+            "missing_evidence_ref_previews": [
+                "D3:11: Caroline is supported by mentors.",
+            ],
         },
     )
 
@@ -311,9 +340,11 @@ def _case_result(
     answer_preview: str = "",
     expected_terms_preview: tuple[str, ...] = (),
     evidence_refs: tuple[str, ...] = (),
+    evidence_ref_previews: tuple[str, ...] = (),
     covered_terms: tuple[str, ...] = (),
     covered_evidence_refs: tuple[str, ...] = (),
     missing_evidence_refs: tuple[str, ...] = (),
+    missing_evidence_ref_previews: tuple[str, ...] = (),
 ) -> CaseRunResult:
     return CaseRunResult(
         benchmark="locomo",
@@ -330,7 +361,9 @@ def _case_result(
         answer_preview=answer_preview,
         expected_terms_preview=expected_terms_preview,
         evidence_refs=evidence_refs,
+        evidence_ref_previews=evidence_ref_previews,
         covered_terms=covered_terms,
         covered_evidence_refs=covered_evidence_refs,
         missing_evidence_refs=missing_evidence_refs,
+        missing_evidence_ref_previews=missing_evidence_ref_previews,
     )

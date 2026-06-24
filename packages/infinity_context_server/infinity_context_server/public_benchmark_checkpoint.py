@@ -34,9 +34,11 @@ class CaseRunResult:
     answer_preview: str = ""
     expected_terms_preview: tuple[str, ...] = ()
     evidence_refs: tuple[str, ...] = ()
+    evidence_ref_previews: tuple[str, ...] = ()
     covered_terms: tuple[str, ...] = ()
     covered_evidence_refs: tuple[str, ...] = ()
     missing_evidence_refs: tuple[str, ...] = ()
+    missing_evidence_ref_previews: tuple[str, ...] = ()
 
 
 @dataclass
@@ -438,9 +440,11 @@ def _case_run_result_from_payload(raw: object) -> CaseRunResult | None:
         answer_preview=str(raw.get("answer_preview") or "")[:240],
         expected_terms_preview=_str_tuple(raw.get("expected_terms_preview")),
         evidence_refs=_str_tuple(raw.get("evidence_refs")),
+        evidence_ref_previews=_str_tuple(raw.get("evidence_ref_previews")),
         covered_terms=_str_tuple(raw.get("covered_terms")),
         covered_evidence_refs=_str_tuple(raw.get("covered_evidence_refs")),
         missing_evidence_refs=_str_tuple(raw.get("missing_evidence_refs")),
+        missing_evidence_ref_previews=_str_tuple(raw.get("missing_evidence_ref_previews")),
     )
 
 
@@ -499,6 +503,14 @@ def _checkpoint_failure_diagnostic(
     )
     if evidence_refs:
         payload["evidence_refs"] = _bounded_str_list(evidence_refs)
+    evidence_ref_previews = result.evidence_ref_previews or (
+        _str_tuple(report.get("evidence_ref_previews")) if report is not None else ()
+    )
+    if evidence_ref_previews:
+        payload["evidence_ref_previews"] = _bounded_str_list(
+            evidence_ref_previews,
+            max_chars=360,
+        )
     covered_terms = result.covered_terms or (
         _str_tuple(report.get("covered_terms")) if report is not None else ()
     )
@@ -514,6 +526,14 @@ def _checkpoint_failure_diagnostic(
     )
     if missing_evidence_refs:
         payload["missing_evidence_refs"] = _bounded_str_list(missing_evidence_refs)
+    missing_evidence_ref_previews = result.missing_evidence_ref_previews or (
+        _str_tuple(report.get("missing_evidence_ref_previews")) if report is not None else ()
+    )
+    if missing_evidence_ref_previews:
+        payload["missing_evidence_ref_previews"] = _bounded_str_list(
+            missing_evidence_ref_previews,
+            max_chars=360,
+        )
     return payload
 
 
@@ -529,8 +549,12 @@ def _failure_reason_from_result(result: CaseRunResult) -> str:
     return "checkpoint_failed_case"
 
 
-def _bounded_str_list(values: Sequence[str]) -> list[str]:
-    return [str(item)[:120] for item in values[:_MAX_FAILURE_TERMS] if item is not None]
+def _bounded_str_list(values: Sequence[str], *, max_chars: int = 120) -> list[str]:
+    return [
+        str(item)[:max_chars]
+        for item in values[:_MAX_FAILURE_TERMS]
+        if item is not None
+    ]
 
 
 def _as_sequence(value: object) -> Sequence[object]:

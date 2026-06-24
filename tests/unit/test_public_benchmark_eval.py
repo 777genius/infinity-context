@@ -2499,6 +2499,9 @@ def test_official_locomo_cases_preserve_answer_and_evidence_diagnostics(
 
     assert cases[0].metadata["answer_preview"] == "Friends and mentors"
     assert cases[0].metadata["evidence"] == ["D1:1"]
+    assert cases[0].metadata["evidence_previews"] == {
+        "D1:1": "My friends and mentors support me.",
+    }
     assert cases[0].expected_terms == ("D1:1",)
 
 
