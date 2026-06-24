@@ -46,6 +46,9 @@ from infinity_context_core.application.context_lexical import (
 from infinity_context_core.application.context_inference_evidence import (
     answer_evidence_rerank_signal,
 )
+from infinity_context_core.application.context_object_mismatch import (
+    object_kind_mismatch_signal,
+)
 from infinity_context_core.application.context_polarity_rerank import (
     absence_contrast_signal,
     negative_preference_signal,
@@ -1521,6 +1524,16 @@ def _deterministic_rerank_signals(
     if contrast_penalty > 0:
         penalty += contrast_penalty
         reasons.append(contrast_reason)
+    object_boost, object_penalty, object_reason = object_kind_mismatch_signal(
+        query=query,
+        text=item.text,
+    )
+    if object_boost > 0:
+        boost += object_boost
+        reasons.append(object_reason)
+    if object_penalty > 0:
+        penalty += object_penalty
+        reasons.append(object_reason)
     conversation_boost, conversation_penalty, conversation_reason = (
         conversation_counterparty_evidence_signal(
             query=query,

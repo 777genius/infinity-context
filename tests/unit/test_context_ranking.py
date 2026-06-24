@@ -5977,6 +5977,55 @@ def test_deterministic_rerank_handles_absence_contrast_negative_descriptor() -> 
     )
 
 
+def test_deterministic_rerank_penalizes_pet_species_mismatch() -> None:
+    query = "What hamster did I mention?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    cat_note = _item(
+        "cat_note",
+        score=0.72,
+        retrieval_source="keyword_chunks",
+        text="I mentioned my cat Luna during the call.",
+    )
+
+    (reranked,) = apply_deterministic_rerank_adjustments(
+        (cat_note,),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+
+    assert reranked.score < cat_note.score
+    assert (
+        "object_kind_species_mismatch"
+        in reranked.diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+
+
+def test_deterministic_rerank_does_not_penalize_dog_shelter_as_pet_mismatch() -> None:
+    query = "What dog shelter does Maria volunteer at?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    shelter_note = _item(
+        "shelter_note",
+        score=0.72,
+        retrieval_source="keyword_chunks",
+        text="Maria volunteers at the dog shelter on weekends.",
+    )
+
+    (reranked,) = apply_deterministic_rerank_adjustments(
+        (shelter_note,),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+
+    assert "object_kind_species_mismatch" not in reranked.diagnostics.get(
+        "provenance",
+        {},
+    ).get("deterministic_rerank_reasons", [])
+
+
 def test_deterministic_rerank_does_not_penalize_exact_source_sibling_speaker_bridge() -> None:
     query = "Would John be open to moving to another country?"
     plan = build_query_expansion_plan(query)

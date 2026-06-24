@@ -210,6 +210,8 @@ _LOW_SIGNAL_INVENTORY_AGGREGATION_TERMS = frozenset(
         "options",
     }
 )
+_OBJECT_KIND_MISMATCH_RERANK_REASON = "object_kind_species_mismatch"
+_OBJECT_KIND_MATCH_RERANK_REASON = "object_kind_match"
 
 
 class BuildContextUseCase:
@@ -2358,6 +2360,7 @@ def _apply_explicit_requirement_guard(
     diagnostics: dict[str, object] = {
         "requirement_guard_items_considered": len(items),
         "requirement_guard_items_dropped": 0,
+        "requirement_guard_object_kind_mismatch_drop_count": 0,
     }
     if "project" in requested_anchor_kinds and "project" in missing_anchor_kinds:
         diagnostics.update(
@@ -2367,8 +2370,35 @@ def _apply_explicit_requirement_guard(
             }
         )
         return (), diagnostics
+    kept_items = tuple(item for item in items if not _has_object_kind_mismatch(item))
+    object_kind_mismatch_drop_count = len(items) - len(kept_items)
+    if object_kind_mismatch_drop_count > 0:
+        diagnostics["requirement_guard_items_dropped"] = object_kind_mismatch_drop_count
+        diagnostics["requirement_guard_object_kind_mismatch_drop_count"] = (
+            object_kind_mismatch_drop_count
+        )
+        diagnostics["requirement_guard_status"] = (
+            "dropped_object_kind_mismatch" if not kept_items else "filtered_object_kind_mismatch"
+        )
+        return kept_items, diagnostics
     diagnostics["requirement_guard_status"] = "satisfied"
     return items, diagnostics
+
+
+def _has_object_kind_mismatch(item: ContextItem) -> bool:
+    reasons = _deterministic_rerank_reasons(item)
+    return (
+        _OBJECT_KIND_MISMATCH_RERANK_REASON in reasons
+        and _OBJECT_KIND_MATCH_RERANK_REASON not in reasons
+    )
+
+
+def _deterministic_rerank_reasons(item: ContextItem) -> frozenset[str]:
+    provenance = _provenance(dict(item.diagnostics or {}))
+    raw_reasons = provenance.get("deterministic_rerank_reasons")
+    if not isinstance(raw_reasons, list | tuple):
+        return frozenset()
+    return frozenset(str(reason) for reason in raw_reasons if isinstance(reason, str))
 
 
 def _coverage_strings(value: object) -> tuple[str, ...]:
