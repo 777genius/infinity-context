@@ -36,6 +36,18 @@ from infinity_context_server.public_benchmark_artifacts import (
 from infinity_context_server.public_benchmark_artifacts import (
     write_json_atomic as _write_json_atomic,
 )
+from infinity_context_server.public_benchmark_case_diagnostics import (
+    case_answer_preview as _case_answer_preview,
+)
+from infinity_context_server.public_benchmark_case_diagnostics import (
+    case_evidence_refs as _case_evidence_refs,
+)
+from infinity_context_server.public_benchmark_case_diagnostics import (
+    case_expected_terms_preview as _case_expected_terms_preview,
+)
+from infinity_context_server.public_benchmark_case_diagnostics import (
+    preview_value as _preview_value,
+)
 from infinity_context_server.public_benchmark_checkpoint import (
     BenchmarkSeedStats as _BenchmarkSeedStats,
 )
@@ -1384,6 +1396,9 @@ def _run_case(
         item_ids=item_ids,
         latency_ms=latency_ms,
         question_preview=case.question[:240],
+        answer_preview=_case_answer_preview(case),
+        expected_terms_preview=_case_expected_terms_preview(case),
+        evidence_refs=_case_evidence_refs(case),
     )
 
 
@@ -1483,6 +1498,7 @@ def _official_locomo_cases(raw: Mapping[str, object]) -> tuple[PublicBenchmarkCa
                     "sample_id": sample_id,
                     "qa_index": index,
                     "category": category,
+                    "answer_preview": _preview_value(qa.get("answer")),
                     "evidence": qa.get("evidence") if isinstance(qa.get("evidence"), list) else [],
                 },
             )
@@ -2019,6 +2035,7 @@ def _official_longmemeval_case(raw: Mapping[str, object]) -> PublicBenchmarkCase
             "source_format": "official_longmemeval",
             "question_type": raw.get("question_type"),
             "question_date": raw.get("question_date"),
+            "answer_preview": _preview_value(raw.get("answer")),
             "answer_session_ids": raw.get("answer_session_ids")
             if isinstance(raw.get("answer_session_ids"), list)
             else [],
@@ -2113,6 +2130,13 @@ def _normalize_case(raw: Mapping[str, object]) -> PublicBenchmarkCase:
         )
     if not memories and not documents:
         raise BenchmarkValidationError(f"Case {case_id} is missing memories/documents")
+    metadata = dict(_metadata(raw))
+    metadata.setdefault(
+        "answer_preview",
+        _preview_value(
+            _first_present(raw, "answer", "expected_answer", "ground_truth", "gold_answer")
+        ),
+    )
     return PublicBenchmarkCase(
         benchmark=benchmark,
         case_id=case_id,
@@ -2125,7 +2149,7 @@ def _normalize_case(raw: Mapping[str, object]) -> PublicBenchmarkCase:
             raw, "memory_scope_external_ref", "user_id", "memory_scope_id"
         ),
         thread_external_ref=_first_str(raw, "thread_external_ref", "thread_id", "session_id"),
-        metadata=_metadata(raw),
+        metadata=metadata,
     )
 
 

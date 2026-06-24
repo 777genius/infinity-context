@@ -78,6 +78,14 @@ def case_payload(item: CaseRunResult) -> dict[str, object]:
     }
     if item.question_preview:
         payload["question_preview"] = item.question_preview[:240]
+    if not item.ok and item.answer_preview:
+        payload["answer_preview"] = item.answer_preview[:240]
+    if not item.ok and item.expected_terms_preview:
+        payload["expected_terms_preview"] = [
+            value[:120] for value in item.expected_terms_preview[:20]
+        ]
+    if not item.ok and item.evidence_refs:
+        payload["evidence_refs"] = [value[:120] for value in item.evidence_refs[:20]]
     return payload
 
 
@@ -96,6 +104,14 @@ def _case_failure_payload(item: CaseRunResult) -> dict[str, object]:
     }
     if item.question_preview:
         payload["question_preview"] = item.question_preview[:240]
+    if item.answer_preview:
+        payload["answer_preview"] = item.answer_preview[:240]
+    if item.expected_terms_preview:
+        payload["expected_terms_preview"] = [
+            value[:120] for value in item.expected_terms_preview[:20]
+        ]
+    if item.evidence_refs:
+        payload["evidence_refs"] = [value[:120] for value in item.evidence_refs[:20]]
     return payload
 
 

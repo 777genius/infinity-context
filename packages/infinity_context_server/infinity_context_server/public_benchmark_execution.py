@@ -7,6 +7,18 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from infinity_context_server.public_benchmark_case_diagnostics import (
+    case_answer_preview as _case_answer_preview,
+)
+from infinity_context_server.public_benchmark_case_diagnostics import (
+    case_evidence_refs as _case_evidence_refs,
+)
+from infinity_context_server.public_benchmark_case_diagnostics import (
+    case_expected_terms_preview as _case_expected_terms_preview,
+)
+from infinity_context_server.public_benchmark_case_diagnostics import (
+    case_question_preview as _case_question_preview,
+)
 from infinity_context_server.public_benchmark_checkpoint import (
     BenchmarkSeedStats,
     CaseRunResult,
@@ -342,15 +354,29 @@ def case_error_result(
         leaked_terms=(),
         item_ids=(),
         latency_ms=0.0,
+        question_preview=_case_question_preview(case),
+        answer_preview=_case_answer_preview(case),
+        expected_terms_preview=_case_expected_terms_preview(case),
+        evidence_refs=_case_evidence_refs(case),
     )
 
 
 def case_exception_failure(case: Any, exc: Exception) -> dict[str, object]:
-    return {
+    payload: dict[str, object] = {
         "case_id": case.case_id,
         "category": case.benchmark,
         "reason": exc.__class__.__name__,
     }
+    question_preview = _case_question_preview(case)
+    if question_preview:
+        payload["question_preview"] = question_preview
+    answer_preview = _case_answer_preview(case)
+    if answer_preview:
+        payload["answer_preview"] = answer_preview
+    evidence_refs = _case_evidence_refs(case)
+    if evidence_refs:
+        payload["evidence_refs"] = list(evidence_refs)
+    return payload
 
 
 def ordered_run_results(

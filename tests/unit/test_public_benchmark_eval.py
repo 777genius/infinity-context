@@ -2452,6 +2452,45 @@ def test_public_memory_benchmark_accepts_official_locomo_shape(tmp_path: Path) -
     assert result["cases"][0]["case_id"] == "conv-mini:qa:1"
 
 
+def test_official_locomo_cases_preserve_answer_and_evidence_diagnostics(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "locomo10-diagnostics-mini.json"
+    dataset.write_text(
+        json.dumps(
+            [
+                {
+                    "sample_id": "conv-diagnostics-mini",
+                    "conversation": {
+                        "session_1": [
+                            {
+                                "speaker": "Caroline",
+                                "dia_id": "D1:1",
+                                "text": "My friends and mentors support me.",
+                            }
+                        ],
+                    },
+                    "qa": [
+                        {
+                            "question": "Who supports Caroline?",
+                            "answer": "Friends and mentors",
+                            "evidence": ["D1:1"],
+                            "category": 1,
+                        }
+                    ],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    cases = _load_cases(dataset)
+
+    assert cases[0].metadata["answer_preview"] == "Friends and mentors"
+    assert cases[0].metadata["evidence"] == ["D1:1"]
+    assert cases[0].expected_terms == ("D1:1",)
+
+
 def test_public_memory_benchmark_skips_unsupported_official_locomo_inference(
     tmp_path: Path,
 ) -> None:

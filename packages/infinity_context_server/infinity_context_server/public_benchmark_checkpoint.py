@@ -31,6 +31,9 @@ class CaseRunResult:
     item_ids: tuple[str, ...]
     latency_ms: float
     question_preview: str = ""
+    answer_preview: str = ""
+    expected_terms_preview: tuple[str, ...] = ()
+    evidence_refs: tuple[str, ...] = ()
 
 
 @dataclass
@@ -429,6 +432,9 @@ def _case_run_result_from_payload(raw: object) -> CaseRunResult | None:
         item_ids=_str_tuple(raw.get("item_ids")),
         latency_ms=_float_field(raw, "latency_ms", default=0.0),
         question_preview=str(raw.get("question_preview") or "")[:240],
+        answer_preview=str(raw.get("answer_preview") or "")[:240],
+        expected_terms_preview=_str_tuple(raw.get("expected_terms_preview")),
+        evidence_refs=_str_tuple(raw.get("evidence_refs")),
     )
 
 
@@ -472,6 +478,21 @@ def _checkpoint_failure_diagnostic(
     )
     if question_preview:
         payload["question_preview"] = question_preview[:_MAX_FAILURE_TEXT_CHARS]
+    answer_preview = result.answer_preview or (
+        _non_empty_str(report.get("answer_preview")) if report is not None else None
+    )
+    if answer_preview:
+        payload["answer_preview"] = answer_preview[:_MAX_FAILURE_TEXT_CHARS]
+    expected_terms_preview = result.expected_terms_preview or (
+        _str_tuple(report.get("expected_terms_preview")) if report is not None else ()
+    )
+    if expected_terms_preview:
+        payload["expected_terms_preview"] = _bounded_str_list(expected_terms_preview)
+    evidence_refs = result.evidence_refs or (
+        _str_tuple(report.get("evidence_refs")) if report is not None else ()
+    )
+    if evidence_refs:
+        payload["evidence_refs"] = _bounded_str_list(evidence_refs)
     return payload
 
 

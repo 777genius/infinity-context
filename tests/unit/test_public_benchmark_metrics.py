@@ -47,6 +47,27 @@ def test_public_benchmark_case_failures_include_question_preview() -> None:
     ]
 
 
+def test_public_benchmark_case_failures_include_answer_and_evidence_diagnostics() -> None:
+    result = _case_result(
+        ok=False,
+        missing_terms=("D3:11",),
+        question_preview="Who supports Caroline?",
+        answer_preview="Her mentors, family, and friends",
+        expected_terms_preview=("D12:1", "D3:11"),
+        evidence_refs=("D12:1", "D3:11"),
+    )
+
+    failures = case_failures((result,))
+    payload = case_payload(result)
+
+    assert failures[0]["answer_preview"] == "Her mentors, family, and friends"
+    assert failures[0]["expected_terms_preview"] == ["D12:1", "D3:11"]
+    assert failures[0]["evidence_refs"] == ["D12:1", "D3:11"]
+    assert payload["answer_preview"] == "Her mentors, family, and friends"
+    assert payload["expected_terms_preview"] == ["D12:1", "D3:11"]
+    assert payload["evidence_refs"] == ["D12:1", "D3:11"]
+
+
 def test_public_benchmark_progress_timing_includes_eta_diagnostics() -> None:
     fields = progress_timing_fields(
         processed_case_count=2,
@@ -164,6 +185,9 @@ def test_public_benchmark_resume_preserves_checkpoint_failure_diagnostics(
                         "item_ids": [],
                         "latency_ms": 15.0,
                         "question_preview": "Who supports Caroline?",
+                        "answer_preview": "Her mentors, family, and friends",
+                        "expected_terms_preview": ["D12:1", "D3:11"],
+                        "evidence_refs": ["D12:1", "D3:11"],
                     },
                 ],
                 "failures": [
@@ -201,6 +225,9 @@ def test_public_benchmark_resume_preserves_checkpoint_failure_diagnostics(
             "retry_pending": True,
             "from_checkpoint": True,
             "question_preview": "Who supports Caroline?",
+            "answer_preview": "Her mentors, family, and friends",
+            "expected_terms_preview": ["D12:1", "D3:11"],
+            "evidence_refs": ["D12:1", "D3:11"],
         },
     )
 
@@ -220,6 +247,9 @@ def _case_result(
     ok: bool = True,
     missing_terms: tuple[str, ...] = (),
     question_preview: str = "",
+    answer_preview: str = "",
+    expected_terms_preview: tuple[str, ...] = (),
+    evidence_refs: tuple[str, ...] = (),
 ) -> CaseRunResult:
     return CaseRunResult(
         benchmark="locomo",
@@ -233,4 +263,7 @@ def _case_result(
         item_ids=("chunk-one",),
         latency_ms=12.5,
         question_preview=question_preview,
+        answer_preview=answer_preview,
+        expected_terms_preview=expected_terms_preview,
+        evidence_refs=evidence_refs,
     )
