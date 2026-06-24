@@ -68,6 +68,30 @@ def test_public_benchmark_case_failures_include_answer_and_evidence_diagnostics(
     assert payload["evidence_refs"] == ["D12:1", "D3:11"]
 
 
+def test_public_benchmark_case_payload_includes_bounded_coverage() -> None:
+    result = _case_result(
+        covered_terms=("D12:1", "single parent"),
+        missing_terms=("D3:11",),
+        evidence_refs=("D12:1", "D3:11", "D7:4"),
+        covered_evidence_refs=("D12:1",),
+        missing_evidence_refs=("D3:11", "D7:4"),
+    )
+
+    payload = case_payload(result)
+
+    assert payload["coverage"] == {
+        "expected_term_count": 3,
+        "covered_expected_term_count": 2,
+        "expected_term_coverage": 0.6667,
+        "evidence_ref_count": 3,
+        "covered_evidence_ref_count": 1,
+        "evidence_ref_coverage": 0.3333,
+    }
+    assert payload["covered_terms"] == ["D12:1", "single parent"]
+    assert payload["covered_evidence_refs"] == ["D12:1"]
+    assert payload["missing_evidence_refs"] == ["D3:11", "D7:4"]
+
+
 def test_public_benchmark_progress_timing_includes_eta_diagnostics() -> None:
     fields = progress_timing_fields(
         processed_case_count=2,
@@ -250,6 +274,9 @@ def _case_result(
     answer_preview: str = "",
     expected_terms_preview: tuple[str, ...] = (),
     evidence_refs: tuple[str, ...] = (),
+    covered_terms: tuple[str, ...] = (),
+    covered_evidence_refs: tuple[str, ...] = (),
+    missing_evidence_refs: tuple[str, ...] = (),
 ) -> CaseRunResult:
     return CaseRunResult(
         benchmark="locomo",
@@ -266,4 +293,7 @@ def _case_result(
         answer_preview=answer_preview,
         expected_terms_preview=expected_terms_preview,
         evidence_refs=evidence_refs,
+        covered_terms=covered_terms,
+        covered_evidence_refs=covered_evidence_refs,
+        missing_evidence_refs=missing_evidence_refs,
     )

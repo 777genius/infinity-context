@@ -1374,6 +1374,9 @@ def _run_case(
     data = _response_data(response)
     evidence_text = _evidence_text(data)
     normalized_evidence = _normalize_text(evidence_text)
+    covered_terms = tuple(
+        term for term in case.expected_terms if _normalize_text(term) in normalized_evidence
+    )
     missing = tuple(
         term for term in case.expected_terms if _normalize_text(term) not in normalized_evidence
     )
@@ -1383,6 +1386,13 @@ def _run_case(
     items = data.get("items", [])
     item_ids = tuple(
         str(item.get("item_id")) for item in items if isinstance(item, dict) and item.get("item_id")
+    )
+    evidence_refs = _case_evidence_refs(case)
+    covered_evidence_refs = tuple(
+        ref for ref in evidence_refs if _normalize_text(ref) in normalized_evidence
+    )
+    missing_evidence_refs = tuple(
+        ref for ref in evidence_refs if _normalize_text(ref) not in normalized_evidence
     )
     return CaseRunResult(
         benchmark=case.benchmark,
@@ -1398,7 +1408,10 @@ def _run_case(
         question_preview=case.question[:240],
         answer_preview=_case_answer_preview(case),
         expected_terms_preview=_case_expected_terms_preview(case),
-        evidence_refs=_case_evidence_refs(case),
+        evidence_refs=evidence_refs,
+        covered_terms=covered_terms,
+        covered_evidence_refs=covered_evidence_refs,
+        missing_evidence_refs=missing_evidence_refs,
     )
 
 

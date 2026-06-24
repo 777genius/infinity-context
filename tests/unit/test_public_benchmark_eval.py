@@ -2450,6 +2450,17 @@ def test_public_memory_benchmark_accepts_official_locomo_shape(tmp_path: Path) -
     assert result["benchmarks"][0]["name"] == "locomo"
     assert result["metrics"]["locomo_case_count"] == 1
     assert result["cases"][0]["case_id"] == "conv-mini:qa:1"
+    assert result["cases"][0]["covered_terms"] == ["D1:1"]
+    assert result["cases"][0]["covered_evidence_refs"] == ["D1:1"]
+    assert result["cases"][0]["missing_evidence_refs"] == []
+    assert result["cases"][0]["coverage"] == {
+        "expected_term_count": 1,
+        "covered_expected_term_count": 1,
+        "expected_term_coverage": 1.0,
+        "evidence_ref_count": 1,
+        "covered_evidence_ref_count": 1,
+        "evidence_ref_coverage": 1.0,
+    }
 
 
 def test_official_locomo_cases_preserve_answer_and_evidence_diagnostics(

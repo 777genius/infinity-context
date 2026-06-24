@@ -75,6 +75,14 @@ def case_payload(item: CaseRunResult) -> dict[str, object]:
         "leaked_terms": list(item.leaked_terms),
         "item_ids": list(item.item_ids),
         "latency_ms": item.latency_ms,
+        "coverage": _case_coverage_payload(item),
+        "covered_terms": [value[:120] for value in item.covered_terms[:20]],
+        "covered_evidence_refs": [
+            value[:120] for value in item.covered_evidence_refs[:20]
+        ],
+        "missing_evidence_refs": [
+            value[:120] for value in item.missing_evidence_refs[:20]
+        ],
     }
     if item.question_preview:
         payload["question_preview"] = item.question_preview[:240]
@@ -112,7 +120,30 @@ def _case_failure_payload(item: CaseRunResult) -> dict[str, object]:
         ]
     if item.evidence_refs:
         payload["evidence_refs"] = [value[:120] for value in item.evidence_refs[:20]]
+    if item.covered_terms:
+        payload["covered_terms"] = [value[:120] for value in item.covered_terms[:20]]
+    if item.covered_evidence_refs:
+        payload["covered_evidence_refs"] = [
+            value[:120] for value in item.covered_evidence_refs[:20]
+        ]
+    if item.missing_evidence_refs:
+        payload["missing_evidence_refs"] = [
+            value[:120] for value in item.missing_evidence_refs[:20]
+        ]
     return payload
+
+
+def _case_coverage_payload(item: CaseRunResult) -> dict[str, object]:
+    expected_term_count = len(item.covered_terms) + len(item.missing_terms)
+    evidence_ref_count = len(item.covered_evidence_refs) + len(item.missing_evidence_refs)
+    return {
+        "expected_term_count": expected_term_count,
+        "covered_expected_term_count": len(item.covered_terms),
+        "expected_term_coverage": _ratio(len(item.covered_terms), expected_term_count),
+        "evidence_ref_count": evidence_ref_count,
+        "covered_evidence_ref_count": len(item.covered_evidence_refs),
+        "evidence_ref_coverage": _ratio(len(item.covered_evidence_refs), evidence_ref_count),
+    }
 
 
 def bounded_progress_fields(fields: Mapping[str, object]) -> dict[str, object]:

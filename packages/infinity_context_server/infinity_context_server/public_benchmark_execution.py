@@ -358,6 +358,7 @@ def case_error_result(
         answer_preview=_case_answer_preview(case),
         expected_terms_preview=_case_expected_terms_preview(case),
         evidence_refs=_case_evidence_refs(case),
+        missing_evidence_refs=_case_evidence_refs(case),
     )
 
 

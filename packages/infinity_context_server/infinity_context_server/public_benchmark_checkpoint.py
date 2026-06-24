@@ -34,6 +34,9 @@ class CaseRunResult:
     answer_preview: str = ""
     expected_terms_preview: tuple[str, ...] = ()
     evidence_refs: tuple[str, ...] = ()
+    covered_terms: tuple[str, ...] = ()
+    covered_evidence_refs: tuple[str, ...] = ()
+    missing_evidence_refs: tuple[str, ...] = ()
 
 
 @dataclass
@@ -435,6 +438,9 @@ def _case_run_result_from_payload(raw: object) -> CaseRunResult | None:
         answer_preview=str(raw.get("answer_preview") or "")[:240],
         expected_terms_preview=_str_tuple(raw.get("expected_terms_preview")),
         evidence_refs=_str_tuple(raw.get("evidence_refs")),
+        covered_terms=_str_tuple(raw.get("covered_terms")),
+        covered_evidence_refs=_str_tuple(raw.get("covered_evidence_refs")),
+        missing_evidence_refs=_str_tuple(raw.get("missing_evidence_refs")),
     )
 
 
@@ -493,6 +499,21 @@ def _checkpoint_failure_diagnostic(
     )
     if evidence_refs:
         payload["evidence_refs"] = _bounded_str_list(evidence_refs)
+    covered_terms = result.covered_terms or (
+        _str_tuple(report.get("covered_terms")) if report is not None else ()
+    )
+    if covered_terms:
+        payload["covered_terms"] = _bounded_str_list(covered_terms)
+    covered_evidence_refs = result.covered_evidence_refs or (
+        _str_tuple(report.get("covered_evidence_refs")) if report is not None else ()
+    )
+    if covered_evidence_refs:
+        payload["covered_evidence_refs"] = _bounded_str_list(covered_evidence_refs)
+    missing_evidence_refs = result.missing_evidence_refs or (
+        _str_tuple(report.get("missing_evidence_refs")) if report is not None else ()
+    )
+    if missing_evidence_refs:
+        payload["missing_evidence_refs"] = _bounded_str_list(missing_evidence_refs)
     return payload
 
 
