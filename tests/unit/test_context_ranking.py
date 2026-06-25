@@ -386,6 +386,55 @@ def test_deterministic_rerank_prefers_count_aggregation_over_single_mention() ->
     )
 
 
+def test_deterministic_rerank_prefers_business_commonality_origin_evidence() -> None:
+    query = "What do Jon and Gina both have in common?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    origin = _item(
+        "gina_business_origin",
+        score=0.94,
+        retrieval_source="keyword_chunks",
+        score_signals={"query_expansion_reason": "business_commonality_bridge"},
+        text=(
+            "D2:1 Gina launched an ad campaign for her clothing store in hopes "
+            "of growing the business. Starting my own store and taking risks is "
+            "both scary and rewarding."
+        ),
+    )
+    late_update = _item(
+        "late_business_update",
+        score=0.96,
+        retrieval_source="keyword_source_sibling_chunks",
+        score_signals={"query_expansion_reason": "business_commonality_bridge"},
+        text=(
+            "D18:2 Jon: Hey Gina, congrats on the clothing store! The dance "
+            "studio is on tenuous grounds right now, but I'm staying positive."
+        ),
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (late_update, origin),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert by_id["gina_business_origin"].score > by_id["late_business_update"].score
+    assert (
+        "business_commonality_origin_evidence"
+        in by_id["gina_business_origin"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+    assert (
+        "business_commonality_weak_update"
+        in by_id["late_business_update"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+
+
 def test_deterministic_rerank_prefers_list_aggregation_over_single_mention() -> None:
     query = "What shelters does Maria volunteer at?"
     plan = build_query_expansion_plan(query)

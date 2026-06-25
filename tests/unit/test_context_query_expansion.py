@@ -1262,6 +1262,15 @@ def test_query_expansion_covers_commonality_interest_bridges() -> None:
     )
 
 
+def test_query_expansion_covers_business_commonality_bridge() -> None:
+    plan = build_query_expansion_plan("What do Jon and Gina both have in common?")
+
+    expansion = _expansion_query(plan, "business_commonality_bridge")
+    assert expansion.startswith("Jon Gina ")
+    assert "lost job lost jobs own business" in expansion
+    assert "dance studio clothing store" in expansion
+
+
 def test_query_expansion_covers_generic_multimodal_evidence_bridges() -> None:
     screenshot = build_query_expansion_plan("What text is written in this screenshot image?")
     video = build_query_expansion_plan("What did Alex say in the video about the launch?")
@@ -2472,6 +2481,33 @@ def test_best_query_relevance_bridges_business_start_reason_evidence() -> None:
     assert job_loss_relevance.distinctive_term_hits >= 4
     assert fashion_reason == "business_start_reason_bridge"
     assert fashion_relevance.distinctive_term_hits >= 5
+
+
+def test_best_query_relevance_bridges_business_commonality_evidence() -> None:
+    plan = build_query_expansion_plan("What do Jon and Gina both have in common?")
+
+    cases = (
+        (
+            "D1:3 Gina: Unfortunately, I also lost my job at Door Dash this month. "
+            "What business are you thinking of?",
+            "business_commonality_bridge",
+        ),
+        (
+            "D1:4 Jon: I'm starting a dance studio because I'm passionate about dancing.",
+            "business_commonality_bridge",
+        ),
+        (
+            "D2:1 Gina launched an ad campaign for her clothing store and "
+            "is starting her own store.",
+            "business_commonality_bridge",
+        ),
+    )
+
+    for text, expected_reason in cases:
+        _, reason, relevance = best_query_relevance(plan, text=text)
+
+        assert reason == expected_reason
+        assert relevance.distinctive_term_hits >= 2
 
 
 def test_best_query_relevance_bridges_shelter_comfort_reason_evidence() -> None:

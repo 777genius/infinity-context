@@ -41,6 +41,7 @@ _ANSWER_SUPPORT_AGGREGATION_SOURCE_GROUP_REASONS = frozenset(
         "activity-visual-selfcare-bridge",
         "book-reading-list-bridge",
         "book-suggestion-bridge",
+        "business-commonality-bridge",
         "children-count-event-bridge",
         "children-count-sibling-bridge",
         "cause-education-infrastructure-inventory-bridge",
@@ -981,6 +982,8 @@ def _aggregation_marker_coverage_slot(item: ContextItem, *, query_reason: str) -
 def _career_answer_slot(item: ContextItem, *, query_reason: str) -> str:
     if query_reason == "degree_policy_inference_bridge":
         return _degree_policy_answer_slot(item.text)
+    if query_reason == "business_commonality_bridge":
+        return _business_commonality_answer_slot(item.text)
     if query_reason != "volunteer_career_inference_bridge":
         return ""
     text = item.text.casefold()
@@ -1030,6 +1033,21 @@ def _degree_policy_answer_slot(text: str) -> str:
         return "policy_career_plan"
     if any(marker in padded for marker in ("graduated", "degree", "diploma")):
         return "degree_completion_context"
+    return ""
+
+
+def _business_commonality_answer_slot(text: str) -> str:
+    text = text.casefold()
+    if "door dash" in text and "lost my job" in text:
+        return "gina_job_loss"
+    if "lost my job as a banker" in text or ("banker" in text and "own business" in text):
+        return "jon_job_loss"
+    if "dance studio" in text or ("starting" in text and "passionate about dancing" in text):
+        return "jon_business_type"
+    if "clothing store" in text or "my own store" in text or "ad campaign" in text:
+        return "gina_store_start"
+    if "own business" in text or "starting" in text:
+        return "business_start_generic"
     return ""
 
 
@@ -1304,6 +1322,8 @@ def _precise_answer_content_rank(item: ContextItem, *, query_reason: str) -> int
         return _painting_inventory_answer_content_rank(item.text)
     if query_reason == "degree_policy_inference_bridge":
         return _degree_policy_answer_content_rank(item.text)
+    if query_reason == "business_commonality_bridge":
+        return _business_commonality_answer_content_rank(item.text)
     if query_reason == "exercise_activity_inventory_bridge":
         return _exercise_activity_answer_content_rank(item.text)
     if query_reason == "animal_care_instruction_bridge":
@@ -1326,6 +1346,15 @@ def _degree_policy_answer_content_rank(text: str) -> int:
         return 1
     if slot == "degree_completion_context":
         return 2
+    return 3
+
+
+def _business_commonality_answer_content_rank(text: str) -> int:
+    slot = _business_commonality_answer_slot(text)
+    if slot in {"jon_job_loss", "gina_job_loss", "jon_business_type", "gina_store_start"}:
+        return 0
+    if slot == "business_start_generic":
+        return 1
     return 3
 
 

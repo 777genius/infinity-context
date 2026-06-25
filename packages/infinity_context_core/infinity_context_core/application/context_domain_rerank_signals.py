@@ -81,6 +81,7 @@ _OUTDOOR_PREFERENCE_RERANK_REASONS = frozenset(
 )
 _COMMONALITY_RERANK_REASONS = frozenset(
     (
+        "business_commonality_bridge",
         "commonality_interest_bridge",
         "decomposition_commonality",
     )
@@ -369,6 +370,34 @@ _COMMONALITY_WHO_ELSE_EVIDENCE_RE = re.compile(
 _COMMONALITY_SHARED_ARTIFACT_RE = re.compile(
     r"\bshared?\s+(?:a\s+|an\s+|the\s+)?"
     r"(?:photo|picture|image|screenshot|file|document|attachment|link|post)\b",
+    re.IGNORECASE,
+)
+_BUSINESS_COMMONALITY_ORIGIN_RE = re.compile(
+    r"\b(?:"
+    r"lost\s+my\s+job\s+(?:as|at)|"
+    r"also\s+lost\s+my\s+job|"
+    r"lost\s+(?:her|his)\s+job|"
+    r"after\s+losing\s+(?:her|his)\s+job|"
+    r"take\s+a\s+shot\s+at\s+starting\s+my\s+own\s+business|"
+    r"starting\s+my\s+own\s+store|"
+    r"started\s+(?:her|his)\s+own\s+(?:online\s+)?clothing\s+store|"
+    r"launched\s+an\s+ad\s+campaign|"
+    r"taking\s+risks\s+is\s+both\s+scary\s+and\s+rewarding|"
+    r"i['']?m\s+starting\s+a\s+dance\s+studio"
+    r")\b",
+    re.IGNORECASE,
+)
+_BUSINESS_COMMONALITY_LATE_UPDATE_RE = re.compile(
+    r"\b(?:"
+    r"congrats?\s+on\s+the\s+clothing\s+store|"
+    r"hard\s+work\s+paying\s+off|"
+    r"got\s+a\s+temp\s+job|"
+    r"built\s+a\s+new\s+website|"
+    r"acquired\s+some\s+new\s+unique\s+pieces|"
+    r"working\s+on\s+(?:my\s+)?online\s+store|"
+    r"promoting\s+(?:my\s+)?business|"
+    r"business\s+project\s+and\s+seeks\s+advice"
+    r")\b",
     re.IGNORECASE,
 )
 _SHARED_PAINTED_SUBJECT_EXACT_RE = re.compile(
@@ -914,6 +943,13 @@ def commonality_rerank_signal(
         item=item,
     ):
         return DomainRerankSignal()
+    business_signal = _business_commonality_signal(
+        query_reason=query_reason,
+        item=item,
+        relevance=relevance,
+    )
+    if business_signal.reason:
+        return business_signal
     who_else_signal = _commonality_who_else_signal(query=query, item=item)
     if who_else_signal.reason:
         return who_else_signal
@@ -937,6 +973,34 @@ def commonality_rerank_signal(
         return DomainRerankSignal(penalty=0.048, reason="commonality_anchor_mismatch")
     if not has_commonality_shape or relevance.distinctive_term_hits < 5:
         return DomainRerankSignal(penalty=0.032, reason="commonality_weak_evidence")
+    return DomainRerankSignal()
+
+
+def _business_commonality_signal(
+    *,
+    query_reason: str,
+    item: ContextItem,
+    relevance: QueryRelevance,
+) -> DomainRerankSignal:
+    if not _matches_query_or_score_signal_reason(
+        query_reason=query_reason,
+        item=item,
+        target_reason="business_commonality_bridge",
+    ):
+        return DomainRerankSignal()
+    if _BUSINESS_COMMONALITY_ORIGIN_RE.search(item.text) is not None:
+        return DomainRerankSignal(
+            boost=0.044,
+            reason="business_commonality_origin_evidence",
+        )
+    if (
+        _BUSINESS_COMMONALITY_LATE_UPDATE_RE.search(item.text) is not None
+        or relevance.distinctive_term_hits < 7
+    ):
+        return DomainRerankSignal(
+            penalty=0.052,
+            reason="business_commonality_weak_update",
+        )
     return DomainRerankSignal()
 
 

@@ -1041,6 +1041,65 @@ def test_answer_support_family_splits_exercise_activity_slots() -> None:
     )
 
 
+def test_answer_support_family_splits_business_commonality_slots() -> None:
+    jon_loss = ContextItem(
+        item_id="jon_job_loss",
+        item_type="chunk",
+        text=(
+            "D1:2 Jon: Lost my job as a banker yesterday, so I'm gonna take "
+            "a shot at starting my own business."
+        ),
+        score=0.98,
+        source_refs=(SourceRef(source_type="locomo_turn", source_id="doc:D1:2:turn"),),
+        diagnostics={
+            "score_signals": {"query_expansion_reason": "business_commonality_bridge"},
+        },
+    )
+    gina_loss = ContextItem(
+        item_id="gina_job_loss",
+        item_type="chunk",
+        text="D1:3 Gina: I also lost my job at Door Dash this month.",
+        score=0.98,
+        source_refs=(SourceRef(source_type="locomo_turn", source_id="doc:D1:3:turn"),),
+        diagnostics={
+            "score_signals": {"query_expansion_reason": "business_commonality_bridge"},
+        },
+    )
+    jon_business = ContextItem(
+        item_id="jon_business",
+        item_type="chunk",
+        text="D1:4 Jon: I'm starting a dance studio because I love dancing.",
+        score=0.98,
+        source_refs=(SourceRef(source_type="locomo_turn", source_id="doc:D1:4:turn"),),
+        diagnostics={
+            "score_signals": {"query_expansion_reason": "business_commonality_bridge"},
+        },
+    )
+    gina_store = ContextItem(
+        item_id="gina_store",
+        item_type="chunk",
+        text="D2:1 Gina launched an ad campaign for her clothing store.",
+        score=0.98,
+        source_refs=(SourceRef(source_type="locomo_turn", source_id="doc:D2:1:turn"),),
+        diagnostics={
+            "score_signals": {"query_expansion_reason": "business_commonality_bridge"},
+        },
+    )
+
+    families = {
+        _answer_support_diversity_family(jon_loss),
+        _answer_support_diversity_family(gina_loss),
+        _answer_support_diversity_family(jon_business),
+        _answer_support_diversity_family(gina_store),
+    }
+
+    assert len(families) == 4
+    assert any(family.endswith(":jon-job-loss") for family in families)
+    assert any(family.endswith(":gina-job-loss") for family in families)
+    assert any(family.endswith(":jon-business-type") for family in families)
+    assert any(family.endswith(":gina-store-start") for family in families)
+
+
 def test_answer_support_family_prefers_exact_turn_for_animal_care_instruction() -> None:
     exact = ContextItem(
         item_id="animal_care_exact",

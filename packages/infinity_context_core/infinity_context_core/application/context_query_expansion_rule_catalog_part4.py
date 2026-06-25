@@ -42,6 +42,15 @@ EXPANSION_RULES_PART_4: tuple[tuple[frozenset[str], str, str], ...] = (
             "shoe_usage_bridge",
         ),
     (
+            frozenset({"both", "common"}),
+            (
+                "both common shared mutual lost job lost jobs own business start "
+                "starting own business dance studio clothing store store business "
+                "banker door dash job loss launched ad campaign"
+            ),
+            "business_commonality_bridge",
+        ),
+    (
             frozenset({"martial"}),
             (
                 "martial arts kickboxing taekwondo boxing karate workout class "
