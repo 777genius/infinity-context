@@ -239,6 +239,7 @@ _EXTRA_INVENTORY_PROMPT_REASONS = frozenset(
     }
 )
 _ScoredKeywordPromptItem = tuple[int, int, int, float, float, int, str, ContextItem]
+_StrictQueryTermVariants = tuple[frozenset[str], ...]
 _SOURCE_GROUP_SUFFIXES = frozenset({"events", "observation", "summary"})
 _LOW_SIGNAL_COUNT_AGGREGATION_TERMS = frozenset(
     {"many", "time", "times", "gone", "go", "going", "went"}
@@ -522,6 +523,7 @@ class BuildContextUseCase:
         diagnostics["anchor_relation_items_used"] = len(related_anchor_items)
         items.extend(related_anchor_items)
         query_relevance_cache: dict[str, tuple[str, str, QueryRelevance]] = {}
+        strict_query_term_variants = _strict_query_term_variant_sets(query=query.query)
         used_keyword_chunks: list[MemoryChunk] = []
         scored_keyword_chunks: list[tuple[int, int, int, float, float, int, MemoryChunk]] = []
         scored_keyword_items: list[_ScoredKeywordPromptItem] = []
@@ -573,10 +575,14 @@ class BuildContextUseCase:
                 query_expansion_reason=expansion_reason,
                 source_external_id=chunk.source_external_id,
             )
+            strict_query_hits = _strict_query_variant_hits(
+                query_term_variants=strict_query_term_variants,
+                text=chunk_text,
+            )
             used_keyword_chunks.append(chunk)
             scored_keyword_chunks.append(
                 (
-                    _strict_query_term_hits(query=query.query, text=chunk_text),
+                    strict_query_hits,
                     relevance.distinctive_term_hits,
                     relevance.unique_term_hits,
                     relevance.hit_ratio,
@@ -598,7 +604,7 @@ class BuildContextUseCase:
             )
             scored_keyword_items.append(
                 (
-                    _strict_query_term_hits(query=query.query, text=chunk_text),
+                    strict_query_hits,
                     relevance.distinctive_term_hits,
                     relevance.unique_term_hits,
                     relevance.hit_ratio,
@@ -1759,16 +1765,30 @@ def _dedupe_chunks_by_id(chunks: tuple[MemoryChunk, ...]) -> tuple[MemoryChunk, 
 
 
 def _strict_query_term_hits(*, query: str, text: str) -> int:
-    terms = query_terms(query)
-    if not terms:
+    return _strict_query_variant_hits(
+        query_term_variants=_strict_query_term_variant_sets(query=query),
+        text=text,
+    )
+
+
+def _strict_query_term_variant_sets(*, query: str) -> _StrictQueryTermVariants:
+    return tuple(frozenset(_strict_token_variants(term.raw)) for term in query_terms(query))
+
+
+def _strict_query_variant_hits(
+    *,
+    query_term_variants: _StrictQueryTermVariants,
+    text: str,
+) -> int:
+    if not query_term_variants:
         return 0
     text_variants: set[str] = set()
     for match in _STRICT_QUERY_TOKEN_RE.finditer(text):
         text_variants.update(_strict_token_variants(match.group(0)))
     return sum(
         1
-        for term in terms
-        if text_variants.intersection(_strict_token_variants(term.raw))
+        for term_variants in query_term_variants
+        if text_variants.intersection(term_variants)
     )
 
 

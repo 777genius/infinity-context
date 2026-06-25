@@ -29,6 +29,9 @@ from infinity_context_core.application.use_cases.build_context import (
     _source_sibling_score,
     _source_sibling_score_cap,
     _SourceSiblingRank,
+    _strict_query_term_hits,
+    _strict_query_term_variant_sets,
+    _strict_query_variant_hits,
     _strict_query_window_match_counts,
     _weighted_aggregation_query_variant_sets,
 )
@@ -352,6 +355,17 @@ def test_inventory_aggregation_ignores_identity_and_scaffold_terms() -> None:
         text="D13:24 Maria took a solo trip in Spain.",
         query_variant_sets=query_terms,
     ) == (3.0, 3.0)
+
+
+def test_strict_query_hits_match_precomputed_query_variants() -> None:
+    query = "What did Alex change after the Atlas launch call?"
+    text = "D3:5 Alex changed the Atlas launch deadline after the call."
+    query_variants = _strict_query_term_variant_sets(query=query)
+
+    assert _strict_query_variant_hits(
+        query_term_variants=query_variants,
+        text=text,
+    ) == _strict_query_term_hits(query=query, text=text)
 
 
 def test_selected_keyword_prompt_items_keep_high_signal_inventory_tail() -> None:
