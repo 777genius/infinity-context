@@ -624,6 +624,28 @@ def test_query_decomposition_adds_inference_support_query() -> None:
     assert "support supportive encouraging" in inference.query
 
 
+def test_query_decomposition_adds_community_membership_evidence_query() -> None:
+    plan = build_query_decomposition_plan(
+        "Would Melanie be considered a member of the LGBTQ community?"
+    )
+    ally = build_query_decomposition_plan(
+        "Would Melanie be considered an ally to the transgender community?"
+    )
+
+    membership = next(
+        item
+        for item in plan.decompositions
+        if item.reason == "decomposition_community_membership_evidence"
+    )
+
+    assert membership.query.casefold().startswith("melanie ")
+    assert "self identification identify identified identifies" in membership.query
+    assert "member part belong belongs belonging lgbtq queer community" in membership.query
+    assert "decomposition_community_membership_evidence" not in {
+        item.reason for item in ally.decompositions
+    }
+
+
 def test_query_decomposition_adds_counterfactual_evidence_query() -> None:
     plan = build_query_decomposition_plan("Would Caroline support Alex joining the pride group?")
 

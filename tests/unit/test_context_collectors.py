@@ -949,7 +949,7 @@ def test_bounded_retrieval_queries_keep_specific_considered_attribute_bridges() 
         "original_query",
         "community_membership_bridge",
         "community_membership_support_bridge",
-        "decomposition_inference_support",
+        "decomposition_community_membership_evidence",
     ]
 
 

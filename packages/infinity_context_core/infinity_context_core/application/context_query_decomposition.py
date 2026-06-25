@@ -6,18 +6,18 @@ import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
-from infinity_context_core.application.context_lexical import query_terms
 from infinity_context_core.application.context_conversation_counterparty import (
     requests_conversation_recency,
     requests_conversation_topic,
 )
-from infinity_context_core.application.context_query_frequency import (
-    frequency_recurrence_tail,
-    requests_frequency_recurrence_context,
-)
+from infinity_context_core.application.context_lexical import query_terms
 from infinity_context_core.application.context_query_duration import (
     activity_duration_tail,
     requests_activity_duration_context,
+)
+from infinity_context_core.application.context_query_frequency import (
+    frequency_recurrence_tail,
+    requests_frequency_recurrence_context,
 )
 from infinity_context_core.application.context_query_intent import (
     QueryAnchorIntent,
@@ -760,6 +760,28 @@ _IDENTITY_ATTRIBUTE_TERMS = frozenset(
         "transgender",
     }
 )
+_COMMUNITY_MEMBERSHIP_IDENTITY_TERMS = frozenset(
+    {
+        "lgbtq",
+        "queer",
+        "trans",
+        "transgender",
+    }
+)
+_COMMUNITY_MEMBERSHIP_QUERY_TERMS = frozenset(
+    {
+        "belong",
+        "belonged",
+        "belonging",
+        "belongs",
+        "identified",
+        "identifies",
+        "identify",
+        "member",
+        "members",
+        "membership",
+    }
+)
 _RELATIONSHIP_STATUS_TERMS = frozenset(
     {
         "breakup",
@@ -1422,6 +1444,19 @@ def build_query_decomposition_plan(
             ),
             reason="decomposition_absence_contrast",
         )
+    if _requests_community_membership_inference(variants=variants):
+        _append_candidate(
+            candidates,
+            query=_compose_query(
+                identities,
+                (
+                    "self identification identify identified identifies refers herself "
+                    "himself themself as member part belong belongs belonging lgbtq "
+                    "queer community pride accepted"
+                ),
+            ),
+            reason="decomposition_community_membership_evidence",
+        )
     if raw_tokens.intersection(_IDENTITY_ATTRIBUTE_TERMS):
         _append_candidate(
             candidates,
@@ -1774,6 +1809,13 @@ def _requests_lgbtq_event_slot_aggregation(variants: frozenset[str]) -> bool:
     )
 
 
+def _requests_community_membership_inference(*, variants: frozenset[str]) -> bool:
+    return bool(
+        variants.intersection(_COMMUNITY_MEMBERSHIP_IDENTITY_TERMS)
+        and variants.intersection(_COMMUNITY_MEMBERSHIP_QUERY_TERMS)
+    )
+
+
 def _compose_query(
     identities: Sequence[str],
     tail: str,
@@ -1882,10 +1924,9 @@ def _inventory_list_tail(variants: frozenset[str]) -> str:
             "type kind made finished created project item object piece visual image "
             "caption query cup bowl pot plate painting"
         )
-    if variants.intersection({"people"}):
-        tails.append("people person names met helped worked with friend customer resident")
-    elif variants.intersection(_PEOPLE_INVENTORY_PROMPT_TERMS) and variants.intersection(
-        _PEOPLE_INVENTORY_ACTION_TERMS
+    if variants.intersection({"people"}) or (
+        variants.intersection(_PEOPLE_INVENTORY_PROMPT_TERMS)
+        and variants.intersection(_PEOPLE_INVENTORY_ACTION_TERMS)
     ):
         tails.append("people person names met helped worked with friend customer resident")
     if variants.intersection({"artists", "bands"}):
@@ -2148,9 +2189,7 @@ def _requests_conversation_counterparty(
         or variants.intersection(_CONVERSATION_COUNTERPARTY_PROMPT_TERMS)
     ):
         return False
-    if not variants.intersection(_CONVERSATION_COUNTERPARTY_ACTION_TERMS):
-        return False
-    return True
+    return bool(variants.intersection(_CONVERSATION_COUNTERPARTY_ACTION_TERMS))
 
 
 def _conversation_recency_tail(
@@ -2219,7 +2258,10 @@ def _requests_relocation_context(*, query: str, variants: frozenset[str]) -> boo
         return True
     if origin_terms.intersection({"дом", "жила", "жил", "жили"}):
         return True
-    return bool(variants.intersection({"из", "откуда"}) and origin_terms.intersection({"город", "страна"}))
+    return bool(
+        variants.intersection({"из", "откуда"})
+        and origin_terms.intersection({"город", "страна"})
+    )
 
 
 def _requests_relocation_destination_only(*, variants: frozenset[str]) -> bool:
