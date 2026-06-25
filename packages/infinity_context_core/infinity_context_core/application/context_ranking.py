@@ -181,6 +181,7 @@ _GENERIC_BOOSTABLE_ANSWER_SHAPES = frozenset((
 ))
 _DETERMINISTIC_RERANK_MAX_BOOST = 0.055
 _DETERMINISTIC_RERANK_MAX_PENALTY = 0.11
+_CANONICAL_ANCHOR_SUMMARY_RERANK_MAX_BOOST = 0.018
 _CITATION_EVIDENCE_RERANK_MAX_BOOST = 0.024
 _LOCALIZED_EVIDENCE_RERANK_MAX_BOOST = 0.022
 _DUPLICATE_SOURCE_SCORE_TOLERANCE = 0.015
@@ -923,6 +924,9 @@ class _DeterministicRerankSignals:
 @dataclass(frozen=True)
 class _RequirementCoverageSignals:
     ratio: float
+    requested_anchor_kinds: frozenset[str]
+    covered_anchor_kinds: frozenset[str]
+    missing_anchor_kinds: frozenset[str]
     requested_modalities: frozenset[str]
     missing_modalities: frozenset[str]
     requested_evidence_features: frozenset[str]
@@ -1468,6 +1472,20 @@ def _deterministic_rerank_signals(
     if localized_evidence_boost > 0:
         boost += localized_evidence_boost
         reasons.append(localized_evidence_reason)
+    canonical_summary_boost, canonical_summary_reason = (
+        _canonical_anchor_summary_support_signal(
+            item=item,
+            coverage=coverage,
+            relevance=relevance,
+            anchor_matched=anchor_match is not None,
+            anchor_conflict=anchor_conflict,
+            sources=sources,
+            strong_source_count=strong_source_count,
+        )
+    )
+    if canonical_summary_boost > 0:
+        boost += canonical_summary_boost
+        reasons.append(canonical_summary_reason)
     citation_evidence_boost, citation_evidence_reason = _citation_evidence_support_signal(
         item=item,
         coverage=coverage,
@@ -1839,6 +1857,90 @@ def _localized_evidence_support_signal(
         else "localized_evidence_source"
     )
     return round(min(_LOCALIZED_EVIDENCE_RERANK_MAX_BOOST, boost), 4), reason
+
+
+def _canonical_anchor_summary_support_signal(
+    *,
+    item: ContextItem,
+    coverage: _RequirementCoverageSignals,
+    relevance: QueryRelevance,
+    anchor_matched: bool,
+    anchor_conflict: bool,
+    sources: tuple[str, ...],
+    strong_source_count: int,
+) -> tuple[float, str]:
+    if anchor_conflict or "summary" not in coverage.requested_answer_shapes:
+        return 0.0, ""
+    if not coverage.requested_anchor_kinds & coverage.covered_anchor_kinds:
+        return 0.0, ""
+    if not _is_canonical_anchor_source(item=item, sources=sources):
+        return 0.0, ""
+    if (
+        not is_query_relevance_sufficient(relevance)
+        and not anchor_matched
+        and coverage.ratio <= 0
+    ):
+        return 0.0, ""
+    if not _has_canonical_anchor_profile_evidence(item):
+        return 0.0, ""
+
+    boost = 0.01
+    if item.item_type == "anchor":
+        boost += 0.003
+    if anchor_matched:
+        boost += 0.003
+    if strong_source_count:
+        boost += 0.002
+    return (
+        round(min(_CANONICAL_ANCHOR_SUMMARY_RERANK_MAX_BOOST, boost), 4),
+        "canonical_anchor_summary_profile",
+    )
+
+
+def _is_canonical_anchor_source(*, item: ContextItem, sources: tuple[str, ...]) -> bool:
+    if item.item_type == "anchor":
+        return True
+    return bool(
+        set(sources).intersection(
+            {
+                "approved_context_linked_anchors",
+                "canonical_anchor_relations",
+                "canonical_anchors",
+            }
+        )
+    )
+
+
+def _has_canonical_anchor_profile_evidence(item: ContextItem) -> bool:
+    diagnostics = safe_diagnostic_mapping(item.diagnostics)
+    provenance = safe_diagnostic_mapping(diagnostics.get("provenance"))
+    profile = safe_diagnostic_mapping(
+        diagnostics.get("anchor_identity_profile")
+        or provenance.get("anchor_identity_profile")
+    )
+    score_signals = safe_score_signals(diagnostics.get("score_signals"))
+    identity_term_count = max(
+        _coverage_int(profile.get("identity_term_count")),
+        _coverage_int(score_signals.get("anchor_identity_term_count")),
+    )
+    alias_identity_term_count = max(
+        _coverage_int(profile.get("alias_identity_term_count")),
+        _coverage_int(score_signals.get("anchor_alias_identity_term_count")),
+    )
+    source_ref_count = max(
+        len(item.source_refs),
+        _coverage_int(provenance.get("source_ref_count")),
+    )
+    text = item.text.casefold()
+    has_rendered_profile_text = any(
+        marker in text for marker in ("aliases:", "description:", "identity:")
+    )
+    return (
+        has_rendered_profile_text
+        or identity_term_count > 0
+        or alias_identity_term_count > 0
+        or source_ref_count > 0
+    )
 
 
 def _source_ref_has_precise_location(ref: SourceRef) -> bool:
@@ -2265,6 +2367,9 @@ def _item_requirement_coverage_signals(
     if requested_total <= 0:
         return _RequirementCoverageSignals(
             ratio=0.0,
+            requested_anchor_kinds=frozenset(),
+            covered_anchor_kinds=frozenset(),
+            missing_anchor_kinds=frozenset(),
             requested_modalities=frozenset(),
             missing_modalities=frozenset(),
             requested_evidence_features=frozenset(),
@@ -2278,6 +2383,9 @@ def _item_requirement_coverage_signals(
         query_anchor_intent=query_anchor_intent,
         items=(item,),
     )
+    requested_anchor_kinds = _coverage_value_set(coverage.get("requested_anchor_kinds"))
+    covered_anchor_kinds = _coverage_value_set(coverage.get("covered_anchor_kinds"))
+    missing_anchor_kinds = _coverage_value_set(coverage.get("missing_anchor_kinds"))
     requested_modalities = _coverage_value_set(coverage.get("requested_modalities"))
     missing_modalities = _coverage_value_set(coverage.get("missing_modalities"))
     requested_evidence_features = _coverage_value_set(
@@ -2289,6 +2397,9 @@ def _item_requirement_coverage_signals(
     missing_answer_shapes = _coverage_value_set(coverage.get("missing_answer_shapes"))
     return _RequirementCoverageSignals(
         ratio=_coverage_ratio(coverage.get("coverage_ratio")),
+        requested_anchor_kinds=requested_anchor_kinds,
+        covered_anchor_kinds=requested_anchor_kinds & covered_anchor_kinds,
+        missing_anchor_kinds=requested_anchor_kinds & missing_anchor_kinds,
         requested_modalities=requested_modalities,
         missing_modalities=requested_modalities & missing_modalities,
         requested_evidence_features=requested_evidence_features,

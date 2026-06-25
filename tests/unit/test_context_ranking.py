@@ -5021,6 +5021,100 @@ def test_context_requirement_boost_does_not_treat_project_role_as_summary() -> N
     )
 
 
+def test_deterministic_rerank_prefers_canonical_person_anchor_for_profile_summary() -> None:
+    generic = _item(
+        "generic_alex_note",
+        score=0.72,
+        retrieval_source="keyword_chunks",
+        text="Alex appeared in the Project Atlas planning note.",
+    )
+    anchor = _anchor_item(
+        "alex_anchor",
+        score=0.711,
+        kind="person",
+        text=(
+            "person: Alex. aliases: Alexander. description: product engineer "
+            "working on Project Atlas. identity: Alex, Alexander, engineer."
+        ),
+    )
+    query = "Who is Alex?"
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (generic, anchor),
+        query=query,
+        plan=build_query_expansion_plan(query),
+        query_anchor_intent=build_query_anchor_intent(query),
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert by_id["alex_anchor"].score > by_id["generic_alex_note"].score
+    assert (
+        "canonical_anchor_summary_profile"
+        in by_id["alex_anchor"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+
+
+def test_deterministic_rerank_prefers_canonical_project_anchor_for_summary() -> None:
+    generic = _item(
+        "generic_atlas_chunk",
+        score=0.72,
+        retrieval_source="keyword_chunks",
+        text="Project Atlas appeared in a migration checklist.",
+    )
+    anchor = _anchor_item(
+        "atlas_anchor",
+        score=0.711,
+        kind="project",
+        text=(
+            "project: Project Atlas. aliases: Atlas. description: memory "
+            "ingestion project. identity: Atlas, memory, ingestion."
+        ),
+    )
+    query = "What is Project Atlas?"
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (generic, anchor),
+        query=query,
+        plan=build_query_expansion_plan(query),
+        query_anchor_intent=build_query_anchor_intent(query),
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert by_id["atlas_anchor"].score > by_id["generic_atlas_chunk"].score
+    assert (
+        "canonical_anchor_summary_profile"
+        in by_id["atlas_anchor"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+
+
+def test_deterministic_rerank_skips_canonical_summary_for_project_role_query() -> None:
+    anchor = _anchor_item(
+        "atlas_anchor",
+        score=0.72,
+        kind="project",
+        text=(
+            "project: Project Atlas. aliases: Atlas. description: memory "
+            "ingestion project. identity: Atlas, memory, ingestion."
+        ),
+    )
+    query = "What is Project Atlas responsible for?"
+
+    (reranked,) = apply_deterministic_rerank_adjustments(
+        (anchor,),
+        query=query,
+        plan=build_query_expansion_plan(query),
+        query_anchor_intent=build_query_anchor_intent(query),
+    )
+
+    assert "canonical_anchor_summary_profile" not in reranked.diagnostics[
+        "provenance"
+    ].get("deterministic_rerank_reasons", [])
+
+
 def test_context_requirement_boost_skips_queries_without_explicit_requirements() -> None:
     item = _item(
         "status",
@@ -9507,5 +9601,45 @@ def _item(
         text=text or item_id,
         score=score,
         source_refs=source_refs or (SourceRef(source_type="document", source_id="doc"),),
+        diagnostics=diagnostics,
+    )
+
+
+def _anchor_item(
+    item_id: str,
+    *,
+    score: float,
+    kind: str,
+    text: str,
+) -> ContextItem:
+    diagnostics = {
+        "retrieval_source": "canonical_anchors",
+        "retrieval_sources": ["canonical_anchors"],
+        "anchor_kind": kind,
+        "score_signals": {
+            "base_score": score,
+            "anchor_kind": kind,
+            "anchor_identity_term_count": 3,
+            "anchor_alias_identity_term_count": 1,
+        },
+        "provenance": {
+            "retrieval_sources": ["canonical_anchors"],
+            "anchor_kind": kind,
+            "anchor_identity_profile": {
+                "anchor_kind": kind,
+                "identity_term_count": 3,
+                "alias_identity_term_count": 1,
+            },
+            "source_ref_count": 1,
+        },
+    }
+    return ContextItem(
+        item_id=item_id,
+        item_type="anchor",
+        text=text,
+        score=score,
+        source_refs=(
+            SourceRef(source_type="memory_anchor", source_id=f"anchor:{item_id}"),
+        ),
         diagnostics=diagnostics,
     )
