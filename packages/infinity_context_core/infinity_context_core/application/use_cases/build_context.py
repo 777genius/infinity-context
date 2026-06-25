@@ -129,6 +129,9 @@ from infinity_context_core.application.context_source_siblings import (
     source_sibling_companion_extra_slot as _source_sibling_companion_extra_slot,
 )
 from infinity_context_core.application.context_source_siblings import (
+    source_sibling_distant_answer_evidence_rank as _source_sibling_distant_answer_evidence_rank,
+)
+from infinity_context_core.application.context_source_siblings import (
     source_sibling_group_limit as _source_sibling_group_limit,
 )
 from infinity_context_core.application.context_source_siblings import (
@@ -1100,8 +1103,6 @@ class BuildContextUseCase:
         ] = []
         for chunk in candidates:
             rank = _source_sibling_rank(chunk, source_groups=source_groups)
-            if rank is None:
-                continue
             chunk_text = document_chunk_retrieval_text(
                 text=chunk.text,
                 metadata=chunk.metadata,
@@ -1111,6 +1112,15 @@ class BuildContextUseCase:
                 text=chunk_text,
                 cache=query_relevance_cache,
             )
+            if rank is None:
+                rank = _source_sibling_distant_answer_evidence_rank(
+                    chunk,
+                    source_groups=source_groups,
+                    expansion_reason=expansion_reason,
+                    text=chunk_text,
+                )
+                if rank is None:
+                    continue
             score = _source_sibling_score(
                 rank=rank,
                 relevance=relevance,

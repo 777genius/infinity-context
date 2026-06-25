@@ -477,6 +477,27 @@ def test_bounded_retrieval_queries_keep_exercise_inventory_for_activity_query() 
     ]
 
 
+def test_bounded_retrieval_queries_protect_birdwatching_city_schedule_bridge() -> None:
+    plan = build_query_expansion_plan(
+        "What could Andrew do to make birdwatching fit in his city schedule?"
+    )
+
+    selected = _bounded_derived_retrieval_queries(plan, fallback="fallback", limit=6)
+
+    assert "birdwatching_city_schedule_bridge" in {query.reason for query in selected}
+    assert "birdwatching_city_schedule_bridge" in _HIGH_SIGNAL_EXPANSION_REASONS
+    assert "birdwatching_city_schedule_bridge" in _MULTI_EVIDENCE_PROTECTED_HEAD_REASONS
+    assert _protected_query_head_keys(
+        {
+            "0:birdwatching_city_schedule_bridge": (
+                "chunk_d20_21",
+                "chunk_d23_1",
+                "chunk_d1_14",
+            ),
+        }
+    ) == ("chunk_d20_21", "chunk_d23_1")
+
+
 def test_bounded_retrieval_queries_select_running_reason_question_bridge() -> None:
     plan = build_query_expansion_plan("What was Alex running for?")
 

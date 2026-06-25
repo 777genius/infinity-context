@@ -23,6 +23,7 @@ from infinity_context_core.application.use_cases.build_context import (
     _source_group_seed_turns,
     _source_sibling_candidate_rank_key,
     _source_sibling_companion_extra_slot,
+    _source_sibling_distant_answer_evidence_rank,
     _source_sibling_marker_coverage_count,
     _source_sibling_rank,
     _source_sibling_relevance_allowed,
@@ -625,6 +626,69 @@ def test_source_sibling_score_promotes_query_relevant_adjacent_turn() -> None:
     )
 
     assert score > 0.97
+
+
+def test_source_sibling_allows_distant_birdwatching_schedule_evidence_turn() -> None:
+    seed = _chunk(
+        "d20_1",
+        "D20:1 Andrew opened the session.",
+        source_external_id="locomo:conv-44:session_20:D20:1:turn",
+    )
+    candidate = _chunk(
+        "d20_21",
+        (
+            "D20:21 Andrew: Nice! Looks like you're prepared. I'll bring my "
+            "binos and a notebook to log them at the trip."
+        ),
+        source_external_id="locomo:conv-44:session_20:D20:21:turn",
+    )
+    source_groups = _source_group_seed_turns((seed,))
+    query = (
+        "birdwatching bird watching birds city schedule busy week outdoors "
+        "bird feeder binoculars binos notebook log camera"
+    )
+    reason = "birdwatching_city_schedule_bridge"
+    relevance = score_query_relevance(query=query, text=candidate.text)
+
+    assert _source_sibling_rank(candidate, source_groups=source_groups) is None
+    rank = _source_sibling_distant_answer_evidence_rank(
+        candidate,
+        source_groups=source_groups,
+        expansion_reason=reason,
+        text=candidate.text,
+    )
+
+    assert rank is not None
+    assert _source_sibling_relevance_allowed(
+        rank=rank,
+        relevance=relevance,
+        expansion_query=query,
+        expansion_reason=reason,
+        text=candidate.text,
+    )
+    marker_coverage = _source_sibling_marker_coverage_count(
+        expansion_reason=reason,
+        text=candidate.text,
+    )
+    assert marker_coverage >= 1
+    key = _source_sibling_candidate_rank_key(
+        precise_turn=True,
+        dialogue_visual_reference=False,
+        visual_continuation=False,
+        observation_companion=False,
+        marker_coverage=marker_coverage,
+        relevance=relevance,
+        score=_source_sibling_score(
+            rank=rank,
+            relevance=relevance,
+            expansion_query=query,
+            expansion_reason=reason,
+            text=candidate.text,
+        ),
+        rank=rank,
+        chunk=candidate,
+    )
+    assert key[4] < 0
 
 
 def test_source_sibling_relevance_rejects_single_hit_long_no_candidate_query() -> None:
@@ -1779,6 +1843,46 @@ def test_source_sibling_rejects_generic_behavior_topic_only_turn() -> None:
         relevance=relevance,
         text=text,
     ) == 0.976
+
+
+def test_source_sibling_allows_birdwatching_city_schedule_context_turn() -> None:
+    query = "Andrew birdwatching city schedule busy week outdoors bird feeder window nearby park"
+    text = "D20:5 Andrew: That spot looks ideal for them to play. Where did you take them?"
+    unrelated = "D20:5 Andrew: The deployment dashboard had a quiet afternoon."
+    rank = _SourceSiblingRank(
+        score=0.968,
+        group_priority=1,
+        turn_distance=0,
+        turn_delta=0,
+        group_level_seed=True,
+    )
+    relevance = score_query_relevance(query=query, text=text)
+    unrelated_relevance = score_query_relevance(query=query, text=unrelated)
+
+    assert _source_sibling_relevance_allowed(
+        rank=rank,
+        relevance=relevance,
+        expansion_query=query,
+        expansion_reason="birdwatching_city_schedule_bridge",
+        text=text,
+    )
+    assert not _source_sibling_relevance_allowed(
+        rank=rank,
+        relevance=unrelated_relevance,
+        expansion_query=query,
+        expansion_reason="birdwatching_city_schedule_bridge",
+        text=unrelated,
+    )
+    assert (
+        _source_sibling_score(
+            rank=rank,
+            relevance=relevance,
+            expansion_query=query,
+            expansion_reason="birdwatching_city_schedule_bridge",
+            text=text,
+        )
+        >= 0.972
+    )
 
 
 def test_source_sibling_rank_does_not_treat_plain_summary_as_source_group_seed() -> None:

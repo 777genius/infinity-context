@@ -272,6 +272,128 @@ def test_context_packer_preserves_source_sibling_turn_as_answer_support_before_c
     assert result.bundle.diagnostics["dropped_by_char_cap"] > 0
 
 
+def test_context_packer_keeps_birdwatching_bridge_turns_distinct_before_char_cap() -> None:
+    distractors = tuple(
+        ContextItem(
+            item_id=f"bird_distractor_{index}",
+            item_type="chunk",
+            text=f"BIRD_DISTRACTOR_{index} " + ("generic nature hobby context " * 18),
+            score=0.995 - index * 0.001,
+            source_refs=(
+                SourceRef(
+                    source_type="document",
+                    source_id=f"locomo:conv-44:session_{index}:events",
+                    chunk_id=f"bird_distractor_{index}",
+                ),
+            ),
+            diagnostics={
+                "memory_scope_id": "memory_scope_default",
+                "retrieval_source": "keyword_chunks",
+                "score_signals": {
+                    "query_expansion_reason": "birdwatching_city_schedule_bridge",
+                },
+            },
+        )
+        for index in range(1, 5)
+    )
+    evidence_items = (
+        ContextItem(
+            item_id="bird_d1_14",
+            item_type="chunk",
+            text="D1:14 Andrew was awed by birds soaring and wanted to explore nature.",
+            score=0.97,
+            source_refs=(
+                SourceRef(
+                    source_type="locomo_turn",
+                    source_id="locomo:conv-44:session_1:D1:14:turn",
+                ),
+            ),
+            diagnostics={
+                "memory_scope_id": "memory_scope_default",
+                "retrieval_source": "keyword_source_sibling_chunks",
+                "score_signals": {
+                    "query_expansion_reason": "birdwatching_city_schedule_bridge",
+                },
+            },
+        ),
+        ContextItem(
+            item_id="bird_d20_21",
+            item_type="chunk",
+            text="D20:21 Andrew used binoculars and a notebook to track birds nearby.",
+            score=0.96,
+            source_refs=(
+                SourceRef(
+                    source_type="locomo_turn",
+                    source_id="locomo:conv-44:session_20:D20:21:turn",
+                ),
+            ),
+            diagnostics={
+                "memory_scope_id": "memory_scope_default",
+                "retrieval_source": "keyword_source_sibling_chunks",
+                "score_signals": {
+                    "query_expansion_reason": "birdwatching_city_schedule_bridge",
+                },
+            },
+        ),
+        ContextItem(
+            item_id="bird_d23_1",
+            item_type="chunk",
+            text="D23:1 Andrew had a busy week and needed something that fit his schedule.",
+            score=0.95,
+            source_refs=(
+                SourceRef(
+                    source_type="locomo_turn",
+                    source_id="locomo:conv-44:session_23:D23:1:turn",
+                ),
+            ),
+            diagnostics={
+                "memory_scope_id": "memory_scope_default",
+                "retrieval_source": "keyword_source_sibling_chunks",
+                "score_signals": {
+                    "query_expansion_reason": "birdwatching_city_schedule_bridge",
+                },
+            },
+        ),
+        ContextItem(
+            item_id="bird_feeder_solution",
+            item_type="chunk",
+            text=(
+                "A bird feeder outside a window lets Andrew see birds without "
+                "going outdoors."
+            ),
+            score=0.94,
+            source_refs=(
+                SourceRef(
+                    source_type="locomo_turn",
+                    source_id="locomo:conv-44:session_20:D20:5:turn",
+                ),
+            ),
+            diagnostics={
+                "memory_scope_id": "memory_scope_default",
+                "retrieval_source": "keyword_source_sibling_chunks",
+                "score_signals": {
+                    "query_expansion_reason": "birdwatching_city_schedule_bridge",
+                },
+            },
+        ),
+    )
+
+    result = ContextPacker().pack(
+        bundle_id="ctx_birdwatching_city_schedule",
+        items=(*distractors, *evidence_items),
+        token_budget=2000,
+        max_rendered_chars=1500,
+    )
+
+    rendered = result.bundle.rendered_text
+    assert "D1:14" in rendered
+    assert "D20:21" in rendered
+    assert "D23:1" in rendered
+    assert "bird feeder outside a window" in rendered
+    assert result.bundle.diagnostics["answer_support_families_used"] >= 4
+    assert result.bundle.diagnostics["dropped_by_char_cap"] > 0
+
+
 def test_answer_support_family_keeps_dialogue_visual_source_sibling_distinct() -> None:
     item = ContextItem(
         item_id="visual_d15_13",
@@ -3857,6 +3979,65 @@ def test_context_packer_allows_broad_book_suggestion_turns_from_same_source_grou
     assert "D1:16" in result.bundle.rendered_text
     assert "D1:18" in result.bundle.rendered_text
     assert result.bundle.diagnostics["answer_support_families_used"] >= 3
+
+
+def test_context_packer_prefers_birdwatching_exact_turn_evidence_over_broad_window() -> None:
+    broad = ContextItem(
+        item_id="birdwatching_broad_session",
+        item_type="chunk",
+        text=(
+            "D20:12 Audrey: Birds are amazing. D20:15 Andrew: It's peaceful "
+            "and calming. D20:21 Andrew: I'll bring my binos and a notebook."
+        ),
+        score=0.99,
+        source_refs=(
+            SourceRef(
+                source_type="locomo_session",
+                source_id="locomo:conv-44:session_20",
+            ),
+            SourceRef(
+                source_type="locomo_turn",
+                source_id="locomo:conv-44:session_20:D20:21:turn",
+            ),
+        ),
+        diagnostics={
+            "retrieval_sources": ["keyword_chunks"],
+            "score_signals": {
+                "query_expansion_reason": "birdwatching_city_schedule_bridge",
+                "distinctive_term_hits": 15,
+                "birdwatching_city_schedule_answer_evidence": 1,
+            },
+        },
+    )
+    exact = ContextItem(
+        item_id="birdwatching_exact_turn",
+        item_type="chunk",
+        text=(
+            "D20:21 Andrew: Nice! Looks like you're prepared. I'll bring my "
+            "binos and a notebook to log them at the trip."
+        ),
+        score=0.98,
+        source_refs=(
+            SourceRef(
+                source_type="locomo_turn",
+                source_id="locomo:conv-44:session_20:D20:21:turn",
+            ),
+        ),
+        diagnostics={
+            "retrieval_sources": ["keyword_source_sibling_chunks"],
+            "score_signals": {
+                "query_expansion_reason": "birdwatching_city_schedule_bridge",
+                "distinctive_term_hits": 7,
+                "birdwatching_city_schedule_answer_evidence": 3,
+            },
+        },
+    )
+
+    candidates = _answer_support_diversity_candidates([broad, exact])
+    ordered = _ordered_answer_support_families(candidates)
+
+    assert candidates[ordered[0]].item_id == "birdwatching_exact_turn"
+    assert _answer_support_family_item_key(exact) < _answer_support_family_item_key(broad)
 
 
 def test_context_packer_allows_multiple_adoption_goal_items_from_same_source_group() -> None:

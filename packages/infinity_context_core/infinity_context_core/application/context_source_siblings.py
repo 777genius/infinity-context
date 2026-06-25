@@ -185,6 +185,40 @@ _FREQUENCY_RECURRENCE_SOURCE_SIBLING_SIGNAL_RE = re.compile(
     r")\b",
     re.IGNORECASE,
 )
+_BIRDWATCHING_CITY_SCHEDULE_SOURCE_SIBLING_RE = re.compile(
+    r"\b("
+    r"dog\s+park\s+nearby|nearby\s+(?:dog\s+)?park|"
+    r"spot\s+(?:looks\s+)?ideal|where\s+did\s+you\s+take\s+them|"
+    r"binos|binoculars|notebook|log\s+them|camera|"
+    r"busy\s+week|schedule|city\s+schedule|"
+    r"birdwatching|watching\s+birds?|birds?|eagles?|soar|"
+    r"out\s+in\s+nature|away\s+from\s+the\s+city|"
+    r"being\s+in\s+(?:a\s+)?nature|"
+    r"hustle\s+and\s+bustle|outside\s+and\s+soak\s+up\s+the\s+scenery"
+    r")\b",
+    re.IGNORECASE,
+)
+_BIRDWATCHING_CITY_SCHEDULE_ACCESS_SLOT_RE = re.compile(
+    r"\b("
+    r"dog\s+park\s+nearby|nearby\s+(?:dog\s+)?park|"
+    r"spot\s+(?:looks\s+)?ideal|where\s+did\s+you\s+take\s+them|"
+    r"out\s+in\s+nature|being\s+in\s+(?:a\s+)?nature|"
+    r"outside|outdoors|hustle\s+and\s+bustle"
+    r")\b",
+    re.IGNORECASE,
+)
+_BIRDWATCHING_CITY_SCHEDULE_EQUIPMENT_SLOT_RE = re.compile(
+    r"\b(binos|binoculars|notebook|log\s+them|camera)\b",
+    re.IGNORECASE,
+)
+_BIRDWATCHING_CITY_SCHEDULE_PRESSURE_SLOT_RE = re.compile(
+    r"\b(busy\s+week|schedule|city\s+schedule|job\s+and\s+living\s+here)\b",
+    re.IGNORECASE,
+)
+_BIRDWATCHING_CITY_SCHEDULE_HOBBY_SLOT_RE = re.compile(
+    r"\b(birdwatching|watching\s+birds?|birds?|eagles?|soar)\b",
+    re.IGNORECASE,
+)
 _TURN_SOURCE_ID_RE = re.compile(
     r"^(?P<group>.+):(?P<dialogue>D\d+):(?P<turn>\d+):turn$",
     re.IGNORECASE,
@@ -246,6 +280,10 @@ def source_sibling_score(
         expansion_reason=expansion_reason,
         text=text,
     )
+    birdwatching_city_companion = _is_birdwatching_city_schedule_source_sibling_strong(
+        expansion_reason=expansion_reason,
+        text=text,
+    )
     degree_policy_companion = _is_degree_policy_source_sibling_strong(
         expansion_reason=expansion_reason,
         text=text,
@@ -265,6 +303,7 @@ def source_sibling_score(
         not relevance_specific
         and not visual_referent
         and not temporal_state_companion
+        and not birdwatching_city_companion
         and not degree_policy_companion
         and not generic_behavior_companion
         and not count_activity_followup
@@ -282,6 +321,8 @@ def source_sibling_score(
         score_floor = max(score_floor, 0.974)
     if generic_behavior_companion:
         score_floor = max(score_floor, 0.974)
+    if birdwatching_city_companion:
+        score_floor = max(score_floor, 0.972)
     if _is_pottery_type_observation_companion_text(
         expansion_reason=expansion_reason,
         text=text,
@@ -423,6 +464,8 @@ def is_pottery_type_observation_companion(
 
 
 def source_sibling_marker_coverage_count(*, expansion_reason: str, text: str) -> int:
+    if expansion_reason == "birdwatching_city_schedule_bridge":
+        return _birdwatching_city_schedule_slot_count(text)
     if not _is_pottery_type_observation_companion_text(
         expansion_reason=expansion_reason,
         text=text,
@@ -504,6 +547,11 @@ def source_sibling_relevance_allowed(
         return _is_activity_duration_source_sibling_strong(text)
     if expansion_reason in _FREQUENCY_RECURRENCE_SOURCE_SIBLING_REASONS:
         return _is_frequency_recurrence_source_sibling_strong(text)
+    if _is_birdwatching_city_schedule_source_sibling_strong(
+        expansion_reason=expansion_reason,
+        text=text,
+    ):
+        return True
     if _is_count_activity_followup_source_sibling(
         rank=rank,
         expansion_reason=expansion_reason,
@@ -743,6 +791,42 @@ def source_sibling_rank(
     )
 
 
+def source_sibling_distant_answer_evidence_rank(
+    chunk: MemoryChunk,
+    *,
+    source_groups: dict[str, _SourceGroupSeed],
+    expansion_reason: str,
+    text: str,
+) -> _SourceSiblingRank | None:
+    """Allow high-signal same-session evidence turns beyond the short sibling window."""
+
+    if expansion_reason != "birdwatching_city_schedule_bridge":
+        return None
+    marker = source_turn_marker(chunk.source_external_id)
+    if marker is None:
+        return None
+    group, turn = marker
+    seed = source_groups.get(group)
+    if seed is None or seed.group_level:
+        return None
+    slot_count = _birdwatching_city_schedule_slot_count(text)
+    if slot_count <= 0:
+        return None
+    if seed.turns:
+        turn_delta = min(
+            (turn - seed_turn for seed_turn in seed.turns),
+            key=lambda delta: (abs(delta), delta < 0),
+        )
+    else:
+        turn_delta = turn - seed.primary_turn
+    return _SourceSiblingRank(
+        score=0.966 + min(slot_count, 3) * 0.004,
+        group_priority=seed.priority,
+        turn_distance=min(abs(turn_delta), 5),
+        turn_delta=turn_delta,
+    )
+
+
 def _is_pottery_type_source_sibling_strong(text: str) -> bool:
     return (
         _POTTERY_TYPE_SOURCE_SIBLING_OBJECT_RE.search(text) is not None
@@ -824,6 +908,30 @@ def _is_frequency_recurrence_source_sibling_strong(text: str) -> bool:
         _STATE_ACTIVITY_SOURCE_SIBLING_CONTEXT_RE.search(text) is not None
         and _FREQUENCY_RECURRENCE_SOURCE_SIBLING_SIGNAL_RE.search(text) is not None
     )
+
+
+def _is_birdwatching_city_schedule_source_sibling_strong(
+    *,
+    expansion_reason: str,
+    text: str,
+) -> bool:
+    return (
+        expansion_reason == "birdwatching_city_schedule_bridge"
+        and _BIRDWATCHING_CITY_SCHEDULE_SOURCE_SIBLING_RE.search(text) is not None
+    )
+
+
+def _birdwatching_city_schedule_slot_count(text: str) -> int:
+    slots = 0
+    for pattern in (
+        _BIRDWATCHING_CITY_SCHEDULE_ACCESS_SLOT_RE,
+        _BIRDWATCHING_CITY_SCHEDULE_EQUIPMENT_SLOT_RE,
+        _BIRDWATCHING_CITY_SCHEDULE_PRESSURE_SLOT_RE,
+        _BIRDWATCHING_CITY_SCHEDULE_HOBBY_SLOT_RE,
+    ):
+        if pattern.search(text) is not None:
+            slots += 1
+    return slots
 
 
 def _is_generic_behavior_source_sibling_strong(

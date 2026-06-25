@@ -39,6 +39,7 @@ _ANSWER_SUPPORT_AGGREGATION_SOURCE_GROUP_REASONS = frozenset(
         "adoption-current-milestone-bridge",
         "activity-aggregation-bridge",
         "activity-visual-selfcare-bridge",
+        "birdwatching-city-schedule-bridge",
         "book-reading-list-bridge",
         "book-suggestion-bridge",
         "business-commonality-bridge",
@@ -92,10 +93,16 @@ _ANSWER_SUPPORT_EXCLUDED_QUERY_REASONS = frozenset({"art_style_bridge"})
 _BROAD_EVIDENCE_ANSWER_SUPPORT_REASONS = frozenset(
     {
         "activity_visual_selfcare_bridge",
+        "birdwatching_city_schedule_bridge",
         "book_suggestion_bridge",
     }
 )
-_BROAD_EVIDENCE_TURN_SLOT_REASONS = frozenset({"book_suggestion_bridge"})
+_BROAD_EVIDENCE_TURN_SLOT_REASONS = frozenset(
+    {
+        "birdwatching_city_schedule_bridge",
+        "book_suggestion_bridge",
+    }
+)
 _PRECISE_TURN_ANSWER_SUPPORT_REASONS = PRECISE_TURN_SOURCE_SIBLING_REASONS | frozenset(
     {
         "personality_authenticity_bridge",
@@ -103,6 +110,15 @@ _PRECISE_TURN_ANSWER_SUPPORT_REASONS = PRECISE_TURN_SOURCE_SIBLING_REASONS | fro
         "personality_thoughtfulness_bridge",
         "personality_trait_bridge",
     }
+)
+_BIRDWATCHING_CITY_SCHEDULE_CONTENT_RE = re.compile(
+    r"\b("
+    r"busy\s+week|city\s+schedule|schedule|"
+    r"binos|binoculars|notebook|log\s+them|"
+    r"spot\s+(?:looks\s+)?ideal|where\s+did\s+you\s+take\s+them|"
+    r"birdwatching|watching\s+birds?|birds?|eagles?|soar"
+    r")\b",
+    re.IGNORECASE,
 )
 _DIVERSITY_FAMILY_PRIORITY = (
     "fact",
@@ -608,7 +624,13 @@ def _diversity_family(item: ContextItem) -> str:
 def _diversity_candidate_item_key(item: ContextItem) -> tuple[object, ...]:
     query_reason = _answer_support_query_reason(item)
     broad_window_rank = 1
-    if query_reason in _BROAD_EVIDENCE_ANSWER_SUPPORT_REASONS and len(item.source_refs) > 1:
+    if (
+        query_reason in _BROAD_EVIDENCE_TURN_SLOT_REASONS
+        and _has_primary_exact_turn_source_ref(item)
+    ) or (
+        query_reason in _BROAD_EVIDENCE_ANSWER_SUPPORT_REASONS
+        and len(item.source_refs) > 1
+    ):
         broad_window_rank = 0
     return (
         broad_window_rank,
@@ -712,6 +734,11 @@ def _answer_support_family_priority(
     }:
         return 0
     query_reason = _answer_support_query_reason(item)
+    if (
+        base == "query_reason_broad_turn_source_group"
+        and query_reason == "birdwatching_city_schedule_bridge"
+    ):
+        return 0
     if _is_pottery_type_reason(query_reason) and base in {
         "query_reason",
         "query_reason_marker_coverage_source_group",
@@ -1269,6 +1296,7 @@ def _answer_support_family_item_key(item: ContextItem) -> tuple[float | int | st
             -_numeric_signal(signals.get("item_purchase_object_evidence")),
             -_numeric_signal(signals.get("symbol_importance_visual_evidence")),
             -_numeric_signal(signals.get("friend_place_shelter_anchor_evidence")),
+            -_numeric_signal(signals.get("birdwatching_city_schedule_answer_evidence")),
             -_numeric_signal(signals.get("distinctive_term_hits")),
             -_numeric_signal(signals.get("phrase_bigram_hits")),
         )
@@ -1277,6 +1305,7 @@ def _answer_support_family_item_key(item: ContextItem) -> tuple[float | int | st
             -_numeric_signal(signals.get("item_purchase_object_evidence")),
             -_numeric_signal(signals.get("symbol_importance_visual_evidence")),
             -_numeric_signal(signals.get("friend_place_shelter_anchor_evidence")),
+            -_numeric_signal(signals.get("birdwatching_city_schedule_answer_evidence")),
             -_numeric_signal(signals.get("phrase_bigram_hits")),
             -_numeric_signal(signals.get("distinctive_term_hits")),
         )
@@ -1285,11 +1314,20 @@ def _answer_support_family_item_key(item: ContextItem) -> tuple[float | int | st
         _precise_answer_content_rank(item, query_reason=query_reason),
         _answer_object_rank(item, query_reason=query_reason),
         _marker_coverage_answer_support_rank(item, query_reason=query_reason),
+        _birdwatching_city_schedule_exact_turn_rank(item, query_reason=query_reason),
         -len(item.source_refs),
         *signal_rank,
         -len(diagnostic_retrieval_sources(item.diagnostics)),
         context_rank_key(item),
     )
+
+
+def _birdwatching_city_schedule_exact_turn_rank(item: ContextItem, *, query_reason: str) -> int:
+    if query_reason != "birdwatching_city_schedule_bridge":
+        return 0
+    if _has_any_exact_turn_source_ref(item) and len(item.source_refs) == 1:
+        return 0
+    return 1
 
 
 def _answer_object_rank(item: ContextItem, *, query_reason: str) -> int:
@@ -1427,6 +1465,21 @@ def _precise_turn_answer_support_rank(item: ContextItem, *, query_reason: str) -
         and _has_any_exact_turn_source_ref(item)
     ):
         return 0
+    if (
+        query_reason == "birdwatching_city_schedule_bridge"
+        and _numeric_signal(
+            _diagnostic_score_signals(item).get("birdwatching_city_schedule_answer_evidence")
+        )
+        >= 2
+        and _has_any_exact_turn_source_ref(item)
+    ):
+        return 0
+    if (
+        query_reason == "birdwatching_city_schedule_bridge"
+        and _birdwatching_city_schedule_answer_content_rank(item.text) <= 1
+        and _has_any_exact_turn_source_ref(item)
+    ):
+        return 0
     if query_reason in _BROAD_EVIDENCE_ANSWER_SUPPORT_REASONS:
         return 2
     if (
@@ -1440,6 +1493,8 @@ def _precise_turn_answer_support_rank(item: ContextItem, *, query_reason: str) -
 
 
 def _precise_answer_content_rank(item: ContextItem, *, query_reason: str) -> int:
+    if query_reason == "birdwatching_city_schedule_bridge":
+        return _birdwatching_city_schedule_answer_content_rank(item.text)
     if _is_pottery_type_reason(query_reason):
         return _pottery_type_answer_content_rank(item.text)
     if query_reason in {"running_reason_bridge", "running_reason_question_bridge"}:
@@ -1498,6 +1553,15 @@ def _degree_policy_answer_content_rank(text: str) -> int:
         return 1
     if slot == "degree_completion_context":
         return 2
+    return 3
+
+
+def _birdwatching_city_schedule_answer_content_rank(text: str) -> int:
+    if _BIRDWATCHING_CITY_SCHEDULE_CONTENT_RE.search(text) is not None:
+        return 0
+    lowered = text.casefold()
+    if "nature" in lowered and ("city" in lowered or "outdoors" in lowered):
+        return 1
     return 3
 
 

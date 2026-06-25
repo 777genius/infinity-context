@@ -113,6 +113,67 @@ def test_apply_domain_rerank_signals_includes_causal_reason_evidence() -> None:
     assert "causal_reason_exact_evidence" in adjustment.reasons
 
 
+def test_apply_domain_rerank_signals_boosts_birdwatching_schedule_exact_evidence() -> None:
+    item = ContextItem(
+        item_id="andrew_birdwatching_binos",
+        item_type="chunk",
+        text=(
+            "D20:21 Andrew: Nice! Looks like you're prepared. I'll bring my "
+            "binos and a notebook to log them at the trip."
+        ),
+        score=0.97,
+        source_refs=(
+            SourceRef(
+                source_type="locomo_turn",
+                source_id="locomo:conv-44:session_20:D20:21:turn",
+            ),
+        ),
+        diagnostics={
+            "retrieval_sources": ["keyword_source_sibling_chunks"],
+            "score_signals": {"query_expansion_reason": "birdwatching_city_schedule_bridge"},
+        },
+    )
+
+    adjustment = apply_domain_rerank_signals(
+        query="What could Andrew do to make birdwatching fit in his city schedule?",
+        query_reason="birdwatching_city_schedule_bridge",
+        item=item,
+        relevance=_relevance(distinctive_term_hits=7),
+    )
+
+    assert adjustment.boost > 0
+    assert "birdwatching_city_schedule_exact_evidence" in adjustment.reasons
+    assert (
+        dict(adjustment.rank_signals)["birdwatching_city_schedule_answer_evidence"] >= 2
+    )
+
+
+def test_apply_domain_rerank_signals_penalizes_birdwatching_broad_activity_noise() -> None:
+    item = ContextItem(
+        item_id="generic_city_dogs",
+        item_type="chunk",
+        text=(
+            "D11:3 Andrew: Dogs make life fun in the city, but finding parks "
+            "and enough room can be tough."
+        ),
+        score=0.99,
+        source_refs=(SourceRef(source_type="locomo_turn", source_id="locomo:conv-44:D11:3"),),
+        diagnostics={
+            "score_signals": {"query_expansion_reason": "decomposition_activity_participation"},
+        },
+    )
+
+    adjustment = apply_domain_rerank_signals(
+        query="What could Andrew do to make birdwatching fit in his city schedule?",
+        query_reason="decomposition_activity_participation",
+        item=item,
+        relevance=_relevance(distinctive_term_hits=7),
+    )
+
+    assert adjustment.penalty > 0
+    assert "birdwatching_city_schedule_broad_activity_noise" in adjustment.reasons
+
+
 def test_apply_domain_rerank_signals_boosts_slot_diverse_pottery_aggregation() -> None:
     item = ContextItem(
         item_id="pottery_aggregation",

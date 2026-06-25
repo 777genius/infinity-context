@@ -3411,6 +3411,43 @@ def test_best_query_relevance_bridges_personal_list_fact_evidence() -> None:
     assert book_relevance.distinctive_term_hits >= 6
 
 
+def test_query_expansion_covers_birdwatching_city_schedule_evidence() -> None:
+    compact = build_query_expansion_plan(
+        "What could Andrew do to make birdwatching fit in his city schedule?"
+    )
+    spaced = build_query_expansion_plan(
+        "What could Andrew do to make bird watching fit in his city schedule?"
+    )
+
+    for plan in (compact, spaced):
+        bridge = _expansion_query(plan, "birdwatching_city_schedule_bridge")
+
+        assert "bird feeder" in bridge
+        assert "busy week" in bridge
+        assert "binoculars" in bridge
+        assert "city schedule" in bridge
+        assert "ideal spot" in bridge
+
+
+def test_best_query_relevance_bridges_birdwatching_city_schedule_evidence() -> None:
+    plan = build_query_expansion_plan(
+        "What could Andrew do to make birdwatching fit in his city schedule?"
+    )
+
+    _, reason, relevance = best_query_relevance(
+        plan,
+        text=(
+            "D20:21 Andrew: The binoculars and notebook make it easier to log "
+            "birds around the park. D23:1 This week is packed, so staying near "
+            "home helps. A bird feeder outside the window would let him watch "
+            "birds without going outdoors."
+        ),
+    )
+
+    assert reason == "birdwatching_city_schedule_bridge"
+    assert relevance.distinctive_term_hits >= 7
+
+
 def test_best_query_relevance_bridges_inventory_and_brand_fact_evidence() -> None:
     gaming = build_query_expansion_plan("What mediums does Nate use to play games?")
     pets = build_query_expansion_plan("What pets does Nate have?")

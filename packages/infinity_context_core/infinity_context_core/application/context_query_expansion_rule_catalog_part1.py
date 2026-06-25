@@ -728,6 +728,24 @@ EXPANSION_RULES_PART_1: tuple[tuple[frozenset[str], str, str], ...] = (
             "hobby_interest_bridge",
         ),
     (
+            frozenset({"birdwatching"}),
+            (
+                "birdwatching bird watching birds eagles soar explore nature hobby city "
+                "schedule busy week outdoors outside bird feeder window balcony nearby "
+                "park dog park ideal spot binoculars binos notebook log camera"
+            ),
+            "birdwatching_city_schedule_bridge",
+        ),
+    (
+            frozenset({"bird", "watching"}),
+            (
+                "birdwatching bird watching birds eagles soar explore nature hobby city "
+                "schedule busy week outdoors outside bird feeder window balcony nearby "
+                "park dog park ideal spot binoculars binos notebook log camera"
+            ),
+            "birdwatching_city_schedule_bridge",
+        ),
+    (
             frozenset({"interest", "share"}),
             (
                 "hobbies interests writing reading watching movies exploring nature "
