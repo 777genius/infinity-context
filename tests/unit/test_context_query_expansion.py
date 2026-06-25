@@ -519,6 +519,8 @@ def test_query_expansion_covers_age_without_polluting_old_state_queries() -> Non
 
 def test_query_expansion_separates_birthplace_from_age_queries() -> None:
     birthplace = build_query_expansion_plan("Where was Alex born?")
+    origin_from = build_query_expansion_plan("Where is Alex from?")
+    move_from = build_query_expansion_plan("Where did Alex move from?")
     russian_birthplace = build_query_expansion_plan("Где Алекс родился?")
 
     assert _expansion_query(birthplace, "birthplace_origin_bridge").startswith("Alex ")
@@ -526,6 +528,14 @@ def test_query_expansion_separates_birthplace_from_age_queries() -> None:
         birthplace,
         "birthplace_origin_bridge",
     )
+    assert _expansion_query(origin_from, "birthplace_origin_bridge").startswith("Alex ")
+    assert "birthplace born in from origin hometown" in _expansion_query(
+        origin_from,
+        "birthplace_origin_bridge",
+    )
+    assert "birthplace_origin_bridge" not in {
+        expansion.reason for expansion in move_from.expansions
+    }
     assert _expansion_query(russian_birthplace, "birthplace_origin_bridge").startswith("Алекс ")
     assert "место рождения родной город страна" in _expansion_query(
         russian_birthplace,

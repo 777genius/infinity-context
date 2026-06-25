@@ -51,6 +51,10 @@ _CURRENT_OCCUPATION_QUERY_RE = re.compile(
     r"what\s+.+?\s+work\s+as|.+?\s+works?\s+as)\b",
     re.IGNORECASE,
 )
+_ORIGIN_FROM_QUERY_RE = re.compile(
+    r"\bwhere\s+(?:is|are|was|were)\s+.+?\s+from\b",
+    re.IGNORECASE,
+)
 _RU_CURRENT_OCCUPATION_QUERY_RE = re.compile(
     r"\b(?:кем\s+работа(?:ет|ют)|какая\s+работа|"
     r"что\s+.+?\s+дела(?:ет|ют)\s+по\s+работе|профессия|должность)\b",
@@ -72,6 +76,11 @@ PERSONAL_FACT_EXPANSION_RULES: tuple[tuple[frozenset[str], str, str], ...] = (
     ),
     (
         frozenset({"birthplace"}),
+        _BIRTHPLACE_EXPANSION,
+        "birthplace_origin_bridge",
+    ),
+    (
+        frozenset({"origin_from_query"}),
         _BIRTHPLACE_EXPANSION,
         "birthplace_origin_bridge",
     ),
@@ -226,6 +235,8 @@ def personal_fact_query_variants(query: str) -> frozenset[str]:
         variants.add("ru_age_query")
     if _CURRENT_OCCUPATION_QUERY_RE.search(query):
         variants.add("current_occupation_query")
+    if _ORIGIN_FROM_QUERY_RE.search(query):
+        variants.add("origin_from_query")
     if _RU_CURRENT_OCCUPATION_QUERY_RE.search(query):
         variants.add("ru_current_occupation_query")
     return frozenset(variants)

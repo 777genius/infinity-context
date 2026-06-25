@@ -498,6 +498,18 @@ def test_bounded_retrieval_queries_select_direct_career_and_art_bridges() -> Non
     ]
 
 
+def test_bounded_retrieval_queries_select_origin_from_bridge() -> None:
+    plan = build_query_expansion_plan("Where is Alex from?")
+
+    selected = _bounded_derived_retrieval_queries(plan, fallback="fallback", limit=4)
+
+    assert [query.reason for query in selected] == [
+        "original_query",
+        "decomposition_relocation_context",
+        "birthplace_origin_bridge",
+    ]
+
+
 def test_bounded_retrieval_queries_keep_high_signal_decomposition() -> None:
     plan = QueryExpansionPlan(
         original_query="original",
