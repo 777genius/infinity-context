@@ -939,6 +939,17 @@ def _career_answer_slot(item: ContextItem, *, query_reason: str) -> str:
     slots = (
         ("shelter_operations", ("front desk", "food or a bed", "food", " bed", "coordinator")),
         ("counseling_talks", ("gave a few talks", " talks ", "compliments", "counselor")),
+        (
+            "volunteer_origin",
+            (
+                "about a year ago",
+                "witnessing a family",
+                "family struggling",
+                "struggling on the streets",
+                "reached out to the shelter",
+                "needed any volunteers",
+            ),
+        ),
         ("start_motivation", ("started volunteering", "aunt", "struggling", "brighten")),
         ("resident_support", ("resident", "cindy", "gratitude", "support they receive")),
         ("homeless_shelter", ("homeless shelter", " shelter", "volunteer")),

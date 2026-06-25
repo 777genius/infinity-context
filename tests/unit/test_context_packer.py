@@ -849,15 +849,31 @@ def test_answer_support_family_splits_volunteer_career_evidence_slots() -> None:
             "score_signals": {"query_expansion_reason": "volunteer_career_inference_bridge"},
         },
     )
+    origin = ContextItem(
+        item_id="career_origin",
+        item_type="chunk",
+        text=(
+            "D27:4 Maria: I started volunteering here about a year ago after "
+            "witnessing a family struggling on the streets. I reached out to "
+            "the shelter and asked if they needed any volunteers."
+        ),
+        score=0.99,
+        source_refs=(SourceRef(source_type="locomo_turn", source_id="doc:D27:4:turn"),),
+        diagnostics={
+            "score_signals": {"query_expansion_reason": "volunteer_career_inference_bridge"},
+        },
+    )
 
     families = {
         _answer_support_diversity_family(motivation),
         _answer_support_diversity_family(talks),
         _answer_support_diversity_family(operations),
+        _answer_support_diversity_family(origin),
     }
 
-    assert len(families) == 3
+    assert len(families) == 4
     assert all("volunteer-career-inference-bridge" in family for family in families)
+    assert any(family.endswith(":volunteer-origin") for family in families)
 
 
 def test_answer_support_family_prefers_exact_turn_for_animal_care_instruction() -> None:

@@ -348,7 +348,8 @@ EXPANSION_RULES_PART_3: tuple[tuple[frozenset[str], str, str], ...] = (
                 "volunteering shelter front desk food bed make difference lives started "
                 "fulfilling gave few talks connecting helping others compliments residents "
                 "aunt believed brighten struggling counselor coordinator volunteer homeless "
-                "future job career social work smiles faces day"
+                "future job career social work smiles faces day about year ago witnessed "
+                "family streets reached out needed volunteers"
             ),
             "volunteer_career_inference_bridge",
         ),
