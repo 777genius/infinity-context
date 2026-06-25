@@ -6,9 +6,13 @@ from infinity_context_core.application import context_query_expansion_rule_terms
 from infinity_context_core.application.context_query_personal_fact_expansions import (
     PERSONAL_FACT_EXPANSION_RULES,
 )
+from infinity_context_core.application.context_query_project_summary_expansions import (
+    PROJECT_SUMMARY_EXPANSION_RULES,
+)
 
 EXPANSION_RULES_PART_1: tuple[tuple[frozenset[str], str, str], ...] = (
     *PERSONAL_FACT_EXPANSION_RULES,
+    *PROJECT_SUMMARY_EXPANSION_RULES,
     (
             frozenset({"identity"}),
             (

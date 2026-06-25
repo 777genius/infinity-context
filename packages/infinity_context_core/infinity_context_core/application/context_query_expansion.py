@@ -8,6 +8,12 @@ from infinity_context_core.application.context_query_decomposition import (
     QueryDecompositionPlan,
     build_query_decomposition_plan,
 )
+from infinity_context_core.application.context_query_expansion_rules import (
+    EXPANSION_RULES as _EXPANSION_RULES,
+)
+from infinity_context_core.application.context_query_expansion_rules import (
+    MAX_QUERY_EXPANSIONS as _MAX_QUERY_EXPANSIONS,
+)
 from infinity_context_core.application.context_query_expansion_selection import (
     identity_terms_for_expansion as _identity_terms_for_expansion,
 )
@@ -26,12 +32,11 @@ from infinity_context_core.application.context_query_identity_terms import (
 from infinity_context_core.application.context_query_identity_terms import (
     with_identity_terms as _with_identity_terms,
 )
-from infinity_context_core.application.context_query_expansion_rules import (
-    EXPANSION_RULES as _EXPANSION_RULES,
-    MAX_QUERY_EXPANSIONS as _MAX_QUERY_EXPANSIONS,
-)
 from infinity_context_core.application.context_query_personal_fact_expansions import (
     personal_fact_query_variants,
+)
+from infinity_context_core.application.context_query_project_summary_expansions import (
+    project_summary_query_variants,
 )
 from infinity_context_core.application.context_query_state_transition import (
     state_transition_query_variants,
@@ -91,6 +96,7 @@ def build_query_expansion_plan(
     query_term_variants.update(support_role_query_variants(query))
     query_term_variants.update(workflow_commitment_query_variants(query))
     query_term_variants.update(personal_fact_query_variants(query))
+    query_term_variants.update(project_summary_query_variants(query))
     raw_tokens = set(_raw_query_tokens(query))
     identity_terms = _capitalized_identity_terms(query)
     expansion_candidates: list[tuple[int, int, QueryExpansion]] = []

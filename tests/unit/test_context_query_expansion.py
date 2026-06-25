@@ -101,6 +101,26 @@ def test_query_expansion_does_not_treat_responsibility_query_as_person_summary()
     assert "person_summary_bridge" not in {expansion.reason for expansion in plan.expansions}
 
 
+def test_query_expansion_covers_project_summary_questions() -> None:
+    what_is = build_query_expansion_plan("What is Project Atlas?")
+    known = build_query_expansion_plan("What do we know about project Atlas?")
+    tell = build_query_expansion_plan("Tell me about project Atlas")
+    russian = build_query_expansion_plan("Расскажи про проект Атлас")
+
+    for plan in (what_is, known, tell, russian):
+        summary = _expansion_query(plan, "project_summary_bridge")
+
+        assert "project" in summary.casefold()
+        assert "summary" in summary.casefold() or "сводка" in summary.casefold()
+        assert "Atlas" in summary or "Атлас" in summary
+
+
+def test_query_expansion_does_not_treat_project_role_query_as_project_summary() -> None:
+    plan = build_query_expansion_plan("What is Project Atlas responsible for?")
+
+    assert "project_summary_bridge" not in {expansion.reason for expansion in plan.expansions}
+
+
 def test_query_expansion_covers_patriotic_service_inference() -> None:
     plan = build_query_expansion_plan("Would John be considered a patriotic person?")
 

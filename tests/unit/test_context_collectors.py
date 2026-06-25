@@ -521,6 +521,17 @@ def test_bounded_retrieval_queries_select_person_summary_bridge() -> None:
     ]
 
 
+def test_bounded_retrieval_queries_select_project_summary_bridge() -> None:
+    plan = build_query_expansion_plan("What is Project Atlas?")
+
+    selected = _bounded_derived_retrieval_queries(plan, fallback="fallback", limit=4)
+
+    assert [query.reason for query in selected] == [
+        "original_query",
+        "project_summary_bridge",
+    ]
+
+
 def test_bounded_retrieval_queries_keep_high_signal_decomposition() -> None:
     plan = QueryExpansionPlan(
         original_query="original",

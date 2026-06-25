@@ -238,6 +238,7 @@ _PROTECTED_EXPANSION_HEAD_REASONS = frozenset(
         "personality_drive_bridge",
         "personality_thoughtfulness_bridge",
         "personality_trait_bridge",
+        "project_summary_bridge",
         "post_event_activity_timing_bridge",
         "possession_gift_object_bridge",
         "recommendation_source_bridge",
