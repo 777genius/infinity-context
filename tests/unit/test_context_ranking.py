@@ -9182,6 +9182,107 @@ def test_deterministic_rerank_prefers_multisignal_artifact_evidence() -> None:
     )
 
 
+def test_deterministic_rerank_prefers_localized_transcript_evidence() -> None:
+    query = "What did the transcript say at 02:15?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    plain_transcript = ContextItem(
+        item_id="plain_call_segment",
+        item_type="extraction_artifact",
+        text="Transcript segment at 02:15: Alex said the launch checklist is needed.",
+        score=0.73,
+        source_refs=(
+            SourceRef(
+                source_type="extraction_artifact",
+                source_id="audio-1",
+                chunk_id="segment-0215",
+            ),
+        ),
+        diagnostics={
+            "retrieval_source": "artifact_evidence",
+            "retrieval_sources": ["artifact_evidence"],
+            "evidence_modality": "audio",
+            "evidence_kind": "transcript_segment",
+            "score_signals": {"base_score": 0.73},
+            "provenance": {"retrieval_sources": ["artifact_evidence"]},
+        },
+    )
+    transcript = ContextItem(
+        item_id="atlas_call_segment",
+        item_type="extraction_artifact",
+        text="Transcript segment at 02:15: Alex said the launch checklist is needed.",
+        score=0.7,
+        source_refs=(
+            SourceRef(
+                source_type="extraction_artifact",
+                source_id="audio-1",
+                chunk_id="segment-0215",
+                time_start_ms=135000,
+                time_end_ms=142000,
+            ),
+        ),
+        diagnostics={
+            "retrieval_source": "artifact_evidence",
+            "retrieval_sources": ["artifact_evidence", "vector_chunks"],
+            "evidence_modality": "audio",
+            "evidence_kind": "transcript_segment",
+            "score_signals": {"base_score": 0.7},
+            "provenance": {"retrieval_sources": ["artifact_evidence", "vector_chunks"]},
+        },
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (plain_transcript, transcript),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+
+    assert reranked[1].score > reranked[0].score
+    assert (
+        "localized_evidence_source"
+        in reranked[1].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+
+
+def test_deterministic_rerank_does_not_localize_plain_source_ref() -> None:
+    query = "What did Alex say in the Project Atlas call?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    item = ContextItem(
+        item_id="plain_audio_segment",
+        item_type="extraction_artifact",
+        text="Transcript segment: Alex said Project Atlas needs the launch checklist.",
+        score=0.7,
+        source_refs=(
+            SourceRef(
+                source_type="extraction_artifact",
+                source_id="audio-1",
+                chunk_id="segment",
+            ),
+        ),
+        diagnostics={
+            "retrieval_source": "artifact_evidence",
+            "retrieval_sources": ["artifact_evidence"],
+            "evidence_modality": "audio",
+            "evidence_kind": "transcript_segment",
+            "score_signals": {"base_score": 0.7},
+            "provenance": {"retrieval_sources": ["artifact_evidence"]},
+        },
+    )
+
+    (reranked,) = apply_deterministic_rerank_adjustments(
+        (item,),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+
+    reasons = reranked.diagnostics["provenance"].get("deterministic_rerank_reasons", [])
+    assert "localized_evidence_source" not in reasons
+    assert "multi_localized_evidence_source" not in reasons
+
+
 def test_deterministic_rerank_does_not_apply_twice() -> None:
     query = "What changed after the Atlas call?"
     plan = build_query_expansion_plan(query)

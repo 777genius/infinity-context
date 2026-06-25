@@ -180,6 +180,7 @@ _GENERIC_BOOSTABLE_ANSWER_SHAPES = frozenset((
 ))
 _DETERMINISTIC_RERANK_MAX_BOOST = 0.055
 _DETERMINISTIC_RERANK_MAX_PENALTY = 0.11
+_LOCALIZED_EVIDENCE_RERANK_MAX_BOOST = 0.022
 _DUPLICATE_SOURCE_SCORE_TOLERANCE = 0.015
 _STRONG_EVIDENCE_RERANK_SOURCES = frozenset(
     {
@@ -1455,6 +1456,16 @@ def _deterministic_rerank_signals(
         if relevance_boost > 0:
             boost += relevance_boost
             reasons.append("query_relevance_supported")
+    localized_evidence_boost, localized_evidence_reason = _localized_evidence_support_signal(
+        item=item,
+        relevance=relevance,
+        coverage_ratio=coverage_ratio,
+        anchor_matched=anchor_match is not None,
+        strong_source_count=strong_source_count,
+    )
+    if localized_evidence_boost > 0:
+        boost += localized_evidence_boost
+        reasons.append(localized_evidence_reason)
     owner_boost, owner_penalty, owner_reason = _activity_owner_signal(
         query_anchor_intent=query_anchor_intent,
         query_reason=query_reason,
@@ -1775,6 +1786,72 @@ def _is_long_query_weak_overlap(relevance: QueryRelevance) -> bool:
     if relevance.phrase_bigram_hits > 0:
         return False
     return relevance.distinctive_term_hits <= 1 and relevance.unique_term_hits <= 2
+
+
+def _localized_evidence_support_signal(
+    *,
+    item: ContextItem,
+    relevance: QueryRelevance,
+    coverage_ratio: float,
+    anchor_matched: bool,
+    strong_source_count: int,
+) -> tuple[float, str]:
+    localized_refs = tuple(ref for ref in item.source_refs if _source_ref_has_precise_location(ref))
+    if not localized_refs:
+        return 0.0, ""
+    if (
+        not is_query_relevance_sufficient(relevance)
+        and coverage_ratio <= 0
+        and not anchor_matched
+        and strong_source_count <= 0
+    ):
+        return 0.0, ""
+    source_count = len({(ref.source_type, ref.source_id) for ref in localized_refs})
+    feature_count = len(
+        {
+            feature
+            for ref in localized_refs
+            for feature in _source_ref_location_features(ref)
+        }
+    )
+    boost = 0.008
+    boost += min(0.006, 0.003 * max(0, len(localized_refs) - 1))
+    boost += min(0.004, 0.002 * max(0, source_count - 1))
+    boost += min(0.004, 0.002 * max(0, feature_count - 1))
+    diagnostics = safe_diagnostic_mapping(item.diagnostics)
+    if _safe_evidence_kind_or_modality(diagnostics):
+        boost += 0.003
+    reason = (
+        "multi_localized_evidence_source"
+        if len(localized_refs) >= 2 or source_count >= 2 or feature_count >= 2
+        else "localized_evidence_source"
+    )
+    return round(min(_LOCALIZED_EVIDENCE_RERANK_MAX_BOOST, boost), 4), reason
+
+
+def _source_ref_has_precise_location(ref: SourceRef) -> bool:
+    return bool(_source_ref_location_features(ref))
+
+
+def _source_ref_location_features(ref: SourceRef) -> tuple[str, ...]:
+    features: list[str] = []
+    if ref.page_number is not None:
+        features.append("page")
+    if ref.char_start is not None or ref.char_end is not None:
+        features.append("char")
+    if ref.time_start_ms is not None or ref.time_end_ms is not None:
+        features.append("time")
+    if ref.bbox is not None:
+        features.append("bbox")
+    return tuple(features)
+
+
+def _safe_evidence_kind_or_modality(diagnostics: Mapping[str, object]) -> bool:
+    for key in ("evidence_kind", "evidence_modality", "artifact_type"):
+        value = diagnostics.get(key)
+        if isinstance(value, str) and value.strip():
+            return True
+    return False
 
 
 def _best_query_relevance_for_rerank(
