@@ -591,6 +591,20 @@ def test_inference_evidence_signal_boosts_religious_fit_evidence() -> None:
     assert signal.reason == "inference_religious_fit_evidence"
 
 
+def test_inference_evidence_signal_penalizes_religious_political_noise() -> None:
+    signal = inference_evidence_rerank_signal(
+        query="Would Caroline be considered religious?",
+        text=(
+            "Caroline said religious conservatives made her feel unwelcoming "
+            "during her transgender journey."
+        ),
+    )
+
+    assert signal.boost == 0
+    assert signal.penalty > 0
+    assert signal.reason == "inference_religious_topic_only_noise"
+
+
 def test_inference_evidence_signal_boosts_patriotic_service_fit_evidence() -> None:
     signal = inference_evidence_rerank_signal(
         query="Would John be considered a patriotic person?",

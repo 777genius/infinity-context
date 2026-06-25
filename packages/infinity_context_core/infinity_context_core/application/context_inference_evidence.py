@@ -596,20 +596,44 @@ _RELIGIOUS_TEXT_TERMS = frozenset(
     {
         "church",
         "faith",
-        "religious",
-        "stained",
         "glass",
+        "pray",
+        "prayer",
+        "prayers",
+        "prays",
+        "religious",
         "spiritual",
+        "stained",
+        "worship",
+        "worships",
+    }
+)
+_RELIGIOUS_STRONG_TEXT_TERMS = frozenset(
+    {
+        "church",
+        "faith",
+        "glass",
+        "pray",
+        "prayer",
+        "prayers",
+        "prays",
+        "spiritual",
+        "stained",
+        "worship",
+        "worships",
     }
 )
 _RELIGIOUS_TOPIC_NOISE_TERMS = frozenset(
     {
         "acceptance",
         "accept",
+        "conservative",
+        "conservatives",
         "growth",
         "journey",
         "transgender",
         "transition",
+        "unwelcoming",
     }
 )
 _CAUSAL_TEXT_RE = re.compile(
@@ -868,8 +892,10 @@ def _children_books_inference_signal(*, query: str, text: str) -> AnswerEvidence
 
 def _religious_inference_signal(*, query: str, text: str) -> AnswerEvidenceSignal:
     text_tokens = _term_set(text)
+    raw_text_tokens = _raw_term_set(text)
     evidence_hits = text_tokens & _RELIGIOUS_TEXT_TERMS
-    if evidence_hits:
+    strong_evidence_hits = raw_text_tokens & _RELIGIOUS_STRONG_TEXT_TERMS
+    if strong_evidence_hits:
         return AnswerEvidenceSignal(
             boost=0.026,
             reason="inference_religious_fit_evidence",
@@ -878,6 +904,11 @@ def _religious_inference_signal(*, query: str, text: str) -> AnswerEvidenceSigna
         return AnswerEvidenceSignal(
             penalty=0.032,
             reason="inference_religious_topic_only_noise",
+        )
+    if evidence_hits:
+        return AnswerEvidenceSignal(
+            boost=0.014,
+            reason="inference_religious_weak_evidence",
         )
     return AnswerEvidenceSignal()
 

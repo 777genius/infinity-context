@@ -3640,6 +3640,43 @@ def test_deterministic_rerank_prefers_religious_inference_evidence() -> None:
     )
 
 
+def test_deterministic_rerank_penalizes_religious_political_noise() -> None:
+    query = "Would Caroline be considered religious?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    church_evidence = _item(
+        "church_evidence",
+        score=0.7,
+        retrieval_source="keyword_chunks",
+        text="Caroline made stained glass artwork for a local church.",
+    )
+    political_noise = _item(
+        "political_noise",
+        score=0.73,
+        retrieval_source="keyword_chunks",
+        text=(
+            "Caroline said religious conservatives made her feel unwelcoming "
+            "during her transgender journey."
+        ),
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (church_evidence, political_noise),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert by_id["church_evidence"].score > by_id["political_noise"].score
+    assert (
+        "inference_religious_topic_only_noise"
+        in by_id["political_noise"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+
+
 def test_keyword_chunk_source_score_boost_prefers_activity_observations() -> None:
     plan = build_query_expansion_plan("What activities does Melanie partake in?")
     _, reason, relevance = best_query_relevance(
