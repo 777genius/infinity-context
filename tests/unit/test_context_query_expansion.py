@@ -724,6 +724,19 @@ def test_query_expansion_separates_current_residence_from_origin_queries() -> No
     )
 
 
+def test_query_expansion_covers_national_park_visual_inference_evidence() -> None:
+    plan = build_query_expansion_plan(
+        "Which national park could Audrey and Andrew be referring to in their conversations?"
+    )
+
+    bridge_query = _expansion_query(plan, "national_park_inference_bridge")
+
+    assert bridge_query.startswith("Audrey Andrew ")
+    assert "national park road trip travel destination" in bridge_query
+    assert "hiking hike trails trail map route" in bridge_query
+    assert "photo image caption visual query" in bridge_query
+
+
 def test_query_expansion_covers_current_occupation_without_future_job_noise() -> None:
     occupation = build_query_expansion_plan("What does Alex do for work?")
     russian_occupation = build_query_expansion_plan("Кем работает Алекс?")

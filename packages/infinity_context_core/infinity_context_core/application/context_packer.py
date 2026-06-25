@@ -70,6 +70,7 @@ _ANSWER_SUPPORT_AGGREGATION_SOURCE_GROUP_REASONS = frozenset(
         "hike-count-activity-bridge",
         "item-purchase-bridge",
         "music-artist-band-bridge",
+        "national-park-inference-bridge",
         "painting-inventory-bridge",
         "pottery-type-bridge",
         "recommendation-source-bridge",

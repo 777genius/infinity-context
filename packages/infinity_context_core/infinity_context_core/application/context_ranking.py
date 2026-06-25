@@ -260,6 +260,7 @@ _PRECISE_EVIDENCE_SOURCE_REASONS = frozenset(
         "instrument_play_bridge",
         "letter_count_bridge",
         "meteor_shower_feeling_bridge",
+        "national_park_inference_bridge",
         "patriotic_service_inference_bridge",
         "pet_count_bridge",
         "pet_inventory_bridge",
@@ -286,6 +287,7 @@ _TURN_ONLY_EVIDENCE_SOURCE_REASONS = frozenset(
         "personality_drive_bridge",
         "personality_thoughtfulness_bridge",
         "personality_trait_bridge",
+        "national_park_inference_bridge",
         "state_residence_inference_bridge",
     }
 )

@@ -43,6 +43,9 @@ from infinity_context_core.application.context_exercise_performance_rerank impor
 from infinity_context_core.application.context_frequency_rerank import (
     frequency_recurrence_rerank_signal,
 )
+from infinity_context_core.application.context_national_park_inference import (
+    national_park_inference_rerank_signal,
+)
 from infinity_context_core.application.context_relevance import QueryRelevance
 from infinity_context_core.application.dto import ContextItem
 
@@ -114,6 +117,12 @@ def _domain_rerank_signals(
             relevance=relevance,
         ),
         exercise_performance_rerank_signal(
+            query=query,
+            query_reason=query_reason,
+            item=item,
+            relevance=relevance,
+        ),
+        national_park_inference_rerank_signal(
             query=query,
             query_reason=query_reason,
             item=item,

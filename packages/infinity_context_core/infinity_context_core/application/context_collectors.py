@@ -163,6 +163,7 @@ _HIGH_SIGNAL_EXPANSION_REASONS = frozenset(
         "lgbtq_school_event_bridge",
         "lgbtq_support_group_event_bridge",
         "meteor_shower_feeling_bridge",
+        "national_park_inference_bridge",
         "military_service_willingness_bridge",
         "patriotic_service_inference_bridge",
         "pet_count_bridge",

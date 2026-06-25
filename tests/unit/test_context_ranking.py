@@ -4391,6 +4391,40 @@ def test_state_residence_source_boost_prefers_precise_map_turn() -> None:
     assert observation_boosted == score
 
 
+def test_national_park_source_boost_prefers_precise_visual_turns() -> None:
+    plan = build_query_expansion_plan(
+        "Which national park could Audrey and Andrew be referring to in their conversations?"
+    )
+    _, reason, relevance = best_query_relevance(
+        plan,
+        text=(
+            "D11:9 Andrew: Here is the map for the trail. image caption: "
+            "a photo of a map of a park with a lot of trees. visual query: "
+            "hiking trails map perfect spot."
+        ),
+    )
+    score = keyword_chunk_score(relevance, query_expansion_reason=reason)
+
+    boosted, boost = apply_keyword_chunk_source_score_boost(
+        score,
+        relevance,
+        query_expansion_reason=reason,
+        source_external_id="locomo:conv-44:session_11:D11:9:turn",
+    )
+    observation_boosted, observation_boost = apply_keyword_chunk_source_score_boost(
+        score,
+        relevance,
+        query_expansion_reason=reason,
+        source_external_id="locomo:conv-44:session_11:observation",
+    )
+
+    assert reason == "national_park_inference_bridge"
+    assert boost > 0
+    assert boosted > score
+    assert observation_boost == 0.0
+    assert observation_boosted == score
+
+
 def test_deterministic_rerank_prefers_state_residence_geo_evidence() -> None:
     query = "Which US state do Audrey and Andrew potentially live in?"
     plan = build_query_expansion_plan(query)
@@ -4429,6 +4463,68 @@ def test_deterministic_rerank_prefers_state_residence_geo_evidence() -> None:
     assert (
         "inference_state_residence_technical_noise"
         in by_id["andrew_state_machine_noise"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+
+
+def test_deterministic_rerank_prefers_national_park_visual_inference_evidence() -> None:
+    query = "Which national park could Audrey and Andrew be referring to in their conversations?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    generic_park_noise = _item(
+        "generic_city_park",
+        score=0.77,
+        retrieval_source="keyword_chunks",
+        text="Andrew went to a city park with his dog after work.",
+    )
+    national_park_turn = _item(
+        "audrey_national_park_trip",
+        score=0.72,
+        retrieval_source="keyword_chunks",
+        text=(
+            "D5:8 Audrey: Last Friday we took a road trip - we went to a "
+            "beautiful national park and my dogs had a blast. image caption: "
+            "three dogs running through a field of grass. visual query: "
+            "dogs playing field flowers national park."
+        ),
+    )
+    trail_map_turn = _item(
+        "andrew_trail_map",
+        score=0.71,
+        retrieval_source="keyword_chunks",
+        text=(
+            "D11:9 Andrew: Here is the map for the trail. image caption: "
+            "a photo of a map of a park with a lot of trees. visual query: "
+            "hiking trails map perfect spot."
+        ),
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (generic_park_noise, national_park_turn, trail_map_turn),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert by_id["audrey_national_park_trip"].score > by_id["generic_city_park"].score
+    assert by_id["andrew_trail_map"].score > by_id["generic_city_park"].score
+    assert (
+        "national_park_exact_evidence"
+        in by_id["audrey_national_park_trip"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+    assert (
+        "national_park_visual_trail_map_evidence"
+        in by_id["andrew_trail_map"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+    assert (
+        "national_park_generic_park_noise"
+        in by_id["generic_city_park"].diagnostics["provenance"][
             "deterministic_rerank_reasons"
         ]
     )

@@ -121,6 +121,16 @@ EXPANSION_RULES_PART_2: tuple[tuple[frozenset[str], str, str], ...] = (
             "commonality_interest_bridge",
         ),
     (
+            frozenset({"what", "national", "park"}),
+            _terms._NATIONAL_PARK_INFERENCE_EXPANSION,
+            "national_park_inference_bridge",
+        ),
+    (
+            frozenset({"which", "national", "park"}),
+            _terms._NATIONAL_PARK_INFERENCE_EXPANSION,
+            "national_park_inference_bridge",
+        ),
+    (
             frozenset({"national", "park"}),
             "camping trip campfire meteor shower nature outdoors",
             "outdoor_preference_bridge",

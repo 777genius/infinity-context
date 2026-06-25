@@ -113,6 +113,11 @@ _TRIP_DESTINATION_EXPANSION = (
     "поездка отпуск путешествие ездил ездила ездили поехал поехала посетил "
     "посетила куда место город страна горы пляж парк"
 )
+_NATIONAL_PARK_INFERENCE_EXPANSION = (
+    "national park road trip travel destination hiking hike trails trail map route "
+    "park map trees forest lake field grass dogs pup photo image caption visual query "
+    "sign planning next month nearby beautiful"
+)
 _DESTRESS_ACTIVITY_EXPANSION = (
     "running pottery class therapeutic therapy calm relax clear mind headspace unwind "
     "расслабиться расслабляется расслаблялась отдохнуть отдыхает снять стресс "
@@ -196,6 +201,7 @@ __all__ = (
     "_CAUSE_EDUCATION_INFRASTRUCTURE_EXPANSION",
     "_CAUSE_VETERANS_EXPANSION",
     "_TRIP_DESTINATION_EXPANSION",
+    "_NATIONAL_PARK_INFERENCE_EXPANSION",
     "_DESTRESS_ACTIVITY_EXPANSION",
     "_STUDY_TIME_MANAGEMENT_EXPANSION",
     "_POST_ATHLETIC_CAREER_EXPANSION",
