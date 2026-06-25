@@ -27,6 +27,7 @@ from infinity_context_core.application.context_collectors import (
     VectorContextCollector,
 )
 from infinity_context_core.application.context_diagnostics import (
+    diagnostic_retrieval_sources,
     normalize_context_bundle_diagnostics,
 )
 from infinity_context_core.application.context_hydration import ContextHydrator
@@ -795,6 +796,10 @@ class BuildContextUseCase:
         _record_stage_timing(diagnostics, "final_rank_deterministic", stage_started_at)
         stage_started_at = perf_counter()
         candidate_items = dedupe_rank_items(reranked_items)
+        candidate_items = _trim_primary_fact_items(
+            candidate_items,
+            max_facts=query.max_facts,
+        )
         diagnostics["final_rank_candidate_item_count"] = len(candidate_items)
         _record_stage_timing(diagnostics, "final_rank_dedupe", stage_started_at)
         _record_stage_timing(diagnostics, "final_rank", final_rank_started_at)
@@ -2500,6 +2505,32 @@ def _deterministic_rerank_reasons(item: ContextItem) -> frozenset[str]:
     if not isinstance(raw_reasons, list | tuple):
         return frozenset()
     return frozenset(str(reason) for reason in raw_reasons if isinstance(reason, str))
+
+
+def _trim_primary_fact_items(
+    items: tuple[ContextItem, ...],
+    *,
+    max_facts: int,
+) -> tuple[ContextItem, ...]:
+    if max_facts <= 0:
+        return tuple(item for item in items if not _is_primary_postgres_fact_item(item))
+    primary_fact_count = 0
+    selected: list[ContextItem] = []
+    for item in items:
+        if not _is_primary_postgres_fact_item(item):
+            selected.append(item)
+            continue
+        if primary_fact_count >= max_facts:
+            continue
+        primary_fact_count += 1
+        selected.append(item)
+    return tuple(selected)
+
+
+def _is_primary_postgres_fact_item(item: ContextItem) -> bool:
+    return item.item_type == "fact" and diagnostic_retrieval_sources(item.diagnostics) == (
+        "postgres_facts",
+    )
 
 
 def _coverage_strings(value: object) -> tuple[str, ...]:

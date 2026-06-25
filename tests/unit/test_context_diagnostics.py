@@ -373,6 +373,45 @@ def test_context_rank_key_uses_phrase_signal_when_scores_tie() -> None:
     assert context_rank_key(target) < context_rank_key(decoy)
 
 
+def test_context_rank_key_uses_deterministic_rerank_net_when_scores_tie() -> None:
+    target = ContextItem(
+        item_id="self_identification",
+        item_type="fact",
+        text="Melanie identifies as part of the LGBTQ community.",
+        score=0.99,
+        source_refs=(),
+        diagnostics={
+            "score_signals": {
+                "deterministic_rerank_net_adjustment": 0.055,
+                "deterministic_rerank_requirement_coverage": 1.0,
+                "deterministic_rerank_boost": 0.055,
+                "phrase_bigram_hits": 1,
+                "distinctive_term_hits": 4,
+                "unique_term_hits": 4,
+            }
+        },
+    )
+    ally_decoy = ContextItem(
+        item_id="ally_support",
+        item_type="fact",
+        text="Melanie supports the LGBTQ community as an ally.",
+        score=0.99,
+        source_refs=(),
+        diagnostics={
+            "score_signals": {
+                "deterministic_rerank_net_adjustment": 0.0148,
+                "deterministic_rerank_requirement_coverage": 1.0,
+                "deterministic_rerank_boost": 0.0528,
+                "phrase_bigram_hits": 2,
+                "distinctive_term_hits": 5,
+                "unique_term_hits": 5,
+            }
+        },
+    )
+
+    assert context_rank_key(target) < context_rank_key(ally_decoy)
+
+
 def test_context_bundle_diagnostics_report_source_totals_and_truncation() -> None:
     item = ContextItem(
         item_id="chunk_contract",

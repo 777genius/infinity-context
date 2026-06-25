@@ -314,7 +314,7 @@ class CanonicalContextCollector:
             facts = _rank_facts_for_query(
                 tuple(facts),
                 query_text=query.query,
-                limit=query.max_facts,
+                limit=_canonical_fact_rerank_pool_limit(query.max_facts),
             )
             keyword_retrieval_queries = _bounded_derived_retrieval_queries(
                 keyword_query_plan,
@@ -440,6 +440,12 @@ def _canonical_fact_candidate_limit(max_facts: int) -> int:
     if max_facts <= 0:
         return 0
     return min(100, max(max_facts * 4, max_facts + 8))
+
+
+def _canonical_fact_rerank_pool_limit(max_facts: int) -> int:
+    if max_facts <= 0:
+        return 0
+    return min(40, max(max_facts * 4, max_facts + 3))
 
 
 def _bounded_anchor_lookup_keys(

@@ -2298,7 +2298,7 @@ def test_keyword_chunk_score_boosts_event_sequence_decomposition_policy() -> Non
         query_expansion_reason="decomposition_event_sequence",
     )
 
-    assert query_expansion_reason_priority("decomposition_event_sequence") == 3
+    assert query_expansion_reason_priority("decomposition_event_sequence") == 4
     assert score >= 0.84
 
 
