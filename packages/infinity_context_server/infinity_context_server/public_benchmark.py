@@ -349,8 +349,8 @@ def run_public_memory_benchmark(
     requested_case_ids = _normalize_requested_case_ids(case_ids)
     requested_capabilities = _normalize_requested_capabilities(capabilities)
     cases = _load_cases(dataset_path)
-    if benchmark:
-        canonical_benchmark = _normalize_benchmark_name(benchmark)
+    canonical_benchmark = _normalize_benchmark_name(benchmark) if benchmark else None
+    if canonical_benchmark:
         cases = tuple(case for case in cases if case.benchmark == canonical_benchmark)
     cases, case_selection = _select_cases(
         cases,
@@ -360,6 +360,12 @@ def run_public_memory_benchmark(
         capabilities=requested_capabilities,
         capability_resolver=_case_capability,
         error_factory=BenchmarkValidationError,
+    )
+    case_selection = _with_unsupported_requested_case_diagnostics(
+        dataset_path=dataset_path,
+        benchmark=canonical_benchmark,
+        requested_case_ids=requested_case_ids,
+        case_selection=case_selection,
     )
 
     duplicate_case_keys = _duplicate_case_keys(cases)
@@ -378,7 +384,7 @@ def run_public_memory_benchmark(
     if not cases:
         missing_case_ids = _case_selection_missing_case_ids(case_selection)
         missing_capabilities = _case_selection_missing_capabilities(case_selection)
-        case_selection_failures = _missing_case_id_failures(missing_case_ids)
+        case_selection_failures = _missing_case_id_failures_for_selection(case_selection)
         capability_selection_failures = _missing_capability_failures(missing_capabilities)
         result = {
             "suite": PUBLIC_MEMORY_BENCHMARK_SUITE,
@@ -592,6 +598,152 @@ def load_public_benchmark_dataset_profile(
         "dataset_hash": _dataset_hash(dataset_path),
         "dataset_path_label": dataset_path.name,
     }
+
+
+def _with_unsupported_requested_case_diagnostics(
+    *,
+    dataset_path: Path,
+    benchmark: str | None,
+    requested_case_ids: Sequence[str],
+    case_selection: Mapping[str, object],
+) -> dict[str, object]:
+    missing_case_ids = _case_selection_missing_case_ids(case_selection)
+    if not missing_case_ids:
+        return dict(case_selection)
+    unsupported_reasons = _unsupported_requested_case_reasons(
+        dataset_path=dataset_path,
+        benchmark=benchmark,
+        requested_case_ids=missing_case_ids,
+    )
+    if not unsupported_reasons:
+        return dict(case_selection)
+    unsupported_case_ids = [
+        case_id for case_id in missing_case_ids if case_id in unsupported_reasons
+    ]
+    if not unsupported_case_ids:
+        return dict(case_selection)
+    augmented = dict(case_selection)
+    augmented["unsupported_case_ids"] = unsupported_case_ids
+    augmented["unsupported_case_id_count"] = len(unsupported_case_ids)
+    augmented["unsupported_case_id_reasons"] = [
+        {"case_id": case_id, "reason": unsupported_reasons[case_id]}
+        for case_id in unsupported_case_ids
+    ]
+    return augmented
+
+
+def _missing_case_id_failures_for_selection(
+    case_selection: Mapping[str, object] | None,
+) -> list[dict[str, object]]:
+    missing_case_ids = _case_selection_missing_case_ids(case_selection)
+    unsupported_reasons = _case_selection_unsupported_case_reasons(case_selection)
+    failures: list[dict[str, object]] = []
+    for case_id in missing_case_ids:
+        unsupported_reason = unsupported_reasons.get(case_id)
+        if unsupported_reason:
+            failures.append(
+                {
+                    "case_id": case_id,
+                    "category": "setup",
+                    "reason": "requested_case_id_not_supported",
+                    "unsupported_reason": unsupported_reason,
+                }
+            )
+            continue
+        failures.extend(_missing_case_id_failures((case_id,)))
+    return failures
+
+
+def _case_selection_unsupported_case_reasons(
+    case_selection: Mapping[str, object] | None,
+) -> dict[str, str]:
+    if not isinstance(case_selection, Mapping):
+        return {}
+    raw_items = case_selection.get("unsupported_case_id_reasons")
+    if not isinstance(raw_items, Sequence) or isinstance(raw_items, str | bytes):
+        return {}
+    reasons: dict[str, str] = {}
+    for item in raw_items:
+        if not isinstance(item, Mapping):
+            continue
+        case_id = str(item.get("case_id") or "").strip()
+        reason = str(item.get("reason") or "").strip()
+        if case_id and reason:
+            reasons[case_id] = reason
+    return reasons
+
+
+def _unsupported_requested_case_reasons(
+    *,
+    dataset_path: Path,
+    benchmark: str | None,
+    requested_case_ids: Sequence[str],
+) -> dict[str, str]:
+    if not requested_case_ids or benchmark not in {None, LOCOMO_BENCHMARK_SUITE}:
+        return {}
+    try:
+        payload = _load_dataset_payload(dataset_path)
+    except (OSError, json.JSONDecodeError, BenchmarkValidationError):
+        return {}
+    unsupported_by_case_id = _unsupported_official_locomo_case_reasons(payload)
+    if not unsupported_by_case_id:
+        return {}
+    unsupported: dict[str, str] = {}
+    for case_id in requested_case_ids:
+        normalized_case_id = _strip_benchmark_case_id_prefix(
+            case_id,
+            benchmark=LOCOMO_BENCHMARK_SUITE,
+        )
+        reason = unsupported_by_case_id.get(normalized_case_id)
+        if reason:
+            unsupported[case_id] = reason
+    return unsupported
+
+
+def _unsupported_official_locomo_case_reasons(payload: object) -> dict[str, str]:
+    if isinstance(payload, Mapping):
+        if _is_official_locomo_sample(payload):
+            return _unsupported_official_locomo_sample_case_reasons(payload)
+        raw_cases = payload.get("cases") or payload.get("data") or payload.get("items")
+        if raw_cases is not None:
+            return _unsupported_official_locomo_case_reasons(raw_cases)
+        return {}
+    if not isinstance(payload, Sequence) or isinstance(payload, str | bytes):
+        return {}
+    unsupported: dict[str, str] = {}
+    for item in payload:
+        if isinstance(item, Mapping) and _is_official_locomo_sample(item):
+            unsupported.update(_unsupported_official_locomo_sample_case_reasons(item))
+    return unsupported
+
+
+def _unsupported_official_locomo_sample_case_reasons(
+    raw: Mapping[str, object],
+) -> dict[str, str]:
+    sample_id = _first_str(raw, "sample_id", "id") or _case_hash(raw)
+    supported_case_ids = {case.case_id for case in _official_locomo_cases(raw)}
+    raw_qas = raw.get("qa")
+    if not isinstance(raw_qas, Sequence) or isinstance(raw_qas, str | bytes):
+        return {}
+    unsupported: dict[str, str] = {}
+    for index, qa in enumerate(raw_qas):
+        if not isinstance(qa, Mapping):
+            continue
+        case_id = f"{sample_id}:qa:{index + 1}"
+        if case_id in supported_case_ids:
+            continue
+        reason = (
+            "official_locomo.missing_question"
+            if not _first_str(qa, "question", "query")
+            else "official_locomo.no_retrieval_terms"
+        )
+        unsupported[case_id] = reason
+    return unsupported
+
+
+def _strip_benchmark_case_id_prefix(case_id: str, *, benchmark: str) -> str:
+    prefix = f"{benchmark}:"
+    return case_id.removeprefix(prefix)
 
 
 def _with_public_benchmark_provenance(
@@ -1069,7 +1221,7 @@ def _execute_cases(
     benchmarks = _benchmark_summaries(run_results, min_accuracy=min_accuracy)
     missing_case_ids = _case_selection_missing_case_ids(case_selection)
     missing_capabilities = _case_selection_missing_capabilities(case_selection)
-    case_selection_failures = _missing_case_id_failures(missing_case_ids)
+    case_selection_failures = _missing_case_id_failures_for_selection(case_selection)
     capability_selection_failures = _missing_capability_failures(missing_capabilities)
     benchmark_accuracy_ok = bool(run_results) and all(item["ok"] is True for item in benchmarks)
     ok = benchmark_accuracy_ok and not case_selection_failures and not capability_selection_failures

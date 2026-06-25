@@ -2647,6 +2647,34 @@ def test_public_memory_benchmark_skips_unsupported_official_locomo_inference(
     assert result["ok"] is True
     assert result["metrics"]["locomo_case_count"] == 1
 
+    unsupported = run_public_memory_benchmark(
+        dataset_path=dataset,
+        min_accuracy=1.0,
+        case_ids=("locomo:conv-no-evidence-mini:qa:1",),
+    )
+
+    assert unsupported["ok"] is False
+    assert unsupported["case_selection"]["missing_case_ids"] == [
+        "locomo:conv-no-evidence-mini:qa:1"
+    ]
+    assert unsupported["case_selection"]["unsupported_case_ids"] == [
+        "locomo:conv-no-evidence-mini:qa:1"
+    ]
+    assert unsupported["case_selection"]["unsupported_case_id_reasons"] == [
+        {
+            "case_id": "locomo:conv-no-evidence-mini:qa:1",
+            "reason": "official_locomo.no_retrieval_terms",
+        }
+    ]
+    assert unsupported["failures"] == [
+        {
+            "case_id": "locomo:conv-no-evidence-mini:qa:1",
+            "category": "setup",
+            "reason": "requested_case_id_not_supported",
+            "unsupported_reason": "official_locomo.no_retrieval_terms",
+        }
+    ]
+
 
 def test_public_memory_benchmark_indexes_official_locomo_visual_queries(
     tmp_path: Path,
