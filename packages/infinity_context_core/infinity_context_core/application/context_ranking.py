@@ -42,6 +42,9 @@ from infinity_context_core.application.context_domain_rerank_signals import (
 from infinity_context_core.application.context_inference_evidence import (
     answer_evidence_rerank_signal,
 )
+from infinity_context_core.application.context_item_purchase_evidence import (
+    has_item_purchase_object_evidence,
+)
 from infinity_context_core.application.context_lexical import (
     LexicalQueryTerm,
     query_term_frequency,
@@ -316,16 +319,6 @@ _TEMPORAL_ANSWER_EVIDENCE_RE = re.compile(
     r"jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|"
     r"dec(?:ember)?)\s+\d{1,2}(?:,?\s+\d{2,4})?\b",
     re.IGNORECASE,
-)
-_ITEM_PURCHASE_TEMPORAL_ANSWER_EVIDENCE_RE = re.compile(
-    r"\b(?:buy|bought|purchase(?:d|s|ing)?|got|picked\s+up|ordered|acquired)\b"
-    r"(?=.{0,140}\b(?:figurines?|wooden\s+dolls?|shoes?|sneakers?|items?|"
-    r"belongings?|objects?|possessions?)\b)|"
-    r"\b(?:figurines?|wooden\s+dolls?|shoes?|sneakers?|items?|belongings?|"
-    r"objects?|possessions?)\b"
-    r"(?=.{0,140}\b(?:buy|bought|purchase(?:d|s|ing)?|got|picked\s+up|"
-    r"ordered|acquired)\b)",
-    re.IGNORECASE | re.DOTALL,
 )
 _MISSED_EVENT_TEXT_RE = re.compile(r"\bmissed\s+(?:it|the|that)?\b", re.IGNORECASE)
 _SELF_MISSED_EVENT_TEXT_RE = re.compile(r"\b(?:i|we)\s+missed\s+(?:it|the|that)?\b", re.IGNORECASE)
@@ -1867,7 +1860,7 @@ def _is_item_purchase_temporal_answer_evidence(
 ) -> bool:
     if query_reason != "item_purchase_bridge":
         return False
-    return _ITEM_PURCHASE_TEMPORAL_ANSWER_EVIDENCE_RE.search(item.text) is not None
+    return has_item_purchase_object_evidence(item.text)
 
 
 def _item_has_temporal_answer_evidence(item: ContextItem) -> bool:

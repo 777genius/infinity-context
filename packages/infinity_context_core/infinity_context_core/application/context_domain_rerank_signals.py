@@ -12,6 +12,12 @@ from infinity_context_core.application.context_diagnostics import (
     safe_diagnostic_mapping,
     safe_score_signals,
 )
+from infinity_context_core.application.context_item_purchase_evidence import (
+    has_item_purchase_object_evidence,
+    has_item_purchase_object_marker,
+    has_item_purchase_temporal_or_media_marker,
+    has_item_purchase_verb_marker,
+)
 from infinity_context_core.application.context_relevance import QueryRelevance
 from infinity_context_core.application.dto import ContextItem
 
@@ -694,30 +700,6 @@ _BEACH_OR_MOUNTAINS_TOPIC_ONLY_RE = re.compile(
     r"(?=.{0,120}\b(?:whether|sounded\s+nice|someday|maybe|vacation|"
     r"wallpaper|poster|preference|would\s+like|dream(?:ed)?\s+of)\b)",
     re.IGNORECASE | re.DOTALL,
-)
-_ITEM_PURCHASE_OBJECT_RE = re.compile(
-    r"\b(?:figurines?|wooden\s+dolls?|shoes?|sneakers?|items?|belongings?|"
-    r"objects?|possessions?)\b",
-    re.IGNORECASE,
-)
-_ITEM_PURCHASE_VERB_RE = re.compile(
-    r"\b(?:buy|bought|purchase(?:d|s|ing)?|got|picked\s+up|ordered|acquired)\b",
-    re.IGNORECASE,
-)
-_ITEM_PURCHASE_EXACT_RE = re.compile(
-    r"\b(?:buy|bought|purchase(?:d|s|ing)?|got|picked\s+up|ordered|acquired)\b"
-    r"(?=.{0,140}\b(?:figurines?|wooden\s+dolls?|shoes?|sneakers?|items?|"
-    r"belongings?|objects?|possessions?)\b)|"
-    r"\b(?:figurines?|wooden\s+dolls?|shoes?|sneakers?|items?|belongings?|"
-    r"objects?|possessions?)\b"
-    r"(?=.{0,140}\b(?:buy|bought|purchase(?:d|s|ing)?|got|picked\s+up|"
-    r"ordered|acquired)\b)",
-    re.IGNORECASE | re.DOTALL,
-)
-_ITEM_PURCHASE_TEMPORAL_OR_MEDIA_RE = re.compile(
-    r"\b(?:today|yesterday|tomorrow|last\s+\w+|ago|date:|session_\d+\s+date|"
-    r"image\s+caption|visual\s+query|caption)\b",
-    re.IGNORECASE,
 )
 _SYMBOL_IMPORTANCE_EXACT_RE = re.compile(
     r"\b(?:symboli[sz](?:e|es|ed|ing)|represents?|meaning|means|stands?\s+for|"
@@ -1429,7 +1411,7 @@ def item_purchase_rerank_signal(
 ) -> DomainRerankSignal:
     if not _is_item_purchase_candidate(query_reason=query_reason, item=item):
         return DomainRerankSignal()
-    if _ITEM_PURCHASE_EXACT_RE.search(item.text) is not None:
+    if has_item_purchase_object_evidence(item.text):
         return DomainRerankSignal(
             boost=0.055,
             reason="item_purchase_object_evidence",
@@ -1437,9 +1419,9 @@ def item_purchase_rerank_signal(
             rank_signal=3.0,
         )
     if (
-        _ITEM_PURCHASE_TEMPORAL_OR_MEDIA_RE.search(item.text) is not None
-        or _ITEM_PURCHASE_OBJECT_RE.search(item.text) is None
-        or _ITEM_PURCHASE_VERB_RE.search(item.text) is None
+        has_item_purchase_temporal_or_media_marker(item.text)
+        or not has_item_purchase_object_marker(item.text)
+        or not has_item_purchase_verb_marker(item.text)
         or relevance.distinctive_term_hits < 4
     ):
         return DomainRerankSignal(
