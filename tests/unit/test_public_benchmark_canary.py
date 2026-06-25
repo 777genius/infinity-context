@@ -162,6 +162,68 @@ def test_official_public_benchmark_surfaces_missing_case_ids(
     } in result["failures"]
 
 
+def test_official_public_benchmark_surfaces_unsupported_locomo_case_ids(
+    tmp_path: Path,
+) -> None:
+    locomo = tmp_path / "locomo-no-evidence-mini.json"
+    locomo.write_text(
+        json.dumps(
+            [
+                {
+                    "sample_id": "conv-no-evidence-mini",
+                    "conversation": {
+                        "session_1_date_time": "7 May 2023",
+                        "session_1": [
+                            {
+                                "speaker": "Caroline",
+                                "dia_id": "D1:1",
+                                "text": "I joined a community event yesterday.",
+                            }
+                        ],
+                    },
+                    "qa": [
+                        {
+                            "question": "What event did Caroline join?",
+                            "answer": "A community event",
+                            "evidence": ["D1:1"],
+                            "category": 1,
+                        },
+                        {
+                            "question": "Would Melanie be considered a member?",
+                            "answer": "Likely no",
+                            "evidence": [],
+                            "category": 3,
+                        },
+                    ],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = canary.run_official_public_benchmark_canary(
+        benchmark="locomo",
+        locomo_dataset=locomo,
+        max_cases=1,
+        min_accuracy=1.0,
+        case_ids=("locomo:conv-no-evidence-mini:qa:2",),
+    )
+
+    assert result["ok"] is False
+    assert result["checks"]["requested_case_ids_found"] is True
+    assert result["checks"]["requested_case_ids_supported"] is False
+    assert result["metrics"]["unsupported_case_id_count"] == 1
+    assert result["failures"] == []
+    assert result["unsupported_cases"] == [
+        {
+            "case_id": "locomo:conv-no-evidence-mini:qa:2",
+            "category": "unsupported",
+            "reason": "requested_case_id_not_supported",
+            "unsupported_reason": "official_locomo.no_retrieval_terms",
+        }
+    ]
+
+
 def test_official_public_benchmark_filters_requested_capabilities(
     tmp_path: Path,
 ) -> None:
@@ -178,9 +240,7 @@ def test_official_public_benchmark_filters_requested_capabilities(
                     "answer_session_ids": ["info_session"],
                     "haystack_session_ids": ["info_session"],
                     "haystack_dates": ["2023/05/20 (Sat) 02:21"],
-                    "haystack_sessions": [
-                        [{"role": "user", "content": "I visited Lisbon."}]
-                    ],
+                    "haystack_sessions": [[{"role": "user", "content": "I visited Lisbon."}]],
                 },
                 {
                     "question_id": "temporal-mini",
@@ -241,9 +301,7 @@ def test_official_public_benchmark_reports_missing_requested_capabilities(
                     "answer_session_ids": ["info_session"],
                     "haystack_session_ids": ["info_session"],
                     "haystack_dates": ["2023/05/20 (Sat) 02:21"],
-                    "haystack_sessions": [
-                        [{"role": "user", "content": "I visited Lisbon."}]
-                    ],
+                    "haystack_sessions": [[{"role": "user", "content": "I visited Lisbon."}]],
                 }
             ]
         ),
@@ -263,9 +321,7 @@ def test_official_public_benchmark_reports_missing_requested_capabilities(
     assert result["checks"]["requested_capabilities_found"] is False
     assert result["metrics"]["case_count"] == 0
     assert result["metrics"]["missing_capability_count"] == 1
-    assert result["case_selection"]["longmemeval"]["missing_capabilities"] == [
-        "temporal_reasoning"
-    ]
+    assert result["case_selection"]["longmemeval"]["missing_capabilities"] == ["temporal_reasoning"]
     assert {
         "case_id": "case_selection",
         "category": "setup",
@@ -308,9 +364,7 @@ def test_official_public_benchmark_canary_merges_locomo_and_longmemeval_reports(
     report = tmp_path / "official-public-report.json"
     progress = tmp_path / "official-public-report.progress.jsonl"
     locomo_checkpoint = tmp_path / "official-public-report.checkpoint.locomo.json"
-    longmemeval_checkpoint = (
-        tmp_path / "official-public-report.checkpoint.longmemeval.json"
-    )
+    longmemeval_checkpoint = tmp_path / "official-public-report.checkpoint.longmemeval.json"
     locomo.write_text(
         json.dumps(
             [
@@ -418,9 +472,7 @@ def test_official_public_benchmark_canary_merges_locomo_and_longmemeval_reports(
     assert result["dataset_sources"]["locomo"]["source_kind"] == "local_override"
     assert result["dataset_sources"]["locomo"]["official_url"] == canary.LOCOMO_URL
     assert result["dataset_sources"]["locomo"]["path_label"] == locomo.name
-    assert result["dataset_sources"]["locomo"]["sha256"] == result["dataset_hashes"][
-        "locomo"
-    ]
+    assert result["dataset_sources"]["locomo"]["sha256"] == result["dataset_hashes"]["locomo"]
     assert result["dataset_sources"]["locomo"]["size_bytes"] == locomo.stat().st_size
     assert result["dataset_sources"]["locomo"]["case_count"] == 1
     assert result["provenance"]["generated_by"] == (
@@ -436,20 +488,16 @@ def test_official_public_benchmark_canary_merges_locomo_and_longmemeval_reports(
     progress_events = [
         json.loads(line) for line in progress.read_text(encoding="utf-8").splitlines()
     ]
-    locomo_progress = json.loads(locomo_checkpoint.read_text(encoding="utf-8"))[
+    locomo_progress = json.loads(locomo_checkpoint.read_text(encoding="utf-8"))["progress"]
+    longmemeval_progress = json.loads(longmemeval_checkpoint.read_text(encoding="utf-8"))[
         "progress"
     ]
-    longmemeval_progress = json.loads(
-        longmemeval_checkpoint.read_text(encoding="utf-8")
-    )["progress"]
     assert written["ok"] is True
     assert written["provenance"]["generated_by"] == (
         "infinity_context_server.official_public_benchmark"
     )
     event_types = [event["event_type"] for event in progress_events]
-    official_events = [
-        event for event in progress_events if "official_event_index" in event
-    ]
+    official_events = [event for event in progress_events if "official_event_index" in event]
     assert event_types.count("run_started") == 2
     assert event_types.count("official_benchmark_started") == 2
     assert event_types.count("official_benchmark_completed") == 2
@@ -511,9 +559,7 @@ def test_official_public_benchmark_canary_can_run_single_dataset(tmp_path: Path)
     assert set(result["dataset_hashes"]) == {"locomo"}
     assert set(result["dataset_sources"]) == {"locomo"}
     assert result["dataset_sources"]["locomo"]["source_kind"] == "local_override"
-    assert result["dataset_sources"]["locomo"]["sha256"] == result["dataset_hashes"][
-        "locomo"
-    ]
+    assert result["dataset_sources"]["locomo"]["sha256"] == result["dataset_hashes"]["locomo"]
     assert result["source_urls"] == {"locomo": canary.LOCOMO_URL}
     assert result["competitive_floor_mode"] is False
     assert result["publishable_public_benchmark_candidate"] is False
@@ -577,15 +623,11 @@ def test_official_public_benchmark_reports_local_parallel_degraded_reason(
     assert result["metrics"]["effective_parallelism_max"] == 1
     assert result["metrics"]["parallelism_degraded"] is True
     assert result["metrics"]["parallelism_degraded_count"] == 1
-    assert result["metrics"]["parallelism_degraded_reasons"] == [
-        "local_in_process_transport"
-    ]
+    assert result["metrics"]["parallelism_degraded_reasons"] == ["local_in_process_transport"]
 
 
 def test_official_public_benchmark_script_is_thin_wrapper() -> None:
-    script = (ROOT / "scripts" / "official_public_benchmark_canary.py").read_text(
-        encoding="utf-8"
-    )
+    script = (ROOT / "scripts" / "official_public_benchmark_canary.py").read_text(encoding="utf-8")
 
     assert "from infinity_context_server.official_public_benchmark import main" in script
     assert "run_public_memory_benchmark" not in script

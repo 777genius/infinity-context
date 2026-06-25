@@ -84,9 +84,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--min-accuracy",
         type=float,
-        default=float(
-            os.getenv("MEMORY_PUBLIC_BENCHMARK_MIN_ACCURACY", str(DEFAULT_MIN_ACCURACY))
-        ),
+        default=float(os.getenv("MEMORY_PUBLIC_BENCHMARK_MIN_ACCURACY", str(DEFAULT_MIN_ACCURACY))),
     )
     parser.add_argument(
         "--competitive-floor",
@@ -499,9 +497,7 @@ def _interrupted_cli_result(
         "case_selection_strategy": args.case_selection_strategy,
         "requested_max_cases": args.max_cases,
         "requested_min_accuracy": args.min_accuracy,
-        "requested_capabilities": list(
-            normalize_requested_capabilities(args.capability or ())
-        ),
+        "requested_capabilities": list(normalize_requested_capabilities(args.capability or ())),
         "competitive_floor_mode": args.competitive_floor,
         "api_url": args.api_url,
         "artifact_labels": {
@@ -560,9 +556,7 @@ def _case_ids_from_env() -> list[str]:
 
 def _capabilities_from_env() -> list[str]:
     return list(
-        normalize_requested_capabilities(
-            os.getenv("MEMORY_PUBLIC_BENCHMARK_CAPABILITIES") or ""
-        )
+        normalize_requested_capabilities(os.getenv("MEMORY_PUBLIC_BENCHMARK_CAPABILITIES") or "")
     )
 
 
@@ -718,6 +712,7 @@ def _merge_reports(
     cases: list[object] = []
     benchmarks: list[object] = []
     failures: list[object] = []
+    unsupported_cases: list[object] = []
     dataset_hashes: dict[str, str] = {}
     case_selection: dict[str, object] = {}
     checks = {
@@ -728,6 +723,7 @@ def _merge_reports(
         "no_request_failures": True,
         "requested_case_ids_routed": True,
         "requested_case_ids_found": True,
+        "requested_case_ids_supported": True,
         "requested_capabilities_found": True,
     }
     metrics: dict[str, object] = {
@@ -740,9 +736,7 @@ def _merge_reports(
     normalized_case_ids = _normalize_case_ids(case_ids)
     requested_capabilities = normalize_requested_capabilities(capabilities)
     skipped_benchmarks = tuple(
-        name
-        for name, routing in case_id_routing.items()
-        if routing.get("skipped") is True
+        name for name, routing in case_id_routing.items() if routing.get("skipped") is True
     )
     if normalized_case_ids and not reports:
         checks["requested_case_ids_routed"] = False
@@ -766,20 +760,21 @@ def _merge_reports(
         report_checks = report.get("checks")
         if isinstance(report_checks, Mapping):
             checks["minimum_accuracy_met"] = (
-                checks["minimum_accuracy_met"]
-                and report_checks.get("minimum_accuracy_met") is True
+                checks["minimum_accuracy_met"] and report_checks.get("minimum_accuracy_met") is True
             )
             checks["no_request_failures"] = (
-                checks["no_request_failures"]
-                and report_checks.get("no_request_failures") is True
+                checks["no_request_failures"] and report_checks.get("no_request_failures") is True
             )
             checks["unique_case_ids"] = (
-                checks["unique_case_ids"]
-                and report_checks.get("unique_case_ids") is not False
+                checks["unique_case_ids"] and report_checks.get("unique_case_ids") is not False
             )
             checks["requested_case_ids_found"] = (
                 checks["requested_case_ids_found"]
                 and report_checks.get("requested_case_ids_found") is not False
+            )
+            checks["requested_case_ids_supported"] = (
+                checks["requested_case_ids_supported"]
+                and report_checks.get("requested_case_ids_supported") is not False
             )
             checks["requested_capabilities_found"] = (
                 checks["requested_capabilities_found"]
@@ -805,6 +800,9 @@ def _merge_reports(
         report_failures = report.get("failures")
         if isinstance(report_failures, list):
             failures.extend(report_failures)
+        report_unsupported_cases = report.get("unsupported_cases")
+        if isinstance(report_unsupported_cases, list):
+            unsupported_cases.extend(report_unsupported_cases)
         report_case_selection = report.get("case_selection")
         if isinstance(report_case_selection, Mapping):
             case_selection_mapped = False
@@ -842,6 +840,9 @@ def _merge_reports(
     metrics["missing_case_id_count"] = sum(
         _report_metric_int(report, "missing_case_id_count") for report in reports
     )
+    metrics["unsupported_case_id_count"] = sum(
+        _report_metric_int(report, "unsupported_case_id_count") for report in reports
+    )
     metrics["missing_capability_count"] = sum(
         _report_metric_int(report, "missing_capability_count") for report in reports
     )
@@ -876,17 +877,14 @@ def _merge_reports(
         "publishable_public_benchmark_candidate": competitive_floor
         and set(_selected_benchmarks(benchmark)) == set(_PUBLIC_MEMORY_BENCHMARK_REQUIRED),
         "competitive_floor_requirements": {
-            name: dict(floor)
-            for name, floor in _PUBLIC_MEMORY_BENCHMARK_COMPETITIVE_FLOORS.items()
+            name: dict(floor) for name, floor in _PUBLIC_MEMORY_BENCHMARK_COMPETITIVE_FLOORS.items()
         },
         "requested_max_cases": max_cases,
         "requested_min_accuracy": min_accuracy,
         "case_selection_strategy": case_selection_strategy,
         "requested_case_ids": list(normalized_case_ids),
         "requested_capabilities": list(requested_capabilities),
-        "case_id_routing": {
-            name: dict(routing) for name, routing in case_id_routing.items()
-        },
+        "case_id_routing": {name: dict(routing) for name, routing in case_id_routing.items()},
         "skipped_benchmarks": list(skipped_benchmarks),
         "case_selection": case_selection,
         "effective_case_limits": {
@@ -909,6 +907,7 @@ def _merge_reports(
         "benchmarks": benchmarks,
         "cases": cases,
         "failures": failures,
+        "unsupported_cases": unsupported_cases,
         "elapsed_ms": elapsed_ms,
     }
 
@@ -922,11 +921,7 @@ def _dataset_source_metadata(
     dataset = OFFICIAL_DATASETS[name]
     dataset_hash = report.get("dataset_hash")
     metrics = report.get("metrics")
-    case_count = (
-        metrics.get(f"{name}_case_count")
-        if isinstance(metrics, Mapping)
-        else None
-    )
+    case_count = metrics.get(f"{name}_case_count") if isinstance(metrics, Mapping) else None
     return {
         "source_kind": selection.source_kind,
         "official_url": dataset.url,

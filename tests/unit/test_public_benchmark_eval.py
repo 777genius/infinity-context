@@ -74,9 +74,7 @@ class _RecordingHttpClient:
         self.base_url = base_url
         self.timeout = timeout
         self.posts: list[tuple[str, Mapping[str, object], Mapping[str, str]]] = []
-        type(self).created.append(
-            {"base_url": base_url, "timeout": timeout, "client": self}
-        )
+        type(self).created.append({"base_url": base_url, "timeout": timeout, "client": self})
 
     def __enter__(self) -> _RecordingHttpClient:
         return self
@@ -598,9 +596,7 @@ def test_public_memory_benchmark_reports_missing_requested_capabilities(
     tmp_path: Path,
 ) -> None:
     dataset = tmp_path / "longmemeval-missing-capability.json"
-    rows = [
-        _longmemeval_row("info-1", "single-session-user", "Where is marker 1?", "MARKER_1")
-    ]
+    rows = [_longmemeval_row("info-1", "single-session-user", "Where is marker 1?", "MARKER_1")]
     dataset.write_text(json.dumps(rows), encoding="utf-8")
 
     result = run_public_memory_benchmark(
@@ -1569,9 +1565,12 @@ def test_public_memory_benchmark_writes_progress_and_checkpoint(
         "longmemeval:information_extraction": 0,
         "longmemeval:knowledge_update": 0,
     }
-    assert result["metrics"]["benchmark_metrics"]["longmemeval"]["capability_breakdown"][
-        "knowledge_update"
-    ]["case_count"] == 1
+    assert (
+        result["metrics"]["benchmark_metrics"]["longmemeval"]["capability_breakdown"][
+            "knowledge_update"
+        ]["case_count"]
+        == 1
+    )
     assert [event["event_index"] for event in progress_events] == list(
         range(1, len(progress_events) + 1)
     )
@@ -1642,9 +1641,12 @@ def test_public_memory_benchmark_writes_progress_and_checkpoint(
         "longmemeval:information_extraction": 0,
         "longmemeval:knowledge_update": 0,
     }
-    assert checkpoint["metrics_so_far"]["benchmark_metrics"]["longmemeval"][
-        "capability_breakdown"
-    ]["information_extraction"]["case_count"] == 1
+    assert (
+        checkpoint["metrics_so_far"]["benchmark_metrics"]["longmemeval"]["capability_breakdown"][
+            "information_extraction"
+        ]["case_count"]
+        == 1
+    )
     assert [item["case_id"] for item in checkpoint["cases"]] == [
         "progress-one",
         "progress-two",
@@ -2072,9 +2074,10 @@ def test_public_memory_benchmark_resumes_from_compatible_checkpoint(
     assert result["execution_manifest"]["dataset"]["selected_case_count"] == 2
     assert result["execution_manifest"]["checkpoint"]["resume_from_checkpoint"] is True
     checkpoint_payload = json.loads(checkpoint_out.read_text(encoding="utf-8"))
-    assert checkpoint_payload["execution_fingerprint"] == result["execution_manifest"][
-        "execution_fingerprint"
-    ]
+    assert (
+        checkpoint_payload["execution_fingerprint"]
+        == result["execution_manifest"]["execution_fingerprint"]
+    )
     assert result["resume"] == {
         "requested": True,
         "status": "loaded",
@@ -2666,14 +2669,36 @@ def test_public_memory_benchmark_skips_unsupported_official_locomo_inference(
             "reason": "official_locomo.no_retrieval_terms",
         }
     ]
-    assert unsupported["failures"] == [
+    assert unsupported["checks"]["requested_case_ids_found"] is True
+    assert unsupported["checks"]["requested_case_ids_supported"] is False
+    assert unsupported["metrics"]["unsupported_case_id_count"] == 1
+    assert unsupported["failures"] == []
+    assert unsupported["unsupported_cases"] == [
         {
             "case_id": "locomo:conv-no-evidence-mini:qa:1",
-            "category": "setup",
+            "category": "unsupported",
             "reason": "requested_case_id_not_supported",
             "unsupported_reason": "official_locomo.no_retrieval_terms",
         }
     ]
+
+    mixed = run_public_memory_benchmark(
+        dataset_path=dataset,
+        min_accuracy=1.0,
+        case_ids=(
+            "locomo:conv-no-evidence-mini:qa:1",
+            "locomo:conv-no-evidence-mini:qa:2",
+        ),
+    )
+
+    assert mixed["ok"] is False
+    assert mixed["metrics"]["locomo_case_count"] == 1
+    assert mixed["metrics"]["locomo_accuracy"] == 1.0
+    assert mixed["metrics"]["unsupported_case_id_count"] == 1
+    assert mixed["checks"]["requested_case_ids_found"] is True
+    assert mixed["checks"]["requested_case_ids_supported"] is False
+    assert mixed["failures"] == []
+    assert mixed["unsupported_cases"] == unsupported["unsupported_cases"]
 
 
 def test_public_memory_benchmark_indexes_official_locomo_visual_queries(
@@ -3202,9 +3227,7 @@ def test_public_memory_benchmark_recalls_locomo_conversation_counterparty(
                             {
                                 "speaker": "Alex",
                                 "dia_id": "D3:5",
-                                "text": (
-                                    "I talked with Priya about Stripe billing retries."
-                                ),
+                                "text": ("I talked with Priya about Stripe billing retries."),
                             }
                         ],
                         "session_4": [
@@ -3273,8 +3296,7 @@ def test_public_memory_benchmark_recalls_locomo_conversation_topic(
                                 "speaker": "Maria",
                                 "dia_id": "D4:7",
                                 "text": (
-                                    "Alex and Maria did not talk about Stripe "
-                                    "billing retries."
+                                    "Alex and Maria did not talk about Stripe billing retries."
                                 ),
                             }
                         ],
@@ -3455,7 +3477,7 @@ def test_public_memory_benchmark_recalls_locomo_recommended_that_recipient(
                             "answer": "Becoming Nicole by Amy Ellis Nutt.",
                             "evidence": ["D2:3"],
                             "category": 1,
-                        }
+                        },
                     ],
                     "event_summary": [],
                     "observation": [],
@@ -4306,9 +4328,7 @@ def test_public_memory_benchmark_recalls_longmemeval_current_decision_without_no
                         [
                             {
                                 "role": "user",
-                                "content": (
-                                    "Earlier I used Pinecone as the retrieval provider."
-                                ),
+                                "content": ("Earlier I used Pinecone as the retrieval provider."),
                             }
                         ],
                         [

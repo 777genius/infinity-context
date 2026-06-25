@@ -220,6 +220,9 @@ from infinity_context_server.public_benchmark_unsupported import (
 from infinity_context_server.public_benchmark_unsupported import (
     missing_case_id_failures_for_selection as _missing_case_id_failures_for_selection,
 )
+from infinity_context_server.public_benchmark_unsupported import (
+    unsupported_case_reports_for_selection as _unsupported_case_reports_for_selection,
+)
 
 __all__ = (
     "BenchmarkDocumentInput",
@@ -349,7 +352,21 @@ def run_public_memory_benchmark(
         missing_case_ids = _case_selection_missing_case_ids(case_selection)
         missing_capabilities = _case_selection_missing_capabilities(case_selection)
         case_selection_failures = _missing_case_id_failures_for_selection(case_selection)
+        unsupported_cases = _unsupported_case_reports_for_selection(case_selection)
         capability_selection_failures = _missing_capability_failures(missing_capabilities)
+        unsupported_case_id_count = len(unsupported_cases)
+        selection_failures = case_selection_failures + capability_selection_failures
+        failures = selection_failures or (
+            []
+            if unsupported_cases
+            else [
+                {
+                    "case_id": "dataset",
+                    "category": "setup",
+                    "reason": "no_supported_cases",
+                }
+            ]
+        )
         result = {
             "suite": PUBLIC_MEMORY_BENCHMARK_SUITE,
             "status": "failed",
@@ -362,27 +379,22 @@ def run_public_memory_benchmark(
             "checks": {
                 "dataset_loaded": False,
                 "case_count": False,
-                "requested_case_ids_found": not missing_case_ids,
+                "requested_case_ids_found": not case_selection_failures,
+                "requested_case_ids_supported": unsupported_case_id_count == 0,
                 "requested_capabilities_found": not missing_capabilities,
             },
             "metrics": {
                 "case_count": 0,
                 "benchmark_count": 0,
                 "missing_case_id_count": len(missing_case_ids),
+                "unsupported_case_id_count": unsupported_case_id_count,
                 "missing_capability_count": len(missing_capabilities),
                 "accuracy": 0.0,
             },
             "benchmarks": [],
             "cases": [],
-            "failures": case_selection_failures
-            + capability_selection_failures
-            or [
-                {
-                    "case_id": "dataset",
-                    "category": "setup",
-                    "reason": "no_supported_cases",
-                }
-            ],
+            "failures": failures,
+            "unsupported_cases": unsupported_cases,
             "case_selection": case_selection,
         }
         result = _with_public_benchmark_provenance(result, dataset_path=dataset_path)
@@ -696,9 +708,7 @@ def _execute_cases(
             dataset_hash=dataset_hash,
             case_selection=case_selection,
             cases=cases,
-            execution_fingerprint=str(
-                execution_manifest_preview["execution_fingerprint"]
-            ),
+            execution_fingerprint=str(execution_manifest_preview["execution_fingerprint"]),
         )
         checkpoint_failures = [dict(item) for item in resume_load.checkpoint_failures]
         checkpoint_failed_case_ids, checkpoint_failed_case_id_truncated_count = (
@@ -745,9 +755,7 @@ def _execute_cases(
                 checkpoint_failed_case_count=resume_load.checkpoint_failed_case_count,
                 checkpoint_invalid_case_count=resume_load.checkpoint_invalid_case_count,
                 checkpoint_failure_diagnostic_count=len(checkpoint_failures),
-                checkpoint_failed_case_requeued_count=(
-                    resume_load.checkpoint_failed_case_count
-                ),
+                checkpoint_failed_case_requeued_count=(resume_load.checkpoint_failed_case_count),
                 checkpoint_failed_case_ids=checkpoint_failed_case_ids,
                 checkpoint_failed_case_id_truncated_count=(
                     checkpoint_failed_case_id_truncated_count
@@ -767,9 +775,7 @@ def _execute_cases(
                 checkpoint_failed_case_count=resume_load.checkpoint_failed_case_count,
                 checkpoint_invalid_case_count=resume_load.checkpoint_invalid_case_count,
                 checkpoint_failure_diagnostic_count=len(checkpoint_failures),
-                checkpoint_failed_case_requeued_count=(
-                    resume_load.checkpoint_failed_case_count
-                ),
+                checkpoint_failed_case_requeued_count=(resume_load.checkpoint_failed_case_count),
                 checkpoint_failed_case_ids=checkpoint_failed_case_ids,
                 checkpoint_failed_case_id_truncated_count=(
                     checkpoint_failed_case_id_truncated_count
@@ -1044,9 +1050,16 @@ def _execute_cases(
     missing_case_ids = _case_selection_missing_case_ids(case_selection)
     missing_capabilities = _case_selection_missing_capabilities(case_selection)
     case_selection_failures = _missing_case_id_failures_for_selection(case_selection)
+    unsupported_cases = _unsupported_case_reports_for_selection(case_selection)
     capability_selection_failures = _missing_capability_failures(missing_capabilities)
     benchmark_accuracy_ok = bool(run_results) and all(item["ok"] is True for item in benchmarks)
-    ok = benchmark_accuracy_ok and not case_selection_failures and not capability_selection_failures
+    unsupported_case_id_count = len(unsupported_cases)
+    ok = (
+        benchmark_accuracy_ok
+        and not unsupported_cases
+        and not case_selection_failures
+        and not capability_selection_failures
+    )
     case_keys = tuple(f"{case.benchmark}:{case.case_id}" for case in cases)
     result: dict[str, object] = {
         "suite": PUBLIC_MEMORY_BENCHMARK_SUITE,
@@ -1074,7 +1087,8 @@ def _execute_cases(
             "case_count": len(run_results) > 0,
             "unique_case_ids": True,
             "minimum_accuracy_met": benchmark_accuracy_ok,
-            "requested_case_ids_found": not missing_case_ids,
+            "requested_case_ids_found": not case_selection_failures,
+            "requested_case_ids_supported": unsupported_case_id_count == 0,
             "requested_capabilities_found": not missing_capabilities,
             "no_request_failures": (
                 not failures and not case_selection_failures and not capability_selection_failures
@@ -1086,6 +1100,7 @@ def _execute_cases(
             "unique_case_id_count": len(set(case_keys)),
             "duplicate_case_id_count": 0,
             "missing_case_id_count": len(missing_case_ids),
+            "unsupported_case_id_count": unsupported_case_id_count,
             "missing_capability_count": len(missing_capabilities),
             "seed_source_attempt_count": seed_stats.source_attempt_count,
             "seeded_source_count": len(seeded_source_keys),
@@ -1117,6 +1132,7 @@ def _execute_cases(
             + capability_selection_failures
             + _case_failures(run_results)
         ),
+        "unsupported_cases": unsupported_cases,
         "elapsed_ms": round((time.perf_counter() - started) * 1000, 2),
     }
     for summary in benchmarks:
@@ -1851,9 +1867,7 @@ def _official_locomo_observation_documents(
                     session_turns=session_turns,
                 )
                 related_ids = tuple(item for item in evidence_ids if item != evidence_id)
-                related_label = (
-                    f" Related turns: {' '.join(related_ids)}." if related_ids else ""
-                )
+                related_label = f" Related turns: {' '.join(related_ids)}." if related_ids else ""
                 lines.append(f"{evidence_id} {actor_name}: {text}{related_label}")
         if len(lines) <= 1:
             continue

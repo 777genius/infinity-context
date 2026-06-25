@@ -74,19 +74,25 @@ def missing_case_id_failures_for_selection(
     unsupported_reasons = _case_selection_unsupported_case_reasons(case_selection)
     failures: list[dict[str, object]] = []
     for case_id in missing_case_ids:
-        unsupported_reason = unsupported_reasons.get(case_id)
-        if unsupported_reason:
-            failures.append(
-                {
-                    "case_id": case_id,
-                    "category": "setup",
-                    "reason": "requested_case_id_not_supported",
-                    "unsupported_reason": unsupported_reason,
-                }
-            )
+        if case_id in unsupported_reasons:
             continue
         failures.extend(missing_case_id_failures((case_id,)))
     return failures
+
+
+def unsupported_case_reports_for_selection(
+    case_selection: Mapping[str, object] | None,
+) -> list[dict[str, object]]:
+    unsupported_reasons = _case_selection_unsupported_case_reasons(case_selection)
+    return [
+        {
+            "case_id": case_id,
+            "category": "unsupported",
+            "reason": "requested_case_id_not_supported",
+            "unsupported_reason": unsupported_reason,
+        }
+        for case_id, unsupported_reason in unsupported_reasons.items()
+    ]
 
 
 def _case_selection_unsupported_case_reasons(
