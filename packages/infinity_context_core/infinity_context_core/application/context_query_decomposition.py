@@ -944,6 +944,31 @@ _CONVERSATION_COUNTERPARTY_ACTION_TERMS = frozenset(
         "созвон",
     }
 )
+_RELATIVE_TIME_CONVERSATION_ACTION_TERMS = frozenset(
+    {
+        "call",
+        "called",
+        "chat",
+        "chatted",
+        "conversation",
+        "discuss",
+        "discussed",
+        "dm",
+        "message",
+        "messaged",
+        "said",
+        "say",
+        "speak",
+        "speaking",
+        "spoke",
+        "talk",
+        "talked",
+        "tell",
+        "text",
+        "texted",
+        "told",
+    }
+)
 _RECOMMENDATION_SOURCE_TERMS = frozenset(
     {
         "advice",
@@ -1536,7 +1561,11 @@ def build_query_decomposition_plan(
             ),
             reason="decomposition_conversation_counterparty",
         )
-    if requests_conversation_recency(query):
+    if requests_conversation_recency(query) or _requests_relative_time_conversation_recency(
+        raw_tokens=raw_tokens,
+        variants=variants,
+        temporal_intent=temporal_intent,
+    ):
         _append_candidate(
             candidates,
             query=_compose_query(
@@ -2220,6 +2249,23 @@ def _requests_conversation_counterparty(
     ):
         return False
     return bool(variants.intersection(_CONVERSATION_COUNTERPARTY_ACTION_TERMS))
+
+
+def _requests_relative_time_conversation_recency(
+    *,
+    raw_tokens: frozenset[str],
+    variants: frozenset[str],
+    temporal_intent: TemporalQueryIntent,
+) -> bool:
+    return bool(
+        temporal_intent.relative_time_hints
+        and (
+            raw_tokens.intersection(_RELATIVE_TIME_CONVERSATION_ACTION_TERMS)
+            or variants.intersection(_RELATIVE_TIME_CONVERSATION_ACTION_TERMS)
+            or raw_tokens.intersection(_RUSSIAN_MESSAGE_EVENT_TERMS)
+            or variants.intersection(_RUSSIAN_MESSAGE_EVENT_TERMS)
+        )
+    )
 
 
 def _conversation_recency_tail(

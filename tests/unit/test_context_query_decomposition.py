@@ -78,6 +78,31 @@ def test_query_decomposition_expands_relative_time_queries() -> None:
     assert "decomposition_relative_time" in plan.diagnostics()["query_decomposition_reasons"]
 
 
+def test_query_decomposition_adds_recency_for_relative_time_message_actions() -> None:
+    told = build_query_decomposition_plan("What did Alex tell me an hour ago?")
+    said = build_query_decomposition_plan("What did Alex say last week?")
+    activity = build_query_decomposition_plan("What did Melanie do last week?")
+
+    told_recency = next(
+        item
+        for item in told.decompositions
+        if item.reason == "decomposition_conversation_recency"
+    )
+    said_recency = next(
+        item
+        for item in said.decompositions
+        if item.reason == "decomposition_conversation_recency"
+    )
+
+    assert "alex" in told_recency.query.casefold()
+    assert "hour ago" in told_recency.query
+    assert "latest recent newest current conversation call" in told_recency.query
+    assert "last week" in said_recency.query.casefold()
+    assert "decomposition_conversation_recency" not in {
+        item.reason for item in activity.decompositions
+    }
+
+
 def test_query_decomposition_covers_conversational_event_wording() -> None:
     english = build_query_decomposition_plan("What did Alex decide after the Atlas DM?")
     talk = build_query_decomposition_plan("Who did Alex talk to about Project Atlas?")
