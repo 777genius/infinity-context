@@ -159,6 +159,9 @@ from infinity_context_core.application.context_temporal_query import (
     apply_temporal_query_intent_boosts,
     build_temporal_query_intent,
 )
+from infinity_context_core.application.context_travel_place_evidence import (
+    has_travel_place_inventory_evidence,
+)
 from infinity_context_core.application.document_text import document_chunk_retrieval_text
 from infinity_context_core.application.dto import (
     BuildContextQuery,
@@ -533,16 +536,23 @@ class BuildContextUseCase:
                     int(diagnostics["keyword_chunks_dropped_by_relevance"]) + 1
                 )
                 continue
-            if query_anchor_intent_text_conflicts(query_anchor_intent, chunk_text):
-                diagnostics["keyword_chunks_dropped_by_relevance"] = (
-                    int(diagnostics["keyword_chunks_dropped_by_relevance"]) + 1
-                )
-                continue
             expansion_query, expansion_reason, relevance = _best_query_relevance_cached(
                 query_expansion_plan,
                 text=chunk_text,
                 cache=query_relevance_cache,
             )
+            if query_anchor_intent_text_conflicts(
+                query_anchor_intent,
+                chunk_text,
+            ) and not _keyword_anchor_conflict_allowed(
+                expansion_reason=expansion_reason,
+                relevance=relevance,
+                text=chunk_text,
+            ):
+                diagnostics["keyword_chunks_dropped_by_relevance"] = (
+                    int(diagnostics["keyword_chunks_dropped_by_relevance"]) + 1
+                )
+                continue
             if not is_chunk_candidate_relevance_sufficient(
                 query=expansion_query,
                 text=chunk_text,
@@ -1760,6 +1770,19 @@ def _strict_query_term_hits(*, query: str, text: str) -> int:
         for term in terms
         if text_variants.intersection(_strict_token_variants(term.raw))
     )
+
+
+def _keyword_anchor_conflict_allowed(
+    *,
+    expansion_reason: str,
+    relevance: QueryRelevance,
+    text: str,
+) -> bool:
+    if expansion_reason != "travel_country_inventory_bridge":
+        return False
+    if relevance.distinctive_term_hits < 3 or relevance.unique_term_hits < 3:
+        return False
+    return has_travel_place_inventory_evidence(text)
 
 
 def _selected_keyword_prompt_items(

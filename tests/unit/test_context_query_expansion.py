@@ -2502,7 +2502,8 @@ def test_best_query_relevance_uses_travel_country_inventory_bridge() -> None:
     expansion = _expansion_query(plan, "travel_country_inventory_bridge")
     assert expansion.startswith("Maria ")
     assert "European Maria" not in expansion
-    assert "England Spain abroad solo trip travel visited went" in expansion
+    assert "England Spain Rome Paris London abroad solo trip travel visited went" in expansion
+    assert "been to short trip city place destination" in expansion
 
     _, spain_reason, spain_relevance = best_query_relevance(
         plan,
@@ -2521,6 +2522,35 @@ def test_best_query_relevance_uses_travel_country_inventory_bridge() -> None:
     assert spain_relevance.distinctive_term_hits >= 4
     assert england_reason == "travel_country_inventory_bridge"
     assert england_relevance.distinctive_term_hits >= 3
+
+
+def test_best_query_relevance_uses_travel_inventory_for_shared_visited_city() -> None:
+    plan = build_query_expansion_plan("Which city have both Jean and John visited?")
+
+    expansion = _expansion_query(plan, "travel_country_inventory_bridge")
+    assert expansion.startswith("Jean John ")
+    assert "Rome Paris London" in expansion
+    assert "been to short trip city place destination" in expansion
+
+    _, gina_reason, gina_relevance = best_query_relevance(
+        plan,
+        text=(
+            "D2:5 Gina: Paris?! That is really great Jon! Never had a chance "
+            "to visit it. Been only to Rome once."
+        ),
+    )
+    _, jon_reason, jon_relevance = best_query_relevance(
+        plan,
+        text=(
+            "D15:1 Jon: Took a short trip last week to Rome to clear my mind "
+            "a little."
+        ),
+    )
+
+    assert gina_reason == "travel_country_inventory_bridge"
+    assert gina_relevance.distinctive_term_hits >= 3
+    assert jon_reason == "travel_country_inventory_bridge"
+    assert jon_relevance.distinctive_term_hits >= 3
 
 
 def test_best_query_relevance_uses_inventory_list_for_shelters_and_causes() -> None:

@@ -219,10 +219,11 @@ def should_skip_expansion_rule(
         )
     if reason == "travel_country_inventory_bridge":
         return not (
-            raw_tokens.intersection({"country", "countries"})
+            raw_tokens.intersection({"cities", "city", "countries", "country", "place"})
             and raw_tokens.intersection(
                 {
                     "been",
+                    "both",
                     "travel",
                     "traveled",
                     "travelled",

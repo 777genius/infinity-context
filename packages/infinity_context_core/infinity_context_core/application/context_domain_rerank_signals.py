@@ -19,6 +19,9 @@ from infinity_context_core.application.context_item_purchase_evidence import (
     has_item_purchase_verb_marker,
 )
 from infinity_context_core.application.context_relevance import QueryRelevance
+from infinity_context_core.application.context_travel_place_evidence import (
+    has_travel_place_inventory_evidence,
+)
 from infinity_context_core.application.dto import ContextItem
 
 _SUPPORT_NETWORK_PEOPLE_RE = re.compile(
@@ -162,14 +165,12 @@ _INVENTORY_POTTERY_OWNER_EVIDENCE_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 _INVENTORY_COUNTRY_QUERY_RE = re.compile(
-    r"\b(?:countries|country|abroad|europe(?:an)?)\b",
+    r"\b(?:cities|city|countries|country|abroad|europe(?:an)?|places?)\b",
     re.IGNORECASE,
 )
 _INVENTORY_COUNTRY_EVIDENCE_RE = re.compile(
     r"\b(?:england|spain|france|italy|germany|portugal|ireland|sweden|"
-    r"(?:visited|went\s+to)\s+"
-    r"(?!country|countries|place|places|area|areas|city|cities|there\b)"
-    r"[A-Z][A-Za-z]+)\b",
+    r"rome|paris|london|madrid|berlin|lisbon|dublin|stockholm)\b",
     re.IGNORECASE,
 )
 _INVENTORY_CAUSE_QUERY_RE = re.compile(
@@ -1038,6 +1039,15 @@ def commonality_rerank_signal(
     )
     if shared_painted_subject_signal.reason:
         return shared_painted_subject_signal
+    if (
+        query_reason in _INVENTORY_LIST_RERANK_REASONS
+        and _inventory_list_exact_evidence(
+            query=query,
+            query_reason=query_reason,
+            item=item,
+        )
+    ):
+        return DomainRerankSignal()
     anchor_terms = _commonality_anchor_terms(query)
     if len(anchor_terms) < 2:
         return DomainRerankSignal()
@@ -1541,7 +1551,10 @@ def _inventory_list_exact_evidence(
     if _INVENTORY_POTTERY_QUERY_RE.search(query):
         return _INVENTORY_POTTERY_OWNER_EVIDENCE_RE.search(text) is not None
     if _INVENTORY_COUNTRY_QUERY_RE.search(query):
-        return _INVENTORY_COUNTRY_EVIDENCE_RE.search(text) is not None
+        return (
+            _INVENTORY_COUNTRY_EVIDENCE_RE.search(text) is not None
+            or has_travel_place_inventory_evidence(text)
+        )
     if _INVENTORY_CAUSE_QUERY_RE.search(query):
         return _INVENTORY_CAUSE_EVIDENCE_RE.search(text) is not None
     if _INVENTORY_FRIEND_PLACE_QUERY_RE.search(query):

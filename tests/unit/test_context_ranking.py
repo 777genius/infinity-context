@@ -8405,6 +8405,51 @@ def test_deterministic_rerank_requires_specific_country_inventory_evidence() -> 
     )
 
 
+def test_deterministic_rerank_prefers_specific_city_visit_inventory_evidence() -> None:
+    query = "Which city have both Jean and John visited?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    visited_rome = _item(
+        "visited_rome",
+        score=0.71,
+        retrieval_source="keyword_chunks",
+        text="D15:1 Jon took a short trip last week to Rome to clear his mind.",
+        score_signals={"query_expansion_reason": "travel_country_inventory_bridge"},
+    )
+    generic_trip = _item(
+        "generic_trip",
+        score=0.74,
+        retrieval_source="keyword_chunks",
+        text="D15:3 Jon talked about travel plans and visited places abroad.",
+        score_signals={"query_expansion_reason": "travel_country_inventory_bridge"},
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (generic_trip, visited_rome),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert by_id["visited_rome"].score > by_id["generic_trip"].score
+    assert (
+        "inventory_list_exact_evidence"
+        in by_id["visited_rome"]
+        .diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+    assert (
+        "commonality_anchor_mismatch"
+        not in by_id["visited_rome"]
+        .diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+    assert (
+        "inventory_list_exact_evidence"
+        not in by_id["generic_trip"]
+        .diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+
+
 def test_deterministic_rerank_does_not_treat_volunteering_people_query_as_shelter_slot() -> None:
     query = "What people has Maria met and helped while volunteering?"
     plan = build_query_expansion_plan(query)

@@ -56,6 +56,21 @@ EXPANSION_RULES_PART_2: tuple[tuple[frozenset[str], str, str], ...] = (
             "travel_country_inventory_bridge",
         ),
     (
+            frozenset({"city", "visited"}),
+            _terms._TRAVEL_COUNTRY_INVENTORY_EXPANSION,
+            "travel_country_inventory_bridge",
+        ),
+    (
+            frozenset({"city", "visit"}),
+            _terms._TRAVEL_COUNTRY_INVENTORY_EXPANSION,
+            "travel_country_inventory_bridge",
+        ),
+    (
+            frozenset({"both", "visited"}),
+            _terms._TRAVEL_COUNTRY_INVENTORY_EXPANSION,
+            "travel_country_inventory_bridge",
+        ),
+    (
             frozenset({"causes"}),
             _terms._CAUSE_EDUCATION_INFRASTRUCTURE_EXPANSION,
             "cause_education_infrastructure_inventory_bridge",

@@ -97,7 +97,8 @@ _FRIEND_PLACE_CHURCH_INVENTORY_EXPANSION = (
     "joined nearby church community faith closer local church"
 )
 _TRAVEL_COUNTRY_INVENTORY_EXPANSION = (
-    "England Spain abroad solo trip travel visited went European countries country"
+    "England Spain Rome Paris London abroad solo trip travel visited went been to "
+    "short trip city place destination European countries country"
 )
 _CAUSE_EDUCATION_INFRASTRUCTURE_EXPANSION = (
     "improving education infrastructure particularly interesting interested community "
