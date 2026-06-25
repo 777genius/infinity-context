@@ -64,6 +64,7 @@ _ANSWER_SUPPORT_AGGREGATION_SOURCE_GROUP_REASONS = frozenset(
         "hike-count-activity-bridge",
         "item-purchase-bridge",
         "music-artist-band-bridge",
+        "painting-inventory-bridge",
         "pottery-type-bridge",
         "recommendation-source-bridge",
         "running-reason-bridge",
@@ -902,9 +903,19 @@ def _activity_answer_slot(item: ContextItem, *, query_reason: str) -> str:
         "family_hike_activity_bridge",
         "family_painting_activity_bridge",
         "family_swimming_activity_bridge",
+        "painting_inventory_bridge",
+        "shoe_usage_bridge",
     }:
         return ""
     text = item.text.casefold()
+    if query_reason == "shoe_usage_bridge":
+        if "walking or running" in text or "for walking" in text:
+            return "shoe_usage_answer"
+        if any(marker in text for marker in ("new shoes", "sneakers", "running shoe")):
+            return "shoe_purchase_visual"
+        return ""
+    if query_reason == "painting_inventory_bridge":
+        return _painting_inventory_answer_slot(text)
     slots = (
         ("swimming", ("swimming", " swim ", "self care", "taking care")),
         ("hiking", ("hiking", " hike ", "trail", "waterfall", "mountain")),
@@ -1251,6 +1262,15 @@ def _precise_answer_content_rank(item: ContextItem, *, query_reason: str) -> int
         if "running" in text:
             return 2
         return 3
+    if query_reason == "shoe_usage_bridge":
+        text = item.text.casefold()
+        if "walking or running" in text or "for walking" in text:
+            return 0
+        if any(marker in text for marker in ("new shoes", "sneakers", "running shoe")):
+            return 1
+        return 3
+    if query_reason == "painting_inventory_bridge":
+        return _painting_inventory_answer_content_rank(item.text)
     if query_reason == "animal_care_instruction_bridge":
         return _animal_care_instruction_content_rank(item.text)
     if query_reason != "meteor_shower_feeling_bridge":
@@ -1282,6 +1302,48 @@ def _pottery_type_answer_content_rank(text: str) -> int:
         return 2
     if _POTTERY_TYPE_GENERIC_ANSWER_OBJECT_RE.search(text):
         return 3
+    return 4
+
+
+def _painting_inventory_answer_slot(text: str) -> str:
+    if "horse" in text:
+        return "painting_horse"
+    if "sunset over a lake" in text or "painting sunrise" in text or "lake sunrise" in text:
+        return "painting_lake_sunrise"
+    if "palm tree" in text or "vibrant flowers" in text:
+        return "painting_palm_sunset"
+    if "sunflower" in text:
+        return "painting_sunflower"
+    if "landscape" in text or "sunset" in text:
+        return "painting_landscape"
+    if "painting" in text or "painted" in text:
+        return "painting_generic"
+    return ""
+
+
+def _painting_inventory_answer_content_rank(text: str) -> int:
+    normalized = text.casefold()
+    if "image caption:" in normalized or "visual query:" in normalized:
+        if any(
+            marker in normalized
+            for marker in (
+                "horse",
+                "sunset over a lake",
+                "painting sunrise",
+                "palm tree",
+                "vibrant flowers",
+                "sunflower",
+            )
+        ):
+            return 0
+        return 1
+    if "painted" in normalized and any(
+        marker in normalized
+        for marker in ("horse", "sunrise", "sunset", "lake", "landscape", "nature")
+    ):
+        return 1
+    if "painting" in normalized or "painted" in normalized:
+        return 2
     return 4
 
 

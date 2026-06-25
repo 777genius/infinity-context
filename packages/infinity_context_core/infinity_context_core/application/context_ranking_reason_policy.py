@@ -138,6 +138,7 @@ KEYWORD_EXPANSION_SCORE_CAPS = {
     "personality_authenticity_bridge": 0.94,
     "personality_drive_bridge": 0.98,
     "personality_thoughtfulness_bridge": 0.94,
+    "painting_inventory_bridge": 0.96,
     "political_inference_bridge": 0.96,
     "post_event_emotion_bridge": 0.95,
     "post_event_activity_timing_bridge": 0.98,
@@ -292,6 +293,7 @@ KEYWORD_EXPANSION_REASON_BOOSTS = {
     "negative_experience_support_bridge": 0.024,
     "negative_preference_bridge": 0.022,
     "outdoor_nature_memory_bridge": 0.018,
+    "painting_inventory_bridge": 0.028,
     "personality_authenticity_bridge": 0.014,
     "personality_drive_bridge": 0.08,
     "personality_thoughtfulness_bridge": 0.014,
@@ -377,6 +379,7 @@ QUERY_REASON_PRIORITY = {
     "allergy_inventory_bridge": 4,
     "career_path_bridge": 4,
     "item_purchase_bridge": 4,
+    "painting_inventory_bridge": 4,
     "shoe_usage_bridge": 4,
     "family_activity_bridge": 4,
     "family_hike_detail_bridge": 4,
@@ -635,6 +638,7 @@ ACTIVITY_OBSERVATION_SOURCE_REASONS = frozenset(
         "family_hike_activity_bridge",
         "family_painting_activity_bridge",
         "family_swimming_activity_bridge",
+        "painting_inventory_bridge",
     }
 )
 DERIVED_SUMMARY_SOURCE_REASONS = frozenset(
@@ -861,6 +865,7 @@ PRECISE_TURN_SOURCE_SIBLING_REASONS = frozenset(
         "lgbtq_support_group_event_bridge",
         "meteor_shower_feeling_bridge",
         "patriotic_service_inference_bridge",
+        "painting_inventory_bridge",
         "post_event_activity_timing_bridge",
         "recommendation_source_bridge",
         "running_reason_bridge",

@@ -768,7 +768,7 @@ def aggregation_evidence_rerank_signal(
         and _is_single_list_evidence(query=query, item=item)
     ):
         return DomainRerankSignal(
-            penalty=0.04,
+            penalty=0.052,
             reason="aggregation_list_single_evidence_incomplete",
         )
     return DomainRerankSignal()

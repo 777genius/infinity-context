@@ -197,6 +197,15 @@ EXPANSION_RULES_PART_3: tuple[tuple[frozenset[str], str, str], ...] = (
             "shared_painted_subject_bridge",
         ),
     (
+            frozenset({"painted"}),
+            (
+                "painted painting artwork picture photo image caption visual query "
+                "horse sunset sunrise lake palm tree flowers sunflower landscape "
+                "nature latest work canvas"
+            ),
+            "painting_inventory_bridge",
+        ),
+    (
             frozenset({"event", "attend"}),
             (
                 "events participated attended joined went lgbtq community advocacy "

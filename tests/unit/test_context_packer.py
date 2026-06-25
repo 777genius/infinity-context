@@ -2979,6 +2979,156 @@ def test_context_packer_allows_more_answer_support_repairs_for_activity_decompos
     assert result.bundle.diagnostics["answer_support_items_used"] == 4
 
 
+def test_answer_support_splits_painting_inventory_visual_slots() -> None:
+    horse = ContextItem(
+        item_id="chunk_painting_horse",
+        item_type="chunk",
+        text=(
+            "D13:8 Melanie: Here's a photo of my horse painting. "
+            "image caption: a photo of a horse painted on a wooden wall. "
+            "visual query: horse painting"
+        ),
+        score=0.92,
+        source_refs=(
+            SourceRef(
+                source_type="locomo_turn",
+                source_id="locomo:conv-26:session_13:D13:8:turn",
+            ),
+        ),
+        diagnostics={
+            "memory_scope_id": "memory_scope_default",
+            "retrieval_sources": ["keyword_chunks"],
+            "score_signals": {"query_expansion_reason": "painting_inventory_bridge"},
+        },
+    )
+    lake = ContextItem(
+        item_id="chunk_painting_lake",
+        item_type="chunk",
+        text=(
+            "D1:12 Melanie: Take a look at this. "
+            "image caption: a photo of a painting of a sunset over a lake. "
+            "visual query: painting sunrise"
+        ),
+        score=0.98,
+        source_refs=(
+            SourceRef(
+                source_type="locomo_turn",
+                source_id="locomo:conv-26:session_1:D1:12:turn",
+            ),
+        ),
+        diagnostics={
+            "memory_scope_id": "memory_scope_default",
+            "retrieval_sources": ["keyword_chunks"],
+            "score_signals": {"query_expansion_reason": "painting_inventory_bridge"},
+        },
+    )
+    palm = ContextItem(
+        item_id="chunk_painting_palm",
+        item_type="chunk",
+        text=(
+            "D8:6 Melanie: We love painting together lately. "
+            "image caption: a photo of a painting of a sunset with a palm tree. "
+            "visual query: painting vibrant flowers sunset sky"
+        ),
+        score=0.94,
+        source_refs=(
+            SourceRef(
+                source_type="locomo_turn",
+                source_id="locomo:conv-26:session_8:D8:6:turn",
+            ),
+        ),
+        diagnostics={
+            "memory_scope_id": "memory_scope_default",
+            "retrieval_sources": ["keyword_chunks"],
+            "score_signals": {"query_expansion_reason": "painting_inventory_bridge"},
+        },
+    )
+
+    families = {
+        _answer_support_diversity_family(item)
+        for item in (horse, lake, palm)
+    }
+    result = ContextPacker().pack(
+        bundle_id="ctx_painting_inventory_visual_slots",
+        items=(horse, lake, palm),
+        token_budget=1000,
+    )
+
+    assert any(":painting-horse:" in family for family in families)
+    assert any(":painting-lake-sunrise:" in family for family in families)
+    assert any(":painting-palm-sunset:" in family for family in families)
+    assert result.bundle.diagnostics["answer_support_items_used"] >= 2
+    assert all(marker in result.bundle.rendered_text for marker in ("D13:8", "D1:12", "D8:6"))
+
+
+def test_answer_support_prioritizes_shoe_usage_answer_over_purchase_visual() -> None:
+    purchase_visual = ContextItem(
+        item_id="chunk_shoe_purchase",
+        item_type="chunk",
+        text=(
+            "D7:18 Melanie: Just got some new shoes, too! "
+            "image caption: a photo of a person wearing pink sneakers on a white rug. "
+            "visual query: purple running shoe"
+        ),
+        score=0.99,
+        source_refs=(
+            SourceRef(
+                source_type="locomo_turn",
+                source_id="locomo:conv-26:session_7:D7:18:turn",
+            ),
+        ),
+        diagnostics={
+            "memory_scope_id": "memory_scope_default",
+            "retrieval_sources": ["keyword_chunks"],
+            "score_signals": {"query_expansion_reason": "shoe_usage_bridge"},
+        },
+    )
+    usage_answer = ContextItem(
+        item_id="chunk_shoe_usage_answer",
+        item_type="chunk",
+        text="D7:19 Caroline: Love that purple color! For walking or running?",
+        score=0.94,
+        source_refs=(
+            SourceRef(
+                source_type="locomo_turn",
+                source_id="locomo:conv-26:session_7:D7:19:turn",
+            ),
+        ),
+        diagnostics={
+            "memory_scope_id": "memory_scope_default",
+            "retrieval_sources": ["keyword_source_sibling_chunks"],
+            "score_signals": {"query_expansion_reason": "shoe_usage_bridge"},
+        },
+    )
+    color_noise = ContextItem(
+        item_id="chunk_color_noise",
+        item_type="chunk",
+        text="D16:13 Caroline: I love the red and blue colors in this painting.",
+        score=0.98,
+        source_refs=(
+            SourceRef(
+                source_type="locomo_turn",
+                source_id="locomo:conv-26:session_16:D16:13:turn",
+            ),
+        ),
+        diagnostics={
+            "memory_scope_id": "memory_scope_default",
+            "retrieval_sources": ["keyword_chunks"],
+            "score_signals": {"query_expansion_reason": "shoe_usage_bridge"},
+        },
+    )
+
+    candidates = _answer_support_diversity_candidates(
+        [color_noise, purchase_visual, usage_answer]
+    )
+    ordered = _ordered_answer_support_families(candidates)
+
+    assert _answer_support_diversity_family(usage_answer) != (
+        _answer_support_diversity_family(purchase_visual)
+    )
+    assert candidates[ordered[0]].item_id == usage_answer.item_id
+
+
 def test_context_packer_splits_activity_slot_without_source_group() -> None:
     hiking_family_turn = ContextItem(
         item_id="chunk_family_hiking_visual",

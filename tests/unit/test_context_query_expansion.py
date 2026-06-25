@@ -1171,6 +1171,7 @@ def test_query_expansion_covers_books_painted_subject_and_music_bridges() -> Non
         "Would Caroline likely have Dr. Seuss books on her bookshelf?"
     )
     painted = build_query_expansion_plan("What subject have Caroline and Melanie both painted?")
+    painting_inventory = build_query_expansion_plan("What has Melanie painted?")
     music = build_query_expansion_plan(
         "Would Melanie likely enjoy the song The Four Seasons by Vivaldi?"
     )
@@ -1182,6 +1183,10 @@ def test_query_expansion_covers_books_painted_subject_and_music_bridges() -> Non
     assert "painted painting artwork subject" in _expansion_query(
         painted,
         "shared_painted_subject_bridge",
+    )
+    assert "horse sunset sunrise lake" in _expansion_query(
+        painting_inventory,
+        "painting_inventory_bridge",
     )
     assert "music classical fan composer" in _expansion_query(
         music,
@@ -2312,6 +2317,32 @@ def test_best_query_relevance_uses_activity_visual_selfcare_bridge() -> None:
     assert visual.distinctive_term_hits >= 6
     assert swim_reason == "activity_visual_selfcare_bridge"
     assert swim.distinctive_term_hits >= 7
+
+
+def test_best_query_relevance_uses_painting_inventory_bridge_for_visual_artifacts() -> None:
+    plan = build_query_expansion_plan("What has Melanie painted?")
+
+    _, horse_reason, horse = best_query_relevance(
+        plan,
+        text=(
+            "D13:8 Melanie: Here's a photo of my horse painting. "
+            "image caption: a photo of a horse painted on a wooden wall. "
+            "visual query: horse painting"
+        ),
+    )
+    _, sunset_reason, sunset = best_query_relevance(
+        plan,
+        text=(
+            "D8:6 Melanie: We love painting together lately. "
+            "image caption: a photo of a painting of a sunset with a palm tree. "
+            "visual query: painting vibrant flowers sunset sky"
+        ),
+    )
+
+    assert horse_reason == "painting_inventory_bridge"
+    assert horse.distinctive_term_hits >= 5
+    assert sunset_reason == "painting_inventory_bridge"
+    assert sunset.distinctive_term_hits >= 5
 
 
 def test_best_query_relevance_bridges_beach_count_activity_evidence() -> None:
