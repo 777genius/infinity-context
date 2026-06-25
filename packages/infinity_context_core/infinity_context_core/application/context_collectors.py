@@ -130,6 +130,7 @@ _HIGH_SIGNAL_EXPANSION_REASONS = frozenset(
         "education_career_field_bridge",
         "event_participation_bridge",
         "event_participation_help_bridge",
+        "exercise_activity_inventory_bridge",
         "family_activity_bridge",
         "family_hike_detail_bridge",
         "family_hike_activity_bridge",
@@ -208,23 +209,33 @@ _PROTECTED_EXPANSION_HEAD_REASONS = frozenset(
     {
         "adverse_trip_bridge",
         "age_birthday_bridge",
+        "allergy_inventory_bridge",
         "attribute_trait_inventory_bridge",
         "birthplace_origin_bridge",
         "book_suggestion_bridge",
         "children_books_inference_bridge",
+        "children_count_event_bridge",
         "current_occupation_bridge",
         "current_recommendation_bridge",
         "current_residence_bridge",
         "family_origin_bridge",
+        "hike_count_activity_bridge",
+        "music_artist_answer_bridge",
+        "music_artist_band_bridge",
         "negative_experience_support_bridge",
         "negative_preference_bridge",
+        "painting_inventory_bridge",
         "personality_authenticity_bridge",
         "personality_drive_bridge",
         "personality_thoughtfulness_bridge",
         "personality_trait_bridge",
+        "possession_gift_object_bridge",
         "recommendation_source_bridge",
         "relocation_destination_bridge",
         "relocation_origin_bridge",
+        "shared_painted_subject_bridge",
+        "shoe_usage_bridge",
+        "trip_destination_bridge",
     }
 )
 _T = TypeVar("_T")
@@ -1032,6 +1043,8 @@ def _retrieval_query_selection_priority(query: QueryExpansion) -> int:
     if query.reason == "original_query":
         return 0
     if query.reason == "activity_visual_selfcare_bridge":
+        return 1
+    if query.reason == "exercise_activity_inventory_bridge":
         return 1
     if query.reason in _HIGH_SIGNAL_DECOMPOSITION_REASONS:
         return 1

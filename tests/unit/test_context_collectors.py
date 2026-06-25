@@ -216,6 +216,35 @@ def test_protected_query_head_keys_keep_bio_location_heads() -> None:
     )
 
 
+def test_protected_query_head_keys_keep_inventory_object_heads() -> None:
+    rankings = {
+        "0:original_query": ("generic_a",),
+        "1:allergy_inventory_bridge": ("allergy_match", "generic_b"),
+        "2:children_count_event_bridge": ("children_match", "generic_c"),
+        "3:hike_count_activity_bridge": ("hike_count_match", "generic_d"),
+        "4:music_artist_answer_bridge": ("artist_match", "generic_e"),
+        "5:music_artist_band_bridge": ("band_match", "generic_f"),
+        "6:painting_inventory_bridge": ("painting_match", "generic_g"),
+        "7:possession_gift_object_bridge": ("gift_match", "generic_h"),
+        "8:shared_painted_subject_bridge": ("shared_subject_match", "generic_i"),
+        "9:shoe_usage_bridge": ("shoe_match", "generic_j"),
+        "10:trip_destination_bridge": ("trip_match", "generic_k"),
+    }
+
+    assert _protected_query_head_keys(rankings) == (
+        "allergy_match",
+        "children_match",
+        "hike_count_match",
+        "artist_match",
+        "band_match",
+        "painting_match",
+        "gift_match",
+        "shared_subject_match",
+        "shoe_match",
+        "trip_match",
+    )
+
+
 def test_protected_query_head_keys_keep_friend_team_inference_head() -> None:
     rankings = {
         "0:original_query": ("generic_a",),
@@ -325,6 +354,21 @@ def test_bounded_retrieval_queries_select_recommendation_source_bridge() -> None
         "original_query",
         "recommendation_source_bridge",
         "decomposition_action_role",
+    ]
+
+
+def test_bounded_retrieval_queries_keep_exercise_inventory_for_activity_query() -> None:
+    plan = build_query_expansion_plan("What exercise activities does Alex do?")
+
+    selected = _bounded_derived_retrieval_queries(plan, fallback="fallback", limit=6)
+
+    assert [query.reason for query in selected] == [
+        "original_query",
+        "decomposition_event_context",
+        "decomposition_activity_participation",
+        "activity_visual_selfcare_bridge",
+        "exercise_activity_inventory_bridge",
+        "hobby_interest_bridge",
     ]
 
 
