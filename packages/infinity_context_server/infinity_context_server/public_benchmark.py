@@ -209,6 +209,7 @@ _PUBLIC_BENCHMARK_MAX_CHUNKS = 50
 _PUBLIC_BENCHMARK_MAX_REUSE_DETAIL_EVENTS_PER_CASE = 3
 _MAX_RESUME_CASE_ID_DETAILS = 20
 _MAX_LOCOMO_OBSERVATION_EVIDENCE_IDS = 8
+_RESUME_REUSE_POLICY = "successful_cases_only"
 
 
 class BenchmarkValidationError(ValueError):
@@ -674,6 +675,7 @@ def _execute_cases(
         "requested": resume_from_checkpoint,
         "status": "disabled",
         "reason": "not_requested",
+        "resume_reuse_policy": _RESUME_REUSE_POLICY,
         "resumed_case_count": 0,
         "selected_case_count": len(cases),
         "checkpoint_case_count": 0,
@@ -681,6 +683,9 @@ def _execute_cases(
         "checkpoint_failed_case_count": 0,
         "checkpoint_invalid_case_count": 0,
         "checkpoint_failure_diagnostic_count": 0,
+        "checkpoint_failed_case_requeued_count": 0,
+        "checkpoint_failed_case_ids": [],
+        "checkpoint_failed_case_id_truncated_count": 0,
         "checkpoint_failures": [],
     }
     if resume_from_checkpoint:
@@ -691,10 +696,14 @@ def _execute_cases(
             cases=cases,
         )
         checkpoint_failures = [dict(item) for item in resume_load.checkpoint_failures]
+        checkpoint_failed_case_ids, checkpoint_failed_case_id_truncated_count = (
+            _bounded_checkpoint_failure_case_id_details(checkpoint_failures)
+        )
         resume_report = {
             "requested": True,
             "status": resume_load.status,
             "reason": resume_load.reason,
+            "resume_reuse_policy": _RESUME_REUSE_POLICY,
             "resumed_case_count": 0,
             "selected_case_count": resume_load.selected_case_count,
             "checkpoint_case_count": resume_load.checkpoint_case_count,
@@ -702,6 +711,11 @@ def _execute_cases(
             "checkpoint_failed_case_count": resume_load.checkpoint_failed_case_count,
             "checkpoint_invalid_case_count": resume_load.checkpoint_invalid_case_count,
             "checkpoint_failure_diagnostic_count": len(checkpoint_failures),
+            "checkpoint_failed_case_requeued_count": resume_load.checkpoint_failed_case_count,
+            "checkpoint_failed_case_ids": checkpoint_failed_case_ids,
+            "checkpoint_failed_case_id_truncated_count": (
+                checkpoint_failed_case_id_truncated_count
+            ),
             "checkpoint_failures": checkpoint_failures,
         }
         resume_state = resume_load.state
@@ -719,17 +733,20 @@ def _execute_cases(
             progress.event(
                 "run_resumed",
                 reason=resume_load.reason,
+                resume_reuse_policy=_RESUME_REUSE_POLICY,
                 resumed_case_count=len(resumed_case_keys),
                 checkpoint_case_count=resume_load.checkpoint_case_count,
                 checkpoint_success_case_count=resume_load.checkpoint_success_case_count,
                 checkpoint_failed_case_count=resume_load.checkpoint_failed_case_count,
                 checkpoint_invalid_case_count=resume_load.checkpoint_invalid_case_count,
                 checkpoint_failure_diagnostic_count=len(checkpoint_failures),
-                checkpoint_failed_case_ids=[
-                    str(item.get("case_id"))
-                    for item in checkpoint_failures
-                    if item.get("case_id")
-                ],
+                checkpoint_failed_case_requeued_count=(
+                    resume_load.checkpoint_failed_case_count
+                ),
+                checkpoint_failed_case_ids=checkpoint_failed_case_ids,
+                checkpoint_failed_case_id_truncated_count=(
+                    checkpoint_failed_case_id_truncated_count
+                ),
                 seeded_source_count=len(seeded_source_keys),
                 seed_source_attempt_count=seed_stats.source_attempt_count,
                 seed_cache_hit_count=seed_stats.seed_cache_hit_count,
@@ -738,17 +755,20 @@ def _execute_cases(
             progress.event(
                 "run_resume_skipped",
                 reason=resume_load.reason,
+                resume_reuse_policy=_RESUME_REUSE_POLICY,
                 selected_case_count=resume_load.selected_case_count,
                 checkpoint_case_count=resume_load.checkpoint_case_count,
                 checkpoint_success_case_count=resume_load.checkpoint_success_case_count,
                 checkpoint_failed_case_count=resume_load.checkpoint_failed_case_count,
                 checkpoint_invalid_case_count=resume_load.checkpoint_invalid_case_count,
                 checkpoint_failure_diagnostic_count=len(checkpoint_failures),
-                checkpoint_failed_case_ids=[
-                    str(item.get("case_id"))
-                    for item in checkpoint_failures
-                    if item.get("case_id")
-                ],
+                checkpoint_failed_case_requeued_count=(
+                    resume_load.checkpoint_failed_case_count
+                ),
+                checkpoint_failed_case_ids=checkpoint_failed_case_ids,
+                checkpoint_failed_case_id_truncated_count=(
+                    checkpoint_failed_case_id_truncated_count
+                ),
             )
     pending_entries = tuple(
         _CaseExecutionEntry(case_index=case_index, case=case)
@@ -790,6 +810,14 @@ def _execute_cases(
         parallelism_degraded_reason=parallelism_degraded_reason,
         request_timeout_seconds=request_timeout_seconds,
         checkpoint_min_interval_seconds=checkpoint_min_interval_seconds,
+        resume_reuse_policy=_RESUME_REUSE_POLICY,
+        checkpoint_failed_case_requeued_count=resume_report[
+            "checkpoint_failed_case_requeued_count"
+        ],
+        checkpoint_failed_case_ids=resume_report["checkpoint_failed_case_ids"],
+        checkpoint_failed_case_id_truncated_count=resume_report[
+            "checkpoint_failed_case_id_truncated_count"
+        ],
     )
 
     def run_case_adapter(
@@ -1032,6 +1060,9 @@ def _execute_cases(
             "checkpoint_min_interval_seconds": checkpoint_min_interval_seconds,
             "resumed_case_count": len(resumed_case_keys),
             "pending_case_count": len(pending_entries),
+            "checkpoint_failed_case_requeued_count": resume_report[
+                "checkpoint_failed_case_requeued_count"
+            ],
             **_progress_timing_fields(
                 processed_case_count=len(run_results),
                 total_case_count=len(cases),
@@ -1097,6 +1128,20 @@ def _emit_case_progress_snapshot(
 
 def _bounded_case_id_details(cases: Iterable[PublicBenchmarkCase]) -> tuple[list[str], int]:
     case_ids = [f"{case.benchmark}:{case.case_id}"[:160] for case in cases]
+    return (
+        case_ids[:_MAX_RESUME_CASE_ID_DETAILS],
+        max(0, len(case_ids) - _MAX_RESUME_CASE_ID_DETAILS),
+    )
+
+
+def _bounded_checkpoint_failure_case_id_details(
+    failures: Sequence[Mapping[str, object]],
+) -> tuple[list[str], int]:
+    case_ids = [
+        str(item.get("case_id"))[:160]
+        for item in failures
+        if str(item.get("case_id") or "").strip()
+    ]
     return (
         case_ids[:_MAX_RESUME_CASE_ID_DETAILS],
         max(0, len(case_ids) - _MAX_RESUME_CASE_ID_DETAILS),

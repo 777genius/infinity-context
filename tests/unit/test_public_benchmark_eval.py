@@ -2017,6 +2017,7 @@ def test_public_memory_benchmark_resumes_from_compatible_checkpoint(
         "requested": True,
         "status": "loaded",
         "reason": "compatible_checkpoint",
+        "resume_reuse_policy": "successful_cases_only",
         "resumed_case_count": 1,
         "selected_case_count": 2,
         "checkpoint_case_count": 1,
@@ -2024,6 +2025,9 @@ def test_public_memory_benchmark_resumes_from_compatible_checkpoint(
         "checkpoint_failed_case_count": 0,
         "checkpoint_invalid_case_count": 0,
         "checkpoint_failure_diagnostic_count": 0,
+        "checkpoint_failed_case_requeued_count": 0,
+        "checkpoint_failed_case_ids": [],
+        "checkpoint_failed_case_id_truncated_count": 0,
         "checkpoint_failures": [],
         "resumed_case_ids": ["locomo:resume-one"],
         "pending_case_ids": ["locomo:resume-two"],
@@ -2038,6 +2042,8 @@ def test_public_memory_benchmark_resumes_from_compatible_checkpoint(
     assert execution_configured["pending_case_ids"] == ["locomo:resume-two"]
     assert execution_configured["resumed_case_id_truncated_count"] == 0
     assert execution_configured["pending_case_id_truncated_count"] == 0
+    assert execution_configured["resume_reuse_policy"] == "successful_cases_only"
+    assert execution_configured["checkpoint_failed_case_requeued_count"] == 0
     assert not any(
         event["event_type"] == "case_started" and event["case_id"] == "resume-one"
         for event in progress_events
@@ -2161,6 +2167,10 @@ def test_public_memory_benchmark_resume_retries_checkpoint_failed_cases(
     assert result["resume"]["checkpoint_failed_case_count"] == 1
     assert result["resume"]["checkpoint_invalid_case_count"] == 0
     assert result["resume"]["checkpoint_failure_diagnostic_count"] == 1
+    assert result["resume"]["checkpoint_failed_case_requeued_count"] == 1
+    assert result["resume"]["checkpoint_failed_case_ids"] == ["resume-failed"]
+    assert result["resume"]["checkpoint_failed_case_id_truncated_count"] == 0
+    assert result["resume"]["resume_reuse_policy"] == "successful_cases_only"
     assert result["resume"]["resumed_case_ids"] == ["locomo:resume-ok"]
     assert result["resume"]["pending_case_ids"] == ["locomo:resume-failed"]
     assert result["resume"]["resumed_case_id_truncated_count"] == 0
@@ -2181,9 +2191,19 @@ def test_public_memory_benchmark_resume_retries_checkpoint_failed_cases(
     assert any(
         event["event_type"] == "run_resumed"
         and event["checkpoint_failure_diagnostic_count"] == 1
+        and event["checkpoint_failed_case_requeued_count"] == 1
         and event["checkpoint_failed_case_ids"] == ["resume-failed"]
+        and event["checkpoint_failed_case_id_truncated_count"] == 0
+        and event["resume_reuse_policy"] == "successful_cases_only"
         for event in progress_events
     )
+    execution_configured = next(
+        event for event in progress_events if event["event_type"] == "run_execution_configured"
+    )
+    assert execution_configured["checkpoint_failed_case_requeued_count"] == 1
+    assert execution_configured["checkpoint_failed_case_ids"] == ["resume-failed"]
+    assert execution_configured["resume_reuse_policy"] == "successful_cases_only"
+    assert result["metrics"]["checkpoint_failed_case_requeued_count"] == 1
     assert any(
         event["event_type"] == "case_started" and event["case_id"] == "resume-failed"
         for event in progress_events
@@ -2372,6 +2392,7 @@ def test_public_memory_benchmark_reports_resume_skip_reason(
         "requested": True,
         "status": "skipped",
         "reason": "dataset_hash_mismatch",
+        "resume_reuse_policy": "successful_cases_only",
         "resumed_case_count": 0,
         "selected_case_count": 1,
         "checkpoint_case_count": 0,
@@ -2379,6 +2400,9 @@ def test_public_memory_benchmark_reports_resume_skip_reason(
         "checkpoint_failed_case_count": 0,
         "checkpoint_invalid_case_count": 0,
         "checkpoint_failure_diagnostic_count": 0,
+        "checkpoint_failed_case_requeued_count": 0,
+        "checkpoint_failed_case_ids": [],
+        "checkpoint_failed_case_id_truncated_count": 0,
         "checkpoint_failures": [],
         "resumed_case_ids": [],
         "pending_case_ids": ["locomo:resume-skip"],
@@ -2387,7 +2411,10 @@ def test_public_memory_benchmark_reports_resume_skip_reason(
     }
     assert result["metrics"]["resumed_case_count"] == 0
     assert result["metrics"]["pending_case_count"] == 1
+    assert result["metrics"]["checkpoint_failed_case_requeued_count"] == 0
     assert resume_skipped["reason"] == "dataset_hash_mismatch"
+    assert resume_skipped["resume_reuse_policy"] == "successful_cases_only"
+    assert resume_skipped["checkpoint_failed_case_requeued_count"] == 0
     assert [path for path, _ in adapter.posts] == ["/v1/documents", "/v1/context"]
 
 
