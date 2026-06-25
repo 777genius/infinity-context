@@ -80,6 +80,22 @@ def case_evidence_ref_previews(
     return tuple(previews)
 
 
+def response_evidence_text(data: Mapping[str, object]) -> str:
+    texts: list[str] = []
+    rendered = data.get("rendered_text")
+    if isinstance(rendered, str):
+        texts.append(rendered)
+    items = data.get("items")
+    if isinstance(items, Sequence) and not isinstance(items, str | bytes):
+        for item in items:
+            if not isinstance(item, Mapping):
+                continue
+            if isinstance(item.get("text"), str):
+                texts.append(item["text"])
+            texts.extend(_item_source_ref_evidence_parts(item))
+    return "\n".join(texts)
+
+
 def _evidence_preview_lookup(value: object) -> dict[str, str]:
     if isinstance(value, Mapping):
         return {
@@ -99,3 +115,31 @@ def _evidence_preview_lookup(value: object) -> dict[str, str]:
                 previews[ref] = text
         return previews
     return {}
+
+
+def _item_source_ref_evidence_parts(item: Mapping[str, object]) -> list[str]:
+    parts: list[str] = []
+    source_refs = item.get("source_refs")
+    if isinstance(source_refs, Sequence) and not isinstance(source_refs, str | bytes):
+        for ref in source_refs[:8]:
+            parts.extend(_source_ref_evidence_parts(ref))
+    citations = item.get("citations")
+    if isinstance(citations, Sequence) and not isinstance(citations, str | bytes):
+        for citation in citations[:8]:
+            if not isinstance(citation, Mapping):
+                continue
+            parts.extend(_source_ref_evidence_parts(citation.get("source")))
+    return parts
+
+
+def _source_ref_evidence_parts(ref: object) -> list[str]:
+    if not isinstance(ref, Mapping):
+        return []
+    parts: list[str] = []
+    for key in ("source_type", "source_id", "chunk_id", "quote_preview"):
+        value = ref.get(key)
+        if isinstance(value, str):
+            text = value.strip()
+            if text:
+                parts.append(text[:320])
+    return parts

@@ -16,9 +16,8 @@ import time
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from contextlib import nullcontext
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
 
 import httpx
 from infinity_context_core.application.context_relevance import (
@@ -50,6 +49,9 @@ from infinity_context_server.public_benchmark_case_diagnostics import (
 )
 from infinity_context_server.public_benchmark_case_diagnostics import (
     preview_value as _preview_value,
+)
+from infinity_context_server.public_benchmark_case_diagnostics import (
+    response_evidence_text as _evidence_text,
 )
 from infinity_context_server.public_benchmark_checkpoint import (
     BenchmarkSeedStats as _BenchmarkSeedStats,
@@ -109,6 +111,15 @@ from infinity_context_server.public_benchmark_execution import (
 from infinity_context_server.public_benchmark_execution import (
     ordered_run_results as _ordered_run_results,
 )
+from infinity_context_server.public_benchmark_http import (
+    auth_headers as _auth_headers,
+)
+from infinity_context_server.public_benchmark_http import (
+    post_required as _post_required,
+)
+from infinity_context_server.public_benchmark_http import (
+    response_data as _response_data,
+)
 from infinity_context_server.public_benchmark_manifest import (
     build_execution_manifest as _build_execution_manifest,
 )
@@ -148,6 +159,20 @@ from infinity_context_server.public_benchmark_metrics import (
 from infinity_context_server.public_benchmark_metrics import (
     run_metric_summary as _run_metric_summary,
 )
+from infinity_context_server.public_benchmark_models import (
+    BenchmarkDocumentInput,
+    BenchmarkHttpClientPort,
+    BenchmarkHttpResponsePort,
+    BenchmarkMemoryInput,
+    BenchmarkValidationError,
+    PublicBenchmarkCase,
+)
+from infinity_context_server.public_benchmark_models import (
+    HttpBenchmarkAdapter as _HttpBenchmarkAdapter,
+)
+from infinity_context_server.public_benchmark_models import (
+    TestClientBenchmarkAdapter as _TestClientBenchmarkAdapter,
+)
 from infinity_context_server.public_benchmark_progress import (
     DEFAULT_CHECKPOINT_MIN_INTERVAL_SECONDS as _DEFAULT_CHECKPOINT_MIN_INTERVAL_SECONDS,
 )
@@ -156,6 +181,15 @@ from infinity_context_server.public_benchmark_progress import (
 )
 from infinity_context_server.public_benchmark_progress import (
     emit_setup_failure_progress as _emit_setup_failure_progress,
+)
+from infinity_context_server.public_benchmark_results import (
+    duplicate_case_failure_result as _duplicate_case_failure_result,
+)
+from infinity_context_server.public_benchmark_results import (
+    setup_failure_result as _setup_failure_result,
+)
+from infinity_context_server.public_benchmark_results import (
+    write_report as _write_report,
 )
 from infinity_context_server.public_benchmark_selection import (
     CASE_SELECTION_FIRST,
@@ -197,6 +231,7 @@ __all__ = (
     "CASE_SELECTION_STRATIFIED",
     "PublicBenchmarkCase",
     "SUPPORTED_CASE_SELECTION_STRATEGIES",
+    "_write_json_atomic",
     "load_public_benchmark_case_count",
     "load_public_benchmark_dataset_profile",
     "run_public_memory_benchmark",
@@ -218,59 +253,6 @@ _MAX_LOCOMO_OBSERVATION_EVIDENCE_IDS = 8
 _RESUME_REUSE_POLICY = "successful_cases_only"
 
 
-class BenchmarkValidationError(ValueError):
-    """Raised when a benchmark dataset cannot be normalized safely."""
-
-
-class BenchmarkHttpClientPort(Protocol):
-    def post(
-        self,
-        path: str,
-        *,
-        json_body: Mapping[str, object],
-        headers: Mapping[str, str],
-    ) -> BenchmarkHttpResponsePort:
-        """Execute an HTTP POST through the chosen transport."""
-
-
-class BenchmarkHttpResponsePort(Protocol):
-    status_code: int
-    text: str
-
-    def json(self) -> Any:
-        """Return decoded JSON response body."""
-
-
-@dataclass(frozen=True)
-class BenchmarkMemoryInput:
-    text: str
-    kind: str = "note"
-    source_external_id: str | None = None
-
-
-@dataclass(frozen=True)
-class BenchmarkDocumentInput:
-    title: str
-    text: str
-    source_type: str = "benchmark_document"
-    classification: str = "internal"
-    source_external_id: str | None = None
-
-
-@dataclass(frozen=True)
-class PublicBenchmarkCase:
-    benchmark: str
-    case_id: str
-    question: str
-    expected_terms: tuple[str, ...]
-    forbidden_terms: tuple[str, ...] = ()
-    memories: tuple[BenchmarkMemoryInput, ...] = ()
-    documents: tuple[BenchmarkDocumentInput, ...] = ()
-    memory_scope_external_ref: str | None = None
-    thread_external_ref: str | None = None
-    metadata: Mapping[str, object] = field(default_factory=dict)
-
-
 @dataclass(frozen=True)
 class _OfficialLocomoTurn:
     session_key: str
@@ -278,34 +260,6 @@ class _OfficialLocomoTurn:
     speaker: str
     text: str
     turn_index: int
-
-
-class _TestClientBenchmarkAdapter:
-    def __init__(self, client: Any) -> None:
-        self._client = client
-
-    def post(
-        self,
-        path: str,
-        *,
-        json_body: Mapping[str, object],
-        headers: Mapping[str, str],
-    ) -> BenchmarkHttpResponsePort:
-        return self._client.post(path, json=dict(json_body), headers=dict(headers))
-
-
-class _HttpBenchmarkAdapter:
-    def __init__(self, client: httpx.Client) -> None:
-        self._client = client
-
-    def post(
-        self,
-        path: str,
-        *,
-        json_body: Mapping[str, object],
-        headers: Mapping[str, str],
-    ) -> BenchmarkHttpResponsePort:
-        return self._client.post(path, json=dict(json_body), headers=dict(headers))
 
 
 def run_public_memory_benchmark(
@@ -380,6 +334,7 @@ def run_public_memory_benchmark(
     duplicate_case_keys = _duplicate_case_keys(cases)
     if duplicate_case_keys:
         result = _duplicate_case_failure_result(
+            suite=PUBLIC_MEMORY_BENCHMARK_SUITE,
             cases=cases,
             duplicate_case_keys=duplicate_case_keys,
         )
@@ -436,7 +391,11 @@ def run_public_memory_benchmark(
 
     token = auth_token or (_default_service_token() if api_url else "test-token")
     if not token:
-        result = _setup_failure_result(reason="auth_token_required", case_count=len(cases))
+        result = _setup_failure_result(
+            suite=PUBLIC_MEMORY_BENCHMARK_SUITE,
+            reason="auth_token_required",
+            case_count=len(cases),
+        )
         result = _with_public_benchmark_provenance(result, dataset_path=dataset_path)
         result["case_selection"] = case_selection
         result["requested_case_ids"] = list(requested_case_ids)
@@ -2466,75 +2425,6 @@ def _metadata(raw: Mapping[str, object]) -> Mapping[str, object]:
     return value if isinstance(value, Mapping) else {}
 
 
-def _post_required(
-    adapter: BenchmarkHttpClientPort,
-    path: str,
-    *,
-    headers: Mapping[str, str],
-    payload: Mapping[str, object],
-    idempotency_key: str | None = None,
-) -> BenchmarkHttpResponsePort:
-    request_headers = dict(headers)
-    if idempotency_key:
-        request_headers["Idempotency-Key"] = idempotency_key[:120]
-    response = adapter.post(path, json_body=payload, headers=request_headers)
-    if response.status_code not in {200, 201}:
-        raise RuntimeError(f"{path} returned HTTP {response.status_code}")
-    return response
-
-
-def _response_data(response: BenchmarkHttpResponsePort) -> dict[str, object]:
-    payload = response.json()
-    if not isinstance(payload, dict):
-        return {}
-    data = payload.get("data")
-    return data if isinstance(data, dict) else {}
-
-
-def _evidence_text(data: Mapping[str, object]) -> str:
-    texts: list[str] = []
-    rendered = data.get("rendered_text")
-    if isinstance(rendered, str):
-        texts.append(rendered)
-    items = data.get("items")
-    if isinstance(items, Sequence) and not isinstance(items, str | bytes):
-        for item in items:
-            if not isinstance(item, Mapping):
-                continue
-            if isinstance(item.get("text"), str):
-                texts.append(item["text"])
-            texts.extend(_item_source_ref_evidence_parts(item))
-    return "\n".join(texts)
-
-
-def _item_source_ref_evidence_parts(item: Mapping[str, object]) -> list[str]:
-    parts: list[str] = []
-    source_refs = item.get("source_refs")
-    if isinstance(source_refs, Sequence) and not isinstance(source_refs, str | bytes):
-        for ref in source_refs[:8]:
-            parts.extend(_source_ref_evidence_parts(ref))
-    citations = item.get("citations")
-    if isinstance(citations, Sequence) and not isinstance(citations, str | bytes):
-        for citation in citations[:8]:
-            if not isinstance(citation, Mapping):
-                continue
-            parts.extend(_source_ref_evidence_parts(citation.get("source")))
-    return parts
-
-
-def _source_ref_evidence_parts(ref: object) -> list[str]:
-    if not isinstance(ref, Mapping):
-        return []
-    parts: list[str] = []
-    for key in ("source_type", "source_id", "chunk_id", "quote_preview"):
-        value = ref.get(key)
-        if isinstance(value, str):
-            text = value.strip()
-            if text:
-                parts.append(text[:320])
-    return parts
-
-
 def _case_capability(case: PublicBenchmarkCase) -> str:
     if case.benchmark == LONGMEMEVAL_BENCHMARK_SUITE:
         question_type = case.metadata.get("question_type")
@@ -2607,68 +2497,3 @@ def _unique(values: Iterable[str]) -> list[str]:
             seen.add(normalized)
             unique_values.append(value.strip())
     return unique_values
-
-
-def _auth_headers(token: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {token}"}
-
-
-def _setup_failure_result(*, reason: str, case_count: int) -> dict[str, object]:
-    return {
-        "suite": PUBLIC_MEMORY_BENCHMARK_SUITE,
-        "status": "failed",
-        "ok": False,
-        "checks": {
-            "dataset_loaded": True,
-            "case_count": case_count > 0,
-            "auth_token_configured": False,
-        },
-        "metrics": {
-            "case_count": case_count,
-            "benchmark_count": 0,
-            "accuracy": 0.0,
-        },
-        "benchmarks": [],
-        "cases": [],
-        "failures": [{"case_id": "suite_setup", "category": "setup", "reason": reason}],
-    }
-
-
-def _duplicate_case_failure_result(
-    *,
-    cases: Sequence[PublicBenchmarkCase],
-    duplicate_case_keys: Sequence[str],
-) -> dict[str, object]:
-    return {
-        "suite": PUBLIC_MEMORY_BENCHMARK_SUITE,
-        "status": "failed",
-        "ok": False,
-        "checks": {
-            "dataset_loaded": True,
-            "case_count": bool(cases),
-            "unique_case_ids": False,
-        },
-        "metrics": {
-            "case_count": len(cases),
-            "benchmark_count": len({case.benchmark for case in cases}),
-            "accuracy": 0.0,
-            "duplicate_case_id_count": len(duplicate_case_keys),
-        },
-        "benchmarks": [],
-        "cases": [],
-        "failures": [
-            {
-                "case_id": key,
-                "category": "setup",
-                "reason": "duplicate_case_id",
-            }
-            for key in duplicate_case_keys[:20]
-        ],
-    }
-
-
-def _write_report(result: dict[str, object], report_out: Path | None) -> None:
-    if report_out is None:
-        return
-    report_out.parent.mkdir(parents=True, exist_ok=True)
-    _write_json_atomic(report_out, result)
