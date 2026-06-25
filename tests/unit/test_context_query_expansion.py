@@ -81,6 +81,26 @@ def test_query_expansion_covers_relocation_willingness_inference() -> None:
     )
 
 
+def test_query_expansion_covers_person_summary_questions() -> None:
+    who = build_query_expansion_plan("Who is Alex?")
+    known = build_query_expansion_plan("What do we know about Alex?")
+    tell = build_query_expansion_plan("Tell me about Alex")
+    russian = build_query_expansion_plan("Кто такой Алекс?")
+
+    for plan in (who, known, tell, russian):
+        summary = _expansion_query(plan, "person_summary_bridge")
+
+        assert "profile" in summary.casefold()
+        assert "facts" in summary.casefold() or "факты" in summary.casefold()
+        assert "Alex" in summary or "Алекс" in summary
+
+
+def test_query_expansion_does_not_treat_responsibility_query_as_person_summary() -> None:
+    plan = build_query_expansion_plan("Who is responsible for Project Atlas?")
+
+    assert "person_summary_bridge" not in {expansion.reason for expansion in plan.expansions}
+
+
 def test_query_expansion_covers_patriotic_service_inference() -> None:
     plan = build_query_expansion_plan("Would John be considered a patriotic person?")
 

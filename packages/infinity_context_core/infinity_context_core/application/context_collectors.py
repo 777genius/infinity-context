@@ -233,6 +233,7 @@ _PROTECTED_EXPANSION_HEAD_REASONS = frozenset(
         "negative_experience_support_bridge",
         "negative_preference_bridge",
         "painting_inventory_bridge",
+        "person_summary_bridge",
         "personality_authenticity_bridge",
         "personality_drive_bridge",
         "personality_thoughtfulness_bridge",

@@ -21,6 +21,11 @@ _STATE_RESIDENCE_INFERENCE_EXPANSION = (
 _CURRENT_OCCUPATION_EXPANSION = (
     "current job work occupation profession role title position works as employed company"
 )
+_PERSON_SUMMARY_EXPANSION = (
+    "person profile summary facts background biography attributes traits preferences "
+    "relationships family friends work occupation role residence origin hometown "
+    "events activities goals current state evidence"
+)
 _RELOCATION_DESTINATION_EXPANSION = (
     "moved to relocated to destination new city new country current home lives now settled"
 )
@@ -37,6 +42,11 @@ _RU_CURRENT_RESIDENCE_EXPANSION = (
 _RU_CURRENT_OCCUPATION_EXPANSION = (
     "кем работает работа профессия должность роль текущая работа компания "
     "job occupation profession works as"
+)
+_RU_PERSON_SUMMARY_EXPANSION = (
+    "профиль человек кратко факты биография атрибуты черты предпочтения "
+    "отношения семья друзья работа профессия роль где живет откуда события "
+    "активности цели текущий статус evidence person profile summary"
 )
 _RU_RELOCATION_DESTINATION_EXPANSION = (
     "куда переехал переехала переехали переезжает переезд новый город новая страна "
@@ -55,16 +65,35 @@ _ORIGIN_FROM_QUERY_RE = re.compile(
     r"\bwhere\s+(?:is|are|was|were)\s+.+?\s+from\b",
     re.IGNORECASE,
 )
+_PERSON_LABEL_RE = r"[A-ZА-ЯЁ][A-Za-zА-Яа-яЁё._-]{1,39}"
+_PERSON_SUMMARY_QUERY_RE = re.compile(
+    rf"(?i:\bwho\s+(?:is|are|was|were)\s+){_PERSON_LABEL_RE}\s*(?:\?|$)|"
+    rf"(?i:\bwhat\s+(?:do|did)\s+(?:we|you)\s+know\s+about\s+){_PERSON_LABEL_RE}\b|"
+    rf"(?i:\btell\s+me\s+about\s+){_PERSON_LABEL_RE}\b|"
+    rf"(?i:\bsummari[sz]e\s+){_PERSON_LABEL_RE}\b|"
+    rf"(?i:\bprofile\s+(?:for|of)\s+){_PERSON_LABEL_RE}\b",
+)
 _RU_CURRENT_OCCUPATION_QUERY_RE = re.compile(
     r"\b(?:кем\s+работа(?:ет|ют)|какая\s+работа|"
     r"что\s+.+?\s+дела(?:ет|ют)\s+по\s+работе|профессия|должность)\b",
     re.IGNORECASE,
+)
+_RU_PERSON_SUMMARY_QUERY_RE = re.compile(
+    rf"(?i:\bкто\s+(?:такой|такая|это)\s+){_PERSON_LABEL_RE}\s*(?:\?|$)|"
+    rf"(?i:\bчто\s+(?:мы|ты)\s+зна(?:ем|ешь)\s+(?:об|о|про)\s+){_PERSON_LABEL_RE}\b|"
+    rf"(?i:\bрасскажи\s+(?:об|о|про)\s+){_PERSON_LABEL_RE}\b|"
+    rf"(?i:\bпрофиль\s+){_PERSON_LABEL_RE}\b",
 )
 
 PERSONAL_FACT_QUESTION_STOPWORDS = frozenset(
     {
         "Кем",
         "Куда",
+        "Профиль",
+        "Расскажи",
+        "Profile",
+        "Summarize",
+        "Tell",
     }
 )
 
@@ -120,6 +149,11 @@ PERSONAL_FACT_EXPANSION_RULES: tuple[tuple[frozenset[str], str, str], ...] = (
         "current_occupation_bridge",
     ),
     (
+        frozenset({"person_summary_query"}),
+        _PERSON_SUMMARY_EXPANSION,
+        "person_summary_bridge",
+    ),
+    (
         frozenset({"where", "move", "to"}),
         _RELOCATION_DESTINATION_EXPANSION,
         "relocation_destination_bridge",
@@ -163,6 +197,11 @@ PERSONAL_FACT_EXPANSION_RULES: tuple[tuple[frozenset[str], str, str], ...] = (
         frozenset({"ru_current_occupation_query"}),
         _RU_CURRENT_OCCUPATION_EXPANSION,
         "current_occupation_bridge",
+    ),
+    (
+        frozenset({"ru_person_summary_query"}),
+        _RU_PERSON_SUMMARY_EXPANSION,
+        "person_summary_bridge",
     ),
     (
         frozenset({"куда", "переехал"}),
@@ -237,6 +276,10 @@ def personal_fact_query_variants(query: str) -> frozenset[str]:
         variants.add("current_occupation_query")
     if _ORIGIN_FROM_QUERY_RE.search(query):
         variants.add("origin_from_query")
+    if _PERSON_SUMMARY_QUERY_RE.search(query):
+        variants.add("person_summary_query")
     if _RU_CURRENT_OCCUPATION_QUERY_RE.search(query):
         variants.add("ru_current_occupation_query")
+    if _RU_PERSON_SUMMARY_QUERY_RE.search(query):
+        variants.add("ru_person_summary_query")
     return frozenset(variants)
