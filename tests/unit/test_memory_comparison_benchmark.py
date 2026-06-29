@@ -9,6 +9,7 @@ import pytest
 from infinity_context_server import eval as eval_module
 from infinity_context_server.memory_comparison_benchmark import (
     MEMORY_COMPARISON_MODE,
+    _backend_comparison,
     run_memory_comparison_benchmark,
 )
 from infinity_context_server.memory_comparison_llm import (
@@ -193,6 +194,48 @@ def test_memory_comparison_benchmark_reports_side_by_side_metrics(
     )
     assert result["metadata"]["token_cost_scope"] == "answerer_judge_only"
     assert "backend_internal_ingest_provider_cost" in result["metadata"]["unmeasured_costs"]
+
+
+def test_memory_comparison_backend_comparison_tolerates_malformed_metric_values() -> None:
+    comparison = _backend_comparison(
+        {
+            "memo-stack": {
+                "accuracy": "not-a-number",
+                "expected_term_recall": True,
+                "avg_retrieved_count": "2.5",
+                "avg_context_tokens": None,
+                "avg_ingest_latency_ms": "bad",
+                "avg_search_latency_ms": 12,
+                "avg_generation_latency_ms": 4,
+                "avg_judge_latency_ms": 2,
+                "token_cost": {"total_usd": "bad"},
+            },
+            "mem0": {
+                "accuracy": 0.25,
+                "expected_term_recall": 0.1,
+                "avg_retrieved_count": 1,
+                "avg_context_tokens": 9,
+                "avg_ingest_latency_ms": 3,
+                "avg_search_latency_ms": 10,
+                "avg_generation_latency_ms": 4,
+                "avg_judge_latency_ms": 5,
+                "token_cost": {"total_usd": 0.125},
+            },
+        }
+    )
+
+    assert comparison["ranked_by_accuracy"] == ["mem0", "memo-stack"]
+    assert comparison["memo_stack_vs_mem0_accuracy_delta"] == -0.25
+    assert comparison["memo_stack_vs_mem0_expected_term_recall_delta"] == -0.1
+    assert comparison["memo_stack_vs_mem0_avg_retrieved_count_delta"] == 1.5
+    assert comparison["memo_stack_vs_mem0_avg_context_tokens_delta"] == -9.0
+    assert comparison["memo_stack_vs_mem0_latency_delta_ms"] == {
+        "ingest": -3.0,
+        "search": 2.0,
+        "generation": 0.0,
+        "judge": -3.0,
+    }
+    assert comparison["memo_stack_vs_mem0_token_cost_total_usd_delta"] == -0.125
 
 
 def test_memory_comparison_benchmark_reuses_ingested_corpus(

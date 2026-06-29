@@ -644,7 +644,7 @@ def _backend_comparison(
 ) -> dict[str, object]:
     ranked = sorted(
         backend_metrics.items(),
-        key=lambda item: float(item[1].get("accuracy", 0.0)),
+        key=lambda item: _metric_value(item[1], "accuracy"),
         reverse=True,
     )
     comparison: dict[str, object] = {
@@ -926,7 +926,17 @@ def _metric_delta(
     right: Mapping[str, object],
     key: str,
 ) -> float:
-    return round(float(left.get(key, 0.0)) - float(right.get(key, 0.0)), 4)
+    return round(_metric_value(left, key) - _metric_value(right, key), 4)
+
+
+def _metric_value(item: Mapping[str, object], key: str) -> float:
+    value = item.get(key)
+    if isinstance(value, bool):
+        return 0.0
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _nested_float(item: Mapping[str, object], *keys: str) -> float:
