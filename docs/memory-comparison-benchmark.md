@@ -78,7 +78,8 @@ Use deterministic answer/judge for a no-paid dry run by omitting
 The JSON report includes:
 
 - per-backend accuracy and category/group breakdown;
-- LoCoMo category 5 reported in `by_category` but excluded from scored accuracy;
+- LoCoMo category 5 reported in `by_category` with unscored counts but excluded
+  from scored accuracy;
 - retrieved memory count, retrieval recall and missing expected terms;
 - ingest/search/generation/judge latency averages;
 - context token estimates, answerer/judge token usage and configured token cost;

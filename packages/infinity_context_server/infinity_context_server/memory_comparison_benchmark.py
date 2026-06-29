@@ -541,14 +541,17 @@ def _backend_metrics(
 
 
 def _bucket_metrics(items: Sequence[Mapping[str, object]]) -> dict[str, object]:
-    passed = sum(1 for item in items if _evaluation_score(item) >= 1.0)
+    scored = [item for item in items if item.get("scored") is True]
+    passed = sum(1 for item in scored if _evaluation_score(item) >= 1.0)
     return {
         "total": len(items),
+        "scored": len(scored),
+        "unscored": len(items) - len(scored),
         "passed": passed,
-        "failed": len(items) - passed,
-        "accuracy": _ratio(passed, len(items)),
-        "avg_score": _avg(_evaluation_score(item) for item in items),
-        "expected_term_recall": _avg(_retrieval_recall(item) for item in items),
+        "failed": len(scored) - passed,
+        "accuracy": _ratio(passed, len(scored)),
+        "avg_score": _avg(_evaluation_score(item) for item in scored),
+        "expected_term_recall": _avg(_retrieval_recall(item) for item in scored),
     }
 
 

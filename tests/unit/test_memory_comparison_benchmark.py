@@ -257,6 +257,10 @@ def test_memory_comparison_benchmark_reports_category_five_as_unscored(
     assert metrics["unscored"] == 1
     assert metrics["by_category"]["4:single-hop"]["total"] == 1
     assert metrics["by_category"]["5:adversarial"]["total"] == 1
+    assert metrics["by_category"]["5:adversarial"]["scored"] == 0
+    assert metrics["by_category"]["5:adversarial"]["unscored"] == 1
+    assert metrics["by_category"]["5:adversarial"]["passed"] == 0
+    assert metrics["by_category"]["5:adversarial"]["accuracy"] == 0.0
     assert result["evaluations"][1]["scored"] is False
     assert result["evaluations"][1]["category"] == "5:adversarial"
 
