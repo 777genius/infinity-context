@@ -728,6 +728,55 @@ def test_mem0_http_ingest_uses_run_isolated_user_and_redacts_errors() -> None:
     }
 
 
+def test_mem0_http_search_uses_current_filters_and_top_k_payload() -> None:
+    seen_payloads: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_payloads.append(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={
+                "results": [
+                    {
+                        "id": "memory-1",
+                        "memory": "The checklist is in the blue notebook.",
+                        "score": 0.82,
+                        "created_at": "2026-01-15T10:30:00Z",
+                    }
+                ]
+            },
+        )
+
+    backend = http_module.Mem0HttpComparisonBackend(
+        base_url="http://mem0.test",
+        transport=httpx.MockTransport(handler),
+    )
+    case = _case(
+        case_id="conv-1:qa:1",
+        question="Where is the checklist?",
+        expected_terms=("blue notebook",),
+        answer="blue notebook",
+    )
+
+    try:
+        result = backend.search(case, run_id="Run 42", top_k=7)
+    finally:
+        backend.close()
+
+    assert seen_payloads == [
+        {
+            "query": "Where is the checklist?",
+            "filters": {
+                "user_id": "memo-stack-comparison-run-42",
+                "run_id": "Run 42",
+            },
+            "top_k": 7,
+        }
+    ]
+    assert result.total_results == 1
+    assert result.memories[0].text == "The checklist is in the blue notebook."
+
+
 def test_openai_responses_llm_adapters_parse_fake_client() -> None:
     case = _case(
         case_id="conv-1:qa:1",

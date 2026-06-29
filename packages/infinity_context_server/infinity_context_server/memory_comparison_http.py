@@ -277,9 +277,8 @@ class Mem0HttpComparisonBackend:
             "/search",
             json={
                 "query": case.question,
-                "user_id": self._user_id(run_id),
-                "run_id": run_id,
-                "limit": top_k,
+                "filters": {"user_id": self._user_id(run_id), "run_id": run_id},
+                "top_k": top_k,
             },
         )
         response.raise_for_status()
