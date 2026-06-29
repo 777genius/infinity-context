@@ -293,6 +293,11 @@ def run_memory_comparison_benchmark(
                 "answerer": token_cost_rate_payload(answerer_token_cost_rate),
                 "judge": token_cost_rate_payload(judge_token_cost_rate),
             },
+            "token_cost_scope": "answerer_judge_only",
+            "unmeasured_costs": [
+                "backend_internal_ingest_provider_cost",
+                "backend_internal_search_provider_cost",
+            ],
             "backend_names": list(backend_names),
             "scoring_note": "LoCoMo category 5 is reported but excluded from scored accuracy.",
         },
@@ -975,6 +980,8 @@ def _token_cost_summary(
             answerer_token_cost_rate.is_configured
             or judge_token_cost_rate.is_configured
         ),
+        "scope": "answerer_judge_only",
+        "unmeasured_backend_provider_costs": True,
         "currency": "USD",
         "answerer": answerer_cost,
         "judge": judge_cost,

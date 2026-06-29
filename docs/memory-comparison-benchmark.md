@@ -67,6 +67,9 @@ Use deterministic answer/judge for a no-paid dry run by omitting
 - Token cost reporting uses explicit USD-per-1M-token rates from CLI flags or
   `MEMORY_COMPARISON_*_USD_PER_1M` env vars. The runner does not hardcode
   provider prices.
+- Token cost scope is answerer/judge only. Backend-internal ingest/search
+  provider costs are reported as unmeasured because they are not observable
+  through the generic HTTP comparison ports.
 - The memo-stack backend isolates state with a run-specific benchmark space.
 - The mem0 backend uses a run-specific `user_id` / `run_id` and deletes that
   isolated user/run at startup by default.

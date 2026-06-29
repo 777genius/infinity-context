@@ -175,6 +175,8 @@ def test_memory_comparison_benchmark_reports_side_by_side_metrics(
         8,
     )
     assert token_cost["configured"] is True
+    assert token_cost["scope"] == "answerer_judge_only"
+    assert token_cost["unmeasured_backend_provider_costs"] is True
     assert token_cost["answerer"]["total_usd"] == expected_answerer_cost
     assert token_cost["judge"]["total_usd"] == expected_judge_cost
     assert token_cost["total_usd"] == round(
@@ -189,6 +191,8 @@ def test_memory_comparison_benchmark_reports_side_by_side_metrics(
             8,
         )
     )
+    assert result["metadata"]["token_cost_scope"] == "answerer_judge_only"
+    assert "backend_internal_ingest_provider_cost" in result["metadata"]["unmeasured_costs"]
 
 
 def test_memory_comparison_benchmark_reuses_ingested_corpus(
