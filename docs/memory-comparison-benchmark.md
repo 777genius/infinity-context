@@ -38,6 +38,10 @@ python -m infinity_context_server.eval memory-comparison-benchmark \
   --report-out .e2e-artifacts/memory-comparison-locomo.json
 ```
 
+`--mem0-url` is the self-hosted mem0 OSS REST server base URL. The adapter uses
+the OSS endpoints `POST /memories`, `POST /search` and `DELETE /memories`; it
+does not target the hosted mem0 Platform `/v3` API.
+
 Use deterministic answer/judge for a no-paid dry run by omitting
 `--answerer-provider openai`, `--judge-provider openai` and `--allow-paid-llm`.
 
