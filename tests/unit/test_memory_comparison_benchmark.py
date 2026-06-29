@@ -314,6 +314,40 @@ def test_memory_comparison_benchmark_records_search_failures(
     assert result["evaluations"][1]["judgment"]["verdict"] == "error"
 
 
+def test_memory_comparison_benchmark_records_reset_failures_without_stopping_others(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "unused.json"
+    dataset.write_text("[]", encoding="utf-8")
+    case = _case(
+        case_id="conv-1:qa:1",
+        question="Where is the checklist?",
+        expected_terms=("blue notebook",),
+        answer="blue notebook",
+    )
+    good_backend = _StaticBackend(
+        "memo-stack",
+        {case.case_id: (RetrievedMemory(text="blue notebook", rank=1),)},
+    )
+    failing_backend = _ResetFailingBackend("mem0", {})
+
+    result = run_memory_comparison_benchmark(
+        dataset_path=dataset,
+        backends=(good_backend, failing_backend),
+        top_k=1,
+        top_k_cutoffs=(1,),
+        run_id="unit-run",
+        cases_override=(case,),
+    )
+
+    assert result["backend_metrics"]["memo-stack"]["accuracy"] == 1.0
+    assert result["backend_metrics"]["mem0"]["accuracy"] == 0.0
+    assert result["failure_analysis"][0]["backend"] == "mem0"
+    assert result["failure_analysis"][0]["reason"] == "reset_failed"
+    assert result["evaluations"][1]["judgment"]["verdict"] == "error"
+    assert sum(failing_backend.ingest_calls.values()) == 0
+
+
 def test_memory_comparison_cli_is_manual_live_gated(tmp_path: Path) -> None:
     dataset = tmp_path / "dataset.json"
     dataset.write_text("[]", encoding="utf-8")
@@ -386,6 +420,7 @@ def test_memory_comparison_cli_closes_live_backend_clients(
     def fake_run_memory_comparison_benchmark(**kwargs: object) -> dict[str, object]:
         backends = kwargs["backends"]
         assert tuple(backend.name for backend in backends) == ("memo-stack", "mem0")
+        assert kwargs["capabilities"] == ("single-hop", "temporal")
         return {
             "suite": "memory-comparison-benchmark",
             "ok": True,
@@ -410,6 +445,10 @@ def test_memory_comparison_cli_closes_live_backend_clients(
             "--mem0-url",
             "http://mem0.example",
             "--allow-live",
+            "--capability",
+            "single-hop",
+            "--capability",
+            "temporal",
         ]
     )
 
@@ -545,3 +584,8 @@ class _SearchFailingBackend(_StaticBackend):
     ) -> BackendSearchResult:
         del case, top_k
         raise RuntimeError(f"search failed for token {run_id}")
+
+
+class _ResetFailingBackend(_StaticBackend):
+    def reset(self, *, run_id: str) -> None:
+        raise RuntimeError(f"reset failed for token {run_id}")

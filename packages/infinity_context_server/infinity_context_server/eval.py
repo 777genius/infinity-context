@@ -2466,6 +2466,12 @@ def main(argv: Sequence[str] | None = None) -> None:
         default=None,
         help="Run only the requested public benchmark case id. Repeat for multiple cases.",
     )
+    memory_comparison.add_argument(
+        "--capability",
+        action="append",
+        default=None,
+        help="Run only cases with the requested capability. Repeat for multiple capabilities.",
+    )
     memory_comparison.add_argument("--run-id", default=None)
     memory_comparison.add_argument("--report-out", type=Path, default=None)
     memory_comparison.add_argument(
@@ -2626,6 +2632,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                     min_accuracy=args.min_accuracy,
                     max_cases=args.max_cases,
                     case_ids=tuple(args.case_id or ()),
+                    capabilities=tuple(args.capability or ()),
                     top_k=args.top_k,
                     top_k_cutoffs=tuple(args.top_k_cutoff or (10, 20, 50, 200)),
                     run_id=args.run_id,

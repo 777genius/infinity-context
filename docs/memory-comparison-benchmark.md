@@ -25,6 +25,7 @@ python -m infinity_context_server.eval memory-comparison-benchmark \
   --mem0-url http://127.0.0.1:8888 \
   --benchmark locomo \
   --max-cases 20 \
+  --capability single-hop \
   --top-k 200 \
   --top-k-cutoff 10 \
   --top-k-cutoff 20 \
@@ -73,5 +74,5 @@ The JSON report includes:
 - top-k cutoff metrics;
 - per-case failure analysis with backend, group, score, retrieval recall and
   missing terms;
-- backend ingest/search/answer/judge exceptions as scored stage failures with
+- backend reset/ingest/search/answer/judge exceptions as scored stage failures with
   redacted error metadata.

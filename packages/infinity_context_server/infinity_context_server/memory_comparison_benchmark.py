@@ -164,12 +164,36 @@ def run_memory_comparison_benchmark(
     failures: list[dict[str, object]] = []
     ingested_corpus_by_backend: dict[str, set[str]] = {name: set() for name in backend_names}
 
-    for backend in backends:
-        backend.reset(run_id=run_id)
+    reset_failure_by_backend: dict[str, str] = {}
+    for backend, backend_name in zip(backends, backend_names, strict=True):
+        try:
+            backend.reset(run_id=run_id)
+        except Exception as exc:
+            reset_failure_by_backend[backend_name] = _safe_error_reason(exc)
 
     for case in cases:
         corpus_key = _case_corpus_key(case)
         for backend, backend_name in zip(backends, backend_names, strict=True):
+            reset_failure = reset_failure_by_backend.get(backend_name)
+            if reset_failure is not None:
+                evaluation = _stage_failure_evaluation(
+                    case,
+                    backend_name=backend_name,
+                    stage="reset",
+                    reason=reset_failure,
+                    ingest_result=BackendIngestResult(
+                        items_processed=0,
+                        items_failed=1,
+                        metadata={"run_id": run_id, "stage": "reset"},
+                    ),
+                    answerer_model=answerer.model,
+                    judge_model=judge.model,
+                )
+                evaluations.append(evaluation)
+                failure = _failure_analysis_entry(evaluation)
+                if failure is not None:
+                    failures.append(failure)
+                continue
             if corpus_key in ingested_corpus_by_backend[backend_name]:
                 ingest_result = BackendIngestResult(
                     items_processed=0,
