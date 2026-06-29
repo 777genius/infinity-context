@@ -15,6 +15,7 @@ from infinity_context_server.memory_comparison_models import (
     IngestionOperation,
     RetrievedMemory,
 )
+from infinity_context_server.public_benchmark_checkpoint import safe_identifier
 from infinity_context_server.public_benchmark_models import (
     BenchmarkDocumentInput,
     BenchmarkMemoryInput,
@@ -120,7 +121,10 @@ class InfinityContextHttpComparisonBackend:
         step: int,
     ) -> IngestionOperation:
         started = time.perf_counter()
-        source_id = memory.source_external_id or f"{case.case_id}:memory:{step}"
+        source_id = safe_identifier(
+            memory.source_external_id or f"{case.case_id}:memory:{step}",
+            max_chars=160,
+        )
         response = self._client.post(
             "/v1/facts",
             json={
@@ -159,7 +163,10 @@ class InfinityContextHttpComparisonBackend:
         step: int,
     ) -> IngestionOperation:
         started = time.perf_counter()
-        source_id = document.source_external_id or f"{case.case_id}:document:{step}"
+        source_id = safe_identifier(
+            document.source_external_id or f"{case.case_id}:document:{step}",
+            max_chars=240,
+        )
         response = self._client.post(
             "/v1/documents",
             json={

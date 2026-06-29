@@ -692,6 +692,61 @@ def test_infinity_context_http_ingest_uses_isolated_state_and_redacts_errors() -
     }
 
 
+def test_infinity_context_http_ingest_bounds_source_ids_for_public_api() -> None:
+    raw_fact_id = "fact-" + ("x" * 220)
+    raw_document_id = "document-" + ("y" * 300)
+    seen_requests: list[tuple[dict[str, str], dict[str, object]]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_requests.append((dict(request.headers), json.loads(request.content)))
+        return httpx.Response(201, json={"data": {"id": "created"}})
+
+    backend = http_module.InfinityContextHttpComparisonBackend(
+        base_url="http://memo.test",
+        auth_token="unit-token",
+        transport=httpx.MockTransport(handler),
+    )
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:1",
+        question="Where is the checklist?",
+        expected_terms=("blue notebook",),
+        memories=(
+            BenchmarkMemoryInput(
+                text="Morgan kept the checklist in the blue notebook.",
+                source_external_id=raw_fact_id,
+            ),
+        ),
+        documents=(
+            BenchmarkDocumentInput(
+                title="Conversation",
+                text="Morgan repeated that the checklist is in the blue notebook.",
+                source_external_id=raw_document_id,
+            ),
+        ),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+    )
+
+    try:
+        result = backend.ingest(case, run_id="Run 42", corpus_key="corpus-a")
+    finally:
+        backend.close()
+
+    fact_headers, fact_payload = seen_requests[0]
+    document_headers, document_payload = seen_requests[1]
+    fact_source_id = fact_payload["source_refs"][0]["source_id"]
+    document_source_id = document_payload["source_external_id"]
+
+    assert result.items_failed == 0
+    assert len(str(fact_source_id)) == 160
+    assert raw_fact_id not in str(fact_source_id)
+    assert fact_headers["idempotency-key"] == fact_source_id
+    assert len(str(document_source_id)) == 240
+    assert raw_document_id not in str(document_source_id)
+    assert document_headers["idempotency-key"] == document_source_id
+
+
 def test_mem0_http_ingest_uses_run_isolated_user_and_redacts_errors() -> None:
     raw_secret = "sk-proj-secretvalue1234567890"
     seen_requests: list[tuple[str, dict[str, object] | None]] = []
