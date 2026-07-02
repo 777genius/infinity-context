@@ -331,7 +331,11 @@ _HEALTH_PROFILE_SURFACE_RE = re.compile(
 _AGE_PROFILE_SURFACE_RE = re.compile(
     r"\b(?:i\s+am|i'm|he\s+is|he's|she\s+is|she's|they\s+are|they're)\s+"
     r"(?:\d{1,3}|[a-z]+)\s+years?\s+old\b"
-    r"|\b(?:age\s+(?:is|was)|turned)\s+(?:\d{1,3}|[a-z]+)\b",
+    r"|\b(?:age\s+(?:is|was)|turned|turns)\s+(?:\d{1,3}|[a-z]+)\b"
+    r"(?!\s+(?:page|pages)\b)"
+    r"|\b(?:i\s+am|i'm|he\s+is|he's|she\s+is|she's|they\s+are|they're"
+    r"|[a-z][a-zA-Z0-9_-]+\s+is)\s+turning\s+(?:\d{1,3}|[a-z]+)\b"
+    r"(?!\s+(?:page|pages)\b)",
     re.IGNORECASE,
 )
 

@@ -587,7 +587,18 @@ def _age_support_query_terms(
     entity_tokens = {
         token for surface in entity_surfaces for token in _normalized_terms(surface)
     }
-    age_terms = {"age", "birthday", "born", "old", "year", "years"}
+    age_terms = {
+        "age",
+        "birthday",
+        "born",
+        "old",
+        "turn",
+        "turned",
+        "turning",
+        "turns",
+        "year",
+        "years",
+    }
     topical_terms = tuple(
         term
         for term in lexical_terms

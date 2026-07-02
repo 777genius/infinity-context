@@ -1758,6 +1758,10 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "birthday",
                 "born",
                 "old",
+                "turn",
+                "turned",
+                "turning",
+                "turns",
                 "year",
                 "years",
             }

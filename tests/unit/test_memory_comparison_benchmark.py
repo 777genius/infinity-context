@@ -5022,14 +5022,14 @@ def test_query_decomposition_expands_age_profile_queries() -> None:
     age_queries, age_metadata = rerank_module.decomposed_search_queries(age_case)
     _, old_photo_metadata = rerank_module.decomposed_search_queries(old_photo_case)
 
-    assert how_old_queries[2] == "alex age old year birthday born"
+    assert how_old_queries[2] == "alex age old year birthday born turn"
     assert how_old_metadata["query_profile"]["relation_terms"] == ("age",)
     assert how_old_metadata["query_profile"]["relation_categories"] == (
         "age_profile",
     )
     assert how_old_metadata["query_profile"]["evidence_need"] == ("age_profile",)
 
-    assert age_queries[2] == "alex age old year birthday born"
+    assert age_queries[2] == "alex age old year birthday born turn"
     assert age_metadata["query_profile"]["relation_categories"] == ("age_profile",)
 
     assert "age_profile" not in old_photo_metadata["query_profile"][
@@ -10291,6 +10291,63 @@ def test_benchmark_rerank_boosts_age_profile_evidence() -> None:
         age_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
         > 0
     )
+    assert age_diagnostics["score_signals"][
+        "benchmark_typed_relation_support_roles"
+    ] == ["age_support"]
+    assert (
+        topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        == 0
+    )
+
+
+def test_benchmark_rerank_boosts_turning_age_profile_evidence() -> None:
+    case = _case(
+        case_id="age-profile-turning-rerank",
+        question="How old is Alex?",
+        expected_terms=("32",),
+        answer="32",
+        category=4,
+    )
+    topical_turning = RetrievedMemory(
+        item_id="topical-turning",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex talked about turning pages in a 32-page book."
+        ),
+        source_refs=("D1:1",),
+    )
+    age_profile = RetrievedMemory(
+        item_id="age-profile",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: I'm turning 32 next month."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_turning, age_profile),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("age_profile",)
+    assert reranked[0].item_id == "age-profile"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    age_diagnostics = diagnostics_by_id["age-profile"]
+    topical_diagnostics = diagnostics_by_id["topical-turning"]
+    assert age_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["age_profile"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
     assert age_diagnostics["score_signals"][
         "benchmark_typed_relation_support_roles"
     ] == ["age_support"]

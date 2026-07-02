@@ -587,7 +587,7 @@ def decomposed_search_queries(
                 )
             )
             relation_term_limit = 7
-        elif compact_relation_role == "communication_support":
+        elif compact_relation_role in {"age_support", "communication_support"}:
             relation_term_limit = 8
         elif (
             "activity" in relation_terms
