@@ -323,6 +323,85 @@ def test_candidate_features_ground_partner_status_relation_evidence() -> None:
     assert grounded_status.answerability_score > generic_mention.answerability_score
 
 
+def test_candidate_features_ground_person_role_relation_evidence() -> None:
+    generic_mention = build_candidate_evidence_features(
+        RetrievedMemory(
+            item_id="generic-roommate-mention",
+            rank=1,
+            text="D1:2 Dana: Riley stopped by the apartment yesterday.",
+            source_refs=("D1:2",),
+        ),
+        memory_terms={"dana", "riley", "stopped", "apartment", "yesterday"},
+        query_terms=("dana", "roommate"),
+        relation_terms=("roommate",),
+        relation_variant_terms=("housemate", "apartment", "home", "living"),
+        relation_category_terms={
+            "status_profile": (
+                "roommate",
+                "housemate",
+                "apartment",
+                "home",
+                "living",
+            )
+        },
+        entities=("dana",),
+        entity_hits=("dana",),
+        speaker_hits=("dana",),
+        high_signal_relation_terms={"roommate", "housemate"},
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+    grounded_role = build_candidate_evidence_features(
+        RetrievedMemory(
+            item_id="roommate-status",
+            rank=2,
+            text="D2:5 Dana: Riley is my roommate.",
+            source_refs=("D2:5",),
+        ),
+        memory_terms={"dana", "riley", "roommate"},
+        query_terms=("dana", "roommate"),
+        relation_terms=("roommate",),
+        relation_variant_terms=("housemate", "apartment", "home", "living"),
+        relation_category_terms={
+            "status_profile": (
+                "roommate",
+                "housemate",
+                "apartment",
+                "home",
+                "living",
+            )
+        },
+        entities=("dana",),
+        entity_hits=("dana",),
+        speaker_hits=("dana",),
+        high_signal_relation_terms={"roommate", "housemate"},
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+
+    assert generic_mention.relation_category_hits == ()
+    assert "missing_status_profile_evidence" in (
+        generic_mention.answerability_reason_codes
+    )
+    assert grounded_role.relation_category_hits == ("status_profile",)
+    assert "status_profile_evidence" in grounded_role.answerability_reason_codes
+    assert grounded_role.answerability_score > generic_mention.answerability_score
+
+
 def test_candidate_features_detect_location_transition_destination_surface() -> None:
     generic_move = build_candidate_evidence_features(
         RetrievedMemory(

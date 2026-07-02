@@ -4087,7 +4087,8 @@ def test_query_decomposition_expands_temporal_action_queries() -> None:
     assert "run" in race_metadata["query_profile"]["relation_terms"]
     assert "charity" in race_metadata["query_profile"]["relation_terms"]
     assert "marathon" not in race_metadata["query_profile"]["relation_variant_terms"]
-    assert meeting_queries[1] == "caroline meet friend met family mentor gathering"
+    assert meeting_queries[1] == "caroline meet friend mentor met family gathering"
+    assert "mentor" in meeting_metadata["query_profile"]["relation_terms"]
     assert "meet" in meeting_metadata["query_profile"]["relation_terms"]
     assert speech_queries[1] == "caroline give speech school event talk student"
     assert "speech" in speech_metadata["query_profile"]["relation_terms"]
@@ -5305,6 +5306,46 @@ def test_query_decomposition_handles_question_bound_partner_status_terms() -> No
     assert "status_profile" in dating_intent.to_query_profile()["relation_categories"]
     assert "engag" in engaged_intent.relation_terms
     assert "status_profile" in engaged_intent.to_query_profile()[
+        "relation_categories"
+    ]
+
+
+def test_query_decomposition_handles_question_bound_person_role_terms() -> None:
+    roommate_case = _case(
+        case_id="conv-person-role:qa:1",
+        question="Who is Dana's roommate?",
+        expected_terms=("Riley",),
+        answer="Riley",
+    )
+    colleague_case = _case(
+        case_id="conv-person-role:qa:2",
+        question="Who is Dana's colleague?",
+        expected_terms=("Riley",),
+        answer="Riley",
+    )
+    mentor_case = _case(
+        case_id="conv-person-role:qa:3",
+        question="Who is Dana's mentor?",
+        expected_terms=("Riley",),
+        answer="Riley",
+    )
+
+    roommate_intent = rerank_module.query_retrieval_intent(roommate_case)
+    colleague_intent = rerank_module.query_retrieval_intent(colleague_case)
+    mentor_intent = rerank_module.query_retrieval_intent(mentor_case)
+
+    assert roommate_intent.relation_terms == ("roommate",)
+    assert "status_profile" in roommate_intent.to_query_profile()[
+        "relation_categories"
+    ]
+    assert "inference_support" in roommate_intent.evidence_need
+    assert "riley" not in roommate_intent.to_diagnostics()["relations"]["terms"]
+    assert colleague_intent.relation_terms == ("colleague",)
+    assert "status_profile" in colleague_intent.to_query_profile()[
+        "relation_categories"
+    ]
+    assert mentor_intent.relation_terms == ("mentor",)
+    assert "status_profile" in mentor_intent.to_query_profile()[
         "relation_categories"
     ]
 

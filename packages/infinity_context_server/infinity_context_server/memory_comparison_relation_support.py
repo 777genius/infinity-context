@@ -352,9 +352,12 @@ def _has_status_profile_support(memory_terms: set[str]) -> bool:
     } & memory_terms
     direct_relation = {
         "boyfriend",
+        "boss",
         "brother",
         "child",
         "children",
+        "colleague",
+        "coworker",
         "daughter",
         "father",
         "fiance",
@@ -365,13 +368,18 @@ def _has_status_profile_support(memory_terms: set[str]) -> bool:
         "husband",
         "kid",
         "kids",
+        "manager",
+        "mentor",
         "mother",
+        "neighbor",
         "parent",
         "partner",
+        "roommate",
         "sibling",
         "sister",
         "son",
         "spouse",
+        "teammate",
         "wife",
     } & memory_terms
     return bool(explicit_status or direct_relation)
