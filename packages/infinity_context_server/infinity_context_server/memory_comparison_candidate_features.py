@@ -18,7 +18,8 @@ _DIRECT_TURN_SPEAKER_RE = re.compile(
     r"\bD\d+:\d+\s+[A-Z][a-zA-Z0-9_-]{1,40}\s*:"
 )
 _BROAD_SUMMARY_SURFACE_RE = re.compile(
-    r"\b(?:observations|events date|related turns)\b",
+    r"\b(?:conversation summary|memory summary|observations|related turns|"
+    r"events date|summari[sz]ed turns|summary of)\b|\bsummary\s*:",
     re.IGNORECASE,
 )
 _NEGATION_SURFACE_RE = re.compile(

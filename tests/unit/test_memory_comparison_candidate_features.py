@@ -523,6 +523,81 @@ def test_candidate_features_detect_broad_summary_and_stale_conflict() -> None:
     assert features.duplicate_key.startswith("item_id:summary")
 
 
+def test_candidate_features_detect_labeled_generated_summary() -> None:
+    memory = RetrievedMemory(
+        item_id="conversation-summary",
+        rank=1,
+        text=(
+            "Conversation summary: D2:1 D2:2 Caroline discussed family "
+            "support and adoption agencies."
+        ),
+    )
+
+    features = build_candidate_evidence_features(
+        memory,
+        memory_terms={"caroline", "family", "support", "adoption", "agency"},
+        query_terms=("caroline", "family", "support"),
+        relation_terms=("relationship",),
+        relation_variant_terms=("family", "support"),
+        entities=("caroline",),
+        entity_hits=("caroline",),
+        speaker_hits=(),
+        high_signal_relation_terms={"support"},
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+
+    assert features.broad_summary is True
+    assert features.direct_speaker_turn is False
+    assert features.source_locality_score == 0.45
+    assert "broad_summary_penalty" in features.answerability_reason_codes
+
+
+def test_candidate_features_keep_direct_turn_summary_phrase_localized() -> None:
+    memory = RetrievedMemory(
+        item_id="direct-summary-phrase",
+        rank=1,
+        text=(
+            "D2:1 Caroline: In summary, my family support helped me through "
+            "the adoption agency process."
+        ),
+        source_refs=("D2:1",),
+    )
+
+    features = build_candidate_evidence_features(
+        memory,
+        memory_terms={"caroline", "family", "support", "adoption", "agency"},
+        query_terms=("caroline", "family", "support"),
+        relation_terms=("relationship",),
+        relation_variant_terms=("family", "support"),
+        entities=("caroline",),
+        entity_hits=("caroline",),
+        speaker_hits=("caroline",),
+        high_signal_relation_terms={"support"},
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+
+    assert features.broad_summary is False
+    assert features.direct_speaker_turn is True
+    assert features.source_locality_score == 1.0
+    assert features.source_locality_reason_codes == ("direct_localized_turn",)
+
+
 def test_candidate_features_penalize_broad_turn_provenance_locality() -> None:
     memory = RetrievedMemory(
         item_id="wide-summary",
