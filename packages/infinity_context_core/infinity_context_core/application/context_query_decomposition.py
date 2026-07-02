@@ -1326,6 +1326,38 @@ _KIND_TYPE_DESCRIPTOR_TERMS = frozenset(
         "types",
     }
 )
+_IMPACT_EFFECT_TERMS = frozenset(
+    {
+        "affect",
+        "affected",
+        "effect",
+        "impact",
+        "impacted",
+        "influence",
+        "influenced",
+        "inspire",
+        "inspired",
+        "motivate",
+        "motivated",
+    }
+)
+_CONTENT_TOPIC_TERMS = frozenset(
+    {
+        "article",
+        "articles",
+        "blog",
+        "blogging",
+        "content",
+        "focus",
+        "post",
+        "posts",
+        "research",
+        "share",
+        "shared",
+        "topic",
+        "writing",
+    }
+)
 _SALIENT_DROP_VARIANTS = frozenset(
     {
         *_QUESTION_STOPWORDS,
@@ -1334,10 +1366,12 @@ _SALIENT_DROP_VARIANTS = frozenset(
         "consider",
         "considered",
         "does",
+        "focus",
         "kind",
         "kinds",
         "option",
         "still",
+        "topic",
         "type",
         "types",
     }
@@ -1968,6 +2002,32 @@ def build_query_decomposition_plan(
             ),
             reason="decomposition_kind_type_descriptor",
         )
+    if _requests_impact_effect_context(raw_tokens=raw_tokens, variants=variants):
+        _append_candidate(
+            candidates,
+            query=_compose_query(
+                (*identities, *salient_terms),
+                (
+                    "impact effect affected influenced inspired motivated helped "
+                    "changed perspective changed life positive impact made a difference "
+                    "response outcome result people readers community homes"
+                ),
+            ),
+            reason="decomposition_impact_effect",
+        )
+    if _requests_content_topic_context(raw_tokens=raw_tokens, variants=variants):
+        _append_candidate(
+            candidates,
+            query=_compose_query(
+                (*identities, *salient_terms),
+                (
+                    "content topic focus blog post article writing research shared "
+                    "posted wrote about online projects story stories youtube video "
+                    "channel readers letter response inspired"
+                ),
+            ),
+            reason="decomposition_content_topic",
+        )
     if _requests_commonality_context(identities=identities, variants=variants):
         _append_candidate(
             candidates,
@@ -2496,6 +2556,26 @@ def _requests_kind_type_descriptor_context(
     if not variants.intersection(_KIND_TYPE_DESCRIPTOR_TERMS):
         return False
     return bool(raw_tokens.intersection({"what", "which", "какой", "какая", "какие"}))
+
+
+def _requests_impact_effect_context(
+    *,
+    raw_tokens: frozenset[str],
+    variants: frozenset[str],
+) -> bool:
+    if not variants.intersection(_IMPACT_EFFECT_TERMS):
+        return False
+    return bool(raw_tokens.intersection({"how", "what", "which"}))
+
+
+def _requests_content_topic_context(
+    *,
+    raw_tokens: frozenset[str],
+    variants: frozenset[str],
+) -> bool:
+    if not variants.intersection(_CONTENT_TOPIC_TERMS):
+        return False
+    return bool(raw_tokens.intersection({"what", "which", "how"}))
 
 
 def _requests_people_inventory_context(

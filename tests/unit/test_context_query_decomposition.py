@@ -1852,3 +1852,60 @@ def test_best_query_relevance_uses_food_inventory_for_food_descriptor_evidence()
 
         assert reason == "decomposition_inventory_list"
         assert relevance.distinctive_term_hits >= 4
+
+
+def test_query_decomposition_adds_impact_and_content_topic_queries() -> None:
+    impact = build_query_decomposition_plan(
+        "What kind of impact does Joanna hope to have with her writing?"
+    )
+    content = build_query_decomposition_plan(
+        "What kind of content did Joanna share that someone wrote her a letter about?"
+    )
+
+    impact_query = next(
+        item for item in impact.decompositions if item.reason == "decomposition_impact_effect"
+    )
+    content_query = next(
+        item
+        for item in content.decompositions
+        if item.reason == "decomposition_content_topic"
+    )
+
+    assert "impact effect affected influenced inspired" in impact_query.query
+    assert "positive impact made a difference" in impact_query.query
+    assert "content topic focus blog post article writing" in content_query.query
+    assert "readers letter response inspired" in content_query.query
+
+
+def test_best_query_relevance_uses_impact_and_content_topic_decompositions() -> None:
+    cases = (
+        (
+            "What kind of impact does Joanna hope to have with her writing?",
+            (
+                "Joanna hopes her writing will inspire readers and have a "
+                "positive impact on people."
+            ),
+            "decomposition_impact_effect",
+        ),
+        (
+            "What kind of impact does Dave's blog on car mods have on people?",
+            "Dave's car mods blog inspired people to start their own DIY projects.",
+            "decomposition_impact_effect",
+        ),
+        (
+            "What kind of content did Joanna share that someone wrote her a letter about?",
+            (
+                "Joanna shared a blog post about her screenplay writing, and "
+                "someone wrote her a letter."
+            ),
+            "decomposition_content_topic",
+        ),
+    )
+
+    for query, text, expected_reason in cases:
+        plan = build_query_expansion_plan(query)
+
+        _, reason, relevance = best_query_relevance(plan, text=text)
+
+        assert reason == expected_reason
+        assert relevance.distinctive_term_hits >= 4
