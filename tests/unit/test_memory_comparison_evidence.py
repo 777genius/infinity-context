@@ -135,6 +135,77 @@ def test_evidence_bundle_requires_location_support_for_location_queries() -> Non
     assert origin_item["relation_category_hits"] == ["location_transition"]
 
 
+def test_evidence_bundle_requires_preference_support_for_preference_queries() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-preference:qa:1",
+        question="What does Melanie like?",
+        expected_terms=("animals",),
+        memory_scope_external_ref="locomo-conv-preference",
+        thread_external_ref="locomo-conv-preference",
+        metadata={"category": 4},
+    )
+
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text="D1:1 Melanie mentioned animals.",
+                rank=1,
+                item_id="primary",
+                source_refs=("D1:1",),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.95,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "relation_hits": ["animal"],
+                            "speaker_hits": ["melanie"],
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+            RetrievedMemory(
+                text="D2:3 Melanie: The kids love learning about animals.",
+                rank=2,
+                item_id="preference-support",
+                source_refs=("D2:3",),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.74,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "has_preference_evidence": True,
+                            "relation_categories": ["preference"],
+                            "relation_category_hits": ["preference"],
+                            "relation_hits": ["like", "love", "animal"],
+                            "speaker_hits": ["melanie"],
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+        ),
+    )
+
+    roles_by_id = {item["id"]: item["role"] for item in bundle["items"]}
+    support_item = next(
+        item for item in bundle["items"] if item["id"] == "preference-support"
+    )
+
+    assert bundle["required_roles"] == ["primary", "preference_support"]
+    assert bundle["satisfied_required_roles"] == ["primary", "preference_support"]
+    assert bundle["role_requirement_complete"] is True
+    assert roles_by_id["primary"] == "primary"
+    assert roles_by_id["preference-support"] == "preference_support"
+    assert support_item["has_preference_evidence"] is True
+    assert bundle["bundle_planner"]["bundle_quality"]["preference_support_count"] == 1
+    assert "preference_support" in support_item["planner_reason_codes"]
+
+
 def test_evidence_bundle_preserves_typed_temporal_feature_provenance() -> None:
     case = PublicBenchmarkCase(
         benchmark="locomo",

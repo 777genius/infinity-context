@@ -187,6 +187,9 @@ def evidence_bundle(
                 ),
                 entity_hits=_string_sequence(features.get("entity_hits")),
                 speaker_hits=_string_sequence(features.get("speaker_hits")),
+                has_preference_evidence=_bool_value(
+                    features.get("has_preference_evidence")
+                ),
                 query_roles=_string_sequence(features.get("query_roles")),
                 bridge_query_hit=_bool_value(features.get("bridge_query_hit")),
                 eligibility_reason_codes=eligibility_reason_codes,

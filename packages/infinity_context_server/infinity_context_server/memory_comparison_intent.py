@@ -327,6 +327,8 @@ def infer_bundle_evidence_roles(
         roles.append("contrast")
     if "location_support" in evidence_need_set:
         roles.append("location_support")
+    if "preference" in evidence_need_set:
+        roles.append("preference_support")
     if "causal_support" in evidence_need_set:
         roles.append("causal_support")
     if "inference_support" in evidence_need_set and len(roles) == 1:
