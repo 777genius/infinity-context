@@ -467,12 +467,15 @@ _INVENTORY_LIST_SLOT_TERMS = frozenset(
         "cities",
         "countries",
         "country",
+        "cake",
+        "cakes",
         "dessert",
         "desserts",
         "dish",
         "dishes",
         "food",
         "foods",
+        "frosting",
         "hobbies",
         "instruments",
         "items",
@@ -517,6 +520,9 @@ _INVENTORY_LIST_ACTION_TERMS = frozenset(
         "favourites",
         "go",
         "gone",
+        "had",
+        "has",
+        "have",
         "helped",
         "having",
         "enjoy",
@@ -529,6 +535,7 @@ _INVENTORY_LIST_ACTION_TERMS = frozenset(
         "love",
         "loved",
         "loves",
+        "make",
         "made",
         "mention",
         "mentioned",
@@ -541,6 +548,8 @@ _INVENTORY_LIST_ACTION_TERMS = frozenset(
         "support",
         "supporting",
         "taken",
+        "use",
+        "used",
         "visited",
         "volunteer",
         "volunteered",
@@ -2216,26 +2225,30 @@ def _inventory_list_tail(variants: frozenset[str]) -> str:
             "event events attended participated joined went planning fundraiser tournament "
             "fair networking conference parade speech support group"
         )
+    if variants.intersection({"dessert", "desserts", "recipe", "recipes"}):
+        tails.append(
+            "dessert desserts recipes recipe homemade made baked coconut milk "
+            "dairy-free ice cream icecream sweet treat treats pudding parfait "
+            "visual query image caption cobbler sundae cake tart pie cookies "
+            "brownies pastry chocolate raspberry strawberry blueberry gluten-free"
+        )
     if variants.intersection(
         {
-            "dessert",
-            "desserts",
+            "cake",
+            "cakes",
             "dish",
             "dishes",
             "food",
             "foods",
+            "frosting",
             "meal",
             "meals",
-            "recipe",
-            "recipes",
         }
     ):
         tails.append(
-            "dessert desserts recipes recipe homemade made baked coconut milk "
-            "dairy-free ice cream icecream sweet treat treats pudding parfait "
-            "visual query image caption cobbler sundae cake tart pie cookies brownies pastry "
-            "chocolate raspberry strawberry blueberry gluten-free crust filling frosting "
-            "cooked prepared whipped discovered tried revised old recipes favorite"
+            "dinner spread plate meal food dish ingredients homemade made cooked "
+            "prepared cake filling frosting cooked prepared cream cheese pizza pasta salad roasted "
+            "vegetables family photo shared"
         )
     if variants.intersection({"types", "kinds", "projects", "виды", "типы"}):
         tails.append(

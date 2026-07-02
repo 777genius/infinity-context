@@ -1808,3 +1808,47 @@ def test_best_query_relevance_uses_kind_type_descriptor_decomposition() -> None:
 
         assert reason == "decomposition_kind_type_descriptor"
         assert relevance.distinctive_term_hits >= 4
+
+
+def test_query_decomposition_adds_food_inventory_for_kind_type_food_questions() -> None:
+    cases = (
+        "What kind of food did Maria have on her dinner spread iwth her mother?",
+        "What kind of meal did John and his family make together in the photo shared by John?",
+        "What kind of frosting did Joanna use on the cake she made recently in May 2022?",
+    )
+
+    for query in cases:
+        plan = build_query_decomposition_plan(query)
+        inventory = next(
+            item
+            for item in plan.decompositions
+            if item.reason == "decomposition_inventory_list"
+        )
+
+        assert "dinner spread plate meal food dish ingredients" in inventory.query
+        assert "filling frosting cooked prepared" in inventory.query
+
+
+def test_best_query_relevance_uses_food_inventory_for_food_descriptor_evidence() -> None:
+    cases = (
+        (
+            "What kind of food did Maria have on her dinner spread iwth her mother?",
+            "Maria had pasta, salad, and roasted vegetables on her dinner spread with her mother.",
+        ),
+        (
+            "What kind of meal did John and his family make together in the photo shared by John?",
+            "John and his family made homemade pizza together in the photo he shared.",
+        ),
+        (
+            "What kind of frosting did Joanna use on the cake she made recently in May 2022?",
+            "Joanna used cream cheese frosting on the cake she made in May 2022.",
+        ),
+    )
+
+    for query, text in cases:
+        plan = build_query_expansion_plan(query)
+
+        _, reason, relevance = best_query_relevance(plan, text=text)
+
+        assert reason == "decomposition_inventory_list"
+        assert relevance.distinctive_term_hits >= 4

@@ -661,7 +661,7 @@ QUERY_REASON_PRIORITY = {
     "decomposition_event_sequence": 4,
     "decomposition_inference_support": 2,
     "decomposition_inventory_list": 4,
-    "decomposition_kind_type_descriptor": 4,
+    "decomposition_kind_type_descriptor": 3,
     "decomposition_support_role_fit": 4,
     "decomposition_temporal_answer": 3,
     "decomposition_lgbtq_pride_event": 4,
