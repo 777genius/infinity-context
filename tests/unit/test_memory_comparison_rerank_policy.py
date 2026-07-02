@@ -822,6 +822,34 @@ def test_rerank_policy_accepts_category_grounded_typed_profile_support() -> None
     ]
 
 
+def test_rerank_policy_role_boost_uses_only_typed_relation_hit_roles() -> None:
+    score = score_benchmark_rerank_candidate(
+        _features(
+            overlap_terms=("alex", "medicine", "zyrtec"),
+            entity_hits=("alex",),
+            relation_hits=(),
+            relation_terms=("health", "status"),
+            relation_categories=("health_profile", "status_profile"),
+            relation_category_hits=("health_profile",),
+            relation_category_coverage_ratio=0.5,
+            source_locality_score=1.0,
+            evidence_need=("health_profile", "status_profile"),
+            query_roles=("health_support", "status_support"),
+        )
+    )
+
+    signals = score.signals["score_signals"]
+    assert signals["benchmark_typed_relation_support_boost"] == 0.045
+    assert signals["benchmark_typed_relation_query_role_boost"] == 0.02
+    assert signals["benchmark_typed_relation_support_roles"] == [
+        "health_support",
+        "status_support",
+    ]
+    assert signals["benchmark_typed_relation_support_hit_roles"] == [
+        "health_support"
+    ]
+
+
 def test_rerank_policy_rejects_ungrounded_typed_profile_category_hit() -> None:
     score = score_benchmark_rerank_candidate(
         _features(

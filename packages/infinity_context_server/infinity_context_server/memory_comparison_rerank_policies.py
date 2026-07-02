@@ -545,6 +545,7 @@ class TypedRelationSupportPolicy:
     def score(self, features: RerankPolicyFeatures) -> RerankPolicyContribution:
         support_roles = _typed_relation_support_roles(features)
         category_hits = _typed_relation_support_category_hits(features, support_roles)
+        hit_roles = _typed_relation_support_hit_roles(features, support_roles)
         precise_provenance = _has_precise_or_unmeasured_source_provenance(features)
         grounded = bool(
             category_hits
@@ -553,8 +554,8 @@ class TypedRelationSupportPolicy:
         )
         evidence_boost = min(0.06, 0.045 * len(category_hits)) if grounded else 0.0
         role_boost = (
-            min(0.03, 0.02 * len(support_roles))
-            if evidence_boost > 0 and support_roles
+            min(0.03, 0.02 * len(hit_roles))
+            if evidence_boost > 0 and hit_roles
             else 0.0
         )
         return RerankPolicyContribution(
@@ -573,6 +574,7 @@ class TypedRelationSupportPolicy:
                 "benchmark_typed_relation_support_category_hits": list(
                     category_hits
                 ),
+                "benchmark_typed_relation_support_hit_roles": list(hit_roles),
                 "benchmark_typed_relation_support_precise_provenance": (
                     precise_provenance
                 ),
@@ -939,6 +941,18 @@ def _typed_relation_support_category_hits(
             if category in category_hits
         )
     return tuple(dict.fromkeys(hits))
+
+
+def _typed_relation_support_hit_roles(
+    features: RerankPolicyFeatures,
+    support_roles: Sequence[str],
+) -> tuple[str, ...]:
+    category_hits = set(features.relation_category_hits)
+    return tuple(
+        role
+        for role in support_roles
+        if category_hits.intersection(_TYPED_RELATION_SUPPORT_ROLE_CATEGORIES[role])
+    )
 
 
 def _typed_relation_support_grounded(

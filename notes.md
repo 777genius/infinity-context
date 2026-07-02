@@ -166,3 +166,21 @@
   -> passed.
 - `git push origin main` -> still blocked because the non-interactive runtime
   has no GitHub username/credential prompt available.
+- `git push origin main` -> still blocked because the non-interactive runtime
+  has no GitHub username/credential prompt available.
+
+## 2026-07-02 Follow-up 9
+
+- Tightened typed relation rerank role boosts so the query-role bonus is based
+  on typed roles with matching category hits, not every requested typed support
+  role. This avoids over-boosting mixed profile queries when only one typed
+  facet is actually evidenced.
+- Added diagnostics for `benchmark_typed_relation_support_hit_roles` so fast
+  reports can distinguish requested typed roles from grounded typed hits.
+
+## Verification
+
+- `uv run --extra dev pytest -q tests/unit/test_memory_comparison*.py`
+  -> 501 passed, 1 warning.
+- `uv run --extra dev ruff check packages/infinity_context_server/infinity_context_server/memory_comparison_rerank_policies.py tests/unit/test_memory_comparison_rerank_policy.py`
+  -> passed.
