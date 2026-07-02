@@ -224,6 +224,7 @@ def test_render_answer_prompt_labels_planned_evidence_context() -> None:
                     "answer_context_bundle_bridge_count": 1,
                     "answer_context_bundle_source_proximity_support_count": 1,
                     "answer_context_bundle_causal_support_count": 1,
+                    "answer_context_bundle_event_support_count": 7,
                     "answer_context_bundle_inference_support_count": 2,
                     "answer_context_bundle_location_support_count": 5,
                     "answer_context_bundle_symbolic_meaning_support_count": 6,
@@ -257,7 +258,7 @@ def test_render_answer_prompt_labels_planned_evidence_context() -> None:
     assert "bundle=medium:0.68" in prompt
     assert "bundle_proximity=1" in prompt
     assert (
-        "bundle_support=bridge:1,causal:1,inference:2,location:5,"
+        "bundle_support=bridge:1,causal:1,event:7,inference:2,location:5,"
         "symbolic_meaning:6,preference:3,visual:4,contrast:2"
         in prompt
     )
@@ -5106,7 +5107,9 @@ def test_query_decomposition_reports_registration_event_intent() -> None:
     )
     assert register_metadata["retrieval_intent"]["relations"]["intents"][0][
         "evidence_need"
-    ] == "single_fact"
+    ] == "registration_event"
+    assert "registration_event" in register_profile["evidence_need"]
+    assert "event_support" in register_profile["bundle_evidence_roles"]
     assert "Friday" not in json.dumps(register_metadata["retrieval_intent"])
 
     assert enroll_queries[1].endswith(
@@ -5119,6 +5122,8 @@ def test_query_decomposition_reports_registration_event_intent() -> None:
     enroll_profile = enroll_metadata["query_profile"]
     assert enroll_profile["relation_terms"] == ("enroll",)
     assert enroll_profile["relation_categories"] == ("registration_event",)
+    assert "registration_event" in enroll_profile["evidence_need"]
+    assert "event_support" in enroll_profile["bundle_evidence_roles"]
     assert "register" in enroll_profile["relation_variant_terms"]
     assert "workshop" in enroll_profile["relation_variant_terms"]
 
@@ -5217,6 +5222,8 @@ def test_query_decomposition_reports_participation_event_intent() -> None:
         "place",
         "event",
     )
+    assert "participation_event" in visit_profile["evidence_need"]
+    assert "event_support" in visit_profile["bundle_evidence_roles"]
     assert "yesterday" not in json.dumps(visit_metadata["retrieval_intent"])
 
     assert participate_queries[2] == (
@@ -5225,6 +5232,8 @@ def test_query_decomposition_reports_participation_event_intent() -> None:
     participate_profile = participate_metadata["query_profile"]
     assert participate_profile["relation_terms"] == ("participate",)
     assert participate_profile["relation_categories"] == ("participation_event",)
+    assert "participation_event" in participate_profile["evidence_need"]
+    assert "event_support" in participate_profile["bundle_evidence_roles"]
     assert "meetup" not in json.dumps(participate_metadata["retrieval_intent"])
 
 

@@ -879,6 +879,7 @@ def test_fast_gate_metrics_reports_bundle_support_summaries() -> None:
                             supporting_count=2,
                             bridge_count=1,
                             causal_support_count=1,
+                            event_support_count=1,
                             inference_support_count=1,
                             location_support_count=1,
                             emotion_response_support_count=1,
@@ -908,6 +909,7 @@ def test_fast_gate_metrics_reports_bundle_support_summaries() -> None:
         "causal": 1,
         "contrast": 1,
         "emotion_response": 1,
+        "event": 1,
         "inference": 1,
         "location": 1,
         "preference": 1,
@@ -920,6 +922,7 @@ def test_fast_gate_metrics_reports_bundle_support_summaries() -> None:
         "causal": 1,
         "contrast": 1,
         "emotion_response": 1,
+        "event": 1,
         "inference": 1,
         "location": 1,
         "preference": 1,
@@ -1474,6 +1477,95 @@ def test_fast_gate_metrics_accepts_symbolic_meaning_support_evidence() -> None:
     ]
 
 
+def test_fast_gate_metrics_reports_missing_event_support_gap() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="missing-event",
+                group="single-hop",
+                retrieval=_retrieval_payload(
+                    evidence_need=("participation_event",),
+                    bundle_evidence_roles=("primary", "event_support"),
+                    relation_categories=("participation_event",),
+                    policy_score=0.0,
+                ),
+                evidence_bundle={
+                    "bundle_complete": False,
+                    "item_count": 1,
+                    "primary_evidence_count": 1,
+                    "supporting_evidence_count": 0,
+                    "query_support_term_recall": 0.5,
+                    "covered_evidence_terms": [],
+                    "missing_required_roles": ["event_support"],
+                    "items": [
+                        {
+                            "role": "primary",
+                            "retrieval_order": 1,
+                            "focused_evidence_score": 1.0,
+                            "planner_reason_codes": ["primary_signal"],
+                        }
+                    ],
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    breakdown = gate["bundle_gap_breakdown"]
+
+    assert breakdown["reason_counts"]["missing_event_support"] == 1
+    assert breakdown["reason_counts"]["missing_required_event_support"] == 1
+    assert breakdown["evidence_need_gap_reason_counts"] == {
+        "missing_event_support": 1,
+        "missing_required_event_support": 1,
+    }
+    assert "missing_event_support" in breakdown["samples"][0]["reasons"]
+
+
+def test_fast_gate_metrics_accepts_event_support_evidence() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="has-event",
+                group="single-hop",
+                retrieval=_retrieval_payload(
+                    evidence_need=("registration_event",),
+                    bundle_evidence_roles=("primary", "event_support"),
+                    relation_categories=("registration_event",),
+                    policy_score=0.0,
+                ),
+                evidence_bundle={
+                    "bundle_complete": False,
+                    "item_count": 1,
+                    "primary_evidence_count": 1,
+                    "supporting_evidence_count": 0,
+                    "query_support_term_recall": 0.5,
+                    "covered_evidence_terms": [],
+                    "items": [
+                        {
+                            "role": "event_support",
+                            "retrieval_order": 1,
+                            "focused_evidence_score": 1.0,
+                            "relation_category_hits": ["registration_event"],
+                            "planner_reason_codes": [
+                                "event_support",
+                                "event_relation_category_hits",
+                            ],
+                        }
+                    ],
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    breakdown = gate["bundle_gap_breakdown"]
+
+    assert "missing_event_support" not in breakdown["reason_counts"]
+    assert "missing_required_event_support" not in breakdown["reason_counts"]
+    assert "missing_event_support" not in breakdown["evidence_need_gap_reason_counts"]
+
+
 def test_fast_gate_metrics_reports_missing_visual_support_gap() -> None:
     gate = fast_gate_metrics(
         (
@@ -1839,6 +1931,65 @@ def test_query_plan_integrity_maps_symbolic_meaning_support_role() -> None:
     assert table["samples"][0]["case_id"] == "missing-symbolic-query-family"
     assert table["samples"][0]["missing_evidence_role_query_families"] == (
         "symbolic_meaning_support",
+    )
+
+
+def test_query_plan_integrity_maps_event_support_role() -> None:
+    base_only_plan = {
+        "schema_version": "query_plan.v2",
+        "selected_query_count": 1,
+        "dropped_query_count": 0,
+        "selected_roles": ["original_question"],
+        "dropped_roles": [],
+        "recommended_role_families": ["base_query", "relation_compact"],
+        "selected_role_families": ["base_query"],
+        "missing_recommended_role_families": ["relation_compact"],
+        "selected_role_family_counts": {"base_query": 1},
+        "fanout_integrity": {"bounded": True},
+    }
+    relation_plan = {
+        **base_only_plan,
+        "selected_query_count": 2,
+        "selected_roles": ["original_question", "compact_relation"],
+        "selected_role_families": ["base_query", "relation_compact"],
+        "missing_recommended_role_families": [],
+        "selected_role_family_counts": {
+            "base_query": 1,
+            "relation_compact": 1,
+        },
+    }
+    missing_item = _item(
+        case_id="missing-event-query-family",
+        group="single-hop",
+        retrieval=_retrieval_payload(
+            evidence_need=("registration_event",),
+            bundle_evidence_roles=("primary", "event_support"),
+            relation_categories=("registration_event",),
+            policy_score=0.0,
+            query_plan=base_only_plan,
+        ),
+    )
+    satisfied_item = _item(
+        case_id="has-event-query-family",
+        group="single-hop",
+        retrieval=_retrieval_payload(
+            evidence_need=("participation_event",),
+            bundle_evidence_roles=("primary", "event_support"),
+            relation_categories=("participation_event",),
+            policy_score=0.0,
+            query_plan=relation_plan,
+        ),
+    )
+
+    diagnostics = quality_diagnostics((missing_item, satisfied_item))
+    table = diagnostics["query_plan_integrity_table"]
+
+    assert table["missing_evidence_role_query_family_counts"] == {
+        "event_support": 1
+    }
+    assert table["samples"][0]["case_id"] == "missing-event-query-family"
+    assert table["samples"][0]["missing_evidence_role_query_families"] == (
+        "event_support",
     )
 
 
@@ -2422,6 +2573,7 @@ def _bundle_quality(
     retrieval_source_diversity: int = 0,
     bridge_count: int = 0,
     causal_support_count: int = 0,
+    event_support_count: int = 0,
     inference_support_count: int = 0,
     location_support_count: int = 0,
     emotion_response_support_count: int = 0,
@@ -2449,6 +2601,7 @@ def _bundle_quality(
         "retrieval_source_diversity": retrieval_source_diversity,
         "bridge_count": bridge_count,
         "causal_support_count": causal_support_count,
+        "event_support_count": event_support_count,
         "inference_support_count": inference_support_count,
         "location_support_count": location_support_count,
         "emotion_response_support_count": emotion_response_support_count,

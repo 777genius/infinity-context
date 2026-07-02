@@ -28,6 +28,7 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
                     "bridge_count": 1,
                     "source_proximity_support_count": 1,
                     "causal_support_count": 1,
+                    "event_support_count": 8,
                         "inference_support_count": 2,
                         "location_support_count": 5,
                         "emotion_response_support_count": 6,
@@ -91,6 +92,7 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
     assert context.bundle_bridge_count == 1
     assert context.bundle_source_proximity_support_count == 1
     assert context.bundle_causal_support_count == 1
+    assert context.bundle_event_support_count == 8
     assert context.bundle_inference_support_count == 2
     assert context.bundle_location_support_count == 5
     assert context.bundle_emotion_response_support_count == 6
@@ -108,6 +110,10 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
     assert (
         context.memories[0].metadata["answer_context_bundle_causal_support_count"]
         == 1
+    )
+    assert (
+        context.memories[0].metadata["answer_context_bundle_event_support_count"]
+        == 8
     )
     assert (
         context.memories[0].metadata[
@@ -172,6 +178,7 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
         "bundle_bridge_count": 1,
         "bundle_source_proximity_support_count": 1,
         "bundle_causal_support_count": 1,
+        "bundle_event_support_count": 8,
         "bundle_inference_support_count": 2,
         "bundle_location_support_count": 5,
         "bundle_emotion_response_support_count": 6,
@@ -242,6 +249,7 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
                             "bundle_bridge_count": 1,
                             "bundle_source_proximity_support_count": 1,
                             "bundle_causal_support_count": 1,
+                            "bundle_event_support_count": 8,
                         "bundle_inference_support_count": 2,
                         "bundle_location_support_count": 5,
                         "bundle_emotion_response_support_count": 6,
@@ -304,6 +312,8 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
     assert primary["total_bundle_source_proximity_support_count"] == 1
     assert primary["avg_bundle_causal_support_count"] == 0.5
     assert primary["total_bundle_causal_support_count"] == 1
+    assert primary["avg_bundle_event_support_count"] == 4.0
+    assert primary["total_bundle_event_support_count"] == 8
     assert primary["avg_bundle_inference_support_count"] == 1.0
     assert primary["total_bundle_inference_support_count"] == 2
     assert primary["avg_bundle_location_support_count"] == 2.5

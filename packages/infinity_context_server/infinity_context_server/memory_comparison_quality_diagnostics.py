@@ -17,6 +17,7 @@ _BRIDGE_GAP_REASONS = frozenset(
 _EVIDENCE_NEED_GAP_REASONS = frozenset(
     {
         "missing_causal_support",
+        "missing_event_support",
         "missing_contrast",
         "missing_emotion_response_support",
         "missing_inference_support",
@@ -27,6 +28,7 @@ _EVIDENCE_NEED_GAP_REASONS = frozenset(
         "missing_required_bridge",
         "missing_required_causal_support",
         "missing_required_contrast",
+        "missing_required_event_support",
         "missing_required_emotion_response_support",
         "missing_required_inference_support",
         "missing_required_location_support",
@@ -648,6 +650,8 @@ def _bundle_incomplete_reasons(item: Mapping[str, object]) -> tuple[str, ...]:
         reasons.append("missing_contrast")
     if _needs_causal_support(item) and not _bundle_has_causal_support(bundle):
         reasons.append("missing_causal_support")
+    if _needs_event_support(item) and not _bundle_has_event_support(bundle):
+        reasons.append("missing_event_support")
     if _needs_inference_support(item) and not _bundle_has_inference_support(bundle):
         reasons.append("missing_inference_support")
     if _needs_location_support(item) and not _bundle_has_location_support(bundle):
@@ -699,6 +703,7 @@ def _bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, ob
     risk_penalties: list[float] = []
     bridge_counts: list[int] = []
     causal_support_counts: list[int] = []
+    event_support_counts: list[int] = []
     inference_support_counts: list[int] = []
     location_support_counts: list[int] = []
     emotion_response_support_counts: list[int] = []
@@ -725,6 +730,9 @@ def _bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, ob
         bridge_counts.append(_positive_int(quality.get("bridge_count")) or 0)
         causal_support_counts.append(
             _positive_int(quality.get("causal_support_count")) or 0
+        )
+        event_support_counts.append(
+            _positive_int(quality.get("event_support_count")) or 0
         )
         inference_support_counts.append(
             _positive_int(quality.get("inference_support_count")) or 0
@@ -783,6 +791,11 @@ def _bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, ob
         "total_causal_support_count": sum(causal_support_counts),
         "causal_support_bundle_count": sum(
             1 for count in causal_support_counts if count > 0
+        ),
+        "avg_event_support_count": _avg(event_support_counts),
+        "total_event_support_count": sum(event_support_counts),
+        "event_support_bundle_count": sum(
+            1 for count in event_support_counts if count > 0
         ),
         "avg_inference_support_count": _avg(inference_support_counts),
         "total_inference_support_count": sum(inference_support_counts),
@@ -851,6 +864,7 @@ def _bundle_support_counts(bundle_quality: Mapping[str, object]) -> dict[str, in
         "causal": (
             _positive_int(bundle_quality.get("total_causal_support_count")) or 0
         ),
+        "event": _positive_int(bundle_quality.get("total_event_support_count")) or 0,
         "inference": (
             _positive_int(bundle_quality.get("total_inference_support_count")) or 0
         ),
@@ -891,6 +905,7 @@ def _bundle_support_bundle_counts(
         "causal": (
             _positive_int(bundle_quality.get("causal_support_bundle_count")) or 0
         ),
+        "event": _positive_int(bundle_quality.get("event_support_bundle_count")) or 0,
         "inference": (
             _positive_int(bundle_quality.get("inference_support_bundle_count")) or 0
         ),
@@ -948,6 +963,9 @@ def _bundle_quality_sample(
         ),
         "causal_support_count": (
             _positive_int(quality.get("causal_support_count")) or 0
+        ),
+        "event_support_count": (
+            _positive_int(quality.get("event_support_count")) or 0
         ),
         "inference_support_count": (
             _positive_int(quality.get("inference_support_count")) or 0
@@ -1547,6 +1565,7 @@ def _evidence_role_query_families(role: str) -> tuple[str, ...]:
             "expanded_focus",
         ),
         "causal_support": ("multi_hop", "relation_compact", "expanded_focus"),
+        "event_support": ("relation_compact", "expanded_focus"),
         "emotion_response_support": ("relation_compact", "expanded_focus"),
         "symbolic_meaning_support": ("relation_compact", "expanded_focus"),
         "inference_support": ("relation_compact", "expanded_focus", "base_query"),
@@ -2301,6 +2320,28 @@ def _needs_emotion_response_support(item: Mapping[str, object]) -> bool:
     )
 
 
+def _needs_event_support(item: Mapping[str, object]) -> bool:
+    metadata = _retrieval_metadata(item)
+    query_decomposition = _mapping(metadata.get("query_decomposition"))
+    query_profile = _mapping(query_decomposition.get("query_profile"))
+    intent = _mapping(query_decomposition.get("retrieval_intent"))
+    evidence_need = (
+        _str_tuple(query_profile.get("evidence_need"))
+        or _str_tuple(intent.get("evidence_need"))
+    )
+    roles = (
+        _str_tuple(query_profile.get("bundle_evidence_roles"))
+        or _str_tuple(intent.get("bundle_evidence_roles"))
+    )
+    relation_categories = _str_tuple(query_profile.get("relation_categories"))
+    event_categories = {"participation_event", "registration_event"}
+    return bool(
+        event_categories & set(evidence_need)
+        or "event_support" in roles
+        or event_categories & set(relation_categories)
+    )
+
+
 def _needs_symbolic_meaning_support(item: Mapping[str, object]) -> bool:
     metadata = _retrieval_metadata(item)
     query_decomposition = _mapping(metadata.get("query_decomposition"))
@@ -2449,6 +2490,22 @@ def _bundle_has_emotion_response_support(bundle: Mapping[str, object]) -> bool:
         bool(
             "emotion_response" in _str_tuple(item.get("relation_category_hits"))
             or "emotion_response_relation_category_hits"
+            in _str_tuple(item.get("planner_reason_codes"))
+        )
+        for item in _bundle_items(bundle)
+    )
+
+
+def _bundle_has_event_support(bundle: Mapping[str, object]) -> bool:
+    if "event_support" in _bundle_roles(bundle):
+        return True
+    if _bundle_has_planner_reason(bundle, "event_support"):
+        return True
+    return any(
+        bool(
+            {"registration_event", "participation_event"}
+            & set(_str_tuple(item.get("relation_category_hits")))
+            or "event_relation_category_hits"
             in _str_tuple(item.get("planner_reason_codes"))
         )
         for item in _bundle_items(bundle)

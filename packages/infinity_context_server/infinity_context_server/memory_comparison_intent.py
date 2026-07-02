@@ -340,6 +340,8 @@ def infer_bundle_evidence_roles(
         roles.append("emotion_response_support")
     if "symbolic_meaning" in evidence_need_set:
         roles.append("symbolic_meaning_support")
+    if {"registration_event", "participation_event"} & evidence_need_set:
+        roles.append("event_support")
     if "causal_support" in evidence_need_set:
         roles.append("causal_support")
     if "inference_support" in evidence_need_set and len(roles) == 1:
@@ -353,7 +355,12 @@ def merge_relation_evidence_needs(
 ) -> tuple[str, ...]:
     """Promote selected typed relation-facet needs into bundle planning."""
 
-    promoted_needs = {"emotion_response", "symbolic_meaning"}
+    promoted_needs = {
+        "emotion_response",
+        "participation_event",
+        "registration_event",
+        "symbolic_meaning",
+    }
     relation_needs = tuple(
         intent.evidence_need
         for intent in relation_intents
@@ -844,7 +851,7 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
             }
         ),
         "markers": frozenset(),
-        "evidence_need": "single_fact",
+        "evidence_need": "registration_event",
     },
     "participation_event": {
         "terms": frozenset({"attend", "join", "participate", "visit"}),
@@ -866,7 +873,7 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
             }
         ),
         "markers": frozenset(),
-        "evidence_need": "single_fact",
+        "evidence_need": "participation_event",
     },
     "communication": {
         "terms": frozenset(
