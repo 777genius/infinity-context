@@ -26,6 +26,8 @@ def test_rerank_policy_boosts_dense_focused_relation_evidence() -> None:
             has_visual_evidence=False,
             focused_turn_boost=0.08,
             has_multi_hop_markers=False,
+            direct_speaker_turn=True,
+            source_locality_score=1.0,
         )
     )
 
@@ -67,6 +69,42 @@ def test_rerank_policy_does_not_density_boost_broad_relation_summaries() -> None
     signals = score.signals["score_signals"]
     assert signals["benchmark_focused_relation_density_boost"] == 0.0
     assert score.boost < 0.6
+
+
+def test_rerank_policy_requires_grounded_direct_speaker_relation() -> None:
+    score = score_benchmark_rerank_candidate(
+        BenchmarkRerankFeatures(
+            overlap_terms=("relationship", "status"),
+            entity_hits=("caroline",),
+            speaker_hits=("caroline",),
+            relation_hits=("parent", "breakup", "family", "support"),
+            relation_terms=("relationship", "status"),
+            query_has_entities=True,
+            high_signal_relation_hit_count=1,
+            is_temporal_query=False,
+            has_temporal_surface=False,
+            has_sequence_surface=False,
+            is_preference_query=False,
+            has_preference_evidence=False,
+            has_visual_terms=False,
+            has_visual_evidence=False,
+            focused_turn_boost=0.08,
+            has_multi_hop_markers=False,
+            broad_summary=True,
+            direct_speaker_turn=True,
+            source_locality_score=0.35,
+        )
+    )
+
+    signals = score.signals["score_signals"]
+    policy = score.signals["policy_contributions"]
+
+    assert signals["benchmark_direct_speaker_relation_boost"] == 0.0
+    assert signals["benchmark_direct_speaker_relation_evidence"] is False
+    assert signals["benchmark_rich_direct_speaker_relation_evidence"] is False
+    assert "direct_speaker_relation" not in policy["reason_codes_by_policy"][
+        "FocusedTurnPolicy"
+    ]
 
 
 def test_rerank_policy_reports_relation_category_coverage_boost() -> None:

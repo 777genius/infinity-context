@@ -319,11 +319,13 @@ class FocusedTurnPolicy:
 
     def score(self, features: RerankPolicyFeatures) -> RerankPolicyContribution:
         focused_density_boost = _focused_relation_density_boost(features)
-        direct_speaker_relation_evidence = (
-            bool(features.speaker_hits) and len(features.relation_hits) >= 2
+        direct_speaker_relation_evidence = _direct_speaker_relation_grounded(
+            features,
+            relation_hit_count=2,
         )
-        rich_direct_speaker_relation_evidence = (
-            bool(features.speaker_hits) and len(features.relation_hits) >= 3
+        rich_direct_speaker_relation_evidence = _direct_speaker_relation_grounded(
+            features,
+            relation_hit_count=3,
         )
         direct_speaker_relation_boost = (
             0.12
@@ -696,6 +698,20 @@ def _visual_evidence_grounded(features: RerankPolicyFeatures) -> bool:
         features.direct_speaker_turn
         or features.source_ref_count > 0
         or features.turn_ref_count > 0
+    )
+
+
+def _direct_speaker_relation_grounded(
+    features: RerankPolicyFeatures,
+    *,
+    relation_hit_count: int,
+) -> bool:
+    return bool(
+        features.speaker_hits
+        and len(features.relation_hits) >= relation_hit_count
+        and features.direct_speaker_turn
+        and not features.broad_summary
+        and features.source_locality_score >= 0.65
     )
 
 
