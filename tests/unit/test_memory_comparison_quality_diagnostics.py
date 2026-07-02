@@ -340,8 +340,11 @@ def test_quality_diagnostics_reports_intents_policies_bundle_gaps_and_leakage() 
         "candidate_count": 1,
         "lifted_candidate_count": 1,
         "selected_item_count": 1,
+        "typed_relation_hit_count": 0,
+        "typed_relation_lifted_hit_count": 0,
         "selection_rate": 1.0,
         "lifted_rate": 1.0,
+        "typed_relation_hit_rate": 0.0,
         "bridge_query_hit_candidate_count": 1,
         "bridge_query_hit_selected_count": 1,
         "avg_candidate_answerability_score": 0.9,
@@ -362,8 +365,11 @@ def test_quality_diagnostics_reports_intents_policies_bundle_gaps_and_leakage() 
         "candidate_count": 1,
         "lifted_candidate_count": 0,
         "selected_item_count": 0,
+        "typed_relation_hit_count": 0,
+        "typed_relation_lifted_hit_count": 0,
         "selection_rate": 0.0,
         "lifted_rate": 0.0,
+        "typed_relation_hit_rate": 0.0,
         "bridge_query_hit_candidate_count": 0,
         "bridge_query_hit_selected_count": 0,
         "avg_candidate_answerability_score": 0.42,
@@ -400,6 +406,11 @@ def test_quality_diagnostics_groups_profile_support_query_roles() -> None:
                         "answerability_score": 0.8,
                         "source_locality_score": 0.9,
                     },
+                    score_signals={
+                        "benchmark_typed_relation_support_hit_roles": [
+                            "health_support"
+                        ],
+                    },
                 ),
                 evidence_bundle={
                     "bundle_complete": True,
@@ -426,6 +437,10 @@ def test_quality_diagnostics_groups_profile_support_query_roles() -> None:
     assert query_roles["candidate_role_counts"] == {"health_support": 1}
     assert query_roles["lifted_candidate_role_counts"] == {"health_support": 1}
     assert query_roles["selected_item_role_counts"] == {"health_support": 1}
+    assert query_roles["typed_relation_hit_role_counts"] == {"health_support": 1}
+    assert query_roles["typed_relation_lifted_hit_role_counts"] == {
+        "health_support": 1
+    }
     assert query_roles["candidate_role_family_counts"] == {"relation_compact": 1}
     assert query_roles["lifted_candidate_role_family_counts"] == {
         "relation_compact": 1
@@ -434,9 +449,86 @@ def test_quality_diagnostics_groups_profile_support_query_roles() -> None:
         "relation_compact": 1
     }
     assert query_roles["roles_without_selected_items"] == []
+    assert query_roles["roles_without_typed_relation_hits"] == []
     assert query_roles["role_stats"]["health_support"]["selected_bundle_role_counts"] == {
         "health_support": 1
     }
+    assert query_roles["role_stats"]["health_support"]["typed_relation_hit_count"] == 1
+
+
+def test_quality_diagnostics_tracks_typed_relation_hit_roles_separately() -> None:
+    diagnostics = quality_diagnostics(
+        (
+            _item(
+                case_id="mixed-profile-role",
+                group="single-hop",
+                retrieval=_retrieval_payload(
+                    evidence_need=("health_profile", "status_profile"),
+                    bundle_evidence_roles=(
+                        "primary",
+                        "health_support",
+                        "status_support",
+                    ),
+                    policy_score=0.25,
+                    candidate_features={
+                        "query_roles": ("health_support", "status_support"),
+                        "answerability_score": 0.8,
+                        "source_locality_score": 0.9,
+                    },
+                    score_signals={
+                        "benchmark_typed_relation_support_hit_roles": [
+                            "health_support"
+                        ],
+                    },
+                ),
+            ),
+        )
+    )
+
+    query_roles = diagnostics["query_role_effectiveness_table"]
+
+    assert query_roles["candidate_role_counts"] == {
+        "health_support": 1,
+        "status_support": 1,
+    }
+    assert query_roles["lifted_candidate_role_counts"] == {
+        "health_support": 1,
+        "status_support": 1,
+    }
+    assert query_roles["typed_relation_hit_role_counts"] == {"health_support": 1}
+    assert query_roles["typed_relation_lifted_hit_role_counts"] == {
+        "health_support": 1
+    }
+    assert query_roles["roles_without_typed_relation_hits"] == ["status_support"]
+    assert query_roles["role_stats"]["health_support"]["typed_relation_hit_rate"] == 1.0
+    assert query_roles["role_stats"]["status_support"]["typed_relation_hit_rate"] == 0.0
+
+
+def test_quality_diagnostics_does_not_require_typed_hits_for_preference_support() -> None:
+    diagnostics = quality_diagnostics(
+        (
+            _item(
+                case_id="preference-role",
+                group="single-hop",
+                retrieval=_retrieval_payload(
+                    evidence_need=("preference",),
+                    bundle_evidence_roles=("primary", "preference_support"),
+                    policy_score=0.25,
+                    candidate_features={
+                        "query_roles": ("preference_support",),
+                        "answerability_score": 0.8,
+                        "source_locality_score": 0.9,
+                    },
+                ),
+            ),
+        )
+    )
+
+    query_roles = diagnostics["query_role_effectiveness_table"]
+
+    assert query_roles["candidate_role_counts"] == {"preference_support": 1}
+    assert query_roles["typed_relation_hit_role_counts"] == {}
+    assert query_roles["roles_without_typed_relation_hits"] == []
 
 
 def test_quality_diagnostics_false_positive_counts_typed_intent_leakage() -> None:
@@ -1403,18 +1495,73 @@ def test_fast_gate_metrics_reports_answerability_gap_breakdown() -> None:
     assert breakdown["schema_version"] == "answerability_gap_breakdown.v1"
     assert breakdown["gap_candidate_count"] == 1
     assert breakdown["gap_case_count"] == 1
+    assert breakdown["lifted_gap_candidate_count"] == 0
+    assert breakdown["lifted_gap_case_count"] == 0
     assert breakdown["reason_counts"] == {
         "missing_contrast_evidence": 1,
         "missing_preference_evidence": 1,
     }
+    assert breakdown["lifted_reason_counts"] == {}
     assert breakdown["category_counts"] == {"contrast": 1, "preference": 1}
+    assert breakdown["lifted_category_counts"] == {}
     assert breakdown["samples"][0]["case_id"] == "missing-typed-evidence"
     assert breakdown["samples"][0]["memory_id"] == "topic-only"
+    assert breakdown["samples"][0]["lifted"] is False
+    assert breakdown["samples"][0]["positive_policy_score"] == 0
     assert breakdown["samples"][0]["answerability_score"] == 0.42
     assert breakdown["samples"][0]["relation_categories"] == [
         "preference",
         "contrast",
     ]
+
+
+def test_fast_gate_metrics_blocks_lifted_answerability_gaps() -> None:
+    items = tuple(
+        _item(
+            case_id=f"case-{index}",
+            evidence_bundle={
+                "bundle_complete": True,
+                "evidence_term_count": 1,
+                "covered_evidence_terms": [f"D{index}:1"],
+                "items": [
+                    {
+                        "retrieval_order": 1 if index <= 30 else 2,
+                        "covered_evidence_terms": [f"D{index}:1"],
+                        "focused_evidence_score": 1.0,
+                    }
+                ],
+            },
+            retrieval=_retrieval_payload(
+                evidence_need=("health_support",),
+                policy_score=0.2 if index == 1 else 0.0,
+                item_id=f"candidate-{index}",
+                candidate_features={
+                    "answerability_score": 0.35,
+                    "source_locality_score": 0.8,
+                    "answerability_reason_codes": ["missing_health_evidence"],
+                    "relation_categories": ["health"],
+                    "relation_category_hits": [],
+                }
+                if index == 1
+                else {},
+            ),
+        )
+        for index in range(1, 41)
+    )
+
+    gate = fast_gate_metrics(items)
+    breakdown = gate["answerability_gap_breakdown"]
+
+    assert gate["passed"] is False
+    assert gate["ready_for_full_locomo"] is False
+    assert "lifted_answerability_gaps_clear" in gate["failed_gates"]
+    assert gate["gates"]["lifted_answerability_gaps_clear"]["actual"] == 1
+    assert breakdown["gap_candidate_count"] == 1
+    assert breakdown["lifted_gap_candidate_count"] == 1
+    assert breakdown["lifted_reason_counts"] == {"missing_health_evidence": 1}
+    assert breakdown["lifted_category_counts"] == {"health": 1}
+    assert breakdown["samples"][0]["lifted"] is True
+    assert breakdown["samples"][0]["positive_policy_score"] == 0.2
 
 
 def test_fast_gate_metrics_reports_bundle_support_summaries() -> None:
@@ -2055,6 +2202,8 @@ def test_fast_gate_metrics_reports_query_role_gap_breakdown() -> None:
 
     breakdown = gate["query_role_gap_breakdown"]
 
+    assert gate["ready_for_full_locomo"] is False
+    assert "query_role_gaps_clear" in gate["failed_gates"]
     assert breakdown["schema_version"] == "query_role_gap_breakdown.v1"
     assert breakdown["role_count"] == 2
     assert breakdown["role_family_count"] == 2
@@ -2062,16 +2211,22 @@ def test_fast_gate_metrics_reports_query_role_gap_breakdown() -> None:
     assert breakdown["role_gap_count"] == 1
     assert breakdown["candidate_role_counts"] == {"relative_temporal_support": 1}
     assert breakdown["selected_item_role_counts"] == {"primary": 1}
+    assert breakdown["typed_relation_hit_role_counts"] == {}
+    assert breakdown["typed_relation_lifted_hit_role_counts"] == {}
     assert breakdown["candidate_role_family_counts"] == {"temporal_support": 1}
     assert breakdown["selected_item_role_family_counts"] == {"primary": 1}
     assert breakdown["roles_without_selected_items"] == ["relative_temporal_support"]
     assert breakdown["roles_without_lifted_candidates"] == []
+    assert breakdown["roles_without_typed_relation_hits"] == []
     assert breakdown["role_gaps"]["relative_temporal_support"] == {
         "candidate_count": 1,
         "lifted_candidate_count": 1,
         "selected_item_count": 0,
+        "typed_relation_hit_count": 0,
+        "typed_relation_lifted_hit_count": 0,
         "selection_rate": 0.0,
         "lifted_rate": 1.0,
+        "typed_relation_hit_rate": 0.0,
         "bridge_query_hit_candidate_count": 0,
         "bridge_query_hit_selected_count": 0,
         "avg_candidate_answerability_score": 0.72,
@@ -2089,6 +2244,131 @@ def test_fast_gate_metrics_reports_query_role_gap_breakdown() -> None:
         "selected_bundle_role_counts": {},
         "gap_reasons": ["not_selected"],
     }
+
+
+def test_fast_gate_metrics_reports_typed_relation_hit_role_gaps() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="typed-hit-gap",
+                group="single-hop",
+                retrieval=_retrieval_payload(
+                    evidence_need=("health_profile", "status_profile"),
+                    bundle_evidence_roles=(
+                        "primary",
+                        "health_support",
+                        "status_support",
+                    ),
+                    policy_score=0.2,
+                    candidate_features={
+                        "query_roles": ("health_support", "status_support"),
+                        "answerability_score": 0.8,
+                        "source_locality_score": 0.9,
+                    },
+                    score_signals={
+                        "benchmark_typed_relation_support_hit_roles": [
+                            "health_support"
+                        ],
+                    },
+                ),
+                evidence_bundle={
+                    "bundle_complete": True,
+                    "evidence_term_count": 1,
+                    "covered_evidence_terms": ["D1:1"],
+                    "items": [
+                        {
+                            "role": "health_support",
+                            "retrieval_order": 1,
+                            "covered_evidence_terms": ["D1:1"],
+                            "query_roles": ["health_support"],
+                            "answerability_score": 0.8,
+                            "source_locality_score": 0.9,
+                        }
+                    ],
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    breakdown = gate["query_role_gap_breakdown"]
+
+    assert gate["ready_for_full_locomo"] is False
+    assert "query_role_gaps_clear" in gate["failed_gates"]
+    assert breakdown["typed_relation_hit_role_counts"] == {"health_support": 1}
+    assert breakdown["typed_relation_lifted_hit_role_counts"] == {
+        "health_support": 1
+    }
+    assert breakdown["roles_without_typed_relation_hits"] == ["status_support"]
+    assert breakdown["role_gaps"]["status_support"] == {
+        "candidate_count": 1,
+        "lifted_candidate_count": 1,
+        "selected_item_count": 0,
+        "typed_relation_hit_count": 0,
+        "typed_relation_lifted_hit_count": 0,
+        "selection_rate": 0.0,
+        "lifted_rate": 1.0,
+        "typed_relation_hit_rate": 0.0,
+        "bridge_query_hit_candidate_count": 0,
+        "bridge_query_hit_selected_count": 0,
+        "avg_candidate_answerability_score": 0.8,
+        "avg_measured_candidate_answerability_score": 0.8,
+        "candidate_unmeasured_answerability_count": 0,
+        "avg_candidate_source_locality_score": 0.9,
+        "avg_measured_candidate_source_locality_score": 0.9,
+        "candidate_unmeasured_source_locality_count": 0,
+        "avg_selected_answerability_score": 0.0,
+        "avg_measured_selected_answerability_score": 0.0,
+        "selected_unmeasured_answerability_count": 0,
+        "avg_selected_source_locality_score": 0.0,
+        "avg_measured_selected_source_locality_score": 0.0,
+        "selected_unmeasured_source_locality_count": 0,
+        "selected_bundle_role_counts": {},
+        "gap_reasons": ["not_selected", "typed_relation_not_hit"],
+    }
+
+
+def test_fast_gate_metrics_does_not_fail_typed_hit_gate_for_preference_support() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="preference-role",
+                group="single-hop",
+                retrieval=_retrieval_payload(
+                    evidence_need=("preference",),
+                    bundle_evidence_roles=("primary", "preference_support"),
+                    policy_score=0.2,
+                    candidate_features={
+                        "query_roles": ("preference_support",),
+                        "answerability_score": 0.8,
+                        "source_locality_score": 0.9,
+                    },
+                ),
+                evidence_bundle={
+                    "bundle_complete": True,
+                    "evidence_term_count": 1,
+                    "covered_evidence_terms": ["D1:1"],
+                    "items": [
+                        {
+                            "role": "preference_support",
+                            "retrieval_order": 1,
+                            "covered_evidence_terms": ["D1:1"],
+                            "query_roles": ["preference_support"],
+                            "answerability_score": 0.8,
+                            "source_locality_score": 0.9,
+                        }
+                    ],
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    breakdown = gate["query_role_gap_breakdown"]
+
+    assert breakdown["roles_without_typed_relation_hits"] == []
+    assert breakdown["role_gap_count"] == 0
+    assert "query_role_gaps_clear" not in gate["failed_gates"]
 
 
 def test_fast_gate_metrics_reports_source_ref_provenance() -> None:
@@ -2588,6 +2868,96 @@ def test_quality_diagnostics_accepts_relation_compact_for_profile_support_roles(
     assert table["missing_evidence_role_query_family_counts"] == {}
     assert table["gap_reason_counts"] == {}
     assert table["samples"] == []
+
+
+def test_query_plan_integrity_requires_typed_favorite_query_family() -> None:
+    base_only_plan = {
+        "schema_version": "query_plan.v2",
+        "selected_query_count": 1,
+        "dropped_query_count": 0,
+        "selected_roles": ["original_question"],
+        "dropped_roles": [],
+        "recommended_role_families": ["base_query"],
+        "selected_role_families": ["base_query"],
+        "missing_recommended_role_families": [],
+        "selected_role_family_counts": {"base_query": 1},
+        "fanout_integrity": {"bounded": True},
+    }
+    favorite_item = _item(
+        case_id="favorite-role-base-only",
+        group="single-hop",
+        retrieval=_retrieval_payload(
+            evidence_need=("favorite_preference", "preference"),
+            bundle_evidence_roles=("primary", "favorite_support"),
+            relation_categories=("favorite_preference", "preference"),
+            policy_score=0.0,
+            query_plan=base_only_plan,
+        ),
+    )
+
+    diagnostics = quality_diagnostics((favorite_item,))
+    table = diagnostics["query_plan_integrity_table"]
+
+    assert table["missing_evidence_role_query_family_counts"] == {
+        "favorite_support": 1
+    }
+    assert table["samples"][0]["case_id"] == "favorite-role-base-only"
+    assert table["samples"][0]["missing_evidence_role_query_families"] == (
+        "favorite_support",
+    )
+
+
+def test_fast_gate_metrics_blocks_missing_query_plan_evidence_role_family() -> None:
+    base_only_plan = {
+        "schema_version": "query_plan.v2",
+        "selected_query_count": 1,
+        "dropped_query_count": 0,
+        "selected_roles": ["original_question"],
+        "dropped_roles": [],
+        "recommended_role_families": ["base_query"],
+        "selected_role_families": ["base_query"],
+        "missing_recommended_role_families": [],
+        "selected_role_family_counts": {"base_query": 1},
+        "fanout_integrity": {"bounded": True},
+    }
+    items = tuple(
+        _item(
+            case_id=f"case-{index}",
+            evidence_bundle={
+                "bundle_complete": True,
+                "evidence_term_count": 1,
+                "covered_evidence_terms": [f"D{index}:1"],
+                "items": [
+                    {
+                        "retrieval_order": 1 if index <= 30 else 2,
+                        "covered_evidence_terms": [f"D{index}:1"],
+                        "focused_evidence_score": 1.0,
+                    }
+                ],
+            },
+            retrieval=_retrieval_payload(
+                evidence_need=("favorite_preference", "preference"),
+                bundle_evidence_roles=("primary", "favorite_support"),
+                relation_categories=("favorite_preference", "preference"),
+                policy_score=0.0,
+                query_plan=base_only_plan if index == 1 else {},
+            ),
+        )
+        for index in range(1, 41)
+    )
+
+    gate = fast_gate_metrics(items)
+    breakdown = gate["query_plan_gap_breakdown"]
+
+    assert gate["passed"] is False
+    assert gate["ready_for_full_locomo"] is False
+    assert "query_plan_evidence_roles_clear" in gate["failed_gates"]
+    assert gate["gates"]["query_plan_evidence_roles_clear"]["actual"] == 1
+    assert breakdown["plan_gap_case_count"] == 1
+    assert breakdown["missing_evidence_role_query_family_total"] == 1
+    assert breakdown["missing_evidence_role_query_family_counts"] == {
+        "favorite_support": 1
+    }
 
 
 def test_fast_gate_metrics_passes_bundle_quality_when_all_bundles_are_usable() -> None:

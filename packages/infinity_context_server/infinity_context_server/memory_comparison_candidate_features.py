@@ -85,6 +85,7 @@ _INTENT_RELATION_CATEGORY_ORDER = (
     "emotion_response",
     "communication",
     "exchange",
+    "favorite_preference",
     "preference",
     "status_profile",
     "activity",
@@ -466,6 +467,7 @@ def _relation_category_hits(
                 category=str(category),
                 memory_terms=memory_terms,
                 term_values=term_values,
+                memory_text=memory_text,
             ):
                 hits.append(str(category))
             continue
@@ -481,7 +483,10 @@ def _typed_category_has_query_grounding(
     category: str,
     memory_terms: set[str],
     term_values: Sequence[str],
+    memory_text: str = "",
 ) -> bool:
+    if category == "education_profile" and _has_named_school_surface(memory_text):
+        return True
     if category not in {
         "communication",
         "activity_profile",
@@ -494,6 +499,7 @@ def _typed_category_has_query_grounding(
         "education_profile",
         "employment_profile",
         "exchange",
+        "favorite_preference",
         "health_profile",
         "pet_profile",
         "skill_profile",
@@ -502,6 +508,16 @@ def _typed_category_has_query_grounding(
     }:
         return True
     return any(term in memory_terms for term in term_values)
+
+
+def _has_named_school_surface(memory_text: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(?:go|goes|went)\s+to\s+[A-Z][a-zA-Z0-9_-]+"
+            r"(?:\s+[A-Z][a-zA-Z0-9_-]+){0,3}\b",
+            memory_text,
+        )
+    )
 
 
 def _answerability(

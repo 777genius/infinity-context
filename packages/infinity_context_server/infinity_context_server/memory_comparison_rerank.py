@@ -121,6 +121,7 @@ from infinity_context_server.public_benchmark_models import PublicBenchmarkCase
 
 _RELATION_QUERY_TERMS = {
     "activity",
+    "action",
     "age",
     "anniversary",
     "advise",
@@ -405,6 +406,7 @@ def expanded_search_query(case: PublicBenchmarkCase) -> tuple[str, dict[str, obj
             relation_variant_terms=relation_variant_terms,
             lexical_terms=intent.lexical_terms,
             entity_surfaces=entity_surfaces,
+            action_support="action_support" in intent.evidence_need,
             communication_support=(
                 "communication_support" in intent.bundle_evidence_roles
             ),
@@ -551,6 +553,7 @@ def decomposed_search_queries(
             relation_variant_terms=relation_variant_terms,
             lexical_terms=lexical_terms,
             entity_surfaces=entity_surfaces,
+            action_support=compact_relation_role == "action_support",
             communication_support=compact_relation_role == "communication_support",
             commitment_support=compact_relation_role == "commitment_support",
             contact_support=compact_relation_role == "contact_support",
@@ -561,7 +564,8 @@ def decomposed_search_queries(
             alias_support=compact_relation_role == "alias_support",
             health_support=compact_relation_role == "health_support",
             pet_support=compact_relation_role == "pet_support",
-            preference_support=compact_relation_role == "preference_support",
+            preference_support=compact_relation_role
+            in {"favorite_support", "preference_support"},
             skill_support=compact_relation_role == "skill_support",
             vehicle_support=compact_relation_role == "vehicle_support",
         )
@@ -795,12 +799,16 @@ def _compact_relation_query_role(intent: RetrievalIntent) -> str:
     evidence_needs = set(intent.evidence_need)
     if "education_profile" in evidence_needs:
         return "education_support"
+    if "action_support" in evidence_needs:
+        return "action_support"
     if "commitment_profile" in evidence_needs:
         return "commitment_support"
     if "contact_profile" in evidence_needs:
         return "contact_support"
     if "current_goal" in evidence_needs:
         return "current_goal_support"
+    if "date_profile" in evidence_needs:
+        return "date_support"
     if "diet_profile" in evidence_needs:
         return "diet_support"
     if "identity_profile" in evidence_needs:
@@ -819,10 +827,14 @@ def _compact_relation_query_role(intent: RetrievalIntent) -> str:
         return "pet_support"
     if "skill_profile" in evidence_needs:
         return "skill_support"
+    if "status_profile" in evidence_needs:
+        return "status_support"
     if "vehicle_profile" in evidence_needs:
         return "vehicle_support"
     if "support_goal" in evidence_needs:
         return "support_goal_support"
+    if "favorite_preference" in evidence_needs:
+        return "favorite_support"
     role_priority = (
         "communication_support",
         "event_support",

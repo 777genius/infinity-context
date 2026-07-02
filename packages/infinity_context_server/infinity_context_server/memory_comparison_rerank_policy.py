@@ -363,6 +363,7 @@ def _provenance_safety_cap(
         "missing_emotion_response_evidence": 0.4,
         "missing_communication_evidence": 0.4,
         "missing_exchange_evidence": 0.4,
+        "missing_favorite_preference_evidence": 0.28,
         "missing_preference_evidence": 0.4,
         "missing_status_profile_evidence": 0.4,
         "missing_activity_evidence": 0.4,

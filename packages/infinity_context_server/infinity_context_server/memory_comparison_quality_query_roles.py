@@ -36,9 +36,15 @@ from infinity_context_server.memory_comparison_quality_accessors import (
 from infinity_context_server.memory_comparison_quality_accessors import (
     str_tuple as _str_tuple,
 )
+from infinity_context_server.memory_comparison_quality_support import (
+    typed_relation_support_roles as _typed_relation_support_roles,
+)
+
+_TYPED_RELATION_SUPPORT_ROLES = frozenset(_typed_relation_support_roles())
 
 _PROFILE_SUPPORT_ROLES = frozenset(
     {
+        "action_support",
         "activity_support",
         "age_support",
         "alias_support",
@@ -66,6 +72,8 @@ def query_role_effectiveness_table(
     candidate_role_counts: Counter[str] = Counter()
     lifted_candidate_role_counts: Counter[str] = Counter()
     selected_item_role_counts: Counter[str] = Counter()
+    typed_relation_hit_role_counts: Counter[str] = Counter()
+    typed_relation_lifted_hit_role_counts: Counter[str] = Counter()
     candidate_role_family_counts: Counter[str] = Counter()
     lifted_candidate_role_family_counts: Counter[str] = Counter()
     selected_item_role_family_counts: Counter[str] = Counter()
@@ -87,6 +95,10 @@ def query_role_effectiveness_table(
                 continue
             diagnostics = _memory_diagnostics(memory)
             lifted = _candidate_lifted(diagnostics)
+            score_signals = _mapping(diagnostics.get("score_signals"))
+            typed_relation_hit_roles = _str_tuple(
+                score_signals.get("benchmark_typed_relation_support_hit_roles")
+            )
             bridge_query_hit = features.get("bridge_query_hit") is True
             answerability_score = _metric_value(features, "answerability_score")
             source_locality_score = _metric_value(features, "source_locality_score")
@@ -103,6 +115,10 @@ def query_role_effectiveness_table(
                     lifted_candidate_role_family_counts[query_role_family] += 1
                 if bridge_query_hit:
                     bridge_query_hit_candidate_counts[query_role] += 1
+            for hit_role in typed_relation_hit_roles:
+                typed_relation_hit_role_counts[hit_role] += 1
+                if lifted:
+                    typed_relation_lifted_hit_role_counts[hit_role] += 1
 
         bundle = _mapping(item.get("evidence_bundle"))
         for bundle_item in _bundle_items(bundle):
@@ -133,6 +149,7 @@ def query_role_effectiveness_table(
         set(candidate_role_counts)
         | set(selected_item_role_counts)
         | set(lifted_candidate_role_counts)
+        | set(typed_relation_hit_role_counts)
     )
     role_stats = {
         query_role: _query_role_stat_payload(
@@ -140,6 +157,10 @@ def query_role_effectiveness_table(
             candidate_role_counts=candidate_role_counts,
             lifted_candidate_role_counts=lifted_candidate_role_counts,
             selected_item_role_counts=selected_item_role_counts,
+            typed_relation_hit_role_counts=typed_relation_hit_role_counts,
+            typed_relation_lifted_hit_role_counts=(
+                typed_relation_lifted_hit_role_counts
+            ),
             bridge_query_hit_candidate_counts=bridge_query_hit_candidate_counts,
             bridge_query_hit_selected_counts=bridge_query_hit_selected_counts,
             selected_bundle_role_counts=selected_bundle_role_counts,
@@ -163,6 +184,12 @@ def query_role_effectiveness_table(
             sorted(lifted_candidate_role_counts.items())
         ),
         "selected_item_role_counts": dict(sorted(selected_item_role_counts.items())),
+        "typed_relation_hit_role_counts": dict(
+            sorted(typed_relation_hit_role_counts.items())
+        ),
+        "typed_relation_lifted_hit_role_counts": dict(
+            sorted(typed_relation_lifted_hit_role_counts.items())
+        ),
         "candidate_role_family_counts": dict(
             sorted(candidate_role_family_counts.items())
         ),
@@ -185,6 +212,12 @@ def query_role_effectiveness_table(
             query_role
             for query_role in query_roles
             if not lifted_candidate_role_counts[query_role]
+        ],
+        "roles_without_typed_relation_hits": [
+            query_role
+            for query_role in query_roles
+            if query_role in _TYPED_RELATION_SUPPORT_ROLES
+            and not typed_relation_hit_role_counts[query_role]
         ],
         "role_stats": role_stats,
     }
@@ -213,6 +246,7 @@ def _query_role_family(query_role: str) -> str:
         "emotion_response_support",
         "event_support",
         "exchange_support",
+        "favorite_support",
         "inference_support",
         "preference_support",
         "symbolic_meaning_support",
@@ -231,6 +265,8 @@ def _query_role_stat_payload(
     candidate_role_counts: Counter[str],
     lifted_candidate_role_counts: Counter[str],
     selected_item_role_counts: Counter[str],
+    typed_relation_hit_role_counts: Counter[str],
+    typed_relation_lifted_hit_role_counts: Counter[str],
     bridge_query_hit_candidate_counts: Counter[str],
     bridge_query_hit_selected_counts: Counter[str],
     selected_bundle_role_counts: Mapping[str, Counter[str]],
@@ -242,6 +278,10 @@ def _query_role_stat_payload(
     candidate_count = candidate_role_counts[query_role]
     lifted_count = lifted_candidate_role_counts[query_role]
     selected_count = selected_item_role_counts[query_role]
+    typed_relation_hit_count = typed_relation_hit_role_counts[query_role]
+    typed_relation_lifted_hit_count = typed_relation_lifted_hit_role_counts[
+        query_role
+    ]
     candidate_scores = tuple(candidate_answerability_scores.get(query_role, ()))
     selected_scores = tuple(selected_answerability_scores.get(query_role, ()))
     measured_candidate_scores = tuple(score for score in candidate_scores if score > 0)
@@ -262,8 +302,11 @@ def _query_role_stat_payload(
         "candidate_count": candidate_count,
         "lifted_candidate_count": lifted_count,
         "selected_item_count": selected_count,
+        "typed_relation_hit_count": typed_relation_hit_count,
+        "typed_relation_lifted_hit_count": typed_relation_lifted_hit_count,
         "selection_rate": _ratio(selected_count, candidate_count),
         "lifted_rate": _ratio(lifted_count, candidate_count),
+        "typed_relation_hit_rate": _ratio(typed_relation_hit_count, candidate_count),
         "bridge_query_hit_candidate_count": bridge_query_hit_candidate_counts[
             query_role
         ],

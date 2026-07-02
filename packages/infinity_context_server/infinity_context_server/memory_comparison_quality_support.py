@@ -26,6 +26,7 @@ _TEMPORAL_BUNDLE_ROLES = frozenset(
     }
 )
 _TYPED_RELATION_SUPPORT_CATEGORIES = {
+    "action_support": frozenset({"action_event"}),
     "activity_support": frozenset({"activity_profile"}),
     "age_support": frozenset({"age_profile"}),
     "alias_support": frozenset({"alias_profile"}),
@@ -36,6 +37,7 @@ _TYPED_RELATION_SUPPORT_CATEGORIES = {
     "diet_support": frozenset({"diet_profile"}),
     "education_support": frozenset({"education_profile"}),
     "employment_support": frozenset({"employment_profile"}),
+    "favorite_support": frozenset({"favorite_preference"}),
     "health_support": frozenset({"health_profile"}),
     "identity_support": frozenset({"identity_profile"}),
     "pet_support": frozenset({"pet_profile"}),

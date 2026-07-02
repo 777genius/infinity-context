@@ -14,6 +14,8 @@ def typed_relation_category_support(
 ) -> bool | None:
     """Return typed support status for known categories, or None if generic."""
 
+    if category == "action_event":
+        return _has_action_event_support(memory_terms, memory_text=memory_text)
     if category == "location_transition":
         return _has_location_transition_support(memory_terms, memory_text=memory_text)
     if category == "activity_profile":
@@ -28,6 +30,11 @@ def typed_relation_category_support(
         return _has_diet_profile_support(memory_terms, memory_text=memory_text)
     if category == "participation_event":
         return _has_participation_event_support(memory_terms, memory_text=memory_text)
+    if category == "education_profile":
+        return _has_education_profile_support(
+            memory_terms,
+            memory_text=memory_text,
+        )
     if category == "employment_profile":
         return _has_employment_profile_support(
             memory_terms,
@@ -99,6 +106,39 @@ def _has_symbolic_meaning_support(memory_terms: set[str]) -> bool:
     return bool(symbolic_surface and object_context)
 
 
+_ACTION_EVENT_SURFACE_RE = re.compile(
+    r"\b(?:brought|took|sent|shared|painted|drew|made|booked|scheduled|"
+    r"prepared|completed|fixed|repaired|created)\b"
+    r"(?:\s+(?:a|an|the|their|his|her|my|our))?\s+"
+    r"[a-zA-Z][a-zA-Z0-9_-]+",
+    re.IGNORECASE,
+)
+
+
+def _has_action_event_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
+    action_surface = {
+        "booked",
+        "brought",
+        "completed",
+        "created",
+        "drew",
+        "fixed",
+        "made",
+        "painted",
+        "prepared",
+        "repaired",
+        "scheduled",
+        "sent",
+        "shared",
+        "took",
+    } & memory_terms
+    return bool(action_surface and _ACTION_EVENT_SURFACE_RE.search(memory_text))
+
+
 _PARTICIPATION_DESTINATION_SURFACE_RE = re.compile(
     r"\b(?:visit|visited|travel|traveled|travelled|go|went)\s+"
     r"(?:to\s+)?(?:[A-Z][a-zA-Z0-9_-]+|"
@@ -155,7 +195,22 @@ def _has_participation_event_support(
     )
 
 
-def _has_education_profile_support(memory_terms: set[str]) -> bool:
+_EDUCATION_PROFILE_SURFACE_RE = re.compile(
+    r"\b(?:go|goes|went)\s+to\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+(?:\s+[A-Z][a-zA-Z0-9_-]+){0,3}|"
+    r"(?:college|university|school))\b"
+    r"|\b(?:attend|attends|attended|study|studies|studying)\s+"
+    r"(?:at\s+)?(?:[A-Z][a-zA-Z0-9_-]+(?:\s+[A-Z][a-zA-Z0-9_-]+){0,3}|"
+    r"(?:college|university|school))\b",
+    re.IGNORECASE,
+)
+
+
+def _has_education_profile_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
     education_surface = {
         "campus",
         "class",
@@ -195,7 +250,11 @@ def _has_education_profile_support(memory_terms: set[str]) -> bool:
         "school",
         "university",
     } & memory_terms
-    return bool(education_surface or (education_action and education_context))
+    return bool(
+        education_surface
+        or (education_action and education_context)
+        or _EDUCATION_PROFILE_SURFACE_RE.search(memory_text)
+    )
 
 
 _EMPLOYMENT_PROFILE_SURFACE_RE = re.compile(
@@ -298,7 +357,11 @@ _DATE_PROFILE_SURFACE_RE = re.compile(
     r"(?:on\s+|in\s+)?(?:\d{1,2}(?:st|nd|rd|th)?|"
     r"january|february|march|april|may|june|july|august|"
     r"september|october|november|december)\b"
-    r"|\bborn\s+(?:on|in)\s+"
+    r"|\bborn\s+(?:(?:on|in)\s+)?"
+    r"(?:\d{1,2}(?:st|nd|rd|th)?|"
+    r"january|february|march|april|may|june|july|august|"
+    r"september|october|november|december)\b"
+    r"|\bdate\s+of\s+birth\s+(?:is|was)\s+"
     r"(?:\d{1,2}(?:st|nd|rd|th)?|"
     r"january|february|march|april|may|june|july|august|"
     r"september|october|november|december)\b",
@@ -990,6 +1053,23 @@ _STATUS_PROFILE_RELATION_RE = re.compile(
     r"father|fiancee?|friend|girlfriend|husband|kid|kids|manager|mentor|"
     r"mother|neighbor|parent|partner|roommate|sibling|sister|son|spouse|"
     r"teammate|wife)\b"
+    r"|\b[A-Z][a-zA-Z0-9_-]+\s+(?:is|was|are|were)\s+"
+    r"[A-Z][a-zA-Z0-9_-]+(?:'s|’s)\s+"
+    r"(?:boyfriend|boss|brother|child|children|colleague|coworker|daughter|"
+    r"father|fiancee?|friend|girlfriend|husband|kid|kids|manager|mentor|"
+    r"mother|neighbor|parent|partner|roommate|sibling|sister|son|spouse|"
+    r"teammate|wife)\b"
+    r"|\b[A-Z][a-zA-Z0-9_-]+(?:'s|’s)\s+"
+    r"(?:boyfriend|boss|brother|child|children|colleague|coworker|daughter|"
+    r"father|fiancee?|friend|girlfriend|husband|kid|kids|manager|mentor|"
+    r"mother|neighbor|parent|partner|roommate|sibling|sister|son|spouse|"
+    r"teammate|wife)\s+(?:is|was|are|were)\s+"
+    r"[A-Z][a-zA-Z0-9_-]+\b"
+    r"|\b[A-Z][a-zA-Z0-9_-]+(?:'s|’s)\s+"
+    r"(?:boyfriend|boss|brother|child|children|colleague|coworker|daughter|"
+    r"father|fiancee?|friend|girlfriend|husband|kid|kids|manager|mentor|"
+    r"mother|neighbor|parent|partner|roommate|sibling|sister|son|spouse|"
+    r"teammate|wife)[,;:]\s+[A-Z][a-zA-Z0-9_-]+\b"
     r"|\b(?:is|was|are|were)\s+"
     r"(?:my|his|her|their|our|your)\s+"
     r"(?:boyfriend|boss|brother|child|colleague|coworker|daughter|father|"
@@ -1202,6 +1282,20 @@ def _has_preference_support(memory_terms: set[str]) -> bool:
         or (outdoor_context and durable_outdoor_context)
         or (self_care_surface and self_care_context)
     )
+
+
+def _has_favorite_preference_support(memory_terms: set[str]) -> bool:
+    favorite_surface = {"favorite", "favourite"} & memory_terms
+    favorite_context = {
+        "book",
+        "choice",
+        "color",
+        "food",
+        "music",
+        "restaurant",
+        "song",
+    } & memory_terms
+    return bool(favorite_surface and favorite_context)
 
 
 def _has_contrast_support(memory_terms: set[str]) -> bool:
@@ -1419,6 +1513,7 @@ _TYPED_SUPPORT_CHECKS: dict[str, Callable[[set[str]], bool]] = {
     "employment_profile": _has_employment_profile_support,
     "emotion_response": _has_emotion_response_support,
     "exchange": _has_exchange_support,
+    "favorite_preference": _has_favorite_preference_support,
     "health_profile": _has_health_profile_support,
     "identity_profile": _has_identity_profile_support,
     "pet_profile": _has_pet_profile_support,

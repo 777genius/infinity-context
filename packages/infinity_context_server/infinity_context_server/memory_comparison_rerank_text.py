@@ -490,6 +490,19 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
         flags=re.IGNORECASE,
     ):
         terms.append("activity")
+    if (
+        not re.search(r"\b(?:picture|photo|image|video)\b", text, flags=re.IGNORECASE)
+        and re.search(
+            r"\bwhat\s+did\b.+\b(?:"
+            r"bring|brought|take|took|send|sent|share|shared|paint|painted|"
+            r"draw|drew|make|made|book|booked|schedule|scheduled|prepare|prepared|"
+            r"complete|completed|fix|fixed|repair|repaired|create|created"
+            r")\b",
+            text,
+            flags=re.IGNORECASE,
+        )
+    ):
+        terms.append("action")
     if re.search(
         r"\bwhere\b.+\blive\b|\blive\b.+\bwhere\b",
         text,

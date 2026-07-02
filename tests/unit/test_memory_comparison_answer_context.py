@@ -58,7 +58,13 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
                     "emotion_response_support_count": 6,
                     "symbolic_meaning_support_count": 7,
                     "preference_support_count": 3,
+                    "favorite_support_count": 11,
                     "visual_support_count": 4,
+                    "typed_relation_support_count": 12,
+                    "typed_relation_support_counts": {
+                        "favorite_support": 11,
+                        "health_support": 1,
+                    },
                     "contrast_count": 2,
                     "reason_codes": [
                         "has_primary_evidence",
@@ -92,7 +98,6 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
         "primary",
         "bridge",
         "contrast-support",
-        "noise",
     ]
     assert context.memories[0].source_refs == ("D4:5",)
     assert context.memories[0].metadata["answer_context_role"] == "primary"
@@ -140,7 +145,13 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
     assert context.bundle_emotion_response_support_count == 6
     assert context.bundle_symbolic_meaning_support_count == 7
     assert context.bundle_preference_support_count == 3
+    assert context.bundle_favorite_support_count == 11
     assert context.bundle_visual_support_count == 4
+    assert context.bundle_typed_relation_support_count == 12
+    assert context.bundle_typed_relation_support_counts == {
+        "favorite_support": 11,
+        "health_support": 1,
+    }
     assert context.bundle_contrast_count == 2
     assert context.memories[0].metadata["answer_context_bundle_bridge_count"] == 1
     assert (
@@ -216,9 +227,22 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
         == 3
     )
     assert (
+        context.memories[0].metadata["answer_context_bundle_favorite_support_count"]
+        == 11
+    )
+    assert (
         context.memories[0].metadata["answer_context_bundle_visual_support_count"]
         == 4
     )
+    assert (
+        context.memories[0].metadata[
+            "answer_context_bundle_typed_relation_support_count"
+        ]
+        == 12
+    )
+    assert context.memories[0].metadata[
+        "answer_context_bundle_typed_relation_support_counts"
+    ] == {"favorite_support": 11, "health_support": 1}
     assert context.memories[0].metadata["answer_context_bundle_contrast_count"] == 2
     assert (
         context.memories[0].metadata["answer_context_role_requirement_complete"]
@@ -249,26 +273,23 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
     assert context.memories[2].metadata[
         "answer_context_backfill_missing_role_hits"
     ] == ("contrast",)
-    assert context.memories[3].metadata["answer_context_role"] == (
-        "retrieval_backfill"
-    )
     assert context.to_diagnostics() == {
         "schema_version": "answer_context.v1",
         "source": "evidence_bundle",
-        "memory_count": 4,
+        "memory_count": 3,
         "source_ref_count": 3,
         "source_ref_item_count": 3,
-        "source_refless_item_count": 1,
-        "source_ref_coverage_rate": 0.75,
-        "avg_answerability_score": 0.4475,
+        "source_refless_item_count": 0,
+        "source_ref_coverage_rate": 1.0,
+        "avg_answerability_score": 0.5967,
         "avg_measured_answerability_score": 0.895,
-        "unmeasured_answerability_count": 2,
-        "avg_source_locality_score": 0.475,
+        "unmeasured_answerability_count": 1,
+        "avg_source_locality_score": 0.6333,
         "avg_measured_source_locality_score": 0.95,
-        "unmeasured_source_locality_count": 2,
+        "unmeasured_source_locality_count": 1,
         "selected_bundle_item_count": 2,
         "skipped_bundle_item_count": 0,
-        "backfilled_retrieval_item_count": 2,
+        "backfilled_retrieval_item_count": 1,
         "backfilled_broad_summary_count": 0,
         "backfilled_conflict_or_stale_count": 0,
         "backfilled_source_proximity_support_count": 0,
@@ -289,7 +310,13 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
         "bundle_emotion_response_support_count": 6,
         "bundle_symbolic_meaning_support_count": 7,
         "bundle_preference_support_count": 3,
+        "bundle_favorite_support_count": 11,
         "bundle_visual_support_count": 4,
+        "bundle_typed_relation_support_count": 12,
+        "bundle_typed_relation_support_counts": {
+            "favorite_support": 11,
+            "health_support": 1,
+        },
         "bundle_contrast_count": 2,
         "role_requirement_complete": False,
         "missing_required_roles": ["contrast"],
@@ -298,8 +325,8 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
             "risk:missing_required_contrast",
         ],
         "fallback_reason": None,
-        "item_ids": ["primary", "bridge", "contrast-support", "noise"],
-        "retrieval_orders": [3, 2, 4, 1],
+        "item_ids": ["primary", "bridge", "contrast-support"],
+        "retrieval_orders": [3, 2, 4],
     }
 
 
@@ -828,6 +855,72 @@ def test_answer_context_backfill_matches_current_goal_categories() -> None:
     assert context.backfilled_retrieval_item_count == 1
 
 
+def test_answer_context_backfill_requires_typed_role_evidence_over_query_role() -> None:
+    memories = (
+        RetrievedMemory(text="primary", rank=1, item_id="primary"),
+        RetrievedMemory(
+            text="D2:4 Alex: I like green paint in that mural.",
+            rank=2,
+            item_id="generic-preference",
+            source_refs=("D2:4",),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "answerability_score": 0.95,
+                        "source_locality_score": 1.0,
+                        "query_roles": ["favorite_support"],
+                        "relation_category_hits": ["preference"],
+                        "has_preference_evidence": True,
+                        "entity_hits": ["alex"],
+                        "speaker_hits": ["alex"],
+                    }
+                }
+            },
+        ),
+        RetrievedMemory(
+            text="D2:5 Alex: My favorite color is green.",
+            rank=3,
+            item_id="favorite-preference",
+            source_refs=("D2:5",),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "answerability_score": 0.82,
+                        "source_locality_score": 0.9,
+                        "query_roles": ["favorite_support"],
+                        "relation_category_hits": [
+                            "favorite_preference",
+                            "preference",
+                        ],
+                        "has_preference_evidence": True,
+                        "entity_hits": ["alex"],
+                        "speaker_hits": ["alex"],
+                    }
+                }
+            },
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "role_requirement_complete": False,
+            "missing_required_roles": ["favorite_support"],
+            "items": [{"id": "primary", "retrieval_order": 1, "role": "primary"}],
+        },
+        cutoff=3,
+    )
+
+    assert [memory.item_id for memory in context.memories] == [
+        "primary",
+        "favorite-preference",
+    ]
+    assert context.memories[1].metadata[
+        "answer_context_backfill_missing_role_hits"
+    ] == ("favorite_support",)
+    assert context.backfilled_retrieval_item_count == 1
+
+
 def test_answer_context_backfill_prefers_unmeasured_grounded_role_evidence() -> None:
     memories = (
         RetrievedMemory(text="primary", rank=1, item_id="primary"),
@@ -1021,15 +1114,11 @@ def test_answer_context_backfill_requires_content_time_for_temporal_role_hit() -
     assert [memory.item_id for memory in context.memories] == [
         "primary",
         "content-time",
-        "metadata-only-time",
     ]
     assert context.memories[1].metadata[
         "answer_context_backfill_missing_role_hits"
     ] == ("temporal_support",)
-    assert (
-        "answer_context_backfill_missing_role_hits"
-        not in context.memories[2].metadata
-    )
+    assert context.backfilled_retrieval_item_count == 1
 
 
 def test_answer_context_backfill_requires_visual_and_time_for_visual_temporal_role() -> None:
@@ -1091,15 +1180,73 @@ def test_answer_context_backfill_requires_visual_and_time_for_visual_temporal_ro
     assert [memory.item_id for memory in context.memories] == [
         "primary",
         "visual-time",
-        "visual-only",
     ]
     assert context.memories[1].metadata[
         "answer_context_backfill_missing_role_hits"
     ] == ("visual_temporal_support",)
-    assert (
-        "answer_context_backfill_missing_role_hits"
-        not in context.memories[2].metadata
+    assert context.backfilled_retrieval_item_count == 1
+
+
+def test_answer_context_backfill_requires_action_category_for_action_role() -> None:
+    memories = (
+        RetrievedMemory(text="primary", rank=1, item_id="primary"),
+        RetrievedMemory(
+            text="D1:1 Alex mentioned class supplies.",
+            rank=2,
+            item_id="query-role-only",
+            source_refs=("D1:1",),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "answerability_score": 0.95,
+                        "source_locality_score": 0.9,
+                        "entity_hits": ["alex"],
+                        "speaker_hits": ["alex"],
+                        "relation_hits": ["class"],
+                        "query_roles": ["action_support"],
+                    }
+                }
+            },
+        ),
+        RetrievedMemory(
+            text="D2:3 Alex: I took the notebook to class.",
+            rank=3,
+            item_id="action-evidence",
+            source_refs=("D2:3",),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "answerability_score": 0.82,
+                        "source_locality_score": 0.9,
+                        "entity_hits": ["alex"],
+                        "speaker_hits": ["alex"],
+                        "relation_hits": ["take", "class"],
+                        "query_roles": ["action_support"],
+                        "relation_category_hits": ["action_event"],
+                    }
+                }
+            },
+        ),
     )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "role_requirement_complete": False,
+            "missing_required_roles": ["action_support"],
+            "items": [{"id": "primary", "retrieval_order": 1, "role": "primary"}],
+        },
+        cutoff=3,
+    )
+
+    assert [memory.item_id for memory in context.memories] == [
+        "primary",
+        "action-evidence",
+    ]
+    assert context.memories[1].metadata[
+        "answer_context_backfill_missing_role_hits"
+    ] == ("action_support",)
+    assert context.backfilled_retrieval_item_count == 1
 
 
 def test_answer_context_falls_back_for_empty_bundle() -> None:
@@ -1156,7 +1303,13 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
                             "bundle_emotion_response_support_count": 6,
                             "bundle_symbolic_meaning_support_count": 7,
                             "bundle_preference_support_count": 3,
+                            "bundle_favorite_support_count": 11,
                             "bundle_visual_support_count": 4,
+                            "bundle_typed_relation_support_count": 12,
+                            "bundle_typed_relation_support_counts": {
+                                "favorite_support": 11,
+                                "health_support": 1,
+                            },
                             "bundle_contrast_count": 2,
                             "role_requirement_complete": False,
                             "missing_required_roles": ["contrast"],
@@ -1253,8 +1406,16 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
     assert primary["total_bundle_symbolic_meaning_support_count"] == 7
     assert primary["avg_bundle_preference_support_count"] == 1.5
     assert primary["total_bundle_preference_support_count"] == 3
+    assert primary["avg_bundle_favorite_support_count"] == 5.5
+    assert primary["total_bundle_favorite_support_count"] == 11
     assert primary["avg_bundle_visual_support_count"] == 2.0
     assert primary["total_bundle_visual_support_count"] == 4
+    assert primary["avg_bundle_typed_relation_support_count"] == 6.0
+    assert primary["total_bundle_typed_relation_support_count"] == 12
+    assert primary["bundle_typed_relation_support_role_counts"] == {
+        "favorite_support": 11,
+        "health_support": 1,
+    }
     assert primary["avg_bundle_contrast_count"] == 1.0
     assert primary["total_bundle_contrast_count"] == 2
     assert primary["avg_source_ref_count"] == 0.5

@@ -19,6 +19,7 @@ _TURN_REF_RE = re.compile(r"\bD\d+:\d+\b")
 _TURN_REF_PARTS_RE = re.compile(r"\bD(?P<dialogue>\d+):(?P<turn>\d+)\b")
 _SOURCE_PROXIMITY_WINDOW = 3
 _TYPED_RELATION_SUPPORT_CATEGORIES = {
+    "action_support": frozenset({"action_event"}),
     "activity_support": frozenset({"activity_profile"}),
     "age_support": frozenset({"age_profile"}),
     "alias_support": frozenset({"alias_profile"}),
@@ -29,6 +30,7 @@ _TYPED_RELATION_SUPPORT_CATEGORIES = {
     "diet_support": frozenset({"diet_profile"}),
     "education_support": frozenset({"education_profile"}),
     "employment_support": frozenset({"employment_profile"}),
+    "favorite_support": frozenset({"favorite_preference"}),
     "health_support": frozenset({"health_profile"}),
     "identity_support": frozenset({"identity_profile"}),
     "pet_support": frozenset({"pet_profile"}),
@@ -561,6 +563,11 @@ def _role_for_candidate(
     if _candidate_has_location_support(candidate):
         return "location_support"
     if (
+        "favorite_support" in set(required_roles)
+        and _candidate_has_favorite_support(candidate)
+    ):
+        return "favorite_support"
+    if (
         "preference_support" in set(required_roles)
         and _candidate_has_preference_support(candidate)
     ):
@@ -1043,6 +1050,12 @@ def _candidate_has_preference_support(candidate: EvidenceBundleCandidate) -> boo
         candidate.has_preference_evidence
         or "preference" in set(candidate.relation_category_hits)
     )
+
+
+def _candidate_has_favorite_support(candidate: EvidenceBundleCandidate) -> bool:
+    if not _candidate_has_typed_relation_grounding(candidate):
+        return False
+    return "favorite_preference" in set(candidate.relation_category_hits)
 
 
 def _candidate_has_visual_support(candidate: EvidenceBundleCandidate) -> bool:
@@ -1570,6 +1583,7 @@ def _bundle_quality_diagnostics(
             "emotion_response_support_count": 0,
             "symbolic_meaning_support_count": 0,
             "preference_support_count": 0,
+            "favorite_support_count": 0,
             "visual_support_count": 0,
             "typed_relation_support_count": 0,
             "typed_relation_support_counts": {},
@@ -1648,11 +1662,15 @@ def _bundle_quality_diagnostics(
     preference_support_count = sum(
         1 for item in items if item.role == "preference_support"
     )
+    favorite_support_count = sum(1 for item in items if item.role == "favorite_support")
     visual_support_count = sum(1 for item in items if item.role == "visual_support")
     typed_relation_support_counts = Counter(
         item.role for item in items if item.role in _TYPED_RELATION_SUPPORT_CATEGORIES
     )
     typed_relation_support_count = sum(typed_relation_support_counts.values())
+    typed_relation_quality_count = (
+        typed_relation_support_count - favorite_support_count
+    )
     location_relation_category_hit_count = sum(
         1
         for item in items
@@ -1702,6 +1720,8 @@ def _bundle_quality_diagnostics(
             0.08 * symbolic_meaning_support_count,
         ),
         "preference_support": min(0.08, 0.08 * preference_support_count),
+        "favorite_support": min(0.08, 0.08 * favorite_support_count),
+        "typed_relation_support": min(0.08, 0.08 * typed_relation_quality_count),
         "visual_support": min(0.08, 0.08 * visual_support_count),
         "source_proximity": (
             min(0.06, 0.03 * source_proximity_support_count)
@@ -1751,6 +1771,7 @@ def _bundle_quality_diagnostics(
             emotion_response_support_count=emotion_response_support_count,
             symbolic_meaning_support_count=symbolic_meaning_support_count,
             preference_support_count=preference_support_count,
+            favorite_support_count=favorite_support_count,
             visual_support_count=visual_support_count,
             typed_relation_support_counts=typed_relation_support_counts,
             location_relation_category_hit_count=location_relation_category_hit_count,
@@ -1800,6 +1821,7 @@ def _bundle_quality_diagnostics(
         "emotion_response_support_count": emotion_response_support_count,
         "symbolic_meaning_support_count": symbolic_meaning_support_count,
         "preference_support_count": preference_support_count,
+        "favorite_support_count": favorite_support_count,
         "visual_support_count": visual_support_count,
         "typed_relation_support_count": typed_relation_support_count,
         "typed_relation_support_counts": dict(
@@ -1909,6 +1931,7 @@ def _bundle_quality_reason_codes(
     emotion_response_support_count: int,
     symbolic_meaning_support_count: int,
     preference_support_count: int,
+    favorite_support_count: int,
     visual_support_count: int,
     typed_relation_support_counts: Mapping[str, int],
     location_relation_category_hit_count: int,
@@ -1965,6 +1988,8 @@ def _bundle_quality_reason_codes(
         reasons.append("has_symbolic_meaning_support_evidence")
     if preference_support_count:
         reasons.append("has_preference_support_evidence")
+    if favorite_support_count:
+        reasons.append("has_favorite_support_evidence")
     if visual_support_count:
         reasons.append("has_visual_support_evidence")
     if typed_relation_support_counts:

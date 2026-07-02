@@ -3393,7 +3393,7 @@ def test_query_decomposition_reports_typed_retrieval_intent() -> None:
     assert relationship_plan["selected_roles"] == [
         "original_question",
         "expanded_focus",
-        "inference_support",
+        "status_support",
     ]
     assert relationship_plan["selected_role_families"] == [
         "base_query",
@@ -3411,6 +3411,11 @@ def test_query_decomposition_reports_typed_retrieval_intent() -> None:
     ]
     assert "spouse" in kinship_metadata["query_profile"]["relation_variant_terms"]
     assert kinship_queries[2] == "melanie husband spouse partner wife marry married"
+    assert kinship_metadata["query_plan"]["selected_roles"] == [
+        "original_question",
+        "expanded_focus",
+        "status_support",
+    ]
 
     duration_intent = duration_metadata["retrieval_intent"]
     assert duration_intent["time_intent"]["kind"] == "duration"
@@ -4610,7 +4615,7 @@ def test_query_decomposition_expands_health_profile_queries() -> None:
         dentist_case
     )
     _, class_metadata = rerank_module.decomposed_search_queries(class_case)
-    _, take_to_class_metadata = rerank_module.decomposed_search_queries(
+    take_to_class_queries, take_to_class_metadata = rerank_module.decomposed_search_queries(
         take_to_class_case
     )
 
@@ -4659,7 +4664,17 @@ def test_query_decomposition_expands_health_profile_queries() -> None:
     assert "health_profile" not in class_metadata["query_profile"][
         "relation_categories"
     ]
-    assert take_to_class_metadata["query_profile"]["relation_terms"] == ()
+    assert take_to_class_metadata["query_profile"]["relation_terms"] == ("action",)
+    assert take_to_class_metadata["query_profile"]["relation_categories"] == (
+        "action_event",
+    )
+    assert take_to_class_metadata["query_profile"]["evidence_need"] == (
+        "action_support",
+    )
+    assert "action_support" in take_to_class_metadata["query_profile"][
+        "bundle_evidence_roles"
+    ]
+    assert take_to_class_queries[2] == "alex action take class book bring brought"
     assert "health_profile" not in take_to_class_metadata["query_profile"][
         "relation_categories"
     ]
@@ -5075,6 +5090,11 @@ def test_query_decomposition_expands_date_profile_queries() -> None:
         "date_profile",
     )
     assert birthday_metadata["query_profile"]["evidence_need"] == ("date_profile",)
+    assert birthday_metadata["query_plan"]["selected_roles"] == [
+        "original_question",
+        "expanded_focus",
+        "date_support",
+    ]
 
     assert temporal_birthday_metadata["query_profile"]["relation_categories"] == (
         "date_profile",
@@ -5090,6 +5110,7 @@ def test_query_decomposition_expands_date_profile_queries() -> None:
     assert "date_profile" in anniversary_metadata["query_profile"][
         "relation_categories"
     ]
+    assert "date_support" in anniversary_metadata["query_plan"]["selected_roles"]
 
     assert "date_profile" not in birthday_gift_metadata["query_profile"][
         "relation_categories"
@@ -6366,6 +6387,74 @@ def test_benchmark_rerank_boosts_status_profile_evidence() -> None:
     )
 
 
+def test_benchmark_rerank_boosts_named_possessive_status_evidence() -> None:
+    case = _case(
+        case_id="status-profile-named-possessive-rerank",
+        question="Who is Dana's roommate?",
+        expected_terms=("Riley",),
+        answer="Riley",
+        category=4,
+    )
+    topical_roommate = RetrievedMemory(
+        item_id="topical-roommate",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Dana talked about a roommate matching app with Riley."
+        ),
+        source_refs=("D1:1",),
+    )
+    named_app_distractor = RetrievedMemory(
+        item_id="named-app-distractor",
+        rank=2,
+        score=0.3,
+        text=(
+            "session_1 turn D1:2 date: 10:05 am "
+            "D1:2 Dana discussed Dana's roommate matching app with Riley."
+        ),
+        source_refs=("D1:2",),
+    )
+    named_possessive_status = RetrievedMemory(
+        item_id="named-possessive-status",
+        rank=3,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Dana: Riley is Dana's roommate."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_roommate, named_app_distractor, named_possessive_status),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("status_profile",)
+    assert reranked[0].item_id == "named-possessive-status"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    status_diagnostics = diagnostics_by_id["named-possessive-status"]
+    topical_diagnostics = diagnostics_by_id["topical-roommate"]
+    app_diagnostics = diagnostics_by_id["named-app-distractor"]
+    assert status_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["status_profile"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert app_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert (
+        status_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        > 0
+    )
+
+
 def test_query_decomposition_expands_favorite_preference_queries() -> None:
     favorite_color_case = _case(
         case_id="favorite-preference-color",
@@ -6389,12 +6478,22 @@ def test_query_decomposition_expands_favorite_preference_queries() -> None:
 
     assert color_queries[2] == "alex favorite color favourite prefer like love"
     assert color_metadata["query_profile"]["relation_terms"] == ("favorite",)
-    assert color_metadata["query_profile"]["relation_categories"] == ("preference",)
-    assert color_metadata["query_profile"]["evidence_need"] == ("preference",)
+    assert color_metadata["query_profile"]["relation_categories"] == (
+        "favorite_preference",
+        "preference",
+    )
+    assert color_metadata["query_profile"]["evidence_need"] == (
+        "favorite_preference",
+        "preference",
+    )
+    assert "favorite_support" in color_metadata["query_profile"][
+        "bundle_evidence_roles"
+    ]
 
     assert restaurant_queries[2] == "alex favourite restaurant favorite prefer like love"
     assert restaurant_metadata["query_profile"]["relation_terms"] == ("favourite",)
     assert restaurant_metadata["query_profile"]["relation_categories"] == (
+        "favorite_preference",
         "preference",
     )
 
@@ -8484,6 +8583,60 @@ def test_benchmark_rerank_boosts_education_profile_evidence() -> None:
     )
 
 
+def test_benchmark_rerank_boosts_named_school_education_evidence() -> None:
+    case = _case(
+        case_id="education-profile-named-school-rerank",
+        question="What school does Alex go to?",
+        expected_terms=("Stanford",),
+        answer="Stanford",
+        category=4,
+    )
+    topical_school = RetrievedMemory(
+        item_id="topical-school",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex met Maria near Stanford cafe."
+        ),
+        source_refs=("D1:1",),
+    )
+    named_school = RetrievedMemory(
+        item_id="named-school",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: I go to Stanford."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_school, named_school),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("education_profile",)
+    assert reranked[0].item_id == "named-school"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    school_diagnostics = diagnostics_by_id["named-school"]
+    topical_diagnostics = diagnostics_by_id["topical-school"]
+    assert school_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["education_profile"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert (
+        school_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        > 0
+    )
+
+
 def test_benchmark_rerank_boosts_employment_profile_evidence() -> None:
     case = _case(
         case_id="employment-profile-rerank",
@@ -9125,7 +9278,10 @@ def test_benchmark_rerank_boosts_favorite_preference_evidence() -> None:
     )
 
     assert metadata["applied"] is True
-    assert metadata["query_profile"]["evidence_need"] == ("preference",)
+    assert metadata["query_profile"]["evidence_need"] == (
+        "favorite_preference",
+        "preference",
+    )
     assert reranked[0].item_id == "favorite-color"
     diagnostics_by_id = {
         memory.item_id: memory.metadata["diagnostics"] for memory in reranked
@@ -9134,7 +9290,7 @@ def test_benchmark_rerank_boosts_favorite_preference_evidence() -> None:
     topical_diagnostics = diagnostics_by_id["topical-color"]
     assert favorite_diagnostics["benchmark_candidate_features"][
         "relation_category_hits"
-    ] == ["preference"]
+    ] == ["favorite_preference", "preference"]
     assert topical_diagnostics["benchmark_candidate_features"][
         "relation_category_hits"
     ] == []
@@ -9397,6 +9553,60 @@ def test_benchmark_rerank_boosts_date_profile_evidence() -> None:
     assert (
         topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
         == 0
+    )
+
+
+def test_benchmark_rerank_boosts_born_date_profile_evidence() -> None:
+    case = _case(
+        case_id="date-profile-born-rerank",
+        question="What is Alex's birthday?",
+        expected_terms=("May 5",),
+        answer="May 5",
+        category=4,
+    )
+    topical_birthday = RetrievedMemory(
+        item_id="topical-birthday",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex kept a birthday gift from Maria."
+        ),
+        source_refs=("D1:1",),
+    )
+    born_date_profile = RetrievedMemory(
+        item_id="born-date-profile",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: I was born May 5."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_birthday, born_date_profile),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("date_profile",)
+    assert reranked[0].item_id == "born-date-profile"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    date_diagnostics = diagnostics_by_id["born-date-profile"]
+    topical_diagnostics = diagnostics_by_id["topical-birthday"]
+    assert date_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["date_profile"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert (
+        date_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        > 0
     )
 
 

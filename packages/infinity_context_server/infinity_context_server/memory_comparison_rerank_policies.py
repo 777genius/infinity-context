@@ -545,6 +545,7 @@ class TypedRelationSupportPolicy:
     def score(self, features: RerankPolicyFeatures) -> RerankPolicyContribution:
         support_roles = _typed_relation_support_roles(features)
         category_hits = _typed_relation_support_category_hits(features, support_roles)
+        hit_roles = _typed_relation_support_hit_roles(features, support_roles)
         precise_provenance = _has_precise_or_unmeasured_source_provenance(features)
         grounded = bool(
             category_hits
@@ -553,8 +554,8 @@ class TypedRelationSupportPolicy:
         )
         evidence_boost = min(0.06, 0.045 * len(category_hits)) if grounded else 0.0
         role_boost = (
-            min(0.03, 0.02 * len(support_roles))
-            if evidence_boost > 0 and support_roles
+            min(0.03, 0.02 * len(hit_roles))
+            if evidence_boost > 0 and hit_roles
             else 0.0
         )
         return RerankPolicyContribution(
@@ -573,6 +574,7 @@ class TypedRelationSupportPolicy:
                 "benchmark_typed_relation_support_category_hits": list(
                     category_hits
                 ),
+                "benchmark_typed_relation_support_hit_roles": list(hit_roles),
                 "benchmark_typed_relation_support_precise_provenance": (
                     precise_provenance
                 ),
@@ -840,7 +842,26 @@ def _answerability_boost(score: float) -> float:
 def _answerability_boost_eligible(features: RerankPolicyFeatures) -> bool:
     if not features.relation_terms:
         return True
+    if _typed_category_answerability_grounded(features):
+        return True
     return len(features.relation_hits) >= 2 or features.high_signal_relation_hit_count > 0
+
+
+def _typed_category_answerability_grounded(features: RerankPolicyFeatures) -> bool:
+    category_hits = set(features.relation_category_hits)
+    if not category_hits:
+        return False
+    if "communication" in category_hits and features.query_has_entities:
+        if features.speaker_hits:
+            return True
+        category_hits.discard("communication")
+    if not category_hits:
+        return False
+    return bool(
+        features.entity_hits
+        or features.speaker_hits
+        or not features.query_has_entities
+    )
 
 
 def _contrast_boost_eligible(features: RerankPolicyFeatures) -> bool:
@@ -855,6 +876,7 @@ def _contrast_boost_eligible(features: RerankPolicyFeatures) -> bool:
 
 
 _TYPED_RELATION_SUPPORT_ROLE_CATEGORIES = {
+    "action_support": frozenset({"action_event"}),
     "causal_support": frozenset({"causal"}),
     "activity_support": frozenset({"activity_profile"}),
     "age_support": frozenset({"age_profile"}),
@@ -870,6 +892,7 @@ _TYPED_RELATION_SUPPORT_ROLE_CATEGORIES = {
     "emotion_response_support": frozenset({"emotion_response"}),
     "event_support": frozenset({"participation_event", "registration_event"}),
     "exchange_support": frozenset({"exchange"}),
+    "favorite_support": frozenset({"favorite_preference"}),
     "health_support": frozenset({"health_profile"}),
     "identity_support": frozenset({"identity_profile"}),
     "pet_support": frozenset({"pet_profile"}),
@@ -880,6 +903,7 @@ _TYPED_RELATION_SUPPORT_ROLE_CATEGORIES = {
     "vehicle_support": frozenset({"vehicle_profile"}),
 }
 _TYPED_RELATION_SUPPORT_NEEDS = {
+    "action_support": frozenset({"action_support"}),
     "causal_support": frozenset({"causal_support"}),
     "activity_support": frozenset({"activity_profile"}),
     "age_support": frozenset({"age_profile"}),
@@ -895,6 +919,7 @@ _TYPED_RELATION_SUPPORT_NEEDS = {
     "emotion_response_support": frozenset({"emotion_response"}),
     "event_support": frozenset({"participation_event", "registration_event"}),
     "exchange_support": frozenset({"exchange"}),
+    "favorite_support": frozenset({"favorite_preference"}),
     "health_support": frozenset({"health_profile"}),
     "identity_support": frozenset({"identity_profile"}),
     "pet_support": frozenset({"pet_profile"}),
@@ -939,11 +964,27 @@ def _typed_relation_support_category_hits(
     return tuple(dict.fromkeys(hits))
 
 
+def _typed_relation_support_hit_roles(
+    features: RerankPolicyFeatures,
+    support_roles: Sequence[str],
+) -> tuple[str, ...]:
+    category_hits = set(features.relation_category_hits)
+    return tuple(
+        role
+        for role in support_roles
+        if category_hits.intersection(_TYPED_RELATION_SUPPORT_ROLE_CATEGORIES[role])
+    )
+
+
 def _typed_relation_support_grounded(
     features: RerankPolicyFeatures,
     support_roles: Sequence[str],
 ) -> bool:
-    if not (features.relation_hits or features.high_signal_relation_hit_count > 0):
+    if not (
+        features.relation_hits
+        or features.high_signal_relation_hit_count > 0
+        or _typed_profile_category_grounded(features, support_roles)
+    ):
         return False
     if "communication_support" in set(support_roles) and features.query_has_entities:
         return bool(features.speaker_hits)
@@ -952,6 +993,29 @@ def _typed_relation_support_grounded(
         or features.speaker_hits
         or not features.query_has_entities
     )
+
+
+def _typed_profile_category_grounded(
+    features: RerankPolicyFeatures,
+    support_roles: Sequence[str],
+) -> bool:
+    category_hits = set(features.relation_category_hits)
+    if not category_hits:
+        return False
+    for role in support_roles:
+        if category_hits.intersection(_TYPED_PROFILE_SUPPORT_CATEGORIES.get(role, ())):
+            return True
+    return False
+
+
+_TYPED_PROFILE_SUPPORT_CATEGORIES = {
+    role: frozenset(
+        category
+        for category in categories
+        if category.endswith("_profile") or category == "favorite_preference"
+    )
+    for role, categories in _TYPED_RELATION_SUPPORT_ROLE_CATEGORIES.items()
+}
 
 
 _LOCATION_SUPPORT_TERMS = frozenset(
