@@ -1320,6 +1320,8 @@ def _recommended_query_role_families(intent: RetrievalIntent) -> tuple[str, ...]
         families.append("contrast_support")
     if "location_support" in intent.evidence_need:
         families.append("location_support")
+    if "causal_support" in intent.evidence_need:
+        families.append("multi_hop")
     if "multi_hop" in intent.evidence_need or intent.multi_hop_markers:
         families.append("multi_hop")
     return tuple(dict.fromkeys(families))

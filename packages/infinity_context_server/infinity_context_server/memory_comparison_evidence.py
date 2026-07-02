@@ -356,6 +356,7 @@ def _required_bundle_roles(
 def _has_structured_support_need(evidence_need: Sequence[str]) -> bool:
     return bool(
         {
+            "causal_support",
             "contrast",
             "location_support",
             "multi_hop",

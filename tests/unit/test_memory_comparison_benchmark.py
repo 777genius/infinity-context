@@ -3364,6 +3364,12 @@ def test_query_decomposition_expands_locomo_topic_relations() -> None:
         "compact_relation",
         "multi_hop_bridge",
     ]
+    assert "causal_support" in adoption_choice_metadata["query_profile"][
+        "evidence_need"
+    ]
+    assert "causal_support" in adoption_choice_metadata["query_profile"][
+        "bundle_evidence_roles"
+    ]
     assert "choose" in adoption_choice_metadata["query_profile"]["relation_terms"]
     assert not {"inclusivity", "support", "lgbtq"}.intersection(
         adoption_choice_metadata["query_profile"]["relation_variant_terms"]

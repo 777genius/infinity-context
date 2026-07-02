@@ -292,9 +292,12 @@ def infer_evidence_need(
         benchmark_category=benchmark_category,
     ):
         needs.append("inference_support")
-    if {"why", "how", "cause", "realize"} & relation_set or {"why", "how"} & set(
-        multi_hop_markers
-    ):
+    causal_relation_terms = {"why", "cause", "realize"} & relation_set
+    causal_marker_terms = {"why"} & set(multi_hop_markers)
+    if not time_intent.is_temporal:
+        causal_relation_terms = causal_relation_terms | ({"how"} & relation_set)
+        causal_marker_terms = causal_marker_terms | ({"how"} & set(multi_hop_markers))
+    if causal_relation_terms or causal_marker_terms:
         needs.append("causal_support")
     if _has_location_transition_intent(
         question=question,
@@ -324,6 +327,8 @@ def infer_bundle_evidence_roles(
         roles.append("contrast")
     if "location_support" in evidence_need_set:
         roles.append("location_support")
+    if "causal_support" in evidence_need_set:
+        roles.append("causal_support")
     if "inference_support" in evidence_need_set and len(roles) == 1:
         roles.append("inference_support")
     return tuple(dict.fromkeys(roles))

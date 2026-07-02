@@ -409,6 +409,7 @@ class EvidenceBundlePlanner:
                 "temporal_support",
                 "entity_disambiguation",
                 "inference_support",
+                "causal_support",
                 "contrast",
                 "bridge",
                 "location_support",
@@ -479,6 +480,11 @@ def _role_for_candidate(
         return "bridge"
     if _candidate_has_location_support(candidate):
         return "location_support"
+    if (
+        "causal_support" in set(required_roles)
+        and _candidate_has_causal_support(candidate)
+    ):
+        return "causal_support"
     if (
         "inference_support" in set(required_roles)
         and _candidate_has_inference_support(candidate)
@@ -553,6 +559,10 @@ def _satisfied_required_roles(
             satisfied.add(role)
         if role == "inference_support" and any(
             _candidate_has_inference_support(item.candidate) for item in selected
+        ):
+            satisfied.add(role)
+        if role == "causal_support" and any(
+            _candidate_has_causal_support(item.candidate) for item in selected
         ):
             satisfied.add(role)
     return tuple(role for role in required_roles if role in satisfied)
@@ -684,6 +694,8 @@ def _item_can_satisfy_required_role(
         return _candidate_has_location_support(item.candidate)
     if role == "inference_support":
         return _candidate_has_inference_support(item.candidate)
+    if role == "causal_support":
+        return _candidate_has_causal_support(item.candidate)
     return item.role == role
 
 
@@ -735,6 +747,7 @@ def _replacement_role_order(item: PlannedEvidenceItem) -> float:
     role_order = {
         "supporting": 0,
         "entity_disambiguation": 1,
+        "causal_support": 2,
         "inference_support": 2,
         "temporal_support": 2,
         "contrast": 3,
@@ -811,6 +824,39 @@ def _candidate_has_inference_support(candidate: EvidenceBundleCandidate) -> bool
         or candidate.relation_category_hits
         or candidate.query_support_terms
     )
+
+
+def _candidate_has_causal_support(candidate: EvidenceBundleCandidate) -> bool:
+    if candidate.broad_summary or candidate.conflict_or_stale:
+        return False
+    if not (candidate.entity_hits or candidate.speaker_hits):
+        return False
+    if candidate.source_locality_score < 0.45:
+        return False
+    if candidate.answerability_score and candidate.answerability_score < 0.55:
+        return False
+    if "causal" in set(candidate.relation_category_hits):
+        return True
+    causal_terms = {
+        "because",
+        "cause",
+        "caused",
+        "choose",
+        "chose",
+        "decision",
+        "feel",
+        "fit",
+        "reason",
+        "realize",
+        "realized",
+        "reaction",
+        "response",
+        "spoke",
+        "think",
+        "thought",
+        "value",
+    }
+    return bool(causal_terms.intersection(candidate.relation_hits))
 
 
 def _selection_has_bridge_support(selected: Sequence[PlannedEvidenceItem]) -> bool:
@@ -918,6 +964,14 @@ def _reason_codes(
             reasons.append("inference_relation_category_hits")
         if candidate.entity_hits or candidate.speaker_hits:
             reasons.append("inference_entity_hits")
+    if role == "causal_support":
+        reasons.append("causal_support")
+        if candidate.relation_hits:
+            reasons.append("causal_relation_hits")
+        if candidate.relation_category_hits:
+            reasons.append("causal_relation_category_hits")
+        if candidate.entity_hits or candidate.speaker_hits:
+            reasons.append("causal_entity_hits")
     if role == "location_support":
         reasons.append("location_support")
         if candidate.relation_category_hits:
@@ -979,6 +1033,7 @@ def _role_order(item: PlannedEvidenceItem) -> float:
         "contrast": 2,
         "location_support": 3,
         "temporal_support": 3,
+        "causal_support": 4,
         "inference_support": 4,
         "entity_disambiguation": 5,
         "supporting": 5,
@@ -1020,6 +1075,7 @@ def _max_item_drop_counts(
             "temporal_support",
             "entity_disambiguation",
             "inference_support",
+            "causal_support",
             "contrast",
             "bridge",
             "location_support",
@@ -1062,6 +1118,7 @@ def _bundle_quality_diagnostics(
             "low_answerability_count": 0,
             "bridge_count": 0,
             "bridge_query_hit_count": 0,
+            "causal_support_count": 0,
             "inference_support_count": 0,
             "location_support_count": 0,
             "location_relation_category_hit_count": 0,
@@ -1098,6 +1155,7 @@ def _bundle_quality_diagnostics(
     low_answerability_count = sum(score < 0.55 for score in answerability_scores)
     bridge_count = sum(1 for item in items if item.role == "bridge")
     bridge_query_hit_count = sum(1 for item in items if item.candidate.bridge_query_hit)
+    causal_support_count = sum(1 for item in items if item.role == "causal_support")
     inference_support_count = sum(
         1 for item in items if item.role == "inference_support"
     )
@@ -1136,6 +1194,7 @@ def _bundle_quality_diagnostics(
             (0.14 * max_answerability) + (0.10 * avg_answerability),
         ),
         "bridge_support": min(0.1, 0.1 * bridge_count),
+        "causal_support": min(0.08, 0.08 * causal_support_count),
         "inference_support": min(0.08, 0.08 * inference_support_count),
         "location_support": min(0.08, 0.08 * location_support_count),
         "source_proximity": (
@@ -1176,6 +1235,7 @@ def _bundle_quality_diagnostics(
             max_answerability=max_answerability,
             low_answerability_count=low_answerability_count,
             bridge_count=bridge_count,
+            causal_support_count=causal_support_count,
             inference_support_count=inference_support_count,
             location_support_count=location_support_count,
             location_relation_category_hit_count=location_relation_category_hit_count,
@@ -1202,6 +1262,7 @@ def _bundle_quality_diagnostics(
         "low_answerability_count": low_answerability_count,
         "bridge_count": bridge_count,
         "bridge_query_hit_count": bridge_query_hit_count,
+        "causal_support_count": causal_support_count,
         "inference_support_count": inference_support_count,
         "location_support_count": location_support_count,
         "location_relation_category_hit_count": (
@@ -1281,6 +1342,7 @@ def _bundle_quality_reason_codes(
     max_answerability: float,
     low_answerability_count: int,
     bridge_count: int,
+    causal_support_count: int,
     inference_support_count: int,
     location_support_count: int,
     location_relation_category_hit_count: int,
@@ -1317,6 +1379,8 @@ def _bundle_quality_reason_codes(
         reasons.append("risk:low_answerability")
     if bridge_count:
         reasons.append("has_bridge_evidence")
+    if causal_support_count:
+        reasons.append("has_causal_support_evidence")
     if inference_support_count:
         reasons.append("has_inference_support_evidence")
     if location_support_count:

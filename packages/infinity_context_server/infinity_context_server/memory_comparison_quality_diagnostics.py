@@ -16,10 +16,12 @@ _BRIDGE_GAP_REASONS = frozenset(
 )
 _EVIDENCE_NEED_GAP_REASONS = frozenset(
     {
+        "missing_causal_support",
         "missing_contrast",
         "missing_inference_support",
         "missing_location_support",
         "missing_required_bridge",
+        "missing_required_causal_support",
         "missing_required_contrast",
         "missing_required_inference_support",
         "missing_required_location_support",
@@ -634,6 +636,8 @@ def _bundle_incomplete_reasons(item: Mapping[str, object]) -> tuple[str, ...]:
         reasons.append("no_focused_evidence")
     if _needs_contrast_evidence(item) and not _bundle_has_contrast_support(bundle):
         reasons.append("missing_contrast")
+    if _needs_causal_support(item) and not _bundle_has_causal_support(bundle):
+        reasons.append("missing_causal_support")
     if _needs_inference_support(item) and not _bundle_has_inference_support(bundle):
         reasons.append("missing_inference_support")
     if _needs_location_support(item) and not _bundle_has_location_support(bundle):
@@ -676,6 +680,7 @@ def _bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, ob
     confidence_scores: list[float] = []
     risk_penalties: list[float] = []
     bridge_counts: list[int] = []
+    causal_support_counts: list[int] = []
     inference_support_counts: list[int] = []
     location_support_counts: list[int] = []
     location_relation_category_hit_counts: list[int] = []
@@ -696,6 +701,9 @@ def _bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, ob
         confidence_scores.append(score)
         risk_penalties.append(_metric_value(quality, "risk_penalty"))
         bridge_counts.append(_positive_int(quality.get("bridge_count")) or 0)
+        causal_support_counts.append(
+            _positive_int(quality.get("causal_support_count")) or 0
+        )
         inference_support_counts.append(
             _positive_int(quality.get("inference_support_count")) or 0
         )
@@ -737,6 +745,11 @@ def _bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, ob
         "avg_bridge_count": _avg(bridge_counts),
         "total_bridge_count": sum(bridge_counts),
         "bridge_bundle_count": sum(1 for count in bridge_counts if count > 0),
+        "avg_causal_support_count": _avg(causal_support_counts),
+        "total_causal_support_count": sum(causal_support_counts),
+        "causal_support_bundle_count": sum(
+            1 for count in causal_support_counts if count > 0
+        ),
         "avg_inference_support_count": _avg(inference_support_counts),
         "total_inference_support_count": sum(inference_support_counts),
         "inference_support_bundle_count": sum(
@@ -797,6 +810,9 @@ def _bundle_quality_sample(
         ),
         "low_answerability_count": (
             _positive_int(quality.get("low_answerability_count")) or 0
+        ),
+        "causal_support_count": (
+            _positive_int(quality.get("causal_support_count")) or 0
         ),
         "inference_support_count": (
             _positive_int(quality.get("inference_support_count")) or 0
@@ -1383,6 +1399,7 @@ def _evidence_role_query_families(role: str) -> tuple[str, ...]:
             "relation_compact",
             "expanded_focus",
         ),
+        "causal_support": ("multi_hop", "relation_compact", "expanded_focus"),
         "inference_support": ("relation_compact", "expanded_focus", "base_query"),
         "contrast": ("contrast_support", "relation_compact", "expanded_focus"),
         "entity_disambiguation": (
@@ -2011,6 +2028,36 @@ def _needs_contrast_evidence(item: Mapping[str, object]) -> bool:
     return bool("contrast" in evidence_need or "contrast" in relation_categories)
 
 
+def _needs_causal_support(item: Mapping[str, object]) -> bool:
+    metadata = _retrieval_metadata(item)
+    query_decomposition = _mapping(metadata.get("query_decomposition"))
+    query_profile = _mapping(query_decomposition.get("query_profile"))
+    intent = _mapping(query_decomposition.get("retrieval_intent"))
+    evidence_need = (
+        _str_tuple(query_profile.get("evidence_need"))
+        or _str_tuple(intent.get("evidence_need"))
+    )
+    relation_categories = _str_tuple(query_profile.get("relation_categories"))
+    if not relation_categories:
+        relation_categories = tuple(
+            str(relation.get("category") or "").strip()
+            for relation in _sequence(
+                _mapping(_mapping(intent.get("relations")).get("intents"))
+            )
+            if isinstance(relation, Mapping)
+            and str(relation.get("category") or "").strip()
+        )
+    roles = (
+        _str_tuple(query_profile.get("bundle_evidence_roles"))
+        or _str_tuple(intent.get("bundle_evidence_roles"))
+    )
+    return bool(
+        "causal_support" in evidence_need
+        or "causal_support" in roles
+        or "causal" in relation_categories
+    )
+
+
 def _needs_location_support(item: Mapping[str, object]) -> bool:
     metadata = _retrieval_metadata(item)
     query_decomposition = _mapping(metadata.get("query_decomposition"))
@@ -2098,6 +2145,20 @@ def _bundle_has_contrast_support(bundle: Mapping[str, object]) -> bool:
             or "contrast_surface" in _str_tuple(item.get("planner_reason_codes"))
             or "stale_surface" in _str_tuple(item.get("planner_reason_codes"))
             or "negation_surface" in _str_tuple(item.get("planner_reason_codes"))
+        )
+        for item in _bundle_items(bundle)
+    )
+
+
+def _bundle_has_causal_support(bundle: Mapping[str, object]) -> bool:
+    if "causal_support" in _bundle_roles(bundle):
+        return True
+    return any(
+        bool(
+            "causal_support" in _str_tuple(item.get("planner_reason_codes"))
+            or "causal_relation_hits" in _str_tuple(item.get("planner_reason_codes"))
+            or "causal_relation_category_hits"
+            in _str_tuple(item.get("planner_reason_codes"))
         )
         for item in _bundle_items(bundle)
     )

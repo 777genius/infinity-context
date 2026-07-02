@@ -406,14 +406,24 @@ def test_evidence_bundle_reports_missing_required_bridge_role() -> None:
         ),
     )
 
-    assert bundle["required_roles"] == ["primary", "bridge", "temporal_support"]
+    assert bundle["required_roles"] == [
+        "primary",
+        "bridge",
+        "temporal_support",
+        "causal_support",
+    ]
     assert bundle["satisfied_required_roles"] == ["primary"]
-    assert bundle["missing_required_roles"] == ["bridge", "temporal_support"]
+    assert bundle["missing_required_roles"] == [
+        "bridge",
+        "temporal_support",
+        "causal_support",
+    ]
     assert bundle["role_requirement_complete"] is False
     assert bundle["bundle_complete"] is False
     assert bundle["bundle_planner"]["missing_required_roles"] == [
         "bridge",
         "temporal_support",
+        "causal_support",
     ]
 
 

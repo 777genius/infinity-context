@@ -1035,6 +1035,58 @@ def test_fast_gate_metrics_reports_missing_inference_support_gap() -> None:
     ]
 
 
+def test_fast_gate_metrics_reports_missing_causal_support_gap() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="missing-causal",
+                group="multi-hop",
+                retrieval=_retrieval_payload(
+                    evidence_need=("causal_support",),
+                    bundle_evidence_roles=("primary", "causal_support"),
+                    relation_categories=("causal",),
+                    policy_score=0.0,
+                ),
+                retrieval_quality={
+                    "expected_term_recall": 0.5,
+                    "evidence_term_recall": 0.0,
+                    "missing_evidence_terms": ["D3:4"],
+                },
+                evidence_bundle={
+                    "bundle_complete": False,
+                    "item_count": 1,
+                    "primary_evidence_count": 1,
+                    "supporting_evidence_count": 0,
+                    "query_support_term_recall": 0.5,
+                    "covered_evidence_terms": [],
+                    "missing_required_roles": ["causal_support"],
+                    "items": [
+                        {
+                            "role": "primary",
+                            "retrieval_order": 1,
+                            "covered_evidence_terms": [],
+                            "focused_evidence_score": 1.0,
+                            "planner_reason_codes": ["primary_signal"],
+                        }
+                    ],
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    breakdown = gate["bundle_gap_breakdown"]
+
+    assert breakdown["reason_counts"]["missing_causal_support"] == 1
+    assert breakdown["reason_counts"]["missing_required_causal_support"] == 1
+    assert breakdown["evidence_need_gap_reason_counts"] == {
+        "missing_causal_support": 1,
+        "missing_required_causal_support": 1,
+    }
+    assert "missing_causal_support" in breakdown["samples"][0]["reasons"]
+    assert "missing_required_causal_support" in breakdown["samples"][0]["reasons"]
+
+
 def test_fast_gate_metrics_reports_missing_required_bundle_roles() -> None:
     gate = fast_gate_metrics(
         (
@@ -1719,6 +1771,7 @@ def _bundle_quality(
     source_type_diversity: int = 0,
     retrieval_source_diversity: int = 0,
     bridge_count: int = 0,
+    causal_support_count: int = 0,
     inference_support_count: int = 0,
     contrast_count: int = 0,
     low_answerability_count: int = 0,
@@ -1739,6 +1792,7 @@ def _bundle_quality(
         "source_type_diversity": source_type_diversity,
         "retrieval_source_diversity": retrieval_source_diversity,
         "bridge_count": bridge_count,
+        "causal_support_count": causal_support_count,
         "inference_support_count": inference_support_count,
         "contrast_count": contrast_count,
         "low_answerability_count": low_answerability_count,
