@@ -301,8 +301,9 @@ _RELATION_QUERY_TERMS.update(
         "parent",
         "partner",
         "path",
-        "personality",
-        "process",
+    "personality",
+    "pet",
+    "process",
         "race",
         "relocate",
         "relocated",
@@ -466,6 +467,7 @@ def expanded_search_query(case: PublicBenchmarkCase) -> tuple[str, dict[str, obj
             education_support="education_profile" in intent.evidence_need,
             employment_support="employment_profile" in intent.evidence_need,
             health_support="health_profile" in intent.evidence_need,
+            pet_support="pet_profile" in intent.evidence_need,
         )
         focus_parts.append(
             f"actions: {', '.join(_render_query_terms(focus_actions[:8]))}"
@@ -601,6 +603,7 @@ def decomposed_search_queries(
             education_support=compact_relation_role == "education_support",
             employment_support=compact_relation_role == "employment_support",
             health_support=compact_relation_role == "health_support",
+            pet_support=compact_relation_role == "pet_support",
         )
         compact_temporal_terms = (
             _compact_temporal_relation_terms(lexical_terms) if is_temporal_query else ()
@@ -819,6 +822,7 @@ def _support_query_terms(
     education_support: bool,
     employment_support: bool,
     health_support: bool,
+    pet_support: bool,
 ) -> tuple[str, ...]:
     if communication_support:
         return _communication_support_query_terms(
@@ -843,6 +847,13 @@ def _support_query_terms(
         )
     if health_support:
         return _health_support_query_terms(
+            relation_terms=relation_terms,
+            relation_variant_terms=relation_variant_terms,
+            lexical_terms=lexical_terms,
+            entity_surfaces=entity_surfaces,
+        )
+    if pet_support:
+        return _pet_support_query_terms(
             relation_terms=relation_terms,
             relation_variant_terms=relation_variant_terms,
             lexical_terms=lexical_terms,
@@ -1035,6 +1046,53 @@ def _health_support_query_terms(
     )
 
 
+def _pet_support_query_terms(
+    *,
+    relation_terms: tuple[str, ...],
+    relation_variant_terms: tuple[str, ...],
+    lexical_terms: tuple[str, ...],
+    entity_surfaces: tuple[str, ...],
+) -> tuple[str, ...]:
+    entity_tokens = {
+        token for surface in entity_surfaces for token in _normalized_terms(surface)
+    }
+    pet_terms = {
+        "animal",
+        "cat",
+        "dog",
+        "kitten",
+        "name",
+        "named",
+        "pet",
+        "puppy",
+    }
+    topical_terms = tuple(
+        term
+        for term in lexical_terms
+        if term not in _QUERY_STOPWORDS
+        and term not in relation_terms
+        and term not in relation_variant_terms
+        and term not in entity_tokens
+    )
+    return tuple(
+        dict.fromkeys(
+            (
+                *(term for term in relation_terms if term == "pet"),
+                *(term for term in relation_variant_terms if term in pet_terms),
+                *topical_terms[:4],
+                *(
+                    term
+                    for term in _relation_query_terms(
+                        relation_terms,
+                        relation_variant_terms,
+                    )
+                    if term not in pet_terms and term not in _QUERY_STOPWORDS
+                ),
+            )
+        )
+    )
+
+
 def _communication_support_query_terms(
     *,
     relation_terms: tuple[str, ...],
@@ -1206,6 +1264,8 @@ def _compact_relation_query_role(intent: RetrievalIntent) -> str:
         return "employment_support"
     if "health_profile" in set(intent.evidence_need):
         return "health_support"
+    if "pet_profile" in set(intent.evidence_need):
+        return "pet_support"
     role_priority = (
         "communication_support",
         "event_support",
@@ -1617,6 +1677,8 @@ def _filter_relation_terms_for_profile(
             normalized_question,
         ):
             continue
+        if term == "pet" and not _has_pet_profile_question(normalized_question):
+            continue
         if term in {"class", "education"} and {"enroll", "register", "sign"} & relation_set:
             continue
         if term == "education" and not _has_education_profile_question(
@@ -1667,6 +1729,16 @@ def _has_health_profile_question(normalized_question: str) -> bool:
         re.search(
             r"\b(?:doctor|therapist|medication|medicine|prescription|allerg"
             r"(?:y|ic)|health\s+issue|condition)\b",
+            normalized_question,
+        )
+    )
+
+
+def _has_pet_profile_question(normalized_question: str) -> bool:
+    return bool(
+        re.search(
+            r"\bwhat\s+pet\b|\b(?:dog|cat|pet)\b.+\bnamed?\b|"
+            r"\bname\b.+\b(?:dog|cat|pet)\b",
             normalized_question,
         )
     )

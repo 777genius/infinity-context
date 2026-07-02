@@ -455,6 +455,7 @@ def _typed_category_has_query_grounding(
         "employment_profile",
         "exchange",
         "health_profile",
+        "pet_profile",
         "status_profile",
     }:
         return True

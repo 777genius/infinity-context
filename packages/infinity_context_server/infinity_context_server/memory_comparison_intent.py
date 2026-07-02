@@ -231,6 +231,11 @@ def infer_relation_intents(
             relation_terms=relation_terms,
         ):
             continue
+        if category == "pet_profile" and not _has_pet_profile_intent(
+            question=question,
+            relation_terms=relation_terms,
+        ):
+            continue
         if category == "communication" and not _has_communication_intent(
             question=question,
             relation_terms=relation_terms,
@@ -392,6 +397,7 @@ def merge_relation_evidence_needs(
         "education_profile",
         "employment_profile",
         "health_profile",
+        "pet_profile",
         "communication",
         "exchange",
         "inference_support",
@@ -692,6 +698,23 @@ def _has_health_profile_intent(
         re.search(
             r"\b(?:doctor|therapist|medication|medicine|prescription|allerg"
             r"(?:y|ic)|health\s+issue|condition)\b",
+            normalized_question,
+        )
+    )
+
+
+def _has_pet_profile_intent(
+    *,
+    question: str,
+    relation_terms: tuple[str, ...],
+) -> bool:
+    if "pet" not in set(relation_terms):
+        return False
+    normalized_question = re.sub(r"[^0-9a-z]+", " ", question.casefold()).strip()
+    return bool(
+        re.search(
+            r"\bwhat\s+pet\b|\b(?:dog|cat|pet)\b.+\bnamed?\b|"
+            r"\bname\b.+\b(?:dog|cat|pet)\b",
             normalized_question,
         )
     )
@@ -1109,6 +1132,23 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
         ),
         "markers": frozenset(),
         "evidence_need": "health_profile",
+    },
+    "pet_profile": {
+        "terms": frozenset({"pet"}),
+        "variants": frozenset(
+            {
+                "animal",
+                "cat",
+                "dog",
+                "kitten",
+                "name",
+                "named",
+                "pet",
+                "puppy",
+            }
+        ),
+        "markers": frozenset(),
+        "evidence_need": "pet_profile",
     },
     "exchange": {
         "terms": frozenset(

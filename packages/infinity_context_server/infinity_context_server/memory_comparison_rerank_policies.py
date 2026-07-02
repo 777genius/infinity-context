@@ -863,6 +863,7 @@ _TYPED_RELATION_SUPPORT_ROLE_CATEGORIES = {
     "event_support": frozenset({"participation_event", "registration_event"}),
     "exchange_support": frozenset({"exchange"}),
     "health_support": frozenset({"health_profile"}),
+    "pet_support": frozenset({"pet_profile"}),
     "symbolic_meaning_support": frozenset({"symbolic_meaning"}),
 }
 _TYPED_RELATION_SUPPORT_NEEDS = {
@@ -874,6 +875,7 @@ _TYPED_RELATION_SUPPORT_NEEDS = {
     "event_support": frozenset({"participation_event", "registration_event"}),
     "exchange_support": frozenset({"exchange"}),
     "health_support": frozenset({"health_profile"}),
+    "pet_support": frozenset({"pet_profile"}),
     "symbolic_meaning_support": frozenset({"symbolic_meaning"}),
 }
 

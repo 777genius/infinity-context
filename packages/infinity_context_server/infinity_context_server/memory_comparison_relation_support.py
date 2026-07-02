@@ -25,6 +25,8 @@ def typed_relation_category_support(
         )
     if category == "health_profile":
         return _has_health_profile_support(memory_terms, memory_text=memory_text)
+    if category == "pet_profile":
+        return _has_pet_profile_support(memory_terms, memory_text=memory_text)
     if category == "exchange":
         return _has_exchange_support(memory_terms, memory_text=memory_text)
     check = _TYPED_SUPPORT_CHECKS.get(category)
@@ -213,6 +215,28 @@ def _has_health_profile_support(
         health_surface
         or (medication_action and medication_context)
         or _HEALTH_PROFILE_SURFACE_RE.search(memory_text)
+    )
+
+
+_PET_PROFILE_SURFACE_RE = re.compile(
+    r"\b(?:my|our|his|her|their)\s+(?:pet|dog|cat|puppy|kitten)\b"
+    r"|\b(?:pet|dog|cat|puppy|kitten)\s+(?:is|was|named|called)\b"
+    r"|\b(?:have|has|had)\s+(?:a\s+|an\s+|the\s+)?"
+    r"(?:pet|dog|cat|puppy|kitten)\b",
+)
+
+
+def _has_pet_profile_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
+    pet_surface = {"cat", "dog", "kitten", "pet", "puppy"} & memory_terms
+    name_surface = {"call", "called", "name", "named"} & memory_terms
+    ownership_surface = {"have", "has", "had", "my", "our"} & memory_terms
+    return bool(
+        (pet_surface and (name_surface or ownership_surface))
+        or _PET_PROFILE_SURFACE_RE.search(memory_text)
     )
 
 
@@ -900,6 +924,7 @@ _TYPED_SUPPORT_CHECKS: dict[str, Callable[[set[str]], bool]] = {
     "exchange": _has_exchange_support,
     "health_profile": _has_health_profile_support,
     "identity_profile": _has_identity_profile_support,
+    "pet_profile": _has_pet_profile_support,
     "participation_event": _has_participation_event_support,
     "preference": _has_preference_support,
     "registration_event": _has_registration_event_support,

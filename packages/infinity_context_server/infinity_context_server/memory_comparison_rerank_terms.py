@@ -282,6 +282,7 @@ RELATION_QUERY_VARIANTS = {
     ),
     "parent": ("mother", "father", "mom", "dad", "family", "child", "children"),
     "partner": ("spouse", "husband", "wife", "relationship", "dating", "family"),
+    "pet": ("dog", "cat", "animal", "named", "name", "puppy", "kitten"),
     "participate": (
         "participated",
         "participating",

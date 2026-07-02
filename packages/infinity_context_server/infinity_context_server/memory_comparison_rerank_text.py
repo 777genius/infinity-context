@@ -388,6 +388,13 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
     ):
         terms.append("health")
     if re.search(
+        r"\bwhat\s+pet\b|\b(?:dog|cat|pet)\b.+\bnamed?\b|"
+        r"\bname\b.+\b(?:dog|cat|pet)\b",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        terms.append("pet")
+    if re.search(
         r"\bwhere\b.+\blive\b|\blive\b.+\bwhere\b",
         text,
         flags=re.IGNORECASE,

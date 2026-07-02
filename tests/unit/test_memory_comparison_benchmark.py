@@ -4642,6 +4642,76 @@ def test_query_decomposition_expands_health_profile_queries() -> None:
     ]
 
 
+def test_query_decomposition_expands_pet_profile_queries() -> None:
+    pet_case = _case(
+        case_id="pet-profile-pet",
+        question="What pet does Alex have?",
+        expected_terms=("dog",),
+        answer="dog",
+    )
+    dog_name_case = _case(
+        case_id="pet-profile-dog-name",
+        question="What is Alex's dog named?",
+        expected_terms=("Luna",),
+        answer="Luna",
+    )
+    cat_name_case = _case(
+        case_id="pet-profile-cat-name",
+        question="What is the name of Alex's cat?",
+        expected_terms=("Milo",),
+        answer="Milo",
+    )
+    animal_preference_case = _case(
+        case_id="pet-profile-animal-preference-guard",
+        question="What animal does Alex like?",
+        expected_terms=("dogs",),
+        answer="dogs",
+    )
+    dog_visual_case = _case(
+        case_id="pet-profile-dog-visual-guard",
+        question="What dog did Alex see at the park?",
+        expected_terms=("golden retriever",),
+        answer="golden retriever",
+    )
+
+    pet_queries, pet_metadata = rerank_module.decomposed_search_queries(pet_case)
+    dog_name_queries, dog_name_metadata = rerank_module.decomposed_search_queries(
+        dog_name_case
+    )
+    cat_name_queries, cat_name_metadata = rerank_module.decomposed_search_queries(
+        cat_name_case
+    )
+    _, animal_preference_metadata = rerank_module.decomposed_search_queries(
+        animal_preference_case
+    )
+    _, dog_visual_metadata = rerank_module.decomposed_search_queries(dog_visual_case)
+
+    assert pet_queries[2] == "alex pet dog cat animal name puppy"
+    assert pet_metadata["query_profile"]["relation_terms"] == ("pet",)
+    assert pet_metadata["query_profile"]["relation_categories"] == ("pet_profile",)
+    assert pet_metadata["query_profile"]["evidence_need"] == ("pet_profile",)
+
+    assert dog_name_queries[2] == "alex pet dog cat animal name puppy"
+    assert dog_name_metadata["query_profile"]["relation_categories"] == (
+        "pet_profile",
+    )
+
+    assert cat_name_queries[2] == "alex pet dog cat animal name puppy"
+    assert cat_name_metadata["query_profile"]["relation_categories"] == (
+        "pet_profile",
+    )
+
+    assert animal_preference_metadata["query_profile"]["relation_categories"] == (
+        "preference",
+    )
+    assert "pet_profile" not in animal_preference_metadata["query_profile"][
+        "relation_categories"
+    ]
+    assert "pet_profile" not in dog_visual_metadata["query_profile"][
+        "relation_categories"
+    ]
+
+
 def test_infinity_context_http_search_expands_temporal_action_queries() -> None:
     seen_payloads: list[dict[str, object]] = []
 
@@ -7824,6 +7894,67 @@ def test_benchmark_rerank_boosts_health_profile_evidence() -> None:
     assert health_diagnostics["score_signals"][
         "benchmark_typed_relation_support_roles"
     ] == ["health_support"]
+    assert (
+        topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        == 0
+    )
+
+
+def test_benchmark_rerank_boosts_pet_profile_evidence() -> None:
+    case = _case(
+        case_id="pet-profile-rerank",
+        question="What is Alex's dog named?",
+        expected_terms=("Luna",),
+        answer="Luna",
+        category=4,
+    )
+    topical_pet = RetrievedMemory(
+        item_id="topical-pet",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex talked about Luna Park with Maria."
+        ),
+        source_refs=("D1:1",),
+    )
+    pet_profile = RetrievedMemory(
+        item_id="pet-profile",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: My dog is named Luna."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_pet, pet_profile),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("pet_profile",)
+    assert reranked[0].item_id == "pet-profile"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    pet_diagnostics = diagnostics_by_id["pet-profile"]
+    topical_diagnostics = diagnostics_by_id["topical-pet"]
+    assert pet_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["pet_profile"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert (
+        pet_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        > 0
+    )
+    assert pet_diagnostics["score_signals"][
+        "benchmark_typed_relation_support_roles"
+    ] == ["pet_support"]
     assert (
         topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
         == 0
