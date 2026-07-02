@@ -2120,6 +2120,8 @@ def test_fast_gate_metrics_reports_query_role_gap_breakdown() -> None:
 
     breakdown = gate["query_role_gap_breakdown"]
 
+    assert gate["ready_for_full_locomo"] is False
+    assert "query_role_gaps_clear" in gate["failed_gates"]
     assert breakdown["schema_version"] == "query_role_gap_breakdown.v1"
     assert breakdown["role_count"] == 2
     assert breakdown["role_family_count"] == 2
@@ -2209,6 +2211,8 @@ def test_fast_gate_metrics_reports_typed_relation_hit_role_gaps() -> None:
 
     breakdown = gate["query_role_gap_breakdown"]
 
+    assert gate["ready_for_full_locomo"] is False
+    assert "query_role_gaps_clear" in gate["failed_gates"]
     assert breakdown["typed_relation_hit_role_counts"] == {"health_support": 1}
     assert breakdown["typed_relation_lifted_hit_role_counts"] == {
         "health_support": 1

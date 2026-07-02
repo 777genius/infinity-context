@@ -218,3 +218,21 @@
   -> passed.
 - `git push origin main` -> still blocked because the non-interactive runtime
   has no GitHub username/credential prompt available.
+- `git push origin main` -> still blocked because the non-interactive runtime
+  has no GitHub username/credential prompt available.
+
+## 2026-07-02 Follow-up 12
+
+- Made query-role gaps part of fast-gate readiness. A fast/preflight report now
+  fails `ready_for_full_locomo` when selected retrieval has query-role gaps,
+  including typed relation roles that were requested but did not produce a
+  matching typed evidence hit.
+- Added assertions that both a normal query-role selection gap and a mixed
+  health/status typed-hit gap fail the new `query_role_gaps_clear` gate.
+
+## Verification
+
+- `uv run --extra dev pytest -q tests/unit/test_memory_comparison*.py`
+  -> 503 passed, 1 warning.
+- `uv run --extra dev ruff check packages/infinity_context_server/infinity_context_server/memory_comparison_quality_diagnostics.py tests/unit/test_memory_comparison_quality_diagnostics.py`
+  -> passed.
