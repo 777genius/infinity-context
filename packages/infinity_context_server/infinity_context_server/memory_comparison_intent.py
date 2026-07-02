@@ -216,6 +216,11 @@ def infer_relation_intents(
             relation_terms=relation_terms,
         ):
             continue
+        if category == "activity_profile" and not _has_activity_profile_intent(
+            question=question,
+            relation_terms=relation_terms,
+        ):
+            continue
         if category == "education_profile" and not _has_education_profile_intent(
             question=question,
             relation_terms=relation_terms,
@@ -413,6 +418,7 @@ def merge_relation_evidence_needs(
         "employment_profile",
         "age_profile",
         "alias_profile",
+        "activity_profile",
         "date_profile",
         "health_profile",
         "pet_profile",
@@ -586,6 +592,37 @@ def _has_exchange_intent(
             or re.search(r"\b(?:get|got)\b.+\bfrom\b", normalized_question)
         )
     return True
+
+
+def _has_activity_profile_intent(
+    *,
+    question: str,
+    relation_terms: tuple[str, ...],
+) -> bool:
+    relation_set = set(relation_terms)
+    if not {"activity", "exercise", "hobby", "sport"} & relation_set:
+        return False
+    normalized_question = re.sub(r"[^0-9a-z]+", " ", question.casefold()).strip()
+    if re.search(r"\bsports?\s+(?:team|score|game|match|event)\b", normalized_question):
+        return False
+    if "activity" in relation_set and not {"exercise", "hobby", "sport"} & relation_set:
+        return bool(
+            re.search(
+                r"\b(?:hobby|hobbies|pastime|free\s+time|for\s+fun)\b|"
+                r"\bwhat\b.+\b(?:do|does)\b.+\b(?:for\s+fun|free\s+time|relax)\b|"
+                r"\b(?:exercise|workout)\b",
+                normalized_question,
+            )
+        )
+    return bool(
+        re.search(
+            r"\b(?:what|which)\s+(?:activity|activities|hobby|hobbies|sport|sports)\b|"
+            r"\b(?:hobby|hobbies|pastime|free\s+time|for\s+fun)\b|"
+            r"\bwhat\b.+\b(?:do|does)\b.+\b(?:for\s+fun|free\s+time|relax)\b|"
+            r"\b(?:exercise|workout)\b",
+            normalized_question,
+        )
+    )
 
 
 def _has_communication_intent(
@@ -923,6 +960,32 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
         ),
         "markers": frozenset(),
         "evidence_need": "preference",
+    },
+    "activity_profile": {
+        "terms": frozenset({"activity", "exercise", "hobby", "sport"}),
+        "variants": frozenset(
+            {
+                "activities",
+                "camping",
+                "exercise",
+                "fun",
+                "hike",
+                "hobbies",
+                "hobby",
+                "leisure",
+                "outdoors",
+                "paint",
+                "painting",
+                "pastime",
+                "run",
+                "running",
+                "sport",
+                "tennis",
+                "yoga",
+            }
+        ),
+        "markers": frozenset(),
+        "evidence_need": "activity_profile",
     },
     "current_goal": {
         "terms": frozenset({"plan", "want"}),

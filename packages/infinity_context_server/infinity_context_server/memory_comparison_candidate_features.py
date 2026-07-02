@@ -451,6 +451,7 @@ def _typed_category_has_query_grounding(
 ) -> bool:
     if category not in {
         "communication",
+        "activity_profile",
         "age_profile",
         "alias_profile",
         "date_profile",

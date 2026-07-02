@@ -16,6 +16,8 @@ def typed_relation_category_support(
 
     if category == "location_transition":
         return _has_location_transition_support(memory_terms, memory_text=memory_text)
+    if category == "activity_profile":
+        return _has_activity_profile_support(memory_terms, memory_text=memory_text)
     if category == "communication":
         return _has_communication_support(memory_terms, memory_text=memory_text)
     if category == "employment_profile":
@@ -281,6 +283,69 @@ def _has_date_profile_support(
     return bool(
         (date_subject and date_surface)
         or _DATE_PROFILE_SURFACE_RE.search(memory_text)
+    )
+
+
+_ACTIVITY_PROFILE_SURFACE_RE = re.compile(
+    r"\b(?:hobby|pastime)\s+(?:is|was|became)\b"
+    r"|\b(?:for\s+fun|in\s+(?:my|his|her|their|our)\s+free\s+time)\b"
+    r"|\b(?:enjoy|enjoys|like|likes|love|loves)\s+"
+    r"(?:to\s+)?(?:hike|hiking|paint|painting|read|reading|run|running|"
+    r"cook|cooking|dance|dancing|swim|swimming|yoga|tennis|gardening)\b"
+    r"|\b(?:do|does|did|started|took\s+up|takes\s+up)\s+"
+    r"(?:yoga|tennis|gardening|painting|running|hiking|cooking|dancing)\b"
+    r"|\b(?:go|goes|went)\s+"
+    r"(?:hiking|running|swimming|camping)\b",
+    re.IGNORECASE,
+)
+
+
+def _has_activity_profile_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
+    activity_context = {
+        "activity",
+        "camping",
+        "cooking",
+        "dancing",
+        "exercise",
+        "fun",
+        "gardening",
+        "hiking",
+        "hobbies",
+        "hobby",
+        "leisure",
+        "paint",
+        "painting",
+        "pastime",
+        "run",
+        "running",
+        "sport",
+        "tennis",
+        "yoga",
+    } & memory_terms
+    activity_action = {
+        "do",
+        "does",
+        "enjoy",
+        "enjoys",
+        "go",
+        "goes",
+        "like",
+        "likes",
+        "love",
+        "loves",
+        "play",
+        "plays",
+        "run",
+        "runs",
+        "started",
+    } & memory_terms
+    return bool(
+        (activity_context and activity_action)
+        or _ACTIVITY_PROFILE_SURFACE_RE.search(memory_text)
     )
 
 

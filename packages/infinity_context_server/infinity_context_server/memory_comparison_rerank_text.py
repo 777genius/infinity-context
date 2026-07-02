@@ -437,6 +437,15 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
     ):
         terms.append("vehicle")
     if re.search(
+        r"\b(?:what|which)\s+(?:activity|activities|hobby|hobbies|sport|sports)\b|"
+        r"\b(?:hobby|hobbies|pastime|free\s+time|for\s+fun)\b|"
+        r"\bwhat\b.+\b(?:do|does)\b.+\b(?:for\s+fun|free\s+time|relax)\b|"
+        r"\b(?:exercise|workout)\b",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        terms.append("activity")
+    if re.search(
         r"\bwhere\b.+\blive\b|\blive\b.+\bwhere\b",
         text,
         flags=re.IGNORECASE,

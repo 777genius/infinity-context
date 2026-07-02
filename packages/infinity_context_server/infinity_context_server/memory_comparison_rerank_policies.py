@@ -856,6 +856,7 @@ def _contrast_boost_eligible(features: RerankPolicyFeatures) -> bool:
 
 _TYPED_RELATION_SUPPORT_ROLE_CATEGORIES = {
     "causal_support": frozenset({"causal"}),
+    "activity_support": frozenset({"activity_profile"}),
     "age_support": frozenset({"age_profile"}),
     "alias_support": frozenset({"alias_profile"}),
     "communication_support": frozenset({"communication"}),
@@ -873,6 +874,7 @@ _TYPED_RELATION_SUPPORT_ROLE_CATEGORIES = {
 }
 _TYPED_RELATION_SUPPORT_NEEDS = {
     "causal_support": frozenset({"causal_support"}),
+    "activity_support": frozenset({"activity_profile"}),
     "age_support": frozenset({"age_profile"}),
     "alias_support": frozenset({"alias_profile"}),
     "communication_support": frozenset({"communication"}),

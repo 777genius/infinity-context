@@ -194,6 +194,7 @@ _RELATION_QUERY_TERMS = {
     "education",
     "employment",
     "enjoy",
+    "exercise",
     "enroll",
     "excite",
     "favorite",
@@ -211,6 +212,7 @@ _RELATION_QUERY_TERMS = {
     "health",
     "help",
     "hike",
+    "hobby",
     "interest",
     "identity",
     "join",
@@ -255,6 +257,7 @@ _RELATION_QUERY_TERMS = {
     "support",
     "status",
     "stay",
+    "sport",
     "talk",
     "tell",
     "text",
@@ -1545,6 +1548,8 @@ def _recommended_query_role_families(intent: RetrievalIntent) -> tuple[str, ...]
 def _compact_relation_query_role(intent: RetrievalIntent) -> str:
     if "education_profile" in set(intent.evidence_need):
         return "education_support"
+    if "activity_profile" in set(intent.evidence_need):
+        return "activity_support"
     if "employment_profile" in set(intent.evidence_need):
         return "employment_support"
     if "age_profile" in set(intent.evidence_need):
@@ -1970,6 +1975,10 @@ def _filter_relation_terms_for_profile(
             normalized_question,
         ):
             continue
+        if term in {"exercise", "hobby", "sport"} and not _has_activity_profile_question(
+            normalized_question,
+        ):
+            continue
         if term == "age" and not _has_age_profile_question(normalized_question):
             continue
         if term == "pet" and not _has_pet_profile_question(normalized_question):
@@ -2007,6 +2016,18 @@ def _has_education_profile_question(normalized_question: str) -> bool:
             r"\b(?:college|university)\b|"
             r"\b(?:study|studies|studying|major|majoring|degree)\b|"
             r"\bwhat\s+class\b",
+            normalized_question,
+        )
+    )
+
+
+def _has_activity_profile_question(normalized_question: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(?:what|which)\s+(?:activity|activities|hobby|hobbies|sport|sports)\b|"
+            r"\b(?:hobby|hobbies|pastime|free\s+time|for\s+fun)\b|"
+            r"\bwhat\b.+\b(?:do|does)\b.+\b(?:for\s+fun|free\s+time|relax)\b|"
+            r"\b(?:exercise|workout)\b",
             normalized_question,
         )
     )
