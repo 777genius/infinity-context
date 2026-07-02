@@ -449,9 +449,78 @@ def _query_profile_and_intent(
 ) -> tuple[Mapping[str, object], Mapping[str, object]]:
     metadata = _mapping(_mapping(item.get("retrieval")).get("metadata"))
     query_decomposition = _mapping(metadata.get("query_decomposition"))
-    return (
-        _mapping(query_decomposition.get("query_profile")),
-        _mapping(query_decomposition.get("retrieval_intent")),
+    payloads = (
+        query_decomposition,
+        _mapping(metadata.get("query_expansion")),
+        _mapping(metadata.get("benchmark_rerank")),
+    )
+    profiles = tuple(_mapping(payload.get("query_profile")) for payload in payloads)
+    intents = tuple(_mapping(payload.get("retrieval_intent")) for payload in payloads)
+    return _merge_query_profiles(profiles), _merge_retrieval_intents(intents)
+
+
+def _merge_query_profiles(
+    profiles: Sequence[Mapping[str, object]],
+) -> Mapping[str, object]:
+    keys = (
+        "evidence_need",
+        "bundle_evidence_roles",
+        "relation_categories",
+        "entities",
+        "entity_surfaces",
+        "speaker_surfaces",
+        "visual_terms",
+        "multi_hop_markers",
+        "risk_flags",
+    )
+    return {key: _merged_values(profiles, key) for key in keys}
+
+
+def _merge_retrieval_intents(
+    intents: Sequence[Mapping[str, object]],
+) -> Mapping[str, object]:
+    entities = tuple(
+        entity
+        for intent in intents
+        for entity in _sequence(intent.get("entities"))
+        if isinstance(entity, Mapping)
+    )
+    relation_payloads = tuple(_mapping(intent.get("relations")) for intent in intents)
+    relations = {
+        "terms": _merged_values(relation_payloads, "terms"),
+        "variant_terms": _merged_values(relation_payloads, "variant_terms"),
+        "intents": tuple(
+            relation
+            for relations_payload in relation_payloads
+            for relation in _sequence(relations_payload.get("intents"))
+            if isinstance(relation, Mapping)
+        ),
+    }
+    return {
+        "entity_count": max(
+            [
+                len(entities),
+                *(_positive_int(intent.get("entity_count")) for intent in intents),
+            ]
+        ),
+        "entities": entities,
+        "evidence_need": _merged_values(intents, "evidence_need"),
+        "bundle_evidence_roles": _merged_values(intents, "bundle_evidence_roles"),
+        "risk_flags": _merged_values(intents, "risk_flags"),
+        "visual_terms": _merged_values(intents, "visual_terms"),
+        "multi_hop_markers": _merged_values(intents, "multi_hop_markers"),
+        "relations": relations,
+    }
+
+
+def _merged_values(
+    payloads: Sequence[Mapping[str, object]],
+    key: str,
+) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            value for payload in payloads for value in _str_tuple(payload.get(key))
+        )
     )
 
 
@@ -485,6 +554,16 @@ def _float_value(value: object) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _positive_int(value: object) -> int:
+    if isinstance(value, bool):
+        return 0
+    try:
+        parsed = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 0
+    return parsed if parsed > 0 else 0
 
 
 def _relation_categories(
