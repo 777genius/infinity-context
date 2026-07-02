@@ -384,6 +384,62 @@ def test_rerank_policy_accepts_typed_location_support_need() -> None:
     ]
 
 
+def test_rerank_policy_boosts_precise_speaker_grounding() -> None:
+    grounded = score_benchmark_rerank_candidate(
+        _features(
+            overlap_terms=("caroline",),
+            entity_hits=("caroline",),
+            speaker_hits=("caroline",),
+            direct_speaker_turn=True,
+            source_locality_score=1.0,
+            source_ref_count=1,
+            turn_ref_count=1,
+        )
+    )
+    entity_only = score_benchmark_rerank_candidate(
+        _features(
+            overlap_terms=("caroline",),
+            entity_hits=("caroline",),
+            source_locality_score=1.0,
+            source_ref_count=1,
+            turn_ref_count=1,
+        )
+    )
+
+    signals = grounded.signals["score_signals"]
+    policy = grounded.signals["policy_contributions"]
+    assert grounded.boost > entity_only.boost
+    assert signals["benchmark_speaker_grounding_boost"] == 0.045
+    assert signals["benchmark_speaker_grounding_evidence"] is True
+    assert signals["benchmark_effective_boost_cap"] == 0.4
+    assert "speaker_grounding" in policy["reason_codes_by_policy"][
+        "EntitySpeakerPolicy"
+    ]
+
+
+def test_rerank_policy_rejects_broad_summary_speaker_grounding() -> None:
+    score = score_benchmark_rerank_candidate(
+        _features(
+            overlap_terms=("caroline",),
+            entity_hits=("caroline",),
+            speaker_hits=("caroline",),
+            direct_speaker_turn=True,
+            broad_summary=True,
+            source_locality_score=0.45,
+            source_ref_count=6,
+            turn_ref_count=12,
+        )
+    )
+
+    signals = score.signals["score_signals"]
+    policy = score.signals["policy_contributions"]
+    assert signals["benchmark_speaker_grounding_boost"] == 0.0
+    assert signals["benchmark_speaker_grounding_evidence"] is False
+    assert "speaker_grounding" not in policy["reason_codes_by_policy"][
+        "EntitySpeakerPolicy"
+    ]
+
+
 def test_rerank_policy_rejects_generic_move_as_location_support() -> None:
     score = score_benchmark_rerank_candidate(
         _features(

@@ -89,6 +89,10 @@ def score_benchmark_rerank_candidate(
         score_signals,
         "benchmark_answerability_boost",
     )
+    speaker_grounding_boost = _float_signal(
+        score_signals,
+        "benchmark_speaker_grounding_boost",
+    )
     temporal_role_support_boost = _float_signal(
         score_signals,
         "benchmark_temporal_role_support_boost",
@@ -136,6 +140,7 @@ def score_benchmark_rerank_candidate(
         preference_boost=preference_boost,
         visual_boost=visual_boost,
         answerability_boost=answerability_boost,
+        speaker_grounding_boost=speaker_grounding_boost,
         temporal_role_support_boost=temporal_role_support_boost,
         contrast_support_boost=contrast_support_boost,
         location_support_boost=location_support_boost,
@@ -225,6 +230,7 @@ def _boost_cap(
     preference_boost: float,
     visual_boost: float,
     answerability_boost: float,
+    speaker_grounding_boost: float,
     temporal_role_support_boost: float,
     contrast_support_boost: float,
     location_support_boost: float,
@@ -275,6 +281,8 @@ def _boost_cap(
         return 0.46
     if location_support_boost > 0:
         return 0.46
+    if speaker_grounding_boost > 0:
+        return 0.4
     if answerability_boost > 0:
         return 0.4
     if contrast_support_boost > 0 or currentness_boost > 0:

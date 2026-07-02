@@ -121,18 +121,34 @@ class EntitySpeakerPolicy:
         lexical_boost = min(0.16, 0.035 * len(features.overlap_terms))
         entity_boost = min(0.12, 0.055 * len(features.entity_hits))
         speaker_boost = min(0.12, 0.08 * len(features.speaker_hits))
+        speaker_grounding_boost = (
+            0.045 if _speaker_grounding_eligible(features) else 0.0
+        )
         return RerankPolicyContribution(
             policy=self.name,
-            score=lexical_boost + entity_boost + speaker_boost,
+            score=(
+                lexical_boost
+                + entity_boost
+                + speaker_boost
+                + speaker_grounding_boost
+            ),
             signals={
                 "benchmark_query_overlap_boost": round(lexical_boost, 6),
                 "benchmark_entity_boost": round(entity_boost, 6),
                 "benchmark_speaker_boost": round(speaker_boost, 6),
+                "benchmark_speaker_grounding_boost": round(
+                    speaker_grounding_boost,
+                    6,
+                ),
+                "benchmark_speaker_grounding_evidence": bool(
+                    speaker_grounding_boost
+                ),
             },
             reason_codes=_reason_codes(
                 ("query_overlap", lexical_boost),
                 ("entity_hit", entity_boost),
                 ("speaker_hit", speaker_boost),
+                ("speaker_grounding", speaker_grounding_boost),
             ),
         )
 
@@ -583,6 +599,22 @@ def _focused_relation_density_boost(features: RerankPolicyFeatures) -> float:
     if relation_hit_count >= 3 and features.high_signal_relation_hit_count >= 1:
         return 0.05
     return 0.0
+
+
+def _speaker_grounding_eligible(features: RerankPolicyFeatures) -> bool:
+    return bool(
+        features.query_has_entities
+        and features.speaker_hits
+        and features.direct_speaker_turn
+        and not features.broad_summary
+        and features.source_locality_score >= 0.65
+        and not _has_positive_boost(features.policy_boosts)
+        and not _has_positive_boost(features.shape_boosts)
+    )
+
+
+def _has_positive_boost(boosts: Mapping[str, float]) -> bool:
+    return any(float(value) > 0 for value in boosts.values())
 
 
 def _rounded_boosts(boosts: Mapping[str, float]) -> dict[str, float]:
