@@ -150,6 +150,34 @@ def selected_source_locality_score(item: Mapping[str, object]) -> float:
     return avg(locality_scores)
 
 
+def selected_measured_source_locality_score(item: Mapping[str, object]) -> float:
+    planner = bundle_planner(item)
+    if "average_measured_selected_source_locality_score" in planner:
+        return metric_value(planner, "average_measured_selected_source_locality_score")
+    items = bundle_items(mapping(item.get("evidence_bundle")))
+    locality_scores = [
+        metric_value(bundle_item, "source_locality_score")
+        for bundle_item in items
+        if "source_locality_score" in bundle_item
+    ]
+    if not locality_scores:
+        return selected_source_locality_score(item)
+    return avg(tuple(score for score in locality_scores if score > 0))
+
+
+def unmeasured_selected_source_locality_count(item: Mapping[str, object]) -> int:
+    planner = bundle_planner(item)
+    if "unmeasured_selected_source_locality_count" in planner:
+        return positive_int(planner.get("unmeasured_selected_source_locality_count")) or 0
+    items = bundle_items(mapping(item.get("evidence_bundle")))
+    return sum(
+        1
+        for bundle_item in items
+        if "source_locality_score" in bundle_item
+        and metric_value(bundle_item, "source_locality_score") <= 0
+    )
+
+
 def bundle_items(bundle: Mapping[str, object]) -> tuple[Mapping[str, object], ...]:
     return tuple(item for item in sequence(bundle.get("items")) if isinstance(item, Mapping))
 

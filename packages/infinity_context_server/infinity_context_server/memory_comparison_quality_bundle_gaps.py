@@ -21,6 +21,9 @@ from infinity_context_server.memory_comparison_quality_accessors import (
     retrieval_metadata as _retrieval_metadata,
 )
 from infinity_context_server.memory_comparison_quality_accessors import (
+    selected_measured_source_locality_score as _selected_measured_source_locality_score,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
     selected_source_locality_score as _selected_source_locality_score,
 )
 from infinity_context_server.memory_comparison_quality_accessors import (
@@ -28,6 +31,9 @@ from infinity_context_server.memory_comparison_quality_accessors import (
 )
 from infinity_context_server.memory_comparison_quality_accessors import (
     str_tuple as _str_tuple,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    unmeasured_selected_source_locality_count as _unmeasured_selected_source_locality_count,
 )
 from infinity_context_server.memory_comparison_quality_support import (
     bundle_has_causal_support as _bundle_has_causal_support,
@@ -174,6 +180,13 @@ def bundle_incomplete_diagnostics(
                     "average_selected_source_locality_score": round(
                         _selected_source_locality_score(item),
                         6,
+                    ),
+                    "average_measured_selected_source_locality_score": round(
+                        _selected_measured_source_locality_score(item),
+                        6,
+                    ),
+                    "unmeasured_selected_source_locality_count": (
+                        _unmeasured_selected_source_locality_count(item)
                     ),
                     "covered_evidence_terms": _str_tuple(
                         bundle.get("covered_evidence_terms")
@@ -342,7 +355,7 @@ def _multi_hop_bundle_gap_reasons(
         reasons.append("missing_bridge_relation")
     if _needs_temporal_support(item) and not _bundle_has_temporal_support(bundle):
         reasons.append("missing_temporal_bridge")
-    locality_score = _selected_source_locality_score(item)
+    locality_score = _selected_measured_source_locality_score(item)
     if locality_score and locality_score < 0.5:
         reasons.append("weak_source_locality")
     return tuple(reasons)

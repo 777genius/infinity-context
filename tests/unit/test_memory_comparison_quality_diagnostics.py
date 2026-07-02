@@ -1223,6 +1223,56 @@ def test_fast_gate_metrics_reports_bundle_gap_breakdown() -> None:
     }
     assert breakdown["samples"][0]["case_id"] == "weak-multi-hop"
     assert breakdown["samples"][0]["average_selected_source_locality_score"] == 0.35
+    assert breakdown["samples"][0][
+        "average_measured_selected_source_locality_score"
+    ] == 0.35
+    assert breakdown["samples"][0]["unmeasured_selected_source_locality_count"] == 0
+
+
+def test_fast_gate_metrics_uses_measured_locality_for_bundle_gaps() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="mixed-locality",
+                group="multi-hop",
+                retrieval=_retrieval_payload(
+                    evidence_need=("temporal_support",),
+                    relation_categories=("temporal",),
+                    policy_score=0.0,
+                ),
+                evidence_bundle={
+                    "bundle_complete": False,
+                    "item_count": 2,
+                    "covered_evidence_terms": [],
+                    "bundle_planner": {
+                        "average_selected_source_locality_score": 0.42,
+                        "average_measured_selected_source_locality_score": 0.84,
+                        "unmeasured_selected_source_locality_count": 1,
+                    },
+                    "items": [
+                        {
+                            "role": "supporting",
+                            "source_locality_score": 0.0,
+                        },
+                        {
+                            "role": "supporting",
+                            "source_locality_score": 0.84,
+                        },
+                    ],
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    breakdown = gate["bundle_gap_breakdown"]
+
+    assert "weak_source_locality" not in breakdown["bridge_gap_reason_counts"]
+    assert breakdown["samples"][0]["average_selected_source_locality_score"] == 0.42
+    assert breakdown["samples"][0][
+        "average_measured_selected_source_locality_score"
+    ] == 0.84
+    assert breakdown["samples"][0]["unmeasured_selected_source_locality_count"] == 1
 
 
 def test_fast_gate_metrics_reports_answerability_gap_breakdown() -> None:
