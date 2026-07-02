@@ -137,6 +137,7 @@ _PROFILE_SUPPORT_ROLES = frozenset(
         "diet_support",
         "education_support",
         "employment_support",
+        "favorite_support",
         "health_support",
         "identity_support",
         "pet_support",

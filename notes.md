@@ -46,3 +46,18 @@
   -> 495 passed, 1 warning.
 - `uv run --extra dev ruff check packages/infinity_context_server/infinity_context_server/memory_comparison_rerank.py tests/unit/test_memory_comparison_benchmark.py`
   -> passed.
+
+## 2026-07-02 Follow-up 2
+
+- Added `favorite_support` to query-plan integrity diagnostics so fast gates can
+  report missing typed favorite fanout instead of treating any selected query
+  family as acceptable.
+- Verified the expanded memory-comparison test set after adding typed date,
+  status, and favorite query-plan diagnostics.
+
+## Verification
+
+- `uv run --extra dev pytest -q tests/unit/test_memory_comparison*.py`
+  -> 496 passed, 1 warning.
+- `uv run --extra dev ruff check packages/infinity_context_server/infinity_context_server/memory_comparison_rerank.py packages/infinity_context_server/infinity_context_server/memory_comparison_quality_diagnostics.py tests/unit/test_memory_comparison_benchmark.py tests/unit/test_memory_comparison_quality_diagnostics.py`
+  -> passed.

@@ -2590,6 +2590,43 @@ def test_quality_diagnostics_accepts_relation_compact_for_profile_support_roles(
     assert table["samples"] == []
 
 
+def test_query_plan_integrity_requires_typed_favorite_query_family() -> None:
+    base_only_plan = {
+        "schema_version": "query_plan.v2",
+        "selected_query_count": 1,
+        "dropped_query_count": 0,
+        "selected_roles": ["original_question"],
+        "dropped_roles": [],
+        "recommended_role_families": ["base_query"],
+        "selected_role_families": ["base_query"],
+        "missing_recommended_role_families": [],
+        "selected_role_family_counts": {"base_query": 1},
+        "fanout_integrity": {"bounded": True},
+    }
+    favorite_item = _item(
+        case_id="favorite-role-base-only",
+        group="single-hop",
+        retrieval=_retrieval_payload(
+            evidence_need=("favorite_preference", "preference"),
+            bundle_evidence_roles=("primary", "favorite_support"),
+            relation_categories=("favorite_preference", "preference"),
+            policy_score=0.0,
+            query_plan=base_only_plan,
+        ),
+    )
+
+    diagnostics = quality_diagnostics((favorite_item,))
+    table = diagnostics["query_plan_integrity_table"]
+
+    assert table["missing_evidence_role_query_family_counts"] == {
+        "favorite_support": 1
+    }
+    assert table["samples"][0]["case_id"] == "favorite-role-base-only"
+    assert table["samples"][0]["missing_evidence_role_query_families"] == (
+        "favorite_support",
+    )
+
+
 def test_fast_gate_metrics_passes_bundle_quality_when_all_bundles_are_usable() -> None:
     items = tuple(
         _item(
