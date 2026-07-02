@@ -30,6 +30,11 @@ def typed_relation_category_support(
         return _has_diet_profile_support(memory_terms, memory_text=memory_text)
     if category == "participation_event":
         return _has_participation_event_support(memory_terms, memory_text=memory_text)
+    if category == "education_profile":
+        return _has_education_profile_support(
+            memory_terms,
+            memory_text=memory_text,
+        )
     if category == "employment_profile":
         return _has_employment_profile_support(
             memory_terms,
@@ -190,7 +195,22 @@ def _has_participation_event_support(
     )
 
 
-def _has_education_profile_support(memory_terms: set[str]) -> bool:
+_EDUCATION_PROFILE_SURFACE_RE = re.compile(
+    r"\b(?:go|goes|went)\s+to\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+(?:\s+[A-Z][a-zA-Z0-9_-]+){0,3}|"
+    r"(?:college|university|school))\b"
+    r"|\b(?:attend|attends|attended|study|studies|studying)\s+"
+    r"(?:at\s+)?(?:[A-Z][a-zA-Z0-9_-]+(?:\s+[A-Z][a-zA-Z0-9_-]+){0,3}|"
+    r"(?:college|university|school))\b",
+    re.IGNORECASE,
+)
+
+
+def _has_education_profile_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
     education_surface = {
         "campus",
         "class",
@@ -230,7 +250,11 @@ def _has_education_profile_support(memory_terms: set[str]) -> bool:
         "school",
         "university",
     } & memory_terms
-    return bool(education_surface or (education_action and education_context))
+    return bool(
+        education_surface
+        or (education_action and education_context)
+        or _EDUCATION_PROFILE_SURFACE_RE.search(memory_text)
+    )
 
 
 _EMPLOYMENT_PROFILE_SURFACE_RE = re.compile(

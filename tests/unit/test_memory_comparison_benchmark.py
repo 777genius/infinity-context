@@ -8583,6 +8583,60 @@ def test_benchmark_rerank_boosts_education_profile_evidence() -> None:
     )
 
 
+def test_benchmark_rerank_boosts_named_school_education_evidence() -> None:
+    case = _case(
+        case_id="education-profile-named-school-rerank",
+        question="What school does Alex go to?",
+        expected_terms=("Stanford",),
+        answer="Stanford",
+        category=4,
+    )
+    topical_school = RetrievedMemory(
+        item_id="topical-school",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex met Maria near Stanford cafe."
+        ),
+        source_refs=("D1:1",),
+    )
+    named_school = RetrievedMemory(
+        item_id="named-school",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: I go to Stanford."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_school, named_school),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("education_profile",)
+    assert reranked[0].item_id == "named-school"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    school_diagnostics = diagnostics_by_id["named-school"]
+    topical_diagnostics = diagnostics_by_id["topical-school"]
+    assert school_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["education_profile"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert (
+        school_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        > 0
+    )
+
+
 def test_benchmark_rerank_boosts_employment_profile_evidence() -> None:
     case = _case(
         case_id="employment-profile-rerank",

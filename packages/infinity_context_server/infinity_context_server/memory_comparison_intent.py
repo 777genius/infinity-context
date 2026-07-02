@@ -1596,7 +1596,7 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
         "evidence_need": "inference_support",
     },
     "education_profile": {
-        "terms": frozenset({"class", "education"}),
+        "terms": frozenset({"class", "education", "go"}),
         "variants": frozenset(
             {
                 "campus",
