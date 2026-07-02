@@ -4010,6 +4010,18 @@ def test_query_expansion_bridges_dog_activity_and_care_queries() -> None:
     breed = build_query_expansion_plan(
         "What type of dog was Andrew looking to adopt based on his living space?"
     )
+    ownership = build_query_expansion_plan(
+        "What is a shared frustration regarding dog ownership for Audrey and Andrew?"
+    )
+    pet_store = build_query_expansion_plan(
+        "How did Audrey describe the dog she met at the pet store?"
+    )
+    comfort = build_query_expansion_plan(
+        "What did Audrey do to give her dogs extra comfort as the weather cooled down?"
+    )
+    discipline = build_query_expansion_plan(
+        "What technique is Audrey using to discipline her dogs?"
+    )
     pet_names = build_query_expansion_plan("What are Maria's dogs' names?")
 
     assert "dog dogs puppy pup pet pets care training" in _expansion_query(
@@ -4026,6 +4038,22 @@ def test_query_expansion_bridges_dog_activity_and_care_queries() -> None:
     )
     assert "breed size living space apartment open space" in _expansion_query(
         breed,
+        "dog_activity_care_bridge",
+    )
+    assert "ownership frustration companion" in _expansion_query(
+        ownership,
+        "dog_activity_care_bridge",
+    )
+    assert "bonding workshop shelter adopted adoption" in _expansion_query(
+        pet_store,
+        "dog_activity_care_bridge",
+    )
+    assert "beds comfort snow trail hike active city" in _expansion_query(
+        comfort,
+        "dog_activity_care_bridge",
+    )
+    assert "reinforcement practice discipline command commands" in _expansion_query(
+        discipline,
         "dog_activity_care_bridge",
     )
     assert "dog_activity_care_bridge" not in {item.reason for item in pet_names.expansions}
@@ -4075,6 +4103,29 @@ def test_query_expansion_bridges_pet_memory_queries() -> None:
     assert "values responsibility kindness compassion teach kids" in _expansion_query(
         values,
         "pet_memory_bridge",
+    )
+
+
+def test_query_expansion_bridges_pet_inventory_from_puppy_wording() -> None:
+    puppy_name = build_query_expansion_plan(
+        "What is the name of Maria's puppy she got two weeks ago?"
+    )
+    adopted = build_query_expansion_plan(
+        "In which state is the shelter from which James adopted the puppy?"
+    )
+    duration = build_query_expansion_plan("For how long has Jolene had Seraphim as a pet?")
+
+    assert "pet pets dog dogs puppy pup name names" in _expansion_query(
+        puppy_name,
+        "pet_inventory_bridge",
+    )
+    assert "shelter rescue more recently" in _expansion_query(
+        adopted,
+        "pet_inventory_bridge",
+    )
+    assert "companion owner belongs shelter rescue" in _expansion_query(
+        duration,
+        "pet_inventory_bridge",
     )
 
 

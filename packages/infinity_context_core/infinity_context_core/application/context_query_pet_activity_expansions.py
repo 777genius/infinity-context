@@ -7,7 +7,9 @@ _DOG_ACTIVITY_CARE_EXPANSION = (
     "reinforcement practice discipline command commands leash walk walks walking "
     "dog park playdate playdates park games fetch run running backyard indoor "
     "area breed size living space apartment open space grooming looking good "
-    "pet store childhood family dog memories"
+    "pet store childhood family dog memories ownership frustration companion "
+    "companions bonding workshop shelter adopted adoption name named beds comfort "
+    "snow trail hike active city dressed costume leash incident calm tricks dog-sitting"
 )
 _PET_MEMORY_EXPANSION = (
     "pet dog puppy beloved companion goodbye passed away died loss grief remember "
@@ -15,8 +17,182 @@ _PET_MEMORY_EXPANSION = (
     "paw print stuffed animal toy name named childhood family Michigan rescue dog "
     "values responsibility kindness compassion teach kids"
 )
+_PET_INVENTORY_EXPANSION = (
+    "pet pets dog dogs puppy pup name names named called adopted got new addition "
+    "family companion owner belongs shelter rescue more recently has have"
+)
 
 PET_ACTIVITY_EXPANSION_RULES: tuple[tuple[frozenset[str], str, str], ...] = (
+    (
+        frozenset({"pups"}),
+        _DOG_ACTIVITY_CARE_EXPANSION,
+        "dog_activity_care_bridge",
+    ),
+    (
+        frozenset({"dog", "ownership"}),
+        _DOG_ACTIVITY_CARE_EXPANSION,
+        "dog_activity_care_bridge",
+    ),
+    (
+        frozenset({"pet", "dog"}),
+        _DOG_ACTIVITY_CARE_EXPANSION,
+        "dog_activity_care_bridge",
+    ),
+    (
+        frozenset({"dogs", "dresses"}),
+        _DOG_ACTIVITY_CARE_EXPANSION,
+        "dog_activity_care_bridge",
+    ),
+    (
+        frozenset({"dogs", "done"}),
+        _DOG_ACTIVITY_CARE_EXPANSION,
+        "dog_activity_care_bridge",
+    ),
+    (
+        frozenset({"pets", "view"}),
+        _DOG_ACTIVITY_CARE_EXPANSION,
+        "dog_activity_care_bridge",
+    ),
+    (
+        frozenset({"pets", "bonding"}),
+        _DOG_ACTIVITY_CARE_EXPANSION,
+        "dog_activity_care_bridge",
+    ),
+    (
+        frozenset({"pet", "store"}),
+        _DOG_ACTIVITY_CARE_EXPANSION,
+        "dog_activity_care_bridge",
+    ),
+    (
+        frozenset({"dogs", "backyard"}),
+        _DOG_ACTIVITY_CARE_EXPANSION,
+        "dog_activity_care_bridge",
+    ),
+    (
+        frozenset({"dogs", "comfort"}),
+        _DOG_ACTIVITY_CARE_EXPANSION,
+        "dog_activity_care_bridge",
+    ),
+    (
+        frozenset({"dogs", "snow"}),
+        _DOG_ACTIVITY_CARE_EXPANSION,
+        "dog_activity_care_bridge",
+    ),
+    (
+        frozenset({"dog", "leash"}),
+        _DOG_ACTIVITY_CARE_EXPANSION,
+        "dog_activity_care_bridge",
+    ),
+    (
+        frozenset({"dogs", "active"}),
+        _DOG_ACTIVITY_CARE_EXPANSION,
+        "dog_activity_care_bridge",
+    ),
+    (
+        frozenset({"dogs", "stress"}),
+        _DOG_ACTIVITY_CARE_EXPANSION,
+        "dog_activity_care_bridge",
+    ),
+    (
+        frozenset({"dogs", "discipline"}),
+        _DOG_ACTIVITY_CARE_EXPANSION,
+        "dog_activity_care_bridge",
+    ),
+    (
+        frozenset({"dogs", "apartment"}),
+        _DOG_ACTIVITY_CARE_EXPANSION,
+        "dog_activity_care_bridge",
+    ),
+    (
+        frozenset({"family", "dog"}),
+        _DOG_ACTIVITY_CARE_EXPANSION,
+        "dog_activity_care_bridge",
+    ),
+    (
+        frozenset({"neighbors", "dogs"}),
+        _DOG_ACTIVITY_CARE_EXPANSION,
+        "dog_activity_care_bridge",
+    ),
+    (
+        frozenset({"beds", "dogs"}),
+        _DOG_ACTIVITY_CARE_EXPANSION,
+        "dog_activity_care_bridge",
+    ),
+    (
+        frozenset({"companions", "dogs"}),
+        _DOG_ACTIVITY_CARE_EXPANSION,
+        "dog_activity_care_bridge",
+    ),
+    (
+        frozenset({"buddy", "walks"}),
+        _DOG_ACTIVITY_CARE_EXPANSION,
+        "dog_activity_care_bridge",
+    ),
+    (
+        frozenset({"scout", "buddy"}),
+        _DOG_ACTIVITY_CARE_EXPANSION,
+        "dog_activity_care_bridge",
+    ),
+    (
+        frozenset({"dog", "sitting"}),
+        _DOG_ACTIVITY_CARE_EXPANSION,
+        "dog_activity_care_bridge",
+    ),
+    (
+        frozenset({"dog", "shelter"}),
+        _DOG_ACTIVITY_CARE_EXPANSION,
+        "dog_activity_care_bridge",
+    ),
+    (
+        frozenset({"cousin", "dog"}),
+        _DOG_ACTIVITY_CARE_EXPANSION,
+        "dog_activity_care_bridge",
+    ),
+    (
+        frozenset({"dogs", "get"}),
+        _DOG_ACTIVITY_CARE_EXPANSION,
+        "dog_activity_care_bridge",
+    ),
+    (
+        frozenset({"pets", "offer"}),
+        _DOG_ACTIVITY_CARE_EXPANSION,
+        "dog_activity_care_bridge",
+    ),
+    (
+        frozenset({"pets", "tricks"}),
+        _DOG_ACTIVITY_CARE_EXPANSION,
+        "dog_activity_care_bridge",
+    ),
+    (
+        frozenset({"puppy", "name"}),
+        _PET_INVENTORY_EXPANSION,
+        "pet_inventory_bridge",
+    ),
+    (
+        frozenset({"puppy", "got"}),
+        _PET_INVENTORY_EXPANSION,
+        "pet_inventory_bridge",
+    ),
+    (
+        frozenset({"adopted", "puppy"}),
+        _PET_INVENTORY_EXPANSION,
+        "pet_inventory_bridge",
+    ),
+    (
+        frozenset({"pet", "adopted"}),
+        _PET_INVENTORY_EXPANSION,
+        "pet_inventory_bridge",
+    ),
+    (
+        frozenset({"pet", "adopt"}),
+        _PET_INVENTORY_EXPANSION,
+        "pet_inventory_bridge",
+    ),
+    (
+        frozenset({"pet", "has"}),
+        _PET_INVENTORY_EXPANSION,
+        "pet_inventory_bridge",
+    ),
     (
         frozenset({"dogs", "classes"}),
         _DOG_ACTIVITY_CARE_EXPANSION,
