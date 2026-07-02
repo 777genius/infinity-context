@@ -1362,21 +1362,19 @@ _SPORT_TEAM_ATTRIBUTE_TERMS = frozenset(
     {
         "basketball",
         "coach",
-        "game",
-        "games",
+        "contract",
+        "franchise",
         "jersey",
         "jerseys",
-        "play",
-        "played",
         "player",
         "position",
+        "roster",
         "school",
         "schools",
         "sport",
         "sports",
         "team",
         "teammates",
-        "trip",
     }
 )
 _SALIENT_DROP_VARIANTS = frozenset(
@@ -2564,6 +2562,41 @@ def _requests_sport_team_attribute(
     if variants.intersection({"collectible", "collectibles"}):
         return False
     if not variants.intersection(_SPORT_TEAM_ATTRIBUTE_TERMS):
+        return False
+    direct_sport_terms = variants.intersection(
+        {
+            "basketball",
+            "coach",
+            "contract",
+            "franchise",
+            "jersey",
+            "jerseys",
+            "player",
+            "roster",
+            "sport",
+            "sports",
+            "teammates",
+        }
+    )
+    team_signing_terms = (
+        "team" in raw_tokens
+        and bool(raw_tokens.intersection({"sign", "signed"}))
+        and "up" not in raw_tokens
+    )
+    team_trip_terms = "team" in raw_tokens and bool(
+        raw_tokens.intersection({"travel", "traveling", "trip"})
+    )
+    team_position_terms = "position" in raw_tokens and "team" in variants
+    school_sport_terms = bool(raw_tokens.intersection({"school", "schools"})) and (
+        "basketball" in variants or bool(raw_tokens.intersection({"play", "played"}))
+    )
+    if not (
+        direct_sport_terms
+        or team_signing_terms
+        or team_trip_terms
+        or team_position_terms
+        or school_sport_terms
+    ):
         return False
     return bool(
         raw_tokens.intersection(

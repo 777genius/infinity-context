@@ -1933,6 +1933,22 @@ def test_query_decomposition_adds_sport_team_attribute_query() -> None:
         assert "signed sign contract roster" in sport_team.query
 
 
+def test_query_decomposition_avoids_broad_sport_team_attribute_query() -> None:
+    cases = (
+        "What happened to Melanie's son on their road trip?",
+        "When did Gina team up with a local artist for some cool designs?",
+        "What board games has Nate played?",
+        "What instruments does Melanie play?",
+    )
+
+    for query in cases:
+        plan = build_query_decomposition_plan(query)
+
+        assert "decomposition_sport_team_attribute" not in {
+            item.reason for item in plan.decompositions
+        }
+
+
 def test_best_query_relevance_uses_sport_team_attribute_decomposition() -> None:
     cases = (
         (
