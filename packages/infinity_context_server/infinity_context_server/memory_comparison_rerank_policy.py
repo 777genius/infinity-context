@@ -388,7 +388,10 @@ def _has_precise_grounding(
 ) -> bool:
     if not features.direct_speaker_turn:
         return False
-    if features.source_locality_score < 0.65:
+    if (
+        features.source_locality_score < 0.65
+        and not _has_unmeasured_source_ref_locality(features)
+    ):
         return False
     return bool(
         _bool_signal(score_signals, "benchmark_rich_direct_speaker_relation_evidence")
@@ -427,11 +430,21 @@ def _has_role_specific_grounding(
     if (
         any(float(value) > 0 for value in features.shape_boosts.values())
         and features.direct_speaker_turn
-        and features.source_locality_score >= 0.65
+        and (
+            features.source_locality_score >= 0.65
+            or _has_unmeasured_source_ref_locality(features)
+        )
         and not features.broad_summary
     ):
         return True
     return bool(_has_contrast_grounding(score_signals))
+
+
+def _has_unmeasured_source_ref_locality(features: BenchmarkRerankFeatures) -> bool:
+    return bool(
+        features.source_locality_score <= 0
+        and (features.source_ref_count > 0 or features.turn_ref_count > 0)
+    )
 
 
 def _has_contrast_grounding(score_signals: Mapping[str, object]) -> bool:

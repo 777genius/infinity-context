@@ -1022,6 +1022,41 @@ def test_rerank_policy_keeps_precise_direct_turn_above_broad_summary_cap() -> No
     ]
 
 
+def test_rerank_policy_keeps_unmeasured_direct_relation_above_low_answerability_cap() -> None:
+    score = score_benchmark_rerank_candidate(
+        _features(
+            overlap_terms=("caroline", "relationship", "family", "support"),
+            entity_hits=("caroline",),
+            speaker_hits=("caroline",),
+            relation_hits=("parent", "breakup", "family", "support"),
+            relation_terms=("relationship", "status", "family", "support"),
+            high_signal_relation_hit_count=1,
+            direct_speaker_turn=True,
+            source_locality_score=0.0,
+            source_ref_count=1,
+            turn_ref_count=1,
+            answerability_score=0.48,
+            answerability_reason_codes=(
+                "entity_satisfied",
+                "relation_satisfied",
+                "source_provenance",
+                "low_answerability",
+            ),
+        )
+    )
+
+    signals = score.signals["score_signals"]
+
+    assert signals["benchmark_direct_speaker_relation_evidence"] is True
+    assert signals["benchmark_provenance_safety_cap_applied"] is False
+    assert "low_answerability_cap" not in signals[
+        "benchmark_provenance_safety_reason_codes"
+    ]
+    assert signals["benchmark_effective_boost_cap"] == signals[
+        "benchmark_uncapped_boost_cap"
+    ]
+
+
 def test_rerank_policy_caps_weak_locality_low_answerability_evidence() -> None:
     score = score_benchmark_rerank_candidate(
         _features(
