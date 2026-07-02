@@ -214,11 +214,11 @@ renders the backwards-compatible `query_profile` dict used by older tests and
 reports. The intent captures entity surfaces, speaker surfaces, relation
 surfaces, typed relation facets such as `preference`, `status_profile`,
 `identity_profile`, `causal`, `support_goal`, `activity`, `exchange`,
-`temporal`, `visual` and `contrast`, temporal kind, evidence needs and risk
-flags from question-only signals. `query_decomposition`, `benchmark_rerank` and
-`query_integrity` metadata expose this intent for diagnostics, but
-query-integrity token overlap continues to score only the explicit query/profile
-token fields. Quality
+`communication`, `temporal`, `visual` and `contrast`, temporal kind, evidence
+needs and risk flags from question-only signals. `query_decomposition`,
+`benchmark_rerank` and `query_integrity` metadata expose this intent for
+diagnostics, but query-integrity token overlap continues to score only the
+explicit query/profile token fields. Quality
 diagnostics also group fast-loop metrics by `relation:<category>`, so broad
 evidence needs such as `inference_support` can be debugged by relation class.
 Questions with compare/between/different/previous/former surfaces now carry

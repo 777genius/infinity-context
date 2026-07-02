@@ -4977,6 +4977,102 @@ def test_benchmark_rerank_boosts_focused_exchange_evidence() -> None:
     )
 
 
+def test_query_decomposition_reports_communication_relation_intent() -> None:
+    tell_case = _case(
+        case_id="communication-tell",
+        question="Who did Alex tell about the Project Atlas delay?",
+        expected_terms=("maria",),
+        answer="Maria",
+        category=1,
+    )
+    ask_case = _case(
+        case_id="communication-ask",
+        question="Who was asked to send the Project Atlas invoice by Alex?",
+        expected_terms=("maria",),
+        answer="Maria",
+        category=1,
+    )
+    recommend_case = _case(
+        case_id="communication-recommend",
+        question="Who recommended that Melanie read Becoming Nicole?",
+        expected_terms=("caroline",),
+        answer="Caroline",
+        category=1,
+    )
+
+    _, tell_metadata = rerank_module.decomposed_search_queries(tell_case)
+    _, ask_metadata = rerank_module.decomposed_search_queries(ask_case)
+    _, recommend_metadata = rerank_module.decomposed_search_queries(recommend_case)
+
+    assert tell_metadata["query_profile"]["relation_categories"] == (
+        "communication",
+    )
+    assert tell_metadata["query_profile"]["relation_category_terms"][
+        "communication"
+    ] == ("tell", "told", "mention")
+    assert ask_metadata["query_profile"]["relation_terms"] == ("ask",)
+    assert ask_metadata["query_profile"]["relation_categories"] == (
+        "communication",
+    )
+    assert "request" in ask_metadata["query_profile"]["relation_category_terms"][
+        "communication"
+    ]
+    assert recommend_metadata["query_profile"]["relation_categories"] == (
+        "activity",
+        "communication",
+    )
+    assert recommend_metadata["query_profile"]["relation_category_terms"][
+        "communication"
+    ] == ("recommend", "suggest", "advis", "told")
+
+
+def test_benchmark_rerank_boosts_speaker_grounded_communication_evidence() -> None:
+    case = _case(
+        case_id="communication-rerank",
+        question="Who did Alex tell about the Project Atlas delay?",
+        expected_terms=("maria",),
+        answer="Maria",
+        category=1,
+    )
+    recipient_turn = RetrievedMemory(
+        item_id="recipient-turn",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_3 turn D3:5 date: 9:20 pm "
+            "D3:5 Maria: I told Alex about the Project Atlas delay after "
+            "the invoice approval call."
+        ),
+        source_refs=("D3:5",),
+    )
+    speaker_turn = RetrievedMemory(
+        item_id="speaker-turn",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 9:10 pm "
+            "D2:3 Alex: I told Maria about the Project Atlas delay after "
+            "the invoice approval call."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (recipient_turn, speaker_turn),
+    )
+
+    assert metadata["applied"] is True
+    assert reranked[0].item_id == "speaker-turn"
+    diagnostics = reranked[0].metadata["diagnostics"]
+    assert diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["communication"]
+    assert diagnostics["score_signals"]["benchmark_speaker_boost"] > 0
+    assert diagnostics["score_signals"]["benchmark_speaker_grounding_boost"] > 0
+    assert diagnostics["score_signals"]["benchmark_focused_turn_boost"] > 0
+
+
 def test_benchmark_rerank_prefers_focused_turn_over_broad_session() -> None:
     case = _case(
         case_id="conv-26:qa:43",

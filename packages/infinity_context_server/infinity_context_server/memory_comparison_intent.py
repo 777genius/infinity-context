@@ -700,6 +700,34 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
         "markers": frozenset(),
         "evidence_need": "single_fact",
     },
+    "communication": {
+        "terms": frozenset(
+            {
+                "ask",
+                "mention",
+                "recommend",
+                "suggest",
+                "tell",
+            }
+        ),
+        "variants": frozenset(
+            {
+                "advis",
+                "advise",
+                "advised",
+                "mention",
+                "mentioned",
+                "recommend",
+                "request",
+                "said",
+                "suggest",
+                "suggested",
+                "told",
+            }
+        ),
+        "markers": frozenset(),
+        "evidence_need": "single_fact",
+    },
     "location_transition": {
         "terms": frozenset({"move", "relocate", "relocated", "roadtrip"}),
         "variants": frozenset(

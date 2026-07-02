@@ -95,7 +95,6 @@ _QUERY_STOPWORDS = {
     "and",
     "any",
     "are",
-    "asked",
     "before",
     "being",
     "between",
@@ -262,6 +261,7 @@ _HIGH_SIGNAL_RELATION_VARIANTS = {
 }
 _RELATION_QUERY_TERMS = {
     "activity",
+    "ask",
     "birthday",
     "book",
     "bookshelf",
@@ -309,6 +309,7 @@ _RELATION_QUERY_TERMS = {
     "pursue",
     "raise",
     "receive",
+    "recommend",
     "read",
     "religious",
     "relationship",
@@ -316,6 +317,7 @@ _RELATION_QUERY_TERMS = {
     "research",
     "run",
     "sign",
+    "suggest",
     "symbolize",
     "support",
     "status",
@@ -391,6 +393,7 @@ _RELATION_QUERY_VARIANTS = {
         "weekend",
         "unplug",
     ),
+    "ask": ("asked", "request", "requested", "told"),
     "birthday": ("birthday", "born", "age", "years", "ago"),
     "book": (
         "books",
@@ -569,6 +572,7 @@ _RELATION_QUERY_VARIANTS = {
     "purchas": ("purchased", "buy", "bought", "got"),
     "purchase": ("purchased", "buy", "bought", "got"),
     "receive": ("received", "got", "support", "help", "growing up"),
+    "recommend": ("recommended", "suggested", "advised", "told"),
     "read": ("reading", "books", "book", "bookshelf"),
     "religious": (
         "religion",
@@ -599,6 +603,7 @@ _RELATION_QUERY_VARIANTS = {
     "research": ("researching", "looked into", "looking into", "check out", "checked out"),
     "run": ("ran", "running", "race", "charity", "marathon"),
     "sign": ("signed", "signup", "class", "pottery", "registered"),
+    "suggest": ("suggested", "recommend", "recommended", "advised"),
     "sibling": ("brother", "sister", "family"),
     "sister": ("sibling", "brother", "family"),
     "son": ("child", "kid", "family", "parent", "mother", "father"),
@@ -2082,6 +2087,18 @@ def _relation_query_terms(
     if "research" in relation_term_set:
         priority_variant_order.extend(("researching",))
         priority_surface_terms.add("researching")
+    if {"ask", "tell", "mention", "recommend", "suggest"} & relation_term_set:
+        priority_variant_order.extend(
+            (
+                "told",
+                "asked",
+                "recommended",
+                "suggested",
+                "request",
+                "said",
+            )
+        )
+        priority_surface_terms.update(("asked", "recommended", "suggested"))
     if "move" in relation_term_set:
         priority_variant_order.extend(("moved", "home", "country", "relocated"))
     if "sign" in relation_term_set:
