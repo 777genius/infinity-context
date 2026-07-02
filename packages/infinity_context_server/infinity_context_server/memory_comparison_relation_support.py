@@ -291,6 +291,68 @@ def _has_current_goal_support(memory_terms: set[str]) -> bool:
     return bool("plan" in memory_terms and {"future", "next", "soon"} & memory_terms)
 
 
+def _has_support_goal_support(memory_terms: set[str]) -> bool:
+    support_action = {
+        "got",
+        "help",
+        "helped",
+        "receive",
+        "received",
+        "support",
+    } & memory_terms
+    development_context = {
+        "difference",
+        "grow",
+        "growing",
+        "huge",
+        "improv",
+        "improved",
+        "journey",
+        "life",
+    } & memory_terms
+    counseling_context = {
+        "counsel",
+        "counseling",
+        "group",
+        "health",
+        "mental",
+    } & memory_terms
+    book_self_discovery = {"book"} & memory_terms and {
+        "discover",
+        "guide",
+        "help",
+        "motivate",
+    } & memory_terms
+    counseling_career = counseling_context and {"job", "jobs"} & memory_terms and {
+        "important",
+        "people",
+        "talk",
+    } & memory_terms
+    adoption_context = {"adopt", "adoption", "agencies", "agency"} & memory_terms
+    inclusive_context = {
+        "inclusive",
+        "inclusivity",
+        "kids",
+        "lgbtq",
+        "support",
+    } & memory_terms
+    adoption_outcome = {"family", "kid"} & memory_terms and {
+        "amaz",
+        "amazing",
+        "awesome",
+        "creat",
+        "lovely",
+        "mom",
+    } & memory_terms
+    return bool(
+        (support_action and development_context and counseling_context)
+        or book_self_discovery
+        or counseling_career
+        or (adoption_context and (support_action or inclusive_context))
+        or adoption_outcome
+    )
+
+
 _TYPED_SUPPORT_CHECKS: dict[str, Callable[[set[str]], bool]] = {
     "activity": _has_activity_support,
     "communication": _has_communication_support,
@@ -300,5 +362,6 @@ _TYPED_SUPPORT_CHECKS: dict[str, Callable[[set[str]], bool]] = {
     "participation_event": _has_participation_event_support,
     "registration_event": _has_registration_event_support,
     "status_profile": _has_status_profile_support,
+    "support_goal": _has_support_goal_support,
     "symbolic_meaning": _has_symbolic_meaning_support,
 }

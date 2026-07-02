@@ -6005,6 +6005,17 @@ def test_benchmark_rerank_prefers_support_motivation_turn() -> None:
         "support-motivation",
         "generic-counseling",
     ]
+    support_features = reranked[0].metadata["diagnostics"][
+        "benchmark_candidate_features"
+    ]
+    generic_features = reranked[1].metadata["diagnostics"][
+        "benchmark_candidate_features"
+    ]
+    assert support_features["relation_category_hits"] == ["support_goal"]
+    assert generic_features["relation_category_hits"] == []
+    assert "missing_support_goal_evidence" in generic_features[
+        "answerability_reason_codes"
+    ]
     signals = reranked[0].metadata["diagnostics"]["score_signals"]
     assert signals["benchmark_support_motivation_boost"] > 0
     assert signals["benchmark_focused_turn_boost"] > 0

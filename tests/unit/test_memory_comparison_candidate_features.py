@@ -139,6 +139,12 @@ def test_candidate_features_capture_focused_direct_turn_and_provenance() -> None
             ("hope", "goal", "future", "soon"),
             {"goal", "future"},
         ),
+        (
+            "support_goal",
+            ("counsel", "support", "receive", "grow"),
+            ("counseling", "mental", "health", "helped"),
+            {"support", "got", "counseling", "life"},
+        ),
     ),
 )
 def test_candidate_features_require_typed_relation_evidence_for_answerability(
