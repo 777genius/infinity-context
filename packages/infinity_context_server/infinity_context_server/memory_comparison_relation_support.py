@@ -45,6 +45,8 @@ def typed_relation_category_support(
         return _has_pet_profile_support(memory_terms, memory_text=memory_text)
     if category == "skill_profile":
         return _has_skill_profile_support(memory_terms, memory_text=memory_text)
+    if category == "status_profile":
+        return _has_status_profile_support(memory_terms, memory_text=memory_text)
     if category == "vehicle_profile":
         return _has_vehicle_profile_support(
             memory_terms,
@@ -958,7 +960,30 @@ def _has_causal_support(memory_terms: set[str]) -> bool:
     )
 
 
-def _has_status_profile_support(memory_terms: set[str]) -> bool:
+_STATUS_PROFILE_RELATION_RE = re.compile(
+    r"\b(?:my|his|her|their|our|your)\s+"
+    r"(?:boyfriend|boss|brother|child|children|colleague|coworker|daughter|"
+    r"father|fiancee?|friend|girlfriend|husband|kid|kids|manager|mentor|"
+    r"mother|neighbor|parent|partner|roommate|sibling|sister|son|spouse|"
+    r"teammate|wife)\b"
+    r"|\b(?:is|was|are|were)\s+"
+    r"(?:my|his|her|their|our|your)\s+"
+    r"(?:boyfriend|boss|brother|child|colleague|coworker|daughter|father|"
+    r"fiancee?|friend|girlfriend|husband|manager|mentor|mother|neighbor|"
+    r"parent|partner|roommate|sibling|sister|son|spouse|teammate|wife)\b"
+    r"|\b(?:dating|engaged\s+to|married\s+to)\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|my|his|her|their|our|your)\b"
+    r"|\b(?:relationship\s+status|status)\s+(?:is|was)\s+"
+    r"(?:single|dating|engaged|married|divorced)\b",
+    re.IGNORECASE,
+)
+
+
+def _has_status_profile_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
     explicit_status = {
         "breakup",
         "dating",
@@ -1003,7 +1028,10 @@ def _has_status_profile_support(memory_terms: set[str]) -> bool:
         "teammate",
         "wife",
     } & memory_terms
-    return bool(explicit_status or direct_relation)
+    return bool(
+        explicit_status
+        or (direct_relation and _STATUS_PROFILE_RELATION_RE.search(memory_text))
+    )
 
 
 _LOCATION_TRANSITION_SURFACE_RE = re.compile(
@@ -1374,7 +1402,6 @@ _TYPED_SUPPORT_CHECKS: dict[str, Callable[[set[str]], bool]] = {
     "preference": _has_preference_support,
     "registration_event": _has_registration_event_support,
     "skill_profile": _has_skill_profile_support,
-    "status_profile": _has_status_profile_support,
     "support_goal": _has_support_goal_support,
     "symbolic_meaning": _has_symbolic_meaning_support,
     "vehicle_profile": _has_vehicle_profile_support,

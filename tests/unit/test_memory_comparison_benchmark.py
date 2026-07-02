@@ -3369,18 +3369,21 @@ def test_query_decomposition_reports_typed_retrieval_intent() -> None:
     assert relationship_intent["uses_ground_truth"] is False
     assert relationship_intent["entities"][0]["canonical"] == "caroline"
     assert "inference_support" in relationship_intent["evidence_need"]
+    assert "status_profile" in relationship_intent["evidence_need"]
     relationship_facets = relationship_intent["relations"]["intents"]
     assert relationship_facets[0]["category"] == "status_profile"
-    assert relationship_facets[0]["evidence_need"] == "inference_support"
+    assert relationship_facets[0]["evidence_need"] == "status_profile"
     assert "status_profile" in relationship_metadata["query_profile"][
         "relation_categories"
     ]
     assert "single" not in json.dumps(relationship_intent)
     assert relationship_metadata["query_profile"]["evidence_need"] == (
         "inference_support",
+        "status_profile",
     )
     assert relationship_metadata["query_profile"]["bundle_evidence_roles"] == (
         "primary",
+        "status_support",
         "inference_support",
     )
     assert relationship_metadata["query_profile"]["risk_flags"] == ()
@@ -3412,18 +3415,15 @@ def test_query_decomposition_reports_typed_retrieval_intent() -> None:
     duration_intent = duration_metadata["retrieval_intent"]
     assert duration_intent["time_intent"]["kind"] == "duration"
     assert "temporal_support" in duration_intent["evidence_need"]
-    assert "inference_support" in duration_intent["evidence_need"]
     assert duration_intent["bundle_evidence_roles"] == [
         "primary",
         "temporal_support",
-        "inference_support",
     ]
     duration_categories = {
         facet["category"] for facet in duration_intent["relations"]["intents"]
     }
-    assert "status_profile" in duration_categories
+    assert "status_profile" not in duration_categories
     assert "temporal" in duration_categories
-    assert "inference_support" in duration_metadata["query_plan"]["selected_roles"]
     duration_temporal_candidate = next(
         item
         for item in duration_metadata["query_plan"]["candidates"]
@@ -6250,7 +6250,8 @@ def test_query_decomposition_handles_question_bound_partner_status_terms() -> No
     assert "status_profile" in girlfriend_intent.to_query_profile()[
         "relation_categories"
     ]
-    assert "inference_support" in girlfriend_intent.evidence_need
+    assert "status_profile" in girlfriend_intent.evidence_need
+    assert "status_support" in girlfriend_intent.bundle_evidence_roles
     girlfriend_diagnostics = girlfriend_intent.to_diagnostics()["relations"]
     assert "riley" not in girlfriend_diagnostics["terms"]
     assert "riley" not in girlfriend_diagnostics["variant_terms"]
@@ -6290,7 +6291,8 @@ def test_query_decomposition_handles_question_bound_person_role_terms() -> None:
     assert "status_profile" in roommate_intent.to_query_profile()[
         "relation_categories"
     ]
-    assert "inference_support" in roommate_intent.evidence_need
+    assert "status_profile" in roommate_intent.evidence_need
+    assert "status_support" in roommate_intent.bundle_evidence_roles
     assert "riley" not in roommate_intent.to_diagnostics()["relations"]["terms"]
     assert colleague_intent.relation_terms == ("colleague",)
     assert "status_profile" in colleague_intent.to_query_profile()[
@@ -6300,6 +6302,68 @@ def test_query_decomposition_handles_question_bound_person_role_terms() -> None:
     assert "status_profile" in mentor_intent.to_query_profile()[
         "relation_categories"
     ]
+
+
+def test_benchmark_rerank_boosts_status_profile_evidence() -> None:
+    case = _case(
+        case_id="status-profile-rerank",
+        question="Who is Alex's sister?",
+        expected_terms=("Maria",),
+        answer="Maria",
+        category=4,
+    )
+    topical_sister = RetrievedMemory(
+        item_id="topical-sister",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex visited a sister city festival with Maria."
+        ),
+        source_refs=("D1:1",),
+    )
+    status_profile = RetrievedMemory(
+        item_id="status-profile",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: Maria is my sister."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_sister, status_profile),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("status_profile",)
+    assert "status_support" in metadata["query_profile"]["bundle_evidence_roles"]
+    assert reranked[0].item_id == "status-profile"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    status_diagnostics = diagnostics_by_id["status-profile"]
+    topical_diagnostics = diagnostics_by_id["topical-sister"]
+    assert status_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["status_profile"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert (
+        status_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        > 0
+    )
+    assert status_diagnostics["score_signals"][
+        "benchmark_typed_relation_support_roles"
+    ] == ["status_support"]
+    assert (
+        topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        == 0
+    )
 
 
 def test_query_decomposition_expands_favorite_preference_queries() -> None:

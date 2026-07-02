@@ -416,12 +416,10 @@ def test_evidence_bundle_preserves_typed_temporal_feature_provenance() -> None:
     assert bundle["required_roles"] == [
         "primary",
         "temporal_support",
-        "inference_support",
     ]
     assert bundle["satisfied_required_roles"] == [
         "primary",
         "temporal_support",
-        "inference_support",
     ]
     assert bundle["missing_required_roles"] == []
     assert bundle["role_requirement_complete"] is True
@@ -866,9 +864,8 @@ def test_evidence_bundle_keeps_duration_temporal_role_missing_without_duration_e
     assert bundle["required_roles"] == [
         "primary",
         "temporal_support",
-        "inference_support",
     ]
-    assert bundle["satisfied_required_roles"] == ["primary", "inference_support"]
+    assert bundle["satisfied_required_roles"] == ["primary"]
     assert bundle["missing_required_roles"] == ["temporal_support"]
     assert bundle["role_requirement_complete"] is False
     assert bundle["bundle_complete"] is False
@@ -919,7 +916,6 @@ def test_evidence_bundle_keeps_duration_temporal_role_missing_for_broad_summary(
     assert bundle["satisfied_required_roles"] == ["primary"]
     assert bundle["missing_required_roles"] == [
         "temporal_support",
-        "inference_support",
     ]
     assert bundle["role_requirement_complete"] is False
     assert bundle["bundle_complete"] is False

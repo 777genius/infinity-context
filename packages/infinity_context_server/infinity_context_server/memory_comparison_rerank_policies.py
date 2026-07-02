@@ -872,6 +872,7 @@ _TYPED_RELATION_SUPPORT_ROLE_CATEGORIES = {
     "health_support": frozenset({"health_profile"}),
     "pet_support": frozenset({"pet_profile"}),
     "skill_support": frozenset({"skill_profile"}),
+    "status_support": frozenset({"status_profile"}),
     "symbolic_meaning_support": frozenset({"symbolic_meaning"}),
     "vehicle_support": frozenset({"vehicle_profile"}),
 }
@@ -893,6 +894,7 @@ _TYPED_RELATION_SUPPORT_NEEDS = {
     "health_support": frozenset({"health_profile"}),
     "pet_support": frozenset({"pet_profile"}),
     "skill_support": frozenset({"skill_profile"}),
+    "status_support": frozenset({"status_profile"}),
     "symbolic_meaning_support": frozenset({"symbolic_meaning"}),
     "vehicle_support": frozenset({"vehicle_profile"}),
 }

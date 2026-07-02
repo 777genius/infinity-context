@@ -276,6 +276,12 @@ def infer_relation_intents(
             relation_terms=relation_terms,
         ):
             continue
+        if category == "status_profile" and not _has_status_profile_intent(
+            question=question,
+            relation_terms=relation_terms,
+            time_intent=time_intent,
+        ):
+            continue
         if category == "commitment_profile" and not _has_commitment_profile_intent(
             question=question,
             relation_terms=relation_terms,
@@ -422,6 +428,7 @@ def infer_bundle_evidence_roles(
         "health_profile": "health_support",
         "pet_profile": "pet_support",
         "skill_profile": "skill_support",
+        "status_profile": "status_support",
         "vehicle_profile": "vehicle_support",
     }
     roles.extend(
@@ -469,6 +476,7 @@ def merge_relation_evidence_needs(
         "health_profile",
         "pet_profile",
         "skill_profile",
+        "status_profile",
         "vehicle_profile",
         "communication",
         "exchange",
@@ -481,10 +489,7 @@ def merge_relation_evidence_needs(
         intent.evidence_need
         for intent in relation_intents
         if intent.evidence_need in promoted_needs
-        and (
-            intent.evidence_need != "inference_support"
-            or intent.category == "status_profile"
-        )
+        and intent.evidence_need != "inference_support"
     )
     if not relation_needs:
         return evidence_need
@@ -795,6 +800,72 @@ def _has_communication_intent(
     return bool(
         re.search(
             r"\b(?:who|whom)\b.+\bmention\b|\bmention(?:ed)?\b.+\b(?:to|with)\b",
+            normalized_question,
+        )
+    )
+
+
+def _has_status_profile_intent(
+    *,
+    question: str,
+    relation_terms: tuple[str, ...],
+    time_intent: RetrievalTimeIntent,
+) -> bool:
+    relation_set = set(relation_terms)
+    status_terms = {
+        "boyfriend",
+        "boss",
+        "brother",
+        "child",
+        "children",
+        "colleague",
+        "coworker",
+        "dating",
+        "daughter",
+        "engag",
+        "engaged",
+        "family",
+        "father",
+        "fiance",
+        "fiancee",
+        "friend",
+        "girlfriend",
+        "husband",
+        "manager",
+        "mentor",
+        "mother",
+        "neighbor",
+        "parent",
+        "partner",
+        "relationship",
+        "roommate",
+        "sibling",
+        "sister",
+        "son",
+        "spouse",
+        "status",
+        "teammate",
+        "wife",
+    }
+    if not status_terms & relation_set:
+        return False
+    if time_intent.is_temporal:
+        return False
+    normalized_question = re.sub(r"[^0-9a-z]+", " ", question.casefold()).strip()
+    if re.search(r"\bgroup\s+of\s+friends\b", normalized_question):
+        return False
+    return bool(
+        re.search(r"\brelationship\s+status\b", normalized_question)
+        or re.search(
+            r"\bwho\b.+\b(?:boyfriend|boss|brother|child|children|colleague|"
+            r"coworker|daughter|father|fiancee?|friend|girlfriend|husband|"
+            r"manager|mentor|mother|neighbor|parent|partner|roommate|sibling|"
+            r"sister|son|spouse|teammate|wife)\b",
+            normalized_question,
+        )
+        or re.search(
+            r"\b(?:is|are|was|were)\b.+\b(?:dating|engaged|married|single|"
+            r"divorced)\b",
             normalized_question,
         )
     )
@@ -1289,7 +1360,7 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
             }
         ),
         "markers": frozenset(),
-        "evidence_need": "inference_support",
+        "evidence_need": "status_profile",
     },
     "causal": {
         "terms": frozenset(
