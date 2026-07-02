@@ -67,7 +67,11 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
         cutoff=3,
     )
 
-    assert [memory.item_id for memory in context.memories] == ["primary", "bridge"]
+    assert [memory.item_id for memory in context.memories] == [
+        "primary",
+        "bridge",
+        "noise",
+    ]
     assert context.memories[0].source_refs == ("D4:5",)
     assert context.memories[0].metadata["answer_context_role"] == "primary"
     assert context.memories[0].metadata["answer_context_retrieval_order"] == 3
@@ -193,16 +197,24 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
         "risk:missing_required_role",
         "risk:missing_required_contrast",
     )
+    assert context.memories[2].metadata["answer_context_role"] == (
+        "retrieval_backfill"
+    )
+    assert context.memories[2].metadata["answer_context_reason_codes"] == (
+        "incomplete_bundle_backfill",
+        "retrieval_slice_support",
+    )
     assert context.to_diagnostics() == {
         "schema_version": "answer_context.v1",
         "source": "evidence_bundle",
-        "memory_count": 2,
+        "memory_count": 3,
         "source_ref_count": 2,
         "source_ref_item_count": 2,
-        "source_refless_item_count": 0,
-        "source_ref_coverage_rate": 1.0,
+        "source_refless_item_count": 1,
+        "source_ref_coverage_rate": 0.6667,
         "selected_bundle_item_count": 2,
         "skipped_bundle_item_count": 0,
+        "backfilled_retrieval_item_count": 1,
         "bundle_confidence_score": 0.68,
         "bundle_confidence_band": "medium",
         "bundle_bridge_count": 1,
@@ -226,8 +238,8 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
             "risk:missing_required_contrast",
         ],
         "fallback_reason": None,
-        "item_ids": ["primary", "bridge"],
-        "retrieval_orders": [3, 2],
+        "item_ids": ["primary", "bridge", "noise"],
+        "retrieval_orders": [3, 2, 1],
     }
 
 
@@ -334,6 +346,8 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
     assert metrics["primary_avg_source_ref_coverage_rate"] == 0.5
     assert primary["evidence_bundle_context_count"] == 1
     assert primary["fallback_context_count"] == 1
+    assert primary["avg_backfilled_retrieval_item_count"] == 0.0
+    assert primary["total_backfilled_retrieval_item_count"] == 0
     assert primary["source_counts"] == {
         "evidence_bundle": 1,
         "retrieval_slice": 1,

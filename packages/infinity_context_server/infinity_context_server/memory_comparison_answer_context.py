@@ -8,6 +8,10 @@ from dataclasses import dataclass
 
 from infinity_context_server.memory_comparison_models import RetrievedMemory
 
+_INCOMPLETE_BUNDLE_BACKFILL_MIN_ITEMS = 6
+_INCOMPLETE_BUNDLE_BACKFILL_MAX_ITEMS = 12
+_INCOMPLETE_BUNDLE_BACKFILL_ITEMS_PER_MISSING_ROLE = 2
+
 
 @dataclass(frozen=True)
 class AnswerContext:
@@ -18,6 +22,7 @@ class AnswerContext:
     fallback_reason: str | None = None
     selected_bundle_item_count: int = 0
     skipped_bundle_item_count: int = 0
+    backfilled_retrieval_item_count: int = 0
     bundle_confidence_score: float = 0.0
     bundle_confidence_band: str = ""
     bundle_bridge_count: int = 0
@@ -47,6 +52,7 @@ class AnswerContext:
             **source_ref_stats,
             "selected_bundle_item_count": self.selected_bundle_item_count,
             "skipped_bundle_item_count": self.skipped_bundle_item_count,
+            "backfilled_retrieval_item_count": self.backfilled_retrieval_item_count,
             "bundle_confidence_score": self.bundle_confidence_score,
             "bundle_confidence_band": self.bundle_confidence_band,
             "bundle_bridge_count": self.bundle_bridge_count,
@@ -142,11 +148,23 @@ def answer_context_from_evidence_bundle(
             skipped_bundle_item_count=skipped,
         )
 
+    bundle_selected_count = len(selected)
+    backfilled_count = 0
+    if bundle_context.get("answer_context_role_requirement_complete") is False:
+        backfilled_count = _backfill_incomplete_bundle_context(
+            selected,
+            selected_keys=selected_keys,
+            raw_slice=raw_slice,
+            bundle_context=bundle_context,
+            bounded_cutoff=bounded_cutoff,
+        )
+
     return AnswerContext(
         memories=tuple(selected),
         source="evidence_bundle",
-        selected_bundle_item_count=len(selected),
+        selected_bundle_item_count=bundle_selected_count,
         skipped_bundle_item_count=skipped,
+        backfilled_retrieval_item_count=backfilled_count,
         bundle_confidence_score=float(
             bundle_context.get("answer_context_bundle_confidence_score") or 0.0
         ),
@@ -259,6 +277,56 @@ def answer_context_from_evidence_bundle(
     )
 
 
+def _backfill_incomplete_bundle_context(
+    selected: list[RetrievedMemory],
+    *,
+    selected_keys: set[tuple[str, object]],
+    raw_slice: Sequence[RetrievedMemory],
+    bundle_context: Mapping[str, object],
+    bounded_cutoff: int,
+) -> int:
+    missing_roles = _string_tuple(
+        bundle_context.get("answer_context_missing_required_roles")
+    )
+    target_count = _incomplete_bundle_backfill_target_count(
+        selected_count=len(selected),
+        missing_role_count=len(missing_roles),
+        bounded_cutoff=bounded_cutoff,
+    )
+    backfilled_count = 0
+    for retrieval_order, memory in enumerate(raw_slice, start=1):
+        if len(selected) >= target_count:
+            break
+        key = _memory_key(memory, retrieval_order=retrieval_order)
+        if key in selected_keys:
+            continue
+        selected_keys.add(key)
+        selected.append(
+            _with_retrieval_backfill_metadata(
+                memory,
+                bundle_context=bundle_context,
+                retrieval_order=retrieval_order,
+            )
+        )
+        backfilled_count += 1
+    return backfilled_count
+
+
+def _incomplete_bundle_backfill_target_count(
+    *,
+    selected_count: int,
+    missing_role_count: int,
+    bounded_cutoff: int,
+) -> int:
+    if bounded_cutoff <= selected_count:
+        return selected_count
+    role_backfill = selected_count + (
+        missing_role_count * _INCOMPLETE_BUNDLE_BACKFILL_ITEMS_PER_MISSING_ROLE
+    )
+    target = max(_INCOMPLETE_BUNDLE_BACKFILL_MIN_ITEMS, role_backfill)
+    return min(bounded_cutoff, _INCOMPLETE_BUNDLE_BACKFILL_MAX_ITEMS, target)
+
+
 def answer_context_metrics(
     evaluations: Sequence[Mapping[str, object]],
     *,
@@ -323,6 +391,7 @@ def _answer_context_cutoff_metrics(
     compression_ratios: list[float] = []
     selected_bundle_counts: list[int] = []
     skipped_bundle_counts: list[int] = []
+    backfilled_retrieval_counts: list[int] = []
     source_ref_counts: list[int] = []
     source_ref_item_counts: list[int] = []
     source_refless_item_counts: list[int] = []
@@ -369,6 +438,9 @@ def _answer_context_cutoff_metrics(
         )
         skipped_bundle_counts.append(
             _positive_int(context.get("skipped_bundle_item_count")) or 0
+        )
+        backfilled_retrieval_counts.append(
+            _positive_int(context.get("backfilled_retrieval_item_count")) or 0
         )
         source_ref_counts.append(_positive_int(context.get("source_ref_count")) or 0)
         source_ref_item_counts.append(
@@ -458,6 +530,8 @@ def _answer_context_cutoff_metrics(
         "avg_context_compression_ratio": _avg(compression_ratios),
         "avg_selected_bundle_item_count": _avg(selected_bundle_counts),
         "avg_skipped_bundle_item_count": _avg(skipped_bundle_counts),
+        "avg_backfilled_retrieval_item_count": _avg(backfilled_retrieval_counts),
+        "total_backfilled_retrieval_item_count": sum(backfilled_retrieval_counts),
         "avg_source_ref_count": _avg(source_ref_counts),
         "avg_source_ref_item_count": _avg(source_ref_item_counts),
         "avg_source_refless_item_count": _avg(source_refless_item_counts),
@@ -619,6 +693,31 @@ def _with_answer_context_metadata(
         item_id=memory.item_id,
         created_at=memory.created_at,
         source_refs=source_refs,
+        metadata=metadata,
+    )
+
+
+def _with_retrieval_backfill_metadata(
+    memory: RetrievedMemory,
+    *,
+    bundle_context: Mapping[str, object],
+    retrieval_order: int,
+) -> RetrievedMemory:
+    metadata = dict(memory.metadata)
+    metadata["answer_context_retrieval_order"] = retrieval_order
+    metadata.update(bundle_context)
+    metadata["answer_context_role"] = "retrieval_backfill"
+    metadata["answer_context_reason_codes"] = (
+        "incomplete_bundle_backfill",
+        "retrieval_slice_support",
+    )
+    return RetrievedMemory(
+        text=memory.text,
+        rank=memory.rank,
+        score=memory.score,
+        item_id=memory.item_id,
+        created_at=memory.created_at,
+        source_refs=_memory_source_refs(memory),
         metadata=metadata,
     )
 
