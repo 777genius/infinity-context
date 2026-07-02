@@ -160,6 +160,7 @@ _HIGH_SIGNAL_EXPANSION_REASONS = frozenset(
         "generic_behavior_inference_bridge",
         "gaming_medium_bridge",
         "game_win_count_bridge",
+        "general_temporal_event_bridge",
         "health_lifestyle_bridge",
         "hiking_trail_count_bridge",
         "hobby_interest_bridge",

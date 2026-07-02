@@ -5040,6 +5040,37 @@ def test_query_expansion_covers_direct_temporal_event_date_questions() -> None:
     assert "self portrait identity art" in self_portrait_query
 
 
+def test_query_expansion_uses_general_temporal_bridge_for_when_questions() -> None:
+    lost_job = build_query_expansion_plan("When did Jon lose his job as a banker?")
+    campaign = build_query_expansion_plan("When did Gina launch an ad campaign?")
+    trip = build_query_expansion_plan("When was Jon in Paris?")
+
+    assert "when date dates time timeline" in _expansion_query(
+        lost_job,
+        "general_temporal_event_bridge",
+    )
+    assert "launched opened lost job trip visit" in _expansion_query(
+        campaign,
+        "general_temporal_event_bridge",
+    )
+    assert "day weekday week month year recently" in _expansion_query(
+        trip,
+        "general_temporal_event_bridge",
+    )
+
+
+def test_best_query_relevance_uses_general_temporal_bridge() -> None:
+    plan = build_query_expansion_plan("When did Gina launch an ad campaign?")
+
+    _, reason, relevance = best_query_relevance(
+        plan,
+        text="Gina launched an ad campaign last week and shared the date in that session.",
+    )
+
+    assert reason == "general_temporal_event_bridge"
+    assert relevance.distinctive_term_hits >= 5
+
+
 def test_best_query_relevance_bridges_current_decided_provider() -> None:
     plan = build_query_expansion_plan("What did I decide to use?")
 
