@@ -351,6 +351,76 @@ def test_evidence_bundle_planner_tracks_location_support_role() -> None:
     assert support_payload["relation_category_hits"] == ["location_transition"]
 
 
+def test_evidence_bundle_planner_requires_grounded_location_support() -> None:
+    primary = _candidate(
+        item_id="primary",
+        covered_expected_terms=("Canada",),
+        primary_signal=True,
+        source_refs=("D1:4",),
+        direct_speaker_turn=True,
+        focused_evidence_score=1.0,
+        answerability_score=0.9,
+        source_locality_score=1.0,
+    )
+    generic_support = _candidate(
+        item_id="generic-support",
+        dedupe_key="refs:D1:3",
+        query_support_terms=("caroline", "move"),
+        bundle_strength_score=9.0,
+    )
+    direct_speaker_distractor = _candidate(
+        item_id="direct-speaker-distractor",
+        dedupe_key="refs:D2:2",
+        query_support_terms=("move", "country"),
+        relation_hits=("move", "country", "from"),
+        relation_category_hits=("location_transition",),
+        query_has_entities=True,
+        direct_speaker_turn=True,
+        source_refs=("D2:2",),
+        source_locality_score=0.95,
+        answerability_score=0.88,
+        bundle_strength_score=10.0,
+    )
+    location_support = _candidate(
+        item_id="location-support",
+        dedupe_key="refs:D2:3",
+        query_support_terms=("caroline", "move", "country"),
+        relation_hits=("move", "country", "from"),
+        relation_category_hits=("location_transition",),
+        entity_hits=("caroline",),
+        query_has_entities=True,
+        source_refs=("D2:3",),
+        source_locality_score=0.9,
+        answerability_score=0.74,
+        bundle_strength_score=2.0,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, generic_support, direct_speaker_distractor, location_support),
+        case_group="single",
+        required_roles=("primary", "location_support"),
+    )
+
+    assert [item.candidate.item_id for item in plan.items] == [
+        "primary",
+        "location-support",
+    ]
+    support_item = plan.items[1]
+    assert support_item.role == "location_support"
+    assert "location_support" in support_item.reason_codes
+    assert "location_relation_category_hits" in support_item.reason_codes
+    diagnostics = plan.to_diagnostics()
+    assert diagnostics["role_counts"] == {"primary": 1, "location_support": 1}
+    assert diagnostics["satisfied_required_roles"] == [
+        "primary",
+        "location_support",
+    ]
+    assert diagnostics["bundle_quality"]["location_support_count"] == 1
+    assert "has_location_support_evidence" in diagnostics["bundle_quality"][
+        "reason_codes"
+    ]
+
+
 def test_evidence_bundle_planner_rejects_broad_location_support_role() -> None:
     primary = _candidate(
         item_id="primary",

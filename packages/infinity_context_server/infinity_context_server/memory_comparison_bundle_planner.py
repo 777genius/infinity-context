@@ -899,11 +899,7 @@ def _candidate_has_contrast_support(candidate: EvidenceBundleCandidate) -> bool:
 
 
 def _candidate_has_location_support(candidate: EvidenceBundleCandidate) -> bool:
-    if candidate.broad_summary or candidate.conflict_or_stale:
-        return False
-    if candidate.source_locality_score < 0.45:
-        return False
-    if candidate.answerability_score and candidate.answerability_score < 0.55:
+    if not _candidate_has_typed_relation_grounding(candidate):
         return False
     if "location_transition" in set(candidate.relation_category_hits):
         return True
