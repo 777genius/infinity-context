@@ -1021,6 +1021,11 @@ _TYPED_PROFILE_SUPPORT_CATEGORIES = {
 _LOCATION_SUPPORT_TERMS = frozenset(
     {
         "born",
+        "camp",
+        "camped",
+        "campground",
+        "camping",
+        "campsite",
         "city",
         "country",
         "drive",

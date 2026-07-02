@@ -1355,6 +1355,13 @@ _LOCATION_PROFILE_SURFACE_RE = re.compile(
     r"(?:city|home|location)\s+(?:is|was)\s+"
     r"(?:[A-Z][a-zA-Z0-9_-]+|the\s+[a-zA-Z][a-zA-Z0-9_-]+)",
 )
+_CAMPING_LOCATION_SURFACE_RE = re.compile(
+    r"\b(?:camped|camping|went\s+camping)\s+"
+    r"(?:in|at|near|around)\s+"
+    r"(?:a\s+|an\s+|the\s+|[A-Z][a-zA-Z0-9_-]+\s+)?"
+    r"(?:campground|campsite|site|park|lake|trail|coast|coastline)\b",
+    re.IGNORECASE,
+)
 
 
 def _has_location_transition_support(
@@ -1407,15 +1414,29 @@ def _has_location_transition_support(
         "rais",
         "raise",
     } & memory_terms
-    travel_surface = {"drive", "roadtrip", "travel", "trip"} & memory_terms
+    travel_surface = {
+        "camp",
+        "camped",
+        "camping",
+        "drive",
+        "roadtrip",
+        "travel",
+        "trip",
+    } & memory_terms
     travel_context = {
+        "campground",
+        "campsite",
         "city",
         "country",
         "from",
         "home",
+        "lake",
+        "location",
         "origin",
+        "park",
         "place",
         "road",
+        "site",
     } & memory_terms
     return bool(
         (movement_action and origin_context)
@@ -1423,6 +1444,7 @@ def _has_location_transition_support(
         or (location_profile_action and location_profile_context)
         or (origin_profile_surface and origin_context)
         or _LOCATION_PROFILE_SURFACE_RE.search(memory_text)
+        or _CAMPING_LOCATION_SURFACE_RE.search(memory_text)
         or (travel_surface and travel_context)
     )
 

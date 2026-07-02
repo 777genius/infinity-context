@@ -569,6 +569,10 @@ def _has_location_transition_intent(
         "relocate",
         "relocated",
         "roadtrip",
+        "camp",
+        "travel",
+        "trip",
+        "visit",
         "stay",
     } & relation_set:
         return False
@@ -593,7 +597,8 @@ def _has_location_transition_intent(
         )
         or re.search(
             r"\b(?:move|moved|moving|relocate|relocated|live|lived|living|based|"
-            r"stay|stayed|staying|grow|grew)\s+"
+            r"stay|stayed|staying|grow|grew|camp|camped|camping|travel|"
+            r"traveled|travelled|traveling|travelling|visit|visited|visiting)\s+"
             r"(?:from|in|at|near|around|up\b)",
             normalized,
         )
@@ -2100,6 +2105,7 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
             {
                 "grow",
                 "based",
+                "camp",
                 "live",
                 "move",
                 "origin",
@@ -2107,14 +2113,22 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "relocated",
                 "roadtrip",
                 "stay",
+                "travel",
+                "trip",
+                "visit",
             }
         ),
         "variants": frozenset(
             {
+                "camped",
+                "campground",
+                "camping",
+                "campsite",
                 "childhood",
                 "city",
                 "country",
                 "based",
+                "destination",
                 "drive",
                 "from",
                 "grew",
@@ -2129,7 +2143,11 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "stayed",
                 "staying",
                 "travel",
+                "traveled",
+                "traveling",
                 "trip",
+                "visited",
+                "visiting",
             }
         ),
         "markers": frozenset(),

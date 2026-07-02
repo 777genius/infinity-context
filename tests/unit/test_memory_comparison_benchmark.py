@@ -3882,8 +3882,16 @@ def test_query_decomposition_expands_locomo_topic_relations() -> None:
     }.intersection(
         activity_metadata["query_profile"]["relation_category_terms"]["activity"]
     )
-    assert camp_queries[2] == "melanie camp camping family unplug connection close"
+    assert camp_queries[1] == "melanie camp camping outdoor trip family unplug"
+    assert camp_queries[2] == (
+        "melanie camp camping place location campsite campground outdoor trip from"
+    )
     assert "camp" in camp_metadata["query_profile"]["relation_terms"]
+    assert "location_support" in camp_metadata["query_profile"]["evidence_need"]
+    assert camp_metadata["query_profile"]["bundle_evidence_roles"] == (
+        "primary",
+        "location_support",
+    )
     assert "family" in camp_metadata["query_profile"]["relation_variant_terms"]
     assert "unplug" in camp_metadata["query_profile"]["relation_variant_terms"]
     assert not {"beach", "mountains", "forest"}.intersection(
@@ -6246,17 +6254,19 @@ def test_infinity_context_http_search_expands_camping_place_queries() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         payload = json.loads(request.content)
         seen_payloads.append(payload)
-        if payload["query"] == "melanie camp camping family unplug connection close":
+        if payload["query"] == (
+            "melanie camp camping place location campsite campground outdoor trip from"
+        ):
             items = [
                 {
-                    "item_id": "camping-context-evidence",
+                    "item_id": "camping-location-evidence",
                     "item_type": "chunk",
                     "text": (
-                        "D6:16 Melanie: Camping with my family helps us "
-                        "unplug, feel close, and build connection."
+                        "D6:16 Melanie: Camping at a beach campground is "
+                        "where my family can unplug and feel close."
                     ),
                     "score": 0.82,
-                    "source_refs": [{"source_id": "memory-camping-context"}],
+                    "source_refs": [{"source_id": "memory-camping-location"}],
                 }
             ]
         else:
@@ -6291,22 +6301,24 @@ def test_infinity_context_http_search_expands_camping_place_queries() -> None:
 
     assert [payload["query"] for payload in seen_payloads] == [
         "Where has Melanie camped?",
-        "Where has Melanie camped?\n"
-        "Search focus: entities: melanie; speakers: melanie:; "
-        "actions: camp, camping, family, unplug, connection, close, outdoor, trip",
-        "melanie camp camping family unplug connection close",
+        "melanie camp camping outdoor trip family unplug",
+        "melanie camp camping place location campsite campground outdoor trip from",
     ]
-    assert result.memories[0].item_id == "camping-context-evidence"
+    assert result.memories[0].item_id == "camping-location-evidence"
     query_profile = result.metadata["query_decomposition"]["query_profile"]
     assert "camp" in query_profile["relation_terms"]
+    assert "location_support" in query_profile["evidence_need"]
+    assert "location_support" in query_profile["bundle_evidence_roles"]
     assert "family" in query_profile["relation_variant_terms"]
     assert "unplug" in query_profile["relation_variant_terms"]
     assert not {"beach", "mountains", "forest"}.intersection(
         query_profile["relation_variant_terms"]
     )
+    assert "location_support" in result.metadata["query_roles"]
     diagnostics = result.memories[0].metadata["diagnostics"]
     assert diagnostics["score_signals"]["benchmark_speaker_boost"] > 0
-    assert diagnostics["score_signals"]["benchmark_relation_boost"] > 0
+    assert diagnostics["score_signals"]["benchmark_location_support_boost"] > 0
+    assert diagnostics["score_signals"]["benchmark_location_query_role_boost"] > 0
     assert diagnostics["score_signals"]["benchmark_strong_relation_evidence"] is True
 
 

@@ -1276,6 +1276,11 @@ def _location_support_query_terms(
         "country",
         "city",
         "place",
+        "location",
+        "destination",
+        "near",
+        "around",
+        "at",
         "based",
         "live",
         "lived",
@@ -1292,24 +1297,50 @@ def _location_support_query_terms(
         "relocated",
         "moved",
         "came",
+        "camp",
+        "camped",
+        "camping",
+        "campsite",
+        "campground",
         "travel",
+        "traveled",
+        "travelled",
+        "traveling",
+        "travelling",
         "trip",
+        "visit",
+        "visited",
+        "visiting",
     )
     explicit_location_terms = tuple(
         term
         for term in lexical_terms
         if term in {"from", "where", "which", "country", "city", "place", "origin"}
     )
+    relation_term_set = set(relation_terms)
+    location_first_terms: tuple[str, ...] = ()
+    if "camp" in relation_term_set:
+        location_first_terms = (
+            "camp",
+            "camping",
+            "place",
+            "location",
+            "campsite",
+            "campground",
+            "outdoor",
+            "trip",
+        )
     return tuple(
         dict.fromkeys(
             (
+                *location_first_terms,
+                *explicit_location_terms,
+                *location_surfaces,
                 *(
                     term
                     for term in relation_query_terms
                     if term not in _QUERY_STOPWORDS
                 ),
-                *explicit_location_terms,
-                *location_surfaces,
             )
         )
     )
@@ -1451,7 +1482,19 @@ def _relation_query_terms(
         priority_variant_order.extend(("18th", "year", "ago", "born", "age"))
     if "camp" in relation_term_set:
         priority_variant_order.extend(
-            ("camping", "family", "unplug", "connection", "close", "outdoor", "trip")
+            (
+                "camping",
+                "place",
+                "location",
+                "campsite",
+                "campground",
+                "outdoor",
+                "trip",
+                "family",
+                "unplug",
+                "connection",
+                "close",
+            )
         )
     if {"book", "bookshelf"}.issubset(relation_term_set):
         priority_variant_order.extend(("books", "kids", "stories", "reading", "read"))
