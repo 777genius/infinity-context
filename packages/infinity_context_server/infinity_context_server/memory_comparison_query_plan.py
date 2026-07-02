@@ -8,6 +8,7 @@ from dataclasses import dataclass
 
 _RELATION_COMPACT_SUPPORT_ROLES = frozenset(
     {
+        "action_support",
         "activity_support",
         "age_support",
         "alias_support",

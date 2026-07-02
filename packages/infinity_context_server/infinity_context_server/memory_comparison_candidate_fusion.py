@@ -34,6 +34,7 @@ _BROAD_SUMMARY_SURFACE_RE = re.compile(
 )
 _EVIDENCE_SELECTION_SCORE_BAND = 0.025
 _FOCUSED_QUERY_ROLE_SCORES = {
+    "action_support": 0.05,
     "compact_relation": 0.04,
     "contrast_support": 0.05,
     "location_support": 0.05,

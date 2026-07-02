@@ -102,6 +102,7 @@ def _support_query_terms(
     relation_variant_terms: tuple[str, ...],
     lexical_terms: tuple[str, ...],
     entity_surfaces: tuple[str, ...],
+    action_support: bool,
     communication_support: bool,
     commitment_support: bool,
     contact_support: bool,
@@ -116,6 +117,13 @@ def _support_query_terms(
     skill_support: bool,
     vehicle_support: bool,
 ) -> tuple[str, ...]:
+    if action_support:
+        return _action_support_query_terms(
+            relation_terms=relation_terms,
+            relation_variant_terms=relation_variant_terms,
+            lexical_terms=lexical_terms,
+            entity_surfaces=entity_surfaces,
+        )
     if communication_support:
         return _communication_support_query_terms(
             relation_terms=relation_terms,
@@ -234,6 +242,75 @@ def _support_query_terms(
             topic_after=1 if "conference" in relation_terms else 4,
         )
     return _relation_query_terms(relation_terms, relation_variant_terms)
+
+
+def _action_support_query_terms(
+    *,
+    relation_terms: tuple[str, ...],
+    relation_variant_terms: tuple[str, ...],
+    lexical_terms: tuple[str, ...],
+    entity_surfaces: tuple[str, ...],
+) -> tuple[str, ...]:
+    entity_tokens = {
+        token for surface in entity_surfaces for token in _normalized_terms(surface)
+    }
+    action_surfaces = {
+        "action",
+        "book",
+        "booked",
+        "bring",
+        "brought",
+        "complete",
+        "completed",
+        "create",
+        "created",
+        "draw",
+        "drew",
+        "fix",
+        "fixed",
+        "made",
+        "make",
+        "paint",
+        "painted",
+        "prepare",
+        "prepared",
+        "repair",
+        "repaired",
+        "schedule",
+        "scheduled",
+        "send",
+        "sent",
+        "share",
+        "shared",
+        "take",
+        "took",
+    }
+    lexical_action_terms = tuple(
+        term for term in lexical_terms if term in action_surfaces
+    )
+    topical_terms = tuple(
+        term
+        for term in lexical_terms
+        if term not in _QUERY_STOPWORDS
+        and term not in relation_terms
+        and term not in relation_variant_terms
+        and term not in _QUERY_TOKEN_ALIASES
+        and term not in entity_tokens
+    )
+    return tuple(
+        dict.fromkeys(
+            (
+                *(term for term in relation_terms if term == "action"),
+                *lexical_action_terms,
+                *topical_terms[:5],
+                *(
+                    term
+                    for term in relation_variant_terms
+                    if term in action_surfaces and term not in lexical_action_terms
+                ),
+            )
+        )
+    )
 
 
 def _commitment_support_query_terms(

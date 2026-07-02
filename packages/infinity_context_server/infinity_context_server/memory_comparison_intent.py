@@ -216,6 +216,11 @@ def infer_relation_intents(
             relation_terms=relation_terms,
         ):
             continue
+        if category == "action_event" and not _has_action_event_intent(
+            question=question,
+            relation_terms=relation_terms,
+        ):
+            continue
         if category == "exchange" and not _has_exchange_intent(
             question=question,
             relation_terms=relation_terms,
@@ -435,6 +440,7 @@ def infer_bundle_evidence_roles(
     if "communication" in evidence_need_set:
         roles.append("communication_support")
     profile_role_by_need = {
+        "action_support": "action_support",
         "activity_profile": "activity_support",
         "age_profile": "age_support",
         "alias_profile": "alias_support",
@@ -498,6 +504,7 @@ def merge_relation_evidence_needs(
         "age_profile",
         "alias_profile",
         "activity_profile",
+        "action_support",
         "date_profile",
         "health_profile",
         "pet_profile",
@@ -636,6 +643,26 @@ def _has_inference_support_intent(
     return bool(
         re.search(r"\b(?:would|likely|might|could)\b", normalized)
         and relation_set
+    )
+
+
+def _has_action_event_intent(
+    *,
+    question: str,
+    relation_terms: tuple[str, ...],
+) -> bool:
+    if "action" not in set(relation_terms):
+        return False
+    normalized_question = re.sub(r"[^0-9a-z]+", " ", question.casefold()).strip()
+    return bool(
+        re.search(
+            r"\bwhat\s+did\b.+\b(?:"
+            r"bring|brought|take|took|send|sent|share|shared|paint|painted|"
+            r"draw|drew|make|made|book|booked|schedule|scheduled|prepare|prepared|"
+            r"complete|completed|fix|fixed|repair|repaired|create|created"
+            r")\b",
+            normalized_question,
+        )
     )
 
 
@@ -1220,6 +1247,43 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
         ),
         "markers": frozenset(),
         "evidence_need": "single_fact",
+    },
+    "action_event": {
+        "terms": frozenset({"action"}),
+        "variants": frozenset(
+            {
+                "book",
+                "booked",
+                "bring",
+                "brought",
+                "complete",
+                "completed",
+                "create",
+                "created",
+                "draw",
+                "drew",
+                "fix",
+                "fixed",
+                "made",
+                "make",
+                "paint",
+                "painted",
+                "prepare",
+                "prepared",
+                "repair",
+                "repaired",
+                "schedule",
+                "scheduled",
+                "send",
+                "sent",
+                "share",
+                "shared",
+                "take",
+                "took",
+            }
+        ),
+        "markers": frozenset(),
+        "evidence_need": "action_support",
     },
     "favorite_preference": {
         "terms": frozenset({"favorite", "favourite"}),

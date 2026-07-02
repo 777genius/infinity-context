@@ -14,6 +14,8 @@ def typed_relation_category_support(
 ) -> bool | None:
     """Return typed support status for known categories, or None if generic."""
 
+    if category == "action_event":
+        return _has_action_event_support(memory_terms, memory_text=memory_text)
     if category == "location_transition":
         return _has_location_transition_support(memory_terms, memory_text=memory_text)
     if category == "activity_profile":
@@ -97,6 +99,39 @@ def _has_symbolic_meaning_support(memory_terms: set[str]) -> bool:
         "support",
     } & memory_terms
     return bool(symbolic_surface and object_context)
+
+
+_ACTION_EVENT_SURFACE_RE = re.compile(
+    r"\b(?:brought|took|sent|shared|painted|drew|made|booked|scheduled|"
+    r"prepared|completed|fixed|repaired|created)\b"
+    r"(?:\s+(?:a|an|the|their|his|her|my|our))?\s+"
+    r"[a-zA-Z][a-zA-Z0-9_-]+",
+    re.IGNORECASE,
+)
+
+
+def _has_action_event_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
+    action_surface = {
+        "booked",
+        "brought",
+        "completed",
+        "created",
+        "drew",
+        "fixed",
+        "made",
+        "painted",
+        "prepared",
+        "repaired",
+        "scheduled",
+        "sent",
+        "shared",
+        "took",
+    } & memory_terms
+    return bool(action_surface and _ACTION_EVENT_SURFACE_RE.search(memory_text))
 
 
 _PARTICIPATION_DESTINATION_SURFACE_RE = re.compile(

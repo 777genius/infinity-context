@@ -289,3 +289,27 @@
   -> passed.
 - `git push origin main` -> still blocked because the non-interactive runtime
   has no GitHub username/credential prompt available.
+
+## 2026-07-02 Follow-up 16
+
+- Added typed `action_support` for concrete "what did X take/send/paint/book/etc."
+  action questions that are not better handled by visual evidence. This gives
+  LoCoMo-style action asks a compact role, query fanout, typed relation hit,
+  bundle selection path, fusion weight, and fast-gate diagnostics.
+- Kept visual picture/photo/image/video questions on the existing visual path
+  so action support does not over-boost media evidence questions.
+
+## Verification
+
+- `uv run --extra dev pytest -q tests/unit/test_memory_comparison*.py`
+  -> 508 passed, 1 warning.
+- `uv run --extra dev pytest -q tests/architecture/test_memory_boundaries.py`
+  -> 6 passed.
+- `uv run --extra dev ruff check packages/infinity_context_server/infinity_context_server/memory_comparison_rerank_text.py packages/infinity_context_server/infinity_context_server/memory_comparison_query_terms.py packages/infinity_context_server/infinity_context_server/memory_comparison_rerank.py packages/infinity_context_server/infinity_context_server/memory_comparison_rerank_terms.py packages/infinity_context_server/infinity_context_server/memory_comparison_intent.py packages/infinity_context_server/infinity_context_server/memory_comparison_rerank_policies.py packages/infinity_context_server/infinity_context_server/memory_comparison_bundle_planner.py packages/infinity_context_server/infinity_context_server/memory_comparison_quality_support.py packages/infinity_context_server/infinity_context_server/memory_comparison_quality_diagnostics.py packages/infinity_context_server/infinity_context_server/memory_comparison_quality_query_roles.py packages/infinity_context_server/infinity_context_server/memory_comparison_candidate_fusion.py packages/infinity_context_server/infinity_context_server/memory_comparison_relation_support.py tests/unit/test_memory_comparison_benchmark.py tests/unit/test_memory_comparison_bundle_planner.py`
+  -> passed.
+- `uv run --extra dev python -m infinity_context_server.eval memory-comparison-benchmark --dataset ./datasets/locomo10.json --memo-api-url http://127.0.0.1:7788 --mem0-url http://127.0.0.1:8888 --benchmark locomo --locomo-ingest-mode official-turns --case-set locomo-fast --report-mode compact --top-k 200 --top-k-cutoff 10 --top-k-cutoff 20 --top-k-cutoff 50 --top-k-cutoff 200 --allow-live --preflight-only`
+  -> blocked safely because `./datasets/locomo10.json` and memory auth token
+  are absent. Fast-readiness blockers were empty; no long/full LoCoMo run was
+  attempted.
+- `git push origin main` -> still blocked because the non-interactive runtime
+  has no GitHub username/credential prompt available.

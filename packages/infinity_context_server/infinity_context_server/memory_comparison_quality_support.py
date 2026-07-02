@@ -26,6 +26,7 @@ _TEMPORAL_BUNDLE_ROLES = frozenset(
     }
 )
 _TYPED_RELATION_SUPPORT_CATEGORIES = {
+    "action_support": frozenset({"action_event"}),
     "activity_support": frozenset({"activity_profile"}),
     "age_support": frozenset({"age_profile"}),
     "alias_support": frozenset({"alias_profile"}),

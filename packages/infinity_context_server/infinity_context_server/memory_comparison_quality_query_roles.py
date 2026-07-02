@@ -44,6 +44,7 @@ _TYPED_RELATION_SUPPORT_ROLES = frozenset(_typed_relation_support_roles())
 
 _PROFILE_SUPPORT_ROLES = frozenset(
     {
+        "action_support",
         "activity_support",
         "age_support",
         "alias_support",

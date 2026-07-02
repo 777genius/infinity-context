@@ -1415,6 +1415,59 @@ def test_evidence_bundle_planner_selects_typed_profile_support() -> None:
     assert "has_health_support_evidence" in quality["reason_codes"]
 
 
+def test_evidence_bundle_planner_selects_action_support() -> None:
+    primary = _candidate(
+        item_id="primary",
+        covered_evidence_terms=("D1:1",),
+        primary_signal=True,
+        source_refs=("D1:1",),
+        direct_speaker_turn=True,
+        answerability_score=0.9,
+        source_locality_score=1.0,
+    )
+    generic_support = _candidate(
+        item_id="generic-support",
+        dedupe_key="refs:D1:2",
+        query_support_terms=("alex", "class"),
+        entity_hits=("alex",),
+        bundle_strength_score=9.0,
+    )
+    action_support = _candidate(
+        item_id="action-support",
+        dedupe_key="refs:D2:3",
+        query_support_terms=("alex", "take", "class", "notebook"),
+        relation_hits=("take", "class"),
+        relation_category_hits=("action_event",),
+        entity_hits=("alex",),
+        source_refs=("D2:3",),
+        source_locality_score=0.9,
+        answerability_score=0.72,
+        bundle_strength_score=2.0,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, generic_support, action_support),
+        case_group="single",
+        required_roles=("primary", "action_support"),
+    )
+
+    assert [item.candidate.item_id for item in plan.items] == [
+        "primary",
+        "action-support",
+    ]
+    support_item = plan.items[1]
+    assert support_item.role == "action_support"
+    assert "action_support" in support_item.reason_codes
+    diagnostics = plan.to_diagnostics()
+    assert diagnostics["satisfied_required_roles"] == [
+        "primary",
+        "action_support",
+    ]
+    assert diagnostics["bundle_quality"]["typed_relation_support_counts"] == {
+        "action_support": 1
+    }
+
+
 def test_evidence_bundle_planner_rejects_broad_typed_profile_support() -> None:
     primary = _candidate(
         item_id="primary",

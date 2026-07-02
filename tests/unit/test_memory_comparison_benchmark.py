@@ -4615,7 +4615,7 @@ def test_query_decomposition_expands_health_profile_queries() -> None:
         dentist_case
     )
     _, class_metadata = rerank_module.decomposed_search_queries(class_case)
-    _, take_to_class_metadata = rerank_module.decomposed_search_queries(
+    take_to_class_queries, take_to_class_metadata = rerank_module.decomposed_search_queries(
         take_to_class_case
     )
 
@@ -4664,7 +4664,17 @@ def test_query_decomposition_expands_health_profile_queries() -> None:
     assert "health_profile" not in class_metadata["query_profile"][
         "relation_categories"
     ]
-    assert take_to_class_metadata["query_profile"]["relation_terms"] == ()
+    assert take_to_class_metadata["query_profile"]["relation_terms"] == ("action",)
+    assert take_to_class_metadata["query_profile"]["relation_categories"] == (
+        "action_event",
+    )
+    assert take_to_class_metadata["query_profile"]["evidence_need"] == (
+        "action_support",
+    )
+    assert "action_support" in take_to_class_metadata["query_profile"][
+        "bundle_evidence_roles"
+    ]
+    assert take_to_class_queries[2] == "alex action take class book bring brought"
     assert "health_profile" not in take_to_class_metadata["query_profile"][
         "relation_categories"
     ]

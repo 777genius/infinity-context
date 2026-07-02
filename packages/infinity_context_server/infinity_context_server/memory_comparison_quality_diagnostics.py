@@ -127,6 +127,7 @@ from infinity_context_server.memory_comparison_quality_query_roles import (
 
 _PROFILE_SUPPORT_ROLES = frozenset(
     {
+        "action_support",
         "activity_support",
         "age_support",
         "alias_support",

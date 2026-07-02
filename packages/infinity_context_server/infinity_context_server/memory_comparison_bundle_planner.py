@@ -19,6 +19,7 @@ _TURN_REF_RE = re.compile(r"\bD\d+:\d+\b")
 _TURN_REF_PARTS_RE = re.compile(r"\bD(?P<dialogue>\d+):(?P<turn>\d+)\b")
 _SOURCE_PROXIMITY_WINDOW = 3
 _TYPED_RELATION_SUPPORT_CATEGORIES = {
+    "action_support": frozenset({"action_event"}),
     "activity_support": frozenset({"activity_profile"}),
     "age_support": frozenset({"age_profile"}),
     "alias_support": frozenset({"alias_profile"}),
