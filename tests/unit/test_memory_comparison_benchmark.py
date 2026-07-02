@@ -3806,6 +3806,18 @@ def test_query_decomposition_expands_locomo_topic_relations() -> None:
         expected_terms=("classical music",),
         answer="yes",
     )
+    music_fan_case = _case(
+        case_id="music-activity-fan",
+        question="Who is Melanie a fan of in terms of modern music?",
+        expected_terms=("Bach",),
+        answer="Bach",
+    )
+    music_piece_case = _case(
+        case_id="music-activity-piece",
+        question="What music pieces does Deborah listen to during her yoga practice?",
+        expected_terms=("ambient music",),
+        answer="ambient music",
+    )
     necklace_case = _case(
         case_id="conv-26:qa:92",
         question="What does Caroline's necklace symbolize?",
@@ -3843,6 +3855,12 @@ def test_query_decomposition_expands_locomo_topic_relations() -> None:
         rerank_module.decomposed_search_queries(adoption_decision_case)
     )
     song_queries, song_metadata = rerank_module.decomposed_search_queries(song_case)
+    music_fan_queries, music_fan_metadata = rerank_module.decomposed_search_queries(
+        music_fan_case
+    )
+    music_piece_queries, music_piece_metadata = rerank_module.decomposed_search_queries(
+        music_piece_case
+    )
     necklace_queries, necklace_metadata = rerank_module.decomposed_search_queries(
         necklace_case
     )
@@ -3992,6 +4010,24 @@ def test_query_decomposition_expands_locomo_topic_relations() -> None:
     assert not {"classical", "music"}.intersection(
         song_metadata["query_profile"]["relation_variant_terms"]
     )
+    assert music_fan_queries[2] == (
+        "melanie music song composer piece instrumental orchestra"
+    )
+    assert music_fan_metadata["query_profile"]["evidence_need"] == (
+        "activity_support",
+    )
+    assert music_fan_metadata["query_plan"]["selected_roles"] == [
+        "original_question",
+        "expanded_focus",
+        "activity_support",
+    ]
+    assert music_piece_queries[2] == (
+        "deborah music song composer piece instrumental orchestra"
+    )
+    assert music_piece_metadata["query_profile"]["evidence_need"] == (
+        "activity_support",
+    )
+    assert "activity" in music_piece_metadata["query_profile"]["relation_categories"]
     assert necklace_queries[2] == "caroline necklace symbolize symbol mean gift reminder"
     assert "necklace" in necklace_metadata["query_profile"]["relation_terms"]
     assert necklace_metadata["query_profile"]["relation_categories"] == (

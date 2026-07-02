@@ -1366,6 +1366,7 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "camp",
                 "destress",
                 "hike",
+                "music",
                 "paint",
                 "park",
                 "read",
