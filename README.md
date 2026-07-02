@@ -1,21 +1,76 @@
 # Infinity Context
 
-Reusable infinity context for coding agents and future team/project memory workflows.
+**Reliable memory and context infrastructure for AI coding agents.**
 
-This project is the new source of truth for the infinity context architecture and implementation plan.
+Infinity Context helps AI coding agents keep project knowledge across sessions
+without turning random chat history into permanent truth. It captures decisions,
+documents, tasks, source references, agent events and reviewable suggestions,
+then serves compact, cited context back through HTTP, SDK, MCP and a local UI.
 
-## Current Status
+The difference is trust. Every durable memory has a canonical lifecycle in
+Postgres: source evidence, versions, scopes, deletes, idempotency and review
+state. Vector and graph engines make recall better, but they never become hidden
+truth. If Qdrant, Graphiti or an LLM returns something stale, Infinity Context
+revalidates it before it reaches the agent prompt.
 
-This README describes the standalone Infinity Context repository, its local run
-modes and the supported integration contracts.
+This is not a demo memory store. The repo already includes the reusable core,
+FastAPI server, Postgres lifecycle, optional Qdrant and Graphiti adapters, SDK,
+MCP adapter, CLI, local memory browser, service-token auth, workers, diagnostics,
+smoke flows and prompt-impacting quality evals.
 
-Implementation target:
+## What You Get
+
+- **Cited agent memory** for architecture decisions, docs, tasks, captures and
+  transcripts.
+- **Scoped recall** across spaces, memory scopes and threads, so one project does
+  not leak into another.
+- **Review-gated learning** where agents can suggest memories and relations, but
+  humans control what becomes canonical.
+- **Current-state filtering** for updates, deletes, restricted data and stale
+  derived indexes.
+- **Self-hosted runtime** with local Docker profiles, service tokens, CLI,
+  browser UI, SDK and MCP adapter.
+- **Replaceable retrieval** with Postgres as the source of truth and Qdrant,
+  Graphiti, Cognee or provider adapters behind ports.
+
+## Why Teams Choose It
+
+- **Safer than plain vector memory.** A vector hit is only a candidate until it is
+  hydrated through canonical facts, source refs and visibility rules.
+- **More controllable than automatic chat memory.** Prompt memory is evidence,
+  not instruction, and suggested memory can be reviewed before it affects future
+  agents.
+- **Better fit for coding work.** The model is built around projects, documents,
+  decisions, source evidence, thread cleanup, digest reports and agent tooling.
+- **Stable enough for real workflows.** Additive migrations, transactional
+  outbox, token hashing, circuit diagnostics, import-boundary tests, API tests,
+  worker tests and golden evals are part of the shipped system.
+
+## Positioning
+
+Use [Mem0](https://github.com/mem0ai/mem0)-style tools when you mostly need
+quick personalization memory. Use [Zep](https://www.getzep.com/) when you want a
+managed enterprise context graph. Use
+[LangGraph memory primitives](https://docs.langchain.com/oss/python/concepts/memory)
+when your memory should stay inside one agent framework.
+
+Use Infinity Context when the hard problem is **trustworthy project memory for
+coding agents**: source-backed facts, scoped recall, current-state filtering,
+review workflows, self-hosted data and portable adapters.
+
+## Project State
+
+Infinity Context is a working standalone service and library stack. It supports
+local developer setups, self-hosted team deployments and client integrations
+through HTTP, SDK or MCP.
+
+Runtime architecture:
 
 ```text
-Infinity Context Core Lite = Postgres canonical truth + Qdrant RAG + thin Graphiti adapter + compatibility gateway
+Infinity Context = Postgres canonical truth + Qdrant RAG + optional Graphiti graph + SDK/MCP/UI
 ```
 
-Core principles:
+Trust model:
 
 - Clean Architecture;
 - SOLID;
@@ -27,13 +82,13 @@ Core principles:
 
 ## Docs
 
-- [Core Lite implementation plan](docs/infinity-context-core-lite-plan.md)
+- [Core runtime implementation plan](docs/infinity-context-core-lite-plan.md)
 - [Local install and Memory Digest plan](docs/local-install-and-memory-digest-plan.md)
 - [Global architecture plan](docs/infinity-context-architecture-plan.md)
 - [Client compatibility notes](docs/client-integration/interview-infinity-context-clean-architecture-plan.md)
 - [Client integration run notes](docs/client-integration/current-integration-run-notes.md)
 
-## Intended Package Layout
+## Package Layout
 
 ```text
 packages/
@@ -53,9 +108,9 @@ tests/
 
 Client applications should consume this project through HTTP or SDK, not by importing provider-specific adapters.
 
-## Current Implementation
+## What Ships Today
 
-Core Lite is implemented as a reusable service/library baseline:
+Infinity Context ships as a reusable service and library stack:
 
 - `infinity_context_core` owns domain entities, application use cases and ports only;
 - `infinity_context_server` owns FastAPI routes, composition root, auth, config, admin CLI, worker CLI and eval CLI;
@@ -111,7 +166,7 @@ Operational pieces:
 - admin service-token create/list/revoke stores token hashes only; raw token is printed once on creation;
 - database service tokens support expiry and last-used tracking without storing raw tokens;
 - `infinity_context_server.db upgrade`, `admin seed-defaults` and guarded `admin reset-local`;
-- schema upgrade is additive for Core Lite local databases and repairs missing
+- schema upgrade is additive for local databases and repairs missing
   fact/document/chunk classification columns without dropping canonical data;
 - document delete hides chunks immediately and also deletes active facts whose
   current evidence only points to the deleted document or its chunks;
@@ -126,13 +181,13 @@ Operational pieces:
 One-command local install:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/belief-ai/infinity-context/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/777genius/infinity-context/main/scripts/install.sh | bash
 ```
 
 Safer inspectable install:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/belief-ai/infinity-context/main/scripts/install.sh -o install.sh
+curl -fsSL https://raw.githubusercontent.com/777genius/infinity-context/main/scripts/install.sh -o install.sh
 bash install.sh --no-start
 ```
 
@@ -250,7 +305,7 @@ poll. `MEMORY_EXTRACTION_WORKER_CONCURRENCY` controls how many claimed
 extraction jobs run at once in one process, and defaults to `1` for conservative
 parser/provider resource isolation.
 
-Recommended local MVP:
+Recommended local proof:
 
 ```bash
 make infinity-context-up-lite
@@ -308,8 +363,9 @@ make infinity-context-full-provider-canary-interactive
 
 For local defaults, copy `.env.example` to `.env` and adjust non-secret provider
 flags. Secrets should stay in your shell, `.env.local`, `.env.full`, or another
-ignored file. Cognee is available as an optional adapter boundary, but the MVP
-RAG path is Qdrant directly and the MVP temporal fact path is Graphiti directly.
+ignored file. Cognee is available as an optional adapter boundary, while the
+default RAG path is Qdrant directly and the default temporal fact path is
+Graphiti directly.
 
 Common local targets are available in `Makefile`, for example `make infinity-context-lint`,
 `make infinity-context-test-unit`, `make infinity-context-eval`, `make infinity-context-db-upgrade`,
