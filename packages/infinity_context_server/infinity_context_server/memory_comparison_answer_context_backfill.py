@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 
 from infinity_context_server.memory_comparison_candidate_risks import (
@@ -25,6 +26,8 @@ from infinity_context_server.memory_comparison_source_identity import (
 _INCOMPLETE_BUNDLE_BACKFILL_MIN_ITEMS = 6
 _INCOMPLETE_BUNDLE_BACKFILL_MAX_ITEMS = 12
 _INCOMPLETE_BUNDLE_BACKFILL_ITEMS_PER_MISSING_ROLE = 2
+_SOURCE_PROXIMITY_WINDOW = 3
+_TURN_REF_PARTS_RE = re.compile(r"\bD(?P<dialogue>\d+):(?P<turn>\d+)\b")
 
 
 def backfill_incomplete_bundle_context(
@@ -43,9 +46,11 @@ def backfill_incomplete_bundle_context(
         missing_role_count=len(missing_roles),
         bounded_cutoff=bounded_cutoff,
     )
+    selected_turn_refs = _selected_turn_refs(selected)
     candidates = _backfill_candidates(
         raw_slice,
         selected_keys=selected_keys,
+        selected_turn_refs=selected_turn_refs,
         missing_roles=missing_roles,
     )
     backfilled_count = 0
@@ -58,6 +63,7 @@ def backfill_incomplete_bundle_context(
                 memory,
                 bundle_context=bundle_context,
                 missing_roles=missing_roles,
+                selected_turn_refs=selected_turn_refs,
                 retrieval_order=retrieval_order,
             )
         )
@@ -84,6 +90,7 @@ def _backfill_candidates(
     raw_slice: Sequence[RetrievedMemory],
     *,
     selected_keys: set[tuple[str, object]],
+    selected_turn_refs: Sequence[tuple[int, int]],
     missing_roles: Sequence[str],
 ) -> tuple[tuple[int, RetrievedMemory], ...]:
     candidates: list[tuple[int, RetrievedMemory]] = []
@@ -98,6 +105,7 @@ def _backfill_candidates(
             key=lambda pair: _backfill_candidate_sort_key(
                 pair[1],
                 missing_roles=missing_roles,
+                selected_turn_refs=selected_turn_refs,
                 retrieval_order=pair[0],
             ),
             reverse=True,
@@ -109,13 +117,18 @@ def _backfill_candidate_sort_key(
     memory: RetrievedMemory,
     *,
     missing_roles: Sequence[str],
+    selected_turn_refs: Sequence[tuple[int, int]],
     retrieval_order: int,
-) -> tuple[float, float, float, float, float, int]:
+) -> tuple[float, float, float, float, float, float, int]:
     features = _candidate_features(memory)
     missing_role_score = _missing_role_support_score(features, missing_roles)
     answerability = _metric_value(features, "answerability_score")
     locality = _metric_value(features, "source_locality_score")
     has_source_refs = 1.0 if _memory_source_refs(memory) else 0.0
+    source_proximity = _source_proximity_sort_key(
+        memory,
+        selected_turn_refs=selected_turn_refs,
+    )
     quality_penalty = 0.0
     if memory_has_broad_summary(memory, features):
         quality_penalty += 0.6
@@ -124,6 +137,7 @@ def _backfill_candidate_sort_key(
     return (
         missing_role_score,
         -quality_penalty,
+        *source_proximity,
         _backfill_answerability_sort_score(answerability),
         _backfill_locality_sort_score(locality),
         has_source_refs,
@@ -141,6 +155,20 @@ def _backfill_locality_sort_score(score: float) -> float:
     if score <= 0:
         return 0.45
     return score
+
+
+def _source_proximity_sort_key(
+    memory: RetrievedMemory,
+    *,
+    selected_turn_refs: Sequence[tuple[int, int]],
+) -> tuple[float, float]:
+    closest_distance = _source_proximity_distance(
+        memory,
+        selected_turn_refs=selected_turn_refs,
+    )
+    if closest_distance is None or closest_distance > _SOURCE_PROXIMITY_WINDOW:
+        return (0.0, 0.0)
+    return (1.0, float(_SOURCE_PROXIMITY_WINDOW + 1 - closest_distance))
 
 
 def _missing_role_support_score(
@@ -232,6 +260,7 @@ def _with_retrieval_backfill_metadata(
     *,
     bundle_context: Mapping[str, object],
     missing_roles: Sequence[str],
+    selected_turn_refs: Sequence[tuple[int, int]],
     retrieval_order: int,
 ) -> RetrievedMemory:
     metadata = dict(memory.metadata)
@@ -246,6 +275,18 @@ def _with_retrieval_backfill_metadata(
     ]
     if role_score > 0:
         reason_codes.append("missing_role_support")
+    source_proximity_distance = _source_proximity_distance(
+        memory,
+        selected_turn_refs=selected_turn_refs,
+    )
+    if (
+        source_proximity_distance is not None
+        and source_proximity_distance <= _SOURCE_PROXIMITY_WINDOW
+    ):
+        reason_codes.append("source_proximity_support")
+        metadata["answer_context_backfill_source_proximity_distance"] = (
+            source_proximity_distance
+        )
     metadata["answer_context_reason_codes"] = tuple(reason_codes)
     _add_backfill_feature_metadata(metadata, features, missing_roles=missing_roles)
     return RetrievedMemory(
@@ -332,6 +373,45 @@ def _memory_source_refs(memory: RetrievedMemory) -> tuple[str, ...]:
             )
         )
     )
+
+
+def _selected_turn_refs(memories: Sequence[RetrievedMemory]) -> tuple[tuple[int, int], ...]:
+    return tuple(
+        dict.fromkeys(
+            turn_ref
+            for memory in memories
+            for turn_ref in _memory_turn_refs(memory)
+        )
+    )
+
+
+def _source_proximity_distance(
+    memory: RetrievedMemory,
+    *,
+    selected_turn_refs: Sequence[tuple[int, int]],
+) -> int | None:
+    distances = [
+        abs(selected_turn - candidate_turn)
+        for selected_dialogue, selected_turn in selected_turn_refs
+        for candidate_dialogue, candidate_turn in _memory_turn_refs(memory)
+        if selected_dialogue == candidate_dialogue
+    ]
+    if not distances:
+        return None
+    return min(distances)
+
+
+def _memory_turn_refs(memory: RetrievedMemory) -> tuple[tuple[int, int], ...]:
+    refs: list[tuple[int, int]] = []
+    for value in (*_memory_source_refs(memory), memory.text):
+        for match in _TURN_REF_PARTS_RE.finditer(str(value)):
+            refs.append(
+                (
+                    int(match.group("dialogue")),
+                    int(match.group("turn")),
+                )
+            )
+    return tuple(dict.fromkeys(refs))
 
 
 def _metric_value(item: Mapping[str, object], key: str) -> float:

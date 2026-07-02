@@ -743,6 +743,75 @@ def test_answer_context_backfill_prefers_unmeasured_grounded_role_evidence() -> 
     assert context.memories[2].metadata["answer_context_source_locality_score"] == 0.3
 
 
+def test_answer_context_backfill_prefers_source_proximate_role_evidence() -> None:
+    memories = (
+        RetrievedMemory(
+            text="D2:10 Morgan: I signed up for the class.",
+            rank=1,
+            item_id="primary",
+            source_refs=("D2:10",),
+        ),
+        RetrievedMemory(
+            text="D2:20 Morgan: I mentioned a different class later.",
+            rank=2,
+            item_id="far-event",
+            source_refs=("D2:20",),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "answerability_score": 0.95,
+                        "source_locality_score": 0.9,
+                        "relation_category_hits": ["registration_event"],
+                    }
+                }
+            },
+        ),
+        RetrievedMemory(
+            text="D2:12 Morgan: The class registration email arrived.",
+            rank=3,
+            item_id="near-event",
+            source_refs=("D2:12",),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "answerability_score": 0.6,
+                        "source_locality_score": 0.7,
+                        "relation_category_hits": ["registration_event"],
+                    }
+                }
+            },
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "role_requirement_complete": False,
+            "missing_required_roles": ["event_support"],
+            "items": [{"id": "primary", "retrieval_order": 1, "role": "primary"}],
+        },
+        cutoff=3,
+    )
+
+    assert [memory.item_id for memory in context.memories] == [
+        "primary",
+        "near-event",
+        "far-event",
+    ]
+    assert "source_proximity_support" in context.memories[1].metadata[
+        "answer_context_reason_codes"
+    ]
+    assert (
+        context.memories[1].metadata[
+            "answer_context_backfill_source_proximity_distance"
+        ]
+        == 2
+    )
+    assert "source_proximity_support" not in context.memories[2].metadata[
+        "answer_context_reason_codes"
+    ]
+
+
 def test_answer_context_falls_back_for_empty_bundle() -> None:
     memories = (
         RetrievedMemory(text="first", rank=1, item_id="first"),
