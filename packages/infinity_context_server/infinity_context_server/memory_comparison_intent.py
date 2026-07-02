@@ -902,6 +902,7 @@ def _has_status_profile_intent(
         "child",
         "children",
         "colleague",
+        "cousin",
         "coworker",
         "dating",
         "daughter",
@@ -913,6 +914,8 @@ def _has_status_profile_intent(
         "fiancee",
         "friend",
         "girlfriend",
+        "grandfather",
+        "grandmother",
         "husband",
         "manager",
         "mentor",
@@ -941,7 +944,8 @@ def _has_status_profile_intent(
         re.search(r"\brelationship\s+status\b", normalized_question)
         or re.search(
             r"\bwho\b.+\b(?:boyfriend|boss|brother|child|children|colleague|"
-            r"coworker|daughter|father|fiancee?|friend|girlfriend|husband|"
+            r"cousin|coworker|daughter|father|fiancee?|friend|girlfriend|"
+            r"grandfather|grandmother|husband|"
             r"manager|mentor|mother|neighbor|parent|partner|roommate|sibling|"
             r"sister|son|spouse|teammate|wife)\b",
             normalized_question,
@@ -1430,6 +1434,7 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "children",
                 "boyfriend",
                 "brother",
+                "cousin",
                 "daughter",
                 "dating",
                 "engag",
@@ -1440,6 +1445,8 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "fiancee",
                 "friend",
                 "girlfriend",
+                "grandfather",
+                "grandmother",
                 "husband",
                 "boss",
                 "colleague",
@@ -1470,6 +1477,7 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "child",
                 "children",
                 "brother",
+                "cousin",
                 "dating",
                 "daughter",
                 "engaged",
@@ -1480,6 +1488,9 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "friend",
                 "friends",
                 "girlfriend",
+                "grandfather",
+                "grandmother",
+                "grandparent",
                 "husband",
                 "boss",
                 "colleague",
@@ -1494,6 +1505,7 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "neighbor",
                 "parent",
                 "partner",
+                "relative",
                 "roommate",
                 "sibling",
                 "sister",

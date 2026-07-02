@@ -6391,10 +6391,19 @@ def test_query_decomposition_handles_question_bound_person_role_terms() -> None:
         expected_terms=("Riley",),
         answer="Riley",
     )
+    cousin_case = _case(
+        case_id="conv-person-role:qa:4",
+        question="Who is Dana's cousin?",
+        expected_terms=("Riley",),
+        answer="Riley",
+    )
 
     roommate_intent = rerank_module.query_retrieval_intent(roommate_case)
     colleague_intent = rerank_module.query_retrieval_intent(colleague_case)
     mentor_intent = rerank_module.query_retrieval_intent(mentor_case)
+    cousin_queries, cousin_metadata = rerank_module.decomposed_search_queries(
+        cousin_case
+    )
 
     assert roommate_intent.relation_terms == ("roommate",)
     assert "status_profile" in roommate_intent.to_query_profile()[
@@ -6410,6 +6419,17 @@ def test_query_decomposition_handles_question_bound_person_role_terms() -> None:
     assert mentor_intent.relation_terms == ("mentor",)
     assert "status_profile" in mentor_intent.to_query_profile()[
         "relation_categories"
+    ]
+    assert cousin_queries[2] == "dana cousin relative family sibl"
+    assert cousin_metadata["query_profile"]["relation_terms"] == ("cousin",)
+    assert cousin_metadata["query_profile"]["relation_categories"] == (
+        "status_profile",
+    )
+    assert cousin_metadata["query_profile"]["evidence_need"] == (
+        "status_profile",
+    )
+    assert "status_support" in cousin_metadata["query_profile"][
+        "bundle_evidence_roles"
     ]
 
 
@@ -6473,6 +6493,59 @@ def test_benchmark_rerank_boosts_status_profile_evidence() -> None:
         topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
         == 0
     )
+
+
+def test_benchmark_rerank_boosts_extended_kinship_status_evidence() -> None:
+    case = _case(
+        case_id="status-profile-cousin-rerank",
+        question="Who is Dana's cousin?",
+        expected_terms=("Riley",),
+        answer="Riley",
+        category=4,
+    )
+    topical_cousin = RetrievedMemory(
+        item_id="topical-cousin",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Dana watched a movie about cousins with Riley."
+        ),
+        source_refs=("D1:1",),
+    )
+    status_profile = RetrievedMemory(
+        item_id="status-profile",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Dana: Riley is my cousin."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_cousin, status_profile),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("status_profile",)
+    assert reranked[0].item_id == "status-profile"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    status_diagnostics = diagnostics_by_id["status-profile"]
+    topical_diagnostics = diagnostics_by_id["topical-cousin"]
+    assert status_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["status_profile"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert status_diagnostics["score_signals"][
+        "benchmark_typed_relation_support_roles"
+    ] == ["status_support"]
 
 
 def test_benchmark_rerank_boosts_named_possessive_status_evidence() -> None:

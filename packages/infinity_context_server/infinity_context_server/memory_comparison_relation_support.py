@@ -1120,31 +1120,31 @@ def _has_causal_support(memory_terms: set[str]) -> bool:
 
 _STATUS_PROFILE_RELATION_RE = re.compile(
     r"\b(?:my|his|her|their|our|your)\s+"
-    r"(?:boyfriend|boss|brother|child|children|colleague|coworker|daughter|"
-    r"father|fiancee?|friend|girlfriend|husband|kid|kids|manager|mentor|"
+    r"(?:boyfriend|boss|brother|child|children|colleague|cousin|coworker|daughter|"
+    r"father|fiancee?|friend|girlfriend|grandfather|grandmother|husband|kid|kids|manager|mentor|"
     r"mother|neighbor|parent|partner|roommate|sibling|sister|son|spouse|"
     r"teammate|wife)\b"
     r"|\b[A-Z][a-zA-Z0-9_-]+\s+(?:is|was|are|were)\s+"
     r"[A-Z][a-zA-Z0-9_-]+(?:'s|’s)\s+"
-    r"(?:boyfriend|boss|brother|child|children|colleague|coworker|daughter|"
-    r"father|fiancee?|friend|girlfriend|husband|kid|kids|manager|mentor|"
+    r"(?:boyfriend|boss|brother|child|children|colleague|cousin|coworker|daughter|"
+    r"father|fiancee?|friend|girlfriend|grandfather|grandmother|husband|kid|kids|manager|mentor|"
     r"mother|neighbor|parent|partner|roommate|sibling|sister|son|spouse|"
     r"teammate|wife)\b"
     r"|\b[A-Z][a-zA-Z0-9_-]+(?:'s|’s)\s+"
-    r"(?:boyfriend|boss|brother|child|children|colleague|coworker|daughter|"
-    r"father|fiancee?|friend|girlfriend|husband|kid|kids|manager|mentor|"
+    r"(?:boyfriend|boss|brother|child|children|colleague|cousin|coworker|daughter|"
+    r"father|fiancee?|friend|girlfriend|grandfather|grandmother|husband|kid|kids|manager|mentor|"
     r"mother|neighbor|parent|partner|roommate|sibling|sister|son|spouse|"
     r"teammate|wife)\s+(?:is|was|are|were)\s+"
     r"[A-Z][a-zA-Z0-9_-]+\b"
     r"|\b[A-Z][a-zA-Z0-9_-]+(?:'s|’s)\s+"
-    r"(?:boyfriend|boss|brother|child|children|colleague|coworker|daughter|"
-    r"father|fiancee?|friend|girlfriend|husband|kid|kids|manager|mentor|"
+    r"(?:boyfriend|boss|brother|child|children|colleague|cousin|coworker|daughter|"
+    r"father|fiancee?|friend|girlfriend|grandfather|grandmother|husband|kid|kids|manager|mentor|"
     r"mother|neighbor|parent|partner|roommate|sibling|sister|son|spouse|"
     r"teammate|wife)[,;:]\s+[A-Z][a-zA-Z0-9_-]+\b"
     r"|\b(?:is|was|are|were)\s+"
     r"(?:my|his|her|their|our|your)\s+"
-    r"(?:boyfriend|boss|brother|child|colleague|coworker|daughter|father|"
-    r"fiancee?|friend|girlfriend|husband|manager|mentor|mother|neighbor|"
+    r"(?:boyfriend|boss|brother|child|colleague|cousin|coworker|daughter|father|"
+    r"fiancee?|friend|girlfriend|grandfather|grandmother|husband|manager|mentor|mother|neighbor|"
     r"parent|partner|roommate|sibling|sister|son|spouse|teammate|wife)\b"
     r"|\b(?:dating|engaged\s+to|married\s+to)\s+"
     r"(?:[A-Z][a-zA-Z0-9_-]+|my|his|her|their|our|your)\b"
@@ -1178,6 +1178,7 @@ def _has_status_profile_support(
         "child",
         "children",
         "colleague",
+        "cousin",
         "coworker",
         "daughter",
         "father",
@@ -1186,6 +1187,8 @@ def _has_status_profile_support(
         "friend",
         "friends",
         "girlfriend",
+        "grandfather",
+        "grandmother",
         "husband",
         "kid",
         "kids",
