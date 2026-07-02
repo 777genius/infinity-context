@@ -727,6 +727,10 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
     assert metrics["primary_avg_context_memory_count"] == 2.0
     assert metrics["primary_avg_context_compression_ratio"] == 0.6667
     assert metrics["primary_avg_source_ref_coverage_rate"] == 0.5
+    assert metrics["primary_avg_bundle_source_type_diversity"] == 1.0
+    assert metrics["primary_max_bundle_source_type_diversity"] == 2
+    assert metrics["primary_avg_bundle_retrieval_source_diversity"] == 1.5
+    assert metrics["primary_max_bundle_retrieval_source_diversity"] == 3
     assert primary["evidence_bundle_context_count"] == 1
     assert primary["fallback_context_count"] == 1
     assert primary["avg_backfilled_retrieval_item_count"] == 0.0

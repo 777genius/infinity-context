@@ -364,6 +364,20 @@ def answer_context_metrics(
             primary,
             "avg_source_ref_coverage_rate",
         ),
+        "primary_avg_bundle_source_type_diversity": _metric_value(
+            primary,
+            "avg_bundle_source_type_diversity",
+        ),
+        "primary_max_bundle_source_type_diversity": (
+            _positive_int(primary.get("max_bundle_source_type_diversity")) or 0
+        ),
+        "primary_avg_bundle_retrieval_source_diversity": _metric_value(
+            primary,
+            "avg_bundle_retrieval_source_diversity",
+        ),
+        "primary_max_bundle_retrieval_source_diversity": (
+            _positive_int(primary.get("max_bundle_retrieval_source_diversity")) or 0
+        ),
         "by_cutoff": by_cutoff,
     }
 
