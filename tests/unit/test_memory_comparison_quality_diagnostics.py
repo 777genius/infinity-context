@@ -1266,6 +1266,127 @@ def test_fast_gate_metrics_requires_grounded_location_relation_evidence() -> Non
     assert "missing_location_support" in breakdown["samples"][0]["reasons"]
 
 
+def test_fast_gate_metrics_rejects_support_role_labels_without_typed_evidence() -> None:
+    cases = (
+        (
+            "location",
+            ("location_support",),
+            ("primary", "location_support"),
+            ("location_transition",),
+            "location_support",
+            "missing_location_support",
+        ),
+        (
+            "preference",
+            ("preference",),
+            ("primary", "preference_support"),
+            ("preference",),
+            "preference_support",
+            "missing_preference_support",
+        ),
+        (
+            "visual",
+            ("visual_evidence",),
+            ("primary", "visual_support"),
+            ("visual",),
+            "visual_support",
+            "missing_visual_support",
+        ),
+        (
+            "emotion",
+            ("emotion_response",),
+            ("primary", "emotion_response_support"),
+            ("emotion_response",),
+            "emotion_response_support",
+            "missing_emotion_response_support",
+        ),
+        (
+            "symbolic",
+            ("symbolic_meaning",),
+            ("primary", "symbolic_meaning_support"),
+            ("symbolic_meaning",),
+            "symbolic_meaning_support",
+            "missing_symbolic_meaning_support",
+        ),
+        (
+            "event",
+            ("registration_event",),
+            ("primary", "event_support"),
+            ("registration_event",),
+            "event_support",
+            "missing_event_support",
+        ),
+        (
+            "exchange",
+            ("exchange",),
+            ("primary", "exchange_support"),
+            ("exchange",),
+            "exchange_support",
+            "missing_exchange_support",
+        ),
+        (
+            "communication",
+            ("communication",),
+            ("primary", "communication_support"),
+            ("communication",),
+            "communication_support",
+            "missing_communication_support",
+        ),
+    )
+
+    for (
+        case_suffix,
+        evidence_need,
+        bundle_roles,
+        relation_categories,
+        support_role,
+        missing_reason,
+    ) in cases:
+        item_payload = {
+            "role": support_role,
+            "retrieval_order": 1,
+            "focused_evidence_score": 1.0,
+            "entity_hits": ["caroline"],
+            "planner_reason_codes": [support_role],
+        }
+        if support_role == "communication_support":
+            item_payload["speaker_hits"] = ["caroline"]
+            item_payload["planner_reason_codes"].append(
+                "communication_speaker_hits"
+            )
+        gate = fast_gate_metrics(
+            (
+                _item(
+                    case_id=f"label-only-{case_suffix}",
+                    group="single-hop",
+                    retrieval=_retrieval_payload(
+                        evidence_need=evidence_need,
+                        bundle_evidence_roles=bundle_roles,
+                        relation_categories=relation_categories,
+                        entities=("caroline",),
+                        policy_score=0.0,
+                    ),
+                    evidence_bundle={
+                        "bundle_complete": False,
+                        "item_count": 1,
+                        "primary_evidence_count": 1,
+                        "supporting_evidence_count": 0,
+                        "query_support_term_recall": 0.5,
+                        "covered_evidence_terms": [],
+                        "items": [item_payload],
+                    },
+                ),
+            ),
+            expected_case_count=1,
+        )
+
+        breakdown = gate["bundle_gap_breakdown"]
+
+        assert breakdown["reason_counts"][missing_reason] == 1
+        assert breakdown["evidence_need_gap_reason_counts"] == {missing_reason: 1}
+        assert missing_reason in breakdown["samples"][0]["reasons"]
+
+
 def test_fast_gate_metrics_reports_missing_inference_support_gap() -> None:
     gate = fast_gate_metrics(
         (

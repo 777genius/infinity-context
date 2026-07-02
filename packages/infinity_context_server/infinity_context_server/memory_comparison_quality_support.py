@@ -261,10 +261,6 @@ def bundle_has_causal_support(
         bool(
             _passes_person_grounding(item, require_grounding=require_grounding)
             and (
-                str(item.get("role") or "").strip() == "causal_support"
-                or "causal_support" in _str_tuple(item.get("planner_reason_codes"))
-            )
-            and (
                 "causal" in _str_tuple(item.get("relation_category_hits"))
                 or "causal_relation_hits"
                 in _str_tuple(item.get("planner_reason_codes"))
@@ -281,13 +277,6 @@ def bundle_has_location_support(
     *,
     require_grounding: bool = False,
 ) -> bool:
-    if _bundle_has_role_or_reason(
-        bundle,
-        role="location_support",
-        reason="location_support",
-        require_grounding=require_grounding,
-    ):
-        return True
     return any(
         bool(
             _passes_person_grounding(item, require_grounding=require_grounding)
@@ -307,13 +296,6 @@ def bundle_has_preference_support(
     *,
     require_grounding: bool = False,
 ) -> bool:
-    if _bundle_has_role_or_reason(
-        bundle,
-        role="preference_support",
-        reason="preference_support",
-        require_grounding=require_grounding,
-    ):
-        return True
     return any(
         bool(
             _passes_person_grounding(item, require_grounding=require_grounding)
@@ -333,13 +315,6 @@ def bundle_has_emotion_response_support(
     *,
     require_grounding: bool = False,
 ) -> bool:
-    if _bundle_has_role_or_reason(
-        bundle,
-        role="emotion_response_support",
-        reason="emotion_response_support",
-        require_grounding=require_grounding,
-    ):
-        return True
     return any(
         bool(
             _passes_person_grounding(item, require_grounding=require_grounding)
@@ -359,13 +334,6 @@ def bundle_has_event_support(
     *,
     require_grounding: bool = False,
 ) -> bool:
-    if _bundle_has_role_or_reason(
-        bundle,
-        role="event_support",
-        reason="event_support",
-        require_grounding=require_grounding,
-    ):
-        return True
     return any(
         bool(
             _passes_person_grounding(item, require_grounding=require_grounding)
@@ -385,14 +353,6 @@ def bundle_has_communication_support(
     *,
     require_grounding: bool = False,
 ) -> bool:
-    if _bundle_has_role_or_reason(
-        bundle,
-        role="communication_support",
-        reason="communication_support",
-        require_grounding=require_grounding,
-        speaker_grounding=require_grounding,
-    ):
-        return True
     return any(
         bool(
             "communication" in _str_tuple(item.get("relation_category_hits"))
@@ -417,13 +377,6 @@ def bundle_has_exchange_support(
     *,
     require_grounding: bool = False,
 ) -> bool:
-    if _bundle_has_role_or_reason(
-        bundle,
-        role="exchange_support",
-        reason="exchange_support",
-        require_grounding=require_grounding,
-    ):
-        return True
     return any(
         bool(
             _passes_person_grounding(item, require_grounding=require_grounding)
@@ -442,13 +395,6 @@ def bundle_has_symbolic_meaning_support(
     *,
     require_grounding: bool = False,
 ) -> bool:
-    if _bundle_has_role_or_reason(
-        bundle,
-        role="symbolic_meaning_support",
-        reason="symbolic_meaning_support",
-        require_grounding=require_grounding,
-    ):
-        return True
     return any(
         bool(
             _passes_person_grounding(item, require_grounding=require_grounding)
@@ -467,13 +413,6 @@ def bundle_has_visual_support(
     *,
     require_grounding: bool = False,
 ) -> bool:
-    if _bundle_has_role_or_reason(
-        bundle,
-        role="visual_support",
-        reason="visual_support",
-        require_grounding=require_grounding,
-    ):
-        return True
     return any(
         bool(
             _passes_person_grounding(item, require_grounding=require_grounding)
@@ -495,10 +434,6 @@ def bundle_has_inference_support(
     return any(
         bool(
             _passes_person_grounding(item, require_grounding=require_grounding)
-            and (
-                str(item.get("role") or "").strip() == "inference_support"
-                or "inference_support" in _str_tuple(item.get("planner_reason_codes"))
-            )
             and (
                 _str_tuple(item.get("relation_category_hits"))
                 or "inference_relation_category_hits"
