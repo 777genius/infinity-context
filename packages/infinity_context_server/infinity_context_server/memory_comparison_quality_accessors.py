@@ -141,8 +141,12 @@ def query_integrity(item: Mapping[str, object]) -> Mapping[str, object]:
 
 
 def query_plan(item: Mapping[str, object]) -> Mapping[str, object]:
-    query_decomposition = mapping(retrieval_metadata(item).get("query_decomposition"))
-    return mapping(query_decomposition.get("query_plan"))
+    metadata = retrieval_metadata(item)
+    for key in ("query_decomposition", "query_expansion", "benchmark_rerank"):
+        query_plan_payload = mapping(mapping(metadata.get(key)).get("query_plan"))
+        if query_plan_payload:
+            return query_plan_payload
+    return {}
 
 
 def query_overlap_count(item: Mapping[str, object]) -> int:

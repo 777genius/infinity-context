@@ -1681,14 +1681,34 @@ def _required_evidence_roles(item: Mapping[str, object]) -> tuple[str, ...]:
     if roles:
         return roles
     metadata = _retrieval_metadata(item)
-    query_decomposition = _mapping(metadata.get("query_decomposition"))
-    query_profile = _mapping(query_decomposition.get("query_profile"))
-    intent = _mapping(query_decomposition.get("retrieval_intent"))
+    payloads = _diagnostic_query_payloads(metadata)
     return tuple(
         dict.fromkeys(
-            _str_tuple(query_profile.get("bundle_evidence_roles"))
-            + _str_tuple(intent.get("bundle_evidence_roles"))
+            role
+            for payload in payloads
+            for role in (
+                _str_tuple(
+                    _mapping(payload.get("query_profile")).get(
+                        "bundle_evidence_roles"
+                    )
+                )
+                + _str_tuple(
+                    _mapping(payload.get("retrieval_intent")).get(
+                        "bundle_evidence_roles"
+                    )
+                )
+            )
         )
+    )
+
+
+def _diagnostic_query_payloads(
+    metadata: Mapping[str, object],
+) -> tuple[Mapping[str, object], ...]:
+    return (
+        _mapping(metadata.get("query_decomposition")),
+        _mapping(metadata.get("query_expansion")),
+        _mapping(metadata.get("benchmark_rerank")),
     )
 
 
