@@ -644,6 +644,18 @@ def _query_role_gap_breakdown(
                 stats.get("candidate_unmeasured_answerability_count")
             )
             or 0,
+            "avg_candidate_source_locality_score": round(
+                _metric_value(stats, "avg_candidate_source_locality_score"),
+                4,
+            ),
+            "avg_measured_candidate_source_locality_score": round(
+                _metric_value(stats, "avg_measured_candidate_source_locality_score"),
+                4,
+            ),
+            "candidate_unmeasured_source_locality_count": _positive_int(
+                stats.get("candidate_unmeasured_source_locality_count")
+            )
+            or 0,
             "avg_selected_answerability_score": round(
                 _metric_value(stats, "avg_selected_answerability_score"),
                 4,
@@ -654,6 +666,18 @@ def _query_role_gap_breakdown(
             ),
             "selected_unmeasured_answerability_count": _positive_int(
                 stats.get("selected_unmeasured_answerability_count")
+            )
+            or 0,
+            "avg_selected_source_locality_score": round(
+                _metric_value(stats, "avg_selected_source_locality_score"),
+                4,
+            ),
+            "avg_measured_selected_source_locality_score": round(
+                _metric_value(stats, "avg_measured_selected_source_locality_score"),
+                4,
+            ),
+            "selected_unmeasured_source_locality_count": _positive_int(
+                stats.get("selected_unmeasured_source_locality_count")
             )
             or 0,
             "selected_bundle_role_counts": _count_mapping(
@@ -1911,6 +1935,8 @@ def _query_role_effectiveness_table(
     selected_bundle_role_counts: dict[str, Counter[str]] = defaultdict(Counter)
     candidate_answerability_scores: dict[str, list[float]] = defaultdict(list)
     selected_answerability_scores: dict[str, list[float]] = defaultdict(list)
+    candidate_source_locality_scores: dict[str, list[float]] = defaultdict(list)
+    selected_source_locality_scores: dict[str, list[float]] = defaultdict(list)
 
     for item in items:
         for memory in _sequence(_mapping(item.get("retrieval")).get("results")):
@@ -1924,11 +1950,15 @@ def _query_role_effectiveness_table(
             lifted = _candidate_lifted(diagnostics)
             bridge_query_hit = features.get("bridge_query_hit") is True
             answerability_score = _metric_value(features, "answerability_score")
+            source_locality_score = _metric_value(features, "source_locality_score")
             for query_role in query_roles:
                 query_role_family = _query_role_family(query_role)
                 candidate_role_counts[query_role] += 1
                 candidate_role_family_counts[query_role_family] += 1
                 candidate_answerability_scores[query_role].append(answerability_score)
+                candidate_source_locality_scores[query_role].append(
+                    source_locality_score
+                )
                 if lifted:
                     lifted_candidate_role_counts[query_role] += 1
                     lifted_candidate_role_family_counts[query_role_family] += 1
@@ -1943,7 +1973,9 @@ def _query_role_effectiveness_table(
             bundle_role = str(bundle_item.get("role") or "unknown").strip() or "unknown"
             bridge_query_hit = bundle_item.get("bridge_query_hit") is True
             has_answerability_score = "answerability_score" in bundle_item
+            has_source_locality_score = "source_locality_score" in bundle_item
             answerability_score = _metric_value(bundle_item, "answerability_score")
+            source_locality_score = _metric_value(bundle_item, "source_locality_score")
             for query_role in query_roles:
                 query_role_family = _query_role_family(query_role)
                 selected_item_role_counts[query_role] += 1
@@ -1951,6 +1983,10 @@ def _query_role_effectiveness_table(
                 selected_bundle_role_counts[query_role][bundle_role] += 1
                 if has_answerability_score:
                     selected_answerability_scores[query_role].append(answerability_score)
+                if has_source_locality_score:
+                    selected_source_locality_scores[query_role].append(
+                        source_locality_score
+                    )
                 if bridge_query_hit:
                     bridge_query_hit_selected_counts[query_role] += 1
 
@@ -1970,6 +2006,8 @@ def _query_role_effectiveness_table(
             selected_bundle_role_counts=selected_bundle_role_counts,
             candidate_answerability_scores=candidate_answerability_scores,
             selected_answerability_scores=selected_answerability_scores,
+            candidate_source_locality_scores=candidate_source_locality_scores,
+            selected_source_locality_scores=selected_source_locality_scores,
         )
         for query_role in query_roles
     }
@@ -2057,6 +2095,8 @@ def _query_role_stat_payload(
     selected_bundle_role_counts: Mapping[str, Counter[str]],
     candidate_answerability_scores: Mapping[str, Sequence[float]],
     selected_answerability_scores: Mapping[str, Sequence[float]],
+    candidate_source_locality_scores: Mapping[str, Sequence[float]],
+    selected_source_locality_scores: Mapping[str, Sequence[float]],
 ) -> dict[str, object]:
     candidate_count = candidate_role_counts[query_role]
     lifted_count = lifted_candidate_role_counts[query_role]
@@ -2065,6 +2105,18 @@ def _query_role_stat_payload(
     selected_scores = tuple(selected_answerability_scores.get(query_role, ()))
     measured_candidate_scores = tuple(score for score in candidate_scores if score > 0)
     measured_selected_scores = tuple(score for score in selected_scores if score > 0)
+    candidate_locality_scores = tuple(
+        candidate_source_locality_scores.get(query_role, ())
+    )
+    selected_locality_scores = tuple(
+        selected_source_locality_scores.get(query_role, ())
+    )
+    measured_candidate_locality_scores = tuple(
+        score for score in candidate_locality_scores if score > 0
+    )
+    measured_selected_locality_scores = tuple(
+        score for score in selected_locality_scores if score > 0
+    )
     return {
         "candidate_count": candidate_count,
         "lifted_candidate_count": lifted_count,
@@ -2080,10 +2132,24 @@ def _query_role_stat_payload(
         "candidate_unmeasured_answerability_count": sum(
             1 for score in candidate_scores if score <= 0
         ),
+        "avg_candidate_source_locality_score": _avg(candidate_locality_scores),
+        "avg_measured_candidate_source_locality_score": _avg(
+            measured_candidate_locality_scores
+        ),
+        "candidate_unmeasured_source_locality_count": sum(
+            1 for score in candidate_locality_scores if score <= 0
+        ),
         "avg_selected_answerability_score": _avg(selected_scores),
         "avg_measured_selected_answerability_score": _avg(measured_selected_scores),
         "selected_unmeasured_answerability_count": sum(
             1 for score in selected_scores if score <= 0
+        ),
+        "avg_selected_source_locality_score": _avg(selected_locality_scores),
+        "avg_measured_selected_source_locality_score": _avg(
+            measured_selected_locality_scores
+        ),
+        "selected_unmeasured_source_locality_count": sum(
+            1 for score in selected_locality_scores if score <= 0
         ),
         "selected_bundle_role_counts": dict(
             sorted(selected_bundle_role_counts.get(query_role, Counter()).items())
