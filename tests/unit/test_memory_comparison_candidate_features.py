@@ -246,6 +246,83 @@ def test_candidate_features_require_typed_relation_evidence_for_answerability(
     assert grounded.answerability_score > weak.answerability_score
 
 
+def test_candidate_features_ground_partner_status_relation_evidence() -> None:
+    generic_mention = build_candidate_evidence_features(
+        RetrievedMemory(
+            item_id="generic-mention",
+            rank=1,
+            text="D1:2 Dana: I mentioned Riley during lunch.",
+            source_refs=("D1:2",),
+        ),
+        memory_terms={"dana", "riley", "mention", "lunch"},
+        query_terms=("dana", "girlfriend"),
+        relation_terms=("girlfriend",),
+        relation_variant_terms=("partner", "dating", "relationship"),
+        relation_category_terms={
+            "status_profile": (
+                "girlfriend",
+                "partner",
+                "dating",
+                "relationship",
+            )
+        },
+        entities=("dana",),
+        entity_hits=("dana",),
+        speaker_hits=("dana",),
+        high_signal_relation_terms={"girlfriend", "partner", "dating"},
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+    grounded_status = build_candidate_evidence_features(
+        RetrievedMemory(
+            item_id="girlfriend-status",
+            rank=2,
+            text="D2:5 Dana: Riley is my girlfriend.",
+            source_refs=("D2:5",),
+        ),
+        memory_terms={"dana", "riley", "girlfriend"},
+        query_terms=("dana", "girlfriend"),
+        relation_terms=("girlfriend",),
+        relation_variant_terms=("partner", "dating", "relationship"),
+        relation_category_terms={
+            "status_profile": (
+                "girlfriend",
+                "partner",
+                "dating",
+                "relationship",
+            )
+        },
+        entities=("dana",),
+        entity_hits=("dana",),
+        speaker_hits=("dana",),
+        high_signal_relation_terms={"girlfriend", "partner", "dating"},
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+
+    assert generic_mention.relation_category_hits == ()
+    assert "missing_status_profile_evidence" in (
+        generic_mention.answerability_reason_codes
+    )
+    assert grounded_status.relation_category_hits == ("status_profile",)
+    assert "status_profile_evidence" in grounded_status.answerability_reason_codes
+    assert grounded_status.answerability_score > generic_mention.answerability_score
+
+
 def test_candidate_features_detect_location_transition_destination_surface() -> None:
     generic_move = build_candidate_evidence_features(
         RetrievedMemory(

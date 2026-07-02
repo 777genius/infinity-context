@@ -5269,6 +5269,46 @@ def test_infinity_context_http_search_expands_relationship_status_queries() -> N
     )
 
 
+def test_query_decomposition_handles_question_bound_partner_status_terms() -> None:
+    girlfriend_case = _case(
+        case_id="conv-relationship:qa:1",
+        question="Who is Dana's girlfriend?",
+        expected_terms=("Riley",),
+        answer="Riley",
+    )
+    dating_case = _case(
+        case_id="conv-relationship:qa:2",
+        question="Who is Dana dating?",
+        expected_terms=("Riley",),
+        answer="Riley",
+    )
+    engaged_case = _case(
+        case_id="conv-relationship:qa:3",
+        question="Who is Dana engaged to?",
+        expected_terms=("Riley",),
+        answer="Riley",
+    )
+
+    girlfriend_intent = rerank_module.query_retrieval_intent(girlfriend_case)
+    dating_intent = rerank_module.query_retrieval_intent(dating_case)
+    engaged_intent = rerank_module.query_retrieval_intent(engaged_case)
+
+    assert girlfriend_intent.relation_terms == ("girlfriend",)
+    assert "status_profile" in girlfriend_intent.to_query_profile()[
+        "relation_categories"
+    ]
+    assert "inference_support" in girlfriend_intent.evidence_need
+    girlfriend_diagnostics = girlfriend_intent.to_diagnostics()["relations"]
+    assert "riley" not in girlfriend_diagnostics["terms"]
+    assert "riley" not in girlfriend_diagnostics["variant_terms"]
+    assert dating_intent.relation_terms == ("dating",)
+    assert "status_profile" in dating_intent.to_query_profile()["relation_categories"]
+    assert "engag" in engaged_intent.relation_terms
+    assert "status_profile" in engaged_intent.to_query_profile()[
+        "relation_categories"
+    ]
+
+
 def test_infinity_context_http_search_expands_preference_queries() -> None:
     seen_payloads: list[dict[str, object]] = []
 
