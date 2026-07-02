@@ -1515,6 +1515,7 @@ def _evidence_role_query_families(role: str) -> tuple[str, ...]:
             "expanded_focus",
         ),
         "causal_support": ("multi_hop", "relation_compact", "expanded_focus"),
+        "emotion_response_support": ("relation_compact", "expanded_focus"),
         "inference_support": ("relation_compact", "expanded_focus", "base_query"),
         "preference_support": ("relation_compact", "expanded_focus", "base_query"),
         "visual_support": ("visual_support", "expanded_focus", "relation_compact"),

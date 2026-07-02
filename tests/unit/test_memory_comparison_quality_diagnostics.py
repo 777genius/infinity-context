@@ -1625,6 +1625,65 @@ def test_query_plan_integrity_maps_preference_and_visual_support_roles() -> None
     )
 
 
+def test_query_plan_integrity_maps_emotion_response_support_role() -> None:
+    base_only_plan = {
+        "schema_version": "query_plan.v2",
+        "selected_query_count": 1,
+        "dropped_query_count": 0,
+        "selected_roles": ["original_question"],
+        "dropped_roles": [],
+        "recommended_role_families": ["base_query", "relation_compact"],
+        "selected_role_families": ["base_query"],
+        "missing_recommended_role_families": ["relation_compact"],
+        "selected_role_family_counts": {"base_query": 1},
+        "fanout_integrity": {"bounded": True},
+    }
+    relation_plan = {
+        **base_only_plan,
+        "selected_query_count": 2,
+        "selected_roles": ["original_question", "compact_relation"],
+        "selected_role_families": ["base_query", "relation_compact"],
+        "missing_recommended_role_families": [],
+        "selected_role_family_counts": {
+            "base_query": 1,
+            "relation_compact": 1,
+        },
+    }
+    missing_item = _item(
+        case_id="missing-emotion-query-family",
+        group="single-hop",
+        retrieval=_retrieval_payload(
+            evidence_need=("emotion_response",),
+            bundle_evidence_roles=("primary", "emotion_response_support"),
+            relation_categories=("emotion_response",),
+            policy_score=0.0,
+            query_plan=base_only_plan,
+        ),
+    )
+    satisfied_item = _item(
+        case_id="has-emotion-query-family",
+        group="single-hop",
+        retrieval=_retrieval_payload(
+            evidence_need=("emotion_response",),
+            bundle_evidence_roles=("primary", "emotion_response_support"),
+            relation_categories=("emotion_response",),
+            policy_score=0.0,
+            query_plan=relation_plan,
+        ),
+    )
+
+    diagnostics = quality_diagnostics((missing_item, satisfied_item))
+    table = diagnostics["query_plan_integrity_table"]
+
+    assert table["missing_evidence_role_query_family_counts"] == {
+        "emotion_response_support": 1
+    }
+    assert table["samples"][0]["case_id"] == "missing-emotion-query-family"
+    assert table["samples"][0]["missing_evidence_role_query_families"] == (
+        "emotion_response_support",
+    )
+
+
 def test_fast_gate_metrics_reports_query_role_gap_breakdown() -> None:
     gate = fast_gate_metrics(
         (
