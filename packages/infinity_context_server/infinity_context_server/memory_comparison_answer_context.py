@@ -20,12 +20,14 @@ class AnswerContext:
     skipped_bundle_item_count: int = 0
     bundle_confidence_score: float = 0.0
     bundle_confidence_band: str = ""
+    bundle_bridge_count: int = 0
     bundle_source_proximity_support_count: int = 0
     bundle_causal_support_count: int = 0
     bundle_inference_support_count: int = 0
     bundle_location_support_count: int = 0
     bundle_preference_support_count: int = 0
     bundle_visual_support_count: int = 0
+    bundle_contrast_count: int = 0
     role_requirement_complete: bool | None = None
     missing_required_roles: tuple[str, ...] = ()
     bundle_risk_reason_codes: tuple[str, ...] = ()
@@ -41,6 +43,7 @@ class AnswerContext:
             "skipped_bundle_item_count": self.skipped_bundle_item_count,
             "bundle_confidence_score": self.bundle_confidence_score,
             "bundle_confidence_band": self.bundle_confidence_band,
+            "bundle_bridge_count": self.bundle_bridge_count,
             "bundle_source_proximity_support_count": (
                 self.bundle_source_proximity_support_count
             ),
@@ -49,6 +52,7 @@ class AnswerContext:
             "bundle_location_support_count": self.bundle_location_support_count,
             "bundle_preference_support_count": self.bundle_preference_support_count,
             "bundle_visual_support_count": self.bundle_visual_support_count,
+            "bundle_contrast_count": self.bundle_contrast_count,
             "role_requirement_complete": self.role_requirement_complete,
             "missing_required_roles": list(self.missing_required_roles),
             "bundle_risk_reason_codes": list(self.bundle_risk_reason_codes),
@@ -129,6 +133,10 @@ def answer_context_from_evidence_bundle(
         bundle_confidence_band=str(
             bundle_context.get("answer_context_bundle_confidence_band") or ""
         ),
+        bundle_bridge_count=(
+            _positive_int(bundle_context.get("answer_context_bundle_bridge_count"))
+            or 0
+        ),
         bundle_source_proximity_support_count=(
             _positive_int(
                 bundle_context.get(
@@ -165,6 +173,10 @@ def answer_context_from_evidence_bundle(
             _positive_int(
                 bundle_context.get("answer_context_bundle_visual_support_count")
             )
+            or 0
+        ),
+        bundle_contrast_count=(
+            _positive_int(bundle_context.get("answer_context_bundle_contrast_count"))
             or 0
         ),
         role_requirement_complete=(
@@ -254,12 +266,14 @@ def _answer_context_cutoff_metrics(
     source_ref_coverage_rates: list[float] = []
     bundle_confidence_scores: list[float] = []
     bundle_confidence_band_counts: Counter[str] = Counter()
+    bundle_bridge_counts: list[int] = []
     bundle_source_proximity_support_counts: list[int] = []
     bundle_causal_support_counts: list[int] = []
     bundle_inference_support_counts: list[int] = []
     bundle_location_support_counts: list[int] = []
     bundle_preference_support_counts: list[int] = []
     bundle_visual_support_counts: list[int] = []
+    bundle_contrast_counts: list[int] = []
     missing_required_role_counts: Counter[str] = Counter()
     bundle_risk_reason_counts: Counter[str] = Counter()
     incomplete_role_requirement_count = 0
@@ -303,6 +317,9 @@ def _answer_context_cutoff_metrics(
         confidence_band = str(context.get("bundle_confidence_band") or "").strip()
         if confidence_band:
             bundle_confidence_band_counts[confidence_band] += 1
+        bundle_bridge_counts.append(
+            _positive_int(context.get("bundle_bridge_count")) or 0
+        )
         bundle_source_proximity_support_counts.append(
             _positive_int(context.get("bundle_source_proximity_support_count")) or 0
         )
@@ -320,6 +337,9 @@ def _answer_context_cutoff_metrics(
         )
         bundle_visual_support_counts.append(
             _positive_int(context.get("bundle_visual_support_count")) or 0
+        )
+        bundle_contrast_counts.append(
+            _positive_int(context.get("bundle_contrast_count")) or 0
         )
         if context.get("role_requirement_complete") is False:
             incomplete_role_requirement_count += 1
@@ -355,6 +375,8 @@ def _answer_context_cutoff_metrics(
         "bundle_confidence_band_counts": dict(
             sorted(bundle_confidence_band_counts.items())
         ),
+        "avg_bundle_bridge_count": _avg(bundle_bridge_counts),
+        "total_bundle_bridge_count": sum(bundle_bridge_counts),
         "avg_bundle_source_proximity_support_count": _avg(
             bundle_source_proximity_support_counts
         ),
@@ -383,6 +405,8 @@ def _answer_context_cutoff_metrics(
         ),
         "avg_bundle_visual_support_count": _avg(bundle_visual_support_counts),
         "total_bundle_visual_support_count": sum(bundle_visual_support_counts),
+        "avg_bundle_contrast_count": _avg(bundle_contrast_counts),
+        "total_bundle_contrast_count": sum(bundle_contrast_counts),
         "incomplete_role_requirement_count": incomplete_role_requirement_count,
         "missing_required_role_counts": dict(
             sorted(missing_required_role_counts.items())
@@ -485,6 +509,9 @@ def _bundle_context_metadata(bundle: Mapping[str, object]) -> dict[str, object]:
     confidence_band = str(quality.get("confidence_band") or "").strip()
     if confidence_band:
         metadata["answer_context_bundle_confidence_band"] = confidence_band
+    bridge_count = _positive_int(quality.get("bridge_count"))
+    if bridge_count is not None:
+        metadata["answer_context_bundle_bridge_count"] = bridge_count
     source_proximity_support_count = _positive_int(
         quality.get("source_proximity_support_count")
     )
@@ -513,6 +540,9 @@ def _bundle_context_metadata(bundle: Mapping[str, object]) -> dict[str, object]:
     visual_support_count = _positive_int(quality.get("visual_support_count"))
     if visual_support_count is not None:
         metadata["answer_context_bundle_visual_support_count"] = visual_support_count
+    contrast_count = _positive_int(quality.get("contrast_count"))
+    if contrast_count is not None:
+        metadata["answer_context_bundle_contrast_count"] = contrast_count
     role_requirement_complete = bundle.get("role_requirement_complete")
     if not isinstance(role_requirement_complete, bool):
         role_requirement_complete = planner.get("role_requirement_complete")

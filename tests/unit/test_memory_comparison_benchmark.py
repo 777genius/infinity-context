@@ -221,12 +221,14 @@ def test_render_answer_prompt_labels_planned_evidence_context() -> None:
                     ),
                     "answer_context_bundle_confidence_score": 0.68,
                     "answer_context_bundle_confidence_band": "medium",
+                    "answer_context_bundle_bridge_count": 1,
                     "answer_context_bundle_source_proximity_support_count": 1,
                     "answer_context_bundle_causal_support_count": 1,
                     "answer_context_bundle_inference_support_count": 2,
                     "answer_context_bundle_location_support_count": 5,
                     "answer_context_bundle_preference_support_count": 3,
                     "answer_context_bundle_visual_support_count": 4,
+                    "answer_context_bundle_contrast_count": 2,
                     "answer_context_role_requirement_complete": False,
                     "answer_context_missing_required_roles": ("contrast",),
                     "answer_context_bundle_risk_reason_codes": (
@@ -254,7 +256,8 @@ def test_render_answer_prompt_labels_planned_evidence_context() -> None:
     assert "bundle=medium:0.68" in prompt
     assert "bundle_proximity=1" in prompt
     assert (
-        "bundle_support=causal:1,inference:2,location:5,preference:3,visual:4"
+        "bundle_support=bridge:1,causal:1,inference:2,location:5,"
+        "preference:3,visual:4,contrast:2"
         in prompt
     )
     assert "missing_roles=contrast" in prompt

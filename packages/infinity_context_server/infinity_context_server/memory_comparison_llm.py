@@ -250,6 +250,9 @@ def _positive_int(value: object) -> int | None:
 
 def _bundle_support_counts(metadata: Mapping[str, object]) -> tuple[str, ...]:
     counts: list[str] = []
+    bridge = _positive_int(metadata.get("answer_context_bundle_bridge_count"))
+    if bridge is not None:
+        counts.append(f"bridge:{bridge}")
     causal = _positive_int(
         metadata.get("answer_context_bundle_causal_support_count")
     )
@@ -275,6 +278,9 @@ def _bundle_support_counts(metadata: Mapping[str, object]) -> tuple[str, ...]:
     )
     if visual is not None:
         counts.append(f"visual:{visual}")
+    contrast = _positive_int(metadata.get("answer_context_bundle_contrast_count"))
+    if contrast is not None:
+        counts.append(f"contrast:{contrast}")
     return tuple(counts)
 
 
