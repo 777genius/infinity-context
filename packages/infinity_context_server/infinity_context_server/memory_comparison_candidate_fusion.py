@@ -22,6 +22,7 @@ class CandidateFusionConfig:
 
 DEFAULT_CANDIDATE_FUSION_CONFIG = CandidateFusionConfig()
 _TURN_REF_RE = re.compile(r"\bD\d+:\d+\b")
+_EVIDENCE_SELECTION_SCORE_BAND = 0.025
 
 
 @dataclass(frozen=True)
@@ -105,9 +106,10 @@ def _fuse_candidate(
     *,
     config: CandidateFusionConfig,
 ) -> tuple[RetrievedMemory, dict[str, object]]:
-    winner = max(
+    score_winner = max(occurrences, key=_score_winner_key)
+    evidence_winner = _select_evidence_winner(
         occurrences,
-        key=lambda occurrence: (occurrence.memory.score, -occurrence.rank),
+        score_winner=score_winner,
     )
     query_indices = tuple(
         sorted({occurrence.query_index for occurrence in occurrences})
@@ -127,7 +129,7 @@ def _fuse_candidate(
     )
     max_possible_rrf = len(query_indices) / (config.rrf_k + 1)
     normalized_rrf = min(1.0, rrf_score / max_possible_rrf) if max_possible_rrf else 0.0
-    source_refs = _source_refs(winner.memory, occurrences)
+    source_refs = _source_refs(evidence_winner.memory, occurrences)
     source_types = _source_types(occurrences)
     retrieval_sources = _retrieval_sources(occurrences)
     source_diversity_count = len(tuple(dict.fromkeys((*source_types, *retrieval_sources))))
@@ -163,7 +165,16 @@ def _fuse_candidate(
         "retrieval_sources": list(retrieval_sources),
         "source_diversity_count": source_diversity_count,
         "extra_fusion_eligible": extra_fusion_eligible,
-        "winner_score": round(winner.memory.score, 6),
+        "winner_score": round(score_winner.memory.score, 6),
+        "score_winner_item_id": score_winner.memory.item_id,
+        "score_winner_source_type": _source_type(score_winner.memory),
+        "selected_evidence_item_id": evidence_winner.memory.item_id,
+        "selected_evidence_score": round(evidence_winner.memory.score, 6),
+        "selected_evidence_source_type": _source_type(evidence_winner.memory),
+        "selected_evidence_quality_score": round(
+            _evidence_quality_score(evidence_winner.memory),
+            6,
+        ),
         "occurrence_scores": [
             round(occurrence.memory.score, 6) for occurrence in occurrences
         ],
@@ -172,7 +183,77 @@ def _fuse_candidate(
         "source_diversity_boost": round(source_diversity_boost, 6),
         "total_boost": total_boost,
     }
-    return _with_candidate_fusion_metadata(winner.memory, fusion), fusion
+    selected_memory = replace(
+        evidence_winner.memory,
+        rank=min(occurrence.rank for occurrence in occurrences),
+        score=score_winner.memory.score,
+    )
+    return _with_candidate_fusion_metadata(selected_memory, fusion), fusion
+
+
+def _score_winner_key(occurrence: _CandidateOccurrence) -> tuple[float, int]:
+    return (occurrence.memory.score, -occurrence.rank)
+
+
+def _select_evidence_winner(
+    occurrences: Sequence[_CandidateOccurrence],
+    *,
+    score_winner: _CandidateOccurrence,
+) -> _CandidateOccurrence:
+    score_floor = score_winner.memory.score - _EVIDENCE_SELECTION_SCORE_BAND
+    eligible = tuple(
+        occurrence
+        for occurrence in occurrences
+        if occurrence.memory.score >= score_floor
+    )
+    return max(eligible or occurrences, key=_evidence_winner_key)
+
+
+def _evidence_winner_key(
+    occurrence: _CandidateOccurrence,
+) -> tuple[float, float, int]:
+    return (
+        _evidence_quality_score(occurrence.memory),
+        occurrence.memory.score,
+        -occurrence.rank,
+    )
+
+
+def _evidence_quality_score(memory: RetrievedMemory) -> float:
+    source_refs = tuple(str(ref) for ref in memory.source_refs if str(ref).strip())
+    turn_refs = tuple(
+        dict.fromkeys(
+            (
+                *_TURN_REF_RE.findall(memory.text or ""),
+                *(
+                    ref
+                    for source_ref in source_refs
+                    for ref in _TURN_REF_RE.findall(source_ref)
+                ),
+            )
+        )
+    )
+    score = 0.0
+    source_type = _source_type(memory)
+    if source_type == "raw_turn":
+        score += 0.12
+    elif source_type == "chunk":
+        score += 0.06
+    elif source_type == "fact":
+        score += 0.04
+    if 0 < len(turn_refs) <= 2:
+        score += 0.12
+    elif 0 < len(turn_refs) <= 3:
+        score += 0.08
+    elif len(turn_refs) > 3:
+        score -= 0.04
+    if source_refs:
+        score += 0.03
+    if len(memory.text or "") <= 500:
+        score += 0.02
+    elif len(memory.text or "") > 1200:
+        score -= 0.03
+    return score
 
 
 def _with_candidate_fusion_metadata(
@@ -330,10 +411,17 @@ def _source_refs(
 def _source_types(occurrences: Sequence[_CandidateOccurrence]) -> tuple[str, ...]:
     return tuple(
         dict.fromkeys(
-            str(occurrence.memory.metadata.get("item_type") or "unknown")
+            _source_type(occurrence.memory)
             for occurrence in occurrences
         )
     )
+
+
+def _source_type(memory: RetrievedMemory) -> str:
+    value = memory.metadata.get("item_type")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return "unknown"
 
 
 def _retrieval_sources(occurrences: Sequence[_CandidateOccurrence]) -> tuple[str, ...]:
