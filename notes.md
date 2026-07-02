@@ -113,3 +113,20 @@
   -> passed.
 - `git push origin main` -> still blocked because the non-interactive runtime
   has no GitHub username/credential prompt available.
+
+## 2026-07-02 Follow-up 6
+
+- Propagated typed relation support totals and per-role counts from evidence
+  bundle quality into answer-context diagnostics and aggregate metrics. This
+  gives fast gates visibility into selected health/date/status/education/
+  employment/favorite/skill/vehicle/pet support instead of only generic bundle
+  source information.
+
+## Verification
+
+- `uv run --extra dev pytest -q tests/unit/test_memory_comparison*.py`
+  -> 498 passed, 1 warning.
+- `uv run --extra dev ruff check packages/infinity_context_server/infinity_context_server/memory_comparison_answer_context.py tests/unit/test_memory_comparison_answer_context.py`
+  -> passed.
+- `git push origin main` -> still blocked because the non-interactive runtime
+  has no GitHub username/credential prompt available.

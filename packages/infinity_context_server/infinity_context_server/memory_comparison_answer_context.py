@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from infinity_context_server.memory_comparison_answer_context_backfill import (
     backfill_incomplete_bundle_context,
@@ -56,6 +56,10 @@ class AnswerContext:
     bundle_preference_support_count: int = 0
     bundle_favorite_support_count: int = 0
     bundle_visual_support_count: int = 0
+    bundle_typed_relation_support_count: int = 0
+    bundle_typed_relation_support_counts: Mapping[str, int] = field(
+        default_factory=dict
+    )
     bundle_contrast_count: int = 0
     role_requirement_complete: bool | None = None
     missing_required_roles: tuple[str, ...] = ()
@@ -105,6 +109,12 @@ class AnswerContext:
             "bundle_preference_support_count": self.bundle_preference_support_count,
             "bundle_favorite_support_count": self.bundle_favorite_support_count,
             "bundle_visual_support_count": self.bundle_visual_support_count,
+            "bundle_typed_relation_support_count": (
+                self.bundle_typed_relation_support_count
+            ),
+            "bundle_typed_relation_support_counts": dict(
+                sorted(self.bundle_typed_relation_support_counts.items())
+            ),
             "bundle_contrast_count": self.bundle_contrast_count,
             "role_requirement_complete": self.role_requirement_complete,
             "missing_required_roles": list(self.missing_required_roles),
@@ -305,6 +315,15 @@ def answer_context_from_evidence_bundle(
             )
             or 0
         ),
+        bundle_typed_relation_support_count=(
+            _positive_int(
+                bundle_context.get("answer_context_bundle_typed_relation_support_count")
+            )
+            or 0
+        ),
+        bundle_typed_relation_support_counts=_int_mapping(
+            bundle_context.get("answer_context_bundle_typed_relation_support_counts")
+        ),
         bundle_contrast_count=(
             _positive_int(bundle_context.get("answer_context_bundle_contrast_count"))
             or 0
@@ -478,6 +497,8 @@ def _answer_context_cutoff_metrics(
     bundle_preference_support_counts: list[int] = []
     bundle_favorite_support_counts: list[int] = []
     bundle_visual_support_counts: list[int] = []
+    bundle_typed_relation_support_counts: list[int] = []
+    bundle_typed_relation_support_role_counts: Counter[str] = Counter()
     bundle_contrast_counts: list[int] = []
     answerability_scores: list[float] = []
     measured_answerability_scores: list[float] = []
@@ -625,6 +646,12 @@ def _answer_context_cutoff_metrics(
         )
         bundle_visual_support_counts.append(
             _positive_int(context.get("bundle_visual_support_count")) or 0
+        )
+        bundle_typed_relation_support_counts.append(
+            _positive_int(context.get("bundle_typed_relation_support_count")) or 0
+        )
+        bundle_typed_relation_support_role_counts.update(
+            _int_mapping(context.get("bundle_typed_relation_support_counts"))
         )
         bundle_contrast_counts.append(
             _positive_int(context.get("bundle_contrast_count")) or 0
@@ -777,6 +804,15 @@ def _answer_context_cutoff_metrics(
         "total_bundle_favorite_support_count": sum(bundle_favorite_support_counts),
         "avg_bundle_visual_support_count": _avg(bundle_visual_support_counts),
         "total_bundle_visual_support_count": sum(bundle_visual_support_counts),
+        "avg_bundle_typed_relation_support_count": _avg(
+            bundle_typed_relation_support_counts
+        ),
+        "total_bundle_typed_relation_support_count": sum(
+            bundle_typed_relation_support_counts
+        ),
+        "bundle_typed_relation_support_role_counts": dict(
+            sorted(bundle_typed_relation_support_role_counts.items())
+        ),
         "avg_bundle_contrast_count": _avg(bundle_contrast_counts),
         "total_bundle_contrast_count": sum(bundle_contrast_counts),
         "incomplete_role_requirement_count": incomplete_role_requirement_count,
@@ -967,6 +1003,20 @@ def _bundle_context_metadata(bundle: Mapping[str, object]) -> dict[str, object]:
     visual_support_count = _positive_int(quality.get("visual_support_count"))
     if visual_support_count is not None:
         metadata["answer_context_bundle_visual_support_count"] = visual_support_count
+    typed_relation_support_count = _positive_int(
+        quality.get("typed_relation_support_count")
+    )
+    if typed_relation_support_count is not None:
+        metadata["answer_context_bundle_typed_relation_support_count"] = (
+            typed_relation_support_count
+        )
+    typed_relation_support_counts = _int_mapping(
+        quality.get("typed_relation_support_counts")
+    )
+    if typed_relation_support_counts:
+        metadata["answer_context_bundle_typed_relation_support_counts"] = (
+            typed_relation_support_counts
+        )
     contrast_count = _positive_int(quality.get("contrast_count"))
     if contrast_count is not None:
         metadata["answer_context_bundle_contrast_count"] = contrast_count
@@ -1242,6 +1292,17 @@ def _metric_value(item: Mapping[str, object], key: str) -> float:
 
 def _mapping(value: object) -> Mapping[str, object]:
     return value if isinstance(value, Mapping) else {}
+
+
+def _int_mapping(value: object) -> dict[str, int]:
+    parsed: dict[str, int] = {}
+    for key, raw_count in _mapping(value).items():
+        role = str(key).strip()
+        count = _positive_int(raw_count)
+        if not role or count is None:
+            continue
+        parsed[role] = count
+    return dict(sorted(parsed.items()))
 
 
 def _sequence(value: object) -> tuple[object, ...]:

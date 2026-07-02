@@ -60,6 +60,11 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
                     "preference_support_count": 3,
                     "favorite_support_count": 11,
                     "visual_support_count": 4,
+                    "typed_relation_support_count": 12,
+                    "typed_relation_support_counts": {
+                        "favorite_support": 11,
+                        "health_support": 1,
+                    },
                     "contrast_count": 2,
                     "reason_codes": [
                         "has_primary_evidence",
@@ -142,6 +147,11 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
     assert context.bundle_preference_support_count == 3
     assert context.bundle_favorite_support_count == 11
     assert context.bundle_visual_support_count == 4
+    assert context.bundle_typed_relation_support_count == 12
+    assert context.bundle_typed_relation_support_counts == {
+        "favorite_support": 11,
+        "health_support": 1,
+    }
     assert context.bundle_contrast_count == 2
     assert context.memories[0].metadata["answer_context_bundle_bridge_count"] == 1
     assert (
@@ -224,6 +234,15 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
         context.memories[0].metadata["answer_context_bundle_visual_support_count"]
         == 4
     )
+    assert (
+        context.memories[0].metadata[
+            "answer_context_bundle_typed_relation_support_count"
+        ]
+        == 12
+    )
+    assert context.memories[0].metadata[
+        "answer_context_bundle_typed_relation_support_counts"
+    ] == {"favorite_support": 11, "health_support": 1}
     assert context.memories[0].metadata["answer_context_bundle_contrast_count"] == 2
     assert (
         context.memories[0].metadata["answer_context_role_requirement_complete"]
@@ -293,6 +312,11 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
         "bundle_preference_support_count": 3,
         "bundle_favorite_support_count": 11,
         "bundle_visual_support_count": 4,
+        "bundle_typed_relation_support_count": 12,
+        "bundle_typed_relation_support_counts": {
+            "favorite_support": 11,
+            "health_support": 1,
+        },
         "bundle_contrast_count": 2,
         "role_requirement_complete": False,
         "missing_required_roles": ["contrast"],
@@ -1219,6 +1243,11 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
                             "bundle_preference_support_count": 3,
                             "bundle_favorite_support_count": 11,
                             "bundle_visual_support_count": 4,
+                            "bundle_typed_relation_support_count": 12,
+                            "bundle_typed_relation_support_counts": {
+                                "favorite_support": 11,
+                                "health_support": 1,
+                            },
                             "bundle_contrast_count": 2,
                             "role_requirement_complete": False,
                             "missing_required_roles": ["contrast"],
@@ -1319,6 +1348,12 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
     assert primary["total_bundle_favorite_support_count"] == 11
     assert primary["avg_bundle_visual_support_count"] == 2.0
     assert primary["total_bundle_visual_support_count"] == 4
+    assert primary["avg_bundle_typed_relation_support_count"] == 6.0
+    assert primary["total_bundle_typed_relation_support_count"] == 12
+    assert primary["bundle_typed_relation_support_role_counts"] == {
+        "favorite_support": 11,
+        "health_support": 1,
+    }
     assert primary["avg_bundle_contrast_count"] == 1.0
     assert primary["total_bundle_contrast_count"] == 2
     assert primary["avg_source_ref_count"] == 0.5
