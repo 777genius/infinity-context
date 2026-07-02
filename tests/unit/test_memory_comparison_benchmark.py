@@ -4712,6 +4712,77 @@ def test_query_decomposition_expands_pet_profile_queries() -> None:
     ]
 
 
+def test_query_decomposition_expands_skill_profile_queries() -> None:
+    language_case = _case(
+        case_id="skill-profile-language",
+        question="What language does Alex speak?",
+        expected_terms=("Spanish",),
+        answer="Spanish",
+    )
+    instrument_case = _case(
+        case_id="skill-profile-instrument",
+        question="What instrument does Alex play?",
+        expected_terms=("guitar",),
+        answer="guitar",
+    )
+    guitar_case = _case(
+        case_id="skill-profile-guitar",
+        question="Does Alex play guitar?",
+        expected_terms=("yes",),
+        answer="yes",
+    )
+    park_game_case = _case(
+        case_id="skill-profile-park-game-guard",
+        question="What game did Alex play at the park?",
+        expected_terms=("soccer",),
+        answer="soccer",
+    )
+    song_preference_case = _case(
+        case_id="skill-profile-song-guard",
+        question="What song does Alex like?",
+        expected_terms=("Vivaldi",),
+        answer="Vivaldi",
+    )
+
+    language_queries, language_metadata = rerank_module.decomposed_search_queries(
+        language_case
+    )
+    instrument_queries, instrument_metadata = rerank_module.decomposed_search_queries(
+        instrument_case
+    )
+    guitar_queries, guitar_metadata = rerank_module.decomposed_search_queries(
+        guitar_case
+    )
+    _, park_game_metadata = rerank_module.decomposed_search_queries(park_game_case)
+    _, song_preference_metadata = rerank_module.decomposed_search_queries(
+        song_preference_case
+    )
+
+    assert language_queries[2] == "alex skill language speak spoken instrument play"
+    assert language_metadata["query_profile"]["relation_terms"] == ("skill",)
+    assert language_metadata["query_profile"]["relation_categories"] == (
+        "skill_profile",
+    )
+    assert language_metadata["query_profile"]["evidence_need"] == ("skill_profile",)
+
+    assert instrument_queries[2] == "alex skill language speak spoken instrument play"
+    assert instrument_metadata["query_profile"]["relation_categories"] == (
+        "skill_profile",
+    )
+
+    assert guitar_queries[2] == "alex skill language speak spoken instrument play"
+    assert guitar_metadata["query_profile"]["relation_categories"] == (
+        "skill_profile",
+    )
+
+    assert "skill_profile" not in park_game_metadata["query_profile"][
+        "relation_categories"
+    ]
+    assert "skill_profile" not in song_preference_metadata["query_profile"][
+        "relation_categories"
+    ]
+
+
 def test_infinity_context_http_search_expands_temporal_action_queries() -> None:
     seen_payloads: list[dict[str, object]] = []
 
@@ -7955,6 +8026,67 @@ def test_benchmark_rerank_boosts_pet_profile_evidence() -> None:
     assert pet_diagnostics["score_signals"][
         "benchmark_typed_relation_support_roles"
     ] == ["pet_support"]
+    assert (
+        topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        == 0
+    )
+
+
+def test_benchmark_rerank_boosts_skill_profile_evidence() -> None:
+    case = _case(
+        case_id="skill-profile-rerank",
+        question="What language does Alex speak?",
+        expected_terms=("Spanish",),
+        answer="Spanish",
+        category=4,
+    )
+    topical_language = RetrievedMemory(
+        item_id="topical-language",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex talked about Spanish food with Maria."
+        ),
+        source_refs=("D1:1",),
+    )
+    skill_profile = RetrievedMemory(
+        item_id="skill-profile",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: I speak Spanish at home."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_language, skill_profile),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("skill_profile",)
+    assert reranked[0].item_id == "skill-profile"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    skill_diagnostics = diagnostics_by_id["skill-profile"]
+    topical_diagnostics = diagnostics_by_id["topical-language"]
+    assert skill_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["skill_profile"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert (
+        skill_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        > 0
+    )
+    assert skill_diagnostics["score_signals"][
+        "benchmark_typed_relation_support_roles"
+    ] == ["skill_support"]
     assert (
         topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
         == 0

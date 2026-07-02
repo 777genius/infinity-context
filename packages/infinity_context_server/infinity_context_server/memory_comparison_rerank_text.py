@@ -395,6 +395,14 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
     ):
         terms.append("pet")
     if re.search(
+        r"\blanguages?\b.+\bspeak\b|\bspeak\b.+\blanguages?\b|"
+        r"\binstrument\b.+\bplay\b|\bplay\b.+\binstrument\b|"
+        r"\bplay\s+(?:guitar|piano|violin|drums?)\b",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        terms.append("skill")
+    if re.search(
         r"\bwhere\b.+\blive\b|\blive\b.+\bwhere\b",
         text,
         flags=re.IGNORECASE,

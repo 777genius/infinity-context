@@ -236,6 +236,11 @@ def infer_relation_intents(
             relation_terms=relation_terms,
         ):
             continue
+        if category == "skill_profile" and not _has_skill_profile_intent(
+            question=question,
+            relation_terms=relation_terms,
+        ):
+            continue
         if category == "communication" and not _has_communication_intent(
             question=question,
             relation_terms=relation_terms,
@@ -398,6 +403,7 @@ def merge_relation_evidence_needs(
         "employment_profile",
         "health_profile",
         "pet_profile",
+        "skill_profile",
         "communication",
         "exchange",
         "inference_support",
@@ -715,6 +721,24 @@ def _has_pet_profile_intent(
         re.search(
             r"\bwhat\s+pet\b|\b(?:dog|cat|pet)\b.+\bnamed?\b|"
             r"\bname\b.+\b(?:dog|cat|pet)\b",
+            normalized_question,
+        )
+    )
+
+
+def _has_skill_profile_intent(
+    *,
+    question: str,
+    relation_terms: tuple[str, ...],
+) -> bool:
+    if "skill" not in set(relation_terms):
+        return False
+    normalized_question = re.sub(r"[^0-9a-z]+", " ", question.casefold()).strip()
+    return bool(
+        re.search(
+            r"\blanguages?\b.+\bspeak\b|\bspeak\b.+\blanguages?\b|"
+            r"\binstrument\b.+\bplay\b|\bplay\b.+\binstrument\b|"
+            r"\bplay\s+(?:guitar|piano|violin|drums?)\b",
             normalized_question,
         )
     )
@@ -1149,6 +1173,26 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
         ),
         "markers": frozenset(),
         "evidence_need": "pet_profile",
+    },
+    "skill_profile": {
+        "terms": frozenset({"skill"}),
+        "variants": frozenset(
+            {
+                "drums",
+                "guitar",
+                "instrument",
+                "language",
+                "piano",
+                "play",
+                "plays",
+                "speak",
+                "speaks",
+                "spoken",
+                "violin",
+            }
+        ),
+        "markers": frozenset(),
+        "evidence_need": "skill_profile",
     },
     "exchange": {
         "terms": frozenset(

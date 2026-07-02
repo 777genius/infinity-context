@@ -27,6 +27,8 @@ def typed_relation_category_support(
         return _has_health_profile_support(memory_terms, memory_text=memory_text)
     if category == "pet_profile":
         return _has_pet_profile_support(memory_terms, memory_text=memory_text)
+    if category == "skill_profile":
+        return _has_skill_profile_support(memory_terms, memory_text=memory_text)
     if category == "exchange":
         return _has_exchange_support(memory_terms, memory_text=memory_text)
     check = _TYPED_SUPPORT_CHECKS.get(category)
@@ -237,6 +239,44 @@ def _has_pet_profile_support(
     return bool(
         (pet_surface and (name_surface or ownership_surface))
         or _PET_PROFILE_SURFACE_RE.search(memory_text)
+    )
+
+
+_SKILL_PROFILE_SURFACE_RE = re.compile(
+    r"\b(?:speak|speaks|speaking|spoken)\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|"
+    r"(?:english|spanish|french|german|mandarin|japanese|arabic|hindi))\b"
+    r"|\b(?:play|plays|playing)\s+"
+    r"(?:guitar|piano|violin|drums?|cello|flute|saxophone)\b",
+)
+
+
+def _has_skill_profile_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
+    language_action = {"speak", "speaks", "spoken", "speaking"} & memory_terms
+    language_context = {
+        "english",
+        "french",
+        "german",
+        "language",
+        "mandarin",
+        "spanish",
+    } & memory_terms
+    play_action = {"play", "plays", "playing"} & memory_terms
+    instrument_context = {
+        "drums",
+        "guitar",
+        "instrument",
+        "piano",
+        "violin",
+    } & memory_terms
+    return bool(
+        (language_action and language_context)
+        or (play_action and instrument_context)
+        or _SKILL_PROFILE_SURFACE_RE.search(memory_text)
     )
 
 
@@ -928,6 +968,7 @@ _TYPED_SUPPORT_CHECKS: dict[str, Callable[[set[str]], bool]] = {
     "participation_event": _has_participation_event_support,
     "preference": _has_preference_support,
     "registration_event": _has_registration_event_support,
+    "skill_profile": _has_skill_profile_support,
     "status_profile": _has_status_profile_support,
     "support_goal": _has_support_goal_support,
     "symbolic_meaning": _has_symbolic_meaning_support,

@@ -864,6 +864,7 @@ _TYPED_RELATION_SUPPORT_ROLE_CATEGORIES = {
     "exchange_support": frozenset({"exchange"}),
     "health_support": frozenset({"health_profile"}),
     "pet_support": frozenset({"pet_profile"}),
+    "skill_support": frozenset({"skill_profile"}),
     "symbolic_meaning_support": frozenset({"symbolic_meaning"}),
 }
 _TYPED_RELATION_SUPPORT_NEEDS = {
@@ -876,6 +877,7 @@ _TYPED_RELATION_SUPPORT_NEEDS = {
     "exchange_support": frozenset({"exchange"}),
     "health_support": frozenset({"health_profile"}),
     "pet_support": frozenset({"pet_profile"}),
+    "skill_support": frozenset({"skill_profile"}),
     "symbolic_meaning_support": frozenset({"symbolic_meaning"}),
 }
 
