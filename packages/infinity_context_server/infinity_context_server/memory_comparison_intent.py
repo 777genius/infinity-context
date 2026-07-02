@@ -406,6 +406,7 @@ def merge_relation_evidence_needs(
         "emotion_response",
         "education_profile",
         "employment_profile",
+        "age_profile",
         "health_profile",
         "pet_profile",
         "skill_profile",
@@ -1187,6 +1188,21 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
         ),
         "markers": frozenset(),
         "evidence_need": "health_profile",
+    },
+    "age_profile": {
+        "terms": frozenset({"age"}),
+        "variants": frozenset(
+            {
+                "age",
+                "birthday",
+                "born",
+                "old",
+                "year",
+                "years",
+            }
+        ),
+        "markers": frozenset(),
+        "evidence_need": "age_profile",
     },
     "pet_profile": {
         "terms": frozenset({"pet"}),

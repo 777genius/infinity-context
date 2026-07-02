@@ -17,6 +17,7 @@ RELATION_QUERY_VARIANTS = {
         "weekend",
         "unplug",
     ),
+    "age": ("old", "years", "year", "birthday", "born"),
     "advise": ("advised", "recommend", "recommended", "suggest", "suggested"),
     "ask": ("asked", "request", "requested", "told"),
     "attend": (

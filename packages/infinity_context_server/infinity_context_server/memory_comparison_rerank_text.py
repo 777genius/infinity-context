@@ -398,6 +398,12 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
     ):
         terms.append("health")
     if re.search(
+        r"\bhow\s+old\b|\bwhat\b.+\bage\b|\bage\b.+\b(?:is|of)\b",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        terms.append("age")
+    if re.search(
         r"\bwhat\s+pet\b|\b(?:dog|cat|pet)\b.+\bnamed?\b|"
         r"\bname\b.+\b(?:dog|cat|pet)\b",
         text,

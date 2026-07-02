@@ -23,6 +23,8 @@ def typed_relation_category_support(
             memory_terms,
             memory_text=memory_text,
         )
+    if category == "age_profile":
+        return _has_age_profile_support(memory_terms, memory_text=memory_text)
     if category == "health_profile":
         return _has_health_profile_support(memory_terms, memory_text=memory_text)
     if category == "pet_profile":
@@ -190,6 +192,27 @@ _HEALTH_PROFILE_SURFACE_RE = re.compile(
     r"(?:a\s+|an\s+|the\s+)?(?:pill|medication|medicine|prescription))\b"
     r"|\b(?:have|has|had)\s+(?:asthma|diabetes|migraine|allergies|allergy)\b",
 )
+
+
+_AGE_PROFILE_SURFACE_RE = re.compile(
+    r"\b(?:i\s+am|i'm|he\s+is|he's|she\s+is|she's|they\s+are|they're)\s+"
+    r"(?:\d{1,3}|[a-z]+)\s+years?\s+old\b"
+    r"|\b(?:age\s+(?:is|was)|turned)\s+(?:\d{1,3}|[a-z]+)\b",
+    re.IGNORECASE,
+)
+
+
+def _has_age_profile_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
+    age_surface = {"age", "old"} & memory_terms
+    year_surface = {"year", "years"} & memory_terms
+    return bool(
+        (age_surface and year_surface)
+        or _AGE_PROFILE_SURFACE_RE.search(memory_text)
+    )
 
 
 def _has_health_profile_support(
@@ -1015,6 +1038,7 @@ def _has_identity_profile_support(memory_terms: set[str]) -> bool:
 
 _TYPED_SUPPORT_CHECKS: dict[str, Callable[[set[str]], bool]] = {
     "activity": _has_activity_support,
+    "age_profile": _has_age_profile_support,
     "causal": _has_causal_support,
     "contrast": _has_contrast_support,
     "current_goal": _has_current_goal_support,

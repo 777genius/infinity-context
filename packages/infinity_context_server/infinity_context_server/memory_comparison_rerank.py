@@ -164,6 +164,7 @@ _HIGH_SIGNAL_RELATION_VARIANTS = {
 }
 _RELATION_QUERY_TERMS = {
     "activity",
+    "age",
     "advise",
     "ask",
     "attend",
@@ -470,6 +471,7 @@ def expanded_search_query(case: PublicBenchmarkCase) -> tuple[str, dict[str, obj
             ),
             education_support="education_profile" in intent.evidence_need,
             employment_support="employment_profile" in intent.evidence_need,
+            age_support="age_profile" in intent.evidence_need,
             health_support="health_profile" in intent.evidence_need,
             pet_support="pet_profile" in intent.evidence_need,
             preference_support="preference" in intent.evidence_need,
@@ -609,6 +611,7 @@ def decomposed_search_queries(
             communication_support=compact_relation_role == "communication_support",
             education_support=compact_relation_role == "education_support",
             employment_support=compact_relation_role == "employment_support",
+            age_support=compact_relation_role == "age_support",
             health_support=compact_relation_role == "health_support",
             pet_support=compact_relation_role == "pet_support",
             preference_support=compact_relation_role == "preference_support",
@@ -831,6 +834,7 @@ def _support_query_terms(
     communication_support: bool,
     education_support: bool,
     employment_support: bool,
+    age_support: bool,
     health_support: bool,
     pet_support: bool,
     preference_support: bool,
@@ -853,6 +857,13 @@ def _support_query_terms(
         )
     if employment_support:
         return _employment_support_query_terms(
+            relation_terms=relation_terms,
+            relation_variant_terms=relation_variant_terms,
+            lexical_terms=lexical_terms,
+            entity_surfaces=entity_surfaces,
+        )
+    if age_support:
+        return _age_support_query_terms(
             relation_terms=relation_terms,
             relation_variant_terms=relation_variant_terms,
             lexical_terms=lexical_terms,
@@ -1023,6 +1034,36 @@ def _employment_support_query_terms(
                     )
                     if term not in employment_terms and term not in _QUERY_STOPWORDS
                 ),
+            )
+        )
+    )
+
+
+def _age_support_query_terms(
+    *,
+    relation_terms: tuple[str, ...],
+    relation_variant_terms: tuple[str, ...],
+    lexical_terms: tuple[str, ...],
+    entity_surfaces: tuple[str, ...],
+) -> tuple[str, ...]:
+    entity_tokens = {
+        token for surface in entity_surfaces for token in _normalized_terms(surface)
+    }
+    age_terms = {"age", "birthday", "born", "old", "year", "years"}
+    topical_terms = tuple(
+        term
+        for term in lexical_terms
+        if term not in _QUERY_STOPWORDS
+        and term not in relation_terms
+        and term not in relation_variant_terms
+        and term not in entity_tokens
+    )
+    return tuple(
+        dict.fromkeys(
+            (
+                *(term for term in relation_terms if term == "age"),
+                *(term for term in relation_variant_terms if term in age_terms),
+                *topical_terms[:4],
             )
         )
     )
@@ -1456,6 +1497,8 @@ def _compact_relation_query_role(intent: RetrievalIntent) -> str:
         return "education_support"
     if "employment_profile" in set(intent.evidence_need):
         return "employment_support"
+    if "age_profile" in set(intent.evidence_need):
+        return "age_support"
     if "health_profile" in set(intent.evidence_need):
         return "health_support"
     if "pet_profile" in set(intent.evidence_need):
@@ -1875,6 +1918,8 @@ def _filter_relation_terms_for_profile(
             normalized_question,
         ):
             continue
+        if term == "age" and not _has_age_profile_question(normalized_question):
+            continue
         if term == "pet" and not _has_pet_profile_question(normalized_question):
             continue
         if term == "skill" and not _has_skill_profile_question(normalized_question):
@@ -1923,6 +1968,15 @@ def _has_employment_profile_question(normalized_question: str) -> bool:
             r"\bwhere\b.+\bwork\b|"
             r"\bwhat\b.+\bdo\b.+\bfor\s+work\b|"
             r"\bwork\b.+\b(?:company|for)\b",
+            normalized_question,
+        )
+    )
+
+
+def _has_age_profile_question(normalized_question: str) -> bool:
+    return bool(
+        re.search(
+            r"\bhow\s+old\b|\bwhat\b.+\bage\b|\bage\b.+\b(?:is|of)\b",
             normalized_question,
         )
     )
