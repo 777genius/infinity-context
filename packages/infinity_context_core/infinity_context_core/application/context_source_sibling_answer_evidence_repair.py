@@ -59,7 +59,9 @@ def _restore_exact_source_sibling_answer_evidence_items(
         _exact_source_sibling_answer_evidence_repair_key(item)
         for item in candidates
     }
+    existing_exact_source_ids = _exact_turn_source_ids_with_body(candidates)
     repaired_keys: set[tuple[str, str, tuple[str, ...]]] = set()
+    repaired_source_ids: set[str] = set()
     repairs: list[ContextItem] = []
     considered = 0
     skipped_existing = 0
@@ -81,7 +83,12 @@ def _restore_exact_source_sibling_answer_evidence_items(
                 continue
             considered += 1
             repair_key = (item.item_type, item.item_id, (source_id,))
-            if repair_key in existing_repair_keys or repair_key in repaired_keys:
+            if (
+                source_id in existing_exact_source_ids
+                or source_id in repaired_source_ids
+                or repair_key in existing_repair_keys
+                or repair_key in repaired_keys
+            ):
                 skipped_existing += 1
                 continue
             repair_item = item
@@ -106,6 +113,7 @@ def _restore_exact_source_sibling_answer_evidence_items(
                 )
             repairs.append(repair_item)
             repaired_keys.add(repair_key)
+            repaired_source_ids.add(source_id)
             if len(repairs) >= _MAX_EXACT_SOURCE_SIBLING_ANSWER_EVIDENCE_REPAIRS:
                 break
         if len(repairs) >= _MAX_EXACT_SOURCE_SIBLING_ANSWER_EVIDENCE_REPAIRS:
@@ -118,6 +126,19 @@ def _restore_exact_source_sibling_answer_evidence_items(
     if not repairs:
         return candidates, diagnostics
     return tuple(sorted((*candidates, *repairs), key=context_rank_key)), diagnostics
+
+
+def _exact_turn_source_ids_with_body(items: tuple[ContextItem, ...]) -> frozenset[str]:
+    source_ids: set[str] = set()
+    for item in items:
+        for ref in item.source_refs:
+            source_id = str(ref.source_id or "")
+            if not source_id.casefold().endswith(":turn"):
+                continue
+            marker = _source_ref_dialogue_marker(ref)
+            if marker and _dialogue_turn_marker_text_match(text=item.text, marker=marker):
+                source_ids.add(source_id)
+    return frozenset(source_ids)
 
 
 def _exact_source_sibling_answer_evidence_repair_key(

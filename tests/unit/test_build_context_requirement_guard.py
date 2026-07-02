@@ -561,6 +561,110 @@ def test_restore_exact_source_sibling_answer_evidence_repairs_missing_turn_ref()
     assert diagnostics["exact_source_sibling_answer_evidence_repair_added"] == 1
 
 
+def test_restore_exact_source_sibling_answer_evidence_dedupes_same_turn_ref() -> None:
+    source_ref = SourceRef(
+        source_type="locomo_turn",
+        source_id="locomo:conversation:session_6:D6:11:turn",
+    )
+    session_ref = SourceRef(
+        source_type="locomo_session",
+        source_id="locomo:conversation:session_6",
+    )
+    source_items = (
+        _item(
+            "session_window_a",
+            (
+                "D6:10 Riley: Did Caroline go to the LGBTQ support group? "
+                "D6:11 Caroline: Yes, I went last week."
+            ),
+            deterministic_reasons=(),
+            source_refs=(session_ref, source_ref),
+            diagnostics={
+                "retrieval_source": "keyword_source_sibling_chunks",
+                "retrieval_sources": ["keyword_source_sibling_chunks"],
+                "score_signals": {
+                    "source_sibling_answer_evidence": 1,
+                    "query_expansion_reason": "decomposition_temporal_answer",
+                },
+            },
+        ),
+        _item(
+            "session_window_b",
+            (
+                "D6:9 Morgan: Was it before the weekend? "
+                "D6:11 Caroline: Yes, I went last week."
+            ),
+            deterministic_reasons=(),
+            source_refs=(session_ref, source_ref),
+            diagnostics={
+                "retrieval_source": "keyword_source_sibling_chunks",
+                "retrieval_sources": ["keyword_source_sibling_chunks"],
+                "score_signals": {
+                    "source_sibling_answer_evidence": 1,
+                    "query_expansion_reason": "decomposition_temporal_answer",
+                },
+            },
+        ),
+    )
+
+    restored, diagnostics = _restore_exact_source_sibling_answer_evidence_items(
+        candidates=(),
+        source_items=source_items,
+    )
+
+    repaired_turn_items = [
+        item
+        for item in restored
+        if item.source_refs and item.source_refs[0].source_id == source_ref.source_id
+    ]
+    assert len(repaired_turn_items) == 1
+    assert diagnostics["exact_source_sibling_answer_evidence_repair_added"] == 1
+    assert diagnostics["exact_source_sibling_answer_evidence_repair_existing"] == 1
+
+
+def test_restore_exact_source_sibling_answer_evidence_skips_existing_exact_body() -> None:
+    source_ref = SourceRef(
+        source_type="locomo_turn",
+        source_id="locomo:conversation:session_6:D6:11:turn",
+    )
+    existing = _item(
+        "existing_exact_turn",
+        "D6:11 Caroline: Yes, I went last week.",
+        deterministic_reasons=(),
+        source_refs=(source_ref,),
+        diagnostics={
+            "retrieval_source": "exact_source_ref_hydration",
+            "retrieval_sources": ["exact_source_ref_hydration"],
+        },
+    )
+    source_item = _item(
+        "session_window",
+        (
+            "D6:10 Riley: Did Caroline go to the LGBTQ support group? "
+            "D6:11 Caroline: Yes, I went last week."
+        ),
+        deterministic_reasons=(),
+        source_refs=(source_ref,),
+        diagnostics={
+            "retrieval_source": "keyword_source_sibling_chunks",
+            "retrieval_sources": ["keyword_source_sibling_chunks"],
+            "score_signals": {
+                "source_sibling_answer_evidence": 1,
+                "query_expansion_reason": "decomposition_temporal_answer",
+            },
+        },
+    )
+
+    restored, diagnostics = _restore_exact_source_sibling_answer_evidence_items(
+        candidates=(existing,),
+        source_items=(source_item,),
+    )
+
+    assert restored == (existing,)
+    assert diagnostics["exact_source_sibling_answer_evidence_repair_added"] == 0
+    assert diagnostics["exact_source_sibling_answer_evidence_repair_existing"] == 1
+
+
 def test_restore_exact_source_sibling_answer_evidence_repairs_related_partner_turn() -> None:
     sponsorship_observation = _item(
         "sponsorship_observation",
@@ -929,7 +1033,7 @@ def test_exact_turn_hydration_skips_wrong_country_destination_stub_ref() -> None
     assert _exact_turn_source_ref_hydration_requests((source_group,)) == {}
 
 
-def test_exact_turn_hydration_skips_refs_with_existing_turn_body() -> None:
+def test_exact_turn_hydration_skips_existing_body_but_allows_previous_context() -> None:
     hydrated_turn = _item(
         "activity_turn",
         "D1:28 Jon: Yeah, awesome! Glad to be part of it.",
@@ -950,7 +1054,11 @@ def test_exact_turn_hydration_skips_refs_with_existing_turn_body() -> None:
         },
     )
 
-    assert _exact_turn_source_ref_hydration_requests((hydrated_turn,)) == {}
+    assert _exact_turn_source_ref_hydration_requests((hydrated_turn,)) == {
+        "locomo:conv-fixture:session_1:D1:27:turn": (
+            "activity_competition_evidence_bridge"
+        )
+    }
 
 
 def test_restore_exact_source_sibling_answer_evidence_derives_country_destination_marker() -> None:
