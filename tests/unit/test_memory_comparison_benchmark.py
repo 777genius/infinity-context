@@ -6608,6 +6608,8 @@ def test_query_decomposition_does_not_promote_get_support_to_exchange() -> None:
     assert "exchange" not in query_profile["evidence_need"]
     assert "exchange_support" not in query_profile["bundle_evidence_roles"]
     assert "support_goal" in query_profile["relation_categories"]
+    assert "support_goal" not in query_profile["evidence_need"]
+    assert "support_goal_support" not in query_profile["bundle_evidence_roles"]
 
 
 def test_query_decomposition_does_not_promote_causative_got_to_exchange() -> None:
@@ -8133,10 +8135,22 @@ def test_query_decomposition_reports_current_goal_instead_of_location_support() 
     )
     assert "location_support" not in query_profile["evidence_need"]
     assert "location_transition" not in query_profile["relation_categories"]
+    assert "current_goal" in query_profile["evidence_need"]
     assert query_profile["bundle_evidence_roles"] == (
         "primary",
+        "current_goal_support",
         "inference_support",
     )
+    assert metadata["query_plan"]["selected_roles"] == [
+        "original_question",
+        "expanded_focus",
+        "current_goal_support",
+    ]
+    assert metadata["query_plan"]["selected_role_families"] == [
+        "base_query",
+        "expanded_focus",
+        "relation_compact",
+    ]
     assert query_profile["relation_category_terms"]["current_goal"] == (
         "want",
         "hop",
@@ -9743,12 +9757,32 @@ def test_benchmark_rerank_prefers_support_motivation_turn() -> None:
         ),
     )
 
+    _, query_metadata = rerank_module.decomposed_search_queries(case)
     reranked, metadata = rerank_module.benchmark_rerank_memories(
         case,
         (generic_counseling, support_motivation),
     )
 
     assert metadata["applied"] is True
+    assert query_metadata["query_profile"]["evidence_need"] == (
+        "inference_support",
+        "support_goal",
+    )
+    assert query_metadata["query_profile"]["bundle_evidence_roles"] == (
+        "primary",
+        "support_goal_support",
+        "inference_support",
+    )
+    assert query_metadata["query_plan"]["selected_roles"] == [
+        "original_question",
+        "expanded_focus",
+        "support_goal_support",
+    ]
+    assert query_metadata["query_plan"]["selected_role_families"] == [
+        "base_query",
+        "expanded_focus",
+        "relation_compact",
+    ]
     assert [memory.item_id for memory in reranked] == [
         "support-motivation",
         "generic-counseling",
@@ -9899,12 +9933,32 @@ def test_benchmark_rerank_prefers_political_context_turn() -> None:
         ),
     )
 
+    _, query_metadata = rerank_module.decomposed_search_queries(case)
     reranked, metadata = rerank_module.benchmark_rerank_memories(
         case,
         (general_rights, political_context),
     )
 
     assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == (
+        "inference_support",
+        "identity_profile",
+    )
+    assert metadata["query_profile"]["bundle_evidence_roles"] == (
+        "primary",
+        "identity_support",
+        "inference_support",
+    )
+    assert query_metadata["query_plan"]["selected_roles"] == [
+        "original_question",
+        "expanded_focus",
+        "identity_support",
+    ]
+    assert query_metadata["query_plan"]["selected_role_families"] == [
+        "base_query",
+        "expanded_focus",
+        "relation_compact",
+    ]
     assert [memory.item_id for memory in reranked] == [
         "political-context",
         "general-rights",

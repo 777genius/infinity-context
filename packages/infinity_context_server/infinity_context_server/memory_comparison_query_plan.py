@@ -6,6 +6,28 @@ from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+_RELATION_COMPACT_SUPPORT_ROLES = frozenset(
+    {
+        "activity_support",
+        "age_support",
+        "alias_support",
+        "commitment_support",
+        "contact_support",
+        "current_goal_support",
+        "date_support",
+        "diet_support",
+        "education_support",
+        "employment_support",
+        "health_support",
+        "identity_support",
+        "pet_support",
+        "skill_support",
+        "status_support",
+        "support_goal_support",
+        "vehicle_support",
+    }
+)
+
 
 @dataclass(frozen=True)
 class QueryPlanCandidate:
@@ -421,6 +443,8 @@ def _role_families(role: str) -> tuple[str, ...]:
         "preference_support",
         "symbolic_meaning_support",
     }:
+        return ("relation_compact",)
+    if role in _RELATION_COMPACT_SUPPORT_ROLES:
         return ("relation_compact",)
     if role == "location_support":
         return ("location_support",)

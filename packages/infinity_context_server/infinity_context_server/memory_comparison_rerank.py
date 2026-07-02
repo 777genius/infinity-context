@@ -792,30 +792,37 @@ def _recommended_query_role_families(intent: RetrievalIntent) -> tuple[str, ...]
 
 
 def _compact_relation_query_role(intent: RetrievalIntent) -> str:
-    if "education_profile" in set(intent.evidence_need):
+    evidence_needs = set(intent.evidence_need)
+    if "education_profile" in evidence_needs:
         return "education_support"
-    if "commitment_profile" in set(intent.evidence_need):
+    if "commitment_profile" in evidence_needs:
         return "commitment_support"
-    if "contact_profile" in set(intent.evidence_need):
+    if "contact_profile" in evidence_needs:
         return "contact_support"
-    if "diet_profile" in set(intent.evidence_need):
+    if "current_goal" in evidence_needs:
+        return "current_goal_support"
+    if "diet_profile" in evidence_needs:
         return "diet_support"
-    if "activity_profile" in set(intent.evidence_need):
+    if "identity_profile" in evidence_needs:
+        return "identity_support"
+    if "activity_profile" in evidence_needs:
         return "activity_support"
-    if "employment_profile" in set(intent.evidence_need):
+    if "employment_profile" in evidence_needs:
         return "employment_support"
-    if "age_profile" in set(intent.evidence_need):
+    if "age_profile" in evidence_needs:
         return "age_support"
-    if "alias_profile" in set(intent.evidence_need):
+    if "alias_profile" in evidence_needs:
         return "alias_support"
-    if "health_profile" in set(intent.evidence_need):
+    if "health_profile" in evidence_needs:
         return "health_support"
-    if "pet_profile" in set(intent.evidence_need):
+    if "pet_profile" in evidence_needs:
         return "pet_support"
-    if "skill_profile" in set(intent.evidence_need):
+    if "skill_profile" in evidence_needs:
         return "skill_support"
-    if "vehicle_profile" in set(intent.evidence_need):
+    if "vehicle_profile" in evidence_needs:
         return "vehicle_support"
+    if "support_goal" in evidence_needs:
+        return "support_goal_support"
     role_priority = (
         "communication_support",
         "event_support",

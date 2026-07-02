@@ -434,13 +434,16 @@ def infer_bundle_evidence_roles(
         "activity_profile": "activity_support",
         "age_profile": "age_support",
         "alias_profile": "alias_support",
+        "current_goal": "current_goal_support",
         "date_profile": "date_support",
         "education_profile": "education_support",
         "employment_profile": "employment_support",
         "health_profile": "health_support",
+        "identity_profile": "identity_support",
         "pet_profile": "pet_support",
         "skill_profile": "skill_support",
         "status_profile": "status_support",
+        "support_goal": "support_goal_support",
         "vehicle_profile": "vehicle_support",
     }
     roles.extend(
@@ -474,6 +477,11 @@ def merge_relation_evidence_needs(
 ) -> tuple[str, ...]:
     """Promote selected typed relation-facet needs into bundle planning."""
 
+    category_promoted_needs = {
+        "current_goal",
+        "identity_profile",
+        "support_goal",
+    }
     promoted_needs = {
         "emotion_response",
         "commitment_profile",
@@ -491,17 +499,27 @@ def merge_relation_evidence_needs(
         "status_profile",
         "vehicle_profile",
         "communication",
+        "current_goal",
         "exchange",
         "inference_support",
+        "identity_profile",
         "participation_event",
         "registration_event",
+        "support_goal",
         "symbolic_meaning",
     }
     relation_needs = tuple(
-        intent.evidence_need
+        relation_need
         for intent in relation_intents
-        if intent.evidence_need in promoted_needs
-        and intent.evidence_need != "inference_support"
+        for relation_need in (
+            intent.category
+            if (
+                intent.category in category_promoted_needs
+                and "inference_support" in evidence_need
+            )
+            else intent.evidence_need,
+        )
+        if relation_need in promoted_needs and relation_need != "inference_support"
     )
     if not relation_needs:
         return evidence_need

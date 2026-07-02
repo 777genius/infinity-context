@@ -44,14 +44,17 @@ _PROFILE_SUPPORT_ROLES = frozenset(
         "alias_support",
         "commitment_support",
         "contact_support",
+        "current_goal_support",
         "date_support",
         "diet_support",
         "education_support",
         "employment_support",
         "health_support",
+        "identity_support",
         "pet_support",
         "skill_support",
         "status_support",
+        "support_goal_support",
         "vehicle_support",
     }
 )
