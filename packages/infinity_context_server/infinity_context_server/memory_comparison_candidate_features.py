@@ -437,9 +437,12 @@ def _evidence_content_text(text: str) -> str:
         r"\bD\d+:\d+\s+[A-Z][a-zA-Z0-9_-]{1,40}\s*:\s*",
         text,
     )
-    if not match:
+    if match:
+        return text[match.end() :]
+    turn_matches = tuple(_TURN_REF_RE.finditer(text))
+    if not turn_matches:
         return text
-    return text[match.end() :]
+    return text[turn_matches[-1].end() :]
 
 
 def _relation_category_hits(

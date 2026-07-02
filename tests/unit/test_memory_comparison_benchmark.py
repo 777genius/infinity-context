@@ -8648,6 +8648,12 @@ def test_benchmark_rerank_boosts_dentist_appointment_evidence() -> None:
     assert topical_diagnostics["benchmark_candidate_features"][
         "relation_category_hits"
     ] == []
+    assert dentist_diagnostics["benchmark_candidate_features"][
+        "has_explicit_time_content_surface"
+    ] is True
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "has_explicit_time_content_surface"
+    ] is False
     assert dentist_diagnostics["score_signals"][
         "benchmark_typed_relation_support_roles"
     ] == ["health_support"]
