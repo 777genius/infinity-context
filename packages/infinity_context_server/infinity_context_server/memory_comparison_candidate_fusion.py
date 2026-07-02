@@ -23,6 +23,21 @@ class CandidateFusionConfig:
 DEFAULT_CANDIDATE_FUSION_CONFIG = CandidateFusionConfig()
 _TURN_REF_RE = re.compile(r"\bD\d+:\d+\b")
 _EVIDENCE_SELECTION_SCORE_BAND = 0.025
+_FOCUSED_QUERY_ROLE_SCORES = {
+    "compact_relation": 0.04,
+    "contrast_support": 0.05,
+    "location_support": 0.05,
+    "visual_support": 0.05,
+    "visual_temporal_support": 0.05,
+    "multi_hop_bridge": 0.05,
+    "multi_hop_support": 0.04,
+    "duration_temporal_support": 0.04,
+    "explicit_temporal_support": 0.04,
+    "relative_temporal_support": 0.04,
+    "temporal_sequence_support": 0.04,
+    "temporal_support": 0.04,
+    "expanded_focus": 0.02,
+}
 
 
 @dataclass(frozen=True)
@@ -167,8 +182,10 @@ def _fuse_candidate(
         "extra_fusion_eligible": extra_fusion_eligible,
         "winner_score": round(score_winner.memory.score, 6),
         "score_winner_item_id": score_winner.memory.item_id,
+        "score_winner_query_role": score_winner.query_role,
         "score_winner_source_type": _source_type(score_winner.memory),
         "selected_evidence_item_id": evidence_winner.memory.item_id,
+        "selected_evidence_query_role": evidence_winner.query_role,
         "selected_evidence_score": round(evidence_winner.memory.score, 6),
         "selected_evidence_source_type": _source_type(evidence_winner.memory),
         "selected_evidence_quality_score": round(
@@ -211,12 +228,17 @@ def _select_evidence_winner(
 
 def _evidence_winner_key(
     occurrence: _CandidateOccurrence,
-) -> tuple[float, float, int]:
+) -> tuple[float, float, float, int]:
     return (
         _evidence_quality_score(occurrence.memory),
+        _query_role_focus_score(occurrence.query_role),
         occurrence.memory.score,
         -occurrence.rank,
     )
+
+
+def _query_role_focus_score(role: str) -> float:
+    return _FOCUSED_QUERY_ROLE_SCORES.get(role, 0.0)
 
 
 def _evidence_quality_score(memory: RetrievedMemory) -> float:

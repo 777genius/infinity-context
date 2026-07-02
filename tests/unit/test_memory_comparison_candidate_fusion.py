@@ -213,6 +213,44 @@ def test_candidate_fusion_selects_local_evidence_within_score_band() -> None:
     assert fusion["selected_evidence_source_type"] == "raw_turn"
 
 
+def test_candidate_fusion_prefers_focused_query_evidence_within_score_band() -> None:
+    generic_hit = RetrievedMemory(
+        item_id="move-evidence",
+        rank=1,
+        score=0.82,
+        text="D3:4 Morgan talked about moving plans after work.",
+        source_refs=("D3:4",),
+        metadata={
+            "item_type": "raw_turn",
+            "diagnostics": {"retrieval_sources": ["semantic_chunks"]},
+        },
+    )
+    focused_hit = RetrievedMemory(
+        item_id="move-evidence",
+        rank=2,
+        score=0.81,
+        text="D3:4 Morgan moved from Boston to Denver for work.",
+        source_refs=("D3:4",),
+        metadata={
+            "item_type": "raw_turn",
+            "diagnostics": {"retrieval_sources": ["raw_turns"]},
+        },
+    )
+
+    fused, diagnostics = fuse_query_results(
+        (("original", (generic_hit,)), ("location-support", (focused_hit,))),
+        query_roles=("original_question", "location_support"),
+    )
+
+    assert len(fused) == 1
+    assert diagnostics["duplicate_result_count"] == 1
+    assert fused[0].text == focused_hit.text
+    assert fused[0].score > generic_hit.score
+    fusion = fused[0].metadata["diagnostics"]["benchmark_candidate_fusion"]
+    assert fusion["score_winner_query_role"] == "original_question"
+    assert fusion["selected_evidence_query_role"] == "location_support"
+
+
 def test_candidate_fusion_keeps_broad_source_ref_sets_separate() -> None:
     summary = RetrievedMemory(
         item_id="summary",
