@@ -887,6 +887,63 @@ def test_fast_gate_metrics_reports_missing_inference_support_gap() -> None:
     ]
 
 
+def test_fast_gate_metrics_reads_multihop_gap_from_typed_intent_need_or_marker() -> None:
+    cases = (
+        ("intent-only-inference-need", {"evidence_need": ["inference_support"]}),
+        ("intent-only-hop-marker", {"multi_hop_markers": ["how"]}),
+    )
+    for case_id, intent_fields in cases:
+        retrieval = _retrieval_payload(
+            evidence_need=(),
+            bundle_evidence_roles=("primary",),
+            relation_categories=(),
+            policy_score=0.0,
+        )
+        query_decomposition = retrieval["metadata"]["query_decomposition"]
+        query_decomposition["retrieval_intent"].update(intent_fields)
+        query_decomposition["retrieval_intent"]["bundle_evidence_roles"] = [
+            "primary",
+            "inference_support",
+        ]
+
+        gate = fast_gate_metrics(
+            (
+                _item(
+                    case_id=case_id,
+                    group="single-hop",
+                    retrieval=retrieval,
+                    evidence_bundle={
+                        "bundle_complete": False,
+                        "item_count": 1,
+                        "primary_evidence_count": 1,
+                        "supporting_evidence_count": 0,
+                        "query_support_term_recall": 0.5,
+                        "covered_evidence_terms": [],
+                        "items": [
+                            {
+                                "role": "primary",
+                                "retrieval_order": 1,
+                                "focused_evidence_score": 1.0,
+                            }
+                        ],
+                    },
+                ),
+            ),
+            expected_case_count=1,
+        )
+
+        breakdown = gate["bundle_gap_breakdown"]
+
+        assert breakdown["reason_counts"]["missing_bridge"] == 1
+        assert breakdown["reason_counts"]["missing_bridge_entity"] == 1
+        assert breakdown["reason_counts"]["missing_bridge_relation"] == 1
+        assert breakdown["bridge_gap_reason_counts"] == {
+            "missing_bridge": 1,
+            "missing_bridge_entity": 1,
+            "missing_bridge_relation": 1,
+        }
+
+
 def test_fast_gate_metrics_requires_relation_inference_support_evidence() -> None:
     gate = fast_gate_metrics(
         (

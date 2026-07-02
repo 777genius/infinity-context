@@ -354,7 +354,21 @@ def _is_multi_hop_item(item: Mapping[str, object]) -> bool:
     metadata = _retrieval_metadata(item)
     query_decomposition = _mapping(metadata.get("query_decomposition"))
     query_profile = _mapping(query_decomposition.get("query_profile"))
-    evidence_need = _str_tuple(query_profile.get("evidence_need"))
+    retrieval_intent = _mapping(query_decomposition.get("retrieval_intent"))
+    evidence_need = tuple(
+        dict.fromkeys(
+            _str_tuple(query_profile.get("evidence_need"))
+            + _str_tuple(retrieval_intent.get("evidence_need"))
+        )
+    )
+    multi_hop_markers = tuple(
+        dict.fromkeys(
+            _str_tuple(query_profile.get("multi_hop_markers"))
+            + _str_tuple(retrieval_intent.get("multi_hop_markers"))
+        )
+    )
+    if multi_hop_markers:
+        return True
     return any(
         need in {"multi_hop", "multi-hop", "inference_support"}
         for need in evidence_need
