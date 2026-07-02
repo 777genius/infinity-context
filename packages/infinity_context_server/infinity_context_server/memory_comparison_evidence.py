@@ -337,6 +337,8 @@ def _required_bundle_roles(
     intent = query_retrieval_intent(case)
     metadata_evidence_need = _metadata_string_sequence(case.metadata.get("evidence_need"))
     roles = list(intent.bundle_evidence_roles)
+    if _has_structured_support_need(metadata_evidence_need):
+        roles = [role for role in roles if role != "inference_support"]
     roles.extend(
         infer_bundle_evidence_roles(
             evidence_need=metadata_evidence_need,
@@ -349,6 +351,19 @@ def _required_bundle_roles(
     if case_group == "temporal" and "temporal_support" not in roles:
         roles.append("temporal_support")
     return tuple(dict.fromkeys(roles))
+
+
+def _has_structured_support_need(evidence_need: Sequence[str]) -> bool:
+    return bool(
+        {
+            "contrast",
+            "location_support",
+            "multi_hop",
+            "temporal_sequence",
+            "temporal_support",
+        }
+        & set(evidence_need)
+    )
 
 
 def _temporal_text_features(text: str) -> dict[str, bool]:

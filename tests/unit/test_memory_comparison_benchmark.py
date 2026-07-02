@@ -2942,6 +2942,7 @@ def test_query_decomposition_reports_typed_retrieval_intent() -> None:
     )
     assert relationship_metadata["query_profile"]["bundle_evidence_roles"] == (
         "primary",
+        "inference_support",
     )
     assert relationship_metadata["query_profile"]["risk_flags"] == ()
     relationship_plan = relationship_metadata["query_plan"]
@@ -3348,6 +3349,8 @@ def test_query_decomposition_expands_locomo_topic_relations() -> None:
         "caroline adoption support help lgbtq folks inclusivity"
     )
     assert "adoption" in adoption_metadata["query_profile"]["relation_terms"]
+    assert adoption_metadata["query_profile"]["evidence_need"] == ("single_fact",)
+    assert adoption_metadata["query_profile"]["bundle_evidence_roles"] == ("primary",)
     assert "lgbtq" in adoption_metadata["query_profile"]["relation_variant_terms"]
     assert adoption_choice_queries[2] == (
         "caroline adoption chose reason cause fit value"

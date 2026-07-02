@@ -248,11 +248,16 @@ class EvidenceBundlePlanner:
     ) -> EvidenceBundlePlan:
         deduped, dropped_duplicate_keys = self._dedupe(candidates)
         primary = self._primary_candidate(deduped)
+        required_role_values = _required_role_values(required_roles)
         planned = tuple(
-            self._planned_item(candidate, primary=primary, case_group=case_group)
+            self._planned_item(
+                candidate,
+                primary=primary,
+                case_group=case_group,
+                required_roles=required_role_values,
+            )
             for candidate in deduped
         )
-        required_role_values = _required_role_values(required_roles)
         (
             selected,
             dropped_diversity_count,
@@ -342,8 +347,14 @@ class EvidenceBundlePlanner:
         *,
         primary: EvidenceBundleCandidate | None,
         case_group: str,
+        required_roles: Sequence[str],
     ) -> PlannedEvidenceItem:
-        role = _role_for_candidate(candidate, primary=primary, case_group=case_group)
+        role = _role_for_candidate(
+            candidate,
+            primary=primary,
+            case_group=case_group,
+            required_roles=required_roles,
+        )
         return PlannedEvidenceItem(
             candidate=candidate,
             role=role,
@@ -397,6 +408,7 @@ class EvidenceBundlePlanner:
                 "primary",
                 "temporal_support",
                 "entity_disambiguation",
+                "inference_support",
                 "contrast",
                 "bridge",
                 "location_support",
@@ -457,6 +469,7 @@ def _role_for_candidate(
     *,
     primary: EvidenceBundleCandidate | None,
     case_group: str,
+    required_roles: Sequence[str] = (),
 ) -> BundleRole:
     if primary is not None and candidate.dedupe_key == primary.dedupe_key:
         return "primary"
@@ -466,6 +479,11 @@ def _role_for_candidate(
         return "bridge"
     if _candidate_has_location_support(candidate):
         return "location_support"
+    if (
+        "inference_support" in set(required_roles)
+        and _candidate_has_inference_support(candidate)
+    ):
+        return "inference_support"
     if (
         candidate.has_temporal_surface
         or candidate.has_sequence_surface
@@ -531,6 +549,10 @@ def _satisfied_required_roles(
             satisfied.add(role)
         if role == "location_support" and any(
             _candidate_has_location_support(item.candidate) for item in selected
+        ):
+            satisfied.add(role)
+        if role == "inference_support" and any(
+            _candidate_has_inference_support(item.candidate) for item in selected
         ):
             satisfied.add(role)
     return tuple(role for role in required_roles if role in satisfied)
@@ -660,6 +682,8 @@ def _item_can_satisfy_required_role(
         return item.role == "bridge"
     if role == "location_support":
         return _candidate_has_location_support(item.candidate)
+    if role == "inference_support":
+        return _candidate_has_inference_support(item.candidate)
     return item.role == role
 
 
@@ -711,6 +735,7 @@ def _replacement_role_order(item: PlannedEvidenceItem) -> float:
     role_order = {
         "supporting": 0,
         "entity_disambiguation": 1,
+        "inference_support": 2,
         "temporal_support": 2,
         "contrast": 3,
         "bridge": 4,
@@ -770,6 +795,22 @@ def _candidate_has_location_support(candidate: EvidenceBundleCandidate) -> bool:
         "trip",
     }
     return bool(location_terms.intersection(candidate.relation_hits))
+
+
+def _candidate_has_inference_support(candidate: EvidenceBundleCandidate) -> bool:
+    if candidate.broad_summary or candidate.conflict_or_stale:
+        return False
+    if not (candidate.entity_hits or candidate.speaker_hits):
+        return False
+    if candidate.source_locality_score < 0.45:
+        return False
+    if candidate.answerability_score and candidate.answerability_score < 0.55:
+        return False
+    return bool(
+        candidate.relation_hits
+        or candidate.relation_category_hits
+        or candidate.query_support_terms
+    )
 
 
 def _selection_has_bridge_support(selected: Sequence[PlannedEvidenceItem]) -> bool:
@@ -869,6 +910,14 @@ def _reason_codes(
             reasons.append("bridge_relation_hits")
         if candidate.entity_hits or candidate.speaker_hits:
             reasons.append("bridge_entity_hits")
+    if role == "inference_support":
+        reasons.append("inference_support")
+        if candidate.relation_hits:
+            reasons.append("inference_relation_hits")
+        if candidate.relation_category_hits:
+            reasons.append("inference_relation_category_hits")
+        if candidate.entity_hits or candidate.speaker_hits:
+            reasons.append("inference_entity_hits")
     if role == "location_support":
         reasons.append("location_support")
         if candidate.relation_category_hits:
@@ -930,7 +979,8 @@ def _role_order(item: PlannedEvidenceItem) -> float:
         "contrast": 2,
         "location_support": 3,
         "temporal_support": 3,
-        "entity_disambiguation": 4,
+        "inference_support": 4,
+        "entity_disambiguation": 5,
         "supporting": 5,
     }
     return float(role_order.get(item.role, 9))
@@ -969,6 +1019,7 @@ def _max_item_drop_counts(
             "primary",
             "temporal_support",
             "entity_disambiguation",
+            "inference_support",
             "contrast",
             "bridge",
             "location_support",
@@ -1011,6 +1062,7 @@ def _bundle_quality_diagnostics(
             "low_answerability_count": 0,
             "bridge_count": 0,
             "bridge_query_hit_count": 0,
+            "inference_support_count": 0,
             "location_support_count": 0,
             "location_relation_category_hit_count": 0,
             "source_proximity_support_count": 0,
@@ -1046,6 +1098,9 @@ def _bundle_quality_diagnostics(
     low_answerability_count = sum(score < 0.55 for score in answerability_scores)
     bridge_count = sum(1 for item in items if item.role == "bridge")
     bridge_query_hit_count = sum(1 for item in items if item.candidate.bridge_query_hit)
+    inference_support_count = sum(
+        1 for item in items if item.role == "inference_support"
+    )
     location_support_count = sum(1 for item in items if item.role == "location_support")
     location_relation_category_hit_count = sum(
         1
@@ -1081,6 +1136,7 @@ def _bundle_quality_diagnostics(
             (0.14 * max_answerability) + (0.10 * avg_answerability),
         ),
         "bridge_support": min(0.1, 0.1 * bridge_count),
+        "inference_support": min(0.08, 0.08 * inference_support_count),
         "location_support": min(0.08, 0.08 * location_support_count),
         "source_proximity": (
             min(0.06, 0.03 * source_proximity_support_count)
@@ -1120,6 +1176,7 @@ def _bundle_quality_diagnostics(
             max_answerability=max_answerability,
             low_answerability_count=low_answerability_count,
             bridge_count=bridge_count,
+            inference_support_count=inference_support_count,
             location_support_count=location_support_count,
             location_relation_category_hit_count=location_relation_category_hit_count,
             source_proximity_support_count=source_proximity_support_count,
@@ -1145,6 +1202,7 @@ def _bundle_quality_diagnostics(
         "low_answerability_count": low_answerability_count,
         "bridge_count": bridge_count,
         "bridge_query_hit_count": bridge_query_hit_count,
+        "inference_support_count": inference_support_count,
         "location_support_count": location_support_count,
         "location_relation_category_hit_count": (
             location_relation_category_hit_count
@@ -1223,6 +1281,7 @@ def _bundle_quality_reason_codes(
     max_answerability: float,
     low_answerability_count: int,
     bridge_count: int,
+    inference_support_count: int,
     location_support_count: int,
     location_relation_category_hit_count: int,
     source_proximity_support_count: int,
@@ -1258,6 +1317,8 @@ def _bundle_quality_reason_codes(
         reasons.append("risk:low_answerability")
     if bridge_count:
         reasons.append("has_bridge_evidence")
+    if inference_support_count:
+        reasons.append("has_inference_support_evidence")
     if location_support_count:
         reasons.append("has_location_support_evidence")
     if location_relation_category_hit_count:

@@ -286,14 +286,11 @@ def infer_evidence_need(
         multi_hop_markers=multi_hop_markers,
     ):
         needs.append("contrast")
-    if benchmark_category == 3 or {
-        "would",
-        "likely",
-        "consider",
-        "decision",
-        "relationship",
-        "status",
-    } & relation_set:
+    if _has_inference_support_intent(
+        question=question,
+        relation_terms=relation_terms,
+        benchmark_category=benchmark_category,
+    ):
         needs.append("inference_support")
     if {"why", "how", "cause", "realize"} & relation_set or {"why", "how"} & set(
         multi_hop_markers
@@ -327,6 +324,8 @@ def infer_bundle_evidence_roles(
         roles.append("contrast")
     if "location_support" in evidence_need_set:
         roles.append("location_support")
+    if "inference_support" in evidence_need_set and len(roles) == 1:
+        roles.append("inference_support")
     return tuple(dict.fromkeys(roles))
 
 
@@ -370,6 +369,26 @@ def _has_location_transition_intent(
             r"\b(?:move|moved|moving|relocate|relocated)\s+from\b",
             normalized,
         )
+    )
+
+
+def _has_inference_support_intent(
+    *,
+    question: str,
+    relation_terms: tuple[str, ...],
+    benchmark_category: int | None,
+) -> bool:
+    if benchmark_category == 3:
+        return True
+    relation_set = set(relation_terms)
+    if {"relationship", "status"}.issubset(relation_set):
+        return True
+    if "decision" in relation_set:
+        return True
+    normalized = " ".join(str(question or "").casefold().split())
+    return bool(
+        re.search(r"\b(?:would|likely|might|could)\b", normalized)
+        and relation_set
     )
 
 
