@@ -72,12 +72,16 @@ def focused_evidence_shape_boosts(
             and {"hand-paint", "treasure"} & memory_terms
             else 0.0
         )
-    if "activity" in relation_set:
+    if "activity" in relation_set or "hike" in relation_set:
         boosts["benchmark_activity_coverage_shape_boost"] = (
             0.1
             if (
                 {"paint", "sunrise"} <= memory_terms
                 or {"swim", "kid"} <= memory_terms
+                or {"hike", "water"} <= memory_terms
+                or {"hike", "spot"} <= memory_terms
+                or {"hike", "summer"} <= memory_terms
+                or {"hik", "weekend"} <= memory_terms
                 or {"run", "read", "violin"} <= memory_terms
                 or {"camping", "unplug"} <= memory_terms
             )

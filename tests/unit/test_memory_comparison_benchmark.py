@@ -5187,6 +5187,112 @@ def test_benchmark_rerank_prefers_durable_outdoor_park_preference() -> None:
     assert generic_signals["benchmark_outdoor_park_preference_boost"] == 0
 
 
+def test_query_decomposition_treats_hike_count_as_activity_evidence() -> None:
+    case = _case(
+        case_id="hike-count-query",
+        question="How many hikes has Joanna been on?",
+        expected_terms=("three",),
+        answer="Three",
+        category=3,
+    )
+
+    queries, metadata = rerank_module.decomposed_search_queries(case)
+    query_profile = metadata["query_profile"]
+    activity_intent = metadata["retrieval_intent"]["relations"]["intents"][0]
+
+    assert queries == (
+        "How many hikes has Joanna been on?",
+        "How many hikes has Joanna been on?\n"
+        "Search focus: entities: joanna; speakers: joanna:; "
+        "actions: hike, trail, waterfall, went, spot, weekend, summer, photo",
+        "joanna hike trail waterfall went spot weekend",
+    )
+    assert query_profile["relation_terms"] == ("hike",)
+    assert query_profile["relation_categories"] == ("activity",)
+    assert query_profile["relation_category_terms"]["activity"] == (
+        "hike",
+        "trail",
+        "waterfall",
+        "went",
+        "spot",
+        "weekend",
+        "summer",
+        "photo",
+        "pic",
+    )
+    assert "broad_query" not in query_profile["risk_flags"]
+    assert activity_intent["category"] == "activity"
+    assert activity_intent["reason_codes"] == [
+        "category:activity",
+        "relation_terms",
+        "relation_variants",
+    ]
+
+
+def test_benchmark_rerank_boosts_hike_occurrence_evidence_over_generic_topic() -> None:
+    case = _case(
+        case_id="hike-count-rerank",
+        question="How many hikes has Joanna been on?",
+        expected_terms=("three",),
+        answer="Three",
+        category=3,
+    )
+    generic_topic = RetrievedMemory(
+        item_id="generic-topic",
+        rank=1,
+        score=0.05,
+        text=(
+            "session_10 turn D10:1 date: 8:00 pm "
+            "D10:1 Joanna: I like hiking gear and trail maps."
+        ),
+    )
+    hike_photo = RetrievedMemory(
+        item_id="hike-photo",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_11 turn D11:5 date: 8:15 pm "
+            "D11:5 Joanna: Loved this spot on the hike. "
+            "The rush of the water was soothing."
+        ),
+        source_refs=("D11:5",),
+    )
+    hike_plan = RetrievedMemory(
+        item_id="hike-plan",
+        rank=3,
+        score=0.0,
+        text=(
+            "session_14 turn D14:19 date: 8:30 pm "
+            "D14:19 Joanna: Yep, I'm hiking with buddies this weekend. "
+            "We're checking out a new trail with a waterfall."
+        ),
+        source_refs=("D14:19",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (generic_topic, hike_photo, hike_plan),
+    )
+
+    assert metadata["applied"] is True
+    assert [memory.item_id for memory in reranked] == [
+        "hike-photo",
+        "hike-plan",
+        "generic-topic",
+    ]
+    event_signals = reranked[0].metadata["diagnostics"]["score_signals"]
+    generic_signals = reranked[2].metadata["diagnostics"]["score_signals"]
+    event_features = reranked[0].metadata["diagnostics"][
+        "benchmark_candidate_features"
+    ]
+    assert event_features["relation_category_hits"] == ["activity"]
+    assert event_signals["benchmark_activity_coverage_shape_boost"] > 0
+    assert generic_signals["benchmark_activity_coverage_shape_boost"] == 0
+    assert event_signals["benchmark_effective_boost_cap"] > generic_signals[
+        "benchmark_effective_boost_cap"
+    ]
+
+
 def test_benchmark_rerank_prefers_focused_song_preference_turn() -> None:
     case = _case(
         case_id="conv-26:qa:65",

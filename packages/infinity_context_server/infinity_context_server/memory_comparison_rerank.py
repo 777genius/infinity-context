@@ -232,6 +232,7 @@ _HIGH_SIGNAL_RELATION_VARIANTS = {
     "father",
     "inclusive",
     "inclusivity",
+    "hiking",
     "known",
     "lgbtq",
     "love",
@@ -252,6 +253,7 @@ _HIGH_SIGNAL_RELATION_VARIANTS = {
     "strength",
     "sunrise",
     "transgender",
+    "trail",
     "trip",
     "wed",
     "wedding",
@@ -290,6 +292,7 @@ _RELATION_QUERY_TERMS = {
     "group",
     "grow",
     "help",
+    "hike",
     "interest",
     "identity",
     "learn",
@@ -474,6 +477,19 @@ _RELATION_QUERY_VARIANTS = {
     "grow": ("growing", "grew", "childhood", "journey", "upbringing"),
     "group": ("friends", "family", "mentors", "support"),
     "help": ("helped", "helping", "assist", "support"),
+    "hike": (
+        "hiking",
+        "hiked",
+        "trail",
+        "waterfall",
+        "outdoors",
+        "went",
+        "spot",
+        "weekend",
+        "summer",
+        "photo",
+        "pic",
+    ),
     "husband": ("spouse", "partner", "married", "marriage", "wife", "family"),
     "identity": (
         "pride",
@@ -1854,6 +1870,19 @@ def _relation_query_terms(
             )
         )
         priority_surface_terms.add("express")
+    if "hike" in relation_term_set:
+        priority_variant_order.extend(
+            (
+                "trail",
+                "hiking",
+                "waterfall",
+                "went",
+                "spot",
+                "weekend",
+                "summer",
+                "photo",
+            )
+        )
     if {"excite", "adoption", "process"}.issubset(relation_term_set):
         priority_variant_order.extend(("kid", "make", "create", "thrilled", "process"))
         priority_surface_terms.add("thrilled")

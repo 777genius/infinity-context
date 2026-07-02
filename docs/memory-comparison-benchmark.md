@@ -508,6 +508,10 @@ Preference questions involving parks expand `park` into `enjoy`, `nature`,
 `camping`, `trip`, `campfire`, `marshmallow`, `story`, `meteor`, `sky`, `summer`,
 `hike` and `trail`, so national-park evidence expressed as camping-trip,
 campfire or meteor-shower memories is still retrieved.
+Hike-count questions treat `hike` as activity evidence and add generic
+occurrence surfaces such as `trail`, `waterfall`, `went`, `spot`, `weekend` and
+`summer`, so repeated hike turns can beat generic hiking-topic mentions without
+adding answer numbers.
 Self-care prioritization questions render generic wellness surfaces such as
 `routine`, `refreshes`, `present`, `balance`, `rest`, `relax` and `wellness`,
 instead of injecting specific hobbies from the judged answer.
