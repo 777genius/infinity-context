@@ -417,7 +417,9 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
         r"email|e-mail|phone|telephone|cell|mobile|address)\b|"
         r"\b(?:phone|telephone|cell|mobile)\s+number\b|"
         r"\bwhat\s+is\s+(?:[A-Z][a-zA-Z0-9_-]+(?:'s|’s)|"
-        r"my|his|her|their|our|your)\s+number\b",
+        r"my|his|her|their|our|your)\s+number\b|"
+        r"\bhow\s+(?:can|could|do|does|did)\s+(?:i|we|you)\s+"
+        r"(?:contact|reach)\b",
         text,
         flags=re.IGNORECASE,
     )

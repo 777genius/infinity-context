@@ -9419,11 +9419,28 @@ def test_query_decomposition_expands_contact_number_queries() -> None:
         expected_terms=("42",),
         answer="42",
     )
+    reach_case = _case(
+        case_id="contact-profile-reach",
+        question="How can I reach Alex?",
+        expected_terms=("555-0101",),
+        answer="555-0101",
+    )
+    summit_case = _case(
+        case_id="contact-profile-reach-guard",
+        question="How did Alex reach the summit?",
+        expected_terms=("hiking trail",),
+        answer="hiking trail",
+        category=1,
+    )
 
     number_queries, number_metadata = rerank_module.decomposed_search_queries(
         number_case
     )
     _, pick_metadata = rerank_module.decomposed_search_queries(pick_case)
+    reach_queries, reach_metadata = rerank_module.decomposed_search_queries(
+        reach_case
+    )
+    _, summit_metadata = rerank_module.decomposed_search_queries(summit_case)
 
     assert number_queries[2] == "alex contact cell e-mail email mobile number"
     assert number_metadata["query_profile"]["relation_terms"] == ("contact",)
@@ -9435,9 +9452,22 @@ def test_query_decomposition_expands_contact_number_queries() -> None:
         "bundle_evidence_roles"
     ]
 
+    assert reach_queries[2] == "alex contact cell e-mail email mobile number"
+    assert reach_metadata["query_profile"]["relation_terms"] == ("contact",)
+    assert "reach" in reach_metadata["query_profile"]["relation_variant_terms"]
+    assert reach_metadata["query_profile"]["relation_categories"] == (
+        "contact_profile",
+    )
+    assert reach_metadata["query_profile"]["evidence_need"] == ("contact_profile",)
+    assert reach_metadata["query_profile"]["multi_hop_markers"] == ()
+
     assert "contact_profile" not in pick_metadata["query_profile"][
         "relation_categories"
     ]
+    assert "contact_profile" not in summit_metadata["query_profile"][
+        "relation_categories"
+    ]
+    assert summit_metadata["query_profile"]["multi_hop_markers"] == ("how",)
 
 
 def test_benchmark_rerank_boosts_contact_number_evidence() -> None:
@@ -9491,6 +9521,63 @@ def test_benchmark_rerank_boosts_contact_number_evidence() -> None:
     assert contact_diagnostics["score_signals"][
         "benchmark_typed_relation_support_roles"
     ] == ["contact_support"]
+
+
+def test_benchmark_rerank_boosts_reach_contact_evidence() -> None:
+    case = _case(
+        case_id="contact-profile-reach-rerank",
+        question="How can I reach Alex?",
+        expected_terms=("555-0101",),
+        answer="555-0101",
+        category=4,
+    )
+    topical_reach = RetrievedMemory(
+        item_id="topical-reach",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex discussed reaching the summit with Maria."
+        ),
+        source_refs=("D1:1",),
+    )
+    contact_profile = RetrievedMemory(
+        item_id="contact-profile",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: You can reach me at 555-0101."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_reach, contact_profile),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("contact_profile",)
+    assert reranked[0].item_id == "contact-profile"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    contact_diagnostics = diagnostics_by_id["contact-profile"]
+    topical_diagnostics = diagnostics_by_id["topical-reach"]
+    assert contact_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["contact_profile"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert contact_diagnostics["score_signals"][
+        "benchmark_typed_relation_support_roles"
+    ] == ["contact_support"]
+    assert (
+        topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        == 0
+    )
 
 
 def test_benchmark_contact_profile_ignores_addressing_issue_wording() -> None:

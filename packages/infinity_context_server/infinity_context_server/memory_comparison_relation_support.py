@@ -565,6 +565,10 @@ _CONTACT_PROFILE_SURFACE_RE = re.compile(
     r"(?:is|was)\s+(?:\+?\d[\d()\-\s.]{5,}\d)\b"
     r"|\b(?:(?:my|his|her|their|our|your)\s+)?(?:phone\s+)?number\s+"
     r"(?:is|was)\s+(?:\+?\d[\d()\-\s.]{5,}\d)\b"
+    r"|\b(?:reach|contact)\s+"
+    r"(?:me|him|her|them|us|you|[A-Z][a-zA-Z0-9_-]+)\s+"
+    r"(?:at|on)\s+"
+    r"(?:[\w.+-]+@[\w.-]+\.[a-zA-Z]{2,}|\+?\d[\d()\-\s.]{5,}\d)\b"
     r"|\b(?:contact\s+(?:info|information|details)|"
     r"(?:mailing\s+)?address)\s+(?:is|was)\s+"
     r"(?:\d{1,6}\s+)?[A-Za-z0-9][A-Za-z0-9 .'-]{2,}",
@@ -578,7 +582,7 @@ def _has_contact_profile_support(
     memory_text: str = "",
 ) -> bool:
     phone_surface = {"cell", "mobile", "phone", "telephone"} & memory_terms
-    contact_surface = {"contact"} & memory_terms
+    contact_surface = {"contact", "reach"} & memory_terms
     address_surface = {"address"} & memory_terms
     number_surface = {"number"} & memory_terms
     return bool(

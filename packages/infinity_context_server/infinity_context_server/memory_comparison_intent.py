@@ -1067,7 +1067,9 @@ def _has_contact_profile_intent(
             r"email|e mail|phone|telephone|cell|mobile|address)\b|"
             r"\b(?:phone|telephone|cell|mobile)\s+number\b|"
             r"\bwhat\s+is\s+(?:[a-z0-9]+(?:\s+s)?|my|his|her|their|our|your)\s+"
-            r"number\b",
+            r"number\b|"
+            r"\bhow\s+(?:can|could|do|does|did)\s+(?:i|we|you)\s+"
+            r"(?:contact|reach)\b",
             normalized_question,
         )
     )
@@ -1697,6 +1699,8 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "mobile",
                 "number",
                 "phone",
+                "reach",
+                "reached",
                 "telephone",
             }
         ),

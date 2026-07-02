@@ -386,6 +386,8 @@ def _contact_support_query_terms(
         "mobile",
         "number",
         "phone",
+        "reach",
+        "reached",
         "telephone",
     }
     topical_terms = tuple(

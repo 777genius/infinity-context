@@ -1107,6 +1107,13 @@ def _non_temporal_process_how_marker(question: str) -> bool:
         return False
     if re.search(r"\bhow\s+(?:long|many|much|old)\b", question, flags=re.IGNORECASE):
         return False
+    if re.search(
+        r"\bhow\s+(?:can|could|do|does|did)\s+(?:i|we|you)\s+"
+        r"(?:contact|reach)\b",
+        question,
+        flags=re.IGNORECASE,
+    ):
+        return False
     return not re.search(
         r"\b(?:compare|between|different|difference|previous|former)\b",
         question,
@@ -1270,7 +1277,9 @@ def _has_contact_profile_question(normalized_question: str) -> bool:
             r"email|e mail|phone|telephone|cell|mobile|address)\b|"
             r"\b(?:phone|telephone|cell|mobile)\s+number\b|"
             r"\bwhat\s+is\s+(?:[a-z0-9]+(?:\s+s)?|my|his|her|their|our|your)\s+"
-            r"number\b",
+            r"number\b|"
+            r"\bhow\s+(?:can|could|do|does|did)\s+(?:i|we|you)\s+"
+            r"(?:contact|reach)\b",
             normalized_question,
         )
     )

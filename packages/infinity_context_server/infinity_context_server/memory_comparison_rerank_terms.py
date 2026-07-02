@@ -120,6 +120,8 @@ RELATION_QUERY_VARIANTS = {
         "mobile",
         "number",
         "phone",
+        "reach",
+        "reached",
         "telephone",
     ),
     "deadline": ("due", "date", "finish", "complete", "task"),
