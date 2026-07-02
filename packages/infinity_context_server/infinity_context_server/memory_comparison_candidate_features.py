@@ -14,6 +14,7 @@ from infinity_context_server.memory_comparison_candidate_risks import (
 from infinity_context_server.memory_comparison_models import RetrievedMemory
 from infinity_context_server.memory_comparison_relation_support import (
     has_alias_go_by_surface,
+    has_date_profile_surface,
     has_employment_occupation_surface,
     has_vehicle_model_surface,
     typed_relation_category_support,
@@ -497,6 +498,8 @@ def _typed_category_has_query_grounding(
     if category == "vehicle_profile" and has_vehicle_model_surface(memory_text):
         return True
     if category == "alias_profile" and has_alias_go_by_surface(memory_text):
+        return True
+    if category == "date_profile" and has_date_profile_surface(memory_text):
         return True
     if category not in {
         "communication",

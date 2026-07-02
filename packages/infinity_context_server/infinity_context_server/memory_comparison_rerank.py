@@ -349,6 +349,7 @@ _TEMPORAL_SURFACE_TERMS = (
     "month",
     "year",
 )
+_NON_ENTITY_UPPERCASE_TERMS = frozenset({"dob"})
 _RELATIVE_TEMPORAL_QUERY_SURFACES = (
     "last",
     "today",
@@ -1513,7 +1514,9 @@ def _query_entities(text: str) -> tuple[str, ...]:
         if _span_overlaps(match.span(), protected_spans):
             continue
         entity = _clean_query_entity(match.group(0))
-        if entity not in _QUERY_STOPWORDS | set(_TEMPORAL_SURFACE_TERMS):
+        if entity and entity not in (
+            _QUERY_STOPWORDS | set(_TEMPORAL_SURFACE_TERMS) | _NON_ENTITY_UPPERCASE_TERMS
+        ):
             entities.append((match.start(), entity))
     return tuple(entity for _, entity in sorted(entities, key=lambda item: item[0]))
 
@@ -1524,7 +1527,9 @@ def _clean_query_entity(raw: str) -> str:
         term = raw_term.casefold().strip(" .'\"")
         if term.endswith("'s"):
             term = term[:-2]
-        if term and term not in _QUERY_STOPWORDS | set(_TEMPORAL_SURFACE_TERMS):
+        if term and term not in (
+            _QUERY_STOPWORDS | set(_TEMPORAL_SURFACE_TERMS) | _NON_ENTITY_UPPERCASE_TERMS
+        ):
             terms.append(term)
     return " ".join(terms)
 

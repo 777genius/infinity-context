@@ -1166,7 +1166,8 @@ def _has_date_profile_intent(
             r"\bwhat\s+(?:is|was)\b.+\b(?:anniversary|birthday)\b|"
             r"\b(?:what|which)\s+(?:date|day|month)\b.+"
             r"\b(?:anniversary|birthday)\b|"
-            r"\b(?:anniversary|birthday)\b.+\b(?:date|when)\b",
+            r"\b(?:anniversary|birthday)\b.+\b(?:date|when)\b|"
+            r"\b(?:date\s+of\s+birth|dob)\b",
             normalized_question,
         )
     )

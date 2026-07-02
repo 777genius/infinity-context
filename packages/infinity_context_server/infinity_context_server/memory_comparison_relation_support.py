@@ -407,9 +407,17 @@ _DATE_PROFILE_SURFACE_RE = re.compile(
     r"|\bdate\s+of\s+birth\s+(?:is|was)\s+"
     r"(?:\d{1,2}(?:st|nd|rd|th)?|"
     r"january|february|march|april|may|june|july|august|"
+    r"september|october|november|december)\b"
+    r"|\bdob\s+(?:is|was)\s+"
+    r"(?:\d{1,2}(?:st|nd|rd|th)?|"
+    r"january|february|march|april|may|june|july|august|"
     r"september|october|november|december)\b",
     re.IGNORECASE,
 )
+
+
+def has_date_profile_surface(memory_text: str) -> bool:
+    return bool(_DATE_PROFILE_SURFACE_RE.search(memory_text))
 
 
 def _has_date_profile_support(
@@ -435,7 +443,7 @@ def _has_date_profile_support(
     } & memory_terms
     return bool(
         (date_subject and date_surface)
-        or _DATE_PROFILE_SURFACE_RE.search(memory_text)
+        or has_date_profile_surface(memory_text)
     )
 
 
