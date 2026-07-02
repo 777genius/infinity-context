@@ -4101,6 +4101,18 @@ def test_query_expansion_bridges_game_detail_queries() -> None:
     tournament = build_query_expansion_plan(
         "What games were played at the gaming tournament organized by John?"
     )
+    design = build_query_expansion_plan(
+        "What project is James working on in his game design course?"
+    )
+    genre = build_query_expansion_plan(
+        "What game genre did John start exploring instead of shooters?"
+    )
+    dev = build_query_expansion_plan(
+        "What kind of gig was John offered at the game dev non-profit organization?"
+    )
+    partner = build_query_expansion_plan(
+        "What is the favorite game Jolene plays with her partner?"
+    )
     basketball = build_query_expansion_plan("When was John in Seattle for a game?")
 
     assert "game games gaming video game" in _expansion_query(
@@ -4117,6 +4129,22 @@ def test_query_expansion_bridges_game_detail_queries() -> None:
     )
     assert "purpose fundraiser charity friends invited" in _expansion_query(
         tournament,
+        "game_detail_bridge",
+    )
+    assert "design designer developer development course project" in _expansion_query(
+        design,
+        "game_detail_bridge",
+    )
+    assert "gig genre shooter shooters strategy hooked" in _expansion_query(
+        genre,
+        "game_detail_bridge",
+    )
+    assert "developer development course project nonprofit gig" in _expansion_query(
+        dev,
+        "game_detail_bridge",
+    )
+    assert "favorite recommend recommended" in _expansion_query(
+        partner,
         "game_detail_bridge",
     )
     assert "game_detail_bridge" not in {item.reason for item in basketball.expansions}
