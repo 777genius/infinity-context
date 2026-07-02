@@ -107,6 +107,47 @@ def test_rerank_policy_requires_grounded_direct_speaker_relation() -> None:
     ]
 
 
+def test_rerank_policy_allows_unmeasured_direct_speaker_relation_locality() -> None:
+    unmeasured = score_benchmark_rerank_candidate(
+        _features(
+            overlap_terms=("relationship", "status"),
+            entity_hits=("caroline",),
+            speaker_hits=("caroline",),
+            relation_hits=("parent", "breakup", "family", "support"),
+            relation_terms=("relationship", "status"),
+            high_signal_relation_hit_count=1,
+            focused_turn_boost=0.08,
+            direct_speaker_turn=True,
+            source_locality_score=0.0,
+        )
+    )
+    measured_weak = score_benchmark_rerank_candidate(
+        _features(
+            overlap_terms=("relationship", "status"),
+            entity_hits=("caroline",),
+            speaker_hits=("caroline",),
+            relation_hits=("parent", "breakup", "family", "support"),
+            relation_terms=("relationship", "status"),
+            high_signal_relation_hit_count=1,
+            focused_turn_boost=0.08,
+            direct_speaker_turn=True,
+            source_locality_score=0.35,
+        )
+    )
+
+    unmeasured_signals = unmeasured.signals["score_signals"]
+    measured_signals = measured_weak.signals["score_signals"]
+    unmeasured_policy = unmeasured.signals["policy_contributions"]
+
+    assert unmeasured_signals["benchmark_direct_speaker_relation_boost"] == 0.12
+    assert unmeasured_signals["benchmark_direct_speaker_relation_evidence"] is True
+    assert "direct_speaker_relation" in unmeasured_policy["reason_codes_by_policy"][
+        "FocusedTurnPolicy"
+    ]
+    assert measured_signals["benchmark_direct_speaker_relation_boost"] == 0.0
+    assert measured_signals["benchmark_direct_speaker_relation_evidence"] is False
+
+
 def test_rerank_policy_reports_relation_category_coverage_boost() -> None:
     score = score_benchmark_rerank_candidate(
         BenchmarkRerankFeatures(
@@ -734,6 +775,43 @@ def test_rerank_policy_boosts_precise_speaker_grounding() -> None:
     assert "speaker_grounding" in policy["reason_codes_by_policy"][
         "EntitySpeakerPolicy"
     ]
+
+
+def test_rerank_policy_allows_unmeasured_speaker_grounding_locality() -> None:
+    unmeasured = score_benchmark_rerank_candidate(
+        _features(
+            overlap_terms=("caroline",),
+            entity_hits=("caroline",),
+            speaker_hits=("caroline",),
+            direct_speaker_turn=True,
+            source_locality_score=0.0,
+            source_ref_count=1,
+            turn_ref_count=1,
+        )
+    )
+    measured_weak = score_benchmark_rerank_candidate(
+        _features(
+            overlap_terms=("caroline",),
+            entity_hits=("caroline",),
+            speaker_hits=("caroline",),
+            direct_speaker_turn=True,
+            source_locality_score=0.35,
+            source_ref_count=1,
+            turn_ref_count=1,
+        )
+    )
+
+    unmeasured_signals = unmeasured.signals["score_signals"]
+    measured_signals = measured_weak.signals["score_signals"]
+    unmeasured_policy = unmeasured.signals["policy_contributions"]
+
+    assert unmeasured_signals["benchmark_speaker_grounding_boost"] == 0.045
+    assert unmeasured_signals["benchmark_speaker_grounding_evidence"] is True
+    assert "speaker_grounding" in unmeasured_policy["reason_codes_by_policy"][
+        "EntitySpeakerPolicy"
+    ]
+    assert measured_signals["benchmark_speaker_grounding_boost"] == 0.0
+    assert measured_signals["benchmark_speaker_grounding_evidence"] is False
 
 
 def test_rerank_policy_rejects_broad_summary_speaker_grounding() -> None:

@@ -676,7 +676,7 @@ def _speaker_grounding_eligible(features: RerankPolicyFeatures) -> bool:
         and features.speaker_hits
         and features.direct_speaker_turn
         and not features.broad_summary
-        and features.source_locality_score >= 0.65
+        and not _has_measured_locality_below(features, 0.65)
         and not _has_positive_boost(features.policy_boosts)
         and not _has_positive_boost(features.shape_boosts)
     )
@@ -720,8 +720,15 @@ def _direct_speaker_relation_grounded(
         and len(features.relation_hits) >= relation_hit_count
         and features.direct_speaker_turn
         and not features.broad_summary
-        and features.source_locality_score >= 0.65
+        and not _has_measured_locality_below(features, 0.65)
     )
+
+
+def _has_measured_locality_below(
+    features: RerankPolicyFeatures,
+    threshold: float,
+) -> bool:
+    return 0 < features.source_locality_score < threshold
 
 
 def _has_positive_boost(boosts: Mapping[str, float]) -> bool:
