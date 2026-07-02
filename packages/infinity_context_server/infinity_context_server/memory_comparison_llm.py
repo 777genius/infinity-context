@@ -177,6 +177,11 @@ def _render_memory_evidence_line(memory: RetrievedMemory, *, index: int) -> str:
     )
     if backfill_roles:
         labels.append(f"backfill_roles={','.join(backfill_roles[:4])}")
+    backfill_proximity = _positive_int(
+        metadata.get("answer_context_backfill_source_proximity_distance")
+    )
+    if backfill_proximity is not None:
+        labels.append(f"backfill_proximity={backfill_proximity}")
     role_complete = metadata.get("answer_context_role_requirement_complete")
     if role_complete is False:
         labels.append("role_complete=false")
