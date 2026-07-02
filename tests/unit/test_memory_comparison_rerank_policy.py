@@ -511,6 +511,50 @@ def test_rerank_policy_accepts_typed_location_support_need() -> None:
     ]
 
 
+def test_rerank_policy_accepts_unmeasured_source_ref_location_support() -> None:
+    unmeasured = score_benchmark_rerank_candidate(
+        _features(
+            overlap_terms=("caroline", "move", "from"),
+            entity_hits=("caroline",),
+            relation_hits=("move", "home", "country", "relocated"),
+            relation_terms=("move",),
+            relation_categories=("location_transition",),
+            relation_category_hits=("location_transition",),
+            relation_category_coverage_ratio=1.0,
+            source_locality_score=0.0,
+            source_ref_count=1,
+            turn_ref_count=1,
+            evidence_need=("location_support",),
+            query_roles=("location_support",),
+        )
+    )
+    measured_weak = score_benchmark_rerank_candidate(
+        _features(
+            overlap_terms=("caroline", "move", "from"),
+            entity_hits=("caroline",),
+            relation_hits=("move", "home", "country", "relocated"),
+            relation_terms=("move",),
+            relation_categories=("location_transition",),
+            relation_category_hits=("location_transition",),
+            relation_category_coverage_ratio=1.0,
+            source_locality_score=0.35,
+            source_ref_count=1,
+            turn_ref_count=1,
+            evidence_need=("location_support",),
+            query_roles=("location_support",),
+        )
+    )
+
+    unmeasured_signals = unmeasured.signals["score_signals"]
+    measured_signals = measured_weak.signals["score_signals"]
+
+    assert unmeasured_signals["benchmark_location_support_boost"] == 0.05
+    assert unmeasured_signals["benchmark_location_query_role_boost"] == 0.035
+    assert unmeasured_signals["benchmark_location_precise_provenance"] is True
+    assert measured_signals["benchmark_location_support_boost"] == 0.0
+    assert measured_signals["benchmark_location_precise_provenance"] is False
+
+
 def test_rerank_policy_requires_grounded_preference_evidence() -> None:
     grounded = score_benchmark_rerank_candidate(
         _features(
@@ -695,6 +739,58 @@ def test_rerank_policy_accepts_typed_communication_support_need() -> None:
     assert "typed_relation_query_role_support" in policy["reason_codes_by_policy"][
         "TypedRelationSupportPolicy"
     ]
+
+
+def test_rerank_policy_accepts_unmeasured_source_ref_typed_relation_support() -> None:
+    unmeasured = score_benchmark_rerank_candidate(
+        _features(
+            overlap_terms=("caroline", "recommend", "book"),
+            entity_hits=("caroline",),
+            speaker_hits=("caroline",),
+            relation_hits=("recommend", "book", "said"),
+            relation_terms=("recommend", "book"),
+            relation_categories=("communication",),
+            relation_category_hits=("communication",),
+            relation_category_coverage_ratio=1.0,
+            source_locality_score=0.0,
+            source_ref_count=1,
+            turn_ref_count=1,
+            evidence_need=("communication",),
+            query_roles=("communication_support",),
+        )
+    )
+    measured_weak = score_benchmark_rerank_candidate(
+        _features(
+            overlap_terms=("caroline", "recommend", "book"),
+            entity_hits=("caroline",),
+            speaker_hits=("caroline",),
+            relation_hits=("recommend", "book", "said"),
+            relation_terms=("recommend", "book"),
+            relation_categories=("communication",),
+            relation_category_hits=("communication",),
+            relation_category_coverage_ratio=1.0,
+            source_locality_score=0.35,
+            source_ref_count=1,
+            turn_ref_count=1,
+            evidence_need=("communication",),
+            query_roles=("communication_support",),
+        )
+    )
+
+    unmeasured_signals = unmeasured.signals["score_signals"]
+    measured_signals = measured_weak.signals["score_signals"]
+
+    assert unmeasured_signals["benchmark_typed_relation_support_boost"] == 0.045
+    assert unmeasured_signals["benchmark_typed_relation_query_role_boost"] == 0.02
+    assert (
+        unmeasured_signals["benchmark_typed_relation_support_precise_provenance"]
+        is True
+    )
+    assert measured_signals["benchmark_typed_relation_support_boost"] == 0.0
+    assert (
+        measured_signals["benchmark_typed_relation_support_precise_provenance"]
+        is False
+    )
 
 
 def test_rerank_policy_rejects_typed_support_role_without_category_hit() -> None:

@@ -508,13 +508,7 @@ class LocationIntentPolicy:
             or "location_transition" in set(features.relation_categories)
         )
         category_hit = "location_transition" in set(features.relation_category_hits)
-        precise_provenance = (
-            features.direct_speaker_turn
-            or (
-                features.source_locality_score >= 0.65
-                and not features.broad_summary
-            )
-        )
+        precise_provenance = _has_precise_or_unmeasured_source_provenance(features)
         evidence_boost = (
             0.05
             if location_need
@@ -551,9 +545,7 @@ class TypedRelationSupportPolicy:
     def score(self, features: RerankPolicyFeatures) -> RerankPolicyContribution:
         support_roles = _typed_relation_support_roles(features)
         category_hits = _typed_relation_support_category_hits(features, support_roles)
-        precise_provenance = features.direct_speaker_turn or (
-            features.source_locality_score >= 0.65 and not features.broad_summary
-        )
+        precise_provenance = _has_precise_or_unmeasured_source_provenance(features)
         grounded = bool(
             category_hits
             and precise_provenance
@@ -729,6 +721,21 @@ def _has_measured_locality_below(
     threshold: float,
 ) -> bool:
     return 0 < features.source_locality_score < threshold
+
+
+def _has_precise_or_unmeasured_source_provenance(
+    features: RerankPolicyFeatures,
+) -> bool:
+    if features.broad_summary:
+        return False
+    if features.direct_speaker_turn:
+        return True
+    if features.source_locality_score >= 0.65:
+        return True
+    return bool(
+        features.source_locality_score <= 0
+        and (features.source_ref_count > 0 or features.turn_ref_count > 0)
+    )
 
 
 def _has_positive_boost(boosts: Mapping[str, float]) -> bool:
