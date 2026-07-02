@@ -103,6 +103,7 @@ def _support_query_terms(
     lexical_terms: tuple[str, ...],
     entity_surfaces: tuple[str, ...],
     communication_support: bool,
+    commitment_support: bool,
     contact_support: bool,
     diet_support: bool,
     education_support: bool,
@@ -117,6 +118,13 @@ def _support_query_terms(
 ) -> tuple[str, ...]:
     if communication_support:
         return _communication_support_query_terms(
+            relation_terms=relation_terms,
+            relation_variant_terms=relation_variant_terms,
+            lexical_terms=lexical_terms,
+            entity_surfaces=entity_surfaces,
+        )
+    if commitment_support:
+        return _commitment_support_query_terms(
             relation_terms=relation_terms,
             relation_variant_terms=relation_variant_terms,
             lexical_terms=lexical_terms,
@@ -226,6 +234,57 @@ def _support_query_terms(
             topic_after=1 if "conference" in relation_terms else 4,
         )
     return _relation_query_terms(relation_terms, relation_variant_terms)
+
+
+def _commitment_support_query_terms(
+    *,
+    relation_terms: tuple[str, ...],
+    relation_variant_terms: tuple[str, ...],
+    lexical_terms: tuple[str, ...],
+    entity_surfaces: tuple[str, ...],
+) -> tuple[str, ...]:
+    entity_tokens = {
+        token for surface in entity_surfaces for token in _normalized_terms(surface)
+    }
+    commitment_terms = {
+        "bring",
+        "commit",
+        "committed",
+        "complete",
+        "date",
+        "deadline",
+        "due",
+        "finish",
+        "need",
+        "promise",
+        "promised",
+        "remember",
+        "reminder",
+        "task",
+        "to-do",
+        "todo",
+    }
+    topical_terms = tuple(
+        term
+        for term in lexical_terms
+        if term not in _QUERY_STOPWORDS
+        and term not in relation_terms
+        and term not in relation_variant_terms
+        and term not in entity_tokens
+    )
+    return tuple(
+        dict.fromkeys(
+            (
+                *(
+                    term
+                    for term in relation_terms
+                    if term in {"deadline", "promise", "remember", "task"}
+                ),
+                *(term for term in relation_variant_terms if term in commitment_terms),
+                *topical_terms[:4],
+            )
+        )
+    )
 
 
 def _contact_support_query_terms(

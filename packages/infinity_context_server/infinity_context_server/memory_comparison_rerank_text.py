@@ -424,6 +424,23 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
     ):
         terms.append("diet")
     if re.search(
+        r"\b(?:deadline|due\s+date|when\b.+\bdue|"
+        r"what\b.+\b(?:task|todo|to-do)|"
+        r"what\b.+\bpromise(?:d)?|"
+        r"(?:need|needs|needed)\s+to\s+remember|"
+        r"remember\s+to)\b",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        if re.search(r"\bdeadline|due\s+date|when\b.+\bdue\b", text, flags=re.IGNORECASE):
+            terms.append("deadline")
+        elif re.search(r"\bpromise(?:d)?\b", text, flags=re.IGNORECASE):
+            terms.append("promise")
+        elif re.search(r"\bremember\b", text, flags=re.IGNORECASE):
+            terms.append("remember")
+        else:
+            terms.append("task")
+    if re.search(
         r"\bhow\s+old\b|\bwhat\b.+\bage\b|\bage\b.+\b(?:is|of)\b",
         text,
         flags=re.IGNORECASE,

@@ -143,6 +143,7 @@ _RELATION_QUERY_TERMS = {
     "consider",
     "conference",
     "contact",
+    "deadline",
     "decide",
     "destress",
     "diet",
@@ -193,6 +194,7 @@ _RELATION_QUERY_TERMS = {
     "plan",
     "political",
     "previous",
+    "promise",
     "prioritize",
     "purchas",
     "purchase",
@@ -206,6 +208,7 @@ _RELATION_QUERY_TERMS = {
     "religious",
     "relationship",
     "realize",
+    "remember",
     "research",
     "run",
     "say",
@@ -218,6 +221,7 @@ _RELATION_QUERY_TERMS = {
     "stay",
     "sport",
     "talk",
+    "task",
     "tell",
     "text",
     "think",
@@ -404,6 +408,7 @@ def expanded_search_query(case: PublicBenchmarkCase) -> tuple[str, dict[str, obj
             communication_support=(
                 "communication_support" in intent.bundle_evidence_roles
             ),
+            commitment_support="commitment_profile" in intent.evidence_need,
             contact_support="contact_profile" in intent.evidence_need,
             diet_support="diet_profile" in intent.evidence_need,
             education_support="education_profile" in intent.evidence_need,
@@ -547,6 +552,7 @@ def decomposed_search_queries(
             lexical_terms=lexical_terms,
             entity_surfaces=entity_surfaces,
             communication_support=compact_relation_role == "communication_support",
+            commitment_support=compact_relation_role == "commitment_support",
             contact_support=compact_relation_role == "contact_support",
             diet_support=compact_relation_role == "diet_support",
             education_support=compact_relation_role == "education_support",
@@ -788,6 +794,8 @@ def _recommended_query_role_families(intent: RetrievalIntent) -> tuple[str, ...]
 def _compact_relation_query_role(intent: RetrievalIntent) -> str:
     if "education_profile" in set(intent.evidence_need):
         return "education_support"
+    if "commitment_profile" in set(intent.evidence_need):
+        return "commitment_support"
     if "contact_profile" in set(intent.evidence_need):
         return "contact_support"
     if "diet_profile" in set(intent.evidence_need):
@@ -1118,6 +1126,10 @@ def _filter_relation_terms_for_profile(
             normalized_question,
         ):
             continue
+        if term in {"deadline", "promise", "remember", "task"} and not (
+            _has_commitment_profile_question(normalized_question)
+        ):
+            continue
         if term == "diet" and not _has_diet_profile_question(normalized_question):
             continue
         if term in {"exercise", "hobby", "sport"} and not _has_activity_profile_question(
@@ -1224,6 +1236,25 @@ def _has_contact_profile_question(normalized_question: str) -> bool:
         re.search(
             r"\b(?:contact\s+(?:info|information|details)|"
             r"email|e mail|phone|telephone|cell|mobile|address)\b",
+            normalized_question,
+        )
+    )
+
+
+def _has_commitment_profile_question(normalized_question: str) -> bool:
+    if re.search(
+        r"\bremember(?:ed|s|ing)?\s+(?:childhood|story|trip|vacation|birthday)\b|"
+        r"\bpromise\s+ring\b",
+        normalized_question,
+    ):
+        return False
+    return bool(
+        re.search(
+            r"\b(?:deadline|due\s+date|when\b.+\bdue|"
+            r"what\b.+\b(?:task|todo|to do|to-do)|"
+            r"what\b.+\bpromise(?:d)?|"
+            r"(?:need|needs|needed)\s+to\s+remember|"
+            r"remember\s+to)\b",
             normalized_question,
         )
     )

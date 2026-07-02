@@ -276,6 +276,11 @@ def infer_relation_intents(
             relation_terms=relation_terms,
         ):
             continue
+        if category == "commitment_profile" and not _has_commitment_profile_intent(
+            question=question,
+            relation_terms=relation_terms,
+        ):
+            continue
         terms = tuple(term for term in relation_terms if term in config["terms"])
         variants = tuple(
             term for term in relation_variant_terms if term in config["variants"]
@@ -407,6 +412,8 @@ def infer_bundle_evidence_roles(
         roles.append("symbolic_meaning_support")
     if "communication" in evidence_need_set:
         roles.append("communication_support")
+    if "commitment_profile" in evidence_need_set:
+        roles.append("commitment_support")
     if "contact_profile" in evidence_need_set:
         roles.append("contact_support")
     if "diet_profile" in evidence_need_set:
@@ -433,6 +440,7 @@ def merge_relation_evidence_needs(
 
     promoted_needs = {
         "emotion_response",
+        "commitment_profile",
         "contact_profile",
         "diet_profile",
         "education_profile",
@@ -770,6 +778,32 @@ def _has_communication_intent(
     return bool(
         re.search(
             r"\b(?:who|whom)\b.+\bmention\b|\bmention(?:ed)?\b.+\b(?:to|with)\b",
+            normalized_question,
+        )
+    )
+
+
+def _has_commitment_profile_intent(
+    *,
+    question: str,
+    relation_terms: tuple[str, ...],
+) -> bool:
+    if not {"deadline", "promise", "remember", "task"} & set(relation_terms):
+        return False
+    normalized_question = re.sub(r"[^0-9a-z]+", " ", question.casefold()).strip()
+    if re.search(
+        r"\bremember(?:ed|s|ing)?\s+(?:childhood|story|trip|vacation|birthday)\b|"
+        r"\bpromise\s+ring\b",
+        normalized_question,
+    ):
+        return False
+    return bool(
+        re.search(
+            r"\b(?:deadline|due\s+date|when\b.+\bdue|"
+            r"what\b.+\b(?:task|todo|to do|to-do)|"
+            r"what\b.+\bpromise(?:d)?|"
+            r"(?:need|needs|needed)\s+to\s+remember|"
+            r"remember\s+to)\b",
             normalized_question,
         )
     )
@@ -1410,6 +1444,31 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
         ),
         "markers": frozenset(),
         "evidence_need": "contact_profile",
+    },
+    "commitment_profile": {
+        "terms": frozenset({"deadline", "promise", "remember", "task"}),
+        "variants": frozenset(
+            {
+                "bring",
+                "commit",
+                "committed",
+                "complete",
+                "date",
+                "deadline",
+                "due",
+                "finish",
+                "need",
+                "promise",
+                "promised",
+                "remember",
+                "reminder",
+                "task",
+                "to-do",
+                "todo",
+            }
+        ),
+        "markers": frozenset(),
+        "evidence_need": "commitment_profile",
     },
     "diet_profile": {
         "terms": frozenset({"diet"}),

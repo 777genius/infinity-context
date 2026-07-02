@@ -20,6 +20,8 @@ def typed_relation_category_support(
         return _has_activity_profile_support(memory_terms, memory_text=memory_text)
     if category == "communication":
         return _has_communication_support(memory_terms, memory_text=memory_text)
+    if category == "commitment_profile":
+        return _has_commitment_profile_support(memory_terms, memory_text=memory_text)
     if category == "contact_profile":
         return _has_contact_profile_support(memory_terms, memory_text=memory_text)
     if category == "diet_profile":
@@ -448,6 +450,56 @@ def _has_contact_profile_support(
             and not {"concern", "issue", "problem", "topic"} & memory_terms
         )
         or _CONTACT_PROFILE_SURFACE_RE.search(memory_text)
+    )
+
+
+_COMMITMENT_PROFILE_SURFACE_RE = re.compile(
+    r"\b(?:deadline|due\s+date)\s+(?:is|was)\s+"
+    r"(?:\d{1,2}(?::\d{2})?|"
+    r"monday|tuesday|wednesday|thursday|friday|saturday|sunday|"
+    r"today|tomorrow|next\s+week)\b"
+    r"|\b(?:due|finish|complete)\s+(?:by|before)\s+"
+    r"(?:\d{1,2}(?::\d{2})?|"
+    r"monday|tuesday|wednesday|thursday|friday|saturday|sunday|"
+    r"today|tomorrow|next\s+week)\b"
+    r"|\b(?:need|needs|needed)\s+to\s+remember\s+to\b"
+    r"|\bremember\s+to\s+(?:bring|send|call|finish|complete|take)\b"
+    r"|\b(?:promise|promised)\s+to\s+"
+    r"(?:bring|send|call|finish|complete|take|help)\b",
+    re.IGNORECASE,
+)
+
+
+def _has_commitment_profile_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
+    deadline_surface = {"due"} & memory_terms or (
+        "deadline" in memory_terms
+        and {
+            "friday",
+            "monday",
+            "saturday",
+            "sunday",
+            "thursday",
+            "today",
+            "tomorrow",
+            "tuesday",
+            "wednesday",
+        }
+        & memory_terms
+    )
+    task_action = {"complete", "finish", "send", "bring", "call", "take"} & memory_terms
+    task_surface = {"task", "todo", "to-do"} & memory_terms
+    promise_surface = {"promise", "promised"} & memory_terms
+    reminder_surface = {"remember", "reminder"} & memory_terms
+    return bool(
+        deadline_surface
+        or (task_surface and task_action)
+        or (promise_surface and task_action)
+        or (reminder_surface and task_action)
+        or _COMMITMENT_PROFILE_SURFACE_RE.search(memory_text)
     )
 
 
@@ -1286,6 +1338,7 @@ _TYPED_SUPPORT_CHECKS: dict[str, Callable[[set[str]], bool]] = {
     "age_profile": _has_age_profile_support,
     "alias_profile": _has_alias_profile_support,
     "causal": _has_causal_support,
+    "commitment_profile": _has_commitment_profile_support,
     "contact_profile": _has_contact_profile_support,
     "contrast": _has_contrast_support,
     "current_goal": _has_current_goal_support,

@@ -81,6 +81,7 @@ RELATION_QUERY_VARIANTS = {
         "phone",
         "telephone",
     ),
+    "deadline": ("due", "date", "finish", "complete", "task"),
     "decide": ("decided", "chose", "planned", "thinking", "figuring"),
     "dating": ("partner", "relationship", "boyfriend", "girlfriend"),
     "destress": (
@@ -363,6 +364,7 @@ RELATION_QUERY_VARIANTS = {
     ),
     "path": ("career", "field", "work", "working", "profession", "direction"),
     "previous": ("previously", "earlier", "before", "used to", "former"),
+    "promise": ("promised", "commit", "committed", "said", "will"),
     "prioritize": (
         "prioritized",
         "self-care",
@@ -436,6 +438,7 @@ RELATION_QUERY_VARIANTS = {
     ),
     "roommate": ("housemate", "apartment", "home", "living", "neighbor"),
     "realize": ("realized", "learned", "understood"),
+    "remember": ("reminder", "remembered", "bring", "take", "need"),
     "research": ("researching", "looked into", "looking into", "check out", "checked out"),
     "run": ("ran", "running", "race", "charity"),
     "sign": ("signed", "signup", "class", "registered"),
@@ -480,6 +483,7 @@ RELATION_QUERY_VARIANTS = {
         "engaged",
     ),
     "teammate": ("team", "colleague", "coworker", "work"),
+    "task": ("todo", "to-do", "deadline", "finish", "complete", "due"),
     "text": ("texted", "message", "messaged", "sent"),
     "tell": ("told", "said", "mentioned"),
     "told": ("tell", "said", "mentioned"),

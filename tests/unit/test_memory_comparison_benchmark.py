@@ -8524,6 +8524,84 @@ def test_benchmark_contact_profile_ignores_addressing_issue_wording() -> None:
     assert "contact_profile" not in intent.evidence_need
 
 
+def test_benchmark_rerank_boosts_commitment_profile_evidence() -> None:
+    case = _case(
+        case_id="commitment-profile-rerank",
+        question="What deadline does Alex have?",
+        expected_terms=("Friday",),
+        answer="Friday",
+        category=4,
+    )
+    topical_deadline = RetrievedMemory(
+        item_id="topical-deadline",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex read an article about deadline pressure."
+        ),
+        source_refs=("D1:1",),
+    )
+    commitment_profile = RetrievedMemory(
+        item_id="commitment-profile",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: My deadline is Friday for the draft."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_deadline, commitment_profile),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("commitment_profile",)
+    assert reranked[0].item_id == "commitment-profile"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    commitment_diagnostics = diagnostics_by_id["commitment-profile"]
+    topical_diagnostics = diagnostics_by_id["topical-deadline"]
+    assert commitment_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["commitment_profile"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert (
+        commitment_diagnostics["score_signals"][
+            "benchmark_typed_relation_support_boost"
+        ]
+        > 0
+    )
+    assert commitment_diagnostics["score_signals"][
+        "benchmark_typed_relation_support_roles"
+    ] == ["commitment_support"]
+    assert (
+        topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        == 0
+    )
+
+
+def test_benchmark_commitment_profile_ignores_remembered_story_wording() -> None:
+    case = _case(
+        case_id="commitment-profile-remembered-story-guard",
+        question="What story did Alex remember from childhood?",
+        expected_terms=("camping"),
+        answer="camping",
+        category=4,
+    )
+
+    intent = rerank_module.query_retrieval_intent(case)
+
+    assert "commitment_profile" not in intent.evidence_need
+    assert "commitment_profile" not in intent.to_query_profile()["relation_categories"]
+
+
 def test_benchmark_rerank_boosts_diet_profile_evidence() -> None:
     case = _case(
         case_id="diet-profile-rerank",
