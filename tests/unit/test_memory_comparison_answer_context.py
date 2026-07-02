@@ -40,7 +40,10 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
                     "source_refs": ["D4:5"],
                     "planner_reason_codes": ["role:primary", "query_support"],
                     "eligibility_reason_codes": ["query_support_terms"],
+                    "query_roles": ["location_support"],
+                    "relation_category_hits": ["location_transition"],
                     "answerability_score": 0.91,
+                    "source_locality_score": 1.0,
                 },
                 {"id": "bridge", "retrieval_order": 2, "role": "bridge"},
             ]
@@ -59,7 +62,14 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
     assert context.memories[0].metadata[
         "answer_context_eligibility_reason_codes"
     ] == ("query_support_terms",)
+    assert context.memories[0].metadata["answer_context_query_roles"] == (
+        "location_support",
+    )
+    assert context.memories[0].metadata[
+        "answer_context_relation_category_hits"
+    ] == ("location_transition",)
     assert context.memories[0].metadata["answer_context_answerability_score"] == 0.91
+    assert context.memories[0].metadata["answer_context_source_locality_score"] == 1.0
     assert (
         context.memories[0].metadata["answer_context_bundle_confidence_score"]
         == 0.68

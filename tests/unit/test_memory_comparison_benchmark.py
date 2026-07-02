@@ -214,6 +214,11 @@ def test_render_answer_prompt_labels_planned_evidence_context() -> None:
                     "answer_context_role": "primary",
                     "answer_context_retrieval_order": 4,
                     "answer_context_answerability_score": 0.91,
+                    "answer_context_source_locality_score": 1.0,
+                    "answer_context_query_roles": ("location_support",),
+                    "answer_context_relation_category_hits": (
+                        "location_transition",
+                    ),
                     "answer_context_bundle_confidence_score": 0.68,
                     "answer_context_bundle_confidence_band": "medium",
                     "answer_context_role_requirement_complete": False,
@@ -237,6 +242,9 @@ def test_render_answer_prompt_labels_planned_evidence_context() -> None:
     assert "rank=4" in prompt
     assert "retrieval_order=4" in prompt
     assert "answerability=0.91" in prompt
+    assert "locality=1" in prompt
+    assert "query_roles=location_support" in prompt
+    assert "relations=location_transition" in prompt
     assert "bundle=medium:0.68" in prompt
     assert "missing_roles=contrast" in prompt
     assert "role_complete=false" in prompt

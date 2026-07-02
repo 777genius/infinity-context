@@ -114,6 +114,17 @@ def _render_memory_evidence_line(memory: RetrievedMemory, *, index: int) -> str:
     answerability = _prompt_score(metadata.get("answer_context_answerability_score"))
     if answerability is not None:
         labels.append(f"answerability={answerability}")
+    locality = _prompt_score(metadata.get("answer_context_source_locality_score"))
+    if locality is not None:
+        labels.append(f"locality={locality}")
+    query_roles = _string_sequence(metadata.get("answer_context_query_roles"))
+    if query_roles:
+        labels.append(f"query_roles={','.join(query_roles[:3])}")
+    relation_categories = _string_sequence(
+        metadata.get("answer_context_relation_category_hits")
+    )
+    if relation_categories:
+        labels.append(f"relations={','.join(relation_categories[:3])}")
     confidence = _prompt_score(
         metadata.get("answer_context_bundle_confidence_score")
     )

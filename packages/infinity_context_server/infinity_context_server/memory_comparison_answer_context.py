@@ -338,10 +338,22 @@ def _with_answer_context_metadata(
     eligibility_reasons = _string_tuple(bundle_item.get("eligibility_reason_codes"))
     if eligibility_reasons:
         metadata["answer_context_eligibility_reason_codes"] = eligibility_reasons
+    query_roles = _string_tuple(bundle_item.get("query_roles"))
+    if query_roles:
+        metadata["answer_context_query_roles"] = query_roles
+    relation_category_hits = _string_tuple(bundle_item.get("relation_category_hits"))
+    if relation_category_hits:
+        metadata["answer_context_relation_category_hits"] = relation_category_hits
     answerability_score = _metric_value(bundle_item, "answerability_score")
     if answerability_score > 0:
         metadata["answer_context_answerability_score"] = round(
             answerability_score,
+            6,
+        )
+    source_locality_score = _metric_value(bundle_item, "source_locality_score")
+    if source_locality_score > 0:
+        metadata["answer_context_source_locality_score"] = round(
+            source_locality_score,
             6,
         )
     source_refs = _merged_source_refs(memory, bundle_item)
