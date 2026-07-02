@@ -2042,8 +2042,23 @@ def _query_role_family(query_role: str) -> str:
         return "temporal_support"
     if role.startswith("multi_hop_"):
         return "multi_hop"
-    if role in {"original_question", "expanded_focus", "compact_relation"}:
+    if role in {"original_question", "fallback_original"}:
         return "base_query"
+    if role == "expanded_focus":
+        return "expanded_focus"
+    if role == "compact_relation":
+        return "relation_compact"
+    if role in {
+        "causal_support",
+        "communication_support",
+        "emotion_response_support",
+        "event_support",
+        "exchange_support",
+        "inference_support",
+        "preference_support",
+        "symbolic_meaning_support",
+    }:
+        return "relation_compact"
     if role == "contrast_support":
         return "contrast_support"
     return role or "unknown"

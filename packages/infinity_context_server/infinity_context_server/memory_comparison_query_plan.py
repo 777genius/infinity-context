@@ -326,6 +326,17 @@ def _role_families(role: str) -> tuple[str, ...]:
         return ("expanded_focus",)
     if role == "compact_relation":
         return ("relation_compact",)
+    if role in {
+        "causal_support",
+        "communication_support",
+        "emotion_response_support",
+        "event_support",
+        "exchange_support",
+        "inference_support",
+        "preference_support",
+        "symbolic_meaning_support",
+    }:
+        return ("relation_compact",)
     if role == "location_support":
         return ("location_support",)
     if role == "visual_temporal_support":

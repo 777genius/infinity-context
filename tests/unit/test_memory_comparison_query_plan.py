@@ -273,6 +273,41 @@ def test_query_planner_preserves_location_support_family() -> None:
     assert diagnostics["missing_recommended_role_families"] == []
 
 
+def test_query_planner_maps_relation_support_roles_to_compact_family() -> None:
+    plan = QueryPlannerV2(max_queries=3).plan(
+        (
+            _candidate(
+                "original_question",
+                "Who did Alex tell about the delay?",
+                priority=0,
+                query_type="semantic",
+            ),
+            _candidate(
+                "communication_support",
+                "alex tell told mention delay maria",
+                priority=30,
+            ),
+        ),
+        fallback_query="Who did Alex tell about the delay?",
+        recommended_role_families=("base_query", "relation_compact"),
+    )
+
+    diagnostics = plan.to_diagnostics()
+    assert diagnostics["selected_roles"] == [
+        "original_question",
+        "communication_support",
+    ]
+    assert diagnostics["role_family_counts"] == {
+        "base_query": 1,
+        "relation_compact": 1,
+    }
+    assert diagnostics["selected_role_families"] == [
+        "base_query",
+        "relation_compact",
+    ]
+    assert diagnostics["missing_recommended_role_families"] == []
+
+
 def _candidate(
     role: str,
     query: str,
