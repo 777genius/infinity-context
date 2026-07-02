@@ -907,6 +907,7 @@ def test_fast_gate_metrics_reports_bundle_support_summaries() -> None:
     assert gate["bundle_support_counts"] == {
         "bridge": 1,
         "causal": 1,
+        "communication": 0,
         "contrast": 1,
         "emotion_response": 1,
         "event": 1,
@@ -920,6 +921,7 @@ def test_fast_gate_metrics_reports_bundle_support_summaries() -> None:
     assert gate["bundle_support_bundle_counts"] == {
         "bridge": 1,
         "causal": 1,
+        "communication": 0,
         "contrast": 1,
         "emotion_response": 1,
         "event": 1,
@@ -1564,6 +1566,98 @@ def test_fast_gate_metrics_accepts_event_support_evidence() -> None:
     assert "missing_event_support" not in breakdown["reason_counts"]
     assert "missing_required_event_support" not in breakdown["reason_counts"]
     assert "missing_event_support" not in breakdown["evidence_need_gap_reason_counts"]
+
+
+def test_fast_gate_metrics_reports_missing_communication_support_gap() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="missing-communication",
+                group="single-hop",
+                retrieval=_retrieval_payload(
+                    evidence_need=("communication",),
+                    bundle_evidence_roles=("primary", "communication_support"),
+                    relation_categories=("communication",),
+                    policy_score=0.0,
+                ),
+                evidence_bundle={
+                    "bundle_complete": False,
+                    "item_count": 1,
+                    "primary_evidence_count": 1,
+                    "supporting_evidence_count": 0,
+                    "query_support_term_recall": 0.5,
+                    "covered_evidence_terms": [],
+                    "missing_required_roles": ["communication_support"],
+                    "items": [
+                        {
+                            "role": "primary",
+                            "retrieval_order": 1,
+                            "focused_evidence_score": 1.0,
+                            "planner_reason_codes": ["primary_signal"],
+                        }
+                    ],
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    breakdown = gate["bundle_gap_breakdown"]
+
+    assert breakdown["reason_counts"]["missing_communication_support"] == 1
+    assert breakdown["reason_counts"]["missing_required_communication_support"] == 1
+    assert breakdown["evidence_need_gap_reason_counts"] == {
+        "missing_communication_support": 1,
+        "missing_required_communication_support": 1,
+    }
+
+
+def test_fast_gate_metrics_accepts_communication_support_evidence() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="has-communication",
+                group="single-hop",
+                retrieval=_retrieval_payload(
+                    evidence_need=("communication",),
+                    bundle_evidence_roles=("primary", "communication_support"),
+                    relation_categories=("communication",),
+                    policy_score=0.0,
+                ),
+                evidence_bundle={
+                    "bundle_complete": False,
+                    "item_count": 1,
+                    "primary_evidence_count": 1,
+                    "supporting_evidence_count": 0,
+                    "query_support_term_recall": 0.5,
+                    "covered_evidence_terms": [],
+                    "items": [
+                        {
+                            "role": "communication_support",
+                            "retrieval_order": 1,
+                            "focused_evidence_score": 1.0,
+                            "relation_category_hits": ["communication"],
+                            "planner_reason_codes": [
+                                "communication_support",
+                                "communication_relation_category_hits",
+                                "communication_speaker_hits",
+                            ],
+                        }
+                    ],
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    breakdown = gate["bundle_gap_breakdown"]
+
+    assert "missing_communication_support" not in breakdown["reason_counts"]
+    assert "missing_required_communication_support" not in breakdown["reason_counts"]
+    assert (
+        "missing_communication_support"
+        not in breakdown["evidence_need_gap_reason_counts"]
+    )
 
 
 def test_fast_gate_metrics_reports_missing_visual_support_gap() -> None:

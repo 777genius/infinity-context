@@ -23,6 +23,7 @@ class AnswerContext:
     bundle_bridge_count: int = 0
     bundle_source_proximity_support_count: int = 0
     bundle_causal_support_count: int = 0
+    bundle_communication_support_count: int = 0
     bundle_event_support_count: int = 0
     bundle_inference_support_count: int = 0
     bundle_location_support_count: int = 0
@@ -51,6 +52,9 @@ class AnswerContext:
                 self.bundle_source_proximity_support_count
             ),
             "bundle_causal_support_count": self.bundle_causal_support_count,
+            "bundle_communication_support_count": (
+                self.bundle_communication_support_count
+            ),
             "bundle_event_support_count": self.bundle_event_support_count,
             "bundle_inference_support_count": self.bundle_inference_support_count,
             "bundle_location_support_count": self.bundle_location_support_count,
@@ -158,6 +162,14 @@ def answer_context_from_evidence_bundle(
         bundle_causal_support_count=(
             _positive_int(
                 bundle_context.get("answer_context_bundle_causal_support_count")
+            )
+            or 0
+        ),
+        bundle_communication_support_count=(
+            _positive_int(
+                bundle_context.get(
+                    "answer_context_bundle_communication_support_count"
+                )
             )
             or 0
         ),
@@ -301,6 +313,7 @@ def _answer_context_cutoff_metrics(
     bundle_bridge_counts: list[int] = []
     bundle_source_proximity_support_counts: list[int] = []
     bundle_causal_support_counts: list[int] = []
+    bundle_communication_support_counts: list[int] = []
     bundle_event_support_counts: list[int] = []
     bundle_inference_support_counts: list[int] = []
     bundle_location_support_counts: list[int] = []
@@ -360,6 +373,9 @@ def _answer_context_cutoff_metrics(
         )
         bundle_causal_support_counts.append(
             _positive_int(context.get("bundle_causal_support_count")) or 0
+        )
+        bundle_communication_support_counts.append(
+            _positive_int(context.get("bundle_communication_support_count")) or 0
         )
         bundle_event_support_counts.append(
             _positive_int(context.get("bundle_event_support_count")) or 0
@@ -429,6 +445,12 @@ def _answer_context_cutoff_metrics(
         ),
         "avg_bundle_causal_support_count": _avg(bundle_causal_support_counts),
         "total_bundle_causal_support_count": sum(bundle_causal_support_counts),
+        "avg_bundle_communication_support_count": _avg(
+            bundle_communication_support_counts
+        ),
+        "total_bundle_communication_support_count": sum(
+            bundle_communication_support_counts
+        ),
         "avg_bundle_event_support_count": _avg(bundle_event_support_counts),
         "total_bundle_event_support_count": sum(bundle_event_support_counts),
         "avg_bundle_inference_support_count": _avg(
@@ -580,6 +602,13 @@ def _bundle_context_metadata(bundle: Mapping[str, object]) -> dict[str, object]:
     causal_support_count = _positive_int(quality.get("causal_support_count"))
     if causal_support_count is not None:
         metadata["answer_context_bundle_causal_support_count"] = causal_support_count
+    communication_support_count = _positive_int(
+        quality.get("communication_support_count")
+    )
+    if communication_support_count is not None:
+        metadata["answer_context_bundle_communication_support_count"] = (
+            communication_support_count
+        )
     event_support_count = _positive_int(quality.get("event_support_count"))
     if event_support_count is not None:
         metadata["answer_context_bundle_event_support_count"] = event_support_count

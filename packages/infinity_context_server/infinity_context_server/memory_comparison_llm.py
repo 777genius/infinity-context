@@ -258,6 +258,11 @@ def _bundle_support_counts(metadata: Mapping[str, object]) -> tuple[str, ...]:
     )
     if causal is not None:
         counts.append(f"causal:{causal}")
+    communication = _positive_int(
+        metadata.get("answer_context_bundle_communication_support_count")
+    )
+    if communication is not None:
+        counts.append(f"communication:{communication}")
     event = _positive_int(metadata.get("answer_context_bundle_event_support_count"))
     if event is not None:
         counts.append(f"event:{event}")

@@ -514,6 +514,11 @@ def _role_for_candidate(
     ):
         return "event_support"
     if (
+        "communication_support" in set(required_roles)
+        and _candidate_has_communication_support(candidate)
+    ):
+        return "communication_support"
+    if (
         "causal_support" in set(required_roles)
         and _candidate_has_causal_support(candidate)
     ):
@@ -610,6 +615,10 @@ def _satisfied_required_roles(
             satisfied.add(role)
         if role == "event_support" and any(
             _candidate_has_event_support(item.candidate) for item in selected
+        ):
+            satisfied.add(role)
+        if role == "communication_support" and any(
+            _candidate_has_communication_support(item.candidate) for item in selected
         ):
             satisfied.add(role)
         if role == "inference_support" and any(
@@ -757,6 +766,8 @@ def _item_can_satisfy_required_role(
         return _candidate_has_symbolic_meaning_support(item.candidate)
     if role == "event_support":
         return _candidate_has_event_support(item.candidate)
+    if role == "communication_support":
+        return _candidate_has_communication_support(item.candidate)
     if role == "inference_support":
         return _candidate_has_inference_support(item.candidate)
     if role == "causal_support":
@@ -813,6 +824,7 @@ def _replacement_role_order(item: PlannedEvidenceItem) -> float:
         "supporting": 0,
         "entity_disambiguation": 1,
         "causal_support": 2,
+        "communication_support": 2,
         "event_support": 2,
         "inference_support": 2,
         "emotion_response_support": 2,
@@ -947,6 +959,18 @@ def _candidate_has_event_support(candidate: EvidenceBundleCandidate) -> bool:
         {"registration_event", "participation_event"}
         & set(candidate.relation_category_hits)
     )
+
+
+def _candidate_has_communication_support(candidate: EvidenceBundleCandidate) -> bool:
+    if candidate.broad_summary or candidate.conflict_or_stale:
+        return False
+    if candidate.source_locality_score < 0.45:
+        return False
+    if candidate.answerability_score and candidate.answerability_score < 0.55:
+        return False
+    if not (candidate.speaker_hits or candidate.direct_speaker_turn):
+        return False
+    return "communication" in set(candidate.relation_category_hits)
 
 
 def _candidate_has_inference_support(candidate: EvidenceBundleCandidate) -> bool:
@@ -1141,6 +1165,14 @@ def _reason_codes(
         reasons.append("event_support")
         if candidate.relation_category_hits:
             reasons.append("event_relation_category_hits")
+    if role == "communication_support":
+        reasons.append("communication_support")
+        if candidate.relation_category_hits:
+            reasons.append("communication_relation_category_hits")
+        if candidate.speaker_hits:
+            reasons.append("communication_speaker_hits")
+        if candidate.direct_speaker_turn:
+            reasons.append("communication_direct_speaker_turn")
     if candidate.focused_evidence_score > 0:
         reasons.append("focused_turn")
     if candidate.answerability_score >= 0.8:
@@ -1195,6 +1227,7 @@ def _role_order(item: PlannedEvidenceItem) -> float:
         "bridge": 1,
         "contrast": 2,
         "location_support": 3,
+        "communication_support": 3,
         "event_support": 3,
         "emotion_response_support": 3,
         "symbolic_meaning_support": 3,
@@ -1290,6 +1323,7 @@ def _bundle_quality_diagnostics(
             "bridge_count": 0,
             "bridge_query_hit_count": 0,
             "causal_support_count": 0,
+            "communication_support_count": 0,
             "event_support_count": 0,
             "inference_support_count": 0,
             "location_support_count": 0,
@@ -1332,6 +1366,9 @@ def _bundle_quality_diagnostics(
     bridge_count = sum(1 for item in items if item.role == "bridge")
     bridge_query_hit_count = sum(1 for item in items if item.candidate.bridge_query_hit)
     causal_support_count = sum(1 for item in items if item.role == "causal_support")
+    communication_support_count = sum(
+        1 for item in items if item.role == "communication_support"
+    )
     event_support_count = sum(1 for item in items if item.role == "event_support")
     inference_support_count = sum(
         1 for item in items if item.role == "inference_support"
@@ -1382,6 +1419,7 @@ def _bundle_quality_diagnostics(
         ),
         "bridge_support": min(0.1, 0.1 * bridge_count),
         "causal_support": min(0.08, 0.08 * causal_support_count),
+        "communication_support": min(0.08, 0.08 * communication_support_count),
         "event_support": min(0.08, 0.08 * event_support_count),
         "inference_support": min(0.08, 0.08 * inference_support_count),
         "location_support": min(0.08, 0.08 * location_support_count),
@@ -1431,6 +1469,7 @@ def _bundle_quality_diagnostics(
             low_answerability_count=low_answerability_count,
             bridge_count=bridge_count,
             causal_support_count=causal_support_count,
+            communication_support_count=communication_support_count,
             event_support_count=event_support_count,
             inference_support_count=inference_support_count,
             location_support_count=location_support_count,
@@ -1463,6 +1502,7 @@ def _bundle_quality_diagnostics(
         "bridge_count": bridge_count,
         "bridge_query_hit_count": bridge_query_hit_count,
         "causal_support_count": causal_support_count,
+        "communication_support_count": communication_support_count,
         "event_support_count": event_support_count,
         "inference_support_count": inference_support_count,
         "location_support_count": location_support_count,
@@ -1548,6 +1588,7 @@ def _bundle_quality_reason_codes(
     low_answerability_count: int,
     bridge_count: int,
     causal_support_count: int,
+    communication_support_count: int,
     event_support_count: int,
     inference_support_count: int,
     location_support_count: int,
@@ -1591,6 +1632,8 @@ def _bundle_quality_reason_codes(
         reasons.append("has_bridge_evidence")
     if causal_support_count:
         reasons.append("has_causal_support_evidence")
+    if communication_support_count:
+        reasons.append("has_communication_support_evidence")
     if event_support_count:
         reasons.append("has_event_support_evidence")
     if inference_support_count:

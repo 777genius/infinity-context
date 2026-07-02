@@ -434,6 +434,10 @@ def _relation_category_hits(
             if _has_emotion_response_support(memory_terms):
                 hits.append(str(category))
             continue
+        if category == "communication":
+            if _has_communication_support(memory_terms):
+                hits.append(str(category))
+            continue
         grounding_terms = tuple(term for term in term_values if term not in query_term_set)
         terms_to_match = grounding_terms or term_values
         if any(term in memory_terms for term in terms_to_match):
@@ -544,6 +548,44 @@ def _has_emotion_response_support(memory_terms: set[str]) -> bool:
         "when",
     } & memory_terms
     return bool(emotion_surface and response_context)
+
+
+def _has_communication_support(memory_terms: set[str]) -> bool:
+    communication_action = {
+        "advis",
+        "advise",
+        "advised",
+        "ask",
+        "asked",
+        "mention",
+        "mentioned",
+        "recommend",
+        "recommended",
+        "request",
+        "requested",
+        "said",
+        "suggest",
+        "suggested",
+        "tell",
+        "told",
+    } & memory_terms
+    communication_context = {
+        "about",
+        "advice",
+        "book",
+        "call",
+        "conversation",
+        "delay",
+        "invoice",
+        "message",
+        "project",
+        "read",
+        "request",
+        "requested",
+        "recommendation",
+        "response",
+    } & memory_terms
+    return bool(communication_action and communication_context)
 
 
 def _answerability(
@@ -762,6 +804,7 @@ def _intent_answerability(
         "symbolic_meaning",
         "participation_event",
         "emotion_response",
+        "communication",
     ):
         if category not in category_set:
             continue

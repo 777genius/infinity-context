@@ -5046,6 +5046,11 @@ def test_query_decomposition_reports_communication_relation_intent() -> None:
     assert tell_metadata["query_profile"]["relation_category_terms"][
         "communication"
     ] == ("tell", "told", "mention")
+    assert "communication" in tell_metadata["query_profile"]["evidence_need"]
+    assert (
+        "communication_support"
+        in tell_metadata["query_profile"]["bundle_evidence_roles"]
+    )
     assert ask_metadata["query_profile"]["relation_terms"] == ("ask",)
     assert ask_metadata["query_profile"]["relation_categories"] == (
         "communication",

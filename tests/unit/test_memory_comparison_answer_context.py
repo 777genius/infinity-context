@@ -26,9 +26,10 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
                     "confidence_score": 0.68,
                     "confidence_band": "medium",
                     "bridge_count": 1,
-                    "source_proximity_support_count": 1,
-                    "causal_support_count": 1,
-                    "event_support_count": 8,
+                        "source_proximity_support_count": 1,
+                        "causal_support_count": 1,
+                        "communication_support_count": 9,
+                        "event_support_count": 8,
                         "inference_support_count": 2,
                         "location_support_count": 5,
                         "emotion_response_support_count": 6,
@@ -92,6 +93,7 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
     assert context.bundle_bridge_count == 1
     assert context.bundle_source_proximity_support_count == 1
     assert context.bundle_causal_support_count == 1
+    assert context.bundle_communication_support_count == 9
     assert context.bundle_event_support_count == 8
     assert context.bundle_inference_support_count == 2
     assert context.bundle_location_support_count == 5
@@ -110,6 +112,12 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
     assert (
         context.memories[0].metadata["answer_context_bundle_causal_support_count"]
         == 1
+    )
+    assert (
+        context.memories[0].metadata[
+            "answer_context_bundle_communication_support_count"
+        ]
+        == 9
     )
     assert (
         context.memories[0].metadata["answer_context_bundle_event_support_count"]
@@ -178,6 +186,7 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
         "bundle_bridge_count": 1,
         "bundle_source_proximity_support_count": 1,
         "bundle_causal_support_count": 1,
+        "bundle_communication_support_count": 9,
         "bundle_event_support_count": 8,
         "bundle_inference_support_count": 2,
         "bundle_location_support_count": 5,

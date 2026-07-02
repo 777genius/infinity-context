@@ -1116,6 +1116,70 @@ def test_evidence_bundle_planner_selects_required_event_support() -> None:
     ]
 
 
+def test_evidence_bundle_planner_selects_required_communication_support() -> None:
+    primary = _candidate(
+        item_id="primary",
+        covered_evidence_terms=("D1:1",),
+        primary_signal=True,
+        source_refs=("D1:1",),
+        direct_speaker_turn=True,
+        answerability_score=0.9,
+        source_locality_score=1.0,
+    )
+    generic_support = _candidate(
+        item_id="generic-support",
+        dedupe_key="refs:D1:2",
+        query_support_terms=("alex", "delay"),
+        relation_category_hits=("communication",),
+        source_refs=("D1:2",),
+        source_locality_score=0.9,
+        answerability_score=0.8,
+        bundle_strength_score=9.0,
+    )
+    communication_support = _candidate(
+        item_id="communication-support",
+        dedupe_key="refs:D2:3",
+        query_support_terms=("alex", "told", "maria", "delay"),
+        relation_hits=("told",),
+        relation_category_hits=("communication",),
+        speaker_hits=("alex",),
+        direct_speaker_turn=True,
+        source_refs=("D2:3",),
+        source_locality_score=0.9,
+        answerability_score=0.8,
+        bundle_strength_score=2.0,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, generic_support, communication_support),
+        case_group="single",
+        required_roles=("primary", "communication_support"),
+    )
+
+    assert [item.candidate.item_id for item in plan.items] == [
+        "primary",
+        "communication-support",
+    ]
+    support_item = plan.items[1]
+    assert support_item.role == "communication_support"
+    assert "communication_support" in support_item.reason_codes
+    assert "communication_speaker_hits" in support_item.reason_codes
+    assert "communication_direct_speaker_turn" in support_item.reason_codes
+    diagnostics = plan.to_diagnostics()
+    assert diagnostics["role_counts"] == {
+        "primary": 1,
+        "communication_support": 1,
+    }
+    assert diagnostics["satisfied_required_roles"] == [
+        "primary",
+        "communication_support",
+    ]
+    assert diagnostics["bundle_quality"]["communication_support_count"] == 1
+    assert "has_communication_support_evidence" in diagnostics["bundle_quality"][
+        "reason_codes"
+    ]
+
+
 def test_evidence_bundle_planner_selects_required_causal_support() -> None:
     primary = _candidate(
         item_id="primary",
