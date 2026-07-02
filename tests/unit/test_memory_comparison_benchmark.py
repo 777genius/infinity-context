@@ -5457,6 +5457,12 @@ def test_query_decomposition_expands_activity_profile_queries() -> None:
         expected_terms=("yoga",),
         answer="yoga",
     )
+    free_time_case = _case(
+        case_id="activity-profile-free-time",
+        question="What does Alex do in his free time?",
+        expected_terms=("painting",),
+        answer="painting",
+    )
     sport_event_case = _case(
         case_id="activity-profile-sport-event-guard",
         question="Which sports team did Alex mention?",
@@ -5468,6 +5474,9 @@ def test_query_decomposition_expands_activity_profile_queries() -> None:
         hobby_case
     )
     fun_queries, fun_metadata = rerank_module.decomposed_search_queries(fun_case)
+    free_time_queries, free_time_metadata = rerank_module.decomposed_search_queries(
+        free_time_case
+    )
     _, sport_event_metadata = rerank_module.decomposed_search_queries(
         sport_event_case
     )
@@ -5485,6 +5494,22 @@ def test_query_decomposition_expands_activity_profile_queries() -> None:
     assert fun_queries[2].startswith("alex activity")
     assert "activity_profile" in fun_metadata["query_profile"][
         "relation_categories"
+    ]
+    assert free_time_queries[2] == "alex activity hobby partake class creative fun express refresh"
+    assert free_time_metadata["query_profile"]["relation_terms"] == (
+        "activity",
+        "hobby",
+    )
+    assert free_time_metadata["query_profile"]["relation_categories"] == (
+        "activity",
+        "activity_profile",
+    )
+    assert free_time_metadata["query_profile"]["evidence_need"] == (
+        "activity_profile",
+    )
+    assert free_time_metadata["query_profile"]["time_intent_kind"] == "none"
+    assert "temporal_support" not in free_time_metadata["query_plan"][
+        "selected_roles"
     ]
     assert "activity_profile" not in sport_event_metadata["query_profile"][
         "relation_categories"
@@ -12293,6 +12318,70 @@ def test_benchmark_rerank_boosts_go_by_alias_profile_evidence() -> None:
     assert alias_diagnostics["score_signals"][
         "benchmark_typed_relation_support_roles"
     ] == ["alias_support"]
+    assert (
+        topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        == 0
+    )
+
+
+def test_benchmark_rerank_boosts_free_time_activity_evidence() -> None:
+    case = _case(
+        case_id="activity-profile-free-time-rerank",
+        question="What does Alex do in his free time?",
+        expected_terms=("painting",),
+        answer="painting",
+        category=4,
+    )
+    topical_activity = RetrievedMemory(
+        item_id="topical-activity",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex read an article about free time management."
+        ),
+        source_refs=("D1:1",),
+    )
+    activity_profile = RetrievedMemory(
+        item_id="activity-profile",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: In my free time, I enjoy painting."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_activity, activity_profile),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("activity_profile",)
+    assert metadata["query_profile"]["time_intent_kind"] == "none"
+    assert reranked[0].item_id == "activity-profile"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    activity_diagnostics = diagnostics_by_id["activity-profile"]
+    topical_diagnostics = diagnostics_by_id["topical-activity"]
+    assert "activity_profile" in activity_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ]
+    assert "activity_profile" not in topical_diagnostics[
+        "benchmark_candidate_features"
+    ]["relation_category_hits"]
+    assert activity_diagnostics["score_signals"][
+        "benchmark_typed_relation_support_roles"
+    ] == ["activity_support"]
+    assert (
+        activity_diagnostics["score_signals"][
+            "benchmark_typed_relation_support_boost"
+        ]
+        > 0
+    )
     assert (
         topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
         == 0

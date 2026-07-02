@@ -1506,7 +1506,10 @@ def _has_future_home_move_goal_intent(
 def _temporal_query_profile(case: PublicBenchmarkCase) -> dict[str, object]:
     query = " ".join(str(case.question or "").casefold().split())
     category = _optional_int(case.metadata.get("category"))
-    matched_terms = tuple(term for term in _TEMPORAL_QUERY_TERMS if term in query)
+    temporal_query = re.sub(r"\b(?:free\s+time|pastime)\b", " ", query)
+    matched_terms = tuple(
+        term for term in _TEMPORAL_QUERY_TERMS if term in temporal_query
+    )
     surface_terms = tuple(term for term in _TEMPORAL_SURFACE_TERMS if term in query)
     is_temporal = category == 2 or bool(matched_terms) or bool(surface_terms)
     reasons: list[str] = []

@@ -556,6 +556,12 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
         flags=re.IGNORECASE,
     ):
         terms.append("activity")
+        if re.search(
+            r"\b(?:pastime|free\s+time|for\s+fun)\b",
+            text,
+            flags=re.IGNORECASE,
+        ):
+            terms.append("hobby")
     if (
         not re.search(r"\b(?:picture|photo|image|video)\b", text, flags=re.IGNORECASE)
         and re.search(
