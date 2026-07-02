@@ -3135,6 +3135,95 @@ def test_infinity_context_http_search_reranks_visual_caption_evidence() -> None:
     assert diagnostics["score_signals"]["benchmark_speaker_boost"] > 0
 
 
+def test_benchmark_rerank_boosts_sent_picture_visual_evidence() -> None:
+    case = _case(
+        case_id="visual-sent-picture-rerank",
+        question="What did Alex send Maria a picture of?",
+        expected_terms=("apartment",),
+        answer="apartment",
+        category=1,
+    )
+    topic_turn = RetrievedMemory(
+        item_id="topic-turn",
+        rank=1,
+        score=0.0,
+        text=(
+            "session_2 turn D2:1 date: 9:00 pm "
+            "D2:1 Alex: Maria talked about the apartment plans."
+        ),
+        source_refs=("D2:1",),
+    )
+    picture_turn = RetrievedMemory(
+        item_id="picture-turn",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 9:10 pm "
+            "D2:3 Alex: I sent Maria a picture of the new apartment."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topic_turn, picture_turn),
+    )
+
+    assert metadata["applied"] is True
+    assert reranked[0].item_id == "picture-turn"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    picture_features = diagnostics_by_id["picture-turn"][
+        "benchmark_candidate_features"
+    ]
+    topic_features = diagnostics_by_id["topic-turn"]["benchmark_candidate_features"]
+    assert picture_features["has_visual_evidence"] is True
+    assert picture_features["relation_category_hits"] == ["visual"]
+    assert topic_features["has_visual_evidence"] is False
+    assert (
+        diagnostics_by_id["picture-turn"]["score_signals"][
+            "benchmark_visual_evidence_boost"
+        ]
+        > 0
+    )
+    assert (
+        diagnostics_by_id["topic-turn"]["score_signals"][
+            "benchmark_visual_evidence_boost"
+        ]
+        == 0
+    )
+
+
+def test_benchmark_does_not_treat_generic_photo_discussion_as_visual_evidence() -> None:
+    case = _case(
+        case_id="visual-photo-discussion-rerank",
+        question="What photo did Alex show Maria?",
+        expected_terms=("apartment",),
+        answer="apartment",
+        category=1,
+    )
+    photo_topic = RetrievedMemory(
+        item_id="photo-topic",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_2 turn D2:1 date: 9:00 pm "
+            "D2:1 Alex: Maria and I talked about old photos."
+        ),
+        source_refs=("D2:1",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(case, (photo_topic,))
+
+    assert metadata["applied"] is True
+    diagnostics = reranked[0].metadata["diagnostics"]
+    assert diagnostics["benchmark_candidate_features"]["has_visual_evidence"] is False
+    assert (
+        diagnostics["score_signals"]["benchmark_visual_evidence_boost"] == 0
+    )
+
+
 def test_query_decomposition_normalizes_locomo_action_typos() -> None:
     case = _case(
         case_id="conv-26:qa:14",

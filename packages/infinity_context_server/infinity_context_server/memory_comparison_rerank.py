@@ -1178,7 +1178,7 @@ def benchmark_rerank_memories(
         if boost > 0:
             boosts.append(boost)
 
-    reranked.sort(key=lambda memory: (-memory.score, memory.rank))
+    reranked.sort(key=_benchmark_rerank_sort_key)
     return reranked, {
         "applied": bool(boosts),
         "boosted_memory_count": len(boosts),
@@ -1187,6 +1187,31 @@ def benchmark_rerank_memories(
         "retrieval_intent": intent.to_diagnostics(),
         "uses_ground_truth": False,
     }
+
+
+def _benchmark_rerank_sort_key(memory: RetrievedMemory) -> tuple[float, float, int]:
+    diagnostics = (
+        memory.metadata.get("diagnostics")
+        if isinstance(memory.metadata.get("diagnostics"), Mapping)
+        else {}
+    )
+    score_signals = (
+        diagnostics.get("score_signals")
+        if isinstance(diagnostics.get("score_signals"), Mapping)
+        else {}
+    )
+    visual_boost = _positive_float(
+        score_signals.get("benchmark_visual_evidence_boost")
+    )
+    return (-memory.score, -visual_boost, memory.rank)
+
+
+def _positive_float(value: object) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return parsed if parsed > 0 else 0.0
 
 
 def _with_temporal_rerank_boost(memory: RetrievedMemory) -> RetrievedMemory:

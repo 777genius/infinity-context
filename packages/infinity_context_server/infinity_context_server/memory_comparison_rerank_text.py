@@ -46,7 +46,10 @@ _COMPACT_TEMPORAL_RELATION_TERMS = frozenset(
     }
 )
 _VISUAL_EVIDENCE_RE = re.compile(
-    r"\b(?:sharing image|image shows|sharing photo|photo shows|picture shows)\b",
+    r"\b(?:sharing\s+(?:image|photo|picture)|(?:image|photo|picture)\s+shows|"
+    r"visual query)\b"
+    r"|\b(?:send|sent|share|shared|show|showed|showing)\b"
+    r".{0,80}\b(?:image|photo|picture|pic|painting)\b",
     re.IGNORECASE,
 )
 _PREFERENCE_EVIDENCE_RE = re.compile(
