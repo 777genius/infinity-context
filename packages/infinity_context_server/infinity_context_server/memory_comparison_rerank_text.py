@@ -395,6 +395,8 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
         flags=re.IGNORECASE,
     ):
         terms.append("birthday")
+    if re.search(r"\bwedding\s+date\b", text, flags=re.IGNORECASE):
+        terms.append("anniversary")
     if re.search(
         r"\b(?:what|which)\s+school\b|"
         r"\b(?:college|university)\b|"

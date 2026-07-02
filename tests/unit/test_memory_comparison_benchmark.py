@@ -5442,6 +5442,13 @@ def test_query_decomposition_expands_date_profile_queries() -> None:
         answer="July 2",
         category=2,
     )
+    wedding_date_case = _case(
+        case_id="date-profile-wedding-date",
+        question="What is Alex's wedding date?",
+        expected_terms=("July 2",),
+        answer="July 2",
+        category=2,
+    )
     birthday_day_case = _case(
         case_id="date-profile-birthday-day",
         question="What day is Alex's birthday?",
@@ -5486,6 +5493,12 @@ def test_query_decomposition_expands_date_profile_queries() -> None:
         expected_terms=("scarf",),
         answer="scarf",
     )
+    wedding_venue_case = _case(
+        case_id="date-profile-wedding-venue-guard",
+        question="What wedding venue did Alex book?",
+        expected_terms=("barn",),
+        answer="barn",
+    )
     birthday_duration_case = _case(
         case_id="date-profile-duration-guard",
         question="How long ago was Alex's 18th birthday?",
@@ -5502,6 +5515,9 @@ def test_query_decomposition_expands_date_profile_queries() -> None:
     )
     anniversary_queries, anniversary_metadata = rerank_module.decomposed_search_queries(
         anniversary_case
+    )
+    wedding_date_queries, wedding_date_metadata = (
+        rerank_module.decomposed_search_queries(wedding_date_case)
     )
     birthday_day_queries, birthday_day_metadata = (
         rerank_module.decomposed_search_queries(birthday_day_case)
@@ -5521,6 +5537,9 @@ def test_query_decomposition_expands_date_profile_queries() -> None:
     )
     _, birthday_gift_metadata = rerank_module.decomposed_search_queries(
         birthday_gift_case
+    )
+    _, wedding_venue_metadata = rerank_module.decomposed_search_queries(
+        wedding_venue_case
     )
     _, birthday_duration_metadata = rerank_module.decomposed_search_queries(
         birthday_duration_case
@@ -5556,6 +5575,19 @@ def test_query_decomposition_expands_date_profile_queries() -> None:
         "relation_category_terms"
     ]["date_profile"]
     assert "date_support" in anniversary_metadata["query_plan"]["selected_roles"]
+    assert wedding_date_queries[1] == "alex anniversary year wed date month marry"
+    assert wedding_date_metadata["query_profile"]["relation_terms"] == (
+        "anniversary",
+    )
+    assert wedding_date_metadata["query_profile"]["relation_categories"] == (
+        "date_profile",
+        "temporal",
+    )
+    assert wedding_date_metadata["query_profile"]["evidence_need"] == (
+        "temporal_support",
+        "date_profile",
+    )
+    assert "date_support" in wedding_date_metadata["query_plan"]["selected_roles"]
 
     assert birthday_day_queries[2] == "alex birthday year ago born age"
     assert birthday_day_metadata["query_profile"]["relation_categories"] == (
@@ -5597,6 +5629,9 @@ def test_query_decomposition_expands_date_profile_queries() -> None:
     )
 
     assert "date_profile" not in birthday_gift_metadata["query_profile"][
+        "relation_categories"
+    ]
+    assert "date_profile" not in wedding_venue_metadata["query_profile"][
         "relation_categories"
     ]
     assert "date_profile" not in birthday_duration_metadata["query_profile"][
@@ -12106,6 +12141,66 @@ def test_benchmark_rerank_boosts_married_anniversary_date_evidence() -> None:
     assert topical_diagnostics["benchmark_candidate_features"][
         "relation_category_hits"
     ] == ["temporal"]
+    assert date_diagnostics["score_signals"][
+        "benchmark_typed_relation_support_roles"
+    ] == ["date_support"]
+    assert (
+        topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        == 0
+    )
+
+
+def test_benchmark_rerank_boosts_wedding_date_evidence() -> None:
+    case = _case(
+        case_id="date-profile-wedding-date-rerank",
+        question="What is Alex's wedding date?",
+        expected_terms=("July 2",),
+        answer="July 2",
+        category=4,
+    )
+    topical_wedding = RetrievedMemory(
+        item_id="topical-wedding",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex attended a wedding venue tour in July."
+        ),
+        source_refs=("D1:1",),
+    )
+    date_profile = RetrievedMemory(
+        item_id="date-profile",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: Our wedding date is July 2."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_wedding, date_profile),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == (
+        "temporal_support",
+        "date_profile",
+    )
+    assert reranked[0].item_id == "date-profile"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    date_diagnostics = diagnostics_by_id["date-profile"]
+    topical_diagnostics = diagnostics_by_id["topical-wedding"]
+    assert date_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["date_profile"]
+    assert "date_profile" not in topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ]
     assert date_diagnostics["score_signals"][
         "benchmark_typed_relation_support_roles"
     ] == ["date_support"]

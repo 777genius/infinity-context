@@ -393,7 +393,7 @@ def _provenance_safety_cap(
         "missing_employment_profile_evidence": 0.4,
         "missing_age_profile_evidence": 0.4,
         "missing_alias_profile_evidence": 0.4,
-        "missing_date_profile_evidence": 0.4,
+        "missing_date_profile_evidence": 0.32,
         "missing_health_profile_evidence": 0.4,
         "missing_pet_profile_evidence": 0.4,
         "missing_skill_profile_evidence": 0.4,
