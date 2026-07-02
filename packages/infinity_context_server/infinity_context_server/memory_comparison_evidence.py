@@ -143,7 +143,12 @@ def evidence_bundle(
                     float(focused_evidence_score),
                     _float_value(features.get("focused_turn_score")),
                 ),
-                primary_signal=_primary_signal(support_hits, features),
+                primary_signal=_primary_signal(
+                    support_hits,
+                    features,
+                    expected_hits=expected_hits,
+                    evidence_hits=evidence_hits,
+                ),
                 dedupe_key=_candidate_dedupe_key(memory, features),
                 source_refs=tuple(str(ref) for ref in memory.source_refs if ref),
                 source_type=_source_type(memory, features),
@@ -271,10 +276,17 @@ def _bundle_candidate_eligibility_reasons(
 def _primary_signal(
     support_hits: Sequence[str],
     features: Mapping[str, object],
+    *,
+    expected_hits: Sequence[str] = (),
+    evidence_hits: Sequence[str] = (),
 ) -> bool:
     if len(support_hits) >= 2:
         return True
-    if _float_value(features.get("answerability_score")) < 0.75:
+    answerability_score = _float_value(features.get("answerability_score"))
+    source_locality_score = _float_value(features.get("source_locality_score"))
+    if answerability_score > 0 and answerability_score < 0.75:
+        return False
+    if _is_measured_weak_source_locality(source_locality_score):
         return False
     relation_grounded = bool(
         _string_sequence(features.get("relation_hits"))
@@ -284,7 +296,16 @@ def _primary_signal(
         _string_sequence(features.get("entity_hits"))
         or _string_sequence(features.get("speaker_hits"))
     )
-    return relation_grounded and entity_grounded
+    measured_primary = answerability_score >= 0.75
+    unmeasured_but_evidence_grounded = (
+        answerability_score <= 0
+        and bool(expected_hits or evidence_hits)
+        and relation_grounded
+        and entity_grounded
+    )
+    return (measured_primary or unmeasured_but_evidence_grounded) and (
+        relation_grounded and entity_grounded
+    )
 
 
 def _feature_backed_bundle_candidate_reasons(
