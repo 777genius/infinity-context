@@ -655,6 +655,7 @@ def _intent_answerability(
         "status_profile",
         "activity",
         "current_goal",
+        "location_transition",
         "support_goal",
         "identity_profile",
     ):

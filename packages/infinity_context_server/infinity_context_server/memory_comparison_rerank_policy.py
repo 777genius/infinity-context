@@ -356,6 +356,7 @@ def _provenance_safety_cap(
         "missing_status_profile_evidence",
         "missing_activity_evidence",
         "missing_current_goal_evidence",
+        "missing_location_transition_evidence",
         "missing_support_goal_evidence",
         "missing_identity_profile_evidence",
     ):

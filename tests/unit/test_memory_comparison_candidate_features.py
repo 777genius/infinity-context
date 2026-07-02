@@ -146,6 +146,12 @@ def test_candidate_features_capture_focused_direct_turn_and_provenance() -> None
             {"goal", "future"},
         ),
         (
+            "location_transition",
+            ("move",),
+            ("from", "home", "country", "origin", "relocated"),
+            {"from", "home", "country"},
+        ),
+        (
             "support_goal",
             ("counsel", "support", "receive", "grow"),
             ("counseling", "mental", "health", "helped"),

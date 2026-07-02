@@ -279,6 +279,36 @@ def _has_status_profile_support(memory_terms: set[str]) -> bool:
     return bool(explicit_status or direct_relation)
 
 
+def _has_location_transition_support(memory_terms: set[str]) -> bool:
+    movement_action = {
+        "move",
+        "moved",
+        "moving",
+        "relocate",
+        "relocated",
+        "relocat",
+    } & memory_terms
+    origin_context = {
+        "city",
+        "country",
+        "from",
+        "home",
+        "origin",
+        "place",
+    } & memory_terms
+    travel_surface = {"drive", "roadtrip", "travel", "trip"} & memory_terms
+    travel_context = {
+        "city",
+        "country",
+        "from",
+        "home",
+        "origin",
+        "place",
+        "road",
+    } & memory_terms
+    return bool((movement_action and origin_context) or (travel_surface and travel_context))
+
+
 def _has_activity_support(memory_terms: set[str]) -> bool:
     concrete_activity = {
         "camp",
@@ -448,6 +478,7 @@ _TYPED_SUPPORT_CHECKS: dict[str, Callable[[set[str]], bool]] = {
     "emotion_response": _has_emotion_response_support,
     "exchange": _has_exchange_support,
     "identity_profile": _has_identity_profile_support,
+    "location_transition": _has_location_transition_support,
     "participation_event": _has_participation_event_support,
     "registration_event": _has_registration_event_support,
     "status_profile": _has_status_profile_support,
