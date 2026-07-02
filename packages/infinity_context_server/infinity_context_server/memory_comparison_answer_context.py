@@ -23,6 +23,8 @@ class AnswerContext:
     bundle_source_proximity_support_count: int = 0
     bundle_causal_support_count: int = 0
     bundle_inference_support_count: int = 0
+    bundle_preference_support_count: int = 0
+    bundle_visual_support_count: int = 0
     role_requirement_complete: bool | None = None
     missing_required_roles: tuple[str, ...] = ()
     bundle_risk_reason_codes: tuple[str, ...] = ()
@@ -43,6 +45,8 @@ class AnswerContext:
             ),
             "bundle_causal_support_count": self.bundle_causal_support_count,
             "bundle_inference_support_count": self.bundle_inference_support_count,
+            "bundle_preference_support_count": self.bundle_preference_support_count,
+            "bundle_visual_support_count": self.bundle_visual_support_count,
             "role_requirement_complete": self.role_requirement_complete,
             "missing_required_roles": list(self.missing_required_roles),
             "bundle_risk_reason_codes": list(self.bundle_risk_reason_codes),
@@ -143,6 +147,18 @@ def answer_context_from_evidence_bundle(
             )
             or 0
         ),
+        bundle_preference_support_count=(
+            _positive_int(
+                bundle_context.get("answer_context_bundle_preference_support_count")
+            )
+            or 0
+        ),
+        bundle_visual_support_count=(
+            _positive_int(
+                bundle_context.get("answer_context_bundle_visual_support_count")
+            )
+            or 0
+        ),
         role_requirement_complete=(
             bundle_context.get("answer_context_role_requirement_complete")
             if isinstance(
@@ -233,6 +249,8 @@ def _answer_context_cutoff_metrics(
     bundle_source_proximity_support_counts: list[int] = []
     bundle_causal_support_counts: list[int] = []
     bundle_inference_support_counts: list[int] = []
+    bundle_preference_support_counts: list[int] = []
+    bundle_visual_support_counts: list[int] = []
     missing_required_role_counts: Counter[str] = Counter()
     bundle_risk_reason_counts: Counter[str] = Counter()
     incomplete_role_requirement_count = 0
@@ -285,6 +303,12 @@ def _answer_context_cutoff_metrics(
         bundle_inference_support_counts.append(
             _positive_int(context.get("bundle_inference_support_count")) or 0
         )
+        bundle_preference_support_counts.append(
+            _positive_int(context.get("bundle_preference_support_count")) or 0
+        )
+        bundle_visual_support_counts.append(
+            _positive_int(context.get("bundle_visual_support_count")) or 0
+        )
         if context.get("role_requirement_complete") is False:
             incomplete_role_requirement_count += 1
         missing_required_role_counts.update(
@@ -333,6 +357,14 @@ def _answer_context_cutoff_metrics(
         "total_bundle_inference_support_count": sum(
             bundle_inference_support_counts
         ),
+        "avg_bundle_preference_support_count": _avg(
+            bundle_preference_support_counts
+        ),
+        "total_bundle_preference_support_count": sum(
+            bundle_preference_support_counts
+        ),
+        "avg_bundle_visual_support_count": _avg(bundle_visual_support_counts),
+        "total_bundle_visual_support_count": sum(bundle_visual_support_counts),
         "incomplete_role_requirement_count": incomplete_role_requirement_count,
         "missing_required_role_counts": dict(
             sorted(missing_required_role_counts.items())
@@ -450,6 +482,14 @@ def _bundle_context_metadata(bundle: Mapping[str, object]) -> dict[str, object]:
         metadata["answer_context_bundle_inference_support_count"] = (
             inference_support_count
         )
+    preference_support_count = _positive_int(quality.get("preference_support_count"))
+    if preference_support_count is not None:
+        metadata["answer_context_bundle_preference_support_count"] = (
+            preference_support_count
+        )
+    visual_support_count = _positive_int(quality.get("visual_support_count"))
+    if visual_support_count is not None:
+        metadata["answer_context_bundle_visual_support_count"] = visual_support_count
     role_requirement_complete = bundle.get("role_requirement_complete")
     if not isinstance(role_requirement_complete, bool):
         role_requirement_complete = planner.get("role_requirement_complete")

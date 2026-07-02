@@ -260,6 +260,16 @@ def _bundle_support_counts(metadata: Mapping[str, object]) -> tuple[str, ...]:
     )
     if inference is not None:
         counts.append(f"inference:{inference}")
+    preference = _positive_int(
+        metadata.get("answer_context_bundle_preference_support_count")
+    )
+    if preference is not None:
+        counts.append(f"preference:{preference}")
+    visual = _positive_int(
+        metadata.get("answer_context_bundle_visual_support_count")
+    )
+    if visual is not None:
+        counts.append(f"visual:{visual}")
     return tuple(counts)
 
 

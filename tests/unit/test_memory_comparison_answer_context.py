@@ -28,6 +28,8 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
                     "source_proximity_support_count": 1,
                     "causal_support_count": 1,
                     "inference_support_count": 2,
+                    "preference_support_count": 3,
+                    "visual_support_count": 4,
                     "reason_codes": [
                         "has_primary_evidence",
                         "risk:missing_required_role",
@@ -84,6 +86,8 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
     assert context.bundle_source_proximity_support_count == 1
     assert context.bundle_causal_support_count == 1
     assert context.bundle_inference_support_count == 2
+    assert context.bundle_preference_support_count == 3
+    assert context.bundle_visual_support_count == 4
     assert (
         context.memories[0].metadata[
             "answer_context_bundle_source_proximity_support_count"
@@ -99,6 +103,16 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
             "answer_context_bundle_inference_support_count"
         ]
         == 2
+    )
+    assert (
+        context.memories[0].metadata[
+            "answer_context_bundle_preference_support_count"
+        ]
+        == 3
+    )
+    assert (
+        context.memories[0].metadata["answer_context_bundle_visual_support_count"]
+        == 4
     )
     assert (
         context.memories[0].metadata["answer_context_role_requirement_complete"]
@@ -128,6 +142,8 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
         "bundle_source_proximity_support_count": 1,
         "bundle_causal_support_count": 1,
         "bundle_inference_support_count": 2,
+        "bundle_preference_support_count": 3,
+        "bundle_visual_support_count": 4,
         "role_requirement_complete": False,
         "missing_required_roles": ["contrast"],
         "bundle_risk_reason_codes": [
@@ -191,6 +207,8 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
                             "bundle_source_proximity_support_count": 1,
                             "bundle_causal_support_count": 1,
                             "bundle_inference_support_count": 2,
+                            "bundle_preference_support_count": 3,
+                            "bundle_visual_support_count": 4,
                             "role_requirement_complete": False,
                             "missing_required_roles": ["contrast"],
                             "bundle_risk_reason_codes": [
@@ -246,6 +264,10 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
     assert primary["total_bundle_causal_support_count"] == 1
     assert primary["avg_bundle_inference_support_count"] == 1.0
     assert primary["total_bundle_inference_support_count"] == 2
+    assert primary["avg_bundle_preference_support_count"] == 1.5
+    assert primary["total_bundle_preference_support_count"] == 3
+    assert primary["avg_bundle_visual_support_count"] == 2.0
+    assert primary["total_bundle_visual_support_count"] == 4
     assert primary["avg_source_ref_count"] == 0.5
     assert primary["avg_source_ref_item_count"] == 0.5
     assert primary["avg_source_refless_item_count"] == 1.5
