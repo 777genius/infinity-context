@@ -269,3 +269,23 @@
   -> passed.
 - `git push origin main` -> still blocked because the non-interactive runtime
   has no GitHub username/credential prompt available.
+
+## 2026-07-02 Follow-up 15
+
+- Made fast-gate readiness fail when a query plan omits a query family required
+  by the evidence roles. This uses the existing
+  `missing_evidence_role_query_family_total` signal instead of gating all
+  dropped/fanout plan diagnostics.
+- Added an otherwise-ready favorite-support regression proving a base-only
+  query plan now fails `query_plan_evidence_roles_clear`.
+
+## Verification
+
+- `uv run --extra dev pytest -q tests/unit/test_memory_comparison_quality_diagnostics.py -k "query_plan or ready_for_full"`
+  -> 11 passed, 36 deselected.
+- `uv run --extra dev pytest -q tests/unit/test_memory_comparison*.py`
+  -> 507 passed, 1 warning.
+- `uv run --extra dev ruff check packages/infinity_context_server/infinity_context_server/memory_comparison_quality_diagnostics.py tests/unit/test_memory_comparison_quality_diagnostics.py`
+  -> passed.
+- `git push origin main` -> still blocked because the non-interactive runtime
+  has no GitHub username/credential prompt available.

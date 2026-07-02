@@ -245,6 +245,7 @@ def fast_gate_metrics(
     answerability_gap_breakdown = _answerability_gap_breakdown(items)
     candidate_fusion = _candidate_fusion_table(items)
     query_role_gap_breakdown = _query_role_gap_breakdown(query_role_effectiveness)
+    query_plan_gap_breakdown = _query_plan_gap_breakdown(query_plan_integrity)
     bundle_quality_count = _positive_int(bundle_quality.get("bundle_count")) or 0
     medium_or_high_bundle_count = (
         _positive_int(bundle_quality.get("medium_or_high_bundle_count")) or 0
@@ -287,6 +288,14 @@ def fast_gate_metrics(
             )
             or 0
         ),
+        "query_plan_evidence_roles_clear": _zero_gate(
+            _positive_int(
+                query_plan_gap_breakdown.get(
+                    "missing_evidence_role_query_family_total"
+                )
+            )
+            or 0
+        ),
     }
     if bundle_quality_count:
         gates["bundle_quality_present"] = _min_gate(
@@ -318,7 +327,7 @@ def fast_gate_metrics(
         "bundle_gap_breakdown": _bundle_gap_breakdown(bundle_incomplete),
         "answerability_gap_breakdown": answerability_gap_breakdown,
         "query_role_gap_breakdown": query_role_gap_breakdown,
-        "query_plan_gap_breakdown": _query_plan_gap_breakdown(query_plan_integrity),
+        "query_plan_gap_breakdown": query_plan_gap_breakdown,
         "source_ref_provenance": source_ref_provenance,
         "answer_context_provenance": answer_context_provenance,
         "candidate_fusion": candidate_fusion,

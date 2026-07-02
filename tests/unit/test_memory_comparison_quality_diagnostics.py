@@ -2907,6 +2907,59 @@ def test_query_plan_integrity_requires_typed_favorite_query_family() -> None:
     )
 
 
+def test_fast_gate_metrics_blocks_missing_query_plan_evidence_role_family() -> None:
+    base_only_plan = {
+        "schema_version": "query_plan.v2",
+        "selected_query_count": 1,
+        "dropped_query_count": 0,
+        "selected_roles": ["original_question"],
+        "dropped_roles": [],
+        "recommended_role_families": ["base_query"],
+        "selected_role_families": ["base_query"],
+        "missing_recommended_role_families": [],
+        "selected_role_family_counts": {"base_query": 1},
+        "fanout_integrity": {"bounded": True},
+    }
+    items = tuple(
+        _item(
+            case_id=f"case-{index}",
+            evidence_bundle={
+                "bundle_complete": True,
+                "evidence_term_count": 1,
+                "covered_evidence_terms": [f"D{index}:1"],
+                "items": [
+                    {
+                        "retrieval_order": 1 if index <= 30 else 2,
+                        "covered_evidence_terms": [f"D{index}:1"],
+                        "focused_evidence_score": 1.0,
+                    }
+                ],
+            },
+            retrieval=_retrieval_payload(
+                evidence_need=("favorite_preference", "preference"),
+                bundle_evidence_roles=("primary", "favorite_support"),
+                relation_categories=("favorite_preference", "preference"),
+                policy_score=0.0,
+                query_plan=base_only_plan if index == 1 else {},
+            ),
+        )
+        for index in range(1, 41)
+    )
+
+    gate = fast_gate_metrics(items)
+    breakdown = gate["query_plan_gap_breakdown"]
+
+    assert gate["passed"] is False
+    assert gate["ready_for_full_locomo"] is False
+    assert "query_plan_evidence_roles_clear" in gate["failed_gates"]
+    assert gate["gates"]["query_plan_evidence_roles_clear"]["actual"] == 1
+    assert breakdown["plan_gap_case_count"] == 1
+    assert breakdown["missing_evidence_role_query_family_total"] == 1
+    assert breakdown["missing_evidence_role_query_family_counts"] == {
+        "favorite_support": 1
+    }
+
+
 def test_fast_gate_metrics_passes_bundle_quality_when_all_bundles_are_usable() -> None:
     items = tuple(
         _item(
