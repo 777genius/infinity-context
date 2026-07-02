@@ -537,9 +537,19 @@ def decomposed_search_queries(
             )
         )
     if relation_terms:
-        relation_query_terms = _relation_query_terms(
-            relation_terms,
-            relation_variant_terms,
+        compact_relation_role = _compact_relation_query_role(intent)
+        relation_query_terms = (
+            _communication_support_query_terms(
+                relation_terms=relation_terms,
+                relation_variant_terms=relation_variant_terms,
+                lexical_terms=lexical_terms,
+                entity_surfaces=entity_surfaces,
+            )
+            if compact_relation_role == "communication_support"
+            else _relation_query_terms(
+                relation_terms,
+                relation_variant_terms,
+            )
         )
         compact_temporal_terms = (
             _compact_temporal_relation_terms(lexical_terms) if is_temporal_query else ()
@@ -555,6 +565,8 @@ def decomposed_search_queries(
                 )
             )
             relation_term_limit = 7
+        elif compact_relation_role == "communication_support":
+            relation_term_limit = 8
         elif (
             "activity" in relation_terms
             or {"prioritize", "self-care"}.issubset(relation_terms)
@@ -564,7 +576,6 @@ def decomposed_search_queries(
         else:
             relation_term_limit = 6
         compact_entity_surfaces = speaker_surfaces or entity_surfaces
-        compact_relation_role = _compact_relation_query_role(intent)
         query_candidates.append(
             QueryPlanCandidate(
                 role=compact_relation_role,
@@ -745,6 +756,59 @@ def _multi_hop_bridge_query_terms(
         if term not in _QUERY_STOPWORDS and term not in bridge_terms
     )
     return tuple(dict.fromkeys(bridge_terms))
+
+
+def _communication_support_query_terms(
+    *,
+    relation_terms: tuple[str, ...],
+    relation_variant_terms: tuple[str, ...],
+    lexical_terms: tuple[str, ...],
+    entity_surfaces: tuple[str, ...],
+) -> tuple[str, ...]:
+    entity_tokens = {
+        token
+        for surface in entity_surfaces
+        for token in _normalized_terms(surface)
+    }
+    communication_terms = tuple(
+        term
+        for term in _relation_query_terms(relation_terms, relation_variant_terms)
+        if term
+        in {
+            "advis",
+            "ask",
+            "asked",
+            "mention",
+            "recommend",
+            "recommended",
+            "request",
+            "said",
+            "suggest",
+            "suggested",
+            "tell",
+            "told",
+        }
+    )
+    topical_terms = tuple(
+        term
+        for term in lexical_terms
+        if term not in _QUERY_STOPWORDS
+        and term not in relation_terms
+        and term not in relation_variant_terms
+        and term not in communication_terms
+        and term not in entity_tokens
+    )
+    return tuple(
+        dict.fromkeys(
+            (
+                *relation_terms,
+                *relation_variant_terms[:4],
+                *topical_terms[:6],
+                *communication_terms,
+                *relation_variant_terms,
+            )
+        )
+    )
 
 
 def _recommended_query_role_families(intent: RetrievalIntent) -> tuple[str, ...]:

@@ -5375,9 +5375,11 @@ def test_query_decomposition_reports_communication_relation_intent() -> None:
         category=1,
     )
 
-    _, tell_metadata = rerank_module.decomposed_search_queries(tell_case)
-    _, ask_metadata = rerank_module.decomposed_search_queries(ask_case)
-    _, recommend_metadata = rerank_module.decomposed_search_queries(recommend_case)
+    tell_queries, tell_metadata = rerank_module.decomposed_search_queries(tell_case)
+    ask_queries, ask_metadata = rerank_module.decomposed_search_queries(ask_case)
+    recommend_queries, recommend_metadata = rerank_module.decomposed_search_queries(
+        recommend_case
+    )
 
     assert tell_metadata["query_profile"]["relation_categories"] == (
         "communication",
@@ -5390,6 +5392,10 @@ def test_query_decomposition_reports_communication_relation_intent() -> None:
         "communication_support"
         in tell_metadata["query_profile"]["bundle_evidence_roles"]
     )
+    assert tell_queries[2] == (
+        "alex project atlas tell told mention delay asked recommended suggested"
+    )
+    assert "maria" not in " ".join(tell_queries).casefold()
     assert ask_metadata["query_profile"]["relation_terms"] == ("ask",)
     assert ask_metadata["query_profile"]["relation_categories"] == (
         "communication",
@@ -5397,6 +5403,10 @@ def test_query_decomposition_reports_communication_relation_intent() -> None:
     assert "request" in ask_metadata["query_profile"]["relation_category_terms"][
         "communication"
     ]
+    assert ask_queries[2] == (
+        "project atlas alex ask request told send invoice asked recommended suggested"
+    )
+    assert "maria" not in " ".join(ask_queries).casefold()
     assert recommend_metadata["query_profile"]["relation_categories"] == (
         "activity",
         "communication",
@@ -5404,6 +5414,11 @@ def test_query_decomposition_reports_communication_relation_intent() -> None:
     assert recommend_metadata["query_profile"]["relation_category_terms"][
         "communication"
     ] == ("recommend", "suggest", "advis", "told")
+    assert recommend_queries[2] == (
+        "melanie becoming nicole recommend read suggest advis told book asked "
+        "recommended"
+    )
+    assert "caroline" not in " ".join(recommend_queries).casefold()
 
 
 def test_query_decomposition_does_not_promote_plain_mention_lookup_to_communication() -> None:
