@@ -766,6 +766,38 @@ def decomposed_search_queries(
                 ),
             )
         )
+    causal_bridge_terms = _causal_bridge_query_terms(
+        relation_terms=relation_terms,
+        relation_variant_terms=relation_variant_terms,
+        lexical_terms=lexical_terms,
+        enabled=(
+            "causal_support" in evidence_need_set
+            and not multi_hop_markers
+            and not temporal_query_terms
+        ),
+    )
+    if entity_surfaces and causal_bridge_terms:
+        causal_bridge_query_terms = tuple(
+            term for term in causal_bridge_terms if term not in set(entity_surfaces)
+        )
+        query_candidates.append(
+            QueryPlanCandidate(
+                role="multi_hop_bridge",
+                query=" ".join(
+                    (
+                        *entity_surfaces,
+                        *_render_query_terms(causal_bridge_query_terms[:9]),
+                    )
+                ),
+                priority=45,
+                query_type="lexical",
+                reason_codes=(
+                    "multi_hop_bridge",
+                    "causal_bridge",
+                    "question_only",
+                ),
+            )
+        )
     if multi_hop_markers and entities:
         query_candidates.append(
             QueryPlanCandidate(
@@ -811,6 +843,11 @@ def decomposed_search_queries(
             (has_location_support_query and temporal_query_terms)
             or needs_causal_temporal_bridge
             or needs_temporal_multi_hop_bridge
+            or (visual_terms and has_multi_hop_bridge_query)
+            or (
+                contrast_query_terms
+                and (temporal_query_terms or has_location_support_query)
+            )
         )
         else 2
     )
@@ -897,6 +934,25 @@ def _causal_temporal_bridge_query_terms(
     bridge_terms.extend(
         term
         for term in (*temporal_terms, *temporal_surface_terms, *lexical_terms)
+        if term not in _QUERY_STOPWORDS and term not in bridge_terms
+    )
+    return tuple(dict.fromkeys(bridge_terms))
+
+
+def _causal_bridge_query_terms(
+    *,
+    relation_terms: tuple[str, ...],
+    relation_variant_terms: tuple[str, ...],
+    lexical_terms: tuple[str, ...],
+    enabled: bool,
+) -> tuple[str, ...]:
+    if not enabled:
+        return ()
+    bridge_terms: list[str] = []
+    bridge_terms.extend(_relation_query_terms(relation_terms, relation_variant_terms)[:6])
+    bridge_terms.extend(
+        term
+        for term in lexical_terms
         if term not in _QUERY_STOPWORDS and term not in bridge_terms
     )
     return tuple(dict.fromkeys(bridge_terms))

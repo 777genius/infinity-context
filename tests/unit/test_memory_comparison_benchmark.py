@@ -6577,6 +6577,102 @@ def test_query_decomposition_keeps_temporal_emotion_bridge_queries() -> None:
     assert metadata["query_plan"]["missing_recommended_role_families"] == []
 
 
+def test_query_decomposition_keeps_generic_causal_bridge_queries() -> None:
+    cause_case = _case(
+        case_id="causal-support-events",
+        question="What causes has John done events for?",
+        expected_terms=("community causes",),
+        answer="community causes",
+        category=4,
+    )
+
+    queries, metadata = rerank_module.decomposed_search_queries(cause_case)
+
+    assert queries[3] == "john cause caus because reason done event"
+    assert metadata["query_plan"]["selected_roles"] == [
+        "original_question",
+        "expanded_focus",
+        "causal_support",
+        "multi_hop_bridge",
+    ]
+    assert metadata["query_plan"]["missing_recommended_role_families"] == []
+    assert metadata["query_plan"]["dropped_type_limit_roles"] == []
+
+
+def test_query_decomposition_keeps_visual_causal_bridge_queries() -> None:
+    visual_cause_case = _case(
+        case_id="visual-causal-support",
+        question=(
+            "How did the extra funding help the school shown in the photo "
+            "shared by John?"
+        ),
+        expected_terms=("classroom materials",),
+        answer="classroom materials",
+        category=4,
+    )
+
+    queries, metadata = rerank_module.decomposed_search_queries(visual_cause_case)
+
+    assert queries == (
+        "How did the extra funding help the school shown in the photo "
+        "shared by John?",
+        "john shown photo image shows",
+        "john help school assist support speech event",
+        "john help school assist support speech event process change",
+    )
+    assert metadata["query_plan"]["selected_roles"] == [
+        "original_question",
+        "visual_support",
+        "causal_support",
+        "multi_hop_bridge",
+    ]
+    assert metadata["query_plan"]["missing_recommended_role_families"] == []
+    assert metadata["query_plan"]["dropped_type_limit_roles"] == []
+
+
+def test_query_decomposition_keeps_contrast_temporal_and_location_support() -> None:
+    location_case = _case(
+        case_id="contrast-location-support",
+        question=(
+            "Where did Dave return from with new knowledge of different "
+            "techniques of car restoration?"
+        ),
+        expected_terms=("a workshop",),
+        answer="a workshop",
+        category=4,
+    )
+    temporal_case = _case(
+        case_id="contrast-temporal-support",
+        question=(
+            "When did Calvin visit some of the sights in Boston with a former "
+            "high school friend?"
+        ),
+        expected_terms=("last spring",),
+        answer="last spring",
+        category=4,
+    )
+
+    _, location_metadata = rerank_module.decomposed_search_queries(location_case)
+    _, temporal_metadata = rerank_module.decomposed_search_queries(temporal_case)
+
+    assert location_metadata["query_plan"]["selected_roles"] == [
+        "original_question",
+        "compact_relation",
+        "contrast_support",
+        "location_support",
+    ]
+    assert location_metadata["query_plan"]["missing_recommended_role_families"] == []
+    assert location_metadata["query_plan"]["dropped_type_limit_roles"] == []
+    assert temporal_metadata["query_plan"]["selected_roles"] == [
+        "original_question",
+        "event_support",
+        "contrast_support",
+        "temporal_support",
+    ]
+    assert temporal_metadata["query_plan"]["missing_recommended_role_families"] == []
+    assert temporal_metadata["query_plan"]["dropped_type_limit_roles"] == []
+
+
 def test_infinity_context_http_search_expands_roadtrip_queries() -> None:
     seen_payloads: list[dict[str, object]] = []
 
