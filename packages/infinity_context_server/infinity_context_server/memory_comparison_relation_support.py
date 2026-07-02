@@ -1350,6 +1350,9 @@ _LOCATION_PROFILE_SURFACE_RE = re.compile(
     r"|\braised\s+(?:in|near|around)\s+"
     r"(?:[A-Z][a-zA-Z0-9_-]+|the\s+[a-zA-Z][a-zA-Z0-9_-]+)"
     r"|\bhometown\s+(?:is|was|in)\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|the\s+[a-zA-Z][a-zA-Z0-9_-]+)"
+    r"|\b(?:(?:my|his|her|their|our|your)\s+)?(?:current\s+)?"
+    r"(?:city|home|location)\s+(?:is|was)\s+"
     r"(?:[A-Z][a-zA-Z0-9_-]+|the\s+[a-zA-Z][a-zA-Z0-9_-]+)",
 )
 

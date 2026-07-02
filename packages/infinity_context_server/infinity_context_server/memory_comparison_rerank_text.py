@@ -570,8 +570,10 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
     ):
         terms.append("action")
     if re.search(
-        r"\bwhere\b.+\b(?:live|based)\b|"
-        r"\b(?:live|based)\b.+\bwhere\b",
+        r"\bwhere\b.+\b(?:live|living|based)\b|"
+        r"\b(?:live|living|based)\b.+\bwhere\b|"
+        r"\b(?:what|which)\s+city\b.+\b(?:live|living|based)\b|"
+        r"\bcurrent\s+(?:city|home|location)\b",
         text,
         flags=re.IGNORECASE,
     ):
@@ -601,7 +603,7 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
         flags=re.IGNORECASE,
     ):
         terms.append("origin")
-    if re.search(r"\bwhere\b.+\bstay\b", text, flags=re.IGNORECASE):
+    if re.search(r"\bwhere\b.+\bstay(?:ing)?\b", text, flags=re.IGNORECASE):
         terms.append("stay")
     return tuple(terms)
 

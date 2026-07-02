@@ -1189,7 +1189,7 @@ def _filter_relation_terms_for_profile(
         ):
             continue
         if term == "stay" and not re.search(
-            r"\bwhere\b.+\bstay\b|\bstay(?:ed|ing)?\b.+\b(?:in|at|near)\b",
+            r"\bwhere\b.+\bstay(?:ing)?\b|\bstay(?:ed|ing)?\b.+\b(?:in|at|near)\b",
             normalized_question,
         ):
             continue

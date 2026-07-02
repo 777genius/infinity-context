@@ -4323,6 +4323,24 @@ def test_query_decomposition_expands_location_profile_queries() -> None:
         expected_terms=("Denver",),
         answer="Denver",
     )
+    based_city_case = _case(
+        case_id="location-profile-based-city",
+        question="Which city is Alex based in?",
+        expected_terms=("Denver",),
+        answer="Denver",
+    )
+    living_case = _case(
+        case_id="location-profile-living",
+        question="Where is Alex living?",
+        expected_terms=("Denver",),
+        answer="Denver",
+    )
+    current_city_case = _case(
+        case_id="location-profile-current-city",
+        question="What is Alex's current city?",
+        expected_terms=("Denver",),
+        answer="Denver",
+    )
     origin_case = _case(
         case_id="location-profile-origin",
         question="Where is Alex from?",
@@ -4365,6 +4383,12 @@ def test_query_decomposition_expands_location_profile_queries() -> None:
         expected_terms=("Hilton",),
         answer="Hilton",
     )
+    staying_case = _case(
+        case_id="location-profile-staying",
+        question="Where is Alex staying?",
+        expected_terms=("Hilton",),
+        answer="Hilton",
+    )
     stay_present_case = _case(
         case_id="location-profile-stay-present-guard",
         question="How does Alex stay present?",
@@ -4383,6 +4407,15 @@ def test_query_decomposition_expands_location_profile_queries() -> None:
     based_queries, based_metadata = rerank_module.decomposed_search_queries(
         based_case
     )
+    based_city_queries, based_city_metadata = rerank_module.decomposed_search_queries(
+        based_city_case
+    )
+    living_queries, living_metadata = rerank_module.decomposed_search_queries(
+        living_case
+    )
+    current_city_queries, current_city_metadata = (
+        rerank_module.decomposed_search_queries(current_city_case)
+    )
     origin_queries, origin_metadata = rerank_module.decomposed_search_queries(
         origin_case
     )
@@ -4400,6 +4433,9 @@ def test_query_decomposition_expands_location_profile_queries() -> None:
         grew_up_case
     )
     stay_queries, stay_metadata = rerank_module.decomposed_search_queries(stay_case)
+    staying_queries, staying_metadata = rerank_module.decomposed_search_queries(
+        staying_case
+    )
     _, stay_present_metadata = rerank_module.decomposed_search_queries(
         stay_present_case
     )
@@ -4419,6 +4455,25 @@ def test_query_decomposition_expands_location_profile_queries() -> None:
     assert based_queries[2] == "alex live liv bas home city place from origin country"
     assert based_metadata["query_profile"]["relation_terms"] == ("live",)
     assert based_metadata["query_profile"]["evidence_need"] == ("location_support",)
+    assert based_city_queries[1] == "alex live liv bas home city place"
+    assert based_city_metadata["query_profile"]["relation_terms"] == ("live",)
+    assert based_city_metadata["query_profile"]["evidence_need"] == (
+        "location_support",
+    )
+    assert living_queries[1] == "alex live liv bas home city place"
+    assert living_metadata["query_profile"]["relation_terms"] == ("live",)
+    assert living_metadata["query_profile"]["evidence_need"] == ("location_support",)
+    assert current_city_queries[2] == "alex current live known year been exist ongo liv bas"
+    assert current_city_metadata["query_profile"]["relation_terms"] == (
+        "current",
+        "live",
+    )
+    assert current_city_metadata["query_profile"]["relation_categories"] == (
+        "location_transition",
+    )
+    assert current_city_metadata["query_profile"]["evidence_need"] == (
+        "location_support",
+    )
 
     assert origin_queries[1] == "alex origin home city country grew born"
     assert origin_metadata["query_profile"]["relation_terms"] == ("origin",)
@@ -4464,6 +4519,9 @@ def test_query_decomposition_expands_location_profile_queries() -> None:
         "conference",
     )
     assert stay_metadata["query_profile"]["evidence_need"] == ("location_support",)
+    assert staying_queries[1] == "alex stay hotel place conference"
+    assert staying_metadata["query_profile"]["relation_terms"] == ("stay",)
+    assert staying_metadata["query_profile"]["evidence_need"] == ("location_support",)
 
     assert "stay" not in stay_present_metadata["query_profile"]["relation_terms"]
     assert "location_support" not in stay_present_metadata["query_profile"][
@@ -9439,6 +9497,116 @@ def test_benchmark_rerank_boosts_based_location_profile_evidence() -> None:
     ] == []
     assert (
         based_diagnostics["score_signals"]["benchmark_location_support_boost"] > 0
+    )
+
+
+def test_benchmark_rerank_boosts_current_city_location_evidence() -> None:
+    case = _case(
+        case_id="location-current-city-rerank",
+        question="What is Alex's current city?",
+        expected_terms=("Denver",),
+        answer="Denver",
+        category=4,
+    )
+    topical_location = RetrievedMemory(
+        item_id="topical-location",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex talked about Denver during the planning chat."
+        ),
+        source_refs=("D1:1",),
+    )
+    city_profile = RetrievedMemory(
+        item_id="city-profile",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: My current city is Denver."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_location, city_profile),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("location_support",)
+    assert reranked[0].item_id == "city-profile"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    city_diagnostics = diagnostics_by_id["city-profile"]
+    topical_diagnostics = diagnostics_by_id["topical-location"]
+    assert city_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["location_transition"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert city_diagnostics["score_signals"]["benchmark_location_support_boost"] > 0
+    assert (
+        topical_diagnostics["score_signals"]["benchmark_location_support_boost"]
+        == 0
+    )
+
+
+def test_benchmark_rerank_boosts_staying_location_evidence() -> None:
+    case = _case(
+        case_id="location-staying-rerank",
+        question="Where is Alex staying?",
+        expected_terms=("Hilton",),
+        answer="Hilton",
+        category=4,
+    )
+    topical_location = RetrievedMemory(
+        item_id="topical-location",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex mentioned the Hilton during the planning chat."
+        ),
+        source_refs=("D1:1",),
+    )
+    stay_profile = RetrievedMemory(
+        item_id="stay-profile",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: I am staying at the Hilton."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_location, stay_profile),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("location_support",)
+    assert reranked[0].item_id == "stay-profile"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    stay_diagnostics = diagnostics_by_id["stay-profile"]
+    topical_diagnostics = diagnostics_by_id["topical-location"]
+    assert stay_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["location_transition"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert stay_diagnostics["score_signals"]["benchmark_location_support_boost"] > 0
+    assert (
+        topical_diagnostics["score_signals"]["benchmark_location_support_boost"]
+        == 0
     )
 
 

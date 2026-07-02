@@ -1033,6 +1033,7 @@ _LOCATION_SUPPORT_TERMS = frozenset(
         "bas",
         "live",
         "lived",
+        "liv",
         "living",
         "move",
         "moved",

@@ -588,7 +588,7 @@ def _has_location_transition_intent(
         re.search(
             r"\b(?:where|which\s+(?:city|country|place)|from|origin|"
             r"home\s+country|hometown|born|raised|childhood|originally|"
-            r"relocat(?:e|ed|ion))\b",
+            r"relocat(?:e|ed|ion)|current\s+(?:city|home|location))\b",
             normalized,
         )
         or re.search(
