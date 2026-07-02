@@ -4139,6 +4139,60 @@ def test_best_query_relevance_uses_game_detail_bridge() -> None:
     assert relevance.distinctive_term_hits >= 6
 
 
+def test_query_expansion_bridges_health_lifestyle_queries() -> None:
+    incident = build_query_expansion_plan(
+        "When did Evan have his sudden heart palpitation incident?"
+    )
+    snacks = build_query_expansion_plan("What kind of unhealthy snacks does Sam enjoy eating?")
+    grocery = build_query_expansion_plan(
+        "What frustrating issue did Sam face at the supermarket?"
+    )
+    electronics = build_query_expansion_plan(
+        "What electronics issue has been frustrating Sam lately?"
+    )
+    knee = build_query_expansion_plan("What suggestion did Sam give to Evan's knee issue?")
+
+    assert "health issue health issues health scare" in _expansion_query(
+        incident,
+        "health_lifestyle_bridge",
+    )
+    assert "heart palpitation palpitations shocked" in _expansion_query(
+        incident,
+        "health_lifestyle_bridge",
+    )
+    assert "healthy meals snacks unhealthy snacks" in _expansion_query(
+        snacks,
+        "health_lifestyle_bridge",
+    )
+    assert "grocery store supermarket frustrating" in _expansion_query(
+        grocery,
+        "health_lifestyle_bridge",
+    )
+    assert "electronics issue phone problem device" in _expansion_query(
+        electronics,
+        "health_lifestyle_bridge",
+    )
+    assert "knee injury knee issue healing" in _expansion_query(
+        knee,
+        "health_lifestyle_bridge",
+    )
+
+
+def test_best_query_relevance_uses_health_lifestyle_bridge() -> None:
+    plan = build_query_expansion_plan("What health scares did Sam and Evan experience?")
+
+    _, reason, relevance = best_query_relevance(
+        plan,
+        text=(
+            "Sam had a health scare and Evan had heart palpitations, "
+            "so both changed their healthy lifestyle routines."
+        ),
+    )
+
+    assert reason == "health_lifestyle_bridge"
+    assert relevance.distinctive_term_hits >= 6
+
+
 def test_query_expansion_bridges_career_month_setbacks() -> None:
     plan = build_query_expansion_plan(
         "Was September a good month career-wise for Dana and Morgan?"
