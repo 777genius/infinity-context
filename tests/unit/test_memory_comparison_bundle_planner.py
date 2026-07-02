@@ -1411,6 +1411,7 @@ def test_evidence_bundle_planner_selects_typed_profile_support() -> None:
     quality = diagnostics["bundle_quality"]
     assert quality["typed_relation_support_count"] == 1
     assert quality["typed_relation_support_counts"] == {"health_support": 1}
+    assert quality["component_scores"]["typed_relation_support"] == 0.08
     assert "has_health_support_evidence" in quality["reason_codes"]
 
 
@@ -1587,6 +1588,7 @@ def test_evidence_bundle_planner_selects_required_favorite_support() -> None:
     assert quality["preference_support_count"] == 0
     assert quality["typed_relation_support_counts"] == {"favorite_support": 1}
     assert quality["component_scores"]["favorite_support"] == 0.08
+    assert quality["component_scores"]["typed_relation_support"] == 0
     assert "has_favorite_support_evidence" in quality["reason_codes"]
 
 

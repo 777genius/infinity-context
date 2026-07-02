@@ -1667,6 +1667,9 @@ def _bundle_quality_diagnostics(
         item.role for item in items if item.role in _TYPED_RELATION_SUPPORT_CATEGORIES
     )
     typed_relation_support_count = sum(typed_relation_support_counts.values())
+    typed_relation_quality_count = (
+        typed_relation_support_count - favorite_support_count
+    )
     location_relation_category_hit_count = sum(
         1
         for item in items
@@ -1717,6 +1720,7 @@ def _bundle_quality_diagnostics(
         ),
         "preference_support": min(0.08, 0.08 * preference_support_count),
         "favorite_support": min(0.08, 0.08 * favorite_support_count),
+        "typed_relation_support": min(0.08, 0.08 * typed_relation_quality_count),
         "visual_support": min(0.08, 0.08 * visual_support_count),
         "source_proximity": (
             min(0.06, 0.03 * source_proximity_support_count)

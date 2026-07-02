@@ -130,3 +130,21 @@
   -> passed.
 - `git push origin main` -> still blocked because the non-interactive runtime
   has no GitHub username/credential prompt available.
+
+## 2026-07-02 Follow-up 7
+
+- Added a bundle-quality component score for grounded typed relation support so
+  non-favorite profile evidence such as health/date/status/education/
+  employment/skill/vehicle/pet support contributes directly to bundle
+  confidence instead of only appearing in reason codes.
+- Kept favorite support on its dedicated component to avoid double-counting the
+  already first-class favorite evidence score.
+
+## Verification
+
+- `uv run --extra dev pytest -q tests/unit/test_memory_comparison*.py`
+  -> 498 passed, 1 warning.
+- `uv run --extra dev ruff check packages/infinity_context_server/infinity_context_server/memory_comparison_bundle_planner.py tests/unit/test_memory_comparison_bundle_planner.py`
+  -> passed.
+- `git push origin main` -> still blocked because the non-interactive runtime
+  has no GitHub username/credential prompt available.
