@@ -613,6 +613,66 @@ def test_candidate_features_detect_direct_exchange_surface() -> None:
     assert direct_exchange.answerability_score > support_abstract.answerability_score
 
 
+def test_candidate_features_do_not_ground_wrong_exchange_action() -> None:
+    wrong_action = build_candidate_evidence_features(
+        RetrievedMemory(
+            item_id="wrong-action-exchange",
+            rank=1,
+            text="D1:3 Morgan: I bought Maria a scarf after dinner.",
+            source_refs=("D1:3",),
+        ),
+        memory_terms={"morgan", "bought", "maria", "scarf", "dinner"},
+        query_terms=("morgan", "give"),
+        relation_terms=("give",),
+        relation_variant_terms=("gave", "gift", "received"),
+        relation_category_terms={"exchange": ("give", "gave", "gift", "received")},
+        entities=("morgan",),
+        entity_hits=("morgan",),
+        speaker_hits=("morgan",),
+        high_signal_relation_terms=set(),
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+    matching_action = build_candidate_evidence_features(
+        RetrievedMemory(
+            item_id="matching-action-exchange",
+            rank=2,
+            text="D2:4 Morgan: I gave Maria a scarf after dinner.",
+            source_refs=("D2:4",),
+        ),
+        memory_terms={"morgan", "gave", "maria", "scarf", "dinner"},
+        query_terms=("morgan", "give"),
+        relation_terms=("give",),
+        relation_variant_terms=("gave", "gift", "received"),
+        relation_category_terms={"exchange": ("give", "gave", "gift", "received")},
+        entities=("morgan",),
+        entity_hits=("morgan",),
+        speaker_hits=("morgan",),
+        high_signal_relation_terms=set(),
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+
+    assert wrong_action.relation_category_hits == ()
+    assert "missing_exchange_evidence" in wrong_action.answerability_reason_codes
+    assert matching_action.relation_category_hits == ("exchange",)
+    assert matching_action.answerability_score > wrong_action.answerability_score
+
+
 def test_candidate_features_detect_directed_communication_surface() -> None:
     topic_mention = build_candidate_evidence_features(
         RetrievedMemory(
@@ -675,6 +735,70 @@ def test_candidate_features_detect_directed_communication_surface() -> None:
     assert directed_message.relation_category_hits == ("communication",)
     assert "communication_evidence" in directed_message.answerability_reason_codes
     assert directed_message.answerability_score > topic_mention.answerability_score
+
+
+def test_candidate_features_do_not_ground_wrong_communication_action() -> None:
+    wrong_action = build_candidate_evidence_features(
+        RetrievedMemory(
+            item_id="wrong-action-message",
+            rank=1,
+            text="D1:3 Alex: I recommended Maria yesterday.",
+            source_refs=("D1:3",),
+        ),
+        memory_terms={"alex", "recommend", "recommended", "maria", "yesterday"},
+        query_terms=("alex", "tell"),
+        relation_terms=("tell",),
+        relation_variant_terms=("told", "mention", "mentioned", "said"),
+        relation_category_terms={
+            "communication": ("tell", "told", "mention", "mentioned", "said")
+        },
+        entities=("alex",),
+        entity_hits=("alex",),
+        speaker_hits=("alex",),
+        high_signal_relation_terms=set(),
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+    matching_action = build_candidate_evidence_features(
+        RetrievedMemory(
+            item_id="matching-action-message",
+            rank=2,
+            text="D2:4 Alex: I told Maria yesterday.",
+            source_refs=("D2:4",),
+        ),
+        memory_terms={"alex", "tell", "told", "maria", "yesterday"},
+        query_terms=("alex", "tell"),
+        relation_terms=("tell",),
+        relation_variant_terms=("told", "mention", "mentioned", "said"),
+        relation_category_terms={
+            "communication": ("tell", "told", "mention", "mentioned", "said")
+        },
+        entities=("alex",),
+        entity_hits=("alex",),
+        speaker_hits=("alex",),
+        high_signal_relation_terms=set(),
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+
+    assert wrong_action.relation_category_hits == ()
+    assert "missing_communication_evidence" in wrong_action.answerability_reason_codes
+    assert matching_action.relation_category_hits == ("communication",)
+    assert matching_action.answerability_score > wrong_action.answerability_score
 
 
 @pytest.mark.parametrize(
