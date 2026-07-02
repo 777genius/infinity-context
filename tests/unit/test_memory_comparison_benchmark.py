@@ -6049,6 +6049,39 @@ def test_query_decomposition_handles_question_bound_person_role_terms() -> None:
     ]
 
 
+def test_query_decomposition_expands_favorite_preference_queries() -> None:
+    favorite_color_case = _case(
+        case_id="favorite-preference-color",
+        question="What is Alex's favorite color?",
+        expected_terms=("green",),
+        answer="green",
+    )
+    favourite_restaurant_case = _case(
+        case_id="favorite-preference-restaurant",
+        question="What is Alex's favourite restaurant?",
+        expected_terms=("Cafe Luna",),
+        answer="Cafe Luna",
+    )
+
+    color_queries, color_metadata = rerank_module.decomposed_search_queries(
+        favorite_color_case
+    )
+    restaurant_queries, restaurant_metadata = rerank_module.decomposed_search_queries(
+        favourite_restaurant_case
+    )
+
+    assert color_queries[2] == "alex favorite color favourite prefer like love"
+    assert color_metadata["query_profile"]["relation_terms"] == ("favorite",)
+    assert color_metadata["query_profile"]["relation_categories"] == ("preference",)
+    assert color_metadata["query_profile"]["evidence_need"] == ("preference",)
+
+    assert restaurant_queries[2] == "alex favourite restaurant favorite prefer like love"
+    assert restaurant_metadata["query_profile"]["relation_terms"] == ("favourite",)
+    assert restaurant_metadata["query_profile"]["relation_categories"] == (
+        "preference",
+    )
+
+
 def test_infinity_context_http_search_expands_preference_queries() -> None:
     seen_payloads: list[dict[str, object]] = []
 
@@ -8217,6 +8250,64 @@ def test_benchmark_rerank_boosts_vehicle_profile_evidence() -> None:
         topical_diagnostics["score_signals"][
             "benchmark_typed_relation_support_boost"
         ]
+        == 0
+    )
+
+
+def test_benchmark_rerank_boosts_favorite_preference_evidence() -> None:
+    case = _case(
+        case_id="favorite-preference-rerank",
+        question="What is Alex's favorite color?",
+        expected_terms=("green",),
+        answer="green",
+        category=4,
+    )
+    topical_color = RetrievedMemory(
+        item_id="topical-color",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex talked about green paint with Maria."
+        ),
+        source_refs=("D1:1",),
+    )
+    favorite_color = RetrievedMemory(
+        item_id="favorite-color",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: My favorite color is green."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_color, favorite_color),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("preference",)
+    assert reranked[0].item_id == "favorite-color"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    favorite_diagnostics = diagnostics_by_id["favorite-color"]
+    topical_diagnostics = diagnostics_by_id["topical-color"]
+    assert favorite_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["preference"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert (
+        favorite_diagnostics["score_signals"]["benchmark_preference_evidence_boost"]
+        > 0
+    )
+    assert (
+        topical_diagnostics["score_signals"]["benchmark_preference_evidence_boost"]
         == 0
     )
 

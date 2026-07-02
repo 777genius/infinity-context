@@ -53,7 +53,8 @@ _VISUAL_EVIDENCE_RE = re.compile(
     re.IGNORECASE,
 )
 _PREFERENCE_EVIDENCE_RE = re.compile(
-    r"\b(?:love|loved|like|liked|enjoy|enjoyed|interested|prefer|preferred|"
+    r"\b(?:love|loved|like|liked|enjoy|enjoyed|favorite|favourite|"
+    r"interested|prefer|preferred|"
     r"outdoors|camping|national park|self-care|relax|refresh|refreshes|"
     r"refreshing)\b",
     re.IGNORECASE,
@@ -313,7 +314,16 @@ def memory_has_preference_evidence(memory: RetrievedMemory) -> bool:
 
 
 def is_preference_query(profile: Mapping[str, object]) -> bool:
-    preference_terms = {"interest", "enjoy", "like", "love", "prioritize", "destress"}
+    preference_terms = {
+        "destress",
+        "enjoy",
+        "favorite",
+        "favourite",
+        "interest",
+        "like",
+        "love",
+        "prioritize",
+    }
     relation_terms = set(string_sequence(profile.get("relation_terms")))
     return bool(preference_terms & relation_terms)
 

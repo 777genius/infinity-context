@@ -194,6 +194,8 @@ _RELATION_QUERY_TERMS = {
     "enjoy",
     "enroll",
     "excite",
+    "favorite",
+    "favourite",
     "feel",
     "former",
     "gift",
@@ -470,6 +472,7 @@ def expanded_search_query(case: PublicBenchmarkCase) -> tuple[str, dict[str, obj
             employment_support="employment_profile" in intent.evidence_need,
             health_support="health_profile" in intent.evidence_need,
             pet_support="pet_profile" in intent.evidence_need,
+            preference_support="preference" in intent.evidence_need,
             skill_support="skill_profile" in intent.evidence_need,
             vehicle_support="vehicle_profile" in intent.evidence_need,
         )
@@ -608,6 +611,7 @@ def decomposed_search_queries(
             employment_support=compact_relation_role == "employment_support",
             health_support=compact_relation_role == "health_support",
             pet_support=compact_relation_role == "pet_support",
+            preference_support=compact_relation_role == "preference_support",
             skill_support=compact_relation_role == "skill_support",
             vehicle_support=compact_relation_role == "vehicle_support",
         )
@@ -829,6 +833,7 @@ def _support_query_terms(
     employment_support: bool,
     health_support: bool,
     pet_support: bool,
+    preference_support: bool,
     skill_support: bool,
     vehicle_support: bool,
 ) -> tuple[str, ...]:
@@ -862,6 +867,13 @@ def _support_query_terms(
         )
     if pet_support:
         return _pet_support_query_terms(
+            relation_terms=relation_terms,
+            relation_variant_terms=relation_variant_terms,
+            lexical_terms=lexical_terms,
+            entity_surfaces=entity_surfaces,
+        )
+    if preference_support and {"favorite", "favourite"} & set(relation_terms):
+        return _preference_support_query_terms(
             relation_terms=relation_terms,
             relation_variant_terms=relation_variant_terms,
             lexical_terms=lexical_terms,
@@ -1161,6 +1173,64 @@ def _skill_support_query_terms(
                     )
                     if term not in skill_terms and term not in _QUERY_STOPWORDS
                 ),
+            )
+        )
+    )
+
+
+def _preference_support_query_terms(
+    *,
+    relation_terms: tuple[str, ...],
+    relation_variant_terms: tuple[str, ...],
+    lexical_terms: tuple[str, ...],
+    entity_surfaces: tuple[str, ...],
+) -> tuple[str, ...]:
+    entity_tokens = {
+        token for surface in entity_surfaces for token in _normalized_terms(surface)
+    }
+    preference_actions = {
+        "enjoy",
+        "enjoyed",
+        "favorite",
+        "favourite",
+        "interest",
+        "interested",
+        "like",
+        "liked",
+        "love",
+        "prefer",
+    }
+    preference_domains = {
+        "animal",
+        "book",
+        "color",
+        "food",
+        "music",
+        "park",
+        "restaurant",
+        "song",
+    }
+    lexical_domain_terms = tuple(
+        term
+        for term in lexical_terms
+        if term in preference_domains and term not in entity_tokens
+    )
+    topical_terms = tuple(
+        term
+        for term in lexical_terms
+        if term not in _QUERY_STOPWORDS
+        and term not in relation_terms
+        and term not in relation_variant_terms
+        and term not in entity_tokens
+    )
+    return tuple(
+        dict.fromkeys(
+            (
+                *(term for term in relation_terms if term in preference_actions),
+                *lexical_domain_terms,
+                *(term for term in relation_variant_terms if term in preference_actions),
+                *(term for term in relation_variant_terms if term in preference_domains),
+                *topical_terms[:4],
             )
         )
     )

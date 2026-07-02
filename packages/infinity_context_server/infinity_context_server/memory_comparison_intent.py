@@ -324,7 +324,7 @@ def infer_evidence_need(
         )
     if visual_terms:
         needs.append("visual_evidence")
-    if {"interest", "prefer", "enjoy", "like", "love"} & relation_set:
+    if {"favorite", "favourite", "interest", "prefer", "enjoy", "like", "love"} & relation_set:
         needs.append("preference")
     if _has_contrast_intent(
         relation_terms=relation_terms,
@@ -866,6 +866,8 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
         "terms": frozenset(
             {
                 "enjoy",
+                "favorite",
+                "favourite",
                 "interest",
                 "like",
                 "love",
@@ -879,6 +881,8 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "balance",
                 "enjoyed",
                 "fan",
+                "favorite",
+                "favourite",
                 "interested",
                 "like",
                 "liked",
