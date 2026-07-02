@@ -248,6 +248,7 @@ _PROFILE_CATEGORY_BY_ROLE_KEY = {
     "alias": "alias_profile",
     "commitment": "commitment_profile",
     "contact": "contact_profile",
+    "current_goal": "current_goal",
     "date": "date_profile",
     "diet": "diet_profile",
     "education": "education_profile",
@@ -257,6 +258,7 @@ _PROFILE_CATEGORY_BY_ROLE_KEY = {
     "pet": "pet_profile",
     "skill": "skill_profile",
     "status": "status_profile",
+    "support_goal": "support_goal",
     "vehicle": "vehicle_profile",
 }
 

@@ -733,6 +733,101 @@ def test_answer_context_backfill_matches_profile_support_categories() -> None:
     assert context.backfilled_retrieval_item_count == 1
 
 
+def test_answer_context_backfill_matches_goal_support_categories() -> None:
+    memories = (
+        RetrievedMemory(text="primary", rank=1, item_id="primary"),
+        RetrievedMemory(
+            text=(
+                "D2:4 Caroline: The support I received growing up shaped why "
+                "I want to become a counselor."
+            ),
+            rank=2,
+            item_id="support-goal",
+            source_refs=("D2:4",),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "answerability_score": 0.86,
+                        "source_locality_score": 0.9,
+                        "query_roles": ["compact_relation"],
+                        "relation_category_hits": ["support_goal"],
+                        "entity_hits": ["caroline"],
+                        "speaker_hits": ["caroline"],
+                    }
+                }
+            },
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "role_requirement_complete": False,
+            "missing_required_roles": ["support_goal_support"],
+            "items": [{"id": "primary", "retrieval_order": 1, "role": "primary"}],
+        },
+        cutoff=2,
+    )
+
+    assert [memory.item_id for memory in context.memories] == [
+        "primary",
+        "support-goal",
+    ]
+    assert context.memories[1].metadata[
+        "answer_context_backfill_missing_role_hits"
+    ] == ("support_goal_support",)
+    assert context.memories[1].metadata["answer_context_relation_category_hits"] == (
+        "support_goal",
+    )
+    assert context.backfilled_retrieval_item_count == 1
+
+
+def test_answer_context_backfill_matches_current_goal_categories() -> None:
+    memories = (
+        RetrievedMemory(text="primary", rank=1, item_id="primary"),
+        RetrievedMemory(
+            text="D2:4 Caroline: My current goal is to stay local this year.",
+            rank=2,
+            item_id="current-goal",
+            source_refs=("D2:4",),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "answerability_score": 0.86,
+                        "source_locality_score": 0.9,
+                        "query_roles": ["compact_relation"],
+                        "relation_category_hits": ["current_goal"],
+                        "entity_hits": ["caroline"],
+                        "speaker_hits": ["caroline"],
+                    }
+                }
+            },
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "role_requirement_complete": False,
+            "missing_required_roles": ["current_goal_support"],
+            "items": [{"id": "primary", "retrieval_order": 1, "role": "primary"}],
+        },
+        cutoff=2,
+    )
+
+    assert [memory.item_id for memory in context.memories] == [
+        "primary",
+        "current-goal",
+    ]
+    assert context.memories[1].metadata[
+        "answer_context_backfill_missing_role_hits"
+    ] == ("current_goal_support",)
+    assert context.memories[1].metadata["answer_context_relation_category_hits"] == (
+        "current_goal",
+    )
+    assert context.backfilled_retrieval_item_count == 1
+
+
 def test_answer_context_backfill_prefers_unmeasured_grounded_role_evidence() -> None:
     memories = (
         RetrievedMemory(text="primary", rank=1, item_id="primary"),
