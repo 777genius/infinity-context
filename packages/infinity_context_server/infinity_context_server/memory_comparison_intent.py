@@ -1381,6 +1381,7 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "interest",
                 "like",
                 "love",
+                "prefer",
                 "prioritize",
                 "self-care",
                 "want",

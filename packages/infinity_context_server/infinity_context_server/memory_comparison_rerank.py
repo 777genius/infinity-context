@@ -195,6 +195,7 @@ _RELATION_QUERY_TERMS = {
     "participate",
     "plan",
     "political",
+    "prefer",
     "previous",
     "promise",
     "prioritize",

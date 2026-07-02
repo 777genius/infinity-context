@@ -7462,6 +7462,12 @@ def test_query_decomposition_expands_favorite_preference_queries() -> None:
         expected_terms=("Cafe Luna",),
         answer="Cafe Luna",
     )
+    tea_preference_case = _case(
+        case_id="preference-tea",
+        question="What tea does Alex prefer?",
+        expected_terms=("chamomile",),
+        answer="chamomile",
+    )
 
     color_queries, color_metadata = rerank_module.decomposed_search_queries(
         favorite_color_case
@@ -7471,6 +7477,9 @@ def test_query_decomposition_expands_favorite_preference_queries() -> None:
     )
     go_to_queries, go_to_metadata = rerank_module.decomposed_search_queries(
         go_to_restaurant_case
+    )
+    tea_queries, tea_metadata = rerank_module.decomposed_search_queries(
+        tea_preference_case
     )
 
     assert color_queries[2] == "alex favorite color favourite prefer like love"
@@ -7501,6 +7510,14 @@ def test_query_decomposition_expands_favorite_preference_queries() -> None:
         "preference",
     )
     assert "favorite_support" in go_to_metadata["query_profile"][
+        "bundle_evidence_roles"
+    ]
+
+    assert tea_queries[2] == "alex prefer preferr like tea coffee"
+    assert tea_metadata["query_profile"]["relation_terms"] == ("prefer",)
+    assert tea_metadata["query_profile"]["relation_categories"] == ("preference",)
+    assert tea_metadata["query_profile"]["evidence_need"] == ("preference",)
+    assert "preference_support" in tea_metadata["query_profile"][
         "bundle_evidence_roles"
     ]
 
@@ -12034,6 +12051,68 @@ def test_benchmark_rerank_boosts_go_to_favorite_preference_evidence() -> None:
         topical_diagnostics["score_signals"]["benchmark_preference_evidence_boost"]
         == 0
     )
+
+
+def test_benchmark_rerank_boosts_prefer_tea_preference_evidence() -> None:
+    case = _case(
+        case_id="preference-prefer-tea-rerank",
+        question="What tea does Alex prefer?",
+        expected_terms=("chamomile",),
+        answer="chamomile",
+        category=4,
+    )
+    topical_tea = RetrievedMemory(
+        item_id="topical-tea",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex bought chamomile tea for Maria."
+        ),
+        source_refs=("D1:1",),
+    )
+    tea_preference = RetrievedMemory(
+        item_id="tea-preference",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: I prefer chamomile tea."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_tea, tea_preference),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("preference",)
+    assert reranked[0].item_id == "tea-preference"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    preference_diagnostics = diagnostics_by_id["tea-preference"]
+    topical_diagnostics = diagnostics_by_id["topical-tea"]
+    assert preference_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["preference"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert preference_diagnostics["benchmark_candidate_features"][
+        "has_preference_evidence"
+    ] is True
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "has_preference_evidence"
+    ] is False
+    assert "preference_evidence" in preference_diagnostics["score_signals"][
+        "benchmark_answerability_reason_codes"
+    ]
+    assert "missing_preference_evidence" in topical_diagnostics["score_signals"][
+        "benchmark_answerability_reason_codes"
+    ]
 
 
 def test_benchmark_rerank_boosts_age_profile_evidence() -> None:

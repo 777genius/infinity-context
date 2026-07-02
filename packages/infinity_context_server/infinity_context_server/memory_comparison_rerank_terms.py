@@ -352,6 +352,7 @@ RELATION_QUERY_VARIANTS = {
     "like": ("liked", "enjoy", "enjoyed", "love"),
     "live": ("lived", "living", "based", "home", "city", "place"),
     "love": ("loved", "enjoy", "enjoyed", "like"),
+    "prefer": ("preferred", "like", "liked", "enjoy", "tea", "coffee"),
     "make": ("made", "create", "created"),
     "marry": (
         "married",

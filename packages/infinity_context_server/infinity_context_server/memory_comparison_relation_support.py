@@ -1455,6 +1455,7 @@ def _has_preference_support(memory_terms: set[str]) -> bool:
         "classic",
         "company",
         "color",
+        "coffee",
         "exhibit",
         "family",
         "food",
@@ -1473,6 +1474,7 @@ def _has_preference_support(memory_terms: set[str]) -> bool:
         "songs",
         "story",
         "summer",
+        "tea",
     } & memory_terms
     outdoor_context = {"camp", "camping", "outdoor", "outdoors", "park"} & memory_terms
     self_care_surface = {"self-care", "relax", "refresh", "refreshes", "routine"} & memory_terms

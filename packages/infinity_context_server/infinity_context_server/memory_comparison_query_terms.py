@@ -952,11 +952,13 @@ def _preference_support_query_terms(
         "animal",
         "book",
         "color",
+        "coffee",
         "food",
         "music",
         "park",
         "restaurant",
         "song",
+        "tea",
     }
     lexical_domain_terms = tuple(
         term
