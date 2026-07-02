@@ -216,6 +216,11 @@ def infer_relation_intents(
             relation_terms=relation_terms,
         ):
             continue
+        if category == "participation_event" and not _has_participation_event_intent(
+            question=question,
+            relation_terms=relation_terms,
+        ):
+            continue
         if category == "activity_profile" and not _has_activity_profile_intent(
             question=question,
             relation_terms=relation_terms,
@@ -608,6 +613,32 @@ def _has_exchange_intent(
             or re.search(r"\b(?:get|got)\b.+\bfrom\b", normalized_question)
         )
     return True
+
+
+def _has_participation_event_intent(
+    *,
+    question: str,
+    relation_terms: tuple[str, ...],
+) -> bool:
+    relation_set = set(relation_terms)
+    if not {"attend", "join", "participate", "travel", "visit"} & relation_set:
+        return False
+    if "travel" not in relation_set:
+        return True
+    normalized_question = re.sub(r"[^0-9a-z]+", " ", question.casefold()).strip()
+    if re.search(
+        r"\btravel\s+(?:book|guide|story|documentary|show)\b",
+        normalized_question,
+    ):
+        return False
+    return bool(
+        re.search(
+            r"\bwhere\b.+\btravel\b|\btravel(?:ed|ing)?\s+to\b|"
+            r"\b(?:what|which)\s+(?:country|city|place)\b.+\btravel\b|"
+            r"\b(?:trip|vacation)\b",
+            normalized_question,
+        )
+    )
 
 
 def _has_activity_profile_intent(
@@ -1552,12 +1583,14 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
         "evidence_need": "registration_event",
     },
     "participation_event": {
-        "terms": frozenset({"attend", "join", "participate", "visit"}),
+        "terms": frozenset({"attend", "join", "participate", "travel", "visit"}),
         "variants": frozenset(
             {
                 "attended",
+                "city",
                 "class",
                 "conference",
+                "country",
                 "event",
                 "group",
                 "joined",
@@ -1566,7 +1599,10 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "place",
                 "studio",
                 "trip",
+                "traveled",
+                "travelled",
                 "visited",
+                "went",
                 "workshop",
             }
         ),

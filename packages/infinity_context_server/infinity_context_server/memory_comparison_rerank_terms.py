@@ -484,6 +484,7 @@ RELATION_QUERY_VARIANTS = {
     "tell": ("told", "said", "mentioned"),
     "told": ("tell", "said", "mentioned"),
     "think": ("thought", "considered"),
+    "travel": ("traveled", "travelled", "trip", "visited", "went", "country", "city"),
     "visit": ("visited", "visiting", "trip", "studio", "place", "event"),
     "vehicle": (
         "car",

@@ -24,6 +24,8 @@ def typed_relation_category_support(
         return _has_contact_profile_support(memory_terms, memory_text=memory_text)
     if category == "diet_profile":
         return _has_diet_profile_support(memory_terms, memory_text=memory_text)
+    if category == "participation_event":
+        return _has_participation_event_support(memory_terms, memory_text=memory_text)
     if category == "employment_profile":
         return _has_employment_profile_support(
             memory_terms,
@@ -91,7 +93,21 @@ def _has_symbolic_meaning_support(memory_terms: set[str]) -> bool:
     return bool(symbolic_surface and object_context)
 
 
-def _has_participation_event_support(memory_terms: set[str]) -> bool:
+_PARTICIPATION_DESTINATION_SURFACE_RE = re.compile(
+    r"\b(?:visit|visited|travel|traveled|travelled|go|went)\s+"
+    r"(?:to\s+)?(?:[A-Z][a-zA-Z0-9_-]+|"
+    r"(?:the\s+)?(?:beach|city|conference|country|gallery|museum|park|studio))\b"
+    r"|\b(?:trip|vacation)\s+(?:to|in)\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|"
+    r"(?:the\s+)?(?:beach|city|country|mountains|park))\b",
+)
+
+
+def _has_participation_event_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
     participation_action = {
         "attend",
         "attended",
@@ -99,8 +115,12 @@ def _has_participation_event_support(memory_terms: set[str]) -> bool:
         "joined",
         "participate",
         "participated",
+        "travel",
+        "traveled",
+        "travelled",
         "visit",
         "visited",
+        "went",
     } & memory_terms
     event_context = {
         "class",
@@ -114,7 +134,10 @@ def _has_participation_event_support(memory_terms: set[str]) -> bool:
         "trip",
         "workshop",
     } & memory_terms
-    return bool(participation_action and event_context)
+    return bool(
+        (participation_action and event_context)
+        or _PARTICIPATION_DESTINATION_SURFACE_RE.search(memory_text)
+    )
 
 
 def _has_education_profile_support(memory_terms: set[str]) -> bool:

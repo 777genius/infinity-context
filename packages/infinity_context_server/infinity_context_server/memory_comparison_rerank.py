@@ -222,6 +222,7 @@ _RELATION_QUERY_TERMS = {
     "text",
     "think",
     "told",
+    "travel",
     "vehicle",
     "visit",
     "want",
