@@ -204,6 +204,7 @@ _RELATION_QUERY_TERMS = {
     "got",
     "group",
     "grow",
+    "health",
     "help",
     "hike",
     "interest",
@@ -464,6 +465,7 @@ def expanded_search_query(case: PublicBenchmarkCase) -> tuple[str, dict[str, obj
             ),
             education_support="education_profile" in intent.evidence_need,
             employment_support="employment_profile" in intent.evidence_need,
+            health_support="health_profile" in intent.evidence_need,
         )
         focus_parts.append(
             f"actions: {', '.join(_render_query_terms(focus_actions[:8]))}"
@@ -598,6 +600,7 @@ def decomposed_search_queries(
             communication_support=compact_relation_role == "communication_support",
             education_support=compact_relation_role == "education_support",
             employment_support=compact_relation_role == "employment_support",
+            health_support=compact_relation_role == "health_support",
         )
         compact_temporal_terms = (
             _compact_temporal_relation_terms(lexical_terms) if is_temporal_query else ()
@@ -815,6 +818,7 @@ def _support_query_terms(
     communication_support: bool,
     education_support: bool,
     employment_support: bool,
+    health_support: bool,
 ) -> tuple[str, ...]:
     if communication_support:
         return _communication_support_query_terms(
@@ -832,6 +836,13 @@ def _support_query_terms(
         )
     if employment_support:
         return _employment_support_query_terms(
+            relation_terms=relation_terms,
+            relation_variant_terms=relation_variant_terms,
+            lexical_terms=lexical_terms,
+            entity_surfaces=entity_surfaces,
+        )
+    if health_support:
+        return _health_support_query_terms(
             relation_terms=relation_terms,
             relation_variant_terms=relation_variant_terms,
             lexical_terms=lexical_terms,
@@ -966,6 +977,58 @@ def _employment_support_query_terms(
                         relation_variant_terms,
                     )
                     if term not in employment_terms and term not in _QUERY_STOPWORDS
+                ),
+            )
+        )
+    )
+
+
+def _health_support_query_terms(
+    *,
+    relation_terms: tuple[str, ...],
+    relation_variant_terms: tuple[str, ...],
+    lexical_terms: tuple[str, ...],
+    entity_surfaces: tuple[str, ...],
+) -> tuple[str, ...]:
+    entity_tokens = {
+        token for surface in entity_surfaces for token in _normalized_terms(surface)
+    }
+    health_terms = {
+        "allergic",
+        "allergy",
+        "appointment",
+        "clinic",
+        "condition",
+        "doctor",
+        "health",
+        "medication",
+        "medicine",
+        "prescription",
+        "take",
+        "taking",
+        "therapist",
+    }
+    topical_terms = tuple(
+        term
+        for term in lexical_terms
+        if term not in _QUERY_STOPWORDS
+        and term not in relation_terms
+        and term not in relation_variant_terms
+        and term not in entity_tokens
+    )
+    return tuple(
+        dict.fromkeys(
+            (
+                *(term for term in relation_terms if term == "health"),
+                *(term for term in relation_variant_terms if term in health_terms),
+                *topical_terms[:4],
+                *(
+                    term
+                    for term in _relation_query_terms(
+                        relation_terms,
+                        relation_variant_terms,
+                    )
+                    if term not in health_terms and term not in _QUERY_STOPWORDS
                 ),
             )
         )
@@ -1141,6 +1204,8 @@ def _compact_relation_query_role(intent: RetrievalIntent) -> str:
         return "education_support"
     if "employment_profile" in set(intent.evidence_need):
         return "employment_support"
+    if "health_profile" in set(intent.evidence_need):
+        return "health_support"
     role_priority = (
         "communication_support",
         "event_support",
@@ -1548,6 +1613,10 @@ def _filter_relation_terms_for_profile(
     for term in relation_terms:
         if term == "work" and _has_employment_profile_question(normalized_question):
             continue
+        if term == "health" and not _has_health_profile_question(
+            normalized_question,
+        ):
+            continue
         if term in {"class", "education"} and {"enroll", "register", "sign"} & relation_set:
             continue
         if term == "education" and not _has_education_profile_question(
@@ -1588,6 +1657,16 @@ def _has_employment_profile_question(normalized_question: str) -> bool:
             r"\bwhere\b.+\bwork\b|"
             r"\bwhat\b.+\bdo\b.+\bfor\s+work\b|"
             r"\bwork\b.+\b(?:company|for)\b",
+            normalized_question,
+        )
+    )
+
+
+def _has_health_profile_question(normalized_question: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(?:doctor|therapist|medication|medicine|prescription|allerg"
+            r"(?:y|ic)|health\s+issue|condition)\b",
             normalized_question,
         )
     )

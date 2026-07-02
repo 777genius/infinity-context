@@ -4550,6 +4550,98 @@ def test_query_decomposition_expands_employment_profile_queries() -> None:
     ]
 
 
+def test_query_decomposition_expands_health_profile_queries() -> None:
+    doctor_case = _case(
+        case_id="health-profile-doctor",
+        question="Who is Alex's doctor?",
+        expected_terms=("Dr. Lee",),
+        answer="Dr. Lee",
+    )
+    medication_case = _case(
+        case_id="health-profile-medication",
+        question="What medication does Alex take?",
+        expected_terms=("Zyrtec",),
+        answer="Zyrtec",
+    )
+    allergy_case = _case(
+        case_id="health-profile-allergy",
+        question="What is Alex allergic to?",
+        expected_terms=("peanuts",),
+        answer="peanuts",
+    )
+    condition_case = _case(
+        case_id="health-profile-condition",
+        question="What condition does Alex have?",
+        expected_terms=("asthma",),
+        answer="asthma",
+    )
+    class_case = _case(
+        case_id="health-profile-class-guard",
+        question="What class did Alex take?",
+        expected_terms=("ceramics",),
+        answer="ceramics",
+    )
+    take_to_class_case = _case(
+        case_id="health-profile-take-class-guard",
+        question="What did Alex take to class?",
+        expected_terms=("notebook",),
+        answer="notebook",
+    )
+
+    doctor_queries, doctor_metadata = rerank_module.decomposed_search_queries(
+        doctor_case
+    )
+    medication_queries, medication_metadata = rerank_module.decomposed_search_queries(
+        medication_case
+    )
+    allergy_queries, allergy_metadata = rerank_module.decomposed_search_queries(
+        allergy_case
+    )
+    condition_queries, condition_metadata = rerank_module.decomposed_search_queries(
+        condition_case
+    )
+    _, class_metadata = rerank_module.decomposed_search_queries(class_case)
+    _, take_to_class_metadata = rerank_module.decomposed_search_queries(
+        take_to_class_case
+    )
+
+    assert doctor_queries[2] == "alex health doctor therapist medication medicine prescription"
+    assert doctor_metadata["query_profile"]["relation_terms"] == ("health",)
+    assert doctor_metadata["query_profile"]["relation_categories"] == (
+        "health_profile",
+    )
+    assert doctor_metadata["query_profile"]["evidence_need"] == ("health_profile",)
+
+    assert medication_queries[2] == (
+        "alex health doctor therapist medication medicine prescription"
+    )
+    assert medication_metadata["query_profile"]["relation_categories"] == (
+        "health_profile",
+    )
+
+    assert allergy_queries[2] == (
+        "alex health doctor therapist medication medicine prescription"
+    )
+    assert allergy_metadata["query_profile"]["relation_categories"] == (
+        "health_profile",
+    )
+
+    assert condition_queries[2] == (
+        "alex health doctor therapist medication medicine prescription"
+    )
+    assert condition_metadata["query_profile"]["relation_categories"] == (
+        "health_profile",
+    )
+
+    assert "health_profile" not in class_metadata["query_profile"][
+        "relation_categories"
+    ]
+    assert take_to_class_metadata["query_profile"]["relation_terms"] == ()
+    assert "health_profile" not in take_to_class_metadata["query_profile"][
+        "relation_categories"
+    ]
+
+
 def test_infinity_context_http_search_expands_temporal_action_queries() -> None:
     seen_payloads: list[dict[str, object]] = []
 
@@ -7671,6 +7763,67 @@ def test_benchmark_rerank_boosts_employment_profile_evidence() -> None:
     assert employment_diagnostics["score_signals"][
         "benchmark_typed_relation_support_roles"
     ] == ["employment_support"]
+    assert (
+        topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        == 0
+    )
+
+
+def test_benchmark_rerank_boosts_health_profile_evidence() -> None:
+    case = _case(
+        case_id="health-profile-rerank",
+        question="What medication does Alex take?",
+        expected_terms=("Zyrtec",),
+        answer="Zyrtec",
+        category=4,
+    )
+    topical_medication = RetrievedMemory(
+        item_id="topical-medication",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex talked about Zyrtec with Maria."
+        ),
+        source_refs=("D1:1",),
+    )
+    health_profile = RetrievedMemory(
+        item_id="health-profile",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: I take Zyrtec every morning."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_medication, health_profile),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("health_profile",)
+    assert reranked[0].item_id == "health-profile"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    health_diagnostics = diagnostics_by_id["health-profile"]
+    topical_diagnostics = diagnostics_by_id["topical-medication"]
+    assert health_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["health_profile"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert (
+        health_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        > 0
+    )
+    assert health_diagnostics["score_signals"][
+        "benchmark_typed_relation_support_roles"
+    ] == ["health_support"]
     assert (
         topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
         == 0

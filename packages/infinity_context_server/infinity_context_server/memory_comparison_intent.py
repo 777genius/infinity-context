@@ -226,6 +226,11 @@ def infer_relation_intents(
             relation_terms=relation_terms,
         ):
             continue
+        if category == "health_profile" and not _has_health_profile_intent(
+            question=question,
+            relation_terms=relation_terms,
+        ):
+            continue
         if category == "communication" and not _has_communication_intent(
             question=question,
             relation_terms=relation_terms,
@@ -386,6 +391,7 @@ def merge_relation_evidence_needs(
         "emotion_response",
         "education_profile",
         "employment_profile",
+        "health_profile",
         "communication",
         "exchange",
         "inference_support",
@@ -669,6 +675,23 @@ def _has_employment_profile_intent(
             r"\bwhere\b.+\bwork\b|"
             r"\bwhat\b.+\bdo\b.+\bfor\s+work\b|"
             r"\bwork\b.+\b(?:company|for)\b",
+            normalized_question,
+        )
+    )
+
+
+def _has_health_profile_intent(
+    *,
+    question: str,
+    relation_terms: tuple[str, ...],
+) -> bool:
+    if "health" not in set(relation_terms):
+        return False
+    normalized_question = re.sub(r"[^0-9a-z]+", " ", question.casefold()).strip()
+    return bool(
+        re.search(
+            r"\b(?:doctor|therapist|medication|medicine|prescription|allerg"
+            r"(?:y|ic)|health\s+issue|condition)\b",
             normalized_question,
         )
     )
@@ -1064,6 +1087,28 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
         ),
         "markers": frozenset(),
         "evidence_need": "employment_profile",
+    },
+    "health_profile": {
+        "terms": frozenset({"health"}),
+        "variants": frozenset(
+            {
+                "allergic",
+                "allergy",
+                "appointment",
+                "clinic",
+                "condition",
+                "doctor",
+                "health",
+                "medication",
+                "medicine",
+                "prescription",
+                "take",
+                "taking",
+                "therapist",
+            }
+        ),
+        "markers": frozenset(),
+        "evidence_need": "health_profile",
     },
     "exchange": {
         "terms": frozenset(

@@ -23,6 +23,8 @@ def typed_relation_category_support(
             memory_terms,
             memory_text=memory_text,
         )
+    if category == "health_profile":
+        return _has_health_profile_support(memory_terms, memory_text=memory_text)
     if category == "exchange":
         return _has_exchange_support(memory_terms, memory_text=memory_text)
     check = _TYPED_SUPPORT_CHECKS.get(category)
@@ -168,6 +170,49 @@ def _has_employment_profile_support(
         employment_context
         or (work_action and employment_context)
         or _EMPLOYMENT_PROFILE_SURFACE_RE.search(memory_text)
+    )
+
+
+_HEALTH_PROFILE_SURFACE_RE = re.compile(
+    r"\b(?:doctor|therapist|clinic|appointment|prescription|medication|"
+    r"medicine|allergy|allergic|condition)\b"
+    r"|\b(?:take|takes|taking)\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|"
+    r"(?:a\s+|an\s+|the\s+)?(?:pill|medication|medicine|prescription))\b"
+    r"|\b(?:have|has|had)\s+(?:asthma|diabetes|migraine|allergies|allergy)\b",
+)
+
+
+def _has_health_profile_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
+    health_surface = {
+        "allergic",
+        "allergy",
+        "appointment",
+        "clinic",
+        "condition",
+        "doctor",
+        "health",
+        "medication",
+        "medicine",
+        "prescription",
+        "therapist",
+    } & memory_terms
+    medication_action = {"take", "takes", "taking"} & memory_terms
+    medication_context = {
+        "dose",
+        "medication",
+        "medicine",
+        "pill",
+        "prescription",
+    } & memory_terms
+    return bool(
+        health_surface
+        or (medication_action and medication_context)
+        or _HEALTH_PROFILE_SURFACE_RE.search(memory_text)
     )
 
 
@@ -853,6 +898,7 @@ _TYPED_SUPPORT_CHECKS: dict[str, Callable[[set[str]], bool]] = {
     "employment_profile": _has_employment_profile_support,
     "emotion_response": _has_emotion_response_support,
     "exchange": _has_exchange_support,
+    "health_profile": _has_health_profile_support,
     "identity_profile": _has_identity_profile_support,
     "participation_event": _has_participation_event_support,
     "preference": _has_preference_support,
