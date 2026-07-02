@@ -38,6 +38,20 @@ def source_identity_refs_from_text(
     return tuple(f"source_turn_refs:{ref}" for ref in sorted(turn_refs))
 
 
+def source_identity_refs_from_source_refs(
+    source_refs: Sequence[str],
+) -> tuple[str, ...]:
+    refs = tuple(str(ref).strip() for ref in source_refs if str(ref).strip())
+    turn_refs = tuple(
+        dict.fromkeys(
+            ref for source_ref in refs for ref in _TURN_REF_RE.findall(source_ref)
+        )
+    )
+    if not 0 < len(turn_refs) <= 3:
+        return ()
+    return tuple(f"source_turn_refs:{ref}" for ref in sorted(turn_refs))
+
+
 def _split_identity_refs(value: str) -> tuple[str, ...]:
     return tuple(
         dict.fromkeys(ref.strip() for ref in value.split("|") if ref.strip())

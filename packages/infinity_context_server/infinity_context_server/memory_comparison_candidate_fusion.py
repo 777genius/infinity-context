@@ -10,6 +10,7 @@ from dataclasses import dataclass, replace
 from infinity_context_server.memory_comparison_models import RetrievedMemory
 from infinity_context_server.memory_comparison_source_identity import (
     source_identity_refs_from_dedupe_key,
+    source_identity_refs_from_source_refs,
     source_identity_refs_from_text,
 )
 
@@ -476,6 +477,7 @@ def _source_identity_refs(memory: RetrievedMemory) -> tuple[str, ...]:
                     features.get("source_ref_dedupe_key")
                 ),
                 *source_identity_refs_from_dedupe_key(fusion.get("dedupe_key")),
+                *source_identity_refs_from_source_refs(direct_refs),
                 *source_identity_refs_from_text(memory.text, source_refs=direct_refs),
             )
         )
