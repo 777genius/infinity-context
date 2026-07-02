@@ -121,18 +121,26 @@ _STUDIO_OPENING_TIMELINE_TERMS = frozenset(
 _SYMBOL_IMPORTANCE_OBJECT_TERMS = frozenset(
     {
         "cross",
+        "drawing",
         "eagle",
         "flag",
+        "flower",
+        "flowers",
         "heart",
         "mural",
         "necklace",
         "pendant",
+        "sunflower",
+        "sunflowers",
         "symbol",
         "symbols",
+        "tattoo",
+        "tattoos",
     }
 )
 _SYMBOL_IMPORTANCE_MEANING_TERMS = frozenset(
     {
+        "important",
         "mean",
         "meaning",
         "means",

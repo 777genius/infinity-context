@@ -928,8 +928,38 @@ EXPANSION_RULES_PART_3: tuple[tuple[frozenset[str], str, str], ...] = (
             (
                 "symbols important rainbow flag mural eagle freedom pride courage "
                 "strength trans community resilience stained glass acceptance pendant "
-                "necklace transgender symbol cross heart symbolizes represents meaning "
-                "means stands for love faith roots gift grandma reminder"
+                "necklace transgender symbol cross heart tattoo drawing flowers sunflower "
+                "symbolizes represents meaning means stands for love faith roots gift "
+                "grandma reminder resilience growth hope"
+            ),
+            "symbol_importance_bridge",
+        ),
+    (
+            frozenset({"represent"}),
+            (
+                "symbols important rainbow flag mural eagle freedom pride courage "
+                "strength trans community resilience stained glass acceptance pendant "
+                "necklace tattoo drawing flowers sunflower transgender symbol cross heart "
+                "symbolizes represents meaning means stands for love faith roots gift "
+                "grandma reminder resilience growth hope"
+            ),
+            "symbol_importance_bridge",
+        ),
+    (
+            frozenset({"tattoo", "symbol"}),
+            (
+                "symbols important tattoo tattoos ink design flower sunflowers "
+                "symbolizes represents meaning means stands for resilience growth "
+                "strength reminder memory courage"
+            ),
+            "symbol_importance_bridge",
+        ),
+    (
+            frozenset({"flower", "important"}),
+            (
+                "symbols important flowers sunflower sunflowers nature represent "
+                "symbolizes represents meaning means stands for resilience growth "
+                "hope strength reminder memory"
             ),
             "symbol_importance_bridge",
         ),

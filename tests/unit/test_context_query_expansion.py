@@ -806,6 +806,30 @@ def test_query_expansion_covers_symbolic_meaning_variants() -> None:
         assert "symbolizes represents meaning means stands for" in symbol
 
 
+def test_query_expansion_covers_visual_symbol_objects_without_symbol_word() -> None:
+    cases = (
+        (
+            "What do sunflowers represent according to Caroline?",
+            "flowers sunflower",
+        ),
+        (
+            "Why are flowers important to Melanie?",
+            "flowers sunflower",
+        ),
+        (
+            "What does Gina's tattoo symbolize?",
+            "tattoo tattoos ink design",
+        ),
+    )
+
+    for query, expected_terms in cases:
+        plan = build_query_expansion_plan(query)
+        symbol = _expansion_query(plan, "symbol_importance_bridge")
+
+        assert expected_terms in symbol
+        assert "symbolizes represents meaning means stands for" in symbol
+
+
 def test_query_expansion_does_not_treat_technical_meaning_as_symbol_memory() -> None:
     plan = build_query_expansion_plan("What does API status code mean?")
 
@@ -2494,6 +2518,31 @@ def test_best_query_relevance_uses_symbol_meaning_bridge() -> None:
     assert query.startswith("Caroline ")
     assert reason == "symbol_importance_bridge"
     assert relevance.distinctive_term_hits >= 4
+
+
+def test_best_query_relevance_uses_visual_symbol_object_bridge() -> None:
+    cases = (
+        (
+            "What do sunflowers represent according to Caroline?",
+            "D3:4 Caroline says sunflowers represent hope, resilience, and growth.",
+            5,
+        ),
+        (
+            "What does Gina's tattoo symbolize?",
+            "D2:8 Gina's flower tattoo symbolizes resilience and personal growth.",
+            5,
+        ),
+    )
+
+    for query_text, text, min_hits in cases:
+        query, reason, relevance = best_query_relevance(
+            build_query_expansion_plan(query_text),
+            text=text,
+        )
+
+        assert query
+        assert reason == "symbol_importance_bridge"
+        assert relevance.distinctive_term_hits >= min_hits
 
 
 def test_best_query_relevance_uses_possession_gift_bridge() -> None:
