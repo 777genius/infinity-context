@@ -870,9 +870,11 @@ _TYPED_RELATION_SUPPORT_ROLE_CATEGORIES = {
     "event_support": frozenset({"participation_event", "registration_event"}),
     "exchange_support": frozenset({"exchange"}),
     "health_support": frozenset({"health_profile"}),
+    "identity_support": frozenset({"identity_profile"}),
     "pet_support": frozenset({"pet_profile"}),
     "skill_support": frozenset({"skill_profile"}),
     "status_support": frozenset({"status_profile"}),
+    "support_goal_support": frozenset({"support_goal"}),
     "symbolic_meaning_support": frozenset({"symbolic_meaning"}),
     "vehicle_support": frozenset({"vehicle_profile"}),
 }
@@ -892,9 +894,11 @@ _TYPED_RELATION_SUPPORT_NEEDS = {
     "event_support": frozenset({"participation_event", "registration_event"}),
     "exchange_support": frozenset({"exchange"}),
     "health_support": frozenset({"health_profile"}),
+    "identity_support": frozenset({"identity_profile"}),
     "pet_support": frozenset({"pet_profile"}),
     "skill_support": frozenset({"skill_profile"}),
     "status_support": frozenset({"status_profile"}),
+    "support_goal_support": frozenset({"support_goal"}),
     "symbolic_meaning_support": frozenset({"symbolic_meaning"}),
     "vehicle_support": frozenset({"vehicle_profile"}),
 }

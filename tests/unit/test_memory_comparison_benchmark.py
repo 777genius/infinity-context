@@ -9741,6 +9741,10 @@ def test_benchmark_rerank_prefers_support_motivation_turn() -> None:
     ]
     signals = reranked[0].metadata["diagnostics"]["score_signals"]
     assert signals["benchmark_support_motivation_boost"] > 0
+    assert signals["benchmark_typed_relation_support_boost"] > 0
+    assert signals["benchmark_typed_relation_support_roles"] == [
+        "support_goal_support"
+    ]
     assert signals["benchmark_focused_turn_boost"] > 0
 
 
@@ -9834,6 +9838,8 @@ def test_benchmark_rerank_prefers_visual_identity_turn() -> None:
     ]
     signals = reranked[0].metadata["diagnostics"]["score_signals"]
     assert signals["benchmark_identity_visual_identity_boost"] > 0
+    assert signals["benchmark_typed_relation_support_boost"] > 0
+    assert signals["benchmark_typed_relation_support_roles"] == ["identity_support"]
     assert signals["benchmark_focused_turn_boost"] > 0
 
 
