@@ -1503,6 +1503,9 @@ def _answer_context_provenance_table(
     unmeasured_source_locality_count = 0
     source_counts: Counter[str] = Counter()
     fallback_reason_counts: Counter[str] = Counter()
+    missing_required_role_counts: Counter[str] = Counter()
+    backfilled_missing_required_role_counts: Counter[str] = Counter()
+    missing_required_role_context_count = 0
     source_refless_context_samples: list[dict[str, object]] = []
     backfilled_context_samples: list[dict[str, object]] = []
 
@@ -1582,6 +1585,14 @@ def _answer_context_provenance_table(
             unmeasured_source_locality_count += (
                 _positive_int(context.get("unmeasured_source_locality_count")) or 0
             )
+            missing_required_roles = _str_tuple(context.get("missing_required_roles"))
+            if missing_required_roles:
+                missing_required_role_context_count += 1
+                missing_required_role_counts.update(missing_required_roles)
+                if context_backfilled_count > 0:
+                    backfilled_missing_required_role_counts.update(
+                        missing_required_roles
+                    )
             memory_count += context_memory_count
             source_ref_count += context_source_ref_count
             source_ref_item_count += context_source_ref_item_count
@@ -1620,9 +1631,7 @@ def _answer_context_provenance_table(
                         "backfilled_source_proximity_closest_distance": (
                             context_backfilled_source_proximity_closest_distance
                         ),
-                        "missing_required_roles": list(
-                            _str_tuple(context.get("missing_required_roles"))
-                        ),
+                        "missing_required_roles": list(missing_required_roles),
                     }
                 )
             if context_source_refless_item_count > 0 and len(
@@ -1708,6 +1717,12 @@ def _answer_context_provenance_table(
         ),
         "source_counts": dict(sorted(source_counts.items())),
         "fallback_reason_counts": dict(sorted(fallback_reason_counts.items())),
+        "missing_required_role_context_count": missing_required_role_context_count,
+        "missing_required_role_total": sum(missing_required_role_counts.values()),
+        "missing_required_role_counts": _top_counts(missing_required_role_counts),
+        "backfilled_missing_required_role_counts": _top_counts(
+            backfilled_missing_required_role_counts
+        ),
         "backfilled_context_samples": backfilled_context_samples,
         "source_refless_context_samples": source_refless_context_samples,
     }

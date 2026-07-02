@@ -792,6 +792,10 @@ def test_quality_diagnostics_reports_answer_context_provenance_table() -> None:
         "retrieval_slice": 1,
     }
     assert table["fallback_reason_counts"] == {"empty_bundle": 1}
+    assert table["missing_required_role_context_count"] == 1
+    assert table["missing_required_role_total"] == 1
+    assert table["missing_required_role_counts"] == {"contrast": 1}
+    assert table["backfilled_missing_required_role_counts"] == {"contrast": 1}
     assert table["backfilled_context_samples"] == [
         {
             "case_id": "bundle-context",
@@ -2183,6 +2187,10 @@ def test_fast_gate_metrics_reports_answer_context_provenance() -> None:
     assert provenance["max_bundle_source_type_diversity"] == 2
     assert provenance["avg_bundle_retrieval_source_diversity"] == 2.0
     assert provenance["max_bundle_retrieval_source_diversity"] == 3
+    assert provenance["missing_required_role_context_count"] == 1
+    assert provenance["missing_required_role_total"] == 1
+    assert provenance["missing_required_role_counts"] == {"visual": 1}
+    assert provenance["backfilled_missing_required_role_counts"] == {"visual": 1}
     assert provenance["backfilled_context_samples"] == [
         {
             "case_id": "weak-context",
