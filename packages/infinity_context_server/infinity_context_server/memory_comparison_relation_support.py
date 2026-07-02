@@ -529,6 +529,8 @@ _CONTACT_PROFILE_SURFACE_RE = re.compile(
     r"|\b(?:email|e-mail)(?:\s+address)?\s+(?:is|was)\s+\S+"
     r"|\b(?:phone|telephone|cell|mobile)(?:\s+number)?\s+"
     r"(?:is|was)\s+(?:\+?\d[\d()\-\s.]{5,}\d)\b"
+    r"|\b(?:(?:my|his|her|their|our|your)\s+)?(?:phone\s+)?number\s+"
+    r"(?:is|was)\s+(?:\+?\d[\d()\-\s.]{5,}\d)\b"
     r"|\b(?:contact\s+(?:info|information|details)|"
     r"(?:mailing\s+)?address)\s+(?:is|was)\s+"
     r"(?:\d{1,6}\s+)?[A-Za-z0-9][A-Za-z0-9 .'-]{2,}",

@@ -9219,6 +9219,93 @@ def test_benchmark_rerank_boosts_contact_profile_evidence() -> None:
     )
 
 
+def test_query_decomposition_expands_contact_number_queries() -> None:
+    number_case = _case(
+        case_id="contact-profile-number",
+        question="What is Alex's number?",
+        expected_terms=("555-0101",),
+        answer="555-0101",
+    )
+    pick_case = _case(
+        case_id="contact-profile-number-guard",
+        question="What number did Alex pick?",
+        expected_terms=("42",),
+        answer="42",
+    )
+
+    number_queries, number_metadata = rerank_module.decomposed_search_queries(
+        number_case
+    )
+    _, pick_metadata = rerank_module.decomposed_search_queries(pick_case)
+
+    assert number_queries[2] == "alex contact cell e-mail email mobile number"
+    assert number_metadata["query_profile"]["relation_terms"] == ("contact",)
+    assert number_metadata["query_profile"]["relation_categories"] == (
+        "contact_profile",
+    )
+    assert number_metadata["query_profile"]["evidence_need"] == ("contact_profile",)
+    assert "contact_support" in number_metadata["query_profile"][
+        "bundle_evidence_roles"
+    ]
+
+    assert "contact_profile" not in pick_metadata["query_profile"][
+        "relation_categories"
+    ]
+
+
+def test_benchmark_rerank_boosts_contact_number_evidence() -> None:
+    case = _case(
+        case_id="contact-profile-number-rerank",
+        question="What is Alex's number?",
+        expected_terms=("555-0101",),
+        answer="555-0101",
+        category=4,
+    )
+    topical_number = RetrievedMemory(
+        item_id="topical-number",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex picked the number 555 during trivia with Maria."
+        ),
+        source_refs=("D1:1",),
+    )
+    contact_profile = RetrievedMemory(
+        item_id="contact-profile",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: My number is 555-0101."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_number, contact_profile),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("contact_profile",)
+    assert reranked[0].item_id == "contact-profile"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    contact_diagnostics = diagnostics_by_id["contact-profile"]
+    topical_diagnostics = diagnostics_by_id["topical-number"]
+    assert contact_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["contact_profile"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert contact_diagnostics["score_signals"][
+        "benchmark_typed_relation_support_roles"
+    ] == ["contact_support"]
+
+
 def test_benchmark_contact_profile_ignores_addressing_issue_wording() -> None:
     case = _case(
         case_id="contact-profile-address-guard",

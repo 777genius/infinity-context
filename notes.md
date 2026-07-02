@@ -26,6 +26,34 @@
 - `git push origin main` -> blocked because the non-interactive runtime has no
   GitHub username/credential prompt available.
 
+## 2026-07-02 Follow-up 31
+
+- Expanded typed contact-profile support for contact-number questions such as
+  "What is Alex's number?" and evidence such as "My number is 555-0101."
+- Kept number handling guarded so non-contact questions like "What number did
+  Alex pick?" do not receive contact-profile query roles.
+- Added query decomposition and rerank regressions proving contact-number
+  evidence receives typed `contact_support` while topical number mentions stay
+  untyped.
+
+## Verification
+
+- `uv run --extra dev pytest -q tests/unit/test_memory_comparison_benchmark.py::test_benchmark_rerank_boosts_contact_profile_evidence tests/unit/test_memory_comparison_benchmark.py::test_query_decomposition_expands_contact_number_queries tests/unit/test_memory_comparison_benchmark.py::test_benchmark_rerank_boosts_contact_number_evidence tests/unit/test_memory_comparison_benchmark.py::test_benchmark_contact_profile_ignores_addressing_issue_wording`
+  -> 4 passed, 1 warning.
+- `uv run --extra dev ruff check packages/infinity_context_server/infinity_context_server/memory_comparison_relation_support.py packages/infinity_context_server/infinity_context_server/memory_comparison_rerank_text.py packages/infinity_context_server/infinity_context_server/memory_comparison_intent.py packages/infinity_context_server/infinity_context_server/memory_comparison_rerank.py tests/unit/test_memory_comparison_benchmark.py`
+  -> passed.
+- `uv run --extra dev pytest -q tests/unit/test_memory_comparison*.py`
+  -> 524 passed, 1 warning.
+- `uv run --extra dev pytest -q tests/architecture/test_memory_boundaries.py`
+  -> 6 passed.
+- `git diff --check` -> passed.
+- `uv run --extra dev python -m infinity_context_server.eval memory-comparison-benchmark --dataset ./datasets/locomo10.json --memo-api-url http://127.0.0.1:7788 --mem0-url http://127.0.0.1:8888 --benchmark locomo --locomo-ingest-mode official-turns --case-set locomo-fast --report-mode compact --top-k 200 --top-k-cutoff 10 --top-k-cutoff 20 --top-k-cutoff 50 --top-k-cutoff 200 --allow-live --preflight-only`
+  -> blocked safely because `./datasets/locomo10.json` and memory auth token
+  are absent. Fast-readiness blockers were empty; no long/full LoCoMo run was
+  attempted.
+- `git push origin main` -> still blocked because the non-interactive runtime
+  has no GitHub username/credential prompt available.
+
 ## 2026-07-02 Follow-up 30
 
 - Expanded typed status-profile support for extended kinship questions such as

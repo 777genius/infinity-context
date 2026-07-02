@@ -403,7 +403,10 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
         terms.append("health")
     contact_surface = re.search(
         r"\b(?:contact\s+(?:info|information|details)|"
-        r"email|e-mail|phone|telephone|cell|mobile|address)\b",
+        r"email|e-mail|phone|telephone|cell|mobile|address)\b|"
+        r"\b(?:phone|telephone|cell|mobile)\s+number\b|"
+        r"\bwhat\s+is\s+(?:[A-Z][a-zA-Z0-9_-]+(?:'s|’s)|"
+        r"my|his|her|their|our|your)\s+number\b",
         text,
         flags=re.IGNORECASE,
     )
