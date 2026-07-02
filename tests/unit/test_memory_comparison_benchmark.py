@@ -8588,6 +8588,12 @@ def test_benchmark_rerank_boosts_health_profile_evidence() -> None:
     assert health_diagnostics["score_signals"][
         "benchmark_typed_relation_support_roles"
     ] == ["health_support"]
+    assert "health_profile_evidence" in health_diagnostics["score_signals"][
+        "benchmark_answerability_reason_codes"
+    ]
+    assert "missing_health_profile_evidence" in topical_diagnostics["score_signals"][
+        "benchmark_answerability_reason_codes"
+    ]
     assert (
         topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
         == 0
@@ -9240,6 +9246,12 @@ def test_benchmark_rerank_boosts_activity_profile_evidence() -> None:
     assert activity_diagnostics["score_signals"][
         "benchmark_typed_relation_support_roles"
     ] == ["activity_support"]
+    assert "activity_profile_evidence" in activity_diagnostics["score_signals"][
+        "benchmark_answerability_reason_codes"
+    ]
+    assert "missing_activity_profile_evidence" in topical_diagnostics["score_signals"][
+        "benchmark_answerability_reason_codes"
+    ]
     assert (
         topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
         == 0

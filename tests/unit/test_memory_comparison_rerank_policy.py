@@ -1118,6 +1118,43 @@ def test_rerank_policy_caps_stale_evidence_without_contrast_grounding() -> None:
     ]
 
 
+def test_rerank_policy_caps_missing_typed_profile_evidence() -> None:
+    score = score_benchmark_rerank_candidate(
+        _features(
+            overlap_terms=("alex", "zyrtec", "medication", "morning"),
+            entity_hits=("alex",),
+            relation_hits=(
+                "take",
+                "zyrtec",
+                "medication",
+                "morning",
+                "allergy",
+                "daily",
+            ),
+            relation_terms=("take", "medication", "morning"),
+            relation_categories=("health_profile",),
+            source_locality_score=0.9,
+            source_ref_count=1,
+            turn_ref_count=1,
+            answerability_score=0.62,
+            answerability_reason_codes=(
+                "entity_satisfied",
+                "relation_satisfied",
+                "source_provenance",
+                "missing_health_profile_evidence",
+                "medium_answerability",
+            ),
+        )
+    )
+
+    signals = score.signals["score_signals"]
+    assert score.boost == 0.4
+    assert signals["benchmark_effective_boost_cap"] == 0.4
+    assert signals["benchmark_provenance_safety_reason_codes"] == [
+        "missing_health_profile_evidence_cap"
+    ]
+
+
 def _features(**overrides: object) -> BenchmarkRerankFeatures:
     values = {
         "overlap_terms": (),

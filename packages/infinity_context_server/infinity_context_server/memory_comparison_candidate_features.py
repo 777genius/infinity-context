@@ -76,6 +76,36 @@ _TEMPORAL_SEQUENCE_EVIDENCE_RE = re.compile(
     r"previously|earlier|later|prior)\b",
     re.IGNORECASE,
 )
+_INTENT_RELATION_CATEGORY_ORDER = (
+    "causal",
+    "contrast",
+    "registration_event",
+    "symbolic_meaning",
+    "participation_event",
+    "emotion_response",
+    "communication",
+    "exchange",
+    "preference",
+    "status_profile",
+    "activity",
+    "activity_profile",
+    "current_goal",
+    "location_transition",
+    "support_goal",
+    "identity_profile",
+    "commitment_profile",
+    "contact_profile",
+    "diet_profile",
+    "education_profile",
+    "employment_profile",
+    "age_profile",
+    "alias_profile",
+    "date_profile",
+    "health_profile",
+    "pet_profile",
+    "skill_profile",
+    "vehicle_profile",
+)
 
 
 @dataclass(frozen=True)
@@ -683,23 +713,7 @@ def _intent_answerability(
     if has_visual_terms:
         scores.append(1.0 if has_visual_evidence else 0.0)
         reasons.append("visual_evidence" if has_visual_evidence else "missing_visual_evidence")
-    for category in (
-        "causal",
-        "contrast",
-        "registration_event",
-        "symbolic_meaning",
-        "participation_event",
-        "emotion_response",
-        "communication",
-        "exchange",
-        "preference",
-        "status_profile",
-        "activity",
-        "current_goal",
-        "location_transition",
-        "support_goal",
-        "identity_profile",
-    ):
+    for category in _INTENT_RELATION_CATEGORY_ORDER:
         if category not in category_set:
             continue
         if category in category_hit_set:
