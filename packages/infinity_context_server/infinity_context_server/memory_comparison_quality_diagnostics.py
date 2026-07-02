@@ -909,7 +909,10 @@ def _bundle_incomplete_reasons(item: Mapping[str, object]) -> tuple[str, ...]:
         reasons.append("no_focused_evidence")
     if _needs_contrast_evidence(item) and not _bundle_has_contrast_support(bundle):
         reasons.append("missing_contrast")
-    if _needs_causal_support(item) and not _bundle_has_causal_support(bundle):
+    if _needs_causal_support(item) and not _bundle_has_causal_support(
+        bundle,
+        require_grounding=require_grounding,
+    ):
         reasons.append("missing_causal_support")
     if _needs_communication_support(item) and not _bundle_has_communication_support(
         bundle,
@@ -926,7 +929,10 @@ def _bundle_incomplete_reasons(item: Mapping[str, object]) -> tuple[str, ...]:
         require_grounding=require_grounding,
     ):
         reasons.append("missing_exchange_support")
-    if _needs_inference_support(item) and not _bundle_has_inference_support(bundle):
+    if _needs_inference_support(item) and not _bundle_has_inference_support(
+        bundle,
+        require_grounding=require_grounding,
+    ):
         reasons.append("missing_inference_support")
     if _needs_location_support(item) and not _bundle_has_location_support(
         bundle,

@@ -252,15 +252,28 @@ def bundle_has_contrast_support(bundle: Mapping[str, object]) -> bool:
     )
 
 
-def bundle_has_causal_support(bundle: Mapping[str, object]) -> bool:
-    if "causal_support" in bundle_roles(bundle):
+def bundle_has_causal_support(
+    bundle: Mapping[str, object],
+    *,
+    require_grounding: bool = False,
+) -> bool:
+    if _bundle_has_role_or_reason(
+        bundle,
+        role="causal_support",
+        reason="causal_support",
+        require_grounding=require_grounding,
+    ):
         return True
     return any(
         bool(
-            "causal_support" in _str_tuple(item.get("planner_reason_codes"))
-            or "causal_relation_hits" in _str_tuple(item.get("planner_reason_codes"))
-            or "causal_relation_category_hits"
-            in _str_tuple(item.get("planner_reason_codes"))
+            _passes_person_grounding(item, require_grounding=require_grounding)
+            and (
+                "causal_support" in _str_tuple(item.get("planner_reason_codes"))
+                or "causal_relation_hits"
+                in _str_tuple(item.get("planner_reason_codes"))
+                or "causal_relation_category_hits"
+                in _str_tuple(item.get("planner_reason_codes"))
+            )
         )
         for item in _bundle_items(bundle)
     )
@@ -477,16 +490,29 @@ def bundle_has_visual_support(
     )
 
 
-def bundle_has_inference_support(bundle: Mapping[str, object]) -> bool:
-    if "inference_support" in bundle_roles(bundle):
+def bundle_has_inference_support(
+    bundle: Mapping[str, object],
+    *,
+    require_grounding: bool = False,
+) -> bool:
+    if _bundle_has_role_or_reason(
+        bundle,
+        role="inference_support",
+        reason="inference_support",
+        require_grounding=require_grounding,
+    ):
         return True
     return any(
         bool(
-            "inference_support" in _str_tuple(item.get("planner_reason_codes"))
-            or (
-                "inference_entity_hits" in _str_tuple(item.get("planner_reason_codes"))
-                and "inference_relation_hits"
-                in _str_tuple(item.get("planner_reason_codes"))
+            _passes_person_grounding(item, require_grounding=require_grounding)
+            and (
+                "inference_support" in _str_tuple(item.get("planner_reason_codes"))
+                or (
+                    "inference_entity_hits"
+                    in _str_tuple(item.get("planner_reason_codes"))
+                    and "inference_relation_hits"
+                    in _str_tuple(item.get("planner_reason_codes"))
+                )
             )
         )
         for item in _bundle_items(bundle)
