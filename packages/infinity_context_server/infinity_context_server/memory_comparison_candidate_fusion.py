@@ -8,6 +8,10 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 
 from infinity_context_server.memory_comparison_models import RetrievedMemory
+from infinity_context_server.memory_comparison_source_identity import (
+    source_identity_refs_from_dedupe_key,
+    source_identity_refs_from_text,
+)
 
 
 @dataclass(frozen=True)
@@ -429,6 +433,10 @@ def _memory_merge_keys(memory: RetrievedMemory) -> tuple[str, ...]:
     precise_source_key = _precise_source_ref_merge_key(memory.source_refs)
     if precise_source_key:
         keys.append(precise_source_key)
+    keys.extend(
+        f"source_identity:{source_ref}"
+        for source_ref in _source_identity_refs(memory)
+    )
     if memory.item_id:
         keys.append(f"id:{memory.item_id}")
     if memory.source_refs:
@@ -449,6 +457,29 @@ def _precise_source_ref_merge_key(source_refs: Sequence[str]) -> str:
     if not turn_refs or len(turn_refs) > 3:
         return ""
     return "turn_refs:" + "|".join(sorted(turn_refs))
+
+
+def _source_identity_refs(memory: RetrievedMemory) -> tuple[str, ...]:
+    diagnostics = memory.metadata.get("diagnostics")
+    diagnostics = diagnostics if isinstance(diagnostics, Mapping) else {}
+    features = diagnostics.get("benchmark_candidate_features")
+    features = features if isinstance(features, Mapping) else {}
+    fusion = diagnostics.get("benchmark_candidate_fusion")
+    fusion = fusion if isinstance(fusion, Mapping) else {}
+    direct_refs = tuple(
+        str(ref).strip() for ref in memory.source_refs if str(ref).strip()
+    )
+    return tuple(
+        dict.fromkeys(
+            (
+                *source_identity_refs_from_dedupe_key(
+                    features.get("source_ref_dedupe_key")
+                ),
+                *source_identity_refs_from_dedupe_key(fusion.get("dedupe_key")),
+                *source_identity_refs_from_text(memory.text, source_refs=direct_refs),
+            )
+        )
+    )
 
 
 def _source_refs(

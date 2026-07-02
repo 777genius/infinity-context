@@ -170,6 +170,86 @@ def test_candidate_fusion_merges_distinct_ids_for_same_precise_turn_ref() -> Non
     assert fusion["source_types"] == ["chunk", "raw_turn"]
 
 
+def test_candidate_fusion_merges_source_ref_dedupe_identity_without_source_refs() -> None:
+    chunk = RetrievedMemory(
+        item_id="chunk-123",
+        rank=2,
+        score=0.82,
+        text="Caroline looked into adoption agencies.",
+        metadata={
+            "item_type": "chunk",
+            "diagnostics": {
+                "benchmark_candidate_features": {
+                    "source_ref_dedupe_key": "source_turn_refs:D2:8"
+                },
+                "retrieval_sources": ["semantic_chunks"],
+            },
+        },
+    )
+    raw_turn = RetrievedMemory(
+        item_id="raw-turn-456",
+        rank=1,
+        score=0.79,
+        text="D2:8 Caroline: I looked into adoption agencies.",
+        metadata={
+            "item_type": "raw_turn",
+            "diagnostics": {"retrieval_sources": ["raw_turns"]},
+        },
+    )
+
+    fused, diagnostics = fuse_query_results(
+        (("semantic", (chunk,)), ("raw-turn", (raw_turn,)))
+    )
+
+    assert len(fused) == 1
+    assert diagnostics["duplicate_result_count"] == 1
+    fusion = fused[0].metadata["diagnostics"]["benchmark_candidate_fusion"]
+    assert fusion["dedupe_key"] == "source_identity:source_turn_refs:D2:8"
+    assert fusion["source_types"] == ["chunk", "raw_turn"]
+    assert fusion["retrieval_sources"] == ["semantic_chunks", "raw_turns"]
+
+
+def test_candidate_fusion_merges_partial_multi_turn_source_identity() -> None:
+    broad = RetrievedMemory(
+        item_id="summary",
+        rank=1,
+        score=0.82,
+        text="Summary: Caroline discussed adoption agencies and paperwork.",
+        metadata={
+            "item_type": "chunk",
+            "diagnostics": {
+                "benchmark_candidate_features": {
+                    "source_ref_dedupe_key": "source_turn_refs:D2:8|D2:9"
+                },
+                "retrieval_sources": ["semantic_chunks"],
+            },
+        },
+    )
+    focused = RetrievedMemory(
+        item_id="raw-turn",
+        rank=2,
+        score=0.805,
+        text="D2:9 Caroline: I found an adoption agency that can help.",
+        metadata={
+            "item_type": "raw_turn",
+            "diagnostics": {"retrieval_sources": ["raw_turns"]},
+        },
+    )
+
+    fused, diagnostics = fuse_query_results(
+        (("semantic", (broad,)), ("raw-turn", (focused,)))
+    )
+
+    assert len(fused) == 1
+    assert diagnostics["duplicate_result_count"] == 1
+    assert diagnostics["lower_score_evidence_selection_count"] == 1
+    assert fused[0].text == focused.text
+    fusion = fused[0].metadata["diagnostics"]["benchmark_candidate_fusion"]
+    assert fusion["dedupe_key"] == "source_identity:source_turn_refs:D2:8"
+    assert fusion["score_winner_item_id"] == "summary"
+    assert fusion["selected_evidence_item_id"] == "raw-turn"
+
+
 def test_candidate_fusion_selects_local_evidence_within_score_band() -> None:
     broad_chunk = RetrievedMemory(
         item_id="adoption-support",
