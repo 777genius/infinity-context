@@ -302,6 +302,7 @@ def test_evidence_bundle_planner_tracks_location_support_role() -> None:
         relation_hits=("move", "home", "country"),
         source_refs=("D1:4",),
         answerability_score=0.9,
+        source_locality_score=1.0,
     )
     generic_move = _candidate(
         item_id="generic-move",
@@ -319,6 +320,7 @@ def test_evidence_bundle_planner_tracks_location_support_role() -> None:
         query_support_terms=("origin", "country"),
         source_refs=("D1:5",),
         answerability_score=0.82,
+        source_locality_score=0.9,
     )
 
     plan = EvidenceBundlePlanner().plan(
@@ -347,6 +349,44 @@ def test_evidence_bundle_planner_tracks_location_support_role() -> None:
         "planner_reason_codes"
     ]
     assert support_payload["relation_category_hits"] == ["location_transition"]
+
+
+def test_evidence_bundle_planner_rejects_broad_location_support_role() -> None:
+    primary = _candidate(
+        item_id="primary",
+        covered_expected_terms=("Canada",),
+        primary_signal=True,
+        source_refs=("D1:4",),
+        answerability_score=0.9,
+        source_locality_score=1.0,
+    )
+    broad_location = _candidate(
+        item_id="broad-location",
+        dedupe_key="refs:summary",
+        broad_summary=True,
+        relation_categories=("location_transition",),
+        relation_category_hits=("location_transition",),
+        relation_hits=("origin", "country"),
+        query_support_terms=("origin", "country"),
+        source_refs=("D1:1", "D1:9"),
+        answerability_score=0.7,
+        source_locality_score=0.45,
+    )
+
+    plan = EvidenceBundlePlanner().plan(
+        (primary, broad_location),
+        case_group="single",
+        required_roles=("primary", "location_support"),
+    )
+
+    diagnostics = plan.to_diagnostics()
+
+    assert plan.satisfied_required_roles == ("primary",)
+    assert plan.missing_required_roles == ("location_support",)
+    assert diagnostics["bundle_quality"]["location_support_count"] == 0
+    assert "has_location_support_evidence" not in diagnostics["bundle_quality"][
+        "reason_codes"
+    ]
 
 
 def test_evidence_bundle_planner_requires_matching_temporal_evidence_type() -> None:
