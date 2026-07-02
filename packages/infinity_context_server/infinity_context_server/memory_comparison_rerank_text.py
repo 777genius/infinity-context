@@ -372,6 +372,8 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
     terms: list[str] = []
     if re.search(r"\bgo-to\b", text, flags=re.IGNORECASE):
         terms.append("favorite")
+    if re.search(r"\bmarital\s+status\b", text, flags=re.IGNORECASE):
+        terms.append("status")
     if re.search(r"\bgo\s+to\b", text, flags=re.IGNORECASE):
         terms.append("go")
     if re.search(

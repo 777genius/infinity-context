@@ -6727,10 +6727,35 @@ def test_query_decomposition_handles_question_bound_partner_status_terms() -> No
         expected_terms=("Riley",),
         answer="Riley",
     )
+    married_case = _case(
+        case_id="conv-relationship:qa:4",
+        question="Who is Dana married to?",
+        expected_terms=("Riley",),
+        answer="Riley",
+    )
+    marital_status_case = _case(
+        case_id="conv-relationship:qa:5",
+        question="What is Dana's marital status?",
+        expected_terms=("married",),
+        answer="married",
+    )
+    project_partner_case = _case(
+        case_id="conv-relationship:qa:project-guard",
+        question="Who did Dana partner with on the project?",
+        expected_terms=("Riley",),
+        answer="Riley",
+    )
 
     girlfriend_intent = rerank_module.query_retrieval_intent(girlfriend_case)
     dating_intent = rerank_module.query_retrieval_intent(dating_case)
     engaged_intent = rerank_module.query_retrieval_intent(engaged_case)
+    married_intent = rerank_module.query_retrieval_intent(married_case)
+    marital_status_intent = rerank_module.query_retrieval_intent(
+        marital_status_case
+    )
+    project_partner_intent = rerank_module.query_retrieval_intent(
+        project_partner_case
+    )
 
     assert girlfriend_intent.relation_terms == ("girlfriend",)
     assert "status_profile" in girlfriend_intent.to_query_profile()[
@@ -6745,6 +6770,18 @@ def test_query_decomposition_handles_question_bound_partner_status_terms() -> No
     assert "status_profile" in dating_intent.to_query_profile()["relation_categories"]
     assert "engag" in engaged_intent.relation_terms
     assert "status_profile" in engaged_intent.to_query_profile()[
+        "relation_categories"
+    ]
+    assert "marry" in married_intent.relation_terms
+    assert "status_profile" in married_intent.to_query_profile()[
+        "relation_categories"
+    ]
+    assert "status_profile" in married_intent.evidence_need
+    assert marital_status_intent.relation_terms == ("status",)
+    assert "status_profile" in marital_status_intent.to_query_profile()[
+        "relation_categories"
+    ]
+    assert "status_profile" not in project_partner_intent.to_query_profile()[
         "relation_categories"
     ]
 
@@ -6990,6 +7027,63 @@ def test_benchmark_rerank_boosts_named_possessive_status_evidence() -> None:
     assert (
         status_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
         > 0
+    )
+
+
+def test_benchmark_rerank_boosts_married_to_status_evidence() -> None:
+    case = _case(
+        case_id="status-profile-married-to-rerank",
+        question="Who is Alex married to?",
+        expected_terms=("Maria",),
+        answer="Maria",
+        category=4,
+    )
+    topical_wedding = RetrievedMemory(
+        item_id="topical-wedding",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex attended a wedding with Maria."
+        ),
+        source_refs=("D1:1",),
+    )
+    status_profile = RetrievedMemory(
+        item_id="status-profile",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: I am married to Maria."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_wedding, status_profile),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("status_profile",)
+    assert reranked[0].item_id == "status-profile"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    status_diagnostics = diagnostics_by_id["status-profile"]
+    topical_diagnostics = diagnostics_by_id["topical-wedding"]
+    assert status_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["status_profile"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert status_diagnostics["score_signals"][
+        "benchmark_typed_relation_support_roles"
+    ] == ["status_support"]
+    assert (
+        topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        == 0
     )
 
 

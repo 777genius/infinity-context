@@ -26,6 +26,32 @@
 - `git push origin main` -> blocked because the non-interactive runtime has no
   GitHub username/credential prompt available.
 
+## 2026-07-02 Follow-up 52
+
+- Expanded typed status-profile intent for married-to and marital-status
+  questions such as "Who is Alex married to?"
+- Added a project-partner guard so "Who did Alex partner with on the project?"
+  does not receive typed relationship/status evidence requirements.
+- Added guarded rerank coverage so explicit married-to status evidence
+  outranks topical wedding mentions.
+
+## Verification
+
+- `uv run --extra dev pytest -q tests/unit/test_memory_comparison_benchmark.py::test_query_decomposition_handles_question_bound_partner_status_terms tests/unit/test_memory_comparison_benchmark.py::test_benchmark_rerank_boosts_married_to_status_evidence tests/unit/test_memory_comparison_benchmark.py::test_benchmark_rerank_boosts_status_profile_evidence tests/unit/test_memory_comparison_benchmark.py::test_benchmark_rerank_boosts_named_possessive_status_evidence`
+  -> 4 passed, 1 warning.
+- `uv run --extra dev ruff check packages/infinity_context_server/infinity_context_server/memory_comparison_rerank_text.py packages/infinity_context_server/infinity_context_server/memory_comparison_intent.py tests/unit/test_memory_comparison_benchmark.py`
+  -> passed.
+- `uv run --extra dev pytest -q tests/unit/test_memory_comparison*.py`
+  -> 548 passed, 1 warning.
+- `uv run --extra dev pytest -q tests/architecture/test_memory_boundaries.py`
+  -> 6 passed.
+- `uv run --extra dev python -m infinity_context_server.eval memory-comparison-benchmark --dataset ./datasets/locomo10.json --memo-api-url http://127.0.0.1:7788 --mem0-url http://127.0.0.1:8888 --benchmark locomo --locomo-ingest-mode official-turns --case-set locomo-fast --report-mode compact --top-k 200 --top-k-cutoff 10 --top-k-cutoff 20 --top-k-cutoff 50 --top-k-cutoff 200 --allow-live --preflight-only`
+  -> blocked safely because `./datasets/locomo10.json` and memory auth token
+  are absent. Fast-readiness blockers were empty; no long/full LoCoMo run was
+  attempted.
+- `git push origin main` -> still blocked because the non-interactive runtime
+  has no GitHub username/credential prompt available.
+
 ## 2026-07-02 Follow-up 51
 
 - Added typed alias-profile support for middle/full/legal name questions such

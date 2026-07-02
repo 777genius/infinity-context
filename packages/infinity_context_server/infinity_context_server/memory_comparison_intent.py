@@ -920,6 +920,10 @@ def _has_status_profile_intent(
         "husband",
         "manager",
         "mentor",
+        "marital",
+        "marri",
+        "marry",
+        "married",
         "mother",
         "neighbor",
         "parent",
@@ -941,8 +945,15 @@ def _has_status_profile_intent(
     normalized_question = re.sub(r"[^0-9a-z]+", " ", question.casefold()).strip()
     if re.search(r"\bgroup\s+of\s+friends\b", normalized_question):
         return False
+    if re.search(
+        r"\bpartner(?:ed)?\s+with\b.+\b(?:project|work|assignment|team|"
+        r"presentation|report)\b|"
+        r"\bwho\s+did\b.+\bpartner\s+with\b",
+        normalized_question,
+    ):
+        return False
     return bool(
-        re.search(r"\brelationship\s+status\b", normalized_question)
+        re.search(r"\b(?:relationship|marital)\s+status\b", normalized_question)
         or re.search(
             r"\bwho\b.+\b(?:boyfriend|boss|brother|child|children|colleague|"
             r"cousin|coworker|daughter|father|fiancee?|friend|girlfriend|"
