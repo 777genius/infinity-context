@@ -1949,6 +1949,12 @@ def test_evidence_bundle_planner_uses_dedupe_turn_refs_for_proximity() -> None:
     assert quality["source_proximity_closest_distance"] == 2
     assert quality["source_proximity_distance_counts"] == {"2": 1}
     assert quality["component_scores"]["source_proximity"] == 0.03
+    assert plan.items[0].to_payload()["source_ref_dedupe_key"] == (
+        "source_turn_refs:D4:10"
+    )
+    assert plan.items[1].to_payload()["source_ref_dedupe_key"] == (
+        "source_turn_refs:D4:12"
+    )
 
 
 def _candidate(

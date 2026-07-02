@@ -326,6 +326,82 @@ def test_answer_context_merges_role_completion_from_bundle_and_planner() -> None
     ]
 
 
+def test_answer_context_matches_source_turn_dedupe_key_without_retrieval_order() -> None:
+    memories = (
+        RetrievedMemory(text="noise", rank=1),
+        RetrievedMemory(
+            text="D4:2 Caroline: I found the support group helpful.",
+            rank=2,
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "answerability_score": 0.91,
+                        "source_ref_dedupe_key": "source_turn_refs:D4:2",
+                    }
+                }
+            },
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "items": [
+                {
+                    "role": "primary",
+                    "source_ref_dedupe_key": "source_turn_refs:D4:2",
+                    "answerability_score": 0.91,
+                }
+            ]
+        },
+        cutoff=2,
+    )
+
+    assert [memory.text for memory in context.memories] == [
+        "D4:2 Caroline: I found the support group helpful."
+    ]
+    assert context.memories[0].source_refs == ("source_turn_refs:D4:2",)
+    assert context.memories[0].metadata["answer_context_retrieval_order"] == 2
+    assert context.to_diagnostics()["source_ref_count"] == 1
+    assert context.to_diagnostics()["source_ref_item_count"] == 1
+
+
+def test_answer_context_backfill_carries_text_turn_source_identity() -> None:
+    memories = (
+        RetrievedMemory(text="primary", rank=1, item_id="primary"),
+        RetrievedMemory(
+            text="D5:3 Morgan: I used to prefer solo work, but now I prefer teams.",
+            rank=2,
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "answerability_score": 0.82,
+                        "relation_category_hits": ["contrast"],
+                        "contrast_surface": True,
+                    }
+                }
+            },
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "role_requirement_complete": False,
+            "missing_required_roles": ["contrast"],
+            "items": [{"id": "primary", "retrieval_order": 1, "role": "primary"}],
+        },
+        cutoff=2,
+    )
+
+    assert context.memories[1].metadata["answer_context_role"] == (
+        "retrieval_backfill"
+    )
+    assert context.memories[1].source_refs == ("source_turn_refs:D5:3",)
+    assert context.to_diagnostics()["source_ref_count"] == 1
+    assert context.to_diagnostics()["source_ref_item_count"] == 1
+
+
 def test_answer_context_respects_cutoff_and_falls_back_to_raw_slice() -> None:
     memories = (
         RetrievedMemory(text="first", rank=1, item_id="first"),

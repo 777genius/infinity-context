@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 
 from infinity_context_server.memory_comparison_candidate_risks import (
@@ -16,6 +17,7 @@ from infinity_context_server.memory_comparison_models import RetrievedMemory
 _INCOMPLETE_BUNDLE_BACKFILL_MIN_ITEMS = 6
 _INCOMPLETE_BUNDLE_BACKFILL_MAX_ITEMS = 12
 _INCOMPLETE_BUNDLE_BACKFILL_ITEMS_PER_MISSING_ROLE = 2
+_TURN_REF_RE = re.compile(r"\bD\d+:\d+\b")
 
 
 def backfill_incomplete_bundle_context(
@@ -289,7 +291,8 @@ def _memory_key(
 def _memory_source_refs(memory: RetrievedMemory) -> tuple[str, ...]:
     diagnostics = _mapping(memory.metadata.get("diagnostics"))
     fusion = _mapping(diagnostics.get("benchmark_candidate_fusion"))
-    return tuple(
+    features = _candidate_features(memory)
+    source_refs = tuple(
         dict.fromkeys(
             (
                 *(str(ref).strip() for ref in memory.source_refs if str(ref).strip()),
@@ -297,6 +300,37 @@ def _memory_source_refs(memory: RetrievedMemory) -> tuple[str, ...]:
             )
         )
     )
+    return tuple(
+        dict.fromkeys(
+            (
+                *source_refs,
+                *_source_identity_refs_from_dedupe_key(
+                    features.get("source_ref_dedupe_key")
+                ),
+                *_source_identity_refs_from_text(memory.text, source_refs=source_refs),
+            )
+        )
+    )
+
+
+def _source_identity_refs_from_dedupe_key(value: object) -> tuple[str, ...]:
+    key = str(value or "").strip()
+    if key.startswith(("source_refs:", "source_turn_refs:", "refs:")):
+        return (key,)
+    return ()
+
+
+def _source_identity_refs_from_text(
+    text: str,
+    *,
+    source_refs: Sequence[str],
+) -> tuple[str, ...]:
+    if source_refs:
+        return ()
+    turn_refs = tuple(dict.fromkeys(_TURN_REF_RE.findall(text or "")))
+    if not 0 < len(turn_refs) <= 3:
+        return ()
+    return ("source_turn_refs:" + "|".join(sorted(turn_refs)),)
 
 
 def _metric_value(item: Mapping[str, object], key: str) -> float:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -17,6 +18,8 @@ from infinity_context_server.memory_comparison_candidate_risks import (
     memory_has_conflict_or_stale,
 )
 from infinity_context_server.memory_comparison_models import RetrievedMemory
+
+_TURN_REF_RE = re.compile(r"\bD\d+:\d+\b")
 
 
 @dataclass(frozen=True)
@@ -127,12 +130,14 @@ def answer_context_from_evidence_bundle(
     selected_keys: set[tuple[str, object]] = set()
     skipped = 0
     for item in bundle_items:
-        retrieval_order = _positive_int(item.get("retrieval_order"))
-        if retrieval_order is None or retrieval_order > bounded_cutoff:
-            skipped += 1
-            continue
         memory = _memory_for_bundle_item(item, memories)
         if memory is None:
+            skipped += 1
+            continue
+        retrieval_order = _positive_int(item.get("retrieval_order"))
+        if retrieval_order is None:
+            retrieval_order = _retrieval_order_for_memory(memory, memories)
+        if retrieval_order is None or retrieval_order > bounded_cutoff:
             skipped += 1
             continue
         key = _memory_key(memory, retrieval_order=retrieval_order)
@@ -586,14 +591,16 @@ def _memory_for_bundle_item(
     item: Mapping[str, object],
     memories: Sequence[RetrievedMemory],
 ) -> RetrievedMemory | None:
-    retrieval_order = _positive_int(item.get("retrieval_order"))
-    if retrieval_order is not None and 1 <= retrieval_order <= len(memories):
-        return memories[retrieval_order - 1]
-
     item_id = str(item.get("id") or "").strip()
     if item_id:
         for memory in memories:
             if memory.item_id == item_id:
+                return memory
+
+    source_refs = set(_source_identity_refs_from_bundle_item(item))
+    if source_refs:
+        for memory in memories:
+            if source_refs.intersection(_source_identity_refs_from_memory(memory)):
                 return memory
 
     rank = _positive_int(item.get("rank"))
@@ -602,15 +609,9 @@ def _memory_for_bundle_item(
             if memory.rank == rank:
                 return memory
 
-    source_refs = {
-        str(ref).strip()
-        for ref in _sequence(item.get("source_refs"))
-        if str(ref).strip()
-    }
-    if source_refs:
-        for memory in memories:
-            if source_refs.intersection(str(ref) for ref in memory.source_refs):
-                return memory
+    retrieval_order = _positive_int(item.get("retrieval_order"))
+    if retrieval_order is not None and 1 <= retrieval_order <= len(memories):
+        return memories[retrieval_order - 1]
     return None
 
 
@@ -841,16 +842,21 @@ def _merged_source_refs(
         dict.fromkeys(
             (
                 *_memory_source_refs(memory),
-                *_string_tuple(bundle_item.get("source_refs")),
+                *_source_identity_refs_from_bundle_item(bundle_item),
             )
         )
     )
 
 
 def _memory_source_refs(memory: RetrievedMemory) -> tuple[str, ...]:
+    return _source_identity_refs_from_memory(memory)
+
+
+def _source_identity_refs_from_memory(memory: RetrievedMemory) -> tuple[str, ...]:
     diagnostics = _mapping(memory.metadata.get("diagnostics"))
     fusion = _mapping(diagnostics.get("benchmark_candidate_fusion"))
-    return tuple(
+    features = _candidate_features(memory)
+    source_refs = tuple(
         dict.fromkeys(
             (
                 *(str(ref).strip() for ref in memory.source_refs if str(ref).strip()),
@@ -858,6 +864,63 @@ def _memory_source_refs(memory: RetrievedMemory) -> tuple[str, ...]:
             )
         )
     )
+    return tuple(
+        dict.fromkeys(
+            (
+                *source_refs,
+                *_source_identity_refs_from_dedupe_key(
+                    features.get("source_ref_dedupe_key")
+                ),
+                *_source_identity_refs_from_text(memory.text, source_refs=source_refs),
+            )
+        )
+    )
+
+
+def _source_identity_refs_from_bundle_item(
+    item: Mapping[str, object],
+) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            (
+                *_string_tuple(item.get("source_refs")),
+                *_source_identity_refs_from_dedupe_key(
+                    item.get("source_ref_dedupe_key")
+                ),
+                *_source_identity_refs_from_dedupe_key(item.get("dedupe_key")),
+            )
+        )
+    )
+
+
+def _source_identity_refs_from_dedupe_key(value: object) -> tuple[str, ...]:
+    key = str(value or "").strip()
+    if key.startswith(("source_refs:", "source_turn_refs:", "refs:")):
+        return (key,)
+    return ()
+
+
+def _source_identity_refs_from_text(
+    text: str,
+    *,
+    source_refs: Sequence[str],
+) -> tuple[str, ...]:
+    if source_refs:
+        return ()
+    turn_refs = tuple(dict.fromkeys(_TURN_REF_RE.findall(text or "")))
+    if not 0 < len(turn_refs) <= 3:
+        return ()
+    return ("source_turn_refs:" + "|".join(sorted(turn_refs)),)
+
+
+def _retrieval_order_for_memory(
+    memory: RetrievedMemory,
+    memories: Sequence[RetrievedMemory],
+) -> int | None:
+    for index, candidate in enumerate(memories, start=1):
+        if candidate is memory:
+            return index
+    return None
 
 
 def _positive_int(value: object) -> int | None:

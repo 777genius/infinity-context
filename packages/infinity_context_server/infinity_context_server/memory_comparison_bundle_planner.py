@@ -103,8 +103,11 @@ class PlannedEvidenceItem:
             "stale_surface": self.candidate.stale_surface,
             "contrast_surface": self.candidate.contrast_surface,
             "source_refs": list(self.candidate.source_refs),
+            "dedupe_key": self.candidate.dedupe_key,
             "planner_reason_codes": list(self.reason_codes),
         }
+        if self.candidate.dedupe_key.startswith(("source_refs:", "source_turn_refs:")):
+            payload["source_ref_dedupe_key"] = self.candidate.dedupe_key
         if self.candidate.source_type != "unknown":
             payload["source_type"] = self.candidate.source_type
         if self.candidate.source_types:

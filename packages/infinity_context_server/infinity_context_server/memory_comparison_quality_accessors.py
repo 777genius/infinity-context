@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 from collections.abc import Mapping, Sequence
 
 from infinity_context_server.memory_comparison_candidate_risks import (
     payload_candidate_features,
 )
+
+_TURN_REF_RE = re.compile(r"\bD\d+:\d+\b")
 
 
 def retrieval_results(
@@ -26,11 +29,19 @@ def candidate_features(memory: Mapping[str, object]) -> Mapping[str, object]:
 
 
 def source_refs_from_memory(memory: Mapping[str, object]) -> tuple[str, ...]:
+    direct_refs = direct_source_refs_from_memory(memory)
     return tuple(
         dict.fromkeys(
             (
-                *direct_source_refs_from_memory(memory),
+                *direct_refs,
                 *fusion_source_refs(memory),
+                *_source_identity_refs_from_dedupe_key(
+                    candidate_features(memory).get("source_ref_dedupe_key")
+                ),
+                *_source_identity_refs_from_text(
+                    str(memory.get("text") or memory.get("memory") or ""),
+                    source_refs=direct_refs,
+                ),
             )
         )
     )
@@ -46,7 +57,15 @@ def fusion_source_refs(memory: Mapping[str, object]) -> tuple[str, ...]:
 
 
 def source_refs_from_bundle_item(item: Mapping[str, object]) -> tuple[str, ...]:
-    return str_tuple(item.get("source_refs"))
+    return tuple(
+        dict.fromkeys(
+            (
+                *str_tuple(item.get("source_refs")),
+                *_source_identity_refs_from_dedupe_key(item.get("source_ref_dedupe_key")),
+                *_source_identity_refs_from_dedupe_key(item.get("dedupe_key")),
+            )
+        )
+    )
 
 
 def memory_diagnostics(memory: Mapping[str, object]) -> Mapping[str, object]:
@@ -208,6 +227,26 @@ def str_tuple(value: object) -> tuple[str, ...]:
         stripped = value.strip()
         return (stripped,) if stripped else ()
     return tuple(str(item) for item in sequence(value) if str(item).strip())
+
+
+def _source_identity_refs_from_dedupe_key(value: object) -> tuple[str, ...]:
+    key = str(value or "").strip()
+    if key.startswith(("source_refs:", "source_turn_refs:", "refs:")):
+        return (key,)
+    return ()
+
+
+def _source_identity_refs_from_text(
+    text: str,
+    *,
+    source_refs: Sequence[str],
+) -> tuple[str, ...]:
+    if source_refs:
+        return ()
+    turn_refs = tuple(dict.fromkeys(_TURN_REF_RE.findall(text or "")))
+    if not 0 < len(turn_refs) <= 3:
+        return ()
+    return ("source_turn_refs:" + "|".join(sorted(turn_refs)),)
 
 
 def count_mapping(value: object) -> dict[str, int]:

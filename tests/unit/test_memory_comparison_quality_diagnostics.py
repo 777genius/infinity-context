@@ -554,6 +554,53 @@ def test_quality_diagnostics_reports_source_ref_provenance_table() -> None:
     ]
 
 
+def test_quality_diagnostics_counts_source_ref_dedupe_identity() -> None:
+    diagnostics = quality_diagnostics(
+        (
+            _item(
+                case_id="turn-ref-dedupe",
+                retrieval={
+                    "metadata": {},
+                    "results": [
+                        {
+                            "id": "raw-turn",
+                            "rank": 1,
+                            "text": "D4:2 Caroline: I found the support group helpful.",
+                            "metadata": {
+                                "diagnostics": {
+                                    "benchmark_candidate_features": {
+                                        "source_ref_dedupe_key": (
+                                            "source_turn_refs:D4:2"
+                                        )
+                                    }
+                                }
+                            },
+                        }
+                    ],
+                },
+                evidence_bundle={
+                    "items": [
+                        {
+                            "id": "raw-turn",
+                            "role": "primary",
+                            "retrieval_order": 1,
+                            "source_ref_dedupe_key": "source_turn_refs:D4:2",
+                        }
+                    ]
+                },
+            ),
+        )
+    )
+
+    table = diagnostics["source_ref_provenance_table"]
+    assert table["retrieval_source_ref_candidate_count"] == 1
+    assert table["retrieval_source_ref_count"] == 1
+    assert table["selected_bundle_source_ref_item_count"] == 1
+    assert table["selected_bundle_source_ref_count"] == 1
+    assert table["selected_bundle_source_refless_item_count"] == 0
+    assert table["source_refless_selected_samples"] == []
+
+
 def test_quality_diagnostics_reports_answer_context_provenance_table() -> None:
     diagnostics = quality_diagnostics(
         (
