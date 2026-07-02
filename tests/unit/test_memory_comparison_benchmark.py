@@ -4251,7 +4251,7 @@ def test_query_decomposition_expands_temporal_action_queries() -> None:
     assert not {"lgbtq", "inclusive", "inclusivity"}.intersection(
         generic_support_group_metadata["query_profile"]["relation_variant_terms"]
     )
-    assert move_queries[1] == "caroline move moved home country 4 year ago"
+    assert move_queries[1] == "caroline from origin home country 4 year ago"
     assert "move" in move_metadata["query_profile"]["relation_terms"]
     assert "4" in move_metadata["query_profile"]["lexical_terms"]
     assert race_queries[1] == "melanie run charity race last ran fundraiser"
@@ -4298,6 +4298,16 @@ def test_query_decomposition_expands_temporal_action_queries() -> None:
     assert "raise" in awareness_metadata["query_profile"]["relation_terms"]
     assert "race" in awareness_metadata["query_profile"]["relation_terms"]
     assert realize_queries[1] == "melanie realize lesson reflection thought event journey"
+    assert realize_queries[3] == (
+        "melanie realize lesson reflection thought event journey charity race"
+    )
+    assert realize_metadata["query_plan"]["selected_roles"] == [
+        "original_question",
+        "causal_support",
+        "temporal_sequence_support",
+        "multi_hop_bridge",
+    ]
+    assert realize_metadata["query_plan"]["missing_recommended_role_families"] == []
     assert "realize" in realize_metadata["query_profile"]["relation_terms"]
     assert "lesson" in realize_metadata["query_profile"]["relation_variant_terms"]
     assert not {"important", "self-care"}.intersection(
@@ -6525,6 +6535,7 @@ def test_infinity_context_http_search_expands_realize_after_race_queries() -> No
         "What did Melanie realize after the charity race?",
         "melanie realize lesson reflection thought event journey",
         "melanie after session date time",
+        "melanie realize lesson reflection thought event journey charity race",
     ]
     assert result.memories[0].item_id == "self-care-realization"
     query_profile = result.metadata["query_decomposition"]["query_profile"]
