@@ -273,6 +273,11 @@ def _bundle_support_counts(metadata: Mapping[str, object]) -> tuple[str, ...]:
     )
     if emotion_response is not None:
         counts.append(f"emotion_response:{emotion_response}")
+    symbolic_meaning = _positive_int(
+        metadata.get("answer_context_bundle_symbolic_meaning_support_count")
+    )
+    if symbolic_meaning is not None:
+        counts.append(f"symbolic_meaning:{symbolic_meaning}")
     preference = _positive_int(
         metadata.get("answer_context_bundle_preference_support_count")
     )

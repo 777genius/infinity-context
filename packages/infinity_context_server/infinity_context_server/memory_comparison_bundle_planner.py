@@ -416,6 +416,7 @@ class EvidenceBundlePlanner:
                 "entity_disambiguation",
                 "inference_support",
                 "causal_support",
+                "symbolic_meaning_support",
                 "contrast",
                 "bridge",
                 "location_support",
@@ -501,6 +502,11 @@ def _role_for_candidate(
         and _candidate_has_emotion_response_support(candidate)
     ):
         return "emotion_response_support"
+    if (
+        "symbolic_meaning_support" in set(required_roles)
+        and _candidate_has_symbolic_meaning_support(candidate)
+    ):
+        return "symbolic_meaning_support"
     if (
         "causal_support" in set(required_roles)
         and _candidate_has_causal_support(candidate)
@@ -588,6 +594,11 @@ def _satisfied_required_roles(
             satisfied.add(role)
         if role == "emotion_response_support" and any(
             _candidate_has_emotion_response_support(item.candidate)
+            for item in selected
+        ):
+            satisfied.add(role)
+        if role == "symbolic_meaning_support" and any(
+            _candidate_has_symbolic_meaning_support(item.candidate)
             for item in selected
         ):
             satisfied.add(role)
@@ -732,6 +743,8 @@ def _item_can_satisfy_required_role(
         return _candidate_has_visual_support(item.candidate)
     if role == "emotion_response_support":
         return _candidate_has_emotion_response_support(item.candidate)
+    if role == "symbolic_meaning_support":
+        return _candidate_has_symbolic_meaning_support(item.candidate)
     if role == "inference_support":
         return _candidate_has_inference_support(item.candidate)
     if role == "causal_support":
@@ -790,6 +803,7 @@ def _replacement_role_order(item: PlannedEvidenceItem) -> float:
         "causal_support": 2,
         "inference_support": 2,
         "emotion_response_support": 2,
+        "symbolic_meaning_support": 2,
         "preference_support": 2,
         "temporal_support": 2,
         "visual_support": 2,
@@ -895,6 +909,18 @@ def _candidate_has_emotion_response_support(
     if candidate.answerability_score and candidate.answerability_score < 0.55:
         return False
     return "emotion_response" in set(candidate.relation_category_hits)
+
+
+def _candidate_has_symbolic_meaning_support(
+    candidate: EvidenceBundleCandidate,
+) -> bool:
+    if candidate.broad_summary or candidate.conflict_or_stale:
+        return False
+    if candidate.source_locality_score < 0.45:
+        return False
+    if candidate.answerability_score and candidate.answerability_score < 0.55:
+        return False
+    return "symbolic_meaning" in set(candidate.relation_category_hits)
 
 
 def _candidate_has_inference_support(candidate: EvidenceBundleCandidate) -> bool:
@@ -1081,6 +1107,10 @@ def _reason_codes(
         reasons.append("emotion_response_support")
         if candidate.relation_category_hits:
             reasons.append("emotion_response_relation_category_hits")
+    if role == "symbolic_meaning_support":
+        reasons.append("symbolic_meaning_support")
+        if candidate.relation_category_hits:
+            reasons.append("symbolic_meaning_relation_category_hits")
     if candidate.focused_evidence_score > 0:
         reasons.append("focused_turn")
     if candidate.answerability_score >= 0.8:
@@ -1136,6 +1166,7 @@ def _role_order(item: PlannedEvidenceItem) -> float:
         "contrast": 2,
         "location_support": 3,
         "emotion_response_support": 3,
+        "symbolic_meaning_support": 3,
         "preference_support": 3,
         "temporal_support": 3,
         "visual_support": 3,
@@ -1183,6 +1214,7 @@ def _max_item_drop_counts(
             "inference_support",
             "causal_support",
             "emotion_response_support",
+            "symbolic_meaning_support",
             "contrast",
             "bridge",
             "location_support",
@@ -1229,6 +1261,7 @@ def _bundle_quality_diagnostics(
             "inference_support_count": 0,
             "location_support_count": 0,
             "emotion_response_support_count": 0,
+            "symbolic_meaning_support_count": 0,
             "preference_support_count": 0,
             "visual_support_count": 0,
             "location_relation_category_hit_count": 0,
@@ -1273,6 +1306,9 @@ def _bundle_quality_diagnostics(
     emotion_response_support_count = sum(
         1 for item in items if item.role == "emotion_response_support"
     )
+    symbolic_meaning_support_count = sum(
+        1 for item in items if item.role == "symbolic_meaning_support"
+    )
     preference_support_count = sum(
         1 for item in items if item.role == "preference_support"
     )
@@ -1315,6 +1351,10 @@ def _bundle_quality_diagnostics(
         "inference_support": min(0.08, 0.08 * inference_support_count),
         "location_support": min(0.08, 0.08 * location_support_count),
         "emotion_response_support": min(0.08, 0.08 * emotion_response_support_count),
+        "symbolic_meaning_support": min(
+            0.08,
+            0.08 * symbolic_meaning_support_count,
+        ),
         "preference_support": min(0.08, 0.08 * preference_support_count),
         "visual_support": min(0.08, 0.08 * visual_support_count),
         "source_proximity": (
@@ -1359,6 +1399,7 @@ def _bundle_quality_diagnostics(
             inference_support_count=inference_support_count,
             location_support_count=location_support_count,
             emotion_response_support_count=emotion_response_support_count,
+            symbolic_meaning_support_count=symbolic_meaning_support_count,
             preference_support_count=preference_support_count,
             visual_support_count=visual_support_count,
             location_relation_category_hit_count=location_relation_category_hit_count,
@@ -1389,6 +1430,7 @@ def _bundle_quality_diagnostics(
         "inference_support_count": inference_support_count,
         "location_support_count": location_support_count,
         "emotion_response_support_count": emotion_response_support_count,
+        "symbolic_meaning_support_count": symbolic_meaning_support_count,
         "preference_support_count": preference_support_count,
         "visual_support_count": visual_support_count,
         "location_relation_category_hit_count": (
@@ -1472,6 +1514,7 @@ def _bundle_quality_reason_codes(
     inference_support_count: int,
     location_support_count: int,
     emotion_response_support_count: int,
+    symbolic_meaning_support_count: int,
     preference_support_count: int,
     visual_support_count: int,
     location_relation_category_hit_count: int,
@@ -1516,6 +1559,8 @@ def _bundle_quality_reason_codes(
         reasons.append("has_location_support_evidence")
     if emotion_response_support_count:
         reasons.append("has_emotion_response_support_evidence")
+    if symbolic_meaning_support_count:
+        reasons.append("has_symbolic_meaning_support_evidence")
     if preference_support_count:
         reasons.append("has_preference_support_evidence")
     if visual_support_count:

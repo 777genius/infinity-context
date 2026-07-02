@@ -882,6 +882,7 @@ def test_fast_gate_metrics_reports_bundle_support_summaries() -> None:
                             inference_support_count=1,
                             location_support_count=1,
                             emotion_response_support_count=1,
+                            symbolic_meaning_support_count=1,
                             preference_support_count=1,
                             visual_support_count=1,
                             contrast_count=1,
@@ -911,6 +912,7 @@ def test_fast_gate_metrics_reports_bundle_support_summaries() -> None:
         "location": 1,
         "preference": 1,
         "source_proximity": 2,
+        "symbolic_meaning": 1,
         "visual": 1,
     }
     assert gate["bundle_support_bundle_counts"] == {
@@ -922,6 +924,7 @@ def test_fast_gate_metrics_reports_bundle_support_summaries() -> None:
         "location": 1,
         "preference": 1,
         "source_proximity": 1,
+        "symbolic_meaning": 1,
         "visual": 1,
     }
 
@@ -1375,6 +1378,102 @@ def test_fast_gate_metrics_accepts_emotion_response_support_evidence() -> None:
     ]
 
 
+def test_fast_gate_metrics_reports_missing_symbolic_meaning_support_gap() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="missing-symbolic-meaning",
+                group="single-hop",
+                retrieval=_retrieval_payload(
+                    evidence_need=("symbolic_meaning",),
+                    bundle_evidence_roles=("primary", "symbolic_meaning_support"),
+                    relation_categories=("symbolic_meaning",),
+                    policy_score=0.0,
+                ),
+                evidence_bundle={
+                    "bundle_complete": False,
+                    "item_count": 1,
+                    "primary_evidence_count": 1,
+                    "supporting_evidence_count": 0,
+                    "query_support_term_recall": 0.5,
+                    "covered_evidence_terms": [],
+                    "missing_required_roles": ["symbolic_meaning_support"],
+                    "items": [
+                        {
+                            "role": "primary",
+                            "retrieval_order": 1,
+                            "focused_evidence_score": 1.0,
+                            "planner_reason_codes": ["primary_signal"],
+                        }
+                    ],
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    breakdown = gate["bundle_gap_breakdown"]
+
+    assert breakdown["reason_counts"]["missing_symbolic_meaning_support"] == 1
+    assert (
+        breakdown["reason_counts"]["missing_required_symbolic_meaning_support"]
+        == 1
+    )
+    assert breakdown["evidence_need_gap_reason_counts"] == {
+        "missing_required_symbolic_meaning_support": 1,
+        "missing_symbolic_meaning_support": 1,
+    }
+    assert "missing_symbolic_meaning_support" in breakdown["samples"][0]["reasons"]
+
+
+def test_fast_gate_metrics_accepts_symbolic_meaning_support_evidence() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="has-symbolic-meaning",
+                group="single-hop",
+                retrieval=_retrieval_payload(
+                    evidence_need=("symbolic_meaning",),
+                    bundle_evidence_roles=("primary", "symbolic_meaning_support"),
+                    relation_categories=("symbolic_meaning",),
+                    policy_score=0.0,
+                ),
+                evidence_bundle={
+                    "bundle_complete": False,
+                    "item_count": 1,
+                    "primary_evidence_count": 1,
+                    "supporting_evidence_count": 0,
+                    "query_support_term_recall": 0.5,
+                    "covered_evidence_terms": [],
+                    "items": [
+                        {
+                            "role": "symbolic_meaning_support",
+                            "retrieval_order": 1,
+                            "focused_evidence_score": 1.0,
+                            "relation_category_hits": ["symbolic_meaning"],
+                            "planner_reason_codes": [
+                                "symbolic_meaning_support",
+                                "symbolic_meaning_relation_category_hits",
+                            ],
+                        }
+                    ],
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    breakdown = gate["bundle_gap_breakdown"]
+
+    assert "missing_symbolic_meaning_support" not in breakdown["reason_counts"]
+    assert "missing_required_symbolic_meaning_support" not in breakdown[
+        "reason_counts"
+    ]
+    assert "missing_symbolic_meaning_support" not in breakdown[
+        "evidence_need_gap_reason_counts"
+    ]
+
+
 def test_fast_gate_metrics_reports_missing_visual_support_gap() -> None:
     gate = fast_gate_metrics(
         (
@@ -1681,6 +1780,65 @@ def test_query_plan_integrity_maps_emotion_response_support_role() -> None:
     assert table["samples"][0]["case_id"] == "missing-emotion-query-family"
     assert table["samples"][0]["missing_evidence_role_query_families"] == (
         "emotion_response_support",
+    )
+
+
+def test_query_plan_integrity_maps_symbolic_meaning_support_role() -> None:
+    base_only_plan = {
+        "schema_version": "query_plan.v2",
+        "selected_query_count": 1,
+        "dropped_query_count": 0,
+        "selected_roles": ["original_question"],
+        "dropped_roles": [],
+        "recommended_role_families": ["base_query", "relation_compact"],
+        "selected_role_families": ["base_query"],
+        "missing_recommended_role_families": ["relation_compact"],
+        "selected_role_family_counts": {"base_query": 1},
+        "fanout_integrity": {"bounded": True},
+    }
+    relation_plan = {
+        **base_only_plan,
+        "selected_query_count": 2,
+        "selected_roles": ["original_question", "compact_relation"],
+        "selected_role_families": ["base_query", "relation_compact"],
+        "missing_recommended_role_families": [],
+        "selected_role_family_counts": {
+            "base_query": 1,
+            "relation_compact": 1,
+        },
+    }
+    missing_item = _item(
+        case_id="missing-symbolic-query-family",
+        group="single-hop",
+        retrieval=_retrieval_payload(
+            evidence_need=("symbolic_meaning",),
+            bundle_evidence_roles=("primary", "symbolic_meaning_support"),
+            relation_categories=("symbolic_meaning",),
+            policy_score=0.0,
+            query_plan=base_only_plan,
+        ),
+    )
+    satisfied_item = _item(
+        case_id="has-symbolic-query-family",
+        group="single-hop",
+        retrieval=_retrieval_payload(
+            evidence_need=("symbolic_meaning",),
+            bundle_evidence_roles=("primary", "symbolic_meaning_support"),
+            relation_categories=("symbolic_meaning",),
+            policy_score=0.0,
+            query_plan=relation_plan,
+        ),
+    )
+
+    diagnostics = quality_diagnostics((missing_item, satisfied_item))
+    table = diagnostics["query_plan_integrity_table"]
+
+    assert table["missing_evidence_role_query_family_counts"] == {
+        "symbolic_meaning_support": 1
+    }
+    assert table["samples"][0]["case_id"] == "missing-symbolic-query-family"
+    assert table["samples"][0]["missing_evidence_role_query_families"] == (
+        "symbolic_meaning_support",
     )
 
 
@@ -2267,6 +2425,7 @@ def _bundle_quality(
     inference_support_count: int = 0,
     location_support_count: int = 0,
     emotion_response_support_count: int = 0,
+    symbolic_meaning_support_count: int = 0,
     preference_support_count: int = 0,
     visual_support_count: int = 0,
     contrast_count: int = 0,
@@ -2293,6 +2452,7 @@ def _bundle_quality(
         "inference_support_count": inference_support_count,
         "location_support_count": location_support_count,
         "emotion_response_support_count": emotion_response_support_count,
+        "symbolic_meaning_support_count": symbolic_meaning_support_count,
         "preference_support_count": preference_support_count,
         "visual_support_count": visual_support_count,
         "contrast_count": contrast_count,

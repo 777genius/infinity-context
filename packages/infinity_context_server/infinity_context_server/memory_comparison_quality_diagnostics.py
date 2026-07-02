@@ -22,6 +22,7 @@ _EVIDENCE_NEED_GAP_REASONS = frozenset(
         "missing_inference_support",
         "missing_location_support",
         "missing_preference_support",
+        "missing_symbolic_meaning_support",
         "missing_visual_support",
         "missing_required_bridge",
         "missing_required_causal_support",
@@ -30,6 +31,7 @@ _EVIDENCE_NEED_GAP_REASONS = frozenset(
         "missing_required_inference_support",
         "missing_required_location_support",
         "missing_required_preference_support",
+        "missing_required_symbolic_meaning_support",
         "missing_required_temporal_support",
         "missing_required_visual_support",
         "missing_temporal_support",
@@ -652,6 +654,8 @@ def _bundle_incomplete_reasons(item: Mapping[str, object]) -> tuple[str, ...]:
         reasons.append("missing_location_support")
     if _needs_emotion_response_support(item) and not _bundle_has_emotion_response_support(bundle):
         reasons.append("missing_emotion_response_support")
+    if _needs_symbolic_meaning_support(item) and not _bundle_has_symbolic_meaning_support(bundle):
+        reasons.append("missing_symbolic_meaning_support")
     if _needs_preference_support(item) and not _bundle_has_preference_support(bundle):
         reasons.append("missing_preference_support")
     if _needs_visual_support(item) and not _bundle_has_visual_support(bundle):
@@ -698,6 +702,7 @@ def _bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, ob
     inference_support_counts: list[int] = []
     location_support_counts: list[int] = []
     emotion_response_support_counts: list[int] = []
+    symbolic_meaning_support_counts: list[int] = []
     preference_support_counts: list[int] = []
     visual_support_counts: list[int] = []
     location_relation_category_hit_counts: list[int] = []
@@ -729,6 +734,9 @@ def _bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, ob
         )
         emotion_response_support_counts.append(
             _positive_int(quality.get("emotion_response_support_count")) or 0
+        )
+        symbolic_meaning_support_counts.append(
+            _positive_int(quality.get("symbolic_meaning_support_count")) or 0
         )
         preference_support_counts.append(
             _positive_int(quality.get("preference_support_count")) or 0
@@ -793,6 +801,15 @@ def _bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, ob
         "emotion_response_support_bundle_count": sum(
             1 for count in emotion_response_support_counts if count > 0
         ),
+        "avg_symbolic_meaning_support_count": _avg(
+            symbolic_meaning_support_counts
+        ),
+        "total_symbolic_meaning_support_count": sum(
+            symbolic_meaning_support_counts
+        ),
+        "symbolic_meaning_support_bundle_count": sum(
+            1 for count in symbolic_meaning_support_counts if count > 0
+        ),
         "avg_preference_support_count": _avg(preference_support_counts),
         "total_preference_support_count": sum(preference_support_counts),
         "preference_support_bundle_count": sum(
@@ -846,6 +863,12 @@ def _bundle_support_counts(bundle_quality: Mapping[str, object]) -> dict[str, in
             )
             or 0
         ),
+        "symbolic_meaning": (
+            _positive_int(
+                bundle_quality.get("total_symbolic_meaning_support_count")
+            )
+            or 0
+        ),
         "preference": (
             _positive_int(bundle_quality.get("total_preference_support_count")) or 0
         ),
@@ -877,6 +900,12 @@ def _bundle_support_bundle_counts(
         "emotion_response": (
             _positive_int(
                 bundle_quality.get("emotion_response_support_bundle_count")
+            )
+            or 0
+        ),
+        "symbolic_meaning": (
+            _positive_int(
+                bundle_quality.get("symbolic_meaning_support_bundle_count")
             )
             or 0
         ),
@@ -928,6 +957,9 @@ def _bundle_quality_sample(
         ),
         "emotion_response_support_count": (
             _positive_int(quality.get("emotion_response_support_count")) or 0
+        ),
+        "symbolic_meaning_support_count": (
+            _positive_int(quality.get("symbolic_meaning_support_count")) or 0
         ),
         "preference_support_count": (
             _positive_int(quality.get("preference_support_count")) or 0
@@ -1516,6 +1548,7 @@ def _evidence_role_query_families(role: str) -> tuple[str, ...]:
         ),
         "causal_support": ("multi_hop", "relation_compact", "expanded_focus"),
         "emotion_response_support": ("relation_compact", "expanded_focus"),
+        "symbolic_meaning_support": ("relation_compact", "expanded_focus"),
         "inference_support": ("relation_compact", "expanded_focus", "base_query"),
         "preference_support": ("relation_compact", "expanded_focus", "base_query"),
         "visual_support": ("visual_support", "expanded_focus", "relation_compact"),
@@ -2268,6 +2301,27 @@ def _needs_emotion_response_support(item: Mapping[str, object]) -> bool:
     )
 
 
+def _needs_symbolic_meaning_support(item: Mapping[str, object]) -> bool:
+    metadata = _retrieval_metadata(item)
+    query_decomposition = _mapping(metadata.get("query_decomposition"))
+    query_profile = _mapping(query_decomposition.get("query_profile"))
+    intent = _mapping(query_decomposition.get("retrieval_intent"))
+    evidence_need = (
+        _str_tuple(query_profile.get("evidence_need"))
+        or _str_tuple(intent.get("evidence_need"))
+    )
+    roles = (
+        _str_tuple(query_profile.get("bundle_evidence_roles"))
+        or _str_tuple(intent.get("bundle_evidence_roles"))
+    )
+    relation_categories = _str_tuple(query_profile.get("relation_categories"))
+    return bool(
+        "symbolic_meaning" in evidence_need
+        or "symbolic_meaning_support" in roles
+        or "symbolic_meaning" in relation_categories
+    )
+
+
 def _needs_visual_support(item: Mapping[str, object]) -> bool:
     metadata = _retrieval_metadata(item)
     query_decomposition = _mapping(metadata.get("query_decomposition"))
@@ -2395,6 +2449,21 @@ def _bundle_has_emotion_response_support(bundle: Mapping[str, object]) -> bool:
         bool(
             "emotion_response" in _str_tuple(item.get("relation_category_hits"))
             or "emotion_response_relation_category_hits"
+            in _str_tuple(item.get("planner_reason_codes"))
+        )
+        for item in _bundle_items(bundle)
+    )
+
+
+def _bundle_has_symbolic_meaning_support(bundle: Mapping[str, object]) -> bool:
+    if "symbolic_meaning_support" in _bundle_roles(bundle):
+        return True
+    if _bundle_has_planner_reason(bundle, "symbolic_meaning_support"):
+        return True
+    return any(
+        bool(
+            "symbolic_meaning" in _str_tuple(item.get("relation_category_hits"))
+            or "symbolic_meaning_relation_category_hits"
             in _str_tuple(item.get("planner_reason_codes"))
         )
         for item in _bundle_items(bundle)
