@@ -5462,6 +5462,12 @@ def test_query_decomposition_expands_date_profile_queries() -> None:
         answer="May 5",
         category=2,
     )
+    birthdate_case = _case(
+        case_id="date-profile-birthdate",
+        question="What is Alex's birthdate?",
+        expected_terms=("May 5",),
+        answer="May 5",
+    )
     dob_case = _case(
         case_id="date-profile-dob",
         question="What is Alex's DOB?",
@@ -5505,6 +5511,9 @@ def test_query_decomposition_expands_date_profile_queries() -> None:
     )
     date_of_birth_queries, date_of_birth_metadata = (
         rerank_module.decomposed_search_queries(date_of_birth_case)
+    )
+    birthdate_queries, birthdate_metadata = rerank_module.decomposed_search_queries(
+        birthdate_case
     )
     dob_queries, dob_metadata = rerank_module.decomposed_search_queries(dob_case)
     anniversary_day_queries, anniversary_day_metadata = (
@@ -5565,6 +5574,16 @@ def test_query_decomposition_expands_date_profile_queries() -> None:
         "relation_categories"
     ]
     assert date_of_birth_metadata["query_profile"]["evidence_need"] == (
+        "temporal_support",
+        "date_profile",
+    )
+    assert birthdate_queries[1] == "alex birthday year ago born age"
+    assert birthdate_metadata["query_profile"]["entities"] == ("alex",)
+    assert birthdate_metadata["query_profile"]["relation_categories"] == (
+        "date_profile",
+        "temporal",
+    )
+    assert birthdate_metadata["query_profile"]["evidence_need"] == (
         "temporal_support",
         "date_profile",
     )
@@ -11955,6 +11974,66 @@ def test_benchmark_rerank_boosts_dob_date_profile_evidence() -> None:
 
     assert metadata["applied"] is True
     assert metadata["query_profile"]["evidence_need"] == ("date_profile",)
+    assert reranked[0].item_id == "date-profile"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    date_diagnostics = diagnostics_by_id["date-profile"]
+    topical_diagnostics = diagnostics_by_id["topical-birth"]
+    assert date_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["date_profile"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert date_diagnostics["score_signals"][
+        "benchmark_typed_relation_support_roles"
+    ] == ["date_support"]
+    assert (
+        topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        == 0
+    )
+
+
+def test_benchmark_rerank_boosts_birthdate_date_evidence() -> None:
+    case = _case(
+        case_id="date-profile-birthdate-rerank",
+        question="What is Alex's birthdate?",
+        expected_terms=("May 5",),
+        answer="May 5",
+        category=4,
+    )
+    topical_birth = RetrievedMemory(
+        item_id="topical-birth",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex filed a birth certificate form."
+        ),
+        source_refs=("D1:1",),
+    )
+    date_profile = RetrievedMemory(
+        item_id="date-profile",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: My birthdate is May 5."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_birth, date_profile),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == (
+        "temporal_support",
+        "date_profile",
+    )
     assert reranked[0].item_id == "date-profile"
     diagnostics_by_id = {
         memory.item_id: memory.metadata["diagnostics"] for memory in reranked

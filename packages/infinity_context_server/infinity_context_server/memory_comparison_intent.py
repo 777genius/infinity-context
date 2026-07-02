@@ -1197,7 +1197,7 @@ def _has_date_profile_intent(
             r"\b(?:what|which)\s+(?:date|day|month)\b.+"
             r"\b(?:anniversary|birthday)\b|"
             r"\b(?:anniversary|birthday)\b.+\b(?:date|when)\b|"
-            r"\b(?:date\s+of\s+birth|dob)\b",
+            r"\b(?:date\s+of\s+birth|birth\s+date|birthdate|dob)\b",
             normalized_question,
         )
     )
