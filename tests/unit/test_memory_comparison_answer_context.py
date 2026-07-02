@@ -260,6 +260,12 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
         "source_ref_item_count": 3,
         "source_refless_item_count": 1,
         "source_ref_coverage_rate": 0.75,
+        "avg_answerability_score": 0.4475,
+        "avg_measured_answerability_score": 0.895,
+        "unmeasured_answerability_count": 2,
+        "avg_source_locality_score": 0.475,
+        "avg_measured_source_locality_score": 0.95,
+        "unmeasured_source_locality_count": 2,
         "selected_bundle_item_count": 2,
         "skipped_bundle_item_count": 0,
         "backfilled_retrieval_item_count": 2,
@@ -556,6 +562,47 @@ def test_answer_context_backfill_carries_text_turn_source_identity() -> None:
     assert context.to_diagnostics()["source_ref_item_count"] == 1
 
 
+def test_answer_context_diagnostics_distinguish_unmeasured_quality_scores() -> None:
+    memories = (
+        RetrievedMemory(text="unmeasured evidence", rank=1, item_id="unmeasured"),
+        RetrievedMemory(text="measured evidence", rank=2, item_id="measured"),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "items": [
+                {
+                    "id": "unmeasured",
+                    "retrieval_order": 1,
+                    "role": "primary",
+                    "answerability_score": 0.0,
+                    "source_locality_score": 0.0,
+                },
+                {
+                    "id": "measured",
+                    "retrieval_order": 2,
+                    "role": "bridge",
+                    "answerability_score": 0.8,
+                    "source_locality_score": 0.7,
+                },
+            ]
+        },
+        cutoff=2,
+    )
+
+    diagnostics = context.to_diagnostics()
+
+    assert "answer_context_answerability_score" not in context.memories[0].metadata
+    assert "answer_context_source_locality_score" not in context.memories[0].metadata
+    assert diagnostics["avg_answerability_score"] == 0.4
+    assert diagnostics["avg_measured_answerability_score"] == 0.8
+    assert diagnostics["unmeasured_answerability_count"] == 1
+    assert diagnostics["avg_source_locality_score"] == 0.35
+    assert diagnostics["avg_measured_source_locality_score"] == 0.7
+    assert diagnostics["unmeasured_source_locality_count"] == 1
+
+
 def test_answer_context_respects_cutoff_and_falls_back_to_raw_slice() -> None:
     memories = (
         RetrievedMemory(text="first", rank=1, item_id="first"),
@@ -665,6 +712,12 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
                             "source_ref_item_count": 1,
                             "source_refless_item_count": 0,
                             "source_ref_coverage_rate": 1.0,
+                            "avg_answerability_score": 0.4,
+                            "avg_measured_answerability_score": 0.8,
+                            "unmeasured_answerability_count": 1,
+                            "avg_source_locality_score": 0.35,
+                            "avg_measured_source_locality_score": 0.7,
+                            "unmeasured_source_locality_count": 1,
                             "selected_bundle_item_count": 1,
                             "skipped_bundle_item_count": 0,
                             "backfilled_retrieval_item_count": 0,
@@ -727,6 +780,12 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
     assert metrics["primary_avg_context_memory_count"] == 2.0
     assert metrics["primary_avg_context_compression_ratio"] == 0.6667
     assert metrics["primary_avg_source_ref_coverage_rate"] == 0.5
+    assert metrics["primary_avg_context_answerability_score"] == 0.2
+    assert metrics["primary_avg_measured_context_answerability_score"] == 0.8
+    assert metrics["primary_total_unmeasured_context_answerability_count"] == 1
+    assert metrics["primary_avg_context_source_locality_score"] == 0.175
+    assert metrics["primary_avg_measured_context_source_locality_score"] == 0.7
+    assert metrics["primary_total_unmeasured_context_source_locality_count"] == 1
     assert metrics["primary_avg_bundle_source_type_diversity"] == 1.0
     assert metrics["primary_max_bundle_source_type_diversity"] == 2
     assert metrics["primary_avg_bundle_retrieval_source_diversity"] == 1.5
@@ -775,6 +834,12 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
     assert primary["avg_source_ref_item_count"] == 0.5
     assert primary["avg_source_refless_item_count"] == 1.5
     assert primary["avg_source_ref_coverage_rate"] == 0.5
+    assert primary["avg_context_answerability_score"] == 0.2
+    assert primary["avg_measured_context_answerability_score"] == 0.8
+    assert primary["total_unmeasured_context_answerability_count"] == 1
+    assert primary["avg_context_source_locality_score"] == 0.175
+    assert primary["avg_measured_context_source_locality_score"] == 0.7
+    assert primary["total_unmeasured_context_source_locality_count"] == 1
     assert primary["bundle_confidence_band_counts"] == {"medium": 1}
     assert primary["incomplete_role_requirement_count"] == 1
     assert primary["missing_required_role_counts"] == {"contrast": 1}

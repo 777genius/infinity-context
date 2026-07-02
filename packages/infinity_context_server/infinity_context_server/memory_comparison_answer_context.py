@@ -63,11 +63,13 @@ class AnswerContext:
     def to_diagnostics(self) -> dict[str, object]:
         source_ref_stats = _source_ref_stats(self.memories)
         backfill_risk_stats = _backfill_risk_stats(self.memories)
+        quality_score_stats = _quality_score_stats(self.memories)
         return {
             "schema_version": "answer_context.v1",
             "source": self.source,
             "memory_count": len(self.memories),
             **source_ref_stats,
+            **quality_score_stats,
             "selected_bundle_item_count": self.selected_bundle_item_count,
             "skipped_bundle_item_count": self.skipped_bundle_item_count,
             "backfilled_retrieval_item_count": self.backfilled_retrieval_item_count,
@@ -364,6 +366,34 @@ def answer_context_metrics(
             primary,
             "avg_source_ref_coverage_rate",
         ),
+        "primary_avg_context_answerability_score": _metric_value(
+            primary,
+            "avg_context_answerability_score",
+        ),
+        "primary_avg_measured_context_answerability_score": _metric_value(
+            primary,
+            "avg_measured_context_answerability_score",
+        ),
+        "primary_total_unmeasured_context_answerability_count": (
+            _positive_int(
+                primary.get("total_unmeasured_context_answerability_count")
+            )
+            or 0
+        ),
+        "primary_avg_context_source_locality_score": _metric_value(
+            primary,
+            "avg_context_source_locality_score",
+        ),
+        "primary_avg_measured_context_source_locality_score": _metric_value(
+            primary,
+            "avg_measured_context_source_locality_score",
+        ),
+        "primary_total_unmeasured_context_source_locality_count": (
+            _positive_int(
+                primary.get("total_unmeasured_context_source_locality_count")
+            )
+            or 0
+        ),
         "primary_avg_bundle_source_type_diversity": _metric_value(
             primary,
             "avg_bundle_source_type_diversity",
@@ -419,6 +449,12 @@ def _answer_context_cutoff_metrics(
     bundle_preference_support_counts: list[int] = []
     bundle_visual_support_counts: list[int] = []
     bundle_contrast_counts: list[int] = []
+    answerability_scores: list[float] = []
+    measured_answerability_scores: list[float] = []
+    unmeasured_answerability_counts: list[int] = []
+    source_locality_scores: list[float] = []
+    measured_source_locality_scores: list[float] = []
+    unmeasured_source_locality_counts: list[int] = []
     missing_required_role_counts: Counter[str] = Counter()
     bundle_risk_reason_counts: Counter[str] = Counter()
     incomplete_role_requirement_count = 0
@@ -464,6 +500,30 @@ def _answer_context_cutoff_metrics(
         )
         source_ref_coverage_rates.append(
             _metric_value(context, "source_ref_coverage_rate")
+        )
+        answerability_scores.append(
+            _metric_value(context, "avg_answerability_score")
+        )
+        measured_answerability_score = _metric_value(
+            context,
+            "avg_measured_answerability_score",
+        )
+        if measured_answerability_score > 0:
+            measured_answerability_scores.append(measured_answerability_score)
+        unmeasured_answerability_counts.append(
+            _positive_int(context.get("unmeasured_answerability_count")) or 0
+        )
+        source_locality_scores.append(
+            _metric_value(context, "avg_source_locality_score")
+        )
+        measured_source_locality_score = _metric_value(
+            context,
+            "avg_measured_source_locality_score",
+        )
+        if measured_source_locality_score > 0:
+            measured_source_locality_scores.append(measured_source_locality_score)
+        unmeasured_source_locality_counts.append(
+            _positive_int(context.get("unmeasured_source_locality_count")) or 0
         )
         confidence_score = _metric_value(context, "bundle_confidence_score")
         if confidence_score > 0:
@@ -561,6 +621,20 @@ def _answer_context_cutoff_metrics(
         "avg_source_ref_item_count": _avg(source_ref_item_counts),
         "avg_source_refless_item_count": _avg(source_refless_item_counts),
         "avg_source_ref_coverage_rate": _avg(source_ref_coverage_rates),
+        "avg_context_answerability_score": _avg(answerability_scores),
+        "avg_measured_context_answerability_score": _avg(
+            measured_answerability_scores
+        ),
+        "total_unmeasured_context_answerability_count": sum(
+            unmeasured_answerability_counts
+        ),
+        "avg_context_source_locality_score": _avg(source_locality_scores),
+        "avg_measured_context_source_locality_score": _avg(
+            measured_source_locality_scores
+        ),
+        "total_unmeasured_context_source_locality_count": sum(
+            unmeasured_source_locality_counts
+        ),
         "avg_bundle_confidence_score": _avg(bundle_confidence_scores),
         "bundle_confidence_band_counts": dict(
             sorted(bundle_confidence_band_counts.items())
@@ -907,6 +981,40 @@ def _backfill_risk_stats(memories: Sequence[RetrievedMemory]) -> dict[str, objec
     return {
         "backfilled_broad_summary_count": broad_summary_count,
         "backfilled_conflict_or_stale_count": conflict_or_stale_count,
+    }
+
+
+def _quality_score_stats(memories: Sequence[RetrievedMemory]) -> dict[str, object]:
+    scored_memories = tuple(
+        memory for memory in memories if "answer_context_role" in memory.metadata
+    )
+    answerability_scores = tuple(
+        _metric_value(memory.metadata, "answer_context_answerability_score")
+        for memory in scored_memories
+    )
+    source_locality_scores = tuple(
+        _metric_value(memory.metadata, "answer_context_source_locality_score")
+        for memory in scored_memories
+    )
+    measured_answerability_scores = tuple(
+        score for score in answerability_scores if score > 0
+    )
+    measured_source_locality_scores = tuple(
+        score for score in source_locality_scores if score > 0
+    )
+    return {
+        "avg_answerability_score": _avg(answerability_scores),
+        "avg_measured_answerability_score": _avg(measured_answerability_scores),
+        "unmeasured_answerability_count": sum(
+            1 for score in answerability_scores if score <= 0
+        ),
+        "avg_source_locality_score": _avg(source_locality_scores),
+        "avg_measured_source_locality_score": _avg(
+            measured_source_locality_scores
+        ),
+        "unmeasured_source_locality_count": sum(
+            1 for score in source_locality_scores if score <= 0
+        ),
     }
 
 
