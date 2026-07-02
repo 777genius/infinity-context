@@ -421,7 +421,9 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
         ):
             terms.append("education")
     if re.search(
-        r"\b(?:what|which)\s+(?:company|job|occupation|profession|workplace)\b|"
+        r"\b(?:what|which)\s+"
+        r"(?:company|employer|job|occupation|profession|workplace)\b|"
+        r"\bwho\s+(?:is|was)\b.+\bemployer\b|"
         r"\bwhat\s+(?:is|was)\b.+\b(?:salary|wage|pay\s+rate|hourly\s+rate)\b|"
         r"\b(?:job|occupation|profession|workplace)\b|"
         r"\bwhere\b.+\bwork\b|"

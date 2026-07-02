@@ -4692,6 +4692,12 @@ def test_query_decomposition_expands_employment_profile_queries() -> None:
         expected_terms=("Acme Robotics",),
         answer="Acme Robotics",
     )
+    employer_case = _case(
+        case_id="employment-profile-employer",
+        question="Who is Alex's employer?",
+        expected_terms=("Acme Robotics",),
+        answer="Acme Robotics",
+    )
     workplace_case = _case(
         case_id="employment-profile-workplace",
         question="Where does Alex work?",
@@ -4716,6 +4722,12 @@ def test_query_decomposition_expands_employment_profile_queries() -> None:
         expected_terms=("Project Atlas",),
         answer="Project Atlas",
     )
+    employer_discussion_case = _case(
+        case_id="employment-profile-employer-discussion-guard",
+        question="What did Alex discuss with his employer?",
+        expected_terms=("Project Atlas",),
+        answer="Project Atlas",
+    )
     career_path_case = _case(
         case_id="employment-profile-career-guard",
         question="What career path has Caroline decided to persue?",
@@ -4726,6 +4738,9 @@ def test_query_decomposition_expands_employment_profile_queries() -> None:
     job_queries, job_metadata = rerank_module.decomposed_search_queries(job_case)
     company_queries, company_metadata = rerank_module.decomposed_search_queries(
         company_case
+    )
+    employer_queries, employer_metadata = rerank_module.decomposed_search_queries(
+        employer_case
     )
     workplace_queries, workplace_metadata = rerank_module.decomposed_search_queries(
         workplace_case
@@ -4738,6 +4753,9 @@ def test_query_decomposition_expands_employment_profile_queries() -> None:
     )
     project_queries, project_metadata = rerank_module.decomposed_search_queries(
         project_work_case
+    )
+    employer_discussion_queries, employer_discussion_metadata = (
+        rerank_module.decomposed_search_queries(employer_discussion_case)
     )
     career_queries, career_metadata = rerank_module.decomposed_search_queries(
         career_path_case
@@ -4755,6 +4773,15 @@ def test_query_decomposition_expands_employment_profile_queries() -> None:
     assert company_queries[2] == "alex employment job company employer work workplace"
     assert company_metadata["query_profile"]["relation_terms"] == ("employment",)
     assert company_metadata["query_profile"]["relation_categories"] == (
+        "employment_profile",
+    )
+
+    assert employer_queries[2] == "alex employment job company employer work workplace"
+    assert employer_metadata["query_profile"]["relation_terms"] == ("employment",)
+    assert employer_metadata["query_profile"]["relation_categories"] == (
+        "employment_profile",
+    )
+    assert employer_metadata["query_profile"]["evidence_need"] == (
         "employment_profile",
     )
 
@@ -4787,6 +4814,15 @@ def test_query_decomposition_expands_employment_profile_queries() -> None:
     assert "employment_profile" not in project_metadata["query_profile"][
         "relation_categories"
     ]
+    assert employer_discussion_queries[2] == (
+        "alex discus discuss discussion talk conversation employer"
+    )
+    assert "employment_profile" not in employer_discussion_metadata["query_profile"][
+        "relation_categories"
+    ]
+    assert employer_discussion_metadata["query_profile"]["evidence_need"] == (
+        "communication",
+    )
     assert career_queries[2] == "caroline career path work working think figuring"
     assert "employment_profile" not in career_metadata["query_profile"][
         "relation_categories"
@@ -9861,6 +9897,63 @@ def test_benchmark_rerank_boosts_employment_profile_evidence() -> None:
         > 0
     )
     assert employment_diagnostics["score_signals"][
+        "benchmark_typed_relation_support_roles"
+    ] == ["employment_support"]
+    assert (
+        topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        == 0
+    )
+
+
+def test_benchmark_rerank_boosts_employer_employment_evidence() -> None:
+    case = _case(
+        case_id="employment-employer-rerank",
+        question="Who is Alex's employer?",
+        expected_terms=("Acme Robotics",),
+        answer="Acme Robotics",
+        category=4,
+    )
+    topical_company = RetrievedMemory(
+        item_id="topical-company",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex talked about Acme Robotics with Maria."
+        ),
+        source_refs=("D1:1",),
+    )
+    employer_profile = RetrievedMemory(
+        item_id="employer-profile",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: My employer is Acme Robotics."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_company, employer_profile),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("employment_profile",)
+    assert reranked[0].item_id == "employer-profile"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    employer_diagnostics = diagnostics_by_id["employer-profile"]
+    topical_diagnostics = diagnostics_by_id["topical-company"]
+    assert employer_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["employment_profile"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert employer_diagnostics["score_signals"][
         "benchmark_typed_relation_support_roles"
     ] == ["employment_support"]
     assert (
