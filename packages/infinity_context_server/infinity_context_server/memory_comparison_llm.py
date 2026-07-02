@@ -11,7 +11,7 @@ import json
 import subprocess
 import tempfile
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -140,6 +140,9 @@ def _render_memory_evidence_line(memory: RetrievedMemory, *, index: int) -> str:
     )
     if proximity_count is not None:
         labels.append(f"bundle_proximity={proximity_count}")
+    support_counts = _bundle_support_counts(metadata)
+    if support_counts:
+        labels.append(f"bundle_support={','.join(support_counts)}")
     missing_roles = _string_sequence(
         metadata.get("answer_context_missing_required_roles")
     )
@@ -243,6 +246,21 @@ def _positive_int(value: object) -> int | None:
     except (TypeError, ValueError):
         return None
     return parsed if parsed > 0 else None
+
+
+def _bundle_support_counts(metadata: Mapping[str, object]) -> tuple[str, ...]:
+    counts: list[str] = []
+    causal = _positive_int(
+        metadata.get("answer_context_bundle_causal_support_count")
+    )
+    if causal is not None:
+        counts.append(f"causal:{causal}")
+    inference = _positive_int(
+        metadata.get("answer_context_bundle_inference_support_count")
+    )
+    if inference is not None:
+        counts.append(f"inference:{inference}")
+    return tuple(counts)
 
 
 def _string_sequence(value: object) -> tuple[str, ...]:

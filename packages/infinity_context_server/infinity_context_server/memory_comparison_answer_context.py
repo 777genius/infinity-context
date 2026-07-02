@@ -21,6 +21,8 @@ class AnswerContext:
     bundle_confidence_score: float = 0.0
     bundle_confidence_band: str = ""
     bundle_source_proximity_support_count: int = 0
+    bundle_causal_support_count: int = 0
+    bundle_inference_support_count: int = 0
     role_requirement_complete: bool | None = None
     missing_required_roles: tuple[str, ...] = ()
     bundle_risk_reason_codes: tuple[str, ...] = ()
@@ -39,6 +41,8 @@ class AnswerContext:
             "bundle_source_proximity_support_count": (
                 self.bundle_source_proximity_support_count
             ),
+            "bundle_causal_support_count": self.bundle_causal_support_count,
+            "bundle_inference_support_count": self.bundle_inference_support_count,
             "role_requirement_complete": self.role_requirement_complete,
             "missing_required_roles": list(self.missing_required_roles),
             "bundle_risk_reason_codes": list(self.bundle_risk_reason_codes),
@@ -124,6 +128,18 @@ def answer_context_from_evidence_bundle(
                 bundle_context.get(
                     "answer_context_bundle_source_proximity_support_count"
                 )
+            )
+            or 0
+        ),
+        bundle_causal_support_count=(
+            _positive_int(
+                bundle_context.get("answer_context_bundle_causal_support_count")
+            )
+            or 0
+        ),
+        bundle_inference_support_count=(
+            _positive_int(
+                bundle_context.get("answer_context_bundle_inference_support_count")
             )
             or 0
         ),
@@ -215,6 +231,8 @@ def _answer_context_cutoff_metrics(
     bundle_confidence_scores: list[float] = []
     bundle_confidence_band_counts: Counter[str] = Counter()
     bundle_source_proximity_support_counts: list[int] = []
+    bundle_causal_support_counts: list[int] = []
+    bundle_inference_support_counts: list[int] = []
     missing_required_role_counts: Counter[str] = Counter()
     bundle_risk_reason_counts: Counter[str] = Counter()
     incomplete_role_requirement_count = 0
@@ -261,6 +279,12 @@ def _answer_context_cutoff_metrics(
         bundle_source_proximity_support_counts.append(
             _positive_int(context.get("bundle_source_proximity_support_count")) or 0
         )
+        bundle_causal_support_counts.append(
+            _positive_int(context.get("bundle_causal_support_count")) or 0
+        )
+        bundle_inference_support_counts.append(
+            _positive_int(context.get("bundle_inference_support_count")) or 0
+        )
         if context.get("role_requirement_complete") is False:
             incomplete_role_requirement_count += 1
         missing_required_role_counts.update(
@@ -300,6 +324,14 @@ def _answer_context_cutoff_metrics(
         ),
         "total_bundle_source_proximity_support_count": sum(
             bundle_source_proximity_support_counts
+        ),
+        "avg_bundle_causal_support_count": _avg(bundle_causal_support_counts),
+        "total_bundle_causal_support_count": sum(bundle_causal_support_counts),
+        "avg_bundle_inference_support_count": _avg(
+            bundle_inference_support_counts
+        ),
+        "total_bundle_inference_support_count": sum(
+            bundle_inference_support_counts
         ),
         "incomplete_role_requirement_count": incomplete_role_requirement_count,
         "missing_required_role_counts": dict(
@@ -409,6 +441,14 @@ def _bundle_context_metadata(bundle: Mapping[str, object]) -> dict[str, object]:
     if source_proximity_support_count is not None:
         metadata["answer_context_bundle_source_proximity_support_count"] = (
             source_proximity_support_count
+        )
+    causal_support_count = _positive_int(quality.get("causal_support_count"))
+    if causal_support_count is not None:
+        metadata["answer_context_bundle_causal_support_count"] = causal_support_count
+    inference_support_count = _positive_int(quality.get("inference_support_count"))
+    if inference_support_count is not None:
+        metadata["answer_context_bundle_inference_support_count"] = (
+            inference_support_count
         )
     role_requirement_complete = bundle.get("role_requirement_complete")
     if not isinstance(role_requirement_complete, bool):
