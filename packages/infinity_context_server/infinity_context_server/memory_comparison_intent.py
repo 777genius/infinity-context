@@ -412,6 +412,23 @@ def infer_bundle_evidence_roles(
         roles.append("symbolic_meaning_support")
     if "communication" in evidence_need_set:
         roles.append("communication_support")
+    profile_role_by_need = {
+        "activity_profile": "activity_support",
+        "age_profile": "age_support",
+        "alias_profile": "alias_support",
+        "date_profile": "date_support",
+        "education_profile": "education_support",
+        "employment_profile": "employment_support",
+        "health_profile": "health_support",
+        "pet_profile": "pet_support",
+        "skill_profile": "skill_support",
+        "vehicle_profile": "vehicle_support",
+    }
+    roles.extend(
+        role
+        for need, role in profile_role_by_need.items()
+        if need in evidence_need_set
+    )
     if "commitment_profile" in evidence_need_set:
         roles.append("commitment_support")
     if "contact_profile" in evidence_need_set:

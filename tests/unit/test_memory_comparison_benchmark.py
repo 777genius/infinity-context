@@ -4620,6 +4620,9 @@ def test_query_decomposition_expands_health_profile_queries() -> None:
         "health_profile",
     )
     assert doctor_metadata["query_profile"]["evidence_need"] == ("health_profile",)
+    assert "health_support" in doctor_metadata["query_profile"][
+        "bundle_evidence_roles"
+    ]
 
     assert medication_queries[2] == (
         "alex health doctor therapist medication medicine prescription"
@@ -4646,6 +4649,9 @@ def test_query_decomposition_expands_health_profile_queries() -> None:
         "relation_categories"
     ]
     assert "health_profile" in dentist_metadata["query_profile"]["evidence_need"]
+    assert "health_support" in dentist_metadata["query_profile"][
+        "bundle_evidence_roles"
+    ]
     assert "dentist" in dentist_metadata["query_profile"]["lexical_terms"]
     assert "appointment" in dentist_metadata["query_profile"]["relation_variant_terms"]
     assert "dentist appointment" in dentist_queries[0].lower()
