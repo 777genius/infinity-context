@@ -295,6 +295,73 @@ def test_evidence_bundle_requires_preference_support_for_preference_queries() ->
     assert "preference_support" in support_item["planner_reason_codes"]
 
 
+def test_evidence_bundle_completes_typed_profile_support_role() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-health:qa:1",
+        question="What medicine does Alex take?",
+        expected_terms=("Zyrtec",),
+        memory_scope_external_ref="locomo-conv-health",
+        thread_external_ref="locomo-conv-health",
+        metadata={"category": 4},
+    )
+
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text="D1:1 Alex keeps Zyrtec in the kitchen drawer.",
+                rank=1,
+                item_id="primary",
+                source_refs=("D1:1",),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.92,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "speaker_hits": ["alex"],
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+            RetrievedMemory(
+                text="D2:3 Alex: I take allergy medicine every morning.",
+                rank=2,
+                item_id="health-support",
+                source_refs=("D2:3",),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.78,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "relation_category_hits": ["health_profile"],
+                            "speaker_hits": ["alex"],
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+        ),
+    )
+
+    support_item = next(
+        item for item in bundle["items"] if item["id"] == "health-support"
+    )
+
+    assert bundle["required_roles"] == ["primary", "health_support"]
+    assert bundle["satisfied_required_roles"] == ["primary", "health_support"]
+    assert bundle["role_requirement_complete"] is True
+    assert support_item["role"] == "health_support"
+    assert support_item["relation_category_hits"] == ["health_profile"]
+    assert "health_support" in support_item["planner_reason_codes"]
+    quality = bundle["bundle_planner"]["bundle_quality"]
+    assert quality["typed_relation_support_count"] == 1
+    assert quality["typed_relation_support_counts"] == {"health_support": 1}
+
+
 def test_evidence_bundle_requires_visual_support_for_visual_queries() -> None:
     case = PublicBenchmarkCase(
         benchmark="locomo",

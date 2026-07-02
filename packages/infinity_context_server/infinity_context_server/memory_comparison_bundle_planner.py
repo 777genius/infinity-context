@@ -18,6 +18,25 @@ BundleRole = str
 _TURN_REF_RE = re.compile(r"\bD\d+:\d+\b")
 _TURN_REF_PARTS_RE = re.compile(r"\bD(?P<dialogue>\d+):(?P<turn>\d+)\b")
 _SOURCE_PROXIMITY_WINDOW = 3
+_TYPED_RELATION_SUPPORT_CATEGORIES = {
+    "activity_support": frozenset({"activity_profile"}),
+    "age_support": frozenset({"age_profile"}),
+    "alias_support": frozenset({"alias_profile"}),
+    "commitment_support": frozenset({"commitment_profile"}),
+    "contact_support": frozenset({"contact_profile"}),
+    "current_goal_support": frozenset({"current_goal"}),
+    "date_support": frozenset({"date_profile"}),
+    "diet_support": frozenset({"diet_profile"}),
+    "education_support": frozenset({"education_profile"}),
+    "employment_support": frozenset({"employment_profile"}),
+    "health_support": frozenset({"health_profile"}),
+    "identity_support": frozenset({"identity_profile"}),
+    "pet_support": frozenset({"pet_profile"}),
+    "skill_support": frozenset({"skill_profile"}),
+    "status_support": frozenset({"status_profile"}),
+    "support_goal_support": frozenset({"support_goal"}),
+    "vehicle_support": frozenset({"vehicle_profile"}),
+}
 _PREDICATE_REQUIRED_ROLES = frozenset(
     {
         "causal_support",
@@ -32,6 +51,7 @@ _PREDICATE_REQUIRED_ROLES = frozenset(
         "symbolic_meaning_support",
         "temporal_support",
         "visual_support",
+        *_TYPED_RELATION_SUPPORT_CATEGORIES,
     }
 )
 _DIVERSITY_EXEMPT_ROLES = frozenset(
@@ -585,6 +605,9 @@ def _role_for_candidate(
         and _candidate_has_inference_support(candidate)
     ):
         return "inference_support"
+    for role in required_roles:
+        if _candidate_has_typed_relation_support(candidate, str(role)):
+            return str(role)
     if (
         candidate.has_temporal_surface
         or candidate.has_sequence_surface
@@ -688,6 +711,11 @@ def _satisfied_required_roles(
             satisfied.add(role)
         if role == "causal_support" and any(
             _candidate_has_causal_support(item.candidate) for item in selected
+        ):
+            satisfied.add(role)
+        if role in _TYPED_RELATION_SUPPORT_CATEGORIES and any(
+            _candidate_has_typed_relation_support(item.candidate, role)
+            for item in selected
         ):
             satisfied.add(role)
     return tuple(role for role in required_roles if role in satisfied)
@@ -838,6 +866,8 @@ def _item_can_satisfy_required_role(
         return _candidate_has_inference_support(item.candidate)
     if role == "causal_support":
         return _candidate_has_causal_support(item.candidate)
+    if role in _TYPED_RELATION_SUPPORT_CATEGORIES:
+        return _candidate_has_typed_relation_support(item.candidate, role)
     return item.role == role
 
 
@@ -1128,6 +1158,24 @@ def _candidate_has_causal_support(candidate: EvidenceBundleCandidate) -> bool:
     return bool(causal_terms.intersection(candidate.relation_hits))
 
 
+def _candidate_has_typed_relation_support(
+    candidate: EvidenceBundleCandidate,
+    role: str,
+) -> bool:
+    required_categories = _TYPED_RELATION_SUPPORT_CATEGORIES.get(role)
+    if not required_categories:
+        return False
+    if candidate.broad_summary or candidate.conflict_or_stale:
+        return False
+    if not (candidate.entity_hits or candidate.speaker_hits):
+        return False
+    if _candidate_has_measured_weak_source_locality(candidate):
+        return False
+    if candidate.answerability_score and candidate.answerability_score < 0.55:
+        return False
+    return bool(required_categories.intersection(candidate.relation_category_hits))
+
+
 def _candidate_has_measured_weak_source_locality(
     candidate: EvidenceBundleCandidate,
 ) -> bool:
@@ -1315,6 +1363,10 @@ def _reason_codes(
             reasons.append("exchange_relation_category_hits")
         if candidate.relation_hits:
             reasons.append("exchange_relation_hits")
+    if role in _TYPED_RELATION_SUPPORT_CATEGORIES:
+        reasons.append(role)
+        if candidate.relation_category_hits:
+            reasons.append("typed_relation_category_hits")
     if candidate.focused_evidence_score > 0:
         reasons.append("focused_turn")
     if candidate.answerability_score >= 0.8:
@@ -1384,6 +1436,8 @@ def _role_order(item: PlannedEvidenceItem) -> float:
         "entity_disambiguation": 5,
         "supporting": 5,
     }
+    if item.role in _TYPED_RELATION_SUPPORT_CATEGORIES:
+        return 3.0
     return float(role_order.get(item.role, 9))
 
 
@@ -1517,6 +1571,8 @@ def _bundle_quality_diagnostics(
             "symbolic_meaning_support_count": 0,
             "preference_support_count": 0,
             "visual_support_count": 0,
+            "typed_relation_support_count": 0,
+            "typed_relation_support_counts": {},
             "location_relation_category_hit_count": 0,
             "source_proximity_support_count": 0,
             "source_proximity_closest_distance": None,
@@ -1593,6 +1649,10 @@ def _bundle_quality_diagnostics(
         1 for item in items if item.role == "preference_support"
     )
     visual_support_count = sum(1 for item in items if item.role == "visual_support")
+    typed_relation_support_counts = Counter(
+        item.role for item in items if item.role in _TYPED_RELATION_SUPPORT_CATEGORIES
+    )
+    typed_relation_support_count = sum(typed_relation_support_counts.values())
     location_relation_category_hit_count = sum(
         1
         for item in items
@@ -1692,6 +1752,7 @@ def _bundle_quality_diagnostics(
             symbolic_meaning_support_count=symbolic_meaning_support_count,
             preference_support_count=preference_support_count,
             visual_support_count=visual_support_count,
+            typed_relation_support_counts=typed_relation_support_counts,
             location_relation_category_hit_count=location_relation_category_hit_count,
             source_proximity_support_count=source_proximity_support_count,
             missing_required_roles=missing_roles,
@@ -1740,6 +1801,10 @@ def _bundle_quality_diagnostics(
         "symbolic_meaning_support_count": symbolic_meaning_support_count,
         "preference_support_count": preference_support_count,
         "visual_support_count": visual_support_count,
+        "typed_relation_support_count": typed_relation_support_count,
+        "typed_relation_support_counts": dict(
+            sorted(typed_relation_support_counts.items())
+        ),
         "location_relation_category_hit_count": (
             location_relation_category_hit_count
         ),
@@ -1845,6 +1910,7 @@ def _bundle_quality_reason_codes(
     symbolic_meaning_support_count: int,
     preference_support_count: int,
     visual_support_count: int,
+    typed_relation_support_counts: Mapping[str, int],
     location_relation_category_hit_count: int,
     source_proximity_support_count: int,
     missing_required_roles: Sequence[str],
@@ -1901,6 +1967,13 @@ def _bundle_quality_reason_codes(
         reasons.append("has_preference_support_evidence")
     if visual_support_count:
         reasons.append("has_visual_support_evidence")
+    if typed_relation_support_counts:
+        reasons.append("has_typed_relation_support_evidence")
+        reasons.extend(
+            f"has_{role}_evidence"
+            for role, count in sorted(typed_relation_support_counts.items())
+            if count > 0
+        )
     if location_relation_category_hit_count:
         reasons.append("has_location_relation_category_evidence")
     if source_proximity_support_count:
