@@ -135,6 +135,11 @@ def _render_memory_evidence_line(memory: RetrievedMemory, *, index: int) -> str:
         labels.append(f"bundle={confidence_band}:{confidence}")
     elif confidence is not None:
         labels.append(f"bundle={confidence}")
+    proximity_count = _positive_int(
+        metadata.get("answer_context_bundle_source_proximity_support_count")
+    )
+    if proximity_count is not None:
+        labels.append(f"bundle_proximity={proximity_count}")
     missing_roles = _string_sequence(
         metadata.get("answer_context_missing_required_roles")
     )
@@ -228,6 +233,16 @@ def _prompt_score(value: object) -> str | None:
     if parsed <= 0:
         return None
     return f"{parsed:.2f}".rstrip("0").rstrip(".")
+
+
+def _positive_int(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        parsed = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
 
 
 def _string_sequence(value: object) -> tuple[str, ...]:

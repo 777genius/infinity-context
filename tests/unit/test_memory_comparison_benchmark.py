@@ -221,6 +221,7 @@ def test_render_answer_prompt_labels_planned_evidence_context() -> None:
                     ),
                     "answer_context_bundle_confidence_score": 0.68,
                     "answer_context_bundle_confidence_band": "medium",
+                    "answer_context_bundle_source_proximity_support_count": 1,
                     "answer_context_role_requirement_complete": False,
                     "answer_context_missing_required_roles": ("contrast",),
                     "answer_context_bundle_risk_reason_codes": (
@@ -246,6 +247,7 @@ def test_render_answer_prompt_labels_planned_evidence_context() -> None:
     assert "query_roles=location_support" in prompt
     assert "relations=location_transition" in prompt
     assert "bundle=medium:0.68" in prompt
+    assert "bundle_proximity=1" in prompt
     assert "missing_roles=contrast" in prompt
     assert "role_complete=false" in prompt
     assert "reasons=role:primary,query_support" in prompt
