@@ -5447,6 +5447,12 @@ def test_benchmark_rerank_boosts_symbolic_meaning_evidence() -> None:
         object_diagnostics["score_signals"]["benchmark_symbolic_meaning_boost"]
         == 0
     )
+    assert "missing_symbolic_meaning_evidence" in object_diagnostics[
+        "benchmark_candidate_features"
+    ]["answerability_reason_codes"]
+    assert "missing_symbolic_meaning_evidence_cap" in object_diagnostics[
+        "score_signals"
+    ]["benchmark_provenance_safety_reason_codes"]
     assert "keepsake" not in json.dumps(metadata["retrieval_intent"])
 
 

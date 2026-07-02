@@ -344,8 +344,15 @@ def _provenance_safety_cap(
         and not _has_role_specific_grounding(features, score_signals=score_signals)
     ):
         caps.append((0.26, "low_answerability_cap"))
-    if "missing_emotion_response_evidence" in set(features.answerability_reason_codes):
-        caps.append((0.4, "missing_emotion_response_evidence_cap"))
+    answerability_reasons = set(features.answerability_reason_codes)
+    for reason in (
+        "missing_registration_event_evidence",
+        "missing_symbolic_meaning_evidence",
+        "missing_participation_event_evidence",
+        "missing_emotion_response_evidence",
+    ):
+        if reason in answerability_reasons:
+            caps.append((0.4, f"{reason}_cap"))
     if features.conflict_or_stale and not _has_contrast_grounding(score_signals):
         caps.append((0.22, "unsupported_stale_evidence_cap"))
     if not caps:

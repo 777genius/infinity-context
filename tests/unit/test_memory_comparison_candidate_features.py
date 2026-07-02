@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from infinity_context_server.memory_comparison_candidate_features import (
     build_candidate_evidence_features,
 )
@@ -97,6 +98,98 @@ def test_candidate_features_capture_focused_direct_turn_and_provenance() -> None
     assert diagnostics["query_roles"] == ["multi_hop_bridge"]
     assert diagnostics["bridge_query_hit"] is True
     assert diagnostics["source_ref_dedupe_key"] == "source_turn_refs:D2:14"
+
+
+@pytest.mark.parametrize(
+    ("category", "relation_terms", "relation_variant_terms", "support_terms"),
+    (
+        (
+            "registration_event",
+            ("register",),
+            ("signed", "class", "course", "workshop"),
+            {"signed", "class"},
+        ),
+        (
+            "symbolic_meaning",
+            ("necklace", "symbolize"),
+            ("symbol", "mean", "represent", "gift", "grandma"),
+            {"represent", "gift", "grandma"},
+        ),
+        (
+            "participation_event",
+            ("visit",),
+            ("visited", "studio", "place", "event"),
+            {"visited", "studio"},
+        ),
+    ),
+)
+def test_candidate_features_require_typed_relation_evidence_for_answerability(
+    category: str,
+    relation_terms: tuple[str, ...],
+    relation_variant_terms: tuple[str, ...],
+    support_terms: set[str],
+) -> None:
+    relation_category_terms = {
+        category: (*relation_terms, *relation_variant_terms),
+    }
+    weak = build_candidate_evidence_features(
+        RetrievedMemory(
+            item_id="weak-topic",
+            rank=1,
+            text="D1:1 Caroline: I mentioned the topic briefly.",
+            source_refs=("D1:1",),
+        ),
+        memory_terms={"caroline", *relation_terms[:1]},
+        query_terms=("caroline", *relation_terms),
+        relation_terms=relation_terms,
+        relation_variant_terms=relation_variant_terms,
+        relation_category_terms=relation_category_terms,
+        entities=("caroline",),
+        entity_hits=("caroline",),
+        speaker_hits=("caroline",),
+        high_signal_relation_terms=set(relation_variant_terms),
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+    grounded = build_candidate_evidence_features(
+        RetrievedMemory(
+            item_id="grounded-evidence",
+            rank=2,
+            text="D2:3 Caroline: I described the evidence clearly.",
+            source_refs=("D2:3",),
+        ),
+        memory_terms={"caroline", *relation_terms[:1], *support_terms},
+        query_terms=("caroline", *relation_terms),
+        relation_terms=relation_terms,
+        relation_variant_terms=relation_variant_terms,
+        relation_category_terms=relation_category_terms,
+        entities=("caroline",),
+        entity_hits=("caroline",),
+        speaker_hits=("caroline",),
+        high_signal_relation_terms=set(relation_variant_terms),
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+
+    assert weak.relation_category_hits == ()
+    assert f"missing_{category}_evidence" in weak.answerability_reason_codes
+    assert category in grounded.relation_category_hits
+    assert f"{category}_evidence" in grounded.answerability_reason_codes
+    assert grounded.answerability_score > weak.answerability_score
 
 
 def test_candidate_features_use_text_turn_refs_for_dedupe_when_source_refs_are_generic() -> None:

@@ -418,25 +418,21 @@ def _relation_category_hits(
     query_term_set = set(query_terms)
     for category, terms in relation_category_terms.items():
         term_values = tuple(str(term) for term in terms if str(term).strip())
-        if category == "registration_event" and _has_registration_event_support(
-            memory_terms
-        ):
-            hits.append(str(category))
+        if category == "registration_event":
+            if _has_registration_event_support(memory_terms):
+                hits.append(str(category))
             continue
-        if category == "symbolic_meaning" and _has_symbolic_meaning_support(
-            memory_terms
-        ):
-            hits.append(str(category))
+        if category == "symbolic_meaning":
+            if _has_symbolic_meaning_support(memory_terms):
+                hits.append(str(category))
             continue
-        if category == "participation_event" and _has_participation_event_support(
-            memory_terms
-        ):
-            hits.append(str(category))
+        if category == "participation_event":
+            if _has_participation_event_support(memory_terms):
+                hits.append(str(category))
             continue
-        if category == "emotion_response" and _has_emotion_response_support(
-            memory_terms
-        ):
-            hits.append(str(category))
+        if category == "emotion_response":
+            if _has_emotion_response_support(memory_terms):
+                hits.append(str(category))
             continue
         grounding_terms = tuple(term for term in term_values if term not in query_term_set)
         terms_to_match = grounding_terms or term_values
@@ -759,13 +755,22 @@ def _intent_answerability(
     if has_visual_terms:
         scores.append(1.0 if has_visual_evidence else 0.0)
         reasons.append("visual_evidence" if has_visual_evidence else "missing_visual_evidence")
-    if "emotion_response" in set(relation_categories):
-        if "emotion_response" in set(relation_category_hits):
+    category_set = set(relation_categories)
+    category_hit_set = set(relation_category_hits)
+    for category in (
+        "registration_event",
+        "symbolic_meaning",
+        "participation_event",
+        "emotion_response",
+    ):
+        if category not in category_set:
+            continue
+        if category in category_hit_set:
             scores.append(1.0)
-            reasons.append("emotion_response_evidence")
+            reasons.append(f"{category}_evidence")
         else:
             scores.append(0.2)
-            reasons.append("missing_emotion_response_evidence")
+            reasons.append(f"missing_{category}_evidence")
     if has_multi_hop_markers:
         scores.append(1.0 if relation_hit_count >= 2 and overlap_count >= 2 else 0.35)
         reasons.append(
