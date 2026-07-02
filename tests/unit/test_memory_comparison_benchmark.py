@@ -6405,9 +6405,19 @@ def test_benchmark_rerank_boosts_named_possessive_status_evidence() -> None:
         ),
         source_refs=("D1:1",),
     )
+    named_app_distractor = RetrievedMemory(
+        item_id="named-app-distractor",
+        rank=2,
+        score=0.3,
+        text=(
+            "session_1 turn D1:2 date: 10:05 am "
+            "D1:2 Dana discussed Dana's roommate matching app with Riley."
+        ),
+        source_refs=("D1:2",),
+    )
     named_possessive_status = RetrievedMemory(
         item_id="named-possessive-status",
-        rank=2,
+        rank=3,
         score=0.0,
         text=(
             "session_2 turn D2:3 date: 10:15 am "
@@ -6418,7 +6428,7 @@ def test_benchmark_rerank_boosts_named_possessive_status_evidence() -> None:
 
     reranked, metadata = rerank_module.benchmark_rerank_memories(
         case,
-        (topical_roommate, named_possessive_status),
+        (topical_roommate, named_app_distractor, named_possessive_status),
     )
 
     assert metadata["applied"] is True
@@ -6429,10 +6439,14 @@ def test_benchmark_rerank_boosts_named_possessive_status_evidence() -> None:
     }
     status_diagnostics = diagnostics_by_id["named-possessive-status"]
     topical_diagnostics = diagnostics_by_id["topical-roommate"]
+    app_diagnostics = diagnostics_by_id["named-app-distractor"]
     assert status_diagnostics["benchmark_candidate_features"][
         "relation_category_hits"
     ] == ["status_profile"]
     assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert app_diagnostics["benchmark_candidate_features"][
         "relation_category_hits"
     ] == []
     assert (

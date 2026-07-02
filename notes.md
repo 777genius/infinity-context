@@ -105,6 +105,26 @@
 - `git push origin main` -> still blocked because the non-interactive runtime
   has no GitHub username/credential prompt available.
 
+## 2026-07-02 Follow-up 20
+
+- Tightened named status relation matching so possessive role phrases require
+  a named person relation surface such as "Riley is Dana's roommate" or
+  "Dana's roommate is Riley." A topical phrase like "Dana's roommate matching
+  app" no longer satisfies `status_profile`.
+- Expanded the named-status rerank regression with a higher-scored named app
+  distractor to prove it is not treated as typed status evidence.
+
+## Verification
+
+- `uv run --extra dev pytest -q tests/unit/test_memory_comparison_benchmark.py::test_benchmark_rerank_boosts_named_possessive_status_evidence tests/unit/test_memory_comparison_benchmark.py::test_benchmark_rerank_boosts_status_profile_evidence`
+  -> 2 passed, 1 warning.
+- `uv run --extra dev pytest -q tests/unit/test_memory_comparison*.py`
+  -> 511 passed, 1 warning.
+- `uv run --extra dev ruff check packages/infinity_context_server/infinity_context_server/memory_comparison_relation_support.py tests/unit/test_memory_comparison_benchmark.py`
+  -> passed.
+- `git push origin main` -> still blocked because the non-interactive runtime
+  has no GitHub username/credential prompt available.
+
 ## 2026-07-02 Follow-up 18
 
 - Allowed answerability boosts for grounded typed category evidence even when
