@@ -5260,6 +5260,24 @@ def test_query_decomposition_expands_skill_profile_queries() -> None:
         expected_terms=("CPR",),
         answer="CPR",
     )
+    learning_case = _case(
+        case_id="skill-profile-learning-language",
+        question="Which language is Tim learning?",
+        expected_terms=("Spanish",),
+        answer="Spanish",
+    )
+    programming_case = _case(
+        case_id="skill-profile-programming-language",
+        question="What programming languages has James worked with?",
+        expected_terms=("Python",),
+        answer="Python",
+    )
+    learned_skill_case = _case(
+        case_id="skill-profile-learned-skill",
+        question="What is a skill that Audrey learned to take care of her dogs?",
+        expected_terms=("grooming",),
+        answer="grooming",
+    )
     park_game_case = _case(
         case_id="skill-profile-park-game-guard",
         question="What game did Alex play at the park?",
@@ -5299,6 +5317,15 @@ def test_query_decomposition_expands_skill_profile_queries() -> None:
     )
     certification_queries, certification_metadata = (
         rerank_module.decomposed_search_queries(certification_case)
+    )
+    learning_queries, learning_metadata = rerank_module.decomposed_search_queries(
+        learning_case
+    )
+    programming_queries, programming_metadata = rerank_module.decomposed_search_queries(
+        programming_case
+    )
+    learned_skill_queries, learned_skill_metadata = (
+        rerank_module.decomposed_search_queries(learned_skill_case)
     )
     _, park_game_metadata = rerank_module.decomposed_search_queries(park_game_case)
     _, birth_certificate_metadata = rerank_module.decomposed_search_queries(
@@ -5350,6 +5377,26 @@ def test_query_decomposition_expands_skill_profile_queries() -> None:
     assert "certification" in certification_metadata["query_profile"][
         "relation_variant_terms"
     ]
+
+    assert learning_queries[2] == "tim skill language learn speak spoken know"
+    assert learning_metadata["query_profile"]["relation_categories"] == (
+        "skill_profile",
+    )
+    assert learning_metadata["query_profile"]["evidence_need"] == ("skill_profile",)
+    assert programming_queries[2] == "james skill language program work speak spoken"
+    assert programming_metadata["query_profile"]["relation_categories"] == (
+        "skill_profile",
+    )
+    assert programming_metadata["query_profile"]["evidence_need"] == (
+        "skill_profile",
+    )
+    assert learned_skill_queries[2] == "audrey skill language learn take care dogs"
+    assert learned_skill_metadata["query_profile"]["relation_categories"] == (
+        "skill_profile",
+    )
+    assert learned_skill_metadata["query_profile"]["evidence_need"] == (
+        "skill_profile",
+    )
 
     assert "skill_profile" not in park_game_metadata["query_profile"][
         "relation_categories"

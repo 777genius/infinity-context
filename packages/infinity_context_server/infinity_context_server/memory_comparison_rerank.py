@@ -1260,6 +1260,9 @@ def _query_retrieval_intent(case: PublicBenchmarkCase) -> RetrievalIntent:
         question=question,
         relation_terms=relation_terms,
     )
+    normalized_question = re.sub(r"[^0-9a-z]+", " ", question.casefold()).strip()
+    if "skill" not in relation_terms and _has_skill_profile_question(normalized_question):
+        relation_terms = (*relation_terms, "skill")
     relation_variant_terms = tuple(
         dict.fromkeys(
             variant
@@ -1594,6 +1597,11 @@ def _has_skill_profile_question(normalized_question: str) -> bool:
             r"\blanguages?\b.+\b(?:speak|know|fluent|bilingual)\b|"
             r"\b(?:speak|know)\b.+\blanguages?\b|"
             r"\b(?:fluent|bilingual)\b.+\blanguages?\b|"
+            r"\blanguages?\b.+\blearn(?:ed|ing)?\b|"
+            r"\blearn(?:ed|ing)?\b.+\blanguages?\b|"
+            r"\bprogramming\s+languages?\b|\blanguages?\b.+\bprogramming\b|"
+            r"\bskill\b.+\blearn(?:ed|ing)?\b|"
+            r"\blearn(?:ed|ing)?\b.+\bskill\b|"
             r"\b(?:certification|credential)\b|"
             r"\bcertified\s+in\b|"
             r"\binstrument\b.+\bplay\b|\bplay\b.+\binstrument\b|"

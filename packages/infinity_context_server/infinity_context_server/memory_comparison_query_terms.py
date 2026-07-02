@@ -907,6 +907,35 @@ def _skill_support_query_terms(
         and term not in relation_variant_terms
         and term not in entity_tokens
     )
+    if "program" in lexical_term_set and "language" in lexical_term_set:
+        return tuple(
+            dict.fromkeys(
+                (
+                    "skill",
+                    "language",
+                    "program",
+                    *(term for term in ("work", "code", "coding") if term in lexical_term_set),
+                    "speak",
+                    "spoken",
+                )
+            )
+        )
+    if "learn" in lexical_term_set and (
+        "language" in lexical_term_set or "skill" in lexical_term_set
+    ):
+        return tuple(
+            dict.fromkeys(
+                (
+                    "skill",
+                    "language",
+                    "learn",
+                    *topical_terms[:4],
+                    "speak",
+                    "spoken",
+                    "know",
+                )
+            )
+        )
     return tuple(
         dict.fromkeys(
             (
