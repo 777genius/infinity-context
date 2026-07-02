@@ -5621,9 +5621,19 @@ def test_benchmark_rerank_boosts_current_goal_over_origin_history() -> None:
     }
     goal_diagnostics = diagnostics_by_id["current-goal"]
     origin_diagnostics = diagnostics_by_id["origin-history"]
+    future_plan_diagnostics = diagnostics_by_id["future-plan"]
     assert goal_diagnostics["benchmark_candidate_features"][
         "relation_category_hits"
     ] == ["current_goal"]
+    assert future_plan_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["current_goal"]
+    assert origin_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert "missing_current_goal_evidence" in origin_diagnostics[
+        "benchmark_candidate_features"
+    ]["answerability_reason_codes"]
     assert (
         goal_diagnostics["score_signals"]["benchmark_current_goal_context_boost"]
         > 0

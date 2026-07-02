@@ -277,9 +277,24 @@ def _has_activity_support(memory_terms: set[str]) -> bool:
     )
 
 
+def _has_current_goal_support(memory_terms: set[str]) -> bool:
+    if {"goal", "future"} <= memory_terms:
+        return True
+    if "goal" in memory_terms and {"next", "plan", "soon"} & memory_terms:
+        return True
+    if {"hope", "plan"} <= memory_terms:
+        return True
+    if {"planned", "soon"} <= memory_terms:
+        return True
+    if "want" in memory_terms and {"goal", "future", "plan", "soon"} & memory_terms:
+        return True
+    return bool("plan" in memory_terms and {"future", "next", "soon"} & memory_terms)
+
+
 _TYPED_SUPPORT_CHECKS: dict[str, Callable[[set[str]], bool]] = {
     "activity": _has_activity_support,
     "communication": _has_communication_support,
+    "current_goal": _has_current_goal_support,
     "emotion_response": _has_emotion_response_support,
     "exchange": _has_exchange_support,
     "participation_event": _has_participation_event_support,

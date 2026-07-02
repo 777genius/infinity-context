@@ -653,6 +653,7 @@ def _intent_answerability(
         "exchange",
         "status_profile",
         "activity",
+        "current_goal",
     ):
         if category not in category_set:
             continue
