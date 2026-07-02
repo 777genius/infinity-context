@@ -237,8 +237,6 @@ def bundle_has_temporal_support(bundle: Mapping[str, object]) -> bool:
 
 
 def bundle_has_contrast_support(bundle: Mapping[str, object]) -> bool:
-    if "contrast" in bundle_roles(bundle):
-        return True
     return any(
         bool(
             item.get("contrast_surface")
@@ -460,32 +458,6 @@ def _query_profile_and_intent(
     return (
         _mapping(query_decomposition.get("query_profile")),
         _mapping(query_decomposition.get("retrieval_intent")),
-    )
-
-
-def _bundle_has_role_or_reason(
-    bundle: Mapping[str, object],
-    *,
-    role: str,
-    reason: str,
-    require_grounding: bool,
-    speaker_grounding: bool = False,
-) -> bool:
-    if not require_grounding:
-        return role in bundle_roles(bundle) or bundle_has_planner_reason(bundle, reason)
-    return any(
-        bool(
-            (
-                str(item.get("role") or "").strip() == role
-                or reason in _str_tuple(item.get("planner_reason_codes"))
-            )
-            and _passes_person_grounding(
-                item,
-                require_grounding=require_grounding,
-                speaker_grounding=speaker_grounding,
-            )
-        )
-        for item in _bundle_items(bundle)
     )
 
 
