@@ -246,6 +246,11 @@ def infer_relation_intents(
             relation_terms=relation_terms,
         ):
             continue
+        if category == "date_profile" and not _has_date_profile_intent(
+            question=question,
+            relation_terms=relation_terms,
+        ):
+            continue
         if category == "communication" and not _has_communication_intent(
             question=question,
             relation_terms=relation_terms,
@@ -408,6 +413,7 @@ def merge_relation_evidence_needs(
         "employment_profile",
         "age_profile",
         "alias_profile",
+        "date_profile",
         "health_profile",
         "pet_profile",
         "skill_profile",
@@ -768,6 +774,24 @@ def _has_vehicle_profile_intent(
             r"\b(?:drive|have|has|own|color)\b|"
             r"\bdrive\s+(?:a|an|the|my|his|her|their)\s+"
             r"(?:car|vehicle|truck|suv|sedan|van)\b",
+            normalized_question,
+        )
+    )
+
+
+def _has_date_profile_intent(
+    *,
+    question: str,
+    relation_terms: tuple[str, ...],
+) -> bool:
+    if not {"anniversary", "birthday"} & set(relation_terms):
+        return False
+    normalized_question = re.sub(r"[^0-9a-z]+", " ", question.casefold()).strip()
+    return bool(
+        re.search(
+            r"\bwhen\b.+\b(?:anniversary|birthday)\b|"
+            r"\bwhat\s+(?:is|was)\b.+\b(?:anniversary|birthday)\b|"
+            r"\b(?:anniversary|birthday)\b.+\b(?:date|when)\b",
             normalized_question,
         )
     )
@@ -1220,6 +1244,21 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
         ),
         "markers": frozenset(),
         "evidence_need": "alias_profile",
+    },
+    "date_profile": {
+        "terms": frozenset({"anniversary", "birthday"}),
+        "variants": frozenset(
+            {
+                "anniversary",
+                "birthday",
+                "born",
+                "date",
+                "month",
+                "year",
+            }
+        ),
+        "markers": frozenset(),
+        "evidence_need": "date_profile",
     },
     "pet_profile": {
         "terms": frozenset({"pet"}),

@@ -18,6 +18,7 @@ RELATION_QUERY_VARIANTS = {
         "unplug",
     ),
     "age": ("old", "years", "year", "birthday", "born"),
+    "anniversary": ("date", "month", "year", "wedding", "married"),
     "advise": ("advised", "recommend", "recommended", "suggest", "suggested"),
     "ask": ("asked", "request", "requested", "told"),
     "attend": (

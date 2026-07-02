@@ -165,6 +165,7 @@ _HIGH_SIGNAL_RELATION_VARIANTS = {
 _RELATION_QUERY_TERMS = {
     "activity",
     "age",
+    "anniversary",
     "advise",
     "ask",
     "attend",

@@ -27,6 +27,8 @@ def typed_relation_category_support(
         return _has_age_profile_support(memory_terms, memory_text=memory_text)
     if category == "alias_profile":
         return _has_alias_profile_support(memory_terms, memory_text=memory_text)
+    if category == "date_profile":
+        return _has_date_profile_support(memory_terms, memory_text=memory_text)
     if category == "health_profile":
         return _has_health_profile_support(memory_terms, memory_text=memory_text)
     if category == "pet_profile":
@@ -239,6 +241,46 @@ def _has_alias_profile_support(
         alias_surface
         or (naming_surface and _ALIAS_PROFILE_SURFACE_RE.search(memory_text))
         or _ALIAS_PROFILE_SURFACE_RE.search(memory_text)
+    )
+
+
+_DATE_PROFILE_SURFACE_RE = re.compile(
+    r"\b(?:anniversary|birthday)\s+(?:is|was|falls|fell)\s+"
+    r"(?:on\s+|in\s+)?(?:\d{1,2}(?:st|nd|rd|th)?|"
+    r"january|february|march|april|may|june|july|august|"
+    r"september|october|november|december)\b"
+    r"|\bborn\s+(?:on|in)\s+"
+    r"(?:\d{1,2}(?:st|nd|rd|th)?|"
+    r"january|february|march|april|may|june|july|august|"
+    r"september|october|november|december)\b",
+    re.IGNORECASE,
+)
+
+
+def _has_date_profile_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
+    date_subject = {"anniversary", "birthday"} & memory_terms
+    date_surface = {
+        "april",
+        "august",
+        "december",
+        "february",
+        "january",
+        "july",
+        "june",
+        "march",
+        "may",
+        "month",
+        "november",
+        "october",
+        "september",
+    } & memory_terms
+    return bool(
+        (date_subject and date_surface)
+        or _DATE_PROFILE_SURFACE_RE.search(memory_text)
     )
 
 
@@ -1070,6 +1112,7 @@ _TYPED_SUPPORT_CHECKS: dict[str, Callable[[set[str]], bool]] = {
     "causal": _has_causal_support,
     "contrast": _has_contrast_support,
     "current_goal": _has_current_goal_support,
+    "date_profile": _has_date_profile_support,
     "education_profile": _has_education_profile_support,
     "employment_profile": _has_employment_profile_support,
     "emotion_response": _has_emotion_response_support,
