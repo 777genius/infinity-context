@@ -403,6 +403,17 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
     ):
         terms.append("skill")
     if re.search(
+        r"\b(?:what|which|kind\s+of|color)\b.+"
+        r"\b(?:car|vehicle|truck|suv|sedan|van)\b|"
+        r"\b(?:car|vehicle|truck|suv|sedan|van)\b.+"
+        r"\b(?:drive|have|has|own|color)\b|"
+        r"\bdrive\s+(?:a|an|the|my|his|her|their)\s+"
+        r"(?:car|vehicle|truck|suv|sedan|van)\b",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        terms.append("vehicle")
+    if re.search(
         r"\bwhere\b.+\blive\b|\blive\b.+\bwhere\b",
         text,
         flags=re.IGNORECASE,

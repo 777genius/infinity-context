@@ -29,6 +29,11 @@ def typed_relation_category_support(
         return _has_pet_profile_support(memory_terms, memory_text=memory_text)
     if category == "skill_profile":
         return _has_skill_profile_support(memory_terms, memory_text=memory_text)
+    if category == "vehicle_profile":
+        return _has_vehicle_profile_support(
+            memory_terms,
+            memory_text=memory_text,
+        )
     if category == "exchange":
         return _has_exchange_support(memory_terms, memory_text=memory_text)
     check = _TYPED_SUPPORT_CHECKS.get(category)
@@ -277,6 +282,56 @@ def _has_skill_profile_support(
         (language_action and language_context)
         or (play_action and instrument_context)
         or _SKILL_PROFILE_SURFACE_RE.search(memory_text)
+    )
+
+
+_VEHICLE_PROFILE_SURFACE_RE = re.compile(
+    r"\b(?:my|our|his|her|their)\s+(?:car|vehicle|truck|suv|sedan|van)\b"
+    r"|\b(?:drive|drives|driving)\s+"
+    r"(?:a|an|the|my|his|her|their)\s+"
+    r"(?:(?:black|blue|green|red|silver|white)\s+)?"
+    r"(?:car|vehicle|truck|suv|sedan|van|[A-Z][a-zA-Z0-9_-]+)\b"
+    r"|\b(?:own|owns|owned|have|has|had)\s+"
+    r"(?:a|an|the|my|his|her|their)\s+"
+    r"(?:(?:black|blue|green|red|silver|white)\s+)?"
+    r"(?:car|vehicle|truck|suv|sedan|van|[A-Z][a-zA-Z0-9_-]+)\b"
+    r"|\b(?:car|vehicle|truck|suv|sedan|van)\s+(?:is|was)\s+"
+    r"(?:black|blue|green|red|silver|white|[A-Z][a-zA-Z0-9_-]+)\b",
+)
+
+
+def _has_vehicle_profile_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
+    vehicle_surface = {"car", "sedan", "suv", "truck", "van", "vehicle"} & memory_terms
+    ownership_surface = {
+        "drive",
+        "drives",
+        "driving",
+        "had",
+        "has",
+        "have",
+        "my",
+        "our",
+        "own",
+        "owned",
+        "owns",
+    } & memory_terms
+    color_surface = {
+        "black",
+        "blue",
+        "color",
+        "green",
+        "red",
+        "silver",
+        "white",
+    } & memory_terms
+    return bool(
+        (vehicle_surface and ownership_surface)
+        or (vehicle_surface and color_surface)
+        or _VEHICLE_PROFILE_SURFACE_RE.search(memory_text)
     )
 
 
@@ -972,4 +1027,5 @@ _TYPED_SUPPORT_CHECKS: dict[str, Callable[[set[str]], bool]] = {
     "status_profile": _has_status_profile_support,
     "support_goal": _has_support_goal_support,
     "symbolic_meaning": _has_symbolic_meaning_support,
+    "vehicle_profile": _has_vehicle_profile_support,
 }

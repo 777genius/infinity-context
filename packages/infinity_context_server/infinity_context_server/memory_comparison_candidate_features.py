@@ -458,6 +458,7 @@ def _typed_category_has_query_grounding(
         "pet_profile",
         "skill_profile",
         "status_profile",
+        "vehicle_profile",
     }:
         return True
     return any(term in memory_terms for term in term_values)

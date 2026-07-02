@@ -866,6 +866,7 @@ _TYPED_RELATION_SUPPORT_ROLE_CATEGORIES = {
     "pet_support": frozenset({"pet_profile"}),
     "skill_support": frozenset({"skill_profile"}),
     "symbolic_meaning_support": frozenset({"symbolic_meaning"}),
+    "vehicle_support": frozenset({"vehicle_profile"}),
 }
 _TYPED_RELATION_SUPPORT_NEEDS = {
     "causal_support": frozenset({"causal_support"}),
@@ -879,6 +880,7 @@ _TYPED_RELATION_SUPPORT_NEEDS = {
     "pet_support": frozenset({"pet_profile"}),
     "skill_support": frozenset({"skill_profile"}),
     "symbolic_meaning_support": frozenset({"symbolic_meaning"}),
+    "vehicle_support": frozenset({"vehicle_profile"}),
 }
 
 

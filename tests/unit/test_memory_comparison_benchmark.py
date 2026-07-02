@@ -4783,6 +4783,69 @@ def test_query_decomposition_expands_skill_profile_queries() -> None:
     ]
 
 
+def test_query_decomposition_expands_vehicle_profile_queries() -> None:
+    car_case = _case(
+        case_id="vehicle-profile-car",
+        question="What car does Alex drive?",
+        expected_terms=("Prius",),
+        answer="Prius",
+    )
+    kind_case = _case(
+        case_id="vehicle-profile-kind",
+        question="What kind of car does Alex have?",
+        expected_terms=("Prius",),
+        answer="Prius",
+    )
+    color_case = _case(
+        case_id="vehicle-profile-color",
+        question="What color is Alex's car?",
+        expected_terms=("blue",),
+        answer="blue",
+    )
+    travel_case = _case(
+        case_id="vehicle-profile-travel-guard",
+        question="What did Alex drive to Denver?",
+        expected_terms=("truck",),
+        answer="truck",
+    )
+    road_case = _case(
+        case_id="vehicle-profile-road-guard",
+        question="What road did Alex drive on?",
+        expected_terms=("I-70",),
+        answer="I-70",
+    )
+
+    car_queries, car_metadata = rerank_module.decomposed_search_queries(car_case)
+    kind_queries, kind_metadata = rerank_module.decomposed_search_queries(kind_case)
+    color_queries, color_metadata = rerank_module.decomposed_search_queries(color_case)
+    _, travel_metadata = rerank_module.decomposed_search_queries(travel_case)
+    _, road_metadata = rerank_module.decomposed_search_queries(road_case)
+
+    assert car_queries[2] == "alex vehicle car drive owns truck suv"
+    assert car_metadata["query_profile"]["relation_terms"] == ("vehicle",)
+    assert car_metadata["query_profile"]["relation_categories"] == (
+        "vehicle_profile",
+    )
+    assert car_metadata["query_profile"]["evidence_need"] == ("vehicle_profile",)
+
+    assert kind_queries[2] == "alex vehicle car drive owns truck suv"
+    assert kind_metadata["query_profile"]["relation_categories"] == (
+        "vehicle_profile",
+    )
+
+    assert color_queries[2] == "alex vehicle car drive owns truck suv"
+    assert color_metadata["query_profile"]["relation_categories"] == (
+        "vehicle_profile",
+    )
+
+    assert "vehicle_profile" not in travel_metadata["query_profile"][
+        "relation_categories"
+    ]
+    assert "vehicle_profile" not in road_metadata["query_profile"][
+        "relation_categories"
+    ]
+
+
 def test_infinity_context_http_search_expands_temporal_action_queries() -> None:
     seen_payloads: list[dict[str, object]] = []
 
@@ -8089,6 +8152,71 @@ def test_benchmark_rerank_boosts_skill_profile_evidence() -> None:
     ] == ["skill_support"]
     assert (
         topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        == 0
+    )
+
+
+def test_benchmark_rerank_boosts_vehicle_profile_evidence() -> None:
+    case = _case(
+        case_id="vehicle-profile-rerank",
+        question="What car does Alex drive?",
+        expected_terms=("Prius",),
+        answer="Prius",
+        category=4,
+    )
+    topical_car = RetrievedMemory(
+        item_id="topical-car",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex talked about Prius models with Maria."
+        ),
+        source_refs=("D1:1",),
+    )
+    vehicle_profile = RetrievedMemory(
+        item_id="vehicle-profile",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: I drive a blue Prius."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_car, vehicle_profile),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("vehicle_profile",)
+    assert reranked[0].item_id == "vehicle-profile"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    vehicle_diagnostics = diagnostics_by_id["vehicle-profile"]
+    topical_diagnostics = diagnostics_by_id["topical-car"]
+    assert vehicle_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["vehicle_profile"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert (
+        vehicle_diagnostics["score_signals"][
+            "benchmark_typed_relation_support_boost"
+        ]
+        > 0
+    )
+    assert vehicle_diagnostics["score_signals"][
+        "benchmark_typed_relation_support_roles"
+    ] == ["vehicle_support"]
+    assert (
+        topical_diagnostics["score_signals"][
+            "benchmark_typed_relation_support_boost"
+        ]
         == 0
     )
 

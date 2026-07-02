@@ -255,6 +255,7 @@ _RELATION_QUERY_TERMS = {
     "text",
     "think",
     "told",
+    "vehicle",
     "visit",
     "want",
     "work",
@@ -470,6 +471,7 @@ def expanded_search_query(case: PublicBenchmarkCase) -> tuple[str, dict[str, obj
             health_support="health_profile" in intent.evidence_need,
             pet_support="pet_profile" in intent.evidence_need,
             skill_support="skill_profile" in intent.evidence_need,
+            vehicle_support="vehicle_profile" in intent.evidence_need,
         )
         focus_parts.append(
             f"actions: {', '.join(_render_query_terms(focus_actions[:8]))}"
@@ -607,6 +609,7 @@ def decomposed_search_queries(
             health_support=compact_relation_role == "health_support",
             pet_support=compact_relation_role == "pet_support",
             skill_support=compact_relation_role == "skill_support",
+            vehicle_support=compact_relation_role == "vehicle_support",
         )
         compact_temporal_terms = (
             _compact_temporal_relation_terms(lexical_terms) if is_temporal_query else ()
@@ -827,6 +830,7 @@ def _support_query_terms(
     health_support: bool,
     pet_support: bool,
     skill_support: bool,
+    vehicle_support: bool,
 ) -> tuple[str, ...]:
     if communication_support:
         return _communication_support_query_terms(
@@ -865,6 +869,13 @@ def _support_query_terms(
         )
     if skill_support:
         return _skill_support_query_terms(
+            relation_terms=relation_terms,
+            relation_variant_terms=relation_variant_terms,
+            lexical_terms=lexical_terms,
+            entity_surfaces=entity_surfaces,
+        )
+    if vehicle_support:
+        return _vehicle_support_query_terms(
             relation_terms=relation_terms,
             relation_variant_terms=relation_variant_terms,
             lexical_terms=lexical_terms,
@@ -1155,6 +1166,57 @@ def _skill_support_query_terms(
     )
 
 
+def _vehicle_support_query_terms(
+    *,
+    relation_terms: tuple[str, ...],
+    relation_variant_terms: tuple[str, ...],
+    lexical_terms: tuple[str, ...],
+    entity_surfaces: tuple[str, ...],
+) -> tuple[str, ...]:
+    entity_tokens = {
+        token for surface in entity_surfaces for token in _normalized_terms(surface)
+    }
+    vehicle_terms = {
+        "car",
+        "color",
+        "drive",
+        "drives",
+        "driving",
+        "own",
+        "owns",
+        "sedan",
+        "suv",
+        "truck",
+        "van",
+        "vehicle",
+    }
+    topical_terms = tuple(
+        term
+        for term in lexical_terms
+        if term not in _QUERY_STOPWORDS
+        and term not in relation_terms
+        and term not in relation_variant_terms
+        and term not in entity_tokens
+    )
+    return tuple(
+        dict.fromkeys(
+            (
+                *(term for term in relation_terms if term == "vehicle"),
+                *(term for term in relation_variant_terms if term in vehicle_terms),
+                *topical_terms[:4],
+                *(
+                    term
+                    for term in _relation_query_terms(
+                        relation_terms,
+                        relation_variant_terms,
+                    )
+                    if term not in vehicle_terms and term not in _QUERY_STOPWORDS
+                ),
+            )
+        )
+    )
+
+
 def _communication_support_query_terms(
     *,
     relation_terms: tuple[str, ...],
@@ -1330,6 +1392,8 @@ def _compact_relation_query_role(intent: RetrievalIntent) -> str:
         return "pet_support"
     if "skill_profile" in set(intent.evidence_need):
         return "skill_support"
+    if "vehicle_profile" in set(intent.evidence_need):
+        return "vehicle_support"
     role_priority = (
         "communication_support",
         "event_support",
@@ -1745,6 +1809,10 @@ def _filter_relation_terms_for_profile(
             continue
         if term == "skill" and not _has_skill_profile_question(normalized_question):
             continue
+        if term == "vehicle" and not _has_vehicle_profile_question(
+            normalized_question,
+        ):
+            continue
         if term in {"class", "education"} and {"enroll", "register", "sign"} & relation_set:
             continue
         if term == "education" and not _has_education_profile_question(
@@ -1816,6 +1884,20 @@ def _has_skill_profile_question(normalized_question: str) -> bool:
             r"\blanguages?\b.+\bspeak\b|\bspeak\b.+\blanguages?\b|"
             r"\binstrument\b.+\bplay\b|\bplay\b.+\binstrument\b|"
             r"\bplay\s+(?:guitar|piano|violin|drums?)\b",
+            normalized_question,
+        )
+    )
+
+
+def _has_vehicle_profile_question(normalized_question: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(?:what|which|kind\s+of|color)\b.+"
+            r"\b(?:car|vehicle|truck|suv|sedan|van)\b|"
+            r"\b(?:car|vehicle|truck|suv|sedan|van)\b.+"
+            r"\b(?:drive|have|has|own|color)\b|"
+            r"\bdrive\s+(?:a|an|the|my|his|her|their)\s+"
+            r"(?:car|vehicle|truck|suv|sedan|van)\b",
             normalized_question,
         )
     )

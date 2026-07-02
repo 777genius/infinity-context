@@ -241,6 +241,11 @@ def infer_relation_intents(
             relation_terms=relation_terms,
         ):
             continue
+        if category == "vehicle_profile" and not _has_vehicle_profile_intent(
+            question=question,
+            relation_terms=relation_terms,
+        ):
+            continue
         if category == "communication" and not _has_communication_intent(
             question=question,
             relation_terms=relation_terms,
@@ -404,6 +409,7 @@ def merge_relation_evidence_needs(
         "health_profile",
         "pet_profile",
         "skill_profile",
+        "vehicle_profile",
         "communication",
         "exchange",
         "inference_support",
@@ -739,6 +745,27 @@ def _has_skill_profile_intent(
             r"\blanguages?\b.+\bspeak\b|\bspeak\b.+\blanguages?\b|"
             r"\binstrument\b.+\bplay\b|\bplay\b.+\binstrument\b|"
             r"\bplay\s+(?:guitar|piano|violin|drums?)\b",
+            normalized_question,
+        )
+    )
+
+
+def _has_vehicle_profile_intent(
+    *,
+    question: str,
+    relation_terms: tuple[str, ...],
+) -> bool:
+    if "vehicle" not in set(relation_terms):
+        return False
+    normalized_question = re.sub(r"[^0-9a-z]+", " ", question.casefold()).strip()
+    return bool(
+        re.search(
+            r"\b(?:what|which|kind\s+of|color)\b.+"
+            r"\b(?:car|vehicle|truck|suv|sedan|van)\b|"
+            r"\b(?:car|vehicle|truck|suv|sedan|van)\b.+"
+            r"\b(?:drive|have|has|own|color)\b|"
+            r"\bdrive\s+(?:a|an|the|my|his|her|their)\s+"
+            r"(?:car|vehicle|truck|suv|sedan|van)\b",
             normalized_question,
         )
     )
@@ -1193,6 +1220,27 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
         ),
         "markers": frozenset(),
         "evidence_need": "skill_profile",
+    },
+    "vehicle_profile": {
+        "terms": frozenset({"vehicle"}),
+        "variants": frozenset(
+            {
+                "car",
+                "color",
+                "drive",
+                "drives",
+                "driving",
+                "own",
+                "owns",
+                "sedan",
+                "suv",
+                "truck",
+                "van",
+                "vehicle",
+            }
+        ),
+        "markers": frozenset(),
+        "evidence_need": "vehicle_profile",
     },
     "exchange": {
         "terms": frozenset(
