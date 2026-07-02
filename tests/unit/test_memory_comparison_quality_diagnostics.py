@@ -1514,6 +1514,101 @@ def test_fast_gate_metrics_requires_grounded_causal_support_evidence() -> None:
     assert "missing_causal_support" in breakdown["samples"][0]["reasons"]
 
 
+def test_fast_gate_metrics_requires_relation_causal_support_evidence() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="relationless-causal",
+                group="multi-hop",
+                retrieval=_retrieval_payload(
+                    evidence_need=("causal_support",),
+                    bundle_evidence_roles=("primary", "causal_support"),
+                    relation_categories=("causal",),
+                    entities=("caroline",),
+                    policy_score=0.0,
+                ),
+                evidence_bundle={
+                    "bundle_complete": False,
+                    "item_count": 1,
+                    "primary_evidence_count": 1,
+                    "supporting_evidence_count": 0,
+                    "query_support_term_recall": 0.5,
+                    "covered_evidence_terms": [],
+                    "items": [
+                        {
+                            "role": "causal_support",
+                            "retrieval_order": 1,
+                            "focused_evidence_score": 1.0,
+                            "entity_hits": ["caroline"],
+                            "planner_reason_codes": [
+                                "causal_support",
+                                "causal_entity_hits",
+                            ],
+                        }
+                    ],
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    breakdown = gate["bundle_gap_breakdown"]
+
+    assert breakdown["reason_counts"]["missing_causal_support"] == 1
+    assert breakdown["evidence_need_gap_reason_counts"] == {
+        "missing_causal_support": 1
+    }
+    assert "missing_causal_support" in breakdown["samples"][0]["reasons"]
+
+
+def test_fast_gate_metrics_accepts_relation_causal_support_evidence() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="grounded-causal",
+                group="multi-hop",
+                retrieval=_retrieval_payload(
+                    evidence_need=("causal_support",),
+                    bundle_evidence_roles=("primary", "causal_support"),
+                    relation_categories=("causal",),
+                    entities=("caroline",),
+                    policy_score=0.0,
+                ),
+                evidence_bundle={
+                    "bundle_complete": False,
+                    "item_count": 1,
+                    "primary_evidence_count": 1,
+                    "supporting_evidence_count": 0,
+                    "query_support_term_recall": 0.5,
+                    "covered_evidence_terms": [],
+                    "items": [
+                        {
+                            "role": "causal_support",
+                            "retrieval_order": 1,
+                            "focused_evidence_score": 1.0,
+                            "entity_hits": ["caroline"],
+                            "relation_category_hits": ["causal"],
+                            "planner_reason_codes": [
+                                "causal_support",
+                                "causal_entity_hits",
+                                "causal_relation_category_hits",
+                            ],
+                        }
+                    ],
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    breakdown = gate["bundle_gap_breakdown"]
+
+    assert "missing_causal_support" not in breakdown["reason_counts"]
+    assert "missing_causal_support" not in breakdown[
+        "evidence_need_gap_reason_counts"
+    ]
+
+
 def test_fast_gate_metrics_reports_missing_preference_support_gap() -> None:
     gate = fast_gate_metrics(
         (

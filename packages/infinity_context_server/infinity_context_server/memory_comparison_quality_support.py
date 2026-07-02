@@ -257,18 +257,15 @@ def bundle_has_causal_support(
     *,
     require_grounding: bool = False,
 ) -> bool:
-    if _bundle_has_role_or_reason(
-        bundle,
-        role="causal_support",
-        reason="causal_support",
-        require_grounding=require_grounding,
-    ):
-        return True
     return any(
         bool(
             _passes_person_grounding(item, require_grounding=require_grounding)
             and (
-                "causal_support" in _str_tuple(item.get("planner_reason_codes"))
+                str(item.get("role") or "").strip() == "causal_support"
+                or "causal_support" in _str_tuple(item.get("planner_reason_codes"))
+            )
+            and (
+                "causal" in _str_tuple(item.get("relation_category_hits"))
                 or "causal_relation_hits"
                 in _str_tuple(item.get("planner_reason_codes"))
                 or "causal_relation_category_hits"
