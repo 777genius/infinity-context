@@ -770,31 +770,48 @@ def _communication_support_query_terms(
         for surface in entity_surfaces
         for token in _normalized_terms(surface)
     }
+    communication_surface_terms = {
+        "advis",
+        "ask",
+        "asked",
+        "mention",
+        "recommend",
+        "recommended",
+        "request",
+        "said",
+        "suggest",
+        "suggested",
+        "tell",
+        "told",
+    }
+    allowed_communication_terms: set[str] = set()
+    relation_term_set = set(relation_terms)
+    if relation_term_set & {"tell", "mention"}:
+        allowed_communication_terms.update(("mention", "said", "tell", "told"))
+    if "ask" in relation_term_set:
+        allowed_communication_terms.update(("ask", "asked", "request"))
+    if relation_term_set & {"recommend", "suggest"}:
+        allowed_communication_terms.update(
+            ("advis", "recommend", "recommended", "suggest", "suggested", "told")
+        )
+    if not allowed_communication_terms:
+        allowed_communication_terms.update(communication_surface_terms)
+    relation_specific_variants = tuple(
+        term
+        for term in relation_variant_terms
+        if term not in communication_surface_terms or term in allowed_communication_terms
+    )
     communication_terms = tuple(
         term
         for term in _relation_query_terms(relation_terms, relation_variant_terms)
-        if term
-        in {
-            "advis",
-            "ask",
-            "asked",
-            "mention",
-            "recommend",
-            "recommended",
-            "request",
-            "said",
-            "suggest",
-            "suggested",
-            "tell",
-            "told",
-        }
+        if term in allowed_communication_terms
     )
     topical_terms = tuple(
         term
         for term in lexical_terms
         if term not in _QUERY_STOPWORDS
         and term not in relation_terms
-        and term not in relation_variant_terms
+        and term not in relation_specific_variants
         and term not in communication_terms
         and term not in entity_tokens
     )
@@ -802,10 +819,10 @@ def _communication_support_query_terms(
         dict.fromkeys(
             (
                 *relation_terms,
-                *relation_variant_terms[:4],
+                *relation_specific_variants[:4],
                 *topical_terms[:6],
                 *communication_terms,
-                *relation_variant_terms,
+                *relation_specific_variants,
             )
         )
     )
