@@ -506,6 +506,64 @@ def test_fast_gate_metrics_accepts_location_relation_evidence() -> None:
     ]
 
 
+def test_fast_gate_metrics_rejects_weak_location_relation_evidence() -> None:
+    weak_cases: tuple[tuple[str, dict[str, object]], ...] = (
+        ("broad-summary", {"broad_summary": True}),
+        ("stale-conflict", {"conflict_or_stale": True}),
+        ("weak-locality", {"source_locality_score": 0.3}),
+        ("low-answerability", {"answerability_score": 0.31}),
+    )
+    for case_id, weak_fields in weak_cases:
+        gate = fast_gate_metrics(
+            (
+                _item(
+                    case_id=f"weak-location-{case_id}",
+                    group="single-hop",
+                    retrieval=_retrieval_payload(
+                        evidence_need=("location_support",),
+                        bundle_evidence_roles=("primary", "location_support"),
+                        relation_categories=("location_transition",),
+                        entities=("caroline",),
+                        policy_score=0.0,
+                    ),
+                    evidence_bundle={
+                        "bundle_complete": False,
+                        "item_count": 1,
+                        "primary_evidence_count": 1,
+                        "supporting_evidence_count": 0,
+                        "query_support_term_recall": 0.5,
+                        "covered_evidence_terms": [],
+                        "items": [
+                            {
+                                "role": "location_support",
+                                "retrieval_order": 1,
+                                "focused_evidence_score": 1.0,
+                                "entity_hits": ["caroline"],
+                                "relation_category_hits": ["location_transition"],
+                                "source_locality_score": 0.9,
+                                "answerability_score": 0.72,
+                                "planner_reason_codes": [
+                                    "location_support",
+                                    "location_relation_category_hits",
+                                ],
+                                **weak_fields,
+                            }
+                        ],
+                    },
+                ),
+            ),
+            expected_case_count=1,
+        )
+
+        breakdown = gate["bundle_gap_breakdown"]
+
+        assert breakdown["reason_counts"]["missing_location_support"] == 1
+        assert breakdown["evidence_need_gap_reason_counts"] == {
+            "missing_location_support": 1
+        }
+        assert "missing_location_support" in breakdown["samples"][0]["reasons"]
+
+
 def test_fast_gate_metrics_requires_grounded_location_relation_evidence() -> None:
     gate = fast_gate_metrics(
         (

@@ -295,7 +295,8 @@ def bundle_has_causal_support(
 ) -> bool:
     return any(
         bool(
-            _passes_person_grounding(item, require_grounding=require_grounding)
+            _passes_support_quality(item)
+            and _passes_person_grounding(item, require_grounding=require_grounding)
             and (
                 "causal" in _str_tuple(item.get("relation_category_hits"))
                 or "causal_relation_hits"
@@ -315,7 +316,8 @@ def bundle_has_location_support(
 ) -> bool:
     return any(
         bool(
-            _passes_person_grounding(item, require_grounding=require_grounding)
+            _passes_support_quality(item)
+            and _passes_person_grounding(item, require_grounding=require_grounding)
             and (
                 "location_transition"
                 in _str_tuple(item.get("relation_category_hits"))
@@ -334,7 +336,8 @@ def bundle_has_preference_support(
 ) -> bool:
     return any(
         bool(
-            _passes_person_grounding(item, require_grounding=require_grounding)
+            _passes_support_quality(item)
+            and _passes_person_grounding(item, require_grounding=require_grounding)
             and (
                 item.get("has_preference_evidence") is True
                 or "preference" in _str_tuple(item.get("relation_category_hits"))
@@ -353,7 +356,8 @@ def bundle_has_emotion_response_support(
 ) -> bool:
     return any(
         bool(
-            _passes_person_grounding(item, require_grounding=require_grounding)
+            _passes_support_quality(item)
+            and _passes_person_grounding(item, require_grounding=require_grounding)
             and (
                 "emotion_response"
                 in _str_tuple(item.get("relation_category_hits"))
@@ -372,7 +376,8 @@ def bundle_has_event_support(
 ) -> bool:
     return any(
         bool(
-            _passes_person_grounding(item, require_grounding=require_grounding)
+            _passes_support_quality(item)
+            and _passes_person_grounding(item, require_grounding=require_grounding)
             and (
                 {"registration_event", "participation_event"}
                 & set(_str_tuple(item.get("relation_category_hits")))
@@ -391,7 +396,8 @@ def bundle_has_communication_support(
 ) -> bool:
     return any(
         bool(
-            "communication" in _str_tuple(item.get("relation_category_hits"))
+            _passes_support_quality(item)
+            and "communication" in _str_tuple(item.get("relation_category_hits"))
             and _passes_person_grounding(
                 item,
                 require_grounding=require_grounding,
@@ -415,7 +421,8 @@ def bundle_has_exchange_support(
 ) -> bool:
     return any(
         bool(
-            _passes_person_grounding(item, require_grounding=require_grounding)
+            _passes_support_quality(item)
+            and _passes_person_grounding(item, require_grounding=require_grounding)
             and (
                 "exchange" in _str_tuple(item.get("relation_category_hits"))
                 or "exchange_relation_category_hits"
@@ -433,7 +440,8 @@ def bundle_has_symbolic_meaning_support(
 ) -> bool:
     return any(
         bool(
-            _passes_person_grounding(item, require_grounding=require_grounding)
+            _passes_support_quality(item)
+            and _passes_person_grounding(item, require_grounding=require_grounding)
             and (
                 "symbolic_meaning" in _str_tuple(item.get("relation_category_hits"))
                 or "symbolic_meaning_relation_category_hits"
@@ -451,7 +459,8 @@ def bundle_has_visual_support(
 ) -> bool:
     return any(
         bool(
-            _passes_person_grounding(item, require_grounding=require_grounding)
+            _passes_support_quality(item)
+            and _passes_person_grounding(item, require_grounding=require_grounding)
             and (
                 item.get("has_visual_evidence") is True
                 or "visual" in _str_tuple(item.get("relation_category_hits"))
@@ -469,7 +478,8 @@ def bundle_has_inference_support(
 ) -> bool:
     return any(
         bool(
-            _passes_person_grounding(item, require_grounding=require_grounding)
+            _passes_support_quality(item)
+            and _passes_person_grounding(item, require_grounding=require_grounding)
             and (
                 _str_tuple(item.get("relation_category_hits"))
                 or "inference_relation_category_hits"
@@ -510,6 +520,25 @@ def _passes_person_grounding(
     if speaker_grounding:
         return bool(_str_tuple(item.get("speaker_hits")))
     return bool(_str_tuple(item.get("entity_hits")) or _str_tuple(item.get("speaker_hits")))
+
+
+def _passes_support_quality(item: Mapping[str, object]) -> bool:
+    if item.get("broad_summary") is True or item.get("conflict_or_stale") is True:
+        return False
+    source_locality_score = _float_value(item.get("source_locality_score"))
+    if source_locality_score is not None and source_locality_score < 0.45:
+        return False
+    answerability_score = _float_value(item.get("answerability_score"))
+    return answerability_score is None or answerability_score >= 0.55
+
+
+def _float_value(value: object) -> float | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _relation_categories(
