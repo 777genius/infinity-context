@@ -321,6 +321,66 @@ def test_candidate_features_detect_location_transition_destination_surface() -> 
     assert destination_move.answerability_score > generic_move.answerability_score
 
 
+def test_candidate_features_detect_direct_exchange_surface() -> None:
+    support_abstract = build_candidate_evidence_features(
+        RetrievedMemory(
+            item_id="abstract-support",
+            rank=1,
+            text="D1:1 Morgan: I received support after the hard week.",
+            source_refs=("D1:1",),
+        ),
+        memory_terms={"morgan", "receive", "received", "support", "week"},
+        query_terms=("morgan", "receive"),
+        relation_terms=("receive",),
+        relation_variant_terms=("received", "got", "gift"),
+        relation_category_terms={"exchange": ("receive", "received", "got", "gift")},
+        entities=("morgan",),
+        entity_hits=("morgan",),
+        speaker_hits=("morgan",),
+        high_signal_relation_terms=set(),
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+    direct_exchange = build_candidate_evidence_features(
+        RetrievedMemory(
+            item_id="direct-exchange",
+            rank=2,
+            text="D2:4 Morgan: I gave Maria a scarf after dinner.",
+            source_refs=("D2:4",),
+        ),
+        memory_terms={"morgan", "gave", "maria", "scarf", "dinner"},
+        query_terms=("morgan", "give"),
+        relation_terms=("give",),
+        relation_variant_terms=("gave", "gift", "received"),
+        relation_category_terms={"exchange": ("give", "gave", "gift", "received")},
+        entities=("morgan",),
+        entity_hits=("morgan",),
+        speaker_hits=("morgan",),
+        high_signal_relation_terms=set(),
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+
+    assert support_abstract.relation_category_hits == ()
+    assert direct_exchange.relation_category_hits == ("exchange",)
+    assert "exchange_evidence" in direct_exchange.answerability_reason_codes
+    assert direct_exchange.answerability_score > support_abstract.answerability_score
+
+
 def test_candidate_features_detect_directed_communication_surface() -> None:
     topic_mention = build_candidate_evidence_features(
         RetrievedMemory(

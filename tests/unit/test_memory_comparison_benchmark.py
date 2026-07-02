@@ -5399,6 +5399,37 @@ def test_query_decomposition_reports_exchange_relation_intent() -> None:
     ]
 
 
+def test_query_decomposition_reports_direct_exchange_relation_intent() -> None:
+    case = _case(
+        case_id="exchange-give-query",
+        question="What did Morgan give Maria?",
+        expected_terms=("scarf",),
+        answer="scarf",
+        category=1,
+    )
+
+    queries, metadata = rerank_module.decomposed_search_queries(case)
+    query_profile = metadata["query_profile"]
+
+    assert queries == (
+        "What did Morgan give Maria?",
+        "What did Morgan give Maria?\n"
+        "Search focus: entities: morgan, maria; speakers: morgan:, maria:; "
+        "actions: give, gave, offer",
+        "morgan maria give gave offer",
+    )
+    assert query_profile["relation_terms"] == ("give",)
+    assert query_profile["relation_categories"] == ("exchange",)
+    assert query_profile["relation_category_terms"]["exchange"] == (
+        "give",
+        "gave",
+        "offer",
+    )
+    assert query_profile["evidence_need"] == ("exchange",)
+    assert "exchange_support" in query_profile["bundle_evidence_roles"]
+    assert "scarf" not in json.dumps(metadata["retrieval_intent"])
+
+
 def test_benchmark_rerank_boosts_focused_exchange_evidence() -> None:
     case = _case(
         case_id="exchange-rerank",
@@ -5445,6 +5476,59 @@ def test_benchmark_rerank_boosts_focused_exchange_evidence() -> None:
     assert diagnostics["score_signals"]["benchmark_relation_boost"] > 0
     assert (
         diagnostics["score_signals"]["benchmark_relation_category_coverage_boost"]
+        > 0
+    )
+
+
+def test_benchmark_rerank_boosts_direct_exchange_surface() -> None:
+    case = _case(
+        case_id="exchange-give-rerank",
+        question="What did Morgan give Maria?",
+        expected_terms=("scarf",),
+        answer="scarf",
+        category=1,
+    )
+    abstract_support = RetrievedMemory(
+        item_id="abstract-support",
+        rank=1,
+        score=0.08,
+        text=(
+            "session_2 turn D2:1 date: 8:00 pm "
+            "D2:1 Morgan: I received support after the hard week."
+        ),
+        source_refs=("D2:1",),
+    )
+    exchange_turn = RetrievedMemory(
+        item_id="exchange-turn",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:4 date: 8:05 pm "
+            "D2:4 Morgan: I gave Maria a scarf after dinner."
+        ),
+        source_refs=("D2:4",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (abstract_support, exchange_turn),
+    )
+
+    assert metadata["applied"] is True
+    assert reranked[0].item_id == "exchange-turn"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    assert diagnostics_by_id["exchange-turn"]["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["exchange"]
+    assert diagnostics_by_id["abstract-support"]["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert (
+        diagnostics_by_id["exchange-turn"]["score_signals"][
+            "benchmark_typed_relation_support_boost"
+        ]
         > 0
     )
 

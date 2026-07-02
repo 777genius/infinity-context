@@ -18,6 +18,8 @@ def typed_relation_category_support(
         return _has_location_transition_support(memory_terms, memory_text=memory_text)
     if category == "communication":
         return _has_communication_support(memory_terms, memory_text=memory_text)
+    if category == "exchange":
+        return _has_exchange_support(memory_terms, memory_text=memory_text)
     check = _TYPED_SUPPORT_CHECKS.get(category)
     if check is None:
         return None
@@ -198,13 +200,39 @@ def _has_communication_support(
     )
 
 
-def _has_exchange_support(memory_terms: set[str]) -> bool:
+_EXCHANGE_RECIPIENT_RE = (
+    r"(?:[A-Z][a-zA-Z0-9_-]+|her|him|me|them|us|you|"
+    r"(?:my|his|her|their|our)\s+"
+    r"(?:brother|child|client|daughter|father|friend|manager|mother|parent|"
+    r"partner|sibling|sister|son|spouse|team|wife|husband)|"
+    r"the\s+(?:client|group|team))"
+)
+_EXCHANGE_OBJECT_RE = (
+    r"(?!(?:advice|help|message|news|request|response|support)\b)"
+    r"[a-zA-Z][a-zA-Z0-9_-]+"
+)
+_DIRECT_EXCHANGE_SURFACE_RE = re.compile(
+    rf"\b(?:bought|got|purchased|received)\s+"
+    rf"(?:a|an|the|my|his|her|their|our|some)?\s*{_EXCHANGE_OBJECT_RE}"
+    rf"(?:\s+from\s+{_EXCHANGE_RECIPIENT_RE})?"
+    rf"|\b(?:bring|brought|gave|give|offered|offer)\s+"
+    rf"{_EXCHANGE_RECIPIENT_RE}\s+"
+    rf"(?:a|an|the|my|his|her|their|our|some)?\s*{_EXCHANGE_OBJECT_RE}",
+)
+
+
+def _has_exchange_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
     exchange_actions = {
         "bought",
         "bring",
         "brought",
         "buy",
         "gave",
+        "give",
         "gift",
         "got",
         "offer",
@@ -229,7 +257,32 @@ def _has_exchange_support(memory_terms: set[str]) -> bool:
         "ticket",
         "tickets",
     } & memory_terms
-    return bool(len(exchange_actions) >= 2 or (exchange_actions and object_context))
+    exchange_action_family_count = len(
+        {
+            _exchange_action_family(action)
+            for action in exchange_actions
+            if _exchange_action_family(action)
+        }
+    )
+    return bool(
+        exchange_action_family_count >= 2
+        or (exchange_actions and object_context)
+        or (exchange_actions and _DIRECT_EXCHANGE_SURFACE_RE.search(memory_text))
+    )
+
+
+def _exchange_action_family(action: str) -> str:
+    if action in {"bought", "buy", "got", "purchas", "purchase", "purchased"}:
+        return "acquire"
+    if action in {"bring", "brought"}:
+        return "bring"
+    if action in {"gave", "gift", "give"}:
+        return "give"
+    if action in {"offer", "offered"}:
+        return "offer"
+    if action in {"receiv", "receive", "received"}:
+        return "receive"
+    return ""
 
 
 def _has_causal_support(memory_terms: set[str]) -> bool:

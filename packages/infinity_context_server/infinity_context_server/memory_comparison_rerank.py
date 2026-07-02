@@ -202,6 +202,7 @@ _RELATION_QUERY_TERMS = {
     "meet",
     "mention",
     "move",
+    "offer",
     "participate",
     "plan",
     "political",

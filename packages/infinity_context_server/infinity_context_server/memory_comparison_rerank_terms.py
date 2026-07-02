@@ -177,6 +177,7 @@ RELATION_QUERY_VARIANTS = {
     "mention": ("mentioned", "said", "talked", "told"),
     "mother": ("mom", "parent", "family", "father", "child", "children"),
     "move": ("moved", "from", "relocated", "came", "home", "country", "origin"),
+    "offer": ("offered", "give", "gave"),
     "relocate": ("relocated", "from", "moved", "home", "country", "origin"),
     "relocated": ("relocated", "from", "moved", "home", "country", "origin"),
     "relocation": ("relocated", "from", "moved", "home", "country", "origin"),
