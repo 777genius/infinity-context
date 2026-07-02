@@ -22,6 +22,8 @@ def typed_relation_category_support(
         return _has_communication_support(memory_terms, memory_text=memory_text)
     if category == "contact_profile":
         return _has_contact_profile_support(memory_terms, memory_text=memory_text)
+    if category == "diet_profile":
+        return _has_diet_profile_support(memory_terms, memory_text=memory_text)
     if category == "employment_profile":
         return _has_employment_profile_support(
             memory_terms,
@@ -414,6 +416,48 @@ def _has_contact_profile_support(
             and not {"concern", "issue", "problem", "topic"} & memory_terms
         )
         or _CONTACT_PROFILE_SURFACE_RE.search(memory_text)
+    )
+
+
+_DIET_PROFILE_SURFACE_RE = re.compile(
+    r"\b(?:i\s+am|i'm|he\s+is|he's|she\s+is|she's|they\s+are|they're)\s+"
+    r"(?:a\s+)?(?:vegetarian|vegan)\b"
+    r"|\b(?:vegetarian|vegan)\s+(?:diet|now|since|because)\b"
+    r"|\b(?:gluten|dairy)[-\s]?free\b"
+    r"|\b(?:avoid|avoids|avoided|can't|cannot|doesn't|don't|do\s+not|"
+    r"does\s+not)\s+eat\s+"
+    r"(?:gluten|dairy|meat|pork|shellfish|peanuts?|tree\s+nuts?)\b"
+    r"|\b(?:dietary\s+)?restriction\s+(?:is|was)\s+"
+    r"(?:vegetarian|vegan|gluten|dairy|pork|shellfish|peanuts?)\b",
+    re.IGNORECASE,
+)
+
+
+def _has_diet_profile_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
+    diet_identity = {"vegetarian", "vegan"} & memory_terms
+    restriction_context = {
+        "dairy",
+        "gluten",
+        "meat",
+        "peanut",
+        "peanuts",
+        "pork",
+        "shellfish",
+    } & memory_terms
+    restriction_action = {
+        "avoid",
+        "avoids",
+        "eat",
+        "restriction",
+    } & memory_terms
+    return bool(
+        (diet_identity and {"am", "diet", "is"} & memory_terms)
+        or (restriction_context and restriction_action)
+        or _DIET_PROFILE_SURFACE_RE.search(memory_text)
     )
 
 
@@ -1214,6 +1258,7 @@ _TYPED_SUPPORT_CHECKS: dict[str, Callable[[set[str]], bool]] = {
     "contrast": _has_contrast_support,
     "current_goal": _has_current_goal_support,
     "date_profile": _has_date_profile_support,
+    "diet_profile": _has_diet_profile_support,
     "education_profile": _has_education_profile_support,
     "employment_profile": _has_employment_profile_support,
     "emotion_response": _has_emotion_response_support,

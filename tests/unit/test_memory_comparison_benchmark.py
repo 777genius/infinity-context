@@ -8373,6 +8373,82 @@ def test_benchmark_contact_profile_ignores_addressing_issue_wording() -> None:
     assert "contact_profile" not in intent.evidence_need
 
 
+def test_benchmark_rerank_boosts_diet_profile_evidence() -> None:
+    case = _case(
+        case_id="diet-profile-rerank",
+        question="What dietary restriction does Alex have?",
+        expected_terms=("vegetarian",),
+        answer="vegetarian",
+        category=4,
+    )
+    topical_diet = RetrievedMemory(
+        item_id="topical-diet",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex saved vegetarian recipes for Maria."
+        ),
+        source_refs=("D1:1",),
+    )
+    diet_profile = RetrievedMemory(
+        item_id="diet-profile",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: I'm vegetarian, so I skip the barbecue ribs."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_diet, diet_profile),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("diet_profile",)
+    assert reranked[0].item_id == "diet-profile"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    diet_diagnostics = diagnostics_by_id["diet-profile"]
+    topical_diagnostics = diagnostics_by_id["topical-diet"]
+    assert diet_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["diet_profile"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert (
+        diet_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        > 0
+    )
+    assert diet_diagnostics["score_signals"][
+        "benchmark_typed_relation_support_roles"
+    ] == ["diet_support"]
+    assert (
+        topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        == 0
+    )
+
+
+def test_benchmark_diet_profile_ignores_diet_book_wording() -> None:
+    case = _case(
+        case_id="diet-profile-book-guard",
+        question="What diet book did Alex read?",
+        expected_terms=("Mediterranean"),
+        answer="Mediterranean",
+        category=4,
+    )
+
+    intent = rerank_module.query_retrieval_intent(case)
+
+    assert "diet" not in intent.relation_terms
+    assert "diet_profile" not in intent.evidence_need
+
+
 def test_benchmark_rerank_boosts_pet_profile_evidence() -> None:
     case = _case(
         case_id="pet-profile-rerank",

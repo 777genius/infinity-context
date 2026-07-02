@@ -415,6 +415,15 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
     if contact_surface and not address_as_action:
         terms.append("contact")
     if re.search(
+        r"\b(?:dietary\s+(?:restriction|restrictions)|"
+        r"vegetarian|vegan|gluten[-\s]?free|dairy[-\s]?free)\b|"
+        r"\b(?:avoid|avoids|can't|cannot|doesn't|don't)\s+eat\b|"
+        r"\bwhat\s+food\b.+\b(?:avoid|eat)\b",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        terms.append("diet")
+    if re.search(
         r"\bhow\s+old\b|\bwhat\b.+\bage\b|\bage\b.+\b(?:is|of)\b",
         text,
         flags=re.IGNORECASE,

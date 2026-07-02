@@ -145,6 +145,7 @@ _RELATION_QUERY_TERMS = {
     "contact",
     "decide",
     "destress",
+    "diet",
     "discus",
     "discuss",
     "different",
@@ -403,6 +404,7 @@ def expanded_search_query(case: PublicBenchmarkCase) -> tuple[str, dict[str, obj
                 "communication_support" in intent.bundle_evidence_roles
             ),
             contact_support="contact_profile" in intent.evidence_need,
+            diet_support="diet_profile" in intent.evidence_need,
             education_support="education_profile" in intent.evidence_need,
             employment_support="employment_profile" in intent.evidence_need,
             age_support="age_profile" in intent.evidence_need,
@@ -545,6 +547,7 @@ def decomposed_search_queries(
             entity_surfaces=entity_surfaces,
             communication_support=compact_relation_role == "communication_support",
             contact_support=compact_relation_role == "contact_support",
+            diet_support=compact_relation_role == "diet_support",
             education_support=compact_relation_role == "education_support",
             employment_support=compact_relation_role == "employment_support",
             age_support=compact_relation_role == "age_support",
@@ -786,6 +789,8 @@ def _compact_relation_query_role(intent: RetrievalIntent) -> str:
         return "education_support"
     if "contact_profile" in set(intent.evidence_need):
         return "contact_support"
+    if "diet_profile" in set(intent.evidence_need):
+        return "diet_support"
     if "activity_profile" in set(intent.evidence_need):
         return "activity_support"
     if "employment_profile" in set(intent.evidence_need):
@@ -1112,6 +1117,8 @@ def _filter_relation_terms_for_profile(
             normalized_question,
         ):
             continue
+        if term == "diet" and not _has_diet_profile_question(normalized_question):
+            continue
         if term in {"exercise", "hobby", "sport"} and not _has_activity_profile_question(
             normalized_question,
         ):
@@ -1216,6 +1223,18 @@ def _has_contact_profile_question(normalized_question: str) -> bool:
         re.search(
             r"\b(?:contact\s+(?:info|information|details)|"
             r"email|e mail|phone|telephone|cell|mobile|address)\b",
+            normalized_question,
+        )
+    )
+
+
+def _has_diet_profile_question(normalized_question: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(?:dietary\s+(?:restriction|restrictions)|"
+            r"vegetarian|vegan|gluten\s?free|dairy\s?free)\b|"
+            r"\b(?:avoid|avoids|can t|cannot|doesn t|don t)\s+eat\b|"
+            r"\bwhat\s+food\b.+\b(?:avoid|eat)\b",
             normalized_question,
         )
     )

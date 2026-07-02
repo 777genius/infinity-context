@@ -241,6 +241,11 @@ def infer_relation_intents(
             relation_terms=relation_terms,
         ):
             continue
+        if category == "diet_profile" and not _has_diet_profile_intent(
+            question=question,
+            relation_terms=relation_terms,
+        ):
+            continue
         if category == "pet_profile" and not _has_pet_profile_intent(
             question=question,
             relation_terms=relation_terms,
@@ -399,6 +404,8 @@ def infer_bundle_evidence_roles(
         roles.append("communication_support")
     if "contact_profile" in evidence_need_set:
         roles.append("contact_support")
+    if "diet_profile" in evidence_need_set:
+        roles.append("diet_support")
     if "exchange" in evidence_need_set:
         roles.append("exchange_support")
     if {"registration_event", "participation_event"} & evidence_need_set:
@@ -422,6 +429,7 @@ def merge_relation_evidence_needs(
     promoted_needs = {
         "emotion_response",
         "contact_profile",
+        "diet_profile",
         "education_profile",
         "employment_profile",
         "age_profile",
@@ -789,6 +797,25 @@ def _has_contact_profile_intent(
         re.search(
             r"\b(?:contact\s+(?:info|information|details)|"
             r"email|e mail|phone|telephone|cell|mobile|address)\b",
+            normalized_question,
+        )
+    )
+
+
+def _has_diet_profile_intent(
+    *,
+    question: str,
+    relation_terms: tuple[str, ...],
+) -> bool:
+    if "diet" not in set(relation_terms):
+        return False
+    normalized_question = re.sub(r"[^0-9a-z]+", " ", question.casefold()).strip()
+    return bool(
+        re.search(
+            r"\b(?:dietary\s+(?:restriction|restrictions)|"
+            r"vegetarian|vegan|gluten\s?free|dairy\s?free)\b|"
+            r"\b(?:avoid|avoids|can t|cannot|doesn t|don t)\s+eat\b|"
+            r"\bwhat\s+food\b.+\b(?:avoid|eat)\b",
             normalized_question,
         )
     )
@@ -1328,6 +1355,26 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
         ),
         "markers": frozenset(),
         "evidence_need": "contact_profile",
+    },
+    "diet_profile": {
+        "terms": frozenset({"diet"}),
+        "variants": frozenset(
+            {
+                "avoid",
+                "dairy",
+                "dietary",
+                "eat",
+                "food",
+                "gluten",
+                "meat",
+                "pork",
+                "restriction",
+                "vegan",
+                "vegetarian",
+            }
+        ),
+        "markers": frozenset(),
+        "evidence_need": "diet_profile",
     },
     "age_profile": {
         "terms": frozenset({"age"}),

@@ -104,6 +104,7 @@ def _support_query_terms(
     entity_surfaces: tuple[str, ...],
     communication_support: bool,
     contact_support: bool,
+    diet_support: bool,
     education_support: bool,
     employment_support: bool,
     age_support: bool,
@@ -123,6 +124,13 @@ def _support_query_terms(
         )
     if contact_support:
         return _contact_support_query_terms(
+            relation_terms=relation_terms,
+            relation_variant_terms=relation_variant_terms,
+            lexical_terms=lexical_terms,
+            entity_surfaces=entity_surfaces,
+        )
+    if diet_support:
+        return _diet_support_query_terms(
             relation_terms=relation_terms,
             relation_variant_terms=relation_variant_terms,
             lexical_terms=lexical_terms,
@@ -262,6 +270,57 @@ def _contact_support_query_terms(
                         relation_variant_terms,
                     )
                     if term not in contact_terms and term not in _QUERY_STOPWORDS
+                ),
+            )
+        )
+    )
+
+
+def _diet_support_query_terms(
+    *,
+    relation_terms: tuple[str, ...],
+    relation_variant_terms: tuple[str, ...],
+    lexical_terms: tuple[str, ...],
+    entity_surfaces: tuple[str, ...],
+) -> tuple[str, ...]:
+    entity_tokens = {
+        token for surface in entity_surfaces for token in _normalized_terms(surface)
+    }
+    diet_terms = {
+        "avoid",
+        "dairy",
+        "diet",
+        "dietary",
+        "eat",
+        "food",
+        "gluten",
+        "meat",
+        "pork",
+        "restriction",
+        "vegan",
+        "vegetarian",
+    }
+    topical_terms = tuple(
+        term
+        for term in lexical_terms
+        if term not in _QUERY_STOPWORDS
+        and term not in relation_terms
+        and term not in relation_variant_terms
+        and term not in entity_tokens
+    )
+    return tuple(
+        dict.fromkeys(
+            (
+                *(term for term in relation_terms if term == "diet"),
+                *(term for term in relation_variant_terms if term in diet_terms),
+                *topical_terms[:4],
+                *(
+                    term
+                    for term in _relation_query_terms(
+                        relation_terms,
+                        relation_variant_terms,
+                    )
+                    if term not in diet_terms and term not in _QUERY_STOPWORDS
                 ),
             )
         )
