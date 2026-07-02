@@ -1147,6 +1147,7 @@ def _has_vehicle_profile_intent(
     normalized_question = re.sub(r"[^0-9a-z]+", " ", question.casefold()).strip()
     return bool(
         re.search(
+            r"\blicen[cs]e\s+plate\b|"
             r"\b(?:what|which|kind\s+of|color)\b.+"
             r"\b(?:car|vehicle|truck|suv|sedan|van)\b|"
             r"\b(?:car|vehicle|truck|suv|sedan|van)\b.+"
@@ -1869,8 +1870,11 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "drive",
                 "drives",
                 "driving",
+                "license",
+                "licence",
                 "own",
                 "owns",
+                "plate",
                 "sedan",
                 "suv",
                 "truck",

@@ -505,6 +505,7 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
     ):
         terms.append("skill")
     if re.search(
+        r"\blicen[cs]e\s+plate\b|"
         r"\b(?:what|which|kind\s+of|color)\b.+"
         r"\b(?:car|vehicle|truck|suv|sedan|van)\b|"
         r"\b(?:car|vehicle|truck|suv|sedan|van)\b.+"

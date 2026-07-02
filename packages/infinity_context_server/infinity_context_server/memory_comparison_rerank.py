@@ -1347,6 +1347,7 @@ def _has_skill_profile_question(normalized_question: str) -> bool:
 def _has_vehicle_profile_question(normalized_question: str) -> bool:
     return bool(
         re.search(
+            r"\blicen[cs]e\s+plate\b|"
             r"\b(?:what|which|kind\s+of|color)\b.+"
             r"\b(?:car|vehicle|truck|suv|sedan|van)\b|"
             r"\b(?:car|vehicle|truck|suv|sedan|van)\b.+"

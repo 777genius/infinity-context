@@ -937,14 +937,21 @@ def _vehicle_support_query_terms(
         "drive",
         "drives",
         "driving",
+        "license",
+        "licence",
         "own",
         "owns",
+        "plate",
         "sedan",
         "suv",
         "truck",
         "van",
         "vehicle",
     }
+    license_plate_terms = {"license", "licence", "plate"}
+    license_plate_focus = bool({"license", "licence"} & set(lexical_terms)) and (
+        "plate" in lexical_terms
+    )
     topical_terms = tuple(
         term
         for term in lexical_terms
@@ -957,8 +964,26 @@ def _vehicle_support_query_terms(
         dict.fromkeys(
             (
                 *(term for term in relation_terms if term == "vehicle"),
-                *(term for term in relation_variant_terms if term in vehicle_terms),
-                *topical_terms[:4],
+                *(
+                    term
+                    for term in relation_variant_terms
+                    if license_plate_focus and term in license_plate_terms
+                ),
+                *(
+                    term
+                    for term in relation_variant_terms
+                    if term in vehicle_terms
+                    and (
+                        term not in license_plate_terms
+                        or license_plate_focus
+                    )
+                    and not (license_plate_focus and term in license_plate_terms)
+                ),
+                *(
+                    term
+                    for term in topical_terms[:4]
+                    if term not in license_plate_terms
+                ),
                 *(
                     term
                     for term in _relation_query_terms(
