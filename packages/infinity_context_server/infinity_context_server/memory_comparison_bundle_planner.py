@@ -34,6 +34,14 @@ _PREDICATE_REQUIRED_ROLES = frozenset(
         "visual_support",
     }
 )
+_DIVERSITY_EXEMPT_ROLES = frozenset(
+    {
+        "bridge",
+        "entity_disambiguation",
+        "primary",
+        *_PREDICATE_REQUIRED_ROLES,
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -442,18 +450,7 @@ class EvidenceBundlePlanner:
                 retrieval_source_counts[source] >= self._max_items_per_retrieval_source
                 for source in retrieval_source_keys
             )
-            diversity_exempt = item.role in {
-                "primary",
-                "temporal_support",
-                "entity_disambiguation",
-                "inference_support",
-                "causal_support",
-                "event_support",
-                "symbolic_meaning_support",
-                "contrast",
-                "bridge",
-                "location_support",
-            }
+            diversity_exempt = item.role in _DIVERSITY_EXEMPT_ROLES
             if (
                 not diversity_exempt
                 and source_type_diversity_full
@@ -1396,19 +1393,7 @@ def _max_item_drop_counts(
     source_type_drops = 0
     retrieval_source_drops = 0
     for item in remaining:
-        if item.role in {
-            "primary",
-            "temporal_support",
-            "entity_disambiguation",
-            "inference_support",
-            "causal_support",
-            "event_support",
-            "emotion_response_support",
-            "symbolic_meaning_support",
-            "contrast",
-            "bridge",
-            "location_support",
-        }:
+        if item.role in _DIVERSITY_EXEMPT_ROLES:
             continue
         if source_type_counts[item.candidate.source_type] >= max_items_per_source_type:
             source_type_drops += 1

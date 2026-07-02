@@ -233,6 +233,53 @@ def test_evidence_bundle_planner_caps_repeated_retrieval_sources() -> None:
     assert diagnostics["retrieval_source_counts"]["keyword_chunks"] == 1
 
 
+def test_evidence_bundle_planner_exempts_typed_support_roles_from_drop_counts() -> None:
+    primary = _candidate(
+        item_id="primary",
+        covered_expected_terms=("photo",),
+        primary_signal=True,
+        source_type="raw_turn",
+        retrieval_sources=("semantic_chunks",),
+        answerability_score=0.9,
+    )
+    generic_one = _candidate(
+        item_id="generic-one",
+        dedupe_key="refs:D1:1",
+        source_type="chunk",
+        retrieval_sources=("semantic_chunks",),
+        query_support_terms=("photo", "album"),
+        answerability_score=0.8,
+    )
+    visual_support = _candidate(
+        item_id="visual-support",
+        dedupe_key="refs:D1:3",
+        source_type="chunk",
+        retrieval_sources=("semantic_chunks",),
+        query_support_terms=("photo", "album"),
+        relation_categories=("visual",),
+        relation_category_hits=("visual",),
+        has_visual_evidence=True,
+        source_locality_score=0.9,
+        answerability_score=0.82,
+    )
+
+    plan = EvidenceBundlePlanner(
+        max_items=1,
+        max_items_per_source_type=10,
+        max_items_per_retrieval_source=1,
+    ).plan(
+        (primary, generic_one, visual_support),
+        case_group="single",
+        required_roles=("primary", "visual_support"),
+    )
+
+    assert [item.candidate.item_id for item in plan.items] == ["primary"]
+    assert plan.dropped_diversity_count == 2
+    assert plan.dropped_retrieval_source_diversity_count == 1
+    assert plan.satisfied_required_roles == ("primary",)
+    assert plan.missing_required_roles == ("visual_support",)
+
+
 def test_evidence_bundle_planner_assigns_specialized_support_roles() -> None:
     primary = _candidate(
         item_id="primary",
