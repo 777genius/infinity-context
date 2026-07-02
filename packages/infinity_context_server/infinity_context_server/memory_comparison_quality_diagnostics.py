@@ -1481,6 +1481,8 @@ def _answer_context_provenance_table(
     backfilled_retrieval_item_count = 0
     backfilled_broad_summary_count = 0
     backfilled_conflict_or_stale_count = 0
+    backfilled_source_proximity_support_count = 0
+    backfilled_source_proximity_closest_distances: list[int] = []
     fallback_context_count = 0
     source_type_diversities: list[int] = []
     retrieval_source_diversities: list[int] = []
@@ -1527,6 +1529,19 @@ def _answer_context_provenance_table(
             context_backfilled_conflict_or_stale_count = (
                 _positive_int(context.get("backfilled_conflict_or_stale_count")) or 0
             )
+            context_backfilled_source_proximity_support_count = (
+                _positive_int(
+                    context.get("backfilled_source_proximity_support_count")
+                )
+                or 0
+            )
+            context_backfilled_source_proximity_closest_distance = _positive_int(
+                context.get("backfilled_source_proximity_closest_distance")
+            )
+            if context_backfilled_source_proximity_closest_distance is not None:
+                backfilled_source_proximity_closest_distances.append(
+                    context_backfilled_source_proximity_closest_distance
+                )
             source_type_diversities.append(
                 _positive_int(context.get("bundle_source_type_diversity")) or 0
             )
@@ -1567,6 +1582,9 @@ def _answer_context_provenance_table(
             backfilled_conflict_or_stale_count += (
                 context_backfilled_conflict_or_stale_count
             )
+            backfilled_source_proximity_support_count += (
+                context_backfilled_source_proximity_support_count
+            )
             if context_backfilled_count > 0:
                 backfilled_context_count += 1
             if context_source_ref_count > 0 or context_source_ref_item_count > 0:
@@ -1586,6 +1604,12 @@ def _answer_context_provenance_table(
                         ),
                         "backfilled_conflict_or_stale_count": (
                             context_backfilled_conflict_or_stale_count
+                        ),
+                        "backfilled_source_proximity_support_count": (
+                            context_backfilled_source_proximity_support_count
+                        ),
+                        "backfilled_source_proximity_closest_distance": (
+                            context_backfilled_source_proximity_closest_distance
                         ),
                         "missing_required_roles": list(
                             _str_tuple(context.get("missing_required_roles"))
@@ -1623,6 +1647,21 @@ def _answer_context_provenance_table(
         "backfilled_retrieval_item_count": backfilled_retrieval_item_count,
         "backfilled_broad_summary_count": backfilled_broad_summary_count,
         "backfilled_conflict_or_stale_count": backfilled_conflict_or_stale_count,
+        "backfilled_source_proximity_support_count": (
+            backfilled_source_proximity_support_count
+        ),
+        "avg_backfilled_source_proximity_support_count": _ratio(
+            backfilled_source_proximity_support_count,
+            context_count,
+        ),
+        "avg_backfilled_source_proximity_closest_distance": _avg(
+            backfilled_source_proximity_closest_distances
+        ),
+        "min_backfilled_source_proximity_closest_distance": (
+            min(backfilled_source_proximity_closest_distances)
+            if backfilled_source_proximity_closest_distances
+            else None
+        ),
         "avg_backfilled_retrieval_item_count": _ratio(
             backfilled_retrieval_item_count,
             context_count,

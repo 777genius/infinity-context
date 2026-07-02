@@ -362,6 +362,25 @@ def answer_context_metrics(
             primary,
             "avg_context_compression_ratio",
         ),
+        "primary_total_backfilled_source_proximity_support_count": (
+            _positive_int(
+                primary.get("total_backfilled_source_proximity_support_count")
+            )
+            or 0
+        ),
+        "primary_avg_backfilled_source_proximity_support_count": _metric_value(
+            primary,
+            "avg_backfilled_source_proximity_support_count",
+        ),
+        "primary_avg_backfilled_source_proximity_closest_distance": _metric_value(
+            primary,
+            "avg_backfilled_source_proximity_closest_distance",
+        ),
+        "primary_min_backfilled_source_proximity_closest_distance": (
+            _positive_int(
+                primary.get("min_backfilled_source_proximity_closest_distance")
+            )
+        ),
         "primary_avg_source_ref_coverage_rate": _metric_value(
             primary,
             "avg_source_ref_coverage_rate",
@@ -427,6 +446,8 @@ def _answer_context_cutoff_metrics(
     backfilled_retrieval_counts: list[int] = []
     backfilled_broad_summary_counts: list[int] = []
     backfilled_conflict_or_stale_counts: list[int] = []
+    backfilled_source_proximity_support_counts: list[int] = []
+    backfilled_source_proximity_closest_distances: list[int] = []
     source_ref_counts: list[int] = []
     source_ref_item_counts: list[int] = []
     source_refless_item_counts: list[int] = []
@@ -491,6 +512,19 @@ def _answer_context_cutoff_metrics(
         backfilled_conflict_or_stale_counts.append(
             _positive_int(context.get("backfilled_conflict_or_stale_count")) or 0
         )
+        backfilled_source_proximity_support_counts.append(
+            _positive_int(
+                context.get("backfilled_source_proximity_support_count")
+            )
+            or 0
+        )
+        backfilled_proximity_distance = _positive_int(
+            context.get("backfilled_source_proximity_closest_distance")
+        )
+        if backfilled_proximity_distance is not None:
+            backfilled_source_proximity_closest_distances.append(
+                backfilled_proximity_distance
+            )
         source_ref_counts.append(_positive_int(context.get("source_ref_count")) or 0)
         source_ref_item_counts.append(
             _positive_int(context.get("source_ref_item_count")) or 0
@@ -616,6 +650,20 @@ def _answer_context_cutoff_metrics(
         ),
         "total_backfilled_conflict_or_stale_count": sum(
             backfilled_conflict_or_stale_counts
+        ),
+        "total_backfilled_source_proximity_support_count": sum(
+            backfilled_source_proximity_support_counts
+        ),
+        "avg_backfilled_source_proximity_support_count": _avg(
+            backfilled_source_proximity_support_counts
+        ),
+        "avg_backfilled_source_proximity_closest_distance": _avg(
+            backfilled_source_proximity_closest_distances
+        ),
+        "min_backfilled_source_proximity_closest_distance": (
+            min(backfilled_source_proximity_closest_distances)
+            if backfilled_source_proximity_closest_distances
+            else None
         ),
         "avg_source_ref_count": _avg(source_ref_counts),
         "avg_source_ref_item_count": _avg(source_ref_item_counts),
@@ -972,15 +1020,27 @@ def _backfill_risk_stats(memories: Sequence[RetrievedMemory]) -> dict[str, objec
     )
     broad_summary_count = 0
     conflict_or_stale_count = 0
+    source_proximity_distances: list[int] = []
     for memory in backfilled:
         features = _candidate_features(memory)
         if memory_has_broad_summary(memory, features):
             broad_summary_count += 1
         if memory_has_conflict_or_stale(memory, features):
             conflict_or_stale_count += 1
+        source_proximity_distance = _positive_int(
+            memory.metadata.get("answer_context_backfill_source_proximity_distance")
+        )
+        if source_proximity_distance is not None:
+            source_proximity_distances.append(source_proximity_distance)
     return {
         "backfilled_broad_summary_count": broad_summary_count,
         "backfilled_conflict_or_stale_count": conflict_or_stale_count,
+        "backfilled_source_proximity_support_count": len(
+            source_proximity_distances
+        ),
+        "backfilled_source_proximity_closest_distance": (
+            min(source_proximity_distances) if source_proximity_distances else None
+        ),
     }
 
 

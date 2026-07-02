@@ -733,6 +733,8 @@ def test_quality_diagnostics_reports_answer_context_provenance_table() -> None:
                             "backfilled_retrieval_item_count": 1,
                             "backfilled_broad_summary_count": 1,
                             "backfilled_conflict_or_stale_count": 0,
+                            "backfilled_source_proximity_support_count": 1,
+                            "backfilled_source_proximity_closest_distance": 2,
                             "missing_required_roles": ["contrast"],
                         }
                     }
@@ -772,6 +774,10 @@ def test_quality_diagnostics_reports_answer_context_provenance_table() -> None:
     assert table["backfilled_retrieval_item_count"] == 1
     assert table["backfilled_broad_summary_count"] == 1
     assert table["backfilled_conflict_or_stale_count"] == 0
+    assert table["backfilled_source_proximity_support_count"] == 1
+    assert table["avg_backfilled_source_proximity_support_count"] == 0.5
+    assert table["avg_backfilled_source_proximity_closest_distance"] == 2.0
+    assert table["min_backfilled_source_proximity_closest_distance"] == 2
     assert table["avg_backfilled_retrieval_item_count"] == 0.5
     assert table["source_ref_context_rate"] == 1.0
     assert table["source_ref_item_coverage_rate"] == 0.6
@@ -795,6 +801,8 @@ def test_quality_diagnostics_reports_answer_context_provenance_table() -> None:
             "backfilled_retrieval_item_count": 1,
             "backfilled_broad_summary_count": 1,
             "backfilled_conflict_or_stale_count": 0,
+            "backfilled_source_proximity_support_count": 1,
+            "backfilled_source_proximity_closest_distance": 2,
             "missing_required_roles": ["contrast"],
         }
     ]
@@ -2136,6 +2144,8 @@ def test_fast_gate_metrics_reports_answer_context_provenance() -> None:
                             "backfilled_retrieval_item_count": 2,
                             "backfilled_broad_summary_count": 1,
                             "backfilled_conflict_or_stale_count": 1,
+                            "backfilled_source_proximity_support_count": 1,
+                            "backfilled_source_proximity_closest_distance": 1,
                             "bundle_source_type_diversity": 1,
                             "bundle_retrieval_source_diversity": 1,
                             "missing_required_roles": ["visual"],
@@ -2158,6 +2168,10 @@ def test_fast_gate_metrics_reports_answer_context_provenance() -> None:
     assert provenance["backfilled_retrieval_item_count"] == 2
     assert provenance["backfilled_broad_summary_count"] == 1
     assert provenance["backfilled_conflict_or_stale_count"] == 1
+    assert provenance["backfilled_source_proximity_support_count"] == 1
+    assert provenance["avg_backfilled_source_proximity_support_count"] == 0.5
+    assert provenance["avg_backfilled_source_proximity_closest_distance"] == 1.0
+    assert provenance["min_backfilled_source_proximity_closest_distance"] == 1
     assert provenance["avg_backfilled_retrieval_item_count"] == 1.0
     assert provenance["avg_context_answerability_score"] == 0.2
     assert provenance["avg_measured_context_answerability_score"] == 0.8
@@ -2178,6 +2192,8 @@ def test_fast_gate_metrics_reports_answer_context_provenance() -> None:
             "backfilled_retrieval_item_count": 2,
             "backfilled_broad_summary_count": 1,
             "backfilled_conflict_or_stale_count": 1,
+            "backfilled_source_proximity_support_count": 1,
+            "backfilled_source_proximity_closest_distance": 1,
             "missing_required_roles": ["visual"],
         }
     ]

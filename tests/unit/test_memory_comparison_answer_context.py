@@ -271,6 +271,8 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
         "backfilled_retrieval_item_count": 2,
         "backfilled_broad_summary_count": 0,
         "backfilled_conflict_or_stale_count": 0,
+        "backfilled_source_proximity_support_count": 0,
+        "backfilled_source_proximity_closest_distance": None,
         "bundle_confidence_score": 0.68,
         "bundle_confidence_band": "medium",
         "bundle_bridge_count": 1,
@@ -810,6 +812,9 @@ def test_answer_context_backfill_prefers_source_proximate_role_evidence() -> Non
     assert "source_proximity_support" not in context.memories[2].metadata[
         "answer_context_reason_codes"
     ]
+    diagnostics = context.to_diagnostics()
+    assert diagnostics["backfilled_source_proximity_support_count"] == 1
+    assert diagnostics["backfilled_source_proximity_closest_distance"] == 2
 
 
 def test_answer_context_falls_back_for_empty_bundle() -> None:
@@ -847,9 +852,11 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
                             "unmeasured_source_locality_count": 1,
                             "selected_bundle_item_count": 1,
                             "skipped_bundle_item_count": 0,
-                            "backfilled_retrieval_item_count": 0,
+                            "backfilled_retrieval_item_count": 1,
                             "backfilled_broad_summary_count": 0,
                             "backfilled_conflict_or_stale_count": 0,
+                            "backfilled_source_proximity_support_count": 1,
+                            "backfilled_source_proximity_closest_distance": 2,
                             "bundle_confidence_score": 0.68,
                             "bundle_confidence_band": "medium",
                             "bundle_bridge_count": 1,
@@ -906,6 +913,10 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
     assert metrics["primary_evidence_bundle_context_rate"] == 0.5
     assert metrics["primary_avg_context_memory_count"] == 2.0
     assert metrics["primary_avg_context_compression_ratio"] == 0.6667
+    assert metrics["primary_total_backfilled_source_proximity_support_count"] == 1
+    assert metrics["primary_avg_backfilled_source_proximity_support_count"] == 0.5
+    assert metrics["primary_avg_backfilled_source_proximity_closest_distance"] == 2.0
+    assert metrics["primary_min_backfilled_source_proximity_closest_distance"] == 2
     assert metrics["primary_avg_source_ref_coverage_rate"] == 0.5
     assert metrics["primary_avg_context_answerability_score"] == 0.2
     assert metrics["primary_avg_measured_context_answerability_score"] == 0.8
@@ -919,10 +930,14 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
     assert metrics["primary_max_bundle_retrieval_source_diversity"] == 3
     assert primary["evidence_bundle_context_count"] == 1
     assert primary["fallback_context_count"] == 1
-    assert primary["avg_backfilled_retrieval_item_count"] == 0.0
-    assert primary["total_backfilled_retrieval_item_count"] == 0
+    assert primary["avg_backfilled_retrieval_item_count"] == 0.5
+    assert primary["total_backfilled_retrieval_item_count"] == 1
     assert primary["total_backfilled_broad_summary_count"] == 0
     assert primary["total_backfilled_conflict_or_stale_count"] == 0
+    assert primary["total_backfilled_source_proximity_support_count"] == 1
+    assert primary["avg_backfilled_source_proximity_support_count"] == 0.5
+    assert primary["avg_backfilled_source_proximity_closest_distance"] == 2.0
+    assert primary["min_backfilled_source_proximity_closest_distance"] == 2
     assert primary["source_counts"] == {
         "evidence_bundle": 1,
         "retrieval_slice": 1,
