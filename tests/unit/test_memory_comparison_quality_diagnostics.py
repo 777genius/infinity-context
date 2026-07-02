@@ -99,9 +99,13 @@ def test_quality_diagnostics_reports_intents_policies_bundle_gaps_and_leakage() 
                             primary_count=1,
                             supporting_count=1,
                             bridge_count=1,
+                            causal_support_count=1,
+                            inference_support_count=1,
+                            location_support_count=1,
                             preference_support_count=1,
                             visual_support_count=1,
                             contrast_count=1,
+                            location_relation_category_hit_count=1,
                             source_proximity_support_count=1,
                             source_ref_item_count=2,
                             source_type_diversity=2,
@@ -225,6 +229,15 @@ def test_quality_diagnostics_reports_intents_policies_bundle_gaps_and_leakage() 
     assert bundle_quality["avg_bridge_count"] == 0.5
     assert bundle_quality["total_bridge_count"] == 1
     assert bundle_quality["bridge_bundle_count"] == 1
+    assert bundle_quality["avg_causal_support_count"] == 0.5
+    assert bundle_quality["total_causal_support_count"] == 1
+    assert bundle_quality["causal_support_bundle_count"] == 1
+    assert bundle_quality["avg_inference_support_count"] == 0.5
+    assert bundle_quality["total_inference_support_count"] == 1
+    assert bundle_quality["inference_support_bundle_count"] == 1
+    assert bundle_quality["avg_location_support_count"] == 0.5
+    assert bundle_quality["total_location_support_count"] == 1
+    assert bundle_quality["location_support_bundle_count"] == 1
     assert bundle_quality["avg_preference_support_count"] == 0.5
     assert bundle_quality["total_preference_support_count"] == 1
     assert bundle_quality["preference_support_bundle_count"] == 1
@@ -234,6 +247,7 @@ def test_quality_diagnostics_reports_intents_policies_bundle_gaps_and_leakage() 
     assert bundle_quality["avg_contrast_count"] == 0.5
     assert bundle_quality["total_contrast_count"] == 1
     assert bundle_quality["contrast_bundle_count"] == 1
+    assert bundle_quality["total_location_relation_category_hit_count"] == 1
     assert bundle_quality["avg_source_proximity_support_count"] == 0.5
     assert bundle_quality["total_source_proximity_support_count"] == 1
     assert bundle_quality["source_proximity_bundle_count"] == 1
@@ -844,6 +858,68 @@ def test_fast_gate_metrics_reports_bundle_gap_breakdown() -> None:
     }
     assert breakdown["samples"][0]["case_id"] == "weak-multi-hop"
     assert breakdown["samples"][0]["average_selected_source_locality_score"] == 0.35
+
+
+def test_fast_gate_metrics_reports_bundle_support_summaries() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="complete-supported",
+                evidence_bundle={
+                    "bundle_complete": True,
+                    "evidence_term_count": 1,
+                    "covered_evidence_terms": ["D1:1"],
+                    "bundle_planner": {
+                        "bundle_quality": _bundle_quality(
+                            confidence_score=0.86,
+                            confidence_band="high",
+                            selected_item_count=3,
+                            primary_count=1,
+                            supporting_count=2,
+                            bridge_count=1,
+                            causal_support_count=1,
+                            inference_support_count=1,
+                            location_support_count=1,
+                            preference_support_count=1,
+                            visual_support_count=1,
+                            contrast_count=1,
+                            source_proximity_support_count=2,
+                        )
+                    },
+                    "items": [
+                        {
+                            "retrieval_order": 1,
+                            "covered_evidence_terms": ["D1:1"],
+                            "focused_evidence_score": 1.0,
+                        }
+                    ],
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    assert gate["bundle_quality_gate_applied"] is True
+    assert gate["bundle_support_counts"] == {
+        "bridge": 1,
+        "causal": 1,
+        "contrast": 1,
+        "inference": 1,
+        "location": 1,
+        "preference": 1,
+        "source_proximity": 2,
+        "visual": 1,
+    }
+    assert gate["bundle_support_bundle_counts"] == {
+        "bridge": 1,
+        "causal": 1,
+        "contrast": 1,
+        "inference": 1,
+        "location": 1,
+        "preference": 1,
+        "source_proximity": 1,
+        "visual": 1,
+    }
 
 
 def test_fast_gate_metrics_reports_missing_contrast_evidence_gap() -> None:
@@ -2027,9 +2103,11 @@ def _bundle_quality(
     bridge_count: int = 0,
     causal_support_count: int = 0,
     inference_support_count: int = 0,
+    location_support_count: int = 0,
     preference_support_count: int = 0,
     visual_support_count: int = 0,
     contrast_count: int = 0,
+    location_relation_category_hit_count: int = 0,
     low_answerability_count: int = 0,
     broad_summary_count: int = 0,
     conflict_or_stale_count: int = 0,
@@ -2050,9 +2128,11 @@ def _bundle_quality(
         "bridge_count": bridge_count,
         "causal_support_count": causal_support_count,
         "inference_support_count": inference_support_count,
+        "location_support_count": location_support_count,
         "preference_support_count": preference_support_count,
         "visual_support_count": visual_support_count,
         "contrast_count": contrast_count,
+        "location_relation_category_hit_count": location_relation_category_hit_count,
         "low_answerability_count": low_answerability_count,
         "broad_summary_count": broad_summary_count,
         "conflict_or_stale_count": conflict_or_stale_count,

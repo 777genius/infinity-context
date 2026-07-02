@@ -617,6 +617,10 @@ payload across the run: confidence-band counts, average confidence, average risk
 penalty, bridge, location, contrast and source-proximity evidence counts, risk
 reason counts and compact weak samples. This keeps the fast loop focused on
 evidence-package quality even when a bundle is technically complete.
+Fast-gate payloads also expose compact `bundle_support_counts` and
+`bundle_support_bundle_counts`, so short runs show whether bridge, causal,
+inference, location, preference, visual, contrast and source-proximity support
+actually reached selected bundles.
 The same diagnostics include `rerank_lift_table`, a candidate-level explanation
 of why retrieved memories were lifted. It counts positive score signals, active
 policy names, policy reason codes, relation-category hits, low-answerability

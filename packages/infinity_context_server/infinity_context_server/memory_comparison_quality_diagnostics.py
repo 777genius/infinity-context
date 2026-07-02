@@ -183,6 +183,8 @@ def fast_gate_metrics(
         "bundle_quality_gate_applied": bool(bundle_quality_count),
         "bundle_quality_count": bundle_quality_count,
         "weak_bundle_count": _positive_int(bundle_quality.get("weak_bundle_count")) or 0,
+        "bundle_support_counts": _bundle_support_counts(bundle_quality),
+        "bundle_support_bundle_counts": _bundle_support_bundle_counts(bundle_quality),
         "bundle_gap_breakdown": _bundle_gap_breakdown(bundle_incomplete),
         "query_role_gap_breakdown": _query_role_gap_breakdown(
             query_role_effectiveness
@@ -808,6 +810,57 @@ def _bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, ob
         },
         "top_reason_counts": _top_counts(reason_counts),
         "weak_samples": weak_samples,
+    }
+
+
+def _bundle_support_counts(bundle_quality: Mapping[str, object]) -> dict[str, int]:
+    return {
+        "bridge": _positive_int(bundle_quality.get("total_bridge_count")) or 0,
+        "causal": (
+            _positive_int(bundle_quality.get("total_causal_support_count")) or 0
+        ),
+        "inference": (
+            _positive_int(bundle_quality.get("total_inference_support_count")) or 0
+        ),
+        "location": (
+            _positive_int(bundle_quality.get("total_location_support_count")) or 0
+        ),
+        "preference": (
+            _positive_int(bundle_quality.get("total_preference_support_count")) or 0
+        ),
+        "visual": _positive_int(bundle_quality.get("total_visual_support_count")) or 0,
+        "contrast": _positive_int(bundle_quality.get("total_contrast_count")) or 0,
+        "source_proximity": (
+            _positive_int(
+                bundle_quality.get("total_source_proximity_support_count")
+            )
+            or 0
+        ),
+    }
+
+
+def _bundle_support_bundle_counts(
+    bundle_quality: Mapping[str, object],
+) -> dict[str, int]:
+    return {
+        "bridge": _positive_int(bundle_quality.get("bridge_bundle_count")) or 0,
+        "causal": (
+            _positive_int(bundle_quality.get("causal_support_bundle_count")) or 0
+        ),
+        "inference": (
+            _positive_int(bundle_quality.get("inference_support_bundle_count")) or 0
+        ),
+        "location": (
+            _positive_int(bundle_quality.get("location_support_bundle_count")) or 0
+        ),
+        "preference": (
+            _positive_int(bundle_quality.get("preference_support_bundle_count")) or 0
+        ),
+        "visual": _positive_int(bundle_quality.get("visual_support_bundle_count")) or 0,
+        "contrast": _positive_int(bundle_quality.get("contrast_bundle_count")) or 0,
+        "source_proximity": (
+            _positive_int(bundle_quality.get("source_proximity_bundle_count")) or 0
+        ),
     }
 
 
