@@ -287,7 +287,7 @@ RELATION_QUERY_VARIANTS = {
     ),
     "realize": ("realized", "learned", "understood"),
     "research": ("researching", "looked into", "looking into", "check out", "checked out"),
-    "run": ("ran", "running", "race", "charity", "marathon"),
+    "run": ("ran", "running", "race", "charity"),
     "sign": ("signed", "signup", "class", "registered"),
     "suggest": ("suggested", "recommend", "recommended", "advised"),
     "sibling": ("brother", "sister", "family"),
@@ -514,7 +514,7 @@ RELATION_QUERY_VARIANTS.update(
             "kids",
             "children",
         ),
-        "race": ("ran", "running", "charity", "marathon", "fundraiser", "awareness"),
+        "race": ("ran", "running", "charity", "fundraiser", "awareness"),
         "realize": (
             "realized",
             "learned",

@@ -1686,7 +1686,7 @@ def _relation_query_terms(
         priority_variant_order.extend(("raising", "raised", "awareness", "fundraiser"))
         priority_surface_terms.update(("raising", "raised"))
     if {"run", "charity", "race"}.issubset(relation_term_set):
-        priority_variant_order.extend(("last", "ran", "marathon", "fundraiser"))
+        priority_variant_order.extend(("last", "ran", "fundraiser", "awareness"))
         priority_surface_terms.add("last")
     if "research" in relation_term_set:
         priority_variant_order.extend(("researching",))

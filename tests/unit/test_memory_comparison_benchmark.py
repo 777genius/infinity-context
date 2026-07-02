@@ -3991,9 +3991,10 @@ def test_query_decomposition_expands_temporal_action_queries() -> None:
     assert move_queries[1] == "caroline move moved home country 4 year ago"
     assert "move" in move_metadata["query_profile"]["relation_terms"]
     assert "4" in move_metadata["query_profile"]["lexical_terms"]
-    assert race_queries[1] == "melanie run charity race last ran marathon"
+    assert race_queries[1] == "melanie run charity race last ran fundraiser"
     assert "run" in race_metadata["query_profile"]["relation_terms"]
     assert "charity" in race_metadata["query_profile"]["relation_terms"]
+    assert "marathon" not in race_metadata["query_profile"]["relation_variant_terms"]
     assert meeting_queries[1] == "caroline meet friend met family mentor gathering"
     assert "meet" in meeting_metadata["query_profile"]["relation_terms"]
     assert speech_queries[1] == "caroline give speech school event talk student"
