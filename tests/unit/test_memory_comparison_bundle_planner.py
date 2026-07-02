@@ -74,6 +74,70 @@ def test_evidence_bundle_planner_promotes_answerable_direct_turn_to_primary() ->
     assert "direct_speaker_turn" in plan.primary_selection_reason_codes
 
 
+def test_evidence_bundle_planner_promotes_unmeasured_direct_turn_to_primary() -> None:
+    broad = _candidate(
+        item_id="broad-summary",
+        retrieval_order=1,
+        primary_signal=True,
+        query_support_terms=("caroline", "support"),
+        broad_summary=True,
+        source_locality_score=0.35,
+        answerability_score=0.58,
+    )
+    unmeasured_precise = _candidate(
+        item_id="unmeasured-precise-turn",
+        retrieval_order=2,
+        primary_signal=False,
+        query_support_terms=("support",),
+        direct_speaker_turn=True,
+        source_type="raw_turn",
+        source_locality_score=0.0,
+        answerability_score=0.0,
+        relation_hits=("support", "family"),
+        entity_hits=("caroline",),
+        speaker_hits=("caroline",),
+    )
+
+    plan = EvidenceBundlePlanner().plan(
+        (broad, unmeasured_precise),
+        case_group="single",
+    )
+
+    assert plan.items[0].candidate.item_id == "unmeasured-precise-turn"
+    assert plan.items[0].role == "primary"
+    assert "answerable_direct_primary" in plan.primary_selection_reason_codes
+    assert "direct_speaker_turn" in plan.primary_selection_reason_codes
+
+
+def test_evidence_bundle_planner_blocks_measured_weak_direct_primary() -> None:
+    broad = _candidate(
+        item_id="broad-summary",
+        retrieval_order=1,
+        primary_signal=True,
+        query_support_terms=("caroline", "support"),
+        broad_summary=True,
+    )
+    measured_weak = _candidate(
+        item_id="measured-weak-turn",
+        retrieval_order=2,
+        primary_signal=False,
+        query_support_terms=("support",),
+        direct_speaker_turn=True,
+        source_type="raw_turn",
+        source_locality_score=0.35,
+        answerability_score=0.7,
+        relation_hits=("support", "family"),
+        entity_hits=("caroline",),
+        speaker_hits=("caroline",),
+    )
+
+    plan = EvidenceBundlePlanner().plan((broad, measured_weak), case_group="single")
+
+    assert plan.items[0].candidate.item_id == "broad-summary"
+    assert plan.items[0].role == "primary"
+    assert "answerable_direct_primary" not in plan.primary_selection_reason_codes
+
+
 def test_evidence_bundle_planner_dedupes_and_caps_source_type_diversity() -> None:
     duplicate_weaker = _candidate(
         item_id="duplicate-summary",

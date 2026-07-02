@@ -1127,7 +1127,21 @@ def _candidate_has_causal_support(candidate: EvidenceBundleCandidate) -> bool:
 def _candidate_has_measured_weak_source_locality(
     candidate: EvidenceBundleCandidate,
 ) -> bool:
-    return 0 < candidate.source_locality_score < 0.45
+    return _candidate_has_measured_source_locality_below(candidate, 0.45)
+
+
+def _candidate_has_measured_source_locality_below(
+    candidate: EvidenceBundleCandidate,
+    threshold: float,
+) -> bool:
+    return 0 < candidate.source_locality_score < threshold
+
+
+def _candidate_has_measured_answerability_below(
+    candidate: EvidenceBundleCandidate,
+    threshold: float,
+) -> bool:
+    return 0 < candidate.answerability_score < threshold
 
 
 def _is_measured_low_answerability(score: float) -> bool:
@@ -1170,7 +1184,9 @@ def _primary_candidate_eligible(candidate: EvidenceBundleCandidate) -> bool:
         return False
     if not candidate.direct_speaker_turn:
         return False
-    if candidate.source_locality_score < 0.65 or candidate.answerability_score < 0.75:
+    if _candidate_has_measured_source_locality_below(candidate, 0.65):
+        return False
+    if _candidate_has_measured_answerability_below(candidate, 0.75):
         return False
     return bool(
         candidate.query_support_terms
