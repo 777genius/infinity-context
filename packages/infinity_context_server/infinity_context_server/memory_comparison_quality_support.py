@@ -221,15 +221,24 @@ def bundle_has_planner_reason(bundle: Mapping[str, object], reason: str) -> bool
 
 
 def bundle_has_temporal_support(bundle: Mapping[str, object]) -> bool:
-    if "temporal_support" in bundle_roles(bundle):
-        return True
     return any(
         bool(
             item.get("has_temporal_surface")
             or item.get("has_sequence_surface")
+            or item.get("has_duration_surface")
+            or item.get("has_relative_time_surface")
+            or item.get("has_explicit_time_surface")
+            or item.get("has_temporal_sequence_surface")
             or item.get("currentness_surface")
             or "temporal_surface" in _str_tuple(item.get("planner_reason_codes"))
             or "sequence_surface" in _str_tuple(item.get("planner_reason_codes"))
+            or "duration_surface" in _str_tuple(item.get("planner_reason_codes"))
+            or "relative_time_surface"
+            in _str_tuple(item.get("planner_reason_codes"))
+            or "explicit_time_surface"
+            in _str_tuple(item.get("planner_reason_codes"))
+            or "temporal_sequence_surface"
+            in _str_tuple(item.get("planner_reason_codes"))
             or "currentness_surface" in _str_tuple(item.get("planner_reason_codes"))
         )
         for item in _bundle_items(bundle)
