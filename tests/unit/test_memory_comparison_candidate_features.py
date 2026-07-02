@@ -138,6 +138,102 @@ def test_candidate_features_use_text_turn_refs_for_dedupe_when_source_refs_are_g
     )
 
 
+def test_candidate_features_use_source_ref_turns_for_locality_and_dedupe() -> None:
+    memory = RetrievedMemory(
+        item_id="adjacent-source-refs",
+        rank=1,
+        text=(
+            "Caroline said the adoption agency felt inclusive and her friend "
+            "helped her compare options."
+        ),
+        source_refs=(
+            "locomo:conv-26:session_2:D2:8:turn",
+            "locomo:conv-26:session_2:D2:9:turn",
+        ),
+        metadata={"item_type": "chunk"},
+    )
+
+    features = build_candidate_evidence_features(
+        memory,
+        memory_terms={
+            "caroline",
+            "adoption",
+            "agency",
+            "inclusive",
+            "friend",
+            "helped",
+            "compare",
+            "options",
+        },
+        query_terms=("caroline", "adoption", "agency"),
+        relation_terms=("adoption", "agency"),
+        relation_variant_terms=("inclusive", "help"),
+        entities=("caroline",),
+        entity_hits=("caroline",),
+        speaker_hits=(),
+        high_signal_relation_terms={"inclusive"},
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=True,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=False,
+    )
+
+    assert features.source_turn_refs == ("D2:8", "D2:9")
+    assert features.turn_ref_count == 2
+    assert features.source_turn_span == 2
+    assert features.source_locality_score == 0.95
+    assert features.source_locality_reason_codes == ("proximate_source_turn_refs",)
+    assert features.source_ref_dedupe_key == "source_turn_refs:D2:8|D2:9"
+    assert "source_provenance" in features.answerability_reason_codes
+    diagnostics = features.to_diagnostics()
+    assert diagnostics["source_turn_refs"] == ["D2:8", "D2:9"]
+    assert diagnostics["source_turn_span"] == 2
+
+
+def test_candidate_features_do_not_treat_cross_session_turn_refs_as_proximate() -> None:
+    memory = RetrievedMemory(
+        item_id="cross-session-summary",
+        rank=1,
+        text="Caroline had several conversations about adoption support.",
+        source_refs=(
+            "locomo:conv-26:session_2:D2:8:turn",
+            "locomo:conv-26:session_9:D9:8:turn",
+        ),
+        metadata={"item_type": "fact"},
+    )
+
+    features = build_candidate_evidence_features(
+        memory,
+        memory_terms={"caroline", "conversation", "adoption", "support"},
+        query_terms=("caroline", "adoption", "support"),
+        relation_terms=("adoption", "support"),
+        relation_variant_terms=("agency",),
+        entities=("caroline",),
+        entity_hits=("caroline",),
+        speaker_hits=(),
+        high_signal_relation_terms={"support"},
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=True,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=False,
+    )
+
+    assert features.source_turn_refs == ("D2:8", "D9:8")
+    assert features.source_turn_span == 0
+    assert features.source_locality_score == 0.65
+    assert features.source_locality_reason_codes == ("multi_turn_refs",)
+
+
 def test_candidate_features_read_retrieval_sources_from_candidate_fusion() -> None:
     memory = RetrievedMemory(
         item_id="fusion-only-provenance",

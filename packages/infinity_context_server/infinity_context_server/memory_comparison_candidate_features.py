@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from infinity_context_server.memory_comparison_models import RetrievedMemory
 
 _TURN_REF_RE = re.compile(r"\bD\d+:\d+\b")
+_TURN_REF_PARTS_RE = re.compile(r"\bD(?P<dialogue>\d+):(?P<turn>\d+)\b")
 _DIRECT_TURN_SPEAKER_RE = re.compile(
     r"\bD\d+:\d+\s+[A-Z][a-zA-Z0-9_-]{1,40}\s*:"
 )
@@ -95,6 +96,8 @@ class CandidateEvidenceFeatures:
     has_preference_evidence: bool
     has_visual_evidence: bool
     source_ref_count: int
+    source_turn_refs: tuple[str, ...]
+    source_turn_span: int
     turn_ref_count: int
     source_ref_density: float
     source_locality_score: float
@@ -129,6 +132,8 @@ class CandidateEvidenceFeatures:
             "focused_turn_score": round(self.focused_turn_score, 6),
             "time_intent_kind": self.time_intent_kind,
             "source_ref_count": self.source_ref_count,
+            "source_turn_refs": list(self.source_turn_refs),
+            "source_turn_span": self.source_turn_span,
             "turn_ref_count": self.turn_ref_count,
             "source_ref_density": round(self.source_ref_density, 6),
             "source_locality_score": round(self.source_locality_score, 6),
@@ -216,13 +221,17 @@ def build_candidate_evidence_features(
     text = memory.text or ""
     contrast_features = _contrast_features(text)
     temporal_features = _temporal_evidence_features(text)
-    turn_refs = tuple(dict.fromkeys(_TURN_REF_RE.findall(text)))
     source_refs = tuple(str(ref) for ref in memory.source_refs if str(ref).strip())
+    text_turn_refs = tuple(dict.fromkeys(_TURN_REF_RE.findall(text)))
+    source_turn_refs = _source_turn_refs(source_refs)
+    turn_refs = tuple(dict.fromkeys((*text_turn_refs, *source_turn_refs)))
+    source_turn_span = _source_turn_span(turn_refs)
     broad_summary = bool(_BROAD_SUMMARY_SURFACE_RE.search(text))
     direct_speaker_turn = bool(_DIRECT_TURN_SPEAKER_RE.search(text)) and not broad_summary
     source_locality_score, source_locality_reasons = _source_locality(
         source_ref_count=len(source_refs),
         turn_ref_count=len(turn_refs),
+        source_turn_span=source_turn_span,
         direct_speaker_turn=direct_speaker_turn,
         broad_summary=broad_summary,
     )
@@ -306,6 +315,8 @@ def build_candidate_evidence_features(
         has_preference_evidence=has_preference_evidence,
         has_visual_evidence=has_visual_evidence,
         source_ref_count=len(source_refs),
+        source_turn_refs=source_turn_refs,
+        source_turn_span=source_turn_span,
         turn_ref_count=len(turn_refs),
         source_ref_density=_ratio(len(source_refs), max(1, len(turn_refs))),
         source_locality_score=source_locality_score,
@@ -318,7 +329,7 @@ def build_candidate_evidence_features(
         duplicate_key=_duplicate_key(memory, source_refs),
         source_ref_dedupe_key=_source_ref_dedupe_key(
             source_refs,
-            text_turn_refs=turn_refs,
+            text_turn_refs=text_turn_refs,
         ),
         conflict_or_stale=conflict_or_stale,
         negation_surface=contrast_features["negation_surface"],
@@ -482,6 +493,7 @@ def _source_locality(
     *,
     source_ref_count: int,
     turn_ref_count: int,
+    source_turn_span: int,
     direct_speaker_turn: bool,
     broad_summary: bool,
 ) -> tuple[float, tuple[str, ...]]:
@@ -489,7 +501,10 @@ def _source_locality(
     if direct_speaker_turn and 0 < turn_ref_count <= 2:
         score = 1.0
         reasons.append("direct_localized_turn")
-    elif 0 < turn_ref_count <= 2 and source_ref_count <= 3:
+    elif not broad_summary and 1 < turn_ref_count <= 3 and 0 < source_turn_span <= 3:
+        score = 0.95
+        reasons.append("proximate_source_turn_refs")
+    elif turn_ref_count == 1 and source_ref_count <= 3:
         score = 0.9
         reasons.append("localized_turn_refs")
     elif 0 < turn_ref_count <= 5:
@@ -744,19 +759,44 @@ def _source_ref_dedupe_key(
     *,
     text_turn_refs: Sequence[str] = (),
 ) -> str:
-    source_turn_refs = tuple(
-        dict.fromkeys(
-            ref
-            for source_ref in source_refs
-            for ref in _TURN_REF_RE.findall(str(source_ref))
-        )
-    )
+    source_turn_refs = _source_turn_refs(source_refs)
     turn_refs = source_turn_refs or tuple(
         dict.fromkeys(ref for ref in text_turn_refs if _TURN_REF_RE.fullmatch(str(ref)))
     )
     if not turn_refs or len(turn_refs) > 3:
         return ""
     return "source_turn_refs:" + "|".join(sorted(turn_refs))
+
+
+def _source_turn_refs(source_refs: Sequence[str]) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            ref
+            for source_ref in source_refs
+            for ref in _TURN_REF_RE.findall(str(source_ref))
+        )
+    )
+
+
+def _source_turn_span(turn_refs: Sequence[str]) -> int:
+    parsed = tuple(_parse_turn_ref(ref) for ref in turn_refs)
+    parsed = tuple(ref for ref in parsed if ref is not None)
+    if len(parsed) <= 1:
+        return 0
+    by_dialogue: dict[int, list[int]] = {}
+    for dialogue, turn in parsed:
+        by_dialogue.setdefault(dialogue, []).append(turn)
+    if len(by_dialogue) != 1:
+        return 0
+    turns = tuple(turn for values in by_dialogue.values() for turn in values)
+    return max(turns) - min(turns) + 1
+
+
+def _parse_turn_ref(ref: str) -> tuple[int, int] | None:
+    match = _TURN_REF_PARTS_RE.search(str(ref))
+    if match is None:
+        return None
+    return int(match.group("dialogue")), int(match.group("turn"))
 
 
 def _conflict_or_stale(memory: RetrievedMemory) -> bool:
