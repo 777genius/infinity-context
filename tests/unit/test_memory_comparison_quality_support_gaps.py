@@ -133,6 +133,97 @@ def test_fast_gate_metrics_accepts_contrast_surface_evidence() -> None:
     assert "missing_contrast" not in breakdown["evidence_need_gap_reason_counts"]
 
 
+def test_fast_gate_metrics_rejects_stale_or_negation_without_current_contrast() -> None:
+    for surface_key, reason_code in (
+        ("stale_surface", "stale_surface"),
+        ("negation_surface", "negation_surface"),
+    ):
+        gate = fast_gate_metrics(
+            (
+                _item(
+                    case_id=f"{surface_key}-only",
+                    group="single-hop",
+                    retrieval=_retrieval_payload(
+                        evidence_need=("contrast",),
+                        bundle_evidence_roles=("primary", "contrast"),
+                        relation_categories=("contrast",),
+                        policy_score=0.0,
+                    ),
+                    evidence_bundle={
+                        "bundle_complete": False,
+                        "item_count": 1,
+                        "primary_evidence_count": 1,
+                        "supporting_evidence_count": 0,
+                        "query_support_term_recall": 0.5,
+                        "covered_evidence_terms": [],
+                        "items": [
+                            {
+                                "role": "contrast",
+                                "retrieval_order": 1,
+                                "focused_evidence_score": 1.0,
+                                surface_key: True,
+                                "planner_reason_codes": [reason_code],
+                            }
+                        ],
+                    },
+                ),
+            ),
+            expected_case_count=1,
+        )
+
+        breakdown = gate["bundle_gap_breakdown"]
+
+        assert breakdown["reason_counts"]["missing_contrast"] == 1
+        assert breakdown["evidence_need_gap_reason_counts"] == {
+            "missing_contrast": 1
+        }
+        assert "missing_contrast" in breakdown["samples"][0]["reasons"]
+
+
+def test_fast_gate_metrics_accepts_currentness_with_stale_as_contrast() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="current-and-stale",
+                group="single-hop",
+                retrieval=_retrieval_payload(
+                    evidence_need=("contrast",),
+                    bundle_evidence_roles=("primary", "contrast"),
+                    relation_categories=("contrast",),
+                    policy_score=0.0,
+                ),
+                evidence_bundle={
+                    "bundle_complete": False,
+                    "item_count": 1,
+                    "primary_evidence_count": 1,
+                    "supporting_evidence_count": 0,
+                    "query_support_term_recall": 0.5,
+                    "covered_evidence_terms": [],
+                    "items": [
+                        {
+                            "role": "contrast",
+                            "retrieval_order": 1,
+                            "focused_evidence_score": 1.0,
+                            "currentness_surface": True,
+                            "stale_surface": True,
+                            "planner_reason_codes": [
+                                "currentness_surface",
+                                "stale_surface",
+                            ],
+                        }
+                    ],
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    breakdown = gate["bundle_gap_breakdown"]
+
+    assert "missing_contrast" not in breakdown["reason_counts"]
+    assert "missing_contrast" not in breakdown["evidence_need_gap_reason_counts"]
+
+
 def test_fast_gate_metrics_rejects_temporal_role_label_without_surface() -> None:
     gate = fast_gate_metrics(
         (

@@ -246,17 +246,23 @@ def bundle_has_temporal_support(bundle: Mapping[str, object]) -> bool:
 
 
 def bundle_has_contrast_support(bundle: Mapping[str, object]) -> bool:
-    return any(
-        bool(
-            item.get("contrast_surface")
-            or item.get("stale_surface")
-            or item.get("negation_surface")
-            or "contrast_surface" in _str_tuple(item.get("planner_reason_codes"))
-            or "stale_surface" in _str_tuple(item.get("planner_reason_codes"))
-            or "negation_surface" in _str_tuple(item.get("planner_reason_codes"))
-        )
-        for item in _bundle_items(bundle)
+    return any(_bundle_item_has_contrast_support(item) for item in _bundle_items(bundle))
+
+
+def _bundle_item_has_contrast_support(item: Mapping[str, object]) -> bool:
+    reasons = _str_tuple(item.get("planner_reason_codes"))
+    if item.get("contrast_surface") or "contrast_surface" in reasons:
+        return True
+    has_currentness = bool(
+        item.get("currentness_surface") or "currentness_surface" in reasons
     )
+    has_change_or_negation = bool(
+        item.get("stale_surface")
+        or item.get("negation_surface")
+        or "stale_surface" in reasons
+        or "negation_surface" in reasons
+    )
+    return has_currentness and has_change_or_negation
 
 
 def bundle_has_causal_support(
