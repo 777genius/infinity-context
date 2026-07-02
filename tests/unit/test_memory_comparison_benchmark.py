@@ -4451,6 +4451,12 @@ def test_query_decomposition_expands_education_profile_queries() -> None:
         expected_terms=("budget",),
         answer="budget",
     )
+    degree_difficulty_case = _case(
+        case_id="education-profile-degree-difficulty-guard",
+        question="What degree of difficulty did Alex mention?",
+        expected_terms=("advanced",),
+        answer="advanced",
+    )
     speech_school_case = _case(
         case_id="education-profile-speech-school-guard",
         question="When did Caroline give a speech at a school?",
@@ -4486,6 +4492,9 @@ def test_query_decomposition_expands_education_profile_queries() -> None:
     )
     major_issue_queries, major_issue_metadata = (
         rerank_module.decomposed_search_queries(major_issue_case)
+    )
+    degree_difficulty_queries, degree_difficulty_metadata = (
+        rerank_module.decomposed_search_queries(degree_difficulty_case)
     )
     speech_queries, speech_metadata = rerank_module.decomposed_search_queries(
         speech_school_case
@@ -4548,6 +4557,11 @@ def test_query_decomposition_expands_education_profile_queries() -> None:
         "alex discus discuss discussion talk conversation major issue"
     )
     assert "education_profile" not in major_issue_metadata["query_profile"][
+        "relation_categories"
+    ]
+
+    assert degree_difficulty_queries[2] == "alex mention told said talk"
+    assert "education_profile" not in degree_difficulty_metadata["query_profile"][
         "relation_categories"
     ]
 
@@ -9233,6 +9247,63 @@ def test_benchmark_rerank_boosts_major_education_evidence() -> None:
         "relation_category_hits"
     ] == []
     assert major_diagnostics["score_signals"][
+        "benchmark_typed_relation_support_roles"
+    ] == ["education_support"]
+    assert (
+        topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        == 0
+    )
+
+
+def test_benchmark_rerank_boosts_degree_education_evidence() -> None:
+    case = _case(
+        case_id="education-profile-degree-rerank",
+        question="What degree does Alex have?",
+        expected_terms=("psychology",),
+        answer="psychology",
+        category=4,
+    )
+    topical_degree = RetrievedMemory(
+        item_id="topical-degree",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex mentioned the degree of difficulty to Maria."
+        ),
+        source_refs=("D1:1",),
+    )
+    degree_profile = RetrievedMemory(
+        item_id="degree-profile",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: I earned a degree in psychology."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_degree, degree_profile),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("education_profile",)
+    assert reranked[0].item_id == "degree-profile"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    degree_diagnostics = diagnostics_by_id["degree-profile"]
+    topical_diagnostics = diagnostics_by_id["topical-degree"]
+    assert degree_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["education_profile"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert degree_diagnostics["score_signals"][
         "benchmark_typed_relation_support_roles"
     ] == ["education_support"]
     assert (

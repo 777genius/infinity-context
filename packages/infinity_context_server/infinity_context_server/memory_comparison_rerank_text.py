@@ -386,7 +386,9 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
         r"\b(?:college|university)\b|"
         r"\b(?:study|studies|studying|majoring)\b|"
         r"\bwhat\s+(?:is|was)\b.+\bmajor\b(?:\s+(?:in|at)\b|[?.!]*\s*$)|"
-        r"\bwhat\s+degree\b|\bdegree\s+(?:does|did)\b.+\bhave\b|"
+        r"\bwhat\s+(?:is|was)\b.+\bdegree\b(?:\s+(?:in|from)\b|[?.!]*\s*$)|"
+        r"\bwhat\s+degree\s+(?:does|did|is|was|has|have)\b|"
+        r"\bdegree\s+(?:does|did)\b.+\bhave\b|"
         r"\b(?:major|degree)\s+in\b",
         text,
         flags=re.IGNORECASE,
