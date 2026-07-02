@@ -2726,15 +2726,17 @@ def test_infinity_context_http_search_boosts_relative_temporal_text() -> None:
 
     assert [payload["query"] for payload in seen_payloads] == [
         "When did Morgan visit the studio?",
-        "When did Morgan visit the studio?\n"
-        "Search focus: entities: morgan; speakers: morgan:; "
-        "temporal: when, session, date, time, last, today, yesterday, tomorrow",
+        "morgan visit visited studio place trip event",
         "morgan when session date time last today yesterday",
     ]
     assert result.memories[0].item_id == "relative-temporal-evidence"
     diagnostics = result.memories[0].metadata["diagnostics"]
+    assert "participation_event" in diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ]
     assert diagnostics["score_signals"]["benchmark_temporal_text_boost"] > 0
     assert diagnostics["score_signals"]["benchmark_temporal_sequence_boost"] > 0
+    assert diagnostics["score_signals"]["benchmark_participation_event_boost"] > 0
 
 
 def test_infinity_context_http_search_reranks_visual_caption_evidence() -> None:
@@ -5139,6 +5141,110 @@ def test_benchmark_rerank_boosts_registration_event_evidence() -> None:
     )
     assert (
         distractor_diagnostics["score_signals"]["benchmark_registration_event_boost"]
+        == 0
+    )
+
+
+def test_query_decomposition_reports_participation_event_intent() -> None:
+    visit_case = _case(
+        case_id="participation-query-visit",
+        question="When did Morgan visit the studio?",
+        expected_terms=("yesterday",),
+        answer="yesterday",
+        category=2,
+    )
+    participate_case = _case(
+        case_id="participation-query-participate",
+        question="What event did Morgan participate in?",
+        expected_terms=("meetup",),
+        answer="meetup",
+        category=4,
+    )
+
+    visit_queries, visit_metadata = rerank_module.decomposed_search_queries(visit_case)
+    participate_queries, participate_metadata = (
+        rerank_module.decomposed_search_queries(participate_case)
+    )
+
+    assert visit_queries == (
+        "When did Morgan visit the studio?",
+        "morgan visit visited studio place trip event",
+        "morgan when session date time last today yesterday",
+    )
+    visit_profile = visit_metadata["query_profile"]
+    assert visit_profile["relation_terms"] == ("visit",)
+    assert visit_profile["relation_categories"] == (
+        "participation_event",
+        "temporal",
+    )
+    assert visit_profile["relation_category_terms"]["participation_event"] == (
+        "visit",
+        "trip",
+        "studio",
+        "place",
+        "event",
+    )
+    assert "yesterday" not in json.dumps(visit_metadata["retrieval_intent"])
+
+    assert participate_queries[2] == (
+        "morgan participate participated event group class workshop"
+    )
+    participate_profile = participate_metadata["query_profile"]
+    assert participate_profile["relation_terms"] == ("participate",)
+    assert participate_profile["relation_categories"] == ("participation_event",)
+    assert "meetup" not in json.dumps(participate_metadata["retrieval_intent"])
+
+
+def test_benchmark_rerank_boosts_participation_event_evidence() -> None:
+    case = _case(
+        case_id="participation-rerank",
+        question="When did Morgan visit the studio?",
+        expected_terms=("yesterday",),
+        answer="yesterday",
+        category=2,
+    )
+    studio_topic = RetrievedMemory(
+        item_id="studio-topic",
+        rank=1,
+        score=0.05,
+        text=(
+            "session_2 turn D2:1 date: 10:00 am "
+            "D2:1 Morgan: I reviewed the studio schedule and equipment list."
+        ),
+        source_refs=("D2:1",),
+    )
+    visit_evidence = RetrievedMemory(
+        item_id="visit-evidence",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_5 turn D5:2 date: 8:00 pm "
+            "D5:2 Morgan: I visited the studio yesterday and checked the setup."
+        ),
+        source_refs=("D5:2",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (studio_topic, visit_evidence),
+    )
+
+    assert metadata["applied"] is True
+    assert [memory.item_id for memory in reranked] == [
+        "visit-evidence",
+        "studio-topic",
+    ]
+    evidence_diagnostics = reranked[0].metadata["diagnostics"]
+    topic_diagnostics = reranked[1].metadata["diagnostics"]
+    assert "participation_event" in evidence_diagnostics[
+        "benchmark_candidate_features"
+    ]["relation_category_hits"]
+    assert (
+        evidence_diagnostics["score_signals"]["benchmark_participation_event_boost"]
+        > 0
+    )
+    assert (
+        topic_diagnostics["score_signals"]["benchmark_participation_event_boost"]
         == 0
     )
 

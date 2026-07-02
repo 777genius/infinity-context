@@ -174,6 +174,7 @@ _QUERY_TOKEN_ALIASES = {
     "mov": ("move", "moved"),
     "persue": ("pursue",),
     "plann": ("plan",),
+    "participat": ("participate",),
     "politic": ("political",),
     "proces": ("process",),
     "prioritiz": ("prioritize",),
@@ -265,6 +266,7 @@ _HIGH_SIGNAL_RELATION_VARIANTS = {
 _RELATION_QUERY_TERMS = {
     "activity",
     "ask",
+    "attend",
     "birthday",
     "book",
     "bookshelf",
@@ -297,6 +299,7 @@ _RELATION_QUERY_TERMS = {
     "hike",
     "interest",
     "identity",
+    "join",
     "learn",
     "like",
     "love",
@@ -305,6 +308,7 @@ _RELATION_QUERY_TERMS = {
     "meet",
     "mention",
     "move",
+    "participate",
     "plan",
     "political",
     "previous",
@@ -329,6 +333,7 @@ _RELATION_QUERY_TERMS = {
     "status",
     "tell",
     "think",
+    "visit",
     "want",
     "work",
 }
@@ -400,6 +405,15 @@ _RELATION_QUERY_VARIANTS = {
         "unplug",
     ),
     "ask": ("asked", "request", "requested", "told"),
+    "attend": (
+        "attended",
+        "attending",
+        "event",
+        "conference",
+        "meeting",
+        "class",
+        "workshop",
+    ),
     "birthday": ("birthday", "born", "age", "years", "ago"),
     "book": (
         "books",
@@ -521,6 +535,7 @@ _RELATION_QUERY_VARIANTS = {
         "embrace",
     ),
     "interest": ("interested", "prefer", "enjoy", "like", "outdoors", "park"),
+    "join": ("joined", "joining", "group", "community", "class", "club", "event"),
     "learn": ("learned", "learning", "studied"),
     "like": ("liked", "enjoy", "enjoyed", "love"),
     "love": ("loved", "enjoy", "enjoyed", "like"),
@@ -575,6 +590,16 @@ _RELATION_QUERY_VARIANTS = {
     ),
     "parent": ("mother", "father", "mom", "dad", "family", "child", "children"),
     "partner": ("spouse", "husband", "wife", "relationship", "dating", "family"),
+    "participate": (
+        "participated",
+        "participating",
+        "participation",
+        "event",
+        "group",
+        "class",
+        "workshop",
+        "activity",
+    ),
     "path": ("career", "field", "work", "working", "profession", "direction"),
     "previous": ("previously", "earlier", "before", "used to", "former"),
     "prioritize": (
@@ -665,6 +690,7 @@ _RELATION_QUERY_VARIANTS = {
     ),
     "tell": ("told", "said", "mentioned"),
     "think": ("thought", "considered"),
+    "visit": ("visited", "visiting", "trip", "studio", "place", "event"),
     "want": (
         "wanted",
         "wants",
@@ -2196,6 +2222,24 @@ def _relation_query_terms(
             )
         )
         priority_surface_terms.update(("asked", "recommended", "suggested"))
+    if "visit" in relation_term_set:
+        priority_variant_order.extend(("visited", "studio", "place", "trip", "event"))
+        priority_surface_terms.add("visited")
+    if "attend" in relation_term_set:
+        priority_variant_order.extend(
+            ("attended", "event", "meeting", "conference", "class", "workshop")
+        )
+        priority_surface_terms.add("attended")
+    if "join" in relation_term_set:
+        priority_variant_order.extend(
+            ("joined", "group", "community", "club", "class", "event")
+        )
+        priority_surface_terms.add("joined")
+    if "participate" in relation_term_set:
+        priority_variant_order.extend(
+            ("participated", "event", "group", "class", "workshop", "activity")
+        )
+        priority_surface_terms.add("participated")
     if "move" in relation_term_set:
         priority_variant_order.extend(("moved", "home", "country", "relocated"))
     if "sign" in relation_term_set:

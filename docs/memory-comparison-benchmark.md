@@ -535,6 +535,9 @@ Registration paraphrases such as `register` and `enroll` share typed event
 surfaces with `sign up`, including `signup`, `class`, `course`, `lesson` and
 `workshop`, so class-registration evidence can outrank sign or schedule
 distractors without adding the requested date or specific class answer.
+Participation paraphrases such as `visit`, `attend`, `join` and `participate`
+also get typed event/place surfaces, so evidence like `visited the studio` or
+`joined the group` can be distinguished from topic-only studio/group mentions.
 When a question is both temporal and visual, the bounded fanout prioritizes a
 combined query such as `person + paint + sunrise + when + date` before generic
 `person + when + date`. Paint/image date questions also render `painting` and

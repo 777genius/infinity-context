@@ -390,6 +390,11 @@ def _relation_category_hits(
         ):
             hits.append(str(category))
             continue
+        if category == "participation_event" and _has_participation_event_support(
+            memory_terms
+        ):
+            hits.append(str(category))
+            continue
         grounding_terms = tuple(term for term in term_values if term not in query_term_set)
         terms_to_match = grounding_terms or term_values
         if any(term in memory_terms for term in terms_to_match):
@@ -410,6 +415,32 @@ def _has_registration_event_support(memory_terms: set[str]) -> bool:
     } & memory_terms
     event_context = {"class", "course", "lesson", "workshop", "event"} & memory_terms
     return bool(registration_action and event_context)
+
+
+def _has_participation_event_support(memory_terms: set[str]) -> bool:
+    participation_action = {
+        "attend",
+        "attended",
+        "join",
+        "joined",
+        "participate",
+        "participated",
+        "visit",
+        "visited",
+    } & memory_terms
+    event_context = {
+        "class",
+        "club",
+        "conference",
+        "event",
+        "group",
+        "meeting",
+        "place",
+        "studio",
+        "trip",
+        "workshop",
+    } & memory_terms
+    return bool(participation_action and event_context)
 
 
 def _answerability(

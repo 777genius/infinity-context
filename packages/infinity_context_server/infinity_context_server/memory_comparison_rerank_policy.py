@@ -253,6 +253,7 @@ def _boost_cap(
         "benchmark_writing_affinity_boost",
         "benchmark_current_goal_context_boost",
         "benchmark_registration_event_boost",
+        "benchmark_participation_event_boost",
     }
     if (
         any(policy_boosts.get(key, 0.0) > 0 for key in high_confidence_policy_keys)
