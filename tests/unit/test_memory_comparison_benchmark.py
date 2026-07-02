@@ -6630,6 +6630,35 @@ def test_query_decomposition_keeps_visual_causal_bridge_queries() -> None:
     assert metadata["query_plan"]["dropped_type_limit_roles"] == []
 
 
+def test_query_decomposition_keeps_causal_multi_hop_support_queries() -> None:
+    importance_case = _case(
+        case_id="causal-multi-hop-support",
+        question="Why are flowers important to Melanie?",
+        expected_terms=("personal meaning",),
+        answer="personal meaning",
+        category=4,
+    )
+
+    queries, metadata = rerank_module.decomposed_search_queries(importance_case)
+
+    assert queries == (
+        "Why are flowers important to Melanie?",
+        "Why are flowers important to Melanie?\n"
+        "Search focus: entities: melanie; speakers: melanie:; "
+        "multi-hop markers: why",
+        "melanie reason because cause decision value fit flower important",
+        "Why are flowers important to Melanie? supporting evidence melanie",
+    )
+    assert metadata["query_plan"]["selected_roles"] == [
+        "original_question",
+        "expanded_focus",
+        "multi_hop_bridge",
+        "multi_hop_support",
+    ]
+    assert metadata["query_plan"]["missing_recommended_role_families"] == []
+    assert metadata["query_plan"]["dropped_type_limit_roles"] == []
+
+
 def test_query_decomposition_keeps_contrast_temporal_and_location_support() -> None:
     location_case = _case(
         case_id="contrast-location-support",

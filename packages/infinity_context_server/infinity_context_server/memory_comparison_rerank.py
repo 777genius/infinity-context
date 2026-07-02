@@ -843,6 +843,11 @@ def decomposed_search_queries(
             (has_location_support_query and temporal_query_terms)
             or needs_causal_temporal_bridge
             or needs_temporal_multi_hop_bridge
+            or (
+                "causal_support" in evidence_need_set
+                and multi_hop_markers
+                and has_multi_hop_bridge_query
+            )
             or (visual_terms and has_multi_hop_bridge_query)
             or (
                 contrast_query_terms
