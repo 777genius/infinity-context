@@ -5928,6 +5928,72 @@ def test_query_decomposition_reports_say_communication_intent() -> None:
     assert "postponed" not in json.dumps(said_metadata["retrieval_intent"])
 
 
+def test_query_decomposition_reports_conversation_communication_intent() -> None:
+    discuss_case = _case(
+        case_id="communication-discuss",
+        question="What did Alex discuss with Maria about Project Atlas?",
+        expected_terms=("postponed",),
+        answer="postponed",
+        category=1,
+    )
+    talk_case = _case(
+        case_id="communication-talk",
+        question="Who did Alex talk to about Project Atlas?",
+        expected_terms=("maria",),
+        answer="Maria",
+        category=1,
+    )
+    chat_case = _case(
+        case_id="communication-chat",
+        question="What did Alex chat with Maria about?",
+        expected_terms=("delay",),
+        answer="delay",
+        category=1,
+    )
+
+    discuss_queries, discuss_metadata = rerank_module.decomposed_search_queries(
+        discuss_case
+    )
+    talk_queries, talk_metadata = rerank_module.decomposed_search_queries(talk_case)
+    chat_queries, chat_metadata = rerank_module.decomposed_search_queries(chat_case)
+
+    discuss_profile = discuss_metadata["query_profile"]
+    assert discuss_profile["relation_terms"] == ("discus",)
+    assert discuss_profile["relation_categories"] == ("communication",)
+    assert discuss_profile["relation_category_terms"]["communication"] == (
+        "discus",
+        "discuss",
+        "discussion",
+        "conversation",
+    )
+    assert discuss_queries[2] == (
+        "alex maria project atlas discus discuss discussion talk conversation"
+    )
+    assert "postponed" not in json.dumps(discuss_metadata["retrieval_intent"])
+
+    talk_profile = talk_metadata["query_profile"]
+    assert talk_profile["relation_terms"] == ("talk",)
+    assert talk_profile["relation_categories"] == ("communication",)
+    assert talk_profile["relation_category_terms"]["communication"] == (
+        "talk",
+        "discus",
+        "discuss",
+        "conversation",
+    )
+    assert talk_queries[2] == "alex project atlas talk discus discuss conversation chat"
+    assert "maria" not in json.dumps(talk_metadata["retrieval_intent"]).casefold()
+
+    chat_profile = chat_metadata["query_profile"]
+    assert chat_profile["relation_terms"] == ("chat",)
+    assert chat_profile["relation_categories"] == ("communication",)
+    assert chat_profile["relation_category_terms"]["communication"] == (
+        "chat",
+        "conversation",
+    )
+    assert chat_queries[2] == "alex maria chat chatt talk conversation message"
+    assert "delay" not in json.dumps(chat_metadata["retrieval_intent"])
+
+
 def test_query_decomposition_does_not_promote_non_speaker_say_to_communication() -> None:
     case = _case(
         case_id="communication-non-speaker-say",
@@ -5944,6 +6010,53 @@ def test_query_decomposition_does_not_promote_non_speaker_say_to_communication()
     assert "communication" not in profile["relation_categories"]
     assert "communication" not in profile["evidence_need"]
     assert "communication_support" not in profile["bundle_evidence_roles"]
+
+
+def test_query_decomposition_does_not_promote_speech_talk_to_communication() -> None:
+    talk_case = _case(
+        case_id="communication-speech-talk",
+        question="What talk did Caroline give at school?",
+        expected_terms=("assembly",),
+        answer="assembly",
+        category=1,
+    )
+    speech_case = _case(
+        case_id="communication-speech-give",
+        question="What speech did Caroline give at school?",
+        expected_terms=("assembly",),
+        answer="assembly",
+        category=1,
+    )
+
+    _, talk_metadata = rerank_module.decomposed_search_queries(talk_case)
+    _, speech_metadata = rerank_module.decomposed_search_queries(speech_case)
+
+    for metadata in (talk_metadata, speech_metadata):
+        profile = metadata["query_profile"]
+        assert "communication" not in profile["relation_categories"]
+        assert "exchange" not in profile["relation_categories"]
+        assert "communication" not in profile["evidence_need"]
+        assert "exchange" not in profile["evidence_need"]
+        assert "communication_support" not in profile["bundle_evidence_roles"]
+        assert "exchange_support" not in profile["bundle_evidence_roles"]
+
+
+def test_query_decomposition_does_not_promote_causal_talking_clause_to_communication() -> None:
+    case = _case(
+        case_id="communication-causal-talking-clause",
+        question="Why did Morgan move the note after talking to Eli?",
+        expected_terms=("because Eli asked"),
+        answer="because Eli asked",
+        category=1,
+    )
+
+    _, metadata = rerank_module.decomposed_search_queries(case)
+    profile = metadata["query_profile"]
+
+    assert "communication" not in profile["relation_categories"]
+    assert "communication" not in profile["evidence_need"]
+    assert "communication_support" not in profile["bundle_evidence_roles"]
+    assert "causal_support" in profile["bundle_evidence_roles"]
 
 
 def test_query_decomposition_reports_registration_event_intent() -> None:
@@ -6387,6 +6500,54 @@ def test_benchmark_rerank_boosts_said_communication_evidence() -> None:
             "session_2 turn D2:3 date: 9:10 pm "
             "D2:3 Alex: I said the Project Atlas delay was postponed "
             "after the invoice call."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topic_turn, communication_turn),
+    )
+
+    assert metadata["applied"] is True
+    assert reranked[0].item_id == "communication-turn"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    assert diagnostics_by_id["communication-turn"]["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["communication"]
+    assert diagnostics_by_id["topic-turn"]["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+
+
+def test_benchmark_rerank_boosts_discussion_communication_evidence() -> None:
+    case = _case(
+        case_id="communication-discuss-rerank",
+        question="What did Alex discuss with Maria about Project Atlas?",
+        expected_terms=("postponed",),
+        answer="postponed",
+        category=1,
+    )
+    topic_turn = RetrievedMemory(
+        item_id="topic-turn",
+        rank=1,
+        score=0.15,
+        text=(
+            "session_2 turn D2:1 date: 9:00 pm "
+            "D2:1 Alex: I reviewed Project Atlas during standup."
+        ),
+        source_refs=("D2:1",),
+    )
+    communication_turn = RetrievedMemory(
+        item_id="communication-turn",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 9:10 pm "
+            "D2:3 Alex: I discussed the Project Atlas delay with Maria; "
+            "it was postponed after the invoice call."
         ),
         source_refs=("D2:3",),
     )

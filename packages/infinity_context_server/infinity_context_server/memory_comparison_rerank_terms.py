@@ -86,6 +86,10 @@ RELATION_QUERY_VARIANTS = {
         "decompress",
         "self-care",
     ),
+    "discus": ("discuss", "discussed", "discussion", "talk", "conversation"),
+    "discuss": ("discussed", "discussion", "talk", "talked", "conversation"),
+    "talk": ("talked", "discuss", "discussed", "conversation", "chat"),
+    "chat": ("chatted", "talk", "talked", "conversation", "message"),
     "enjoy": ("enjoyed", "like", "liked", "love", "fan", "interested"),
     "enroll": (
         "enrolled",

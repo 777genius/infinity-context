@@ -143,6 +143,12 @@ _DIRECTED_COMMUNICATION_SURFACE_RE = re.compile(
     rf"\b(?:advised|asked|recommended|requested|suggested|told)\s+"
     rf"(?:that\s+)?{_COMMUNICATION_RECIPIENT_RE}",
 )
+_CONVERSATION_COMMUNICATION_SURFACE_RE = re.compile(
+    rf"\b(?:chat(?:ted)?|discuss(?:ed)?|talk(?:ed)?)\b"
+    rf".{{0,80}}\b(?:about|to|with)\s+"
+    rf"(?:{_COMMUNICATION_RECIPIENT_RE}|[A-Z][a-zA-Z0-9_-]+|"
+    rf"[a-zA-Z][a-zA-Z0-9_-]+)",
+)
 _INDIRECT_COMMUNICATION_RECIPIENT_RE = re.compile(
     rf"\b(?:advised|mentioned|recommended|said|suggested)\b"
     rf".{{0,80}}\b(?:to|with)\s+{_COMMUNICATION_RECIPIENT_RE}",
@@ -160,6 +166,14 @@ def _has_communication_support(
         "advised",
         "ask",
         "asked",
+        "chat",
+        "chatt",
+        "chatted",
+        "conversation",
+        "discus",
+        "discuss",
+        "discussed",
+        "discussion",
         "mention",
         "mentioned",
         "recommend",
@@ -170,6 +184,8 @@ def _has_communication_support(
         "said",
         "suggest",
         "suggested",
+        "talk",
+        "talked",
         "tell",
         "told",
     } & memory_terms
@@ -195,6 +211,7 @@ def _has_communication_support(
             communication_action
             and (
                 _DIRECTED_COMMUNICATION_SURFACE_RE.search(memory_text)
+                or _CONVERSATION_COMMUNICATION_SURFACE_RE.search(memory_text)
                 or _INDIRECT_COMMUNICATION_RECIPIENT_RE.search(memory_text)
             )
         )

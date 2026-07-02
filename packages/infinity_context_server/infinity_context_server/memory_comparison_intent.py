@@ -509,6 +509,8 @@ def _has_exchange_intent(
     }
     if not exchange_terms & relation_set:
         return False
+    if "give" in relation_set and {"school", "speech", "talk", "presentation"} & relation_set:
+        return False
     if {"support", "grow", "counsel", "help"} & relation_set and {
         "get",
         "got",
@@ -541,6 +543,30 @@ def _has_communication_intent(
     ):
         return True
     normalized_question = re.sub(r"[^0-9a-z]+", " ", question.casefold()).strip()
+    if {"chat", "discus", "discuss", "talk"} & relation_set:
+        if re.search(
+            r"\bwhy\b.+\b(?:after|before|while)\s+"
+            r"(?:chat(?:ted|ting)?|discuss(?:ed|ing)?|talk(?:ed|ing)?)\b",
+            normalized_question,
+        ):
+            return False
+        if re.search(
+            r"\b(?:give|gave|giving|present|presented|presentation|speech)\b"
+            r".{0,40}\b(?:talk|discussion)\b"
+            r"|\b(?:talk|discussion)\b.{0,40}\b(?:school|speech|event|presentation)\b",
+            normalized_question,
+        ):
+            return False
+        return bool(
+            re.search(
+                r"\b(?:who|whom|what)\b.+\b(?:chat|discuss|talk)\b",
+                normalized_question,
+            )
+            or re.search(
+                r"\b(?:chat|discuss|talk)(?:ed|ing)?\b.+\b(?:about|to|with)\b",
+                normalized_question,
+            )
+        )
     if {"say", "said"} & relation_set:
         if {"personality", "trait"} & relation_set:
             return False
@@ -1016,12 +1042,16 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
             {
                 "advise",
                 "ask",
+                "chat",
+                "discus",
+                "discuss",
                 "mention",
                 "recommend",
                 "request",
                 "say",
                 "said",
                 "suggest",
+                "talk",
                 "tell",
                 "told",
             }
@@ -1030,6 +1060,12 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
             {
                 "advise",
                 "advised",
+                "chatted",
+                "conversation",
+                "discus",
+                "discuss",
+                "discussed",
+                "discussion",
                 "mention",
                 "mentioned",
                 "recommend",
@@ -1039,6 +1075,7 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "said",
                 "suggest",
                 "suggested",
+                "talked",
                 "told",
             }
         ),

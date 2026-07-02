@@ -182,6 +182,8 @@ _RELATION_QUERY_TERMS = {
     "conference",
     "decide",
     "destress",
+    "discus",
+    "discuss",
     "different",
     "difference",
     "enjoy",
@@ -237,6 +239,8 @@ _RELATION_QUERY_TERMS = {
     "symbolize",
     "support",
     "status",
+    "talk",
+    "chat",
     "tell",
     "think",
     "told",
@@ -830,6 +834,11 @@ def _communication_support_query_terms(
         "advise",
         "ask",
         "asked",
+        "chat",
+        "chatted",
+        "conversation",
+        "discuss",
+        "discussed",
         "mention",
         "recommend",
         "recommended",
@@ -837,6 +846,8 @@ def _communication_support_query_terms(
         "said",
         "suggest",
         "suggested",
+        "talk",
+        "talked",
         "tell",
         "told",
     }
@@ -844,6 +855,19 @@ def _communication_support_query_terms(
     relation_term_set = set(relation_terms)
     if relation_term_set & {"say", "said", "tell", "mention"}:
         allowed_communication_terms.update(("mention", "said", "tell", "told"))
+    if relation_term_set & {"chat", "discus", "discuss", "talk"}:
+        allowed_communication_terms.update(
+            (
+                "chat",
+                "chatted",
+                "conversation",
+                "discus",
+                "discuss",
+                "discussed",
+                "talk",
+                "talked",
+            )
+        )
     if "ask" in relation_term_set:
         allowed_communication_terms.update(("ask", "asked", "request"))
     if relation_term_set & {"recommend", "suggest"}:
@@ -1771,15 +1795,23 @@ def _relation_query_terms(
     if {
         "advise",
         "ask",
+        "chat",
+        "discus",
+        "discuss",
         "mention",
         "recommend",
         "request",
         "say",
         "said",
         "suggest",
+        "talk",
         "tell",
         "told",
     } & relation_term_set:
+        if relation_term_set & {"chat", "discus", "discuss", "talk"}:
+            priority_variant_order.extend(
+                ("discussed", "talked", "conversation", "chat")
+            )
         if relation_term_set & {"mention", "say", "said", "tell", "told"}:
             priority_variant_order.extend(("told", "said", "mentioned"))
         if relation_term_set & {"ask", "request"}:
