@@ -225,6 +225,7 @@ def test_render_answer_prompt_labels_planned_evidence_context() -> None:
                     "answer_context_bundle_confidence_band": "medium",
                     "answer_context_bundle_bridge_count": 1,
                     "answer_context_bundle_source_proximity_support_count": 1,
+                    "answer_context_bundle_source_proximity_closest_distance": 2,
                     "answer_context_bundle_causal_support_count": 1,
                     "answer_context_bundle_event_support_count": 7,
                     "answer_context_bundle_inference_support_count": 2,
@@ -261,6 +262,7 @@ def test_render_answer_prompt_labels_planned_evidence_context() -> None:
     assert "speakers=caroline" in prompt
     assert "bundle=medium:0.68" in prompt
     assert "bundle_proximity=1" in prompt
+    assert "bundle_proximity_closest=2" in prompt
     assert (
         "bundle_support=bridge:1,causal:1,event:7,inference:2,location:5,"
         "symbolic_meaning:6,preference:3,visual:4,contrast:2"

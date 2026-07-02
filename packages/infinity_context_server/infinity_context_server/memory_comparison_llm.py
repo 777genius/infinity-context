@@ -146,6 +146,11 @@ def _render_memory_evidence_line(memory: RetrievedMemory, *, index: int) -> str:
     )
     if proximity_count is not None:
         labels.append(f"bundle_proximity={proximity_count}")
+    proximity_closest = _positive_int(
+        metadata.get("answer_context_bundle_source_proximity_closest_distance")
+    )
+    if proximity_closest is not None:
+        labels.append(f"bundle_proximity_closest={proximity_closest}")
     support_counts = _bundle_support_counts(metadata)
     if support_counts:
         labels.append(f"bundle_support={','.join(support_counts)}")
