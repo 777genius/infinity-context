@@ -3694,13 +3694,12 @@ def test_query_decomposition_expands_locomo_topic_relations() -> None:
     assert not {"beach", "mountains", "forest"}.intersection(
         camp_metadata["query_profile"]["relation_variant_terms"]
     )
-    assert kids_queries[2] == "melanie kid like animal bones exhibit learning"
+    assert kids_queries[2] == "melanie kid like animal exhibit learning family"
     assert "kid" in kids_metadata["query_profile"]["relation_terms"]
     assert "animal" in kids_metadata["query_profile"]["relation_variant_terms"]
-    assert "bone" in kids_metadata["query_profile"]["relation_variant_terms"]
     assert "exhibit" in kids_metadata["query_profile"]["relation_variant_terms"]
     assert "preference" in kids_metadata["query_profile"]["relation_variant_terms"]
-    assert not {"dinosaur", "nature"}.intersection(
+    assert not {"bone", "dinosaur", "nature", "stoked"}.intersection(
         kids_metadata["query_profile"]["relation_variant_terms"]
     )
     assert adoption_queries[2] == (

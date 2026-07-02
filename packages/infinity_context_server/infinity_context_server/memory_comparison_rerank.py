@@ -1461,10 +1461,8 @@ def _relation_query_terms(
         priority_variant_order.extend(
             (
                 "animal",
-                "bones",
                 "exhibit",
                 "learning",
-                "stoked",
                 "family",
                 "preference",
                 "children",
@@ -1472,7 +1470,7 @@ def _relation_query_terms(
                 "love",
             )
         )
-        priority_surface_terms.update(("animal", "bones", "learning", "stoked"))
+        priority_surface_terms.update(("animal", "learning"))
     if "birthday" in relation_term_set:
         priority_variant_order.extend(("18th", "year", "ago", "born", "age"))
         priority_surface_terms.add("18th")
