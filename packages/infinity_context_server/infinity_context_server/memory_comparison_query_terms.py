@@ -695,10 +695,15 @@ def _alias_support_query_terms(
         "call",
         "called",
         "calls",
+        "full",
+        "legal",
+        "middle",
         "name",
         "named",
         "nickname",
     }
+    name_attribute_terms = {"full", "legal", "middle"}
+    name_attribute_focus = bool(name_attribute_terms & set(lexical_terms))
     topical_terms = tuple(
         term
         for term in lexical_terms
@@ -711,9 +716,18 @@ def _alias_support_query_terms(
         dict.fromkeys(
             (
                 *(term for term in relation_terms if term in {"call", "nickname"}),
+                *(
+                    term
+                    for term in topical_terms
+                    if name_attribute_focus and term in name_attribute_terms
+                ),
                 *(term for term in relation_variant_terms if term in alias_terms),
                 "go by",
-                *topical_terms[:4],
+                *(
+                    term
+                    for term in topical_terms[:4]
+                    if term not in name_attribute_terms
+                ),
             )
         )
     )

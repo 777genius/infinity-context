@@ -5347,6 +5347,12 @@ def test_query_decomposition_expands_alias_profile_queries() -> None:
         expected_terms=("Sunny",),
         answer="Sunny",
     )
+    middle_name_case = _case(
+        case_id="alias-profile-middle-name",
+        question="What is Alex's middle name?",
+        expected_terms=("Rose",),
+        answer="Rose",
+    )
     communication_call_case = _case(
         case_id="alias-profile-communication-guard",
         question="When did Alex call Maria?",
@@ -5367,6 +5373,9 @@ def test_query_decomposition_expands_alias_profile_queries() -> None:
         call_name_case
     )
     go_by_queries, go_by_metadata = rerank_module.decomposed_search_queries(go_by_case)
+    middle_name_queries, middle_name_metadata = (
+        rerank_module.decomposed_search_queries(middle_name_case)
+    )
     _, communication_metadata = rerank_module.decomposed_search_queries(
         communication_call_case
     )
@@ -5394,6 +5403,15 @@ def test_query_decomposition_expands_alias_profile_queries() -> None:
         "alias_profile",
     )
     assert go_by_metadata["query_profile"]["evidence_need"] == ("alias_profile",)
+
+    assert middle_name_queries[2] == "alex nickname middle call name go by"
+    assert middle_name_metadata["query_profile"]["relation_terms"] == ("nickname",)
+    assert middle_name_metadata["query_profile"]["relation_categories"] == (
+        "alias_profile",
+    )
+    assert middle_name_metadata["query_profile"]["evidence_need"] == (
+        "alias_profile",
+    )
 
     assert "alias_profile" not in communication_metadata["query_profile"][
         "relation_categories"
@@ -11566,6 +11584,63 @@ def test_benchmark_rerank_boosts_alias_profile_evidence() -> None:
         alias_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
         > 0
     )
+    assert alias_diagnostics["score_signals"][
+        "benchmark_typed_relation_support_roles"
+    ] == ["alias_support"]
+    assert (
+        topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        == 0
+    )
+
+
+def test_benchmark_rerank_boosts_middle_name_alias_evidence() -> None:
+    case = _case(
+        case_id="alias-profile-middle-name-rerank",
+        question="What is Alex's middle name?",
+        expected_terms=("Rose",),
+        answer="Rose",
+        category=4,
+    )
+    topical_name = RetrievedMemory(
+        item_id="topical-name",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex wrote Maria's name in the middle of the form."
+        ),
+        source_refs=("D1:1",),
+    )
+    alias_profile = RetrievedMemory(
+        item_id="alias-profile",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: My middle name is Rose."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_name, alias_profile),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("alias_profile",)
+    assert reranked[0].item_id == "alias-profile"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    alias_diagnostics = diagnostics_by_id["alias-profile"]
+    topical_diagnostics = diagnostics_by_id["topical-name"]
+    assert alias_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["alias_profile"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
     assert alias_diagnostics["score_signals"][
         "benchmark_typed_relation_support_roles"
     ] == ["alias_support"]

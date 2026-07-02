@@ -381,6 +381,12 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
         flags=re.IGNORECASE,
     ):
         terms.append("nickname")
+    if re.search(
+        r"\bwhat\s+(?:is|was)\b.+\b(?:middle|legal|full)\s+name\b",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        terms.append("nickname")
     if re.search(r"\b(?:date\s+of\s+birth|dob)\b", text, flags=re.IGNORECASE):
         terms.append("birthday")
     if re.search(
@@ -489,6 +495,7 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
         terms.append("age")
     if re.search(
         r"\bnicknames?\b|\balias\b|"
+        r"\bwhat\s+(?:is|was)\b.+\b(?:middle|legal|full)\s+name\b|"
         r"\bwhat\s+(?:does|did)\b.+\bcall\b(?!.*\b(?:about|to|with)\b)|"
         r"\bwhat\s+(?:name|nickname|alias)\b.+\bgo(?:es|ing)?\s+by\b|"
         r"\bwhat\s+(?:does|did)\b.+\bgo\s+by\b",

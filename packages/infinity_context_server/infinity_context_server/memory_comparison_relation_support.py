@@ -384,6 +384,10 @@ _ALIAS_GO_BY_SURFACE_RE = re.compile(_ALIAS_GO_BY_SURFACE_PATTERN)
 _ALIAS_PROFILE_SURFACE_RE = re.compile(
     r"\b(?:nickname|alias)\s+(?:is|was|for)\s+"
     r"(?:[A-Z][a-zA-Z0-9_-]+|[\"'][^\"']+[\"'])\b"
+    r"|\b(?:middle|legal|full)\s+name\s+(?:is|was|:)\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|[\"'][^\"']+[\"'])\b"
+    r"|\b(?:my|his|her|their|our)\s+(?:middle|legal|full)\s+name\s+"
+    r"(?:is|was|:)\s+(?:[A-Z][a-zA-Z0-9_-]+|[\"'][^\"']+[\"'])\b"
     r"|\b(?:call|calls|called)\s+"
     r"(?:me|him|her|them|us|you|[A-Z][a-zA-Z0-9_-]+)\s+"
     r"(?:[A-Z][a-zA-Z0-9_-]+|[\"'][^\"']+[\"'])\b"
