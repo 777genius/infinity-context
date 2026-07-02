@@ -893,6 +893,7 @@ def _query_plan_gap_breakdown(
 def _bundle_incomplete_reasons(item: Mapping[str, object]) -> tuple[str, ...]:
     bundle = _mapping(item.get("evidence_bundle"))
     quality = _mapping(item.get("retrieval_quality"))
+    require_grounding = _query_has_entities(item)
     reasons: list[str] = []
     if (_positive_int(bundle.get("item_count")) or 0) == 0:
         reasons.append("no_bundle_items")
@@ -910,23 +911,53 @@ def _bundle_incomplete_reasons(item: Mapping[str, object]) -> tuple[str, ...]:
         reasons.append("missing_contrast")
     if _needs_causal_support(item) and not _bundle_has_causal_support(bundle):
         reasons.append("missing_causal_support")
-    if _needs_communication_support(item) and not _bundle_has_communication_support(bundle):
+    if _needs_communication_support(item) and not _bundle_has_communication_support(
+        bundle,
+        require_grounding=require_grounding,
+    ):
         reasons.append("missing_communication_support")
-    if _needs_event_support(item) and not _bundle_has_event_support(bundle):
+    if _needs_event_support(item) and not _bundle_has_event_support(
+        bundle,
+        require_grounding=require_grounding,
+    ):
         reasons.append("missing_event_support")
-    if _needs_exchange_support(item) and not _bundle_has_exchange_support(bundle):
+    if _needs_exchange_support(item) and not _bundle_has_exchange_support(
+        bundle,
+        require_grounding=require_grounding,
+    ):
         reasons.append("missing_exchange_support")
     if _needs_inference_support(item) and not _bundle_has_inference_support(bundle):
         reasons.append("missing_inference_support")
-    if _needs_location_support(item) and not _bundle_has_location_support(bundle):
+    if _needs_location_support(item) and not _bundle_has_location_support(
+        bundle,
+        require_grounding=require_grounding,
+    ):
         reasons.append("missing_location_support")
-    if _needs_emotion_response_support(item) and not _bundle_has_emotion_response_support(bundle):
+    if (
+        _needs_emotion_response_support(item)
+        and not _bundle_has_emotion_response_support(
+            bundle,
+            require_grounding=require_grounding,
+        )
+    ):
         reasons.append("missing_emotion_response_support")
-    if _needs_symbolic_meaning_support(item) and not _bundle_has_symbolic_meaning_support(bundle):
+    if (
+        _needs_symbolic_meaning_support(item)
+        and not _bundle_has_symbolic_meaning_support(
+            bundle,
+            require_grounding=require_grounding,
+        )
+    ):
         reasons.append("missing_symbolic_meaning_support")
-    if _needs_preference_support(item) and not _bundle_has_preference_support(bundle):
+    if _needs_preference_support(item) and not _bundle_has_preference_support(
+        bundle,
+        require_grounding=require_grounding,
+    ):
         reasons.append("missing_preference_support")
-    if _needs_visual_support(item) and not _bundle_has_visual_support(bundle):
+    if _needs_visual_support(item) and not _bundle_has_visual_support(
+        bundle,
+        require_grounding=require_grounding,
+    ):
         reasons.append("missing_visual_support")
     if _needs_temporal_support(item) and not _bundle_has_temporal_support(bundle):
         reasons.append("missing_temporal_support")
@@ -934,6 +965,20 @@ def _bundle_incomplete_reasons(item: Mapping[str, object]) -> tuple[str, ...]:
         reasons.append(f"missing_required_{role}")
     reasons.extend(_multi_hop_bundle_gap_reasons(item, bundle))
     return tuple(dict.fromkeys(reasons or ("unknown_bundle_gap",)))
+
+
+def _query_has_entities(item: Mapping[str, object]) -> bool:
+    metadata = _retrieval_metadata(item)
+    query_decomposition = _mapping(metadata.get("query_decomposition"))
+    query_profile = _mapping(query_decomposition.get("query_profile"))
+    retrieval_intent = _mapping(query_decomposition.get("retrieval_intent"))
+    return bool(
+        _str_tuple(query_profile.get("entities"))
+        or _str_tuple(query_profile.get("entity_surfaces"))
+        or _str_tuple(query_profile.get("speaker_surfaces"))
+        or _sequence(retrieval_intent.get("entities"))
+        or _positive_int(retrieval_intent.get("entity_count"))
+    )
 
 
 def _multi_hop_bundle_gap_reasons(

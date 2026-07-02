@@ -266,75 +266,131 @@ def bundle_has_causal_support(bundle: Mapping[str, object]) -> bool:
     )
 
 
-def bundle_has_location_support(bundle: Mapping[str, object]) -> bool:
-    if "location_support" in bundle_roles(bundle):
-        return True
-    if bundle_has_planner_reason(bundle, "location_support"):
+def bundle_has_location_support(
+    bundle: Mapping[str, object],
+    *,
+    require_grounding: bool = False,
+) -> bool:
+    if _bundle_has_role_or_reason(
+        bundle,
+        role="location_support",
+        reason="location_support",
+        require_grounding=require_grounding,
+    ):
         return True
     return any(
         bool(
-            "location_transition" in _str_tuple(item.get("relation_category_hits"))
-            or "location_relation_category_hits"
-            in _str_tuple(item.get("planner_reason_codes"))
+            _passes_person_grounding(item, require_grounding=require_grounding)
+            and (
+                "location_transition"
+                in _str_tuple(item.get("relation_category_hits"))
+                or "location_relation_category_hits"
+                in _str_tuple(item.get("planner_reason_codes"))
+            )
         )
         for item in _bundle_items(bundle)
     )
 
 
-def bundle_has_preference_support(bundle: Mapping[str, object]) -> bool:
-    if "preference_support" in bundle_roles(bundle):
-        return True
-    if bundle_has_planner_reason(bundle, "preference_support"):
+def bundle_has_preference_support(
+    bundle: Mapping[str, object],
+    *,
+    require_grounding: bool = False,
+) -> bool:
+    if _bundle_has_role_or_reason(
+        bundle,
+        role="preference_support",
+        reason="preference_support",
+        require_grounding=require_grounding,
+    ):
         return True
     return any(
         bool(
-            item.get("has_preference_evidence") is True
-            or "preference" in _str_tuple(item.get("relation_category_hits"))
-            or "preference_evidence" in _str_tuple(item.get("planner_reason_codes"))
+            _passes_person_grounding(item, require_grounding=require_grounding)
+            and (
+                item.get("has_preference_evidence") is True
+                or "preference" in _str_tuple(item.get("relation_category_hits"))
+                or "preference_evidence"
+                in _str_tuple(item.get("planner_reason_codes"))
+            )
         )
         for item in _bundle_items(bundle)
     )
 
 
-def bundle_has_emotion_response_support(bundle: Mapping[str, object]) -> bool:
-    if "emotion_response_support" in bundle_roles(bundle):
-        return True
-    if bundle_has_planner_reason(bundle, "emotion_response_support"):
+def bundle_has_emotion_response_support(
+    bundle: Mapping[str, object],
+    *,
+    require_grounding: bool = False,
+) -> bool:
+    if _bundle_has_role_or_reason(
+        bundle,
+        role="emotion_response_support",
+        reason="emotion_response_support",
+        require_grounding=require_grounding,
+    ):
         return True
     return any(
         bool(
-            "emotion_response" in _str_tuple(item.get("relation_category_hits"))
-            or "emotion_response_relation_category_hits"
-            in _str_tuple(item.get("planner_reason_codes"))
+            _passes_person_grounding(item, require_grounding=require_grounding)
+            and (
+                "emotion_response"
+                in _str_tuple(item.get("relation_category_hits"))
+                or "emotion_response_relation_category_hits"
+                in _str_tuple(item.get("planner_reason_codes"))
+            )
         )
         for item in _bundle_items(bundle)
     )
 
 
-def bundle_has_event_support(bundle: Mapping[str, object]) -> bool:
-    if "event_support" in bundle_roles(bundle):
-        return True
-    if bundle_has_planner_reason(bundle, "event_support"):
+def bundle_has_event_support(
+    bundle: Mapping[str, object],
+    *,
+    require_grounding: bool = False,
+) -> bool:
+    if _bundle_has_role_or_reason(
+        bundle,
+        role="event_support",
+        reason="event_support",
+        require_grounding=require_grounding,
+    ):
         return True
     return any(
         bool(
-            {"registration_event", "participation_event"}
-            & set(_str_tuple(item.get("relation_category_hits")))
-            or "event_relation_category_hits"
-            in _str_tuple(item.get("planner_reason_codes"))
+            _passes_person_grounding(item, require_grounding=require_grounding)
+            and (
+                {"registration_event", "participation_event"}
+                & set(_str_tuple(item.get("relation_category_hits")))
+                or "event_relation_category_hits"
+                in _str_tuple(item.get("planner_reason_codes"))
+            )
         )
         for item in _bundle_items(bundle)
     )
 
 
-def bundle_has_communication_support(bundle: Mapping[str, object]) -> bool:
-    if "communication_support" in bundle_roles(bundle):
-        return True
-    if bundle_has_planner_reason(bundle, "communication_support"):
+def bundle_has_communication_support(
+    bundle: Mapping[str, object],
+    *,
+    require_grounding: bool = False,
+) -> bool:
+    if _bundle_has_role_or_reason(
+        bundle,
+        role="communication_support",
+        reason="communication_support",
+        require_grounding=require_grounding,
+        speaker_grounding=require_grounding,
+    ):
         return True
     return any(
         bool(
             "communication" in _str_tuple(item.get("relation_category_hits"))
+            and _passes_person_grounding(
+                item,
+                require_grounding=require_grounding,
+                speaker_grounding=require_grounding,
+            )
             and (
                 "communication_speaker_hits"
                 in _str_tuple(item.get("planner_reason_codes"))
@@ -346,46 +402,76 @@ def bundle_has_communication_support(bundle: Mapping[str, object]) -> bool:
     )
 
 
-def bundle_has_exchange_support(bundle: Mapping[str, object]) -> bool:
-    if "exchange_support" in bundle_roles(bundle):
-        return True
-    if bundle_has_planner_reason(bundle, "exchange_support"):
+def bundle_has_exchange_support(
+    bundle: Mapping[str, object],
+    *,
+    require_grounding: bool = False,
+) -> bool:
+    if _bundle_has_role_or_reason(
+        bundle,
+        role="exchange_support",
+        reason="exchange_support",
+        require_grounding=require_grounding,
+    ):
         return True
     return any(
         bool(
-            "exchange" in _str_tuple(item.get("relation_category_hits"))
-            or "exchange_relation_category_hits"
-            in _str_tuple(item.get("planner_reason_codes"))
+            _passes_person_grounding(item, require_grounding=require_grounding)
+            and (
+                "exchange" in _str_tuple(item.get("relation_category_hits"))
+                or "exchange_relation_category_hits"
+                in _str_tuple(item.get("planner_reason_codes"))
+            )
         )
         for item in _bundle_items(bundle)
     )
 
 
-def bundle_has_symbolic_meaning_support(bundle: Mapping[str, object]) -> bool:
-    if "symbolic_meaning_support" in bundle_roles(bundle):
-        return True
-    if bundle_has_planner_reason(bundle, "symbolic_meaning_support"):
+def bundle_has_symbolic_meaning_support(
+    bundle: Mapping[str, object],
+    *,
+    require_grounding: bool = False,
+) -> bool:
+    if _bundle_has_role_or_reason(
+        bundle,
+        role="symbolic_meaning_support",
+        reason="symbolic_meaning_support",
+        require_grounding=require_grounding,
+    ):
         return True
     return any(
         bool(
-            "symbolic_meaning" in _str_tuple(item.get("relation_category_hits"))
-            or "symbolic_meaning_relation_category_hits"
-            in _str_tuple(item.get("planner_reason_codes"))
+            _passes_person_grounding(item, require_grounding=require_grounding)
+            and (
+                "symbolic_meaning" in _str_tuple(item.get("relation_category_hits"))
+                or "symbolic_meaning_relation_category_hits"
+                in _str_tuple(item.get("planner_reason_codes"))
+            )
         )
         for item in _bundle_items(bundle)
     )
 
 
-def bundle_has_visual_support(bundle: Mapping[str, object]) -> bool:
-    if "visual_support" in bundle_roles(bundle):
-        return True
-    if bundle_has_planner_reason(bundle, "visual_support"):
+def bundle_has_visual_support(
+    bundle: Mapping[str, object],
+    *,
+    require_grounding: bool = False,
+) -> bool:
+    if _bundle_has_role_or_reason(
+        bundle,
+        role="visual_support",
+        reason="visual_support",
+        require_grounding=require_grounding,
+    ):
         return True
     return any(
         bool(
-            item.get("has_visual_evidence") is True
-            or "visual" in _str_tuple(item.get("relation_category_hits"))
-            or "visual_evidence" in _str_tuple(item.get("planner_reason_codes"))
+            _passes_person_grounding(item, require_grounding=require_grounding)
+            and (
+                item.get("has_visual_evidence") is True
+                or "visual" in _str_tuple(item.get("relation_category_hits"))
+                or "visual_evidence" in _str_tuple(item.get("planner_reason_codes"))
+            )
         )
         for item in _bundle_items(bundle)
     )
@@ -416,6 +502,45 @@ def _query_profile_and_intent(
         _mapping(query_decomposition.get("query_profile")),
         _mapping(query_decomposition.get("retrieval_intent")),
     )
+
+
+def _bundle_has_role_or_reason(
+    bundle: Mapping[str, object],
+    *,
+    role: str,
+    reason: str,
+    require_grounding: bool,
+    speaker_grounding: bool = False,
+) -> bool:
+    if not require_grounding:
+        return role in bundle_roles(bundle) or bundle_has_planner_reason(bundle, reason)
+    return any(
+        bool(
+            (
+                str(item.get("role") or "").strip() == role
+                or reason in _str_tuple(item.get("planner_reason_codes"))
+            )
+            and _passes_person_grounding(
+                item,
+                require_grounding=require_grounding,
+                speaker_grounding=speaker_grounding,
+            )
+        )
+        for item in _bundle_items(bundle)
+    )
+
+
+def _passes_person_grounding(
+    item: Mapping[str, object],
+    *,
+    require_grounding: bool,
+    speaker_grounding: bool = False,
+) -> bool:
+    if not require_grounding:
+        return True
+    if speaker_grounding:
+        return bool(_str_tuple(item.get("speaker_hits")))
+    return bool(_str_tuple(item.get("entity_hits")) or _str_tuple(item.get("speaker_hits")))
 
 
 def _relation_categories(
