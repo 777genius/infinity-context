@@ -16,6 +16,8 @@ def typed_relation_category_support(
 
     if category == "location_transition":
         return _has_location_transition_support(memory_terms, memory_text=memory_text)
+    if category == "communication":
+        return _has_communication_support(memory_terms, memory_text=memory_text)
     check = _TYPED_SUPPORT_CHECKS.get(category)
     if check is None:
         return None
@@ -125,7 +127,17 @@ def _has_emotion_response_support(memory_terms: set[str]) -> bool:
     return bool(emotion_surface and response_context)
 
 
-def _has_communication_support(memory_terms: set[str]) -> bool:
+_DIRECTED_COMMUNICATION_SURFACE_RE = re.compile(
+    r"\b(?:advised|asked|recommended|suggested|told)\s+"
+    r"(?:that\s+)?[A-Z][a-zA-Z0-9_-]+",
+)
+
+
+def _has_communication_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
     communication_action = {
         "advis",
         "advise",
@@ -160,7 +172,13 @@ def _has_communication_support(memory_terms: set[str]) -> bool:
         "recommendation",
         "response",
     } & memory_terms
-    return bool(communication_action and communication_context)
+    return bool(
+        (communication_action and communication_context)
+        or (
+            communication_action
+            and _DIRECTED_COMMUNICATION_SURFACE_RE.search(memory_text)
+        )
+    )
 
 
 def _has_exchange_support(memory_terms: set[str]) -> bool:
@@ -589,7 +607,6 @@ def _has_identity_profile_support(memory_terms: set[str]) -> bool:
 _TYPED_SUPPORT_CHECKS: dict[str, Callable[[set[str]], bool]] = {
     "activity": _has_activity_support,
     "causal": _has_causal_support,
-    "communication": _has_communication_support,
     "contrast": _has_contrast_support,
     "current_goal": _has_current_goal_support,
     "emotion_response": _has_emotion_response_support,

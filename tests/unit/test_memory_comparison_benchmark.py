@@ -6000,6 +6000,59 @@ def test_benchmark_rerank_boosts_speaker_grounded_communication_evidence() -> No
     assert diagnostics["score_signals"]["benchmark_focused_turn_boost"] > 0
 
 
+def test_benchmark_rerank_boosts_directed_communication_without_topic_context() -> None:
+    case = _case(
+        case_id="communication-directed-rerank",
+        question="Who did Alex tell?",
+        expected_terms=("Maria",),
+        answer="Maria",
+        category=1,
+    )
+    topic_turn = RetrievedMemory(
+        item_id="topic-turn",
+        rank=1,
+        score=0.12,
+        text=(
+            "session_1 turn D1:1 date: 9:00 pm "
+            "D1:1 Alex: I reviewed Project Atlas during standup."
+        ),
+        source_refs=("D1:1",),
+    )
+    directed_turn = RetrievedMemory(
+        item_id="directed-turn",
+        rank=2,
+        score=0.0,
+        text="session_2 turn D2:4 date: 9:05 pm D2:4 Alex: I told Maria yesterday.",
+        source_refs=("D2:4",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topic_turn, directed_turn),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("communication",)
+    assert reranked[0].item_id == "directed-turn"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    directed_diagnostics = diagnostics_by_id["directed-turn"]
+    topic_diagnostics = diagnostics_by_id["topic-turn"]
+    assert directed_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["communication"]
+    assert topic_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert (
+        directed_diagnostics["score_signals"][
+            "benchmark_typed_relation_support_boost"
+        ]
+        > 0
+    )
+
+
 def test_query_decomposition_reports_current_goal_instead_of_location_support() -> None:
     case = _case(
         case_id="current-goal-query",

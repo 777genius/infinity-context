@@ -321,6 +321,70 @@ def test_candidate_features_detect_location_transition_destination_surface() -> 
     assert destination_move.answerability_score > generic_move.answerability_score
 
 
+def test_candidate_features_detect_directed_communication_surface() -> None:
+    topic_mention = build_candidate_evidence_features(
+        RetrievedMemory(
+            item_id="topic-mention",
+            rank=1,
+            text="D1:1 Alex: I reviewed Project Atlas during standup.",
+            source_refs=("D1:1",),
+        ),
+        memory_terms={"alex", "reviewed", "project", "atlas", "standup"},
+        query_terms=("alex", "tell"),
+        relation_terms=("tell",),
+        relation_variant_terms=("told", "mention", "mentioned", "said"),
+        relation_category_terms={
+            "communication": ("tell", "told", "mention", "mentioned", "said")
+        },
+        entities=("alex",),
+        entity_hits=("alex",),
+        speaker_hits=("alex",),
+        high_signal_relation_terms=set(),
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+    directed_message = build_candidate_evidence_features(
+        RetrievedMemory(
+            item_id="directed-message",
+            rank=2,
+            text="D2:4 Alex: I told Maria yesterday.",
+            source_refs=("D2:4",),
+        ),
+        memory_terms={"alex", "tell", "told", "maria", "yesterday"},
+        query_terms=("alex", "tell"),
+        relation_terms=("tell",),
+        relation_variant_terms=("told", "mention", "mentioned", "said"),
+        relation_category_terms={
+            "communication": ("tell", "told", "mention", "mentioned", "said")
+        },
+        entities=("alex",),
+        entity_hits=("alex",),
+        speaker_hits=("alex",),
+        high_signal_relation_terms=set(),
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+
+    assert topic_mention.relation_category_hits == ()
+    assert directed_message.relation_category_hits == ("communication",)
+    assert "communication_evidence" in directed_message.answerability_reason_codes
+    assert directed_message.answerability_score > topic_mention.answerability_score
+
+
 def test_candidate_features_use_text_turn_refs_for_dedupe_when_source_refs_are_generic() -> None:
     memory = RetrievedMemory(
         item_id="fact-with-generic-provenance",
