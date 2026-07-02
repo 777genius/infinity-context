@@ -1230,6 +1230,7 @@ def _has_employment_profile_question(normalized_question: str) -> bool:
     return bool(
         re.search(
             r"\b(?:what|which)\s+(?:company|job|occupation|profession|workplace)\b|"
+            r"\bwhat\s+(?:is|was)\b.+\b(?:salary|wage|pay\s+rate|hourly\s+rate)\b|"
             r"\b(?:job|occupation|profession|workplace)\b|"
             r"\bwhere\b.+\bwork\b|"
             r"\bwhat\b.+\bdo\b.+\bfor\s+work\b|"

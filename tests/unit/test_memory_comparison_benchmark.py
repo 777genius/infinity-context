@@ -4532,6 +4532,18 @@ def test_query_decomposition_expands_employment_profile_queries() -> None:
         expected_terms=("Acme Robotics",),
         answer="Acme Robotics",
     )
+    salary_case = _case(
+        case_id="employment-profile-salary",
+        question="What is Alex's salary?",
+        expected_terms=("$85,000",),
+        answer="$85,000",
+    )
+    salary_cap_case = _case(
+        case_id="employment-profile-salary-cap-guard",
+        question="What salary cap did Alex discuss?",
+        expected_terms=("new cap",),
+        answer="new cap",
+    )
     project_work_case = _case(
         case_id="employment-profile-project-work-guard",
         question="What did Alex work on with Maria?",
@@ -4551,6 +4563,12 @@ def test_query_decomposition_expands_employment_profile_queries() -> None:
     )
     workplace_queries, workplace_metadata = rerank_module.decomposed_search_queries(
         workplace_case
+    )
+    salary_queries, salary_metadata = rerank_module.decomposed_search_queries(
+        salary_case
+    )
+    salary_cap_queries, salary_cap_metadata = rerank_module.decomposed_search_queries(
+        salary_cap_case
     )
     project_queries, project_metadata = rerank_module.decomposed_search_queries(
         project_work_case
@@ -4581,6 +4599,22 @@ def test_query_decomposition_expands_employment_profile_queries() -> None:
     assert workplace_metadata["query_profile"]["relation_categories"] == (
         "employment_profile",
     )
+
+    assert salary_queries[2] == "alex employment salary wage pay rate hourly"
+    assert salary_metadata["query_profile"]["relation_terms"] == ("employment",)
+    assert salary_metadata["query_profile"]["relation_categories"] == (
+        "employment_profile",
+    )
+    assert salary_metadata["query_profile"]["evidence_need"] == (
+        "employment_profile",
+    )
+
+    assert salary_cap_queries[2] == (
+        "alex discus discuss discussion talk conversation salary cap"
+    )
+    assert "employment_profile" not in salary_cap_metadata["query_profile"][
+        "relation_categories"
+    ]
 
     assert project_queries[2] == "alex maria work job career"
     assert project_metadata["query_profile"]["relation_terms"] == ("work",)
@@ -9210,6 +9244,63 @@ def test_benchmark_rerank_boosts_employment_profile_evidence() -> None:
         > 0
     )
     assert employment_diagnostics["score_signals"][
+        "benchmark_typed_relation_support_roles"
+    ] == ["employment_support"]
+    assert (
+        topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        == 0
+    )
+
+
+def test_benchmark_rerank_boosts_salary_employment_evidence() -> None:
+    case = _case(
+        case_id="employment-salary-rerank",
+        question="What is Alex's salary?",
+        expected_terms=("$85,000",),
+        answer="$85,000",
+        category=4,
+    )
+    topical_salary = RetrievedMemory(
+        item_id="topical-salary",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex discussed the salary cap with Maria."
+        ),
+        source_refs=("D1:1",),
+    )
+    salary_profile = RetrievedMemory(
+        item_id="salary-profile",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: My salary is $85,000."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_salary, salary_profile),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("employment_profile",)
+    assert reranked[0].item_id == "salary-profile"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    salary_diagnostics = diagnostics_by_id["salary-profile"]
+    topical_diagnostics = diagnostics_by_id["topical-salary"]
+    assert salary_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["employment_profile"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert salary_diagnostics["score_signals"][
         "benchmark_typed_relation_support_roles"
     ] == ["employment_support"]
     assert (

@@ -560,13 +560,19 @@ def _employment_support_query_terms(
         "job",
         "occupation",
         "office",
+        "pay",
         "profession",
+        "rate",
         "role",
+        "salary",
+        "wage",
         "work",
         "worked",
         "working",
         "workplace",
     }
+    compensation_terms = {"hourly", "pay", "rate", "salary", "wage"}
+    compensation_focus = bool(compensation_terms & set(lexical_terms))
     topical_terms = tuple(
         term
         for term in lexical_terms
@@ -579,8 +585,23 @@ def _employment_support_query_terms(
         dict.fromkeys(
             (
                 *(term for term in relation_terms if term == "employment"),
-                *(term for term in relation_variant_terms if term in employment_terms),
-                *topical_terms[:4],
+                *(
+                    term
+                    for term in relation_variant_terms
+                    if compensation_focus and term in compensation_terms
+                ),
+                *(
+                    term
+                    for term in relation_variant_terms
+                    if term in employment_terms
+                    and not (compensation_focus and term in compensation_terms)
+                    and (compensation_focus or term not in compensation_terms)
+                ),
+                *(
+                    term
+                    for term in topical_terms[:4]
+                    if term not in compensation_terms
+                ),
                 *(
                     term
                     for term in _relation_query_terms(
