@@ -193,10 +193,15 @@ PERSON_ENTITY_ALIASES = {
 NON_SPEAKER_ENTITY_SURFACES = {
     "dr",
     "four",
+    "instagram",
     "lgbtq",
+    "signal",
+    "slack",
     "seasons",
     "seuss",
+    "telegram",
     "vivaldi",
+    "whatsapp",
 }
 HONORIFIC_ENTITY_RE = re.compile(
     r"\b(?:Dr|Mr|Mrs|Ms|Prof)\.\s+[A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)?\b"
@@ -416,8 +421,11 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
         r"\b(?:contact\s+(?:info|information|details)|"
         r"email|e-mail|phone|telephone|cell|mobile|address)\b|"
         r"\b(?:phone|telephone|cell|mobile)\s+number\b|"
+        r"\b(?:instagram|signal|slack|telegram|whatsapp)\s+"
+        r"(?:handle|username|number)\b|"
         r"\bwhat\s+is\s+(?:[A-Z][a-zA-Z0-9_-]+(?:'s|’s)|"
-        r"my|his|her|their|our|your)\s+number\b|"
+        r"my|his|her|their|our|your)\s+"
+        r"(?:handle|number|username)\b|"
         r"\bhow\s+(?:can|could|do|does|did)\s+(?:i|we|you)\s+"
         r"(?:contact|reach)\b",
         text,

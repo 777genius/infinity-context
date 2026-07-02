@@ -390,20 +390,34 @@ def _contact_support_query_terms(
         "reached",
         "telephone",
     }
+    social_contact_terms = {
+        "handle",
+        "instagram",
+        "signal",
+        "slack",
+        "telegram",
+        "username",
+        "whatsapp",
+    }
     topical_terms = tuple(
         term
         for term in lexical_terms
         if term not in _QUERY_STOPWORDS
         and term not in relation_terms
         and term not in relation_variant_terms
-        and term not in entity_tokens
+        and (term in social_contact_terms or term not in entity_tokens)
     )
     return tuple(
         dict.fromkeys(
             (
                 *(term for term in relation_terms if term == "contact"),
+                *(term for term in topical_terms if term in social_contact_terms),
                 *(term for term in relation_variant_terms if term in contact_terms),
-                *topical_terms[:4],
+                *(
+                    term
+                    for term in topical_terms[:4]
+                    if term not in social_contact_terms
+                ),
                 *(
                     term
                     for term in _relation_query_terms(

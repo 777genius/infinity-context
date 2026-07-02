@@ -1066,8 +1066,10 @@ def _has_contact_profile_intent(
             r"\b(?:contact\s+(?:info|information|details)|"
             r"email|e mail|phone|telephone|cell|mobile|address)\b|"
             r"\b(?:phone|telephone|cell|mobile)\s+number\b|"
+            r"\b(?:instagram|signal|slack|telegram|whatsapp)\s+"
+            r"(?:handle|username|number)\b|"
             r"\bwhat\s+is\s+(?:[a-z0-9]+(?:\s+s)?|my|his|her|their|our|your)\s+"
-            r"number\b|"
+            r"(?:handle|number|username)\b|"
             r"\bhow\s+(?:can|could|do|does|did)\s+(?:i|we|you)\s+"
             r"(?:contact|reach)\b",
             normalized_question,

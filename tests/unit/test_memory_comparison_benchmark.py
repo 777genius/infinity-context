@@ -9470,6 +9470,54 @@ def test_query_decomposition_expands_contact_number_queries() -> None:
     assert summit_metadata["query_profile"]["multi_hop_markers"] == ("how",)
 
 
+def test_query_decomposition_expands_social_contact_queries() -> None:
+    handle_case = _case(
+        case_id="contact-profile-social-handle",
+        question="What is Alex's Instagram handle?",
+        expected_terms=("@alex_dev",),
+        answer="@alex_dev",
+    )
+    number_case = _case(
+        case_id="contact-profile-social-number",
+        question="What is Alex's WhatsApp number?",
+        expected_terms=("555-0101",),
+        answer="555-0101",
+    )
+    post_case = _case(
+        case_id="contact-profile-social-guard",
+        question="What did Alex post on Instagram?",
+        expected_terms=("museum photo",),
+        answer="museum photo",
+    )
+
+    handle_queries, handle_metadata = rerank_module.decomposed_search_queries(
+        handle_case
+    )
+    number_queries, number_metadata = rerank_module.decomposed_search_queries(
+        number_case
+    )
+    _, post_metadata = rerank_module.decomposed_search_queries(post_case)
+
+    assert handle_queries[2] == "alex contact instagram handle cell e-mail email"
+    assert handle_metadata["query_profile"]["speaker_surfaces"] == ("alex",)
+    assert handle_metadata["query_profile"]["relation_terms"] == ("contact",)
+    assert handle_metadata["query_profile"]["relation_categories"] == (
+        "contact_profile",
+    )
+    assert handle_metadata["query_profile"]["evidence_need"] == ("contact_profile",)
+
+    assert number_queries[2] == "alex contact whatsapp cell e-mail email mobile"
+    assert number_metadata["query_profile"]["relation_terms"] == ("contact",)
+    assert number_metadata["query_profile"]["relation_categories"] == (
+        "contact_profile",
+    )
+    assert number_metadata["query_profile"]["evidence_need"] == ("contact_profile",)
+
+    assert "contact_profile" not in post_metadata["query_profile"][
+        "relation_categories"
+    ]
+
+
 def test_benchmark_rerank_boosts_contact_number_evidence() -> None:
     case = _case(
         case_id="contact-profile-number-rerank",
@@ -9569,6 +9617,77 @@ def test_benchmark_rerank_boosts_reach_contact_evidence() -> None:
         "relation_category_hits"
     ] == ["contact_profile"]
     assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert contact_diagnostics["score_signals"][
+        "benchmark_typed_relation_support_roles"
+    ] == ["contact_support"]
+    assert (
+        topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        == 0
+    )
+
+
+def test_benchmark_rerank_boosts_social_contact_evidence() -> None:
+    case = _case(
+        case_id="contact-profile-social-rerank",
+        question="How can I reach Alex on Instagram?",
+        expected_terms=("@alex_dev",),
+        answer="@alex_dev",
+        category=4,
+    )
+    topical_instagram = RetrievedMemory(
+        item_id="topical-instagram",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex posted photos from Instagram at the museum."
+        ),
+        source_refs=("D1:1",),
+    )
+    topical_handle = RetrievedMemory(
+        item_id="topical-handle",
+        rank=2,
+        score=0.3,
+        text=(
+            "session_1 turn D1:2 date: 10:05 am "
+            "D1:2 Alex fixed the broken door handle before lunch."
+        ),
+        source_refs=("D1:2",),
+    )
+    contact_profile = RetrievedMemory(
+        item_id="contact-profile",
+        rank=3,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: You can reach me on Instagram at @alex_dev."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_instagram, topical_handle, contact_profile),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("contact_profile",)
+    assert reranked[0].item_id == "contact-profile"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    contact_diagnostics = diagnostics_by_id["contact-profile"]
+    topical_diagnostics = diagnostics_by_id["topical-instagram"]
+    topical_handle_diagnostics = diagnostics_by_id["topical-handle"]
+    assert contact_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["contact_profile"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert topical_handle_diagnostics["benchmark_candidate_features"][
         "relation_category_hits"
     ] == []
     assert contact_diagnostics["score_signals"][

@@ -568,7 +568,11 @@ _CONTACT_PROFILE_SURFACE_RE = re.compile(
     r"|\b(?:reach|contact)\s+"
     r"(?:me|him|her|them|us|you|[A-Z][a-zA-Z0-9_-]+)\s+"
     r"(?:at|on)\s+"
-    r"(?:[\w.+-]+@[\w.-]+\.[a-zA-Z]{2,}|\+?\d[\d()\-\s.]{5,}\d)\b"
+    r"(?:[\w.+-]+@[\w.-]+\.[a-zA-Z]{2,}|\+?\d[\d()\-\s.]{5,}\d|"
+    r"(?:instagram|signal|slack|telegram|whatsapp)\s+(?:at\s+)?@?[\w.-]+)\b"
+    r"|\b(?:instagram|signal|slack|telegram|whatsapp)\s+"
+    r"(?:handle|username|number)\s+(?:is|was)\s+@?[\w.+()-][\w.+()\-\s]{1,}"
+    r"|\b(?:handle|username)\s+(?:is|was)\s+@[\w.-]+\b"
     r"|\b(?:contact\s+(?:info|information|details)|"
     r"(?:mailing\s+)?address)\s+(?:is|was)\s+"
     r"(?:\d{1,6}\s+)?[A-Za-z0-9][A-Za-z0-9 .'-]{2,}",
@@ -585,9 +589,20 @@ def _has_contact_profile_support(
     contact_surface = {"contact", "reach"} & memory_terms
     address_surface = {"address"} & memory_terms
     number_surface = {"number"} & memory_terms
+    social_platform_surface = {
+        "instagram",
+        "signal",
+        "slack",
+        "telegram",
+        "whatsapp",
+    } & memory_terms
     return bool(
         (phone_surface and number_surface)
         or (contact_surface and {"detail", "details", "info", "information"} & memory_terms)
+        or (
+            social_platform_surface
+            and {"handle", "number", "username"} & memory_terms
+        )
         or (
             address_surface
             and {"avenue", "home", "mailing", "road", "street"} & memory_terms
