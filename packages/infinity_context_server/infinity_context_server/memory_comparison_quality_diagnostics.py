@@ -113,6 +113,9 @@ from infinity_context_server.memory_comparison_quality_bundle_gaps import (
     bundle_incomplete_diagnostics as _bundle_incomplete_diagnostics,
 )
 from infinity_context_server.memory_comparison_quality_fusion import (
+    bundle_source_identity_summary as _bundle_source_identity_summary,
+)
+from infinity_context_server.memory_comparison_quality_fusion import (
     bundle_source_proximity_summary as _bundle_source_proximity_summary,
 )
 from infinity_context_server.memory_comparison_quality_fusion import (
@@ -274,6 +277,7 @@ def fast_gate_metrics(
         "weak_bundle_count": _positive_int(bundle_quality.get("weak_bundle_count")) or 0,
         "bundle_support_counts": _bundle_support_counts(bundle_quality),
         "bundle_support_bundle_counts": _bundle_support_bundle_counts(bundle_quality),
+        "bundle_source_identity": _bundle_source_identity_summary(bundle_quality),
         "bundle_source_proximity": _bundle_source_proximity_summary(bundle_quality),
         "bundle_gap_breakdown": _bundle_gap_breakdown(bundle_incomplete),
         "answerability_gap_breakdown": answerability_gap_breakdown,
@@ -771,6 +775,8 @@ def _bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, ob
     source_proximity_support_counts: list[int] = []
     source_proximity_closest_distances: list[float] = []
     source_proximity_distance_counts: Counter[str] = Counter()
+    source_identity_item_counts: list[int] = []
+    source_identity_ref_counts: list[int] = []
     contrast_counts: list[int] = []
     selected_source_locality_scores: list[float] = []
     band_counts: Counter[str] = Counter()
@@ -822,6 +828,12 @@ def _bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, ob
         )
         source_proximity_support_counts.append(
             _positive_int(quality.get("source_proximity_support_count")) or 0
+        )
+        source_identity_item_counts.append(
+            _positive_int(quality.get("source_identity_item_count")) or 0
+        )
+        source_identity_ref_counts.append(
+            _positive_int(quality.get("source_identity_ref_count")) or 0
         )
         closest_distance = _positive_int(
             quality.get("source_proximity_closest_distance")
@@ -935,6 +947,13 @@ def _bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, ob
         "source_proximity_distance_counts": dict(
             sorted(source_proximity_distance_counts.items())
         ),
+        "avg_source_identity_item_count": _avg(source_identity_item_counts),
+        "total_source_identity_item_count": sum(source_identity_item_counts),
+        "source_identity_bundle_count": sum(
+            1 for count in source_identity_item_counts if count > 0
+        ),
+        "avg_source_identity_ref_count": _avg(source_identity_ref_counts),
+        "total_source_identity_ref_count": sum(source_identity_ref_counts),
         "avg_contrast_count": _avg(contrast_counts),
         "total_contrast_count": sum(contrast_counts),
         "contrast_bundle_count": sum(1 for count in contrast_counts if count > 0),
@@ -1059,6 +1078,12 @@ def _bundle_quality_sample(
         "supporting_count": _positive_int(quality.get("supporting_count")) or 0,
         "source_ref_item_count": (
             _positive_int(quality.get("source_ref_item_count")) or 0
+        ),
+        "source_identity_item_count": (
+            _positive_int(quality.get("source_identity_item_count")) or 0
+        ),
+        "source_identity_ref_count": (
+            _positive_int(quality.get("source_identity_ref_count")) or 0
         ),
         "source_type_diversity": (
             _positive_int(quality.get("source_type_diversity")) or 0

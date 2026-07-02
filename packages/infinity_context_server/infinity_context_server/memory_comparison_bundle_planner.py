@@ -1402,6 +1402,8 @@ def _bundle_quality_diagnostics(
             "focused_item_count": 0,
             "direct_speaker_count": 0,
             "source_ref_item_count": 0,
+            "source_identity_item_count": 0,
+            "source_identity_ref_count": 0,
             "source_type_diversity": 0,
             "retrieval_source_diversity": 0,
             "low_answerability_count": 0,
@@ -1439,6 +1441,9 @@ def _bundle_quality_diagnostics(
     )
     direct_speaker_count = sum(1 for item in items if item.candidate.direct_speaker_turn)
     source_ref_item_count = sum(1 for item in items if item.candidate.source_refs)
+    source_identity_refs = tuple(_source_identity_refs(item.candidate) for item in items)
+    source_identity_item_count = sum(1 for refs in source_identity_refs if refs)
+    source_identity_ref_count = sum(len(refs) for refs in source_identity_refs)
     source_types = {
         source_type
         for item in items
@@ -1498,7 +1503,7 @@ def _bundle_quality_diagnostics(
             0.16,
             (0.08 * focused_count) + (0.08 * direct_speaker_count),
         ),
-        "source_refs": min(0.16, 0.08 * source_ref_item_count),
+        "source_refs": min(0.16, 0.08 * source_identity_item_count),
         "source_diversity": (
             (0.06 if len(source_types) >= 2 else 0.0)
             + (0.06 if len(retrieval_sources) >= 2 else 0.0)
@@ -1554,6 +1559,7 @@ def _bundle_quality_diagnostics(
             focused_count=focused_count,
             direct_speaker_count=direct_speaker_count,
             source_ref_item_count=source_ref_item_count,
+            source_identity_item_count=source_identity_item_count,
             source_type_diversity=len(source_types),
             retrieval_source_diversity=len(retrieval_sources),
             max_answerability=max_answerability,
@@ -1586,6 +1592,8 @@ def _bundle_quality_diagnostics(
         "focused_item_count": focused_count,
         "direct_speaker_count": direct_speaker_count,
         "source_ref_item_count": source_ref_item_count,
+        "source_identity_item_count": source_identity_item_count,
+        "source_identity_ref_count": source_identity_ref_count,
         "source_type_diversity": len(source_types),
         "retrieval_source_diversity": len(retrieval_sources),
         "average_answerability_score": round(avg_answerability, 6),
@@ -1650,6 +1658,24 @@ def _source_proximity_distances(items: Sequence[PlannedEvidenceItem]) -> tuple[i
     return tuple(distances)
 
 
+def _source_identity_refs(candidate: EvidenceBundleCandidate) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            (
+                *candidate.source_refs,
+                *_source_identity_refs_from_dedupe_key(candidate.dedupe_key),
+            )
+        )
+    )
+
+
+def _source_identity_refs_from_dedupe_key(value: object) -> tuple[str, ...]:
+    key = str(value or "").strip()
+    if key.startswith(("source_refs:", "source_turn_refs:", "refs:")):
+        return (key,)
+    return ()
+
+
 def _candidate_turn_refs(candidate: EvidenceBundleCandidate) -> tuple[tuple[int, int], ...]:
     refs: list[tuple[int, int]] = []
     for turn_ref in _candidate_turn_ref_strings(candidate):
@@ -1680,6 +1706,7 @@ def _bundle_quality_reason_codes(
     focused_count: int,
     direct_speaker_count: int,
     source_ref_item_count: int,
+    source_identity_item_count: int,
     source_type_diversity: int,
     retrieval_source_diversity: int,
     max_answerability: float,
@@ -1717,6 +1744,8 @@ def _bundle_quality_reason_codes(
         reasons.append("has_direct_speaker_evidence")
     if source_ref_item_count:
         reasons.append("has_source_refs")
+    elif source_identity_item_count:
+        reasons.append("has_source_identity")
     if source_type_diversity >= 2:
         reasons.append("source_type_diverse")
     if retrieval_source_diversity >= 2:

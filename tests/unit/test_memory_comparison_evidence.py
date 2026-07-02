@@ -422,6 +422,10 @@ def test_evidence_bundle_uses_text_turn_refs_for_source_proximity() -> None:
         "support-text-turn",
     ]
     assert quality["source_ref_item_count"] == 0
+    assert quality["source_identity_item_count"] == 2
+    assert quality["source_identity_ref_count"] == 2
+    assert quality["component_scores"]["source_refs"] == 0.16
+    assert "has_source_identity" in quality["reason_codes"]
     assert quality["source_proximity_support_count"] == 1
     assert quality["source_proximity_closest_distance"] == 2
     assert quality["source_proximity_distance_counts"] == {"2": 1}

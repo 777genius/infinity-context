@@ -1120,6 +1120,8 @@ def test_fast_gate_metrics_reports_bundle_support_summaries() -> None:
                             source_proximity_support_count=2,
                             source_proximity_closest_distance=1,
                             source_proximity_distance_counts={"1": 1, "3": 1},
+                            source_identity_item_count=2,
+                            source_identity_ref_count=3,
                         )
                     },
                     "items": [
@@ -1173,6 +1175,13 @@ def test_fast_gate_metrics_reports_bundle_support_summaries() -> None:
         "avg_closest_distance": 1.0,
         "closest_distance_min": 1.0,
         "distance_counts": {"1": 1, "3": 1},
+    }
+    assert gate["bundle_source_identity"] == {
+        "item_count": 2,
+        "ref_count": 3,
+        "bundle_count": 1,
+        "avg_item_count": 2.0,
+        "avg_ref_count": 3.0,
     }
 
 
@@ -2303,6 +2312,8 @@ def _bundle_quality(
     primary_count: int = 0,
     supporting_count: int = 0,
     source_ref_item_count: int = 0,
+    source_identity_item_count: int = 0,
+    source_identity_ref_count: int = 0,
     source_type_diversity: int = 0,
     retrieval_source_diversity: int = 0,
     bridge_count: int = 0,
@@ -2334,6 +2345,8 @@ def _bundle_quality(
         "primary_count": primary_count,
         "supporting_count": supporting_count,
         "source_ref_item_count": source_ref_item_count,
+        "source_identity_item_count": source_identity_item_count,
+        "source_identity_ref_count": source_identity_ref_count,
         "source_type_diversity": source_type_diversity,
         "retrieval_source_diversity": retrieval_source_diversity,
         "bridge_count": bridge_count,

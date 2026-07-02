@@ -47,6 +47,30 @@ def bundle_source_proximity_summary(
     }
 
 
+def bundle_source_identity_summary(
+    bundle_quality: Mapping[str, object],
+) -> dict[str, object]:
+    return {
+        "item_count": (
+            positive_int(bundle_quality.get("total_source_identity_item_count")) or 0
+        ),
+        "ref_count": (
+            positive_int(bundle_quality.get("total_source_identity_ref_count")) or 0
+        ),
+        "bundle_count": (
+            positive_int(bundle_quality.get("source_identity_bundle_count")) or 0
+        ),
+        "avg_item_count": round(
+            metric_value(bundle_quality, "avg_source_identity_item_count"),
+            6,
+        ),
+        "avg_ref_count": round(
+            metric_value(bundle_quality, "avg_source_identity_ref_count"),
+            6,
+        ),
+    }
+
+
 def candidate_fusion_table(
     items: Sequence[Mapping[str, object]],
 ) -> dict[str, object]:
