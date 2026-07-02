@@ -6551,6 +6551,32 @@ def test_infinity_context_http_search_expands_realize_after_race_queries() -> No
     assert diagnostics["score_signals"]["benchmark_query_overlap_boost"] > 0
 
 
+def test_query_decomposition_keeps_temporal_emotion_bridge_queries() -> None:
+    accident_case = _case(
+        case_id="conv-26:qa:148",
+        question="How did Melanie feel after the accident?",
+        expected_terms=("relieved",),
+        answer="relieved",
+        category=4,
+    )
+
+    queries, metadata = rerank_module.decomposed_search_queries(accident_case)
+
+    assert queries == (
+        "How did Melanie feel after the accident?",
+        "melanie feel felt reaction response excited thrilled",
+        "melanie after session date time",
+        "melanie feel felt reaction response excited thrilled accident process support help",
+    )
+    assert metadata["query_plan"]["selected_roles"] == [
+        "original_question",
+        "emotion_response_support",
+        "temporal_sequence_support",
+        "multi_hop_bridge",
+    ]
+    assert metadata["query_plan"]["missing_recommended_role_families"] == []
+
+
 def test_infinity_context_http_search_expands_roadtrip_queries() -> None:
     seen_payloads: list[dict[str, object]] = []
 

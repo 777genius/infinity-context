@@ -691,18 +691,38 @@ def decomposed_search_queries(
                 ),
             )
         )
-    bridge_query_terms = _multi_hop_bridge_query_terms(
-        relation_terms=relation_terms,
-        relation_variant_terms=relation_variant_terms,
-        lexical_terms=lexical_terms,
-        multi_hop_markers=multi_hop_markers,
+    bridge_query_terms = (
+        _temporal_multi_hop_bridge_query_terms(
+            relation_terms=relation_terms,
+            relation_variant_terms=relation_variant_terms,
+            lexical_terms=lexical_terms,
+            temporal_terms=temporal_terms,
+            temporal_surface_terms=temporal_surface_terms,
+            multi_hop_markers=multi_hop_markers,
+        )
+        if temporal_query_terms
+        else _multi_hop_bridge_query_terms(
+            relation_terms=relation_terms,
+            relation_variant_terms=relation_variant_terms,
+            lexical_terms=lexical_terms,
+            multi_hop_markers=multi_hop_markers,
+        )
     )
     if multi_hop_markers and entity_surfaces and bridge_query_terms:
+        bridge_query_render_terms = tuple(
+            term for term in bridge_query_terms if term not in set(entity_surfaces)
+        )
+        bridge_query_term_limit = 10 if temporal_query_terms else 8
         query_candidates.append(
             QueryPlanCandidate(
                 role="multi_hop_bridge",
                 query=" ".join(
-                    (*entity_surfaces, *_render_query_terms(bridge_query_terms[:8]))
+                    (
+                        *entity_surfaces,
+                        *_render_query_terms(
+                            bridge_query_render_terms[:bridge_query_term_limit]
+                        ),
+                    )
                 ),
                 priority=45,
                 query_type="lexical",
@@ -772,8 +792,15 @@ def decomposed_search_queries(
         "causal_support" in evidence_need_set
         and "temporal_sequence" in evidence_need_set
     )
+    needs_temporal_multi_hop_bridge = bool(
+        temporal_query_terms and multi_hop_markers and has_multi_hop_bridge_query
+    )
     if (
-        (not temporal_query_terms or needs_causal_temporal_bridge)
+        (
+            not temporal_query_terms
+            or needs_causal_temporal_bridge
+            or needs_temporal_multi_hop_bridge
+        )
         and has_multi_hop_bridge_query
     ):
         extra_query_slots += 1
@@ -783,6 +810,7 @@ def decomposed_search_queries(
         if (
             (has_location_support_query and temporal_query_terms)
             or needs_causal_temporal_bridge
+            or needs_temporal_multi_hop_bridge
         )
         else 2
     )
@@ -827,6 +855,29 @@ def _multi_hop_bridge_query_terms(
         for term in lexical_terms
         if term not in _QUERY_STOPWORDS and term not in bridge_terms
     )
+    return tuple(dict.fromkeys(bridge_terms))
+
+
+def _temporal_multi_hop_bridge_query_terms(
+    *,
+    relation_terms: tuple[str, ...],
+    relation_variant_terms: tuple[str, ...],
+    lexical_terms: tuple[str, ...],
+    temporal_terms: tuple[str, ...],
+    temporal_surface_terms: tuple[str, ...],
+    multi_hop_markers: tuple[str, ...],
+) -> tuple[str, ...]:
+    if not multi_hop_markers:
+        return ()
+    bridge_terms: list[str] = []
+    bridge_terms.extend(_relation_query_terms(relation_terms, relation_variant_terms)[:6])
+    bridge_terms.extend(
+        term
+        for term in (*temporal_terms, *temporal_surface_terms, *lexical_terms)
+        if term not in _QUERY_STOPWORDS and term not in bridge_terms
+    )
+    for marker in multi_hop_markers:
+        bridge_terms.extend(_MULTI_HOP_BRIDGE_MARKER_TERMS.get(marker, ()))
     return tuple(dict.fromkeys(bridge_terms))
 
 
