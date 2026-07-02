@@ -363,8 +363,7 @@ def _has_location_transition_intent(
     return bool(
         re.search(
             r"\b(?:where|which\s+(?:city|country|place)|from|origin|"
-            r"home\s+country|relocat(?:e|ed|ion)|road\s*trip|"
-            r"travel(?:ed|ling)?|visit(?:ed|ing)?)\b",
+            r"home\s+country|relocat(?:e|ed|ion))\b",
             normalized,
         )
         or re.search(

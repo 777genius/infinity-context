@@ -353,6 +353,60 @@ def test_rerank_policy_accepts_typed_contrast_need() -> None:
     ]
 
 
+def test_rerank_policy_accepts_typed_location_support_need() -> None:
+    score = score_benchmark_rerank_candidate(
+        _features(
+            overlap_terms=("caroline", "move", "from"),
+            entity_hits=("caroline",),
+            speaker_hits=("caroline",),
+            relation_hits=("move", "home", "country", "relocated"),
+            relation_terms=("move",),
+            relation_categories=("location_transition",),
+            relation_category_hits=("location_transition",),
+            relation_category_coverage_ratio=1.0,
+            direct_speaker_turn=True,
+            source_locality_score=1.0,
+            evidence_need=("location_support",),
+            query_roles=("location_support",),
+        )
+    )
+
+    signals = score.signals["score_signals"]
+    policy = score.signals["policy_contributions"]
+    assert signals["benchmark_location_support_boost"] == 0.05
+    assert signals["benchmark_location_query_role_boost"] == 0.035
+    assert signals["benchmark_location_relation_category_hit"] is True
+    assert "location_support" in policy["reason_codes_by_policy"][
+        "LocationIntentPolicy"
+    ]
+    assert "location_query_role_support" in policy["reason_codes_by_policy"][
+        "LocationIntentPolicy"
+    ]
+
+
+def test_rerank_policy_rejects_generic_move_as_location_support() -> None:
+    score = score_benchmark_rerank_candidate(
+        _features(
+            overlap_terms=("caroline", "move"),
+            entity_hits=("caroline",),
+            speaker_hits=("caroline",),
+            relation_hits=("move",),
+            relation_terms=("move",),
+            relation_categories=("location_transition",),
+            direct_speaker_turn=True,
+            source_locality_score=1.0,
+            evidence_need=("location_support",),
+            query_roles=("location_support",),
+        )
+    )
+
+    signals = score.signals["score_signals"]
+    policy = score.signals["policy_contributions"]
+    assert signals["benchmark_location_support_boost"] == 0.0
+    assert signals["benchmark_location_query_role_boost"] == 0.0
+    assert "LocationIntentPolicy" not in policy["reason_codes_by_policy"]
+
+
 def test_rerank_policy_caps_broad_summary_without_role_specific_grounding() -> None:
     score = score_benchmark_rerank_candidate(
         _features(

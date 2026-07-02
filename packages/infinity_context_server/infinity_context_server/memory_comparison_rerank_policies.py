@@ -467,6 +467,55 @@ class ContrastIntentPolicy:
         )
 
 
+class LocationIntentPolicy:
+    name = "LocationIntentPolicy"
+
+    def score(self, features: RerankPolicyFeatures) -> RerankPolicyContribution:
+        location_hit_count = len(
+            _LOCATION_SUPPORT_TERMS.intersection(features.relation_hits)
+        )
+        location_need = (
+            "location_support" in set(features.evidence_need)
+            or "location_transition" in set(features.relation_categories)
+        )
+        category_hit = "location_transition" in set(features.relation_category_hits)
+        precise_provenance = (
+            features.direct_speaker_turn
+            or (
+                features.source_locality_score >= 0.65
+                and not features.broad_summary
+            )
+        )
+        evidence_boost = (
+            0.05
+            if location_need
+            and category_hit
+            and location_hit_count >= 2
+            and precise_provenance
+            else 0.0
+        )
+        role_boost = (
+            0.035
+            if evidence_boost > 0 and "location_support" in set(features.query_roles)
+            else 0.0
+        )
+        return RerankPolicyContribution(
+            policy=self.name,
+            score=evidence_boost + role_boost,
+            signals={
+                "benchmark_location_support_boost": round(evidence_boost, 6),
+                "benchmark_location_query_role_boost": round(role_boost, 6),
+                "benchmark_location_relation_hit_count": location_hit_count,
+                "benchmark_location_relation_category_hit": category_hit,
+                "benchmark_location_precise_provenance": precise_provenance,
+            },
+            reason_codes=(
+                *_reason_codes(("location_support", evidence_boost)),
+                *_reason_codes(("location_query_role_support", role_boost)),
+            ),
+        )
+
+
 def score_rerank_policy_contributions(
     features: RerankPolicyFeatures,
     *,
@@ -642,6 +691,21 @@ def _contrast_boost_eligible(features: RerankPolicyFeatures) -> bool:
     )
 
 
+_LOCATION_SUPPORT_TERMS = frozenset(
+    {
+        "city",
+        "country",
+        "drive",
+        "from",
+        "home",
+        "origin",
+        "relocated",
+        "travel",
+        "trip",
+    }
+)
+
+
 def _reason_codes(*pairs: tuple[str, float]) -> tuple[str, ...]:
     return tuple(reason for reason, score in pairs if score > 0)
 
@@ -656,4 +720,5 @@ _DEFAULT_POLICIES: tuple[RerankPolicy, ...] = (
     AnswerabilityPolicy(),
     MultiHopPolicy(),
     ContrastIntentPolicy(),
+    LocationIntentPolicy(),
 )

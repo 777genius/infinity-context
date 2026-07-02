@@ -3,6 +3,7 @@ from __future__ import annotations
 from infinity_context_server.memory_comparison_models import RetrievedMemory
 from infinity_context_server.memory_comparison_rerank import (
     benchmark_rerank_memories,
+    decomposed_search_queries,
     query_retrieval_intent,
 )
 from infinity_context_server.public_benchmark_models import PublicBenchmarkCase
@@ -64,6 +65,71 @@ def test_location_transition_relation_category_boosts_origin_evidence() -> None:
         "direct_localized_turn"
     ]
     assert origin_signals["benchmark_relation_category_coverage_boost"] > 0
+    assert origin_signals["benchmark_location_support_boost"] > 0
+
+
+def test_location_transition_decomposition_adds_location_support_query() -> None:
+    case = _case("Where did Caroline relocate from?")
+
+    queries, diagnostics = decomposed_search_queries(case)
+
+    assert queries == (
+        "Where did Caroline relocate from?",
+        "caroline relocate relocated move moved home country",
+        "caroline relocate relocated move moved home country origin from city",
+    )
+    assert diagnostics["query_plan"]["selected_roles"] == [
+        "original_question",
+        "compact_relation",
+        "location_support",
+    ]
+    assert diagnostics["query_plan"]["recommended_role_families"] == [
+        "base_query",
+        "relation_compact",
+        "location_support",
+    ]
+    assert "relocate" in diagnostics["query_profile"]["relation_terms"]
+
+
+def test_location_temporal_decomposition_preserves_time_and_location_support() -> None:
+    case = _case("Where did Caroline move from 4 years ago?")
+
+    queries, diagnostics = decomposed_search_queries(case)
+
+    assert queries == (
+        "Where did Caroline move from 4 years ago?",
+        "caroline move moved home country 4 year ago",
+        "caroline move moved home country relocated came origin from city",
+        "caroline ago year session date time last today",
+    )
+    assert diagnostics["query_plan"]["selected_roles"] == [
+        "original_question",
+        "compact_relation",
+        "location_support",
+        "relative_temporal_support",
+    ]
+    assert diagnostics["query_plan"]["selected_type_counts"] == {
+        "semantic": 1,
+        "lexical": 3,
+    }
+
+
+def test_roadtrip_inference_query_is_not_location_support() -> None:
+    case = _case("Would Melanie go on another roadtrip soon?")
+
+    intent = query_retrieval_intent(case)
+    queries, diagnostics = decomposed_search_queries(case)
+
+    assert "location_support" not in intent.evidence_need
+    assert "location_transition" not in diagnostics["query_profile"][
+        "relation_categories"
+    ]
+    assert diagnostics["query_plan"]["selected_roles"] == [
+        "original_question",
+        "expanded_focus",
+        "compact_relation",
+    ]
+    assert queries[2] == "melanie roadtrip accident son family safe trip"
 
 
 def _case(question: str) -> PublicBenchmarkCase:

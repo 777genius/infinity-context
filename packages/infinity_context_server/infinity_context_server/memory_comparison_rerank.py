@@ -333,6 +333,9 @@ _RELATION_QUERY_TERMS.update(
         "personality",
         "process",
         "race",
+        "relocate",
+        "relocated",
+        "relocation",
         "roadtrip",
         "school",
         "self-care",
@@ -466,6 +469,9 @@ _RELATION_QUERY_VARIANTS = {
     "meet": ("met", "meeting", "friends", "family", "mentors", "gathering"),
     "mention": ("mentioned", "said", "talked", "told"),
     "move": ("moved", "from", "relocated", "came", "home", "country", "origin"),
+    "relocate": ("relocated", "from", "moved", "home", "country", "origin"),
+    "relocated": ("relocated", "from", "moved", "home", "country", "origin"),
+    "relocation": ("relocated", "from", "moved", "home", "country", "origin"),
     "plan": (
         "planned",
         "planning",
@@ -1163,6 +1169,31 @@ def decomposed_search_queries(
                 ),
             )
         )
+    location_query_terms = (
+        _location_support_query_terms(
+            relation_terms=relation_terms,
+            relation_variant_terms=relation_variant_terms,
+            lexical_terms=lexical_terms,
+        )
+        if "location_support" in intent.evidence_need
+        else ()
+    )
+    if location_query_terms and (entity_surfaces or len(location_query_terms) >= 4):
+        query_candidates.append(
+            QueryPlanCandidate(
+                role="location_support",
+                query=" ".join(
+                    (*entity_surfaces, *_render_query_terms(location_query_terms[:9]))
+                ),
+                priority=37,
+                query_type="lexical",
+                reason_codes=(
+                    "location_support",
+                    "location_transition",
+                    "question_only",
+                ),
+            )
+        )
     temporal_query_terms = (
         _temporal_search_terms(temporal_terms, temporal_surface_terms)
         if is_temporal_query
@@ -1221,13 +1252,22 @@ def decomposed_search_queries(
     extra_query_slots = 0
     if any(candidate.role == "contrast_support" for candidate in query_candidates):
         extra_query_slots += 1
+    has_location_support_query = any(
+        candidate.role == "location_support" for candidate in query_candidates
+    )
+    if has_location_support_query and temporal_query_terms:
+        extra_query_slots += 1
     if (
         not temporal_query_terms
         and any(candidate.role == "multi_hop_bridge" for candidate in query_candidates)
     ):
         extra_query_slots += 1
     max_selected_queries = max_queries + extra_query_slots
-    query_plan = QueryPlannerV2(max_queries=max_selected_queries).plan(
+    max_queries_per_type = 3 if has_location_support_query and temporal_query_terms else 2
+    query_plan = QueryPlannerV2(
+        max_queries=max_selected_queries,
+        max_queries_per_type=max_queries_per_type,
+    ).plan(
         query_candidates,
         fallback_query=original_query,
         recommended_role_families=_recommended_query_role_families(intent),
@@ -1278,6 +1318,8 @@ def _recommended_query_role_families(intent: RetrievalIntent) -> tuple[str, ...]
         families.append("temporal_support")
     if "contrast" in intent.evidence_need:
         families.append("contrast_support")
+    if "location_support" in intent.evidence_need:
+        families.append("location_support")
     if "multi_hop" in intent.evidence_need or intent.multi_hop_markers:
         families.append("multi_hop")
     return tuple(dict.fromkeys(families))
@@ -1339,6 +1381,48 @@ def _contrast_support_query_terms(
                 *backfill_terms,
                 *contrast_variants,
                 *topical_variants[:5],
+            )
+        )
+    )
+
+
+def _location_support_query_terms(
+    *,
+    relation_terms: tuple[str, ...],
+    relation_variant_terms: tuple[str, ...],
+    lexical_terms: tuple[str, ...],
+) -> tuple[str, ...]:
+    relation_query_terms = _relation_query_terms(
+        relation_terms,
+        relation_variant_terms,
+    )
+    location_surfaces = (
+        "from",
+        "origin",
+        "home",
+        "country",
+        "city",
+        "relocated",
+        "moved",
+        "came",
+        "travel",
+        "trip",
+    )
+    explicit_location_terms = tuple(
+        term
+        for term in lexical_terms
+        if term in {"from", "where", "which", "country", "city", "place", "origin"}
+    )
+    return tuple(
+        dict.fromkeys(
+            (
+                *(
+                    term
+                    for term in relation_query_terms
+                    if term not in _QUERY_STOPWORDS
+                ),
+                *explicit_location_terms,
+                *location_surfaces,
             )
         )
     )

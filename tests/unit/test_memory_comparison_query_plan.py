@@ -225,6 +225,54 @@ def test_query_planner_reports_empty_candidates_and_multi_family_roles() -> None
     assert diagnostics["fanout_integrity"]["empty_query_candidate_count"] == 1
 
 
+def test_query_planner_preserves_location_support_family() -> None:
+    plan = QueryPlannerV2(max_queries=3).plan(
+        (
+            _candidate(
+                "original_question",
+                "Where did Caroline move from?",
+                priority=0,
+                query_type="semantic",
+            ),
+            _candidate(
+                "expanded_focus",
+                "Where did Caroline move from?\nSearch focus: entities: caroline",
+                priority=10,
+                query_type="semantic",
+            ),
+            _candidate(
+                "compact_relation",
+                "caroline move moved home country relocated came",
+                priority=30,
+            ),
+            _candidate(
+                "location_support",
+                "caroline move moved home country relocated came origin from city",
+                priority=37,
+            ),
+        ),
+        fallback_query="Where did Caroline move from?",
+        recommended_role_families=(
+            "base_query",
+            "relation_compact",
+            "location_support",
+        ),
+    )
+
+    diagnostics = plan.to_diagnostics()
+    assert diagnostics["selected_roles"] == [
+        "original_question",
+        "compact_relation",
+        "location_support",
+    ]
+    assert diagnostics["selected_role_families"] == [
+        "base_query",
+        "relation_compact",
+        "location_support",
+    ]
+    assert diagnostics["missing_recommended_role_families"] == []
+
+
 def _candidate(
     role: str,
     query: str,

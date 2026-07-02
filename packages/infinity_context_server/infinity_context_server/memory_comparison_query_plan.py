@@ -288,6 +288,7 @@ def _role_family_selection_priority(family: str) -> int:
         "contrast_support": 1,
         "visual_support": 1,
         "relation_compact": 2,
+        "location_support": 2,
         "temporal_support": 3,
         "multi_hop": 4,
         "expanded_focus": 5,
@@ -325,6 +326,8 @@ def _role_families(role: str) -> tuple[str, ...]:
         return ("expanded_focus",)
     if role == "compact_relation":
         return ("relation_compact",)
+    if role == "location_support":
+        return ("location_support",)
     if role == "visual_temporal_support":
         return ("visual_support", "temporal_support")
     if role == "visual_support":
