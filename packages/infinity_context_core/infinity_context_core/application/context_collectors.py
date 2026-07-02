@@ -143,6 +143,7 @@ _HIGH_SIGNAL_EXPANSION_REASONS = frozenset(
         "event_participation_help_bridge",
         "exercise_activity_inventory_bridge",
         "family_activity_bridge",
+        "food_recipe_detail_bridge",
         "food_recipe_recommendation_bridge",
         "family_hike_detail_bridge",
         "family_hike_activity_bridge",

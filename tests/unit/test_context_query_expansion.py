@@ -3306,6 +3306,54 @@ def test_best_query_relevance_uses_inventory_list_for_desserts() -> None:
     assert visual_relevance.distinctive_term_hits >= 7
 
 
+def test_query_expansion_bridges_food_recipe_detail_queries() -> None:
+    recipes = build_query_expansion_plan("What recipes has Nate made?")
+    ice_cream = build_query_expansion_plan(
+        "What flavor of ice cream did Nate make for his friend?"
+    )
+    cake = build_query_expansion_plan(
+        "What filling did Joanna use in the cake she made recently?"
+    )
+    soup = build_query_expansion_plan("What spice did John add to the soup for flavor?")
+    vegan = build_query_expansion_plan("What did Nate make and share with his vegan diet group?")
+
+    assert "food recipe recipes dessert desserts baking baked" in _expansion_query(
+        recipes,
+        "food_recipe_detail_bridge",
+    )
+    assert "dairy-free lactose-free vegan ice cream icecream" in _expansion_query(
+        ice_cream,
+        "food_recipe_detail_bridge",
+    )
+    assert "filling frosting ganache crust raspberries" in _expansion_query(
+        cake,
+        "food_recipe_detail_bridge",
+    )
+    assert "ingredient ingredients spice soup" in _expansion_query(
+        soup,
+        "food_recipe_detail_bridge",
+    )
+    assert "treat treats sweet pudding parfait" in _expansion_query(
+        vegan,
+        "food_recipe_detail_bridge",
+    )
+
+
+def test_best_query_relevance_uses_food_recipe_detail_bridge() -> None:
+    plan = build_query_expansion_plan("What recipes has Nate made?")
+
+    _, reason, relevance = best_query_relevance(
+        plan,
+        text=(
+            "Nate shared a vegan dairy-free ice cream recipe with coconut milk, "
+            "sweet flavor, and simple ingredients."
+        ),
+    )
+
+    assert reason == "food_recipe_detail_bridge"
+    assert relevance.distinctive_term_hits >= 8
+
+
 def test_best_query_relevance_uses_cause_inventory_bridges() -> None:
     plan = build_query_expansion_plan(
         "What causes does John feel passionate about supporting?"
