@@ -802,6 +802,8 @@ def _compact_relation_query_role(intent: RetrievalIntent) -> str:
         return "contact_support"
     if "current_goal" in evidence_needs:
         return "current_goal_support"
+    if "date_profile" in evidence_needs:
+        return "date_support"
     if "diet_profile" in evidence_needs:
         return "diet_support"
     if "identity_profile" in evidence_needs:
@@ -820,6 +822,8 @@ def _compact_relation_query_role(intent: RetrievalIntent) -> str:
         return "pet_support"
     if "skill_profile" in evidence_needs:
         return "skill_support"
+    if "status_profile" in evidence_needs:
+        return "status_support"
     if "vehicle_profile" in evidence_needs:
         return "vehicle_support"
     if "support_goal" in evidence_needs:

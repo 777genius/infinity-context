@@ -3393,7 +3393,7 @@ def test_query_decomposition_reports_typed_retrieval_intent() -> None:
     assert relationship_plan["selected_roles"] == [
         "original_question",
         "expanded_focus",
-        "inference_support",
+        "status_support",
     ]
     assert relationship_plan["selected_role_families"] == [
         "base_query",
@@ -3411,6 +3411,11 @@ def test_query_decomposition_reports_typed_retrieval_intent() -> None:
     ]
     assert "spouse" in kinship_metadata["query_profile"]["relation_variant_terms"]
     assert kinship_queries[2] == "melanie husband spouse partner wife marry married"
+    assert kinship_metadata["query_plan"]["selected_roles"] == [
+        "original_question",
+        "expanded_focus",
+        "status_support",
+    ]
 
     duration_intent = duration_metadata["retrieval_intent"]
     assert duration_intent["time_intent"]["kind"] == "duration"
@@ -5075,6 +5080,11 @@ def test_query_decomposition_expands_date_profile_queries() -> None:
         "date_profile",
     )
     assert birthday_metadata["query_profile"]["evidence_need"] == ("date_profile",)
+    assert birthday_metadata["query_plan"]["selected_roles"] == [
+        "original_question",
+        "expanded_focus",
+        "date_support",
+    ]
 
     assert temporal_birthday_metadata["query_profile"]["relation_categories"] == (
         "date_profile",
@@ -5090,6 +5100,7 @@ def test_query_decomposition_expands_date_profile_queries() -> None:
     assert "date_profile" in anniversary_metadata["query_profile"][
         "relation_categories"
     ]
+    assert "date_support" in anniversary_metadata["query_plan"]["selected_roles"]
 
     assert "date_profile" not in birthday_gift_metadata["query_profile"][
         "relation_categories"
