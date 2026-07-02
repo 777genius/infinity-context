@@ -229,12 +229,17 @@ def _has_employment_profile_support(
 
 
 _HEALTH_PROFILE_SURFACE_RE = re.compile(
-    r"\b(?:doctor|therapist|clinic|appointment|prescription|medication|"
+    r"\b(?:doctor|dentist|dental|therapist|clinic|prescription|medication|"
     r"medicine|allergy|allergic|condition)\b"
+    r"|\b(?:medical|doctor(?:'s)?|dentist(?:'s)?|therapy|clinic)\s+"
+    r"appointment\b"
+    r"|\bappointment\s+with\s+(?:the\s+)?"
+    r"(?:doctor|dentist|therapist|clinic|dr\.?\s+[A-Z][a-zA-Z0-9_-]*)\b"
     r"|\b(?:take|takes|taking)\s+"
     r"(?:[A-Z][a-zA-Z0-9_-]+|"
     r"(?:a\s+|an\s+|the\s+)?(?:pill|medication|medicine|prescription))\b"
     r"|\b(?:have|has|had)\s+(?:asthma|diabetes|migraine|allergies|allergy)\b",
+    re.IGNORECASE,
 )
 
 
@@ -395,9 +400,10 @@ def _has_health_profile_support(
     health_surface = {
         "allergic",
         "allergy",
-        "appointment",
         "clinic",
         "condition",
+        "dental",
+        "dentist",
         "doctor",
         "health",
         "medication",
@@ -405,6 +411,18 @@ def _has_health_profile_support(
         "prescription",
         "therapist",
     } & memory_terms
+    medical_appointment = "appointment" in memory_terms and bool(
+        {
+            "clinic",
+            "dental",
+            "dentist",
+            "doctor",
+            "medical",
+            "therapy",
+            "therapist",
+        }
+        & memory_terms
+    )
     medication_action = {"take", "takes", "taking"} & memory_terms
     medication_context = {
         "dose",
@@ -415,6 +433,7 @@ def _has_health_profile_support(
     } & memory_terms
     return bool(
         health_surface
+        or medical_appointment
         or (medication_action and medication_context)
         or _HEALTH_PROFILE_SURFACE_RE.search(memory_text)
     )

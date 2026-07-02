@@ -4575,6 +4575,12 @@ def test_query_decomposition_expands_health_profile_queries() -> None:
         expected_terms=("asthma",),
         answer="asthma",
     )
+    dentist_case = _case(
+        case_id="health-profile-dentist-appointment",
+        question="When is Alex's dentist appointment?",
+        expected_terms=("Friday",),
+        answer="Friday",
+    )
     class_case = _case(
         case_id="health-profile-class-guard",
         question="What class did Alex take?",
@@ -4599,6 +4605,9 @@ def test_query_decomposition_expands_health_profile_queries() -> None:
     )
     condition_queries, condition_metadata = rerank_module.decomposed_search_queries(
         condition_case
+    )
+    dentist_queries, dentist_metadata = rerank_module.decomposed_search_queries(
+        dentist_case
     )
     _, class_metadata = rerank_module.decomposed_search_queries(class_case)
     _, take_to_class_metadata = rerank_module.decomposed_search_queries(
@@ -4632,6 +4641,14 @@ def test_query_decomposition_expands_health_profile_queries() -> None:
     assert condition_metadata["query_profile"]["relation_categories"] == (
         "health_profile",
     )
+
+    assert "health_profile" in dentist_metadata["query_profile"][
+        "relation_categories"
+    ]
+    assert "health_profile" in dentist_metadata["query_profile"]["evidence_need"]
+    assert "dentist" in dentist_metadata["query_profile"]["lexical_terms"]
+    assert "appointment" in dentist_metadata["query_profile"]["relation_variant_terms"]
+    assert "dentist appointment" in dentist_queries[0].lower()
 
     assert "health_profile" not in class_metadata["query_profile"][
         "relation_categories"
@@ -8446,6 +8463,59 @@ def test_benchmark_rerank_boosts_health_profile_evidence() -> None:
         topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
         == 0
     )
+
+
+def test_benchmark_rerank_boosts_dentist_appointment_evidence() -> None:
+    case = _case(
+        case_id="health-profile-dentist-appointment-rerank",
+        question="When is Alex's dentist appointment?",
+        expected_terms=("Friday",),
+        answer="Friday",
+        category=2,
+    )
+    topical_appointment = RetrievedMemory(
+        item_id="topical-appointment",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex checked the appointment calendar at work."
+        ),
+        source_refs=("D1:1",),
+    )
+    dentist_appointment = RetrievedMemory(
+        item_id="dentist-appointment",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: My dentist appointment is Friday afternoon."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_appointment, dentist_appointment),
+    )
+
+    assert metadata["applied"] is True
+    assert "health_profile" in metadata["query_profile"]["evidence_need"]
+    assert reranked[0].item_id == "dentist-appointment"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    dentist_diagnostics = diagnostics_by_id["dentist-appointment"]
+    topical_diagnostics = diagnostics_by_id["topical-appointment"]
+    assert dentist_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["health_profile"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert dentist_diagnostics["score_signals"][
+        "benchmark_typed_relation_support_roles"
+    ] == ["health_support"]
 
 
 def test_benchmark_rerank_boosts_contact_profile_evidence() -> None:

@@ -392,7 +392,9 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
         terms.append("employment")
     if re.search(
         r"\b(?:doctor|therapist|medication|medicine|prescription|allerg"
-        r"(?:y|ic)|health\s+issue|condition)\b",
+        r"(?:y|ic)|health\s+issue|condition|dentist|dental)\b"
+        r"|\b(?:medical|doctor(?:'s)?|dentist(?:'s)?|therapy|clinic)\s+"
+        r"appointment\b",
         text,
         flags=re.IGNORECASE,
     ):
