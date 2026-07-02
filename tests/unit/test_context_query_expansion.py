@@ -3881,6 +3881,37 @@ def test_query_expansion_bridges_post_athletic_career_without_goal_noise() -> No
     }
 
 
+def test_query_expansion_bridges_vehicle_issue_queries() -> None:
+    damage = build_query_expansion_plan("What damages have happened to John's car?")
+    accident = build_query_expansion_plan("When did Maria get in a car accident?")
+    preference = build_query_expansion_plan("Which types of cars does Dave like the most?")
+
+    assert "car vehicle auto accident incident crash" in _expansion_query(
+        damage,
+        "vehicle_issue_bridge",
+    )
+    assert "broken windshield flat tire maintenance repair" in _expansion_query(
+        accident,
+        "vehicle_issue_bridge",
+    )
+    assert "vehicle_issue_bridge" not in {item.reason for item in preference.expansions}
+
+
+def test_best_query_relevance_uses_vehicle_issue_bridge() -> None:
+    plan = build_query_expansion_plan("What damages have happened to John's car?")
+
+    _, reason, relevance = best_query_relevance(
+        plan,
+        text=(
+            "John's car had a broken windshield and a dent after the accident, "
+            "so he took the vehicle to a repair shop."
+        ),
+    )
+
+    assert reason == "vehicle_issue_bridge"
+    assert relevance.distinctive_term_hits >= 6
+
+
 def test_query_expansion_bridges_career_month_setbacks() -> None:
     plan = build_query_expansion_plan(
         "Was September a good month career-wise for Dana and Morgan?"

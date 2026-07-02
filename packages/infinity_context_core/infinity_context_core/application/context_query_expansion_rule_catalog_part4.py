@@ -989,6 +989,51 @@ EXPANSION_RULES_PART_4: tuple[tuple[frozenset[str], str, str], ...] = (
             "adverse_trip_bridge",
         ),
     (
+            frozenset({"car", "accident"}),
+            (
+                "car vehicle auto accident incident crash damaged damage dent "
+                "broken windshield flat tire maintenance repair repaired fix "
+                "fixed mechanic shop problem issue mishap"
+            ),
+            "vehicle_issue_bridge",
+        ),
+    (
+            frozenset({"car", "damages"}),
+            (
+                "car vehicle auto accident incident crash damaged damage dent "
+                "broken windshield flat tire maintenance repair repaired fix "
+                "fixed mechanic shop problem issue mishap"
+            ),
+            "vehicle_issue_bridge",
+        ),
+    (
+            frozenset({"car", "damage"}),
+            (
+                "car vehicle auto accident incident crash damaged damage dent "
+                "broken windshield flat tire maintenance repair repaired fix "
+                "fixed mechanic shop problem issue mishap"
+            ),
+            "vehicle_issue_bridge",
+        ),
+    (
+            frozenset({"car", "incident"}),
+            (
+                "car vehicle auto accident incident crash damaged damage dent "
+                "broken windshield flat tire maintenance repair repaired fix "
+                "fixed mechanic shop problem issue mishap"
+            ),
+            "vehicle_issue_bridge",
+        ),
+    (
+            frozenset({"car", "maintenance"}),
+            (
+                "car vehicle auto accident incident crash damaged damage dent "
+                "broken windshield flat tire maintenance repair repaired fix "
+                "fixed mechanic shop problem issue mishap"
+            ),
+            "vehicle_issue_bridge",
+        ),
+    (
             frozenset({"song"}),
             _terms._CLASSICAL_MUSIC_PREFERENCE_EXPANSION,
             "classical_music_preference_bridge",
