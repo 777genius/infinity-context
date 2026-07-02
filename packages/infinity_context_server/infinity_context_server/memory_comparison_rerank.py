@@ -1504,6 +1504,7 @@ def _query_retrieval_intent(case: PublicBenchmarkCase) -> RetrievalIntent:
         ),
     )
     relation_intents = infer_relation_intents(
+        question=question,
         relation_terms=relation_terms,
         relation_variant_terms=relation_variant_terms,
         time_intent=time_intent,
@@ -1511,6 +1512,7 @@ def _query_retrieval_intent(case: PublicBenchmarkCase) -> RetrievalIntent:
         multi_hop_markers=multi_hop_markers,
     )
     evidence_need = infer_evidence_need(
+        question=question,
         relation_terms=relation_terms,
         time_intent=time_intent,
         visual_terms=visual_terms,

@@ -62,6 +62,79 @@ def test_evidence_bundle_includes_feature_backed_entity_disambiguation() -> None
     assert bundle["bundle_planner"]["role_counts"]["entity_disambiguation"] == 1
 
 
+def test_evidence_bundle_requires_location_support_for_location_queries() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-location:qa:1",
+        question="Where did Caroline move from?",
+        expected_terms=("Canada",),
+        memory_scope_external_ref="locomo-conv-location",
+        thread_external_ref="locomo-conv-location",
+        metadata={"category": 4},
+    )
+
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text="D1:4 Caroline: I moved from my home country, Canada.",
+                rank=1,
+                item_id="origin",
+                source_refs=("D1:4",),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.94,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "relation_categories": ["location_transition"],
+                            "relation_category_hits": ["location_transition"],
+                            "relation_hits": ["move", "home", "country"],
+                            "entity_hits": ["caroline"],
+                            "speaker_hits": ["caroline"],
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+            RetrievedMemory(
+                text="D1:3 Caroline: I moved the meeting after work.",
+                rank=2,
+                item_id="move-distractor",
+                source_refs=("D1:3",),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.62,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "relation_categories": ["location_transition"],
+                            "relation_hits": ["move"],
+                            "entity_hits": ["caroline"],
+                            "speaker_hits": ["caroline"],
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+        ),
+    )
+
+    planner = bundle["bundle_planner"]
+    roles_by_id = {item["id"]: item["role"] for item in bundle["items"]}
+
+    assert bundle["required_roles"] == ["primary", "location_support"]
+    assert bundle["satisfied_required_roles"] == ["primary", "location_support"]
+    assert bundle["role_requirement_complete"] is True
+    assert roles_by_id["origin"] == "primary"
+    assert planner["bundle_quality"]["location_relation_category_hit_count"] == 1
+    assert "has_location_relation_category_evidence" in planner["bundle_quality"][
+        "reason_codes"
+    ]
+    origin_item = next(item for item in bundle["items"] if item["id"] == "origin")
+    assert origin_item["relation_category_hits"] == ["location_transition"]
+
+
 def test_evidence_bundle_preserves_typed_temporal_feature_provenance() -> None:
     case = PublicBenchmarkCase(
         benchmark="locomo",

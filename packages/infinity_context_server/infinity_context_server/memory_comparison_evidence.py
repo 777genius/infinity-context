@@ -179,6 +179,12 @@ def evidence_bundle(
                     features.get("source_locality_score")
                 ),
                 relation_hits=_string_sequence(features.get("relation_hits")),
+                relation_categories=_string_sequence(
+                    features.get("relation_categories")
+                ),
+                relation_category_hits=_string_sequence(
+                    features.get("relation_category_hits")
+                ),
                 entity_hits=_string_sequence(features.get("entity_hits")),
                 speaker_hits=_string_sequence(features.get("speaker_hits")),
                 query_roles=_string_sequence(features.get("query_roles")),

@@ -668,6 +668,8 @@ def _bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, ob
     confidence_scores: list[float] = []
     risk_penalties: list[float] = []
     bridge_counts: list[int] = []
+    location_support_counts: list[int] = []
+    location_relation_category_hit_counts: list[int] = []
     contrast_counts: list[int] = []
     selected_source_locality_scores: list[float] = []
     band_counts: Counter[str] = Counter()
@@ -684,6 +686,12 @@ def _bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, ob
         confidence_scores.append(score)
         risk_penalties.append(_metric_value(quality, "risk_penalty"))
         bridge_counts.append(_positive_int(quality.get("bridge_count")) or 0)
+        location_support_counts.append(
+            _positive_int(quality.get("location_support_count")) or 0
+        )
+        location_relation_category_hit_counts.append(
+            _positive_int(quality.get("location_relation_category_hit_count")) or 0
+        )
         contrast_counts.append(_positive_int(quality.get("contrast_count")) or 0)
         if "average_selected_source_locality_score" in planner:
             selected_source_locality_scores.append(
@@ -713,6 +721,14 @@ def _bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, ob
         "avg_bridge_count": _avg(bridge_counts),
         "total_bridge_count": sum(bridge_counts),
         "bridge_bundle_count": sum(1 for count in bridge_counts if count > 0),
+        "avg_location_support_count": _avg(location_support_counts),
+        "total_location_support_count": sum(location_support_counts),
+        "location_support_bundle_count": sum(
+            1 for count in location_support_counts if count > 0
+        ),
+        "total_location_relation_category_hit_count": sum(
+            location_relation_category_hit_counts
+        ),
         "avg_contrast_count": _avg(contrast_counts),
         "total_contrast_count": sum(contrast_counts),
         "contrast_bundle_count": sum(1 for count in contrast_counts if count > 0),
@@ -755,6 +771,12 @@ def _bundle_quality_sample(
         ),
         "low_answerability_count": (
             _positive_int(quality.get("low_answerability_count")) or 0
+        ),
+        "location_support_count": (
+            _positive_int(quality.get("location_support_count")) or 0
+        ),
+        "location_relation_category_hit_count": (
+            _positive_int(quality.get("location_relation_category_hit_count")) or 0
         ),
         "contrast_count": _positive_int(quality.get("contrast_count")) or 0,
         "broad_summary_count": (

@@ -292,6 +292,63 @@ def test_evidence_bundle_planner_assigns_specialized_support_roles() -> None:
     assert typed_item.to_payload()["has_duration_surface"] is True
 
 
+def test_evidence_bundle_planner_tracks_location_support_role() -> None:
+    primary = _candidate(
+        item_id="primary",
+        covered_expected_terms=("Canada",),
+        primary_signal=True,
+        relation_categories=("location_transition",),
+        relation_category_hits=("location_transition",),
+        relation_hits=("move", "home", "country"),
+        source_refs=("D1:4",),
+        answerability_score=0.9,
+    )
+    generic_move = _candidate(
+        item_id="generic-move",
+        dedupe_key="refs:D1:3",
+        relation_categories=("location_transition",),
+        relation_hits=("move",),
+        query_support_terms=("caroline", "move"),
+    )
+    location_support = _candidate(
+        item_id="location-support",
+        dedupe_key="refs:D1:5",
+        relation_categories=("location_transition",),
+        relation_category_hits=("location_transition",),
+        relation_hits=("origin", "country"),
+        query_support_terms=("origin", "country"),
+        source_refs=("D1:5",),
+        answerability_score=0.82,
+    )
+
+    plan = EvidenceBundlePlanner().plan(
+        (primary, generic_move, location_support),
+        case_group="single",
+        required_roles=("primary", "location_support"),
+    )
+
+    roles = {item.candidate.item_id: item.role for item in plan.items}
+    diagnostics = plan.to_diagnostics()
+    support_payload = next(
+        item.to_payload()
+        for item in plan.items
+        if item.candidate.item_id == "location-support"
+    )
+
+    assert roles["primary"] == "primary"
+    assert roles["location-support"] == "location_support"
+    assert plan.satisfied_required_roles == ("primary", "location_support")
+    assert diagnostics["bundle_quality"]["location_support_count"] == 1
+    assert diagnostics["bundle_quality"]["location_relation_category_hit_count"] == 2
+    assert "has_location_support_evidence" in diagnostics["bundle_quality"][
+        "reason_codes"
+    ]
+    assert "location_relation_category_hits" in support_payload[
+        "planner_reason_codes"
+    ]
+    assert support_payload["relation_category_hits"] == ["location_transition"]
+
+
 def test_evidence_bundle_planner_requires_matching_temporal_evidence_type() -> None:
     primary = _candidate(
         item_id="primary",
@@ -923,6 +980,8 @@ def _candidate(
     answerability_reason_codes: tuple[str, ...] = (),
     source_locality_score: float = 0.0,
     relation_hits: tuple[str, ...] = (),
+    relation_categories: tuple[str, ...] = (),
+    relation_category_hits: tuple[str, ...] = (),
     entity_hits: tuple[str, ...] = (),
     speaker_hits: tuple[str, ...] = (),
     query_roles: tuple[str, ...] = (),
@@ -962,6 +1021,8 @@ def _candidate(
         answerability_reason_codes=answerability_reason_codes,
         source_locality_score=source_locality_score,
         relation_hits=relation_hits,
+        relation_categories=relation_categories,
+        relation_category_hits=relation_category_hits,
         entity_hits=entity_hits,
         speaker_hits=speaker_hits,
         query_roles=query_roles,

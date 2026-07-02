@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 
@@ -187,6 +188,7 @@ _RELATIVE_TIME_TERMS = frozenset(
 
 def infer_relation_intents(
     *,
+    question: str = "",
     relation_terms: tuple[str, ...],
     relation_variant_terms: tuple[str, ...],
     time_intent: RetrievalTimeIntent,
@@ -199,6 +201,11 @@ def infer_relation_intents(
     variant_set = set(relation_variant_terms)
     facets: list[RetrievalRelationIntent] = []
     for category, config in _RELATION_FACET_CONFIG.items():
+        if category == "location_transition" and not _has_location_transition_intent(
+            question=question,
+            relation_terms=relation_terms,
+        ):
+            continue
         terms = tuple(term for term in relation_terms if term in config["terms"])
         variants = tuple(
             term for term in relation_variant_terms if term in config["variants"]
@@ -253,6 +260,7 @@ def infer_relation_intents(
 
 def infer_evidence_need(
     *,
+    question: str = "",
     relation_terms: tuple[str, ...],
     time_intent: RetrievalTimeIntent,
     visual_terms: tuple[str, ...],
@@ -291,7 +299,10 @@ def infer_evidence_need(
         multi_hop_markers
     ):
         needs.append("causal_support")
-    if {"move", "relocate", "relocated", "roadtrip"} & relation_set:
+    if _has_location_transition_intent(
+        question=question,
+        relation_terms=relation_terms,
+    ):
         needs.append("location_support")
     if not needs:
         needs.append("single_fact")
@@ -314,6 +325,8 @@ def infer_bundle_evidence_roles(
         roles.append("temporal_support")
     if "contrast" in evidence_need_set:
         roles.append("contrast")
+    if "location_support" in evidence_need_set:
+        roles.append("location_support")
     return tuple(dict.fromkeys(roles))
 
 
@@ -327,6 +340,37 @@ def _has_contrast_intent(
         {"between", "compare", "different", "difference", "former", "previous"}
         & relation_set
         or {"compare", "between", "before", "after"} & set(multi_hop_markers)
+    )
+
+
+def _has_location_transition_intent(
+    *,
+    question: str,
+    relation_terms: tuple[str, ...],
+) -> bool:
+    if not {"move", "relocate", "relocated", "roadtrip"} & set(relation_terms):
+        return False
+    normalized = " ".join(str(question or "").casefold().split())
+    if not normalized:
+        return False
+    if re.search(
+        r"\b(?:move|moved|moving|relocate|relocated)\s+"
+        r"(?:the\s+)?(?:meeting|call|note|document|file|deadline|appointment|"
+        r"task|ticket|event|conversation)\b",
+        normalized,
+    ):
+        return False
+    return bool(
+        re.search(
+            r"\b(?:where|which\s+(?:city|country|place)|from|origin|"
+            r"home\s+country|relocat(?:e|ed|ion)|road\s*trip|"
+            r"travel(?:ed|ling)?|visit(?:ed|ing)?)\b",
+            normalized,
+        )
+        or re.search(
+            r"\b(?:move|moved|moving|relocate|relocated)\s+from\b",
+            normalized,
+        )
     )
 
 

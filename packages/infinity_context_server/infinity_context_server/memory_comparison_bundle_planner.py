@@ -48,6 +48,8 @@ class EvidenceBundleCandidate:
     answerability_reason_codes: tuple[str, ...] = ()
     source_locality_score: float = 0.0
     relation_hits: tuple[str, ...] = ()
+    relation_categories: tuple[str, ...] = ()
+    relation_category_hits: tuple[str, ...] = ()
     entity_hits: tuple[str, ...] = ()
     speaker_hits: tuple[str, ...] = ()
     query_roles: tuple[str, ...] = ()
@@ -106,6 +108,12 @@ class PlannedEvidenceItem:
             payload["retrieval_sources"] = list(self.candidate.retrieval_sources)
         if self.candidate.query_roles:
             payload["query_roles"] = list(self.candidate.query_roles)
+        if self.candidate.relation_categories:
+            payload["relation_categories"] = list(self.candidate.relation_categories)
+        if self.candidate.relation_category_hits:
+            payload["relation_category_hits"] = list(
+                self.candidate.relation_category_hits
+            )
         if self.candidate.bridge_query_hit:
             payload["bridge_query_hit"] = True
         if self.candidate.eligibility_reason_codes:
@@ -389,6 +397,7 @@ class EvidenceBundlePlanner:
                 "entity_disambiguation",
                 "contrast",
                 "bridge",
+                "location_support",
             }
             if (
                 not diversity_exempt
@@ -453,6 +462,8 @@ def _role_for_candidate(
         return "contrast"
     if _is_bridge_candidate(candidate, case_group=case_group):
         return "bridge"
+    if _candidate_has_location_support(candidate):
+        return "location_support"
     if (
         candidate.has_temporal_surface
         or candidate.has_sequence_surface
@@ -515,6 +526,10 @@ def _satisfied_required_roles(
             satisfied.add(role)
             continue
         if role == "bridge" and _selection_has_bridge_support(selected):
+            satisfied.add(role)
+        if role == "location_support" and any(
+            _candidate_has_location_support(item.candidate) for item in selected
+        ):
             satisfied.add(role)
     return tuple(role for role in required_roles if role in satisfied)
 
@@ -641,6 +656,8 @@ def _item_can_satisfy_required_role(
         return _candidate_has_contrast_support(item.candidate)
     if role == "bridge":
         return item.role == "bridge"
+    if role == "location_support":
+        return _candidate_has_location_support(item.candidate)
     return item.role == role
 
 
@@ -695,6 +712,7 @@ def _replacement_role_order(item: PlannedEvidenceItem) -> float:
         "temporal_support": 2,
         "contrast": 3,
         "bridge": 4,
+        "location_support": 4,
         "primary": 5,
     }
     return float(role_order.get(item.role, 9))
@@ -733,6 +751,23 @@ def _candidate_has_contrast_support(candidate: EvidenceBundleCandidate) -> bool:
             and (candidate.stale_surface or candidate.negation_surface)
         )
     )
+
+
+def _candidate_has_location_support(candidate: EvidenceBundleCandidate) -> bool:
+    if "location_transition" in set(candidate.relation_category_hits):
+        return True
+    location_terms = {
+        "city",
+        "country",
+        "drive",
+        "from",
+        "home",
+        "origin",
+        "relocated",
+        "travel",
+        "trip",
+    }
+    return bool(location_terms.intersection(candidate.relation_hits))
 
 
 def _selection_has_bridge_support(selected: Sequence[PlannedEvidenceItem]) -> bool:
@@ -832,6 +867,12 @@ def _reason_codes(
             reasons.append("bridge_relation_hits")
         if candidate.entity_hits or candidate.speaker_hits:
             reasons.append("bridge_entity_hits")
+    if role == "location_support":
+        reasons.append("location_support")
+        if candidate.relation_category_hits:
+            reasons.append("location_relation_category_hits")
+        if candidate.relation_hits:
+            reasons.append("location_relation_hits")
     if candidate.focused_evidence_score > 0:
         reasons.append("focused_turn")
     if candidate.answerability_score >= 0.8:
@@ -885,6 +926,7 @@ def _role_order(item: PlannedEvidenceItem) -> float:
         "primary": 0,
         "bridge": 1,
         "contrast": 2,
+        "location_support": 3,
         "temporal_support": 3,
         "entity_disambiguation": 4,
         "supporting": 5,
@@ -927,6 +969,7 @@ def _max_item_drop_counts(
             "entity_disambiguation",
             "contrast",
             "bridge",
+            "location_support",
         }:
             continue
         if source_type_counts[item.candidate.source_type] >= max_items_per_source_type:
@@ -966,6 +1009,8 @@ def _bundle_quality_diagnostics(
             "low_answerability_count": 0,
             "bridge_count": 0,
             "bridge_query_hit_count": 0,
+            "location_support_count": 0,
+            "location_relation_category_hit_count": 0,
             "missing_required_role_count": len(missing_roles),
             "missing_required_roles": list(missing_roles),
             "contrast_count": 0,
@@ -997,6 +1042,12 @@ def _bundle_quality_diagnostics(
     low_answerability_count = sum(score < 0.55 for score in answerability_scores)
     bridge_count = sum(1 for item in items if item.role == "bridge")
     bridge_query_hit_count = sum(1 for item in items if item.candidate.bridge_query_hit)
+    location_support_count = sum(1 for item in items if item.role == "location_support")
+    location_relation_category_hit_count = sum(
+        1
+        for item in items
+        if "location_transition" in set(item.candidate.relation_category_hits)
+    )
     contrast_count = sum(1 for item in items if item.role == "contrast")
     contrast_surface_count = sum(1 for item in items if item.candidate.contrast_surface)
     currentness_surface_count = sum(
@@ -1025,6 +1076,7 @@ def _bundle_quality_diagnostics(
             (0.14 * max_answerability) + (0.10 * avg_answerability),
         ),
         "bridge_support": min(0.1, 0.1 * bridge_count),
+        "location_support": min(0.08, 0.08 * location_support_count),
         "contrast_support": min(0.08, 0.08 * contrast_count),
     }
     risk_penalty = min(
@@ -1058,6 +1110,8 @@ def _bundle_quality_diagnostics(
             max_answerability=max_answerability,
             low_answerability_count=low_answerability_count,
             bridge_count=bridge_count,
+            location_support_count=location_support_count,
+            location_relation_category_hit_count=location_relation_category_hit_count,
             missing_required_roles=missing_roles,
             contrast_count=contrast_count,
             contrast_surface_count=contrast_surface_count,
@@ -1080,6 +1134,10 @@ def _bundle_quality_diagnostics(
         "low_answerability_count": low_answerability_count,
         "bridge_count": bridge_count,
         "bridge_query_hit_count": bridge_query_hit_count,
+        "location_support_count": location_support_count,
+        "location_relation_category_hit_count": (
+            location_relation_category_hit_count
+        ),
         "missing_required_role_count": len(missing_roles),
         "missing_required_roles": list(missing_roles),
         "contrast_count": contrast_count,
@@ -1103,6 +1161,8 @@ def _bundle_quality_reason_codes(
     max_answerability: float,
     low_answerability_count: int,
     bridge_count: int,
+    location_support_count: int,
+    location_relation_category_hit_count: int,
     missing_required_roles: Sequence[str],
     contrast_count: int,
     contrast_surface_count: int,
@@ -1135,6 +1195,10 @@ def _bundle_quality_reason_codes(
         reasons.append("risk:low_answerability")
     if bridge_count:
         reasons.append("has_bridge_evidence")
+    if location_support_count:
+        reasons.append("has_location_support_evidence")
+    if location_relation_category_hit_count:
+        reasons.append("has_location_relation_category_evidence")
     if missing_required_roles:
         reasons.append("risk:missing_required_role")
         reasons.extend(f"risk:missing_required_{role}" for role in missing_required_roles)
