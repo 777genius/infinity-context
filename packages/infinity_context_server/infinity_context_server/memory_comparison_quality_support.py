@@ -4,6 +4,28 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
+_TEMPORAL_EVIDENCE_NEEDS = frozenset(
+    {
+        "temporal_support",
+        "temporal_sequence",
+        "duration_temporal_support",
+        "explicit_temporal_support",
+        "relative_temporal_support",
+        "temporal_sequence_support",
+        "visual_temporal_support",
+    }
+)
+_TEMPORAL_BUNDLE_ROLES = frozenset(
+    {
+        "temporal_support",
+        "duration_temporal_support",
+        "explicit_temporal_support",
+        "relative_temporal_support",
+        "temporal_sequence_support",
+        "visual_temporal_support",
+    }
+)
+
 
 def needs_temporal_support(item: Mapping[str, object]) -> bool:
     query_profile, intent = _query_profile_and_intent(item)
@@ -11,8 +33,8 @@ def needs_temporal_support(item: Mapping[str, object]) -> bool:
     roles = _merged_query_values(query_profile, intent, "bundle_evidence_roles")
     relation_categories = _relation_categories(query_profile, intent)
     return bool(
-        {"temporal_support", "temporal_sequence"}.intersection(evidence_need)
-        or "temporal_support" in roles
+        _TEMPORAL_EVIDENCE_NEEDS.intersection(evidence_need)
+        or _TEMPORAL_BUNDLE_ROLES.intersection(roles)
         or "temporal" in relation_categories
     )
 

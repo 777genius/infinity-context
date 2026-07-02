@@ -410,6 +410,98 @@ def test_fast_gate_metrics_accepts_duration_temporal_evidence() -> None:
     ]
 
 
+def test_fast_gate_metrics_rejects_metadata_only_explicit_temporal_evidence() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="metadata-only-explicit-time",
+                group="temporal",
+                retrieval=_retrieval_payload(
+                    evidence_need=("temporal_support",),
+                    bundle_evidence_roles=("primary", "temporal_support"),
+                    relation_categories=("temporal",),
+                    policy_score=0.0,
+                ),
+                evidence_bundle={
+                    "bundle_complete": False,
+                    "item_count": 1,
+                    "primary_evidence_count": 1,
+                    "supporting_evidence_count": 0,
+                    "query_support_term_recall": 0.5,
+                    "covered_evidence_terms": [],
+                    "items": [
+                        {
+                            "role": "temporal_support",
+                            "retrieval_order": 1,
+                            "focused_evidence_score": 1.0,
+                            "time_intent_kind": "explicit_time",
+                            "has_explicit_time_surface": True,
+                            "has_explicit_time_content_surface": False,
+                            "planner_reason_codes": ["explicit_time_surface"],
+                        }
+                    ],
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    breakdown = gate["bundle_gap_breakdown"]
+
+    assert breakdown["reason_counts"]["missing_temporal_support"] == 1
+    assert breakdown["evidence_need_gap_reason_counts"] == {
+        "missing_temporal_support": 1
+    }
+    assert "missing_temporal_support" in breakdown["samples"][0]["reasons"]
+
+
+def test_fast_gate_metrics_accepts_content_explicit_temporal_evidence() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="content-explicit-time",
+                group="temporal",
+                retrieval=_retrieval_payload(
+                    evidence_need=("temporal_support",),
+                    bundle_evidence_roles=("primary", "temporal_support"),
+                    relation_categories=("temporal",),
+                    policy_score=0.0,
+                ),
+                evidence_bundle={
+                    "bundle_complete": False,
+                    "item_count": 1,
+                    "primary_evidence_count": 1,
+                    "supporting_evidence_count": 0,
+                    "query_support_term_recall": 0.5,
+                    "covered_evidence_terms": [],
+                    "items": [
+                        {
+                            "role": "temporal_support",
+                            "retrieval_order": 1,
+                            "focused_evidence_score": 1.0,
+                            "time_intent_kind": "explicit_time",
+                            "has_explicit_time_surface": True,
+                            "has_explicit_time_content_surface": True,
+                            "planner_reason_codes": [
+                                "explicit_time_surface",
+                                "explicit_time_content_surface",
+                            ],
+                        }
+                    ],
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    breakdown = gate["bundle_gap_breakdown"]
+
+    assert "missing_temporal_support" not in breakdown["reason_counts"]
+    assert "missing_temporal_support" not in breakdown[
+        "evidence_need_gap_reason_counts"
+    ]
+
+
 def test_fast_gate_metrics_rejects_broad_duration_temporal_evidence() -> None:
     gate = fast_gate_metrics(
         (
@@ -510,6 +602,7 @@ def test_fast_gate_metrics_reads_support_need_from_retrieval_intent_relation() -
 def test_fast_gate_metrics_reads_support_need_from_bundle_roles() -> None:
     cases = (
         ("temporal_support", "missing_temporal_support"),
+        ("explicit_temporal_support", "missing_temporal_support"),
         ("contrast", "missing_contrast"),
         ("location_support", "missing_location_support"),
     )
@@ -551,6 +644,55 @@ def test_fast_gate_metrics_reads_support_need_from_bundle_roles() -> None:
         assert breakdown["reason_counts"][missing_reason] == 1
         assert breakdown["evidence_need_gap_reason_counts"] == {missing_reason: 1}
         assert missing_reason in breakdown["samples"][0]["reasons"]
+
+
+def test_fast_gate_metrics_reads_temporal_support_need_from_typed_evidence_need() -> None:
+    cases = (
+        "duration_temporal_support",
+        "explicit_temporal_support",
+        "relative_temporal_support",
+        "temporal_sequence_support",
+        "visual_temporal_support",
+    )
+
+    for evidence_need in cases:
+        gate = fast_gate_metrics(
+            (
+                _item(
+                    case_id=f"need-{evidence_need}",
+                    group="single-hop",
+                    retrieval=_retrieval_payload(
+                        evidence_need=(evidence_need,),
+                        relation_categories=(),
+                        policy_score=0.0,
+                    ),
+                    evidence_bundle={
+                        "bundle_complete": False,
+                        "item_count": 1,
+                        "primary_evidence_count": 1,
+                        "supporting_evidence_count": 0,
+                        "query_support_term_recall": 0.5,
+                        "covered_evidence_terms": [],
+                        "items": [
+                            {
+                                "role": "primary",
+                                "retrieval_order": 1,
+                                "focused_evidence_score": 1.0,
+                            }
+                        ],
+                    },
+                ),
+            ),
+            expected_case_count=1,
+        )
+
+        breakdown = gate["bundle_gap_breakdown"]
+
+        assert breakdown["reason_counts"]["missing_temporal_support"] == 1
+        assert breakdown["evidence_need_gap_reason_counts"] == {
+            "missing_temporal_support": 1
+        }
+        assert "missing_temporal_support" in breakdown["samples"][0]["reasons"]
 
 
 def test_fast_gate_metrics_merges_support_need_from_profile_and_intent() -> None:
