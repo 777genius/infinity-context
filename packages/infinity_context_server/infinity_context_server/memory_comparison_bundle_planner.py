@@ -9,6 +9,8 @@ from dataclasses import dataclass
 
 BundleRole = str
 _TURN_REF_RE = re.compile(r"\bD\d+:\d+\b")
+_TURN_REF_PARTS_RE = re.compile(r"\bD(?P<dialogue>\d+):(?P<turn>\d+)\b")
+_SOURCE_PROXIMITY_WINDOW = 3
 
 
 @dataclass(frozen=True)
@@ -1011,6 +1013,8 @@ def _bundle_quality_diagnostics(
             "bridge_query_hit_count": 0,
             "location_support_count": 0,
             "location_relation_category_hit_count": 0,
+            "source_proximity_support_count": 0,
+            "source_proximity_window": _SOURCE_PROXIMITY_WINDOW,
             "missing_required_role_count": len(missing_roles),
             "missing_required_roles": list(missing_roles),
             "contrast_count": 0,
@@ -1048,6 +1052,7 @@ def _bundle_quality_diagnostics(
         for item in items
         if "location_transition" in set(item.candidate.relation_category_hits)
     )
+    source_proximity_support_count = _source_proximity_support_count(items)
     contrast_count = sum(1 for item in items if item.role == "contrast")
     contrast_surface_count = sum(1 for item in items if item.candidate.contrast_surface)
     currentness_surface_count = sum(
@@ -1077,6 +1082,11 @@ def _bundle_quality_diagnostics(
         ),
         "bridge_support": min(0.1, 0.1 * bridge_count),
         "location_support": min(0.08, 0.08 * location_support_count),
+        "source_proximity": (
+            min(0.06, 0.03 * source_proximity_support_count)
+            if not missing_roles
+            else 0.0
+        ),
         "contrast_support": min(0.08, 0.08 * contrast_count),
     }
     risk_penalty = min(
@@ -1112,6 +1122,7 @@ def _bundle_quality_diagnostics(
             bridge_count=bridge_count,
             location_support_count=location_support_count,
             location_relation_category_hit_count=location_relation_category_hit_count,
+            source_proximity_support_count=source_proximity_support_count,
             missing_required_roles=missing_roles,
             contrast_count=contrast_count,
             contrast_surface_count=contrast_surface_count,
@@ -1138,6 +1149,8 @@ def _bundle_quality_diagnostics(
         "location_relation_category_hit_count": (
             location_relation_category_hit_count
         ),
+        "source_proximity_support_count": source_proximity_support_count,
+        "source_proximity_window": _SOURCE_PROXIMITY_WINDOW,
         "missing_required_role_count": len(missing_roles),
         "missing_required_roles": list(missing_roles),
         "contrast_count": contrast_count,
@@ -1147,6 +1160,55 @@ def _bundle_quality_diagnostics(
         "broad_summary_count": broad_summary_count,
         "conflict_or_stale_count": conflict_or_stale_count,
     }
+
+
+def _source_proximity_support_count(items: Sequence[PlannedEvidenceItem]) -> int:
+    primary_turn_refs = tuple(
+        turn_ref
+        for item in items
+        if item.role == "primary"
+        for turn_ref in _candidate_turn_refs(item.candidate)
+    )
+    if not primary_turn_refs:
+        return 0
+    count = 0
+    for item in items:
+        if item.role == "primary":
+            continue
+        if _candidate_near_turn_refs(
+            item.candidate,
+            primary_turn_refs=primary_turn_refs,
+            max_distance=_SOURCE_PROXIMITY_WINDOW,
+        ):
+            count += 1
+    return count
+
+
+def _candidate_near_turn_refs(
+    candidate: EvidenceBundleCandidate,
+    *,
+    primary_turn_refs: Sequence[tuple[int, int]],
+    max_distance: int,
+) -> bool:
+    return any(
+        primary_dialogue == candidate_dialogue
+        and abs(primary_turn - candidate_turn) <= max_distance
+        for primary_dialogue, primary_turn in primary_turn_refs
+        for candidate_dialogue, candidate_turn in _candidate_turn_refs(candidate)
+    )
+
+
+def _candidate_turn_refs(candidate: EvidenceBundleCandidate) -> tuple[tuple[int, int], ...]:
+    refs: list[tuple[int, int]] = []
+    for source_ref in candidate.source_refs:
+        for match in _TURN_REF_PARTS_RE.finditer(str(source_ref)):
+            refs.append(
+                (
+                    int(match.group("dialogue")),
+                    int(match.group("turn")),
+                )
+            )
+    return tuple(dict.fromkeys(refs))
 
 
 def _bundle_quality_reason_codes(
@@ -1163,6 +1225,7 @@ def _bundle_quality_reason_codes(
     bridge_count: int,
     location_support_count: int,
     location_relation_category_hit_count: int,
+    source_proximity_support_count: int,
     missing_required_roles: Sequence[str],
     contrast_count: int,
     contrast_surface_count: int,
@@ -1199,6 +1262,8 @@ def _bundle_quality_reason_codes(
         reasons.append("has_location_support_evidence")
     if location_relation_category_hit_count:
         reasons.append("has_location_relation_category_evidence")
+    if source_proximity_support_count:
+        reasons.append("has_source_proximity_support")
     if missing_required_roles:
         reasons.append("risk:missing_required_role")
         reasons.extend(f"risk:missing_required_{role}" for role in missing_required_roles)

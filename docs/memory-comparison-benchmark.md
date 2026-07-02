@@ -588,9 +588,9 @@ The same table also emits role-family counts, grouping typed temporal roles
 back under `temporal_support` for high-level fast-gate reading.
 `bundle_quality_table` aggregates the planner's `evidence_bundle_quality.v1`
 payload across the run: confidence-band counts, average confidence, average risk
-penalty, bridge and contrast evidence counts, risk reason counts and compact
-weak samples. This keeps the fast loop focused on evidence-package quality even
-when a bundle is technically complete.
+penalty, bridge, location, contrast and source-proximity evidence counts, risk
+reason counts and compact weak samples. This keeps the fast loop focused on
+evidence-package quality even when a bundle is technically complete.
 The same diagnostics include `rerank_lift_table`, a candidate-level explanation
 of why retrieved memories were lifted. It counts positive score signals, active
 policy names, policy reason codes, relation-category hits, low-answerability

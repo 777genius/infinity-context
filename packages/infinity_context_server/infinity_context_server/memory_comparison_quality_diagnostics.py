@@ -674,6 +674,7 @@ def _bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, ob
     bridge_counts: list[int] = []
     location_support_counts: list[int] = []
     location_relation_category_hit_counts: list[int] = []
+    source_proximity_support_counts: list[int] = []
     contrast_counts: list[int] = []
     selected_source_locality_scores: list[float] = []
     band_counts: Counter[str] = Counter()
@@ -695,6 +696,9 @@ def _bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, ob
         )
         location_relation_category_hit_counts.append(
             _positive_int(quality.get("location_relation_category_hit_count")) or 0
+        )
+        source_proximity_support_counts.append(
+            _positive_int(quality.get("source_proximity_support_count")) or 0
         )
         contrast_counts.append(_positive_int(quality.get("contrast_count")) or 0)
         if "average_selected_source_locality_score" in planner:
@@ -732,6 +736,11 @@ def _bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, ob
         ),
         "total_location_relation_category_hit_count": sum(
             location_relation_category_hit_counts
+        ),
+        "avg_source_proximity_support_count": _avg(source_proximity_support_counts),
+        "total_source_proximity_support_count": sum(source_proximity_support_counts),
+        "source_proximity_bundle_count": sum(
+            1 for count in source_proximity_support_counts if count > 0
         ),
         "avg_contrast_count": _avg(contrast_counts),
         "total_contrast_count": sum(contrast_counts),
@@ -781,6 +790,9 @@ def _bundle_quality_sample(
         ),
         "location_relation_category_hit_count": (
             _positive_int(quality.get("location_relation_category_hit_count")) or 0
+        ),
+        "source_proximity_support_count": (
+            _positive_int(quality.get("source_proximity_support_count")) or 0
         ),
         "contrast_count": _positive_int(quality.get("contrast_count")) or 0,
         "broad_summary_count": (

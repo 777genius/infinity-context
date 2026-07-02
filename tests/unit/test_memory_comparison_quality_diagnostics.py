@@ -100,6 +100,7 @@ def test_quality_diagnostics_reports_intents_policies_bundle_gaps_and_leakage() 
                             supporting_count=1,
                             bridge_count=1,
                             contrast_count=1,
+                            source_proximity_support_count=1,
                             source_ref_item_count=2,
                             source_type_diversity=2,
                             retrieval_source_diversity=2,
@@ -225,6 +226,9 @@ def test_quality_diagnostics_reports_intents_policies_bundle_gaps_and_leakage() 
     assert bundle_quality["avg_contrast_count"] == 0.5
     assert bundle_quality["total_contrast_count"] == 1
     assert bundle_quality["contrast_bundle_count"] == 1
+    assert bundle_quality["avg_source_proximity_support_count"] == 0.5
+    assert bundle_quality["total_source_proximity_support_count"] == 1
+    assert bundle_quality["source_proximity_bundle_count"] == 1
     assert bundle_quality["avg_selected_source_locality_score"] == 0.625
     assert bundle_quality["weak_bundle_count"] == 1
     assert bundle_quality["medium_or_high_bundle_count"] == 1
@@ -1665,6 +1669,7 @@ def _bundle_quality(
     low_answerability_count: int = 0,
     broad_summary_count: int = 0,
     conflict_or_stale_count: int = 0,
+    source_proximity_support_count: int = 0,
 ) -> dict[str, object]:
     return {
         "schema_version": "evidence_bundle_quality.v1",
@@ -1683,4 +1688,5 @@ def _bundle_quality(
         "low_answerability_count": low_answerability_count,
         "broad_summary_count": broad_summary_count,
         "conflict_or_stale_count": conflict_or_stale_count,
+        "source_proximity_support_count": source_proximity_support_count,
     }

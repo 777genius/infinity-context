@@ -945,6 +945,55 @@ def test_evidence_bundle_planner_reports_low_confidence_broad_bundle() -> None:
     assert "risk:all_broad_summary" in quality["reason_codes"]
 
 
+def test_evidence_bundle_planner_scores_source_proximity_support() -> None:
+    primary = _candidate(
+        item_id="primary",
+        dedupe_key="refs:D4:10",
+        covered_evidence_terms=("D4:10",),
+        primary_signal=True,
+        source_refs=("D4:10",),
+        focused_evidence_score=1.0,
+        direct_speaker_turn=True,
+        answerability_score=0.9,
+    )
+    near_support = _candidate(
+        item_id="near-support",
+        dedupe_key="refs:D4:12",
+        query_support_terms=("origin", "country", "nearby"),
+        source_refs=("D4:12",),
+        answerability_score=0.82,
+    )
+    far_support = _candidate(
+        item_id="far-support",
+        dedupe_key="refs:D4:30",
+        query_support_terms=("origin", "country", "later"),
+        source_refs=("D4:30",),
+        answerability_score=0.82,
+    )
+    other_dialogue_support = _candidate(
+        item_id="other-dialogue-support",
+        dedupe_key="refs:D5:12",
+        query_support_terms=("origin", "country", "elsewhere"),
+        source_refs=("D5:12",),
+        answerability_score=0.82,
+    )
+
+    plan = EvidenceBundlePlanner(
+        max_items_per_source_type=10,
+        max_items_per_retrieval_source=10,
+    ).plan(
+        (primary, far_support, other_dialogue_support, near_support),
+        case_group="single",
+    )
+
+    quality = plan.to_diagnostics()["bundle_quality"]
+
+    assert quality["source_proximity_support_count"] == 1
+    assert quality["source_proximity_window"] == 3
+    assert quality["component_scores"]["source_proximity"] == 0.03
+    assert "has_source_proximity_support" in quality["reason_codes"]
+
+
 def _candidate(
     *,
     item_id: str,
