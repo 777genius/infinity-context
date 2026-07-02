@@ -1548,6 +1548,66 @@ def test_candidate_features_do_not_count_metadata_date_as_temporal_answer() -> N
     assert content_time.answerability_score > metadata_only.answerability_score
 
 
+def test_candidate_features_score_during_event_temporal_evidence() -> None:
+    no_temporal_content = build_candidate_evidence_features(
+        RetrievedMemory(
+            item_id="call-topic",
+            rank=1,
+            text="D6:3 Morgan: The studio checklist is ready.",
+            source_refs=("D6:3",),
+        ),
+        memory_terms={"morgan", "studio", "checklist", "ready"},
+        query_terms=("morgan", "during", "call", "studio"),
+        relation_terms=("call", "studio"),
+        relation_variant_terms=(),
+        entities=("morgan",),
+        entity_hits=("morgan",),
+        speaker_hits=("morgan",),
+        high_signal_relation_terms=set(),
+        is_temporal_query=True,
+        time_intent_kind="temporal_lookup",
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=True,
+        has_sequence_surface=True,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+    during_event = build_candidate_evidence_features(
+        RetrievedMemory(
+            item_id="during-call",
+            rank=2,
+            text="D6:4 Morgan: During the call, I agreed to book the studio desk.",
+            source_refs=("D6:4",),
+        ),
+        memory_terms={"morgan", "during", "call", "agreed", "book", "studio", "desk"},
+        query_terms=("morgan", "during", "call", "studio"),
+        relation_terms=("call", "studio"),
+        relation_variant_terms=(),
+        entities=("morgan",),
+        entity_hits=("morgan",),
+        speaker_hits=("morgan",),
+        high_signal_relation_terms=set(),
+        is_temporal_query=True,
+        time_intent_kind="temporal_lookup",
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=True,
+        has_sequence_surface=True,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+
+    assert during_event.has_temporal_sequence_surface is True
+    assert "generic_temporal_evidence" in during_event.answerability_reason_codes
+    assert "missing_temporal_evidence" in no_temporal_content.answerability_reason_codes
+    assert during_event.answerability_score > no_temporal_content.answerability_score
+
+
 def test_candidate_features_do_not_count_question_echo_as_category_hit() -> None:
     memory = RetrievedMemory(
         item_id="current-group-distractor",

@@ -76,7 +76,7 @@ _EXPLICIT_TIME_CONTENT_RE = re.compile(
     re.IGNORECASE,
 )
 _TEMPORAL_SEQUENCE_EVIDENCE_RE = re.compile(
-    r"\b(?:before|after|then|following|subsequent|subsequently|"
+    r"\b(?:before|after|during|then|following|subsequent|subsequently|"
     r"previously|earlier|later|prior)\b",
     re.IGNORECASE,
 )

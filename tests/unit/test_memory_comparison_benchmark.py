@@ -3014,6 +3014,66 @@ def test_infinity_context_http_search_decomposes_temporal_session_queries() -> N
     assert diagnostics["score_signals"]["benchmark_speaker_boost"] > 0
 
 
+def test_infinity_context_http_search_decomposes_during_session_queries() -> None:
+    seen_payloads: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        seen_payloads.append(payload)
+        if "during session date time" in payload["query"]:
+            items = [
+                {
+                    "item_id": "during-session-evidence",
+                    "item_type": "chunk",
+                    "text": (
+                        "session_6 date: Tuesday 13 June, 2023\n"
+                        "D6:4 Morgan: During the call, I agreed to book the studio desk."
+                    ),
+                    "score": 0.82,
+                    "source_refs": [{"source_id": "memory-during-session"}],
+                }
+            ]
+        else:
+            items = [
+                {
+                    "item_id": "during-session-distractor",
+                    "item_type": "fact",
+                    "text": "D2:1 Morgan mentioned the studio checklist.",
+                    "score": 0.4,
+                    "source_refs": [{"source_id": "memory-during-distractor"}],
+                }
+            ]
+        return httpx.Response(200, json={"data": {"items": items}})
+
+    backend = http_module.InfinityContextHttpComparisonBackend(
+        base_url="http://memo.test",
+        auth_token="unit-token",
+        transport=httpx.MockTransport(handler),
+    )
+    case = _case(
+        case_id="conv-1:qa:during-session",
+        question="What did Morgan agree to during the call?",
+        expected_terms=("book the studio desk",),
+        answer="book the studio desk",
+    )
+
+    try:
+        result = backend.search(case, run_id="Run 42", top_k=2)
+    finally:
+        backend.close()
+
+    queries = [payload["query"] for payload in seen_payloads]
+    assert queries[0] == "What did Morgan agree to during the call?"
+    assert queries[-1] == "morgan during session date time"
+    assert result.memories[0].item_id == "during-session-evidence"
+    query_profile = result.metadata["query_decomposition"]["query_profile"]
+    assert query_profile["is_temporal_query"] is True
+    assert query_profile["time_intent_kind"] == "temporal_lookup"
+    assert "during" in query_profile["temporal_terms"]
+    diagnostics = result.memories[0].metadata["diagnostics"]
+    assert diagnostics["score_signals"]["benchmark_temporal_text_boost"] > 0
+
+
 def test_infinity_context_http_search_boosts_relative_temporal_text() -> None:
     seen_payloads: list[dict[str, object]] = []
 

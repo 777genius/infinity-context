@@ -310,6 +310,7 @@ _TEMPORAL_QUERY_TERMS = (
     "when",
     "how long",
     "long ago",
+    "during",
     "before",
     "after",
     "ago",
