@@ -65,33 +65,47 @@ _FREQUENCY_EVENT_TERMS = frozenset(
     {
         "attend",
         "attended",
+        "beach",
         "call",
         "called",
+        "checkup",
+        "checkups",
         "chat",
         "chatted",
+        "exercise",
+        "exercises",
         "go",
         "goes",
+        "library",
         "meet",
         "meeting",
         "met",
         "message",
         "messaged",
+        "park",
         "participate",
         "participated",
         "practice",
         "practices",
         "run",
         "runs",
+        "sunset",
+        "sunsets",
         "talk",
         "talked",
         "train",
         "trains",
         "visit",
         "visited",
+        "walk",
+        "walked",
+        "walks",
         "volunteer",
         "volunteered",
         "volunteers",
         "work",
+        "workout",
+        "workouts",
         "works",
         "бегает",
         "встречается",
@@ -115,6 +129,24 @@ def requests_frequency_recurrence_context(
     """Return true for queries asking how often an event/activity recurs."""
 
     tokens = raw_tokens | variants
+    if {"how", "many", "times"}.issubset(tokens) and not (
+        tokens
+        & {
+            "cadence",
+            "every",
+            "frequent",
+            "frequently",
+            "frequency",
+            "often",
+            "per",
+            "recurring",
+            "regular",
+            "regularly",
+            "routine",
+            "usually",
+        }
+    ):
+        return False
     has_frequency_prompt = bool(tokens & _FREQUENCY_PROMPT_TERMS) or (
         {"how", "often"}.issubset(tokens) or {"как", "часто"}.issubset(tokens)
     )
@@ -129,15 +161,16 @@ def requests_frequency_recurrence_context(
 def frequency_recurrence_tail(variants: frozenset[str]) -> str:
     """Build a compact retrieval tail for recurrence evidence."""
 
-    activity_terms = " ".join(sorted((variants & _FREQUENCY_EVENT_TERMS)))[:120]
+    activity_terms = " ".join(sorted(variants & _FREQUENCY_EVENT_TERMS))[:80]
     return " ".join(
         part
         for part in (
             activity_terms,
             (
-                "frequency recurrence cadence recurring repeated regular regularly "
-                "usually often schedule routine every daily weekly monthly yearly "
-                "weekend weekdays once twice three times per week per month"
+                "frequency recurrence cadence regular regularly often routine every "
+                "each daily weekly monthly yearly weekend weekdays every other "
+                "every few once twice three "
+                "times per week per month"
             ),
         )
         if part

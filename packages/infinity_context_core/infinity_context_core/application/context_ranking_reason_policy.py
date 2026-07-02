@@ -664,7 +664,7 @@ QUERY_REASON_PRIORITY = {
     "decomposition_lgbtq_pride_event": 4,
     "decomposition_lgbtq_school_speech_event": 4,
     "decomposition_lgbtq_support_group_event": 4,
-    "decomposition_frequency_recurrence": 3,
+    "decomposition_frequency_recurrence": 5,
     "decomposition_recommendation_source": 4,
     "decomposition_relocation_context": 3,
     "decomposition_relocation_destination": 3,
