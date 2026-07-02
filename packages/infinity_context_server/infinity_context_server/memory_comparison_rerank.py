@@ -127,6 +127,7 @@ _RELATION_QUERY_TERMS = {
     "advise",
     "ask",
     "attend",
+    "based",
     "birthday",
     "book",
     "bookshelf",

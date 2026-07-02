@@ -324,7 +324,7 @@ RELATION_QUERY_VARIANTS = {
     "join": ("joined", "joining", "group", "community", "class", "club", "event"),
     "learn": ("learned", "learning", "studied"),
     "like": ("liked", "enjoy", "enjoyed", "love"),
-    "live": ("lived", "living", "home", "city", "place"),
+    "live": ("lived", "living", "based", "home", "city", "place"),
     "love": ("loved", "enjoy", "enjoyed", "like"),
     "make": ("made", "create", "created"),
     "marry": (

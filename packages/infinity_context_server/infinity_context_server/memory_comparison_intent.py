@@ -562,6 +562,7 @@ def _has_location_transition_intent(
     relation_set = set(relation_terms)
     if not {
         "grow",
+        "based",
         "live",
         "move",
         "origin",
@@ -591,7 +592,7 @@ def _has_location_transition_intent(
             normalized,
         )
         or re.search(
-            r"\b(?:move|moved|moving|relocate|relocated|live|lived|living|"
+            r"\b(?:move|moved|moving|relocate|relocated|live|lived|living|based|"
             r"stay|stayed|staying|grow|grew)\s+"
             r"(?:from|in|at|near|around|up\b)",
             normalized,
@@ -2013,6 +2014,7 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
         "terms": frozenset(
             {
                 "grow",
+                "based",
                 "live",
                 "move",
                 "origin",
@@ -2027,6 +2029,7 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "childhood",
                 "city",
                 "country",
+                "based",
                 "drive",
                 "from",
                 "grew",

@@ -1220,7 +1220,7 @@ _LOCATION_TRANSITION_SURFACE_RE = re.compile(
     r"(?:[A-Z][a-zA-Z0-9_-]+|the\s+[a-zA-Z][a-zA-Z0-9_-]+)",
 )
 _LOCATION_PROFILE_SURFACE_RE = re.compile(
-    r"\b(?:live|lived|living|stay|stayed|staying)\s+"
+    r"\b(?:live|lived|living|stay|stayed|staying|based)\s+"
     r"(?:in|at|near|around)\s+"
     r"(?:[A-Z][a-zA-Z0-9_-]+|the\s+[a-zA-Z][a-zA-Z0-9_-]+)"
     r"|\b(?:from|born\s+in|grew\s+up\s+in)\s+"
@@ -1257,6 +1257,8 @@ def _has_location_transition_support(
         "live",
         "lived",
         "living",
+        "based",
+        "bas",
         "stay",
         "stayed",
         "staying",

@@ -1029,6 +1029,8 @@ _LOCATION_SUPPORT_TERMS = frozenset(
         "home",
         "hometown",
         "hotel",
+        "based",
+        "bas",
         "live",
         "lived",
         "living",

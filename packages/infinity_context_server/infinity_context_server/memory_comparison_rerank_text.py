@@ -512,7 +512,8 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
     ):
         terms.append("action")
     if re.search(
-        r"\bwhere\b.+\blive\b|\blive\b.+\bwhere\b",
+        r"\bwhere\b.+\b(?:live|based)\b|"
+        r"\b(?:live|based)\b.+\bwhere\b",
         text,
         flags=re.IGNORECASE,
     ):

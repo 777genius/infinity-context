@@ -1131,6 +1131,7 @@ def _location_support_query_terms(
         "country",
         "city",
         "place",
+        "based",
         "live",
         "lived",
         "living",
