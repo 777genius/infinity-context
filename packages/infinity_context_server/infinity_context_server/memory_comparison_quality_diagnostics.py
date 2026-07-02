@@ -1387,6 +1387,8 @@ def _answer_context_provenance_table(
     backfilled_broad_summary_count = 0
     backfilled_conflict_or_stale_count = 0
     fallback_context_count = 0
+    source_type_diversities: list[int] = []
+    retrieval_source_diversities: list[int] = []
     source_counts: Counter[str] = Counter()
     fallback_reason_counts: Counter[str] = Counter()
     source_refless_context_samples: list[dict[str, object]] = []
@@ -1423,6 +1425,12 @@ def _answer_context_provenance_table(
             )
             context_backfilled_conflict_or_stale_count = (
                 _positive_int(context.get("backfilled_conflict_or_stale_count")) or 0
+            )
+            source_type_diversities.append(
+                _positive_int(context.get("bundle_source_type_diversity")) or 0
+            )
+            retrieval_source_diversities.append(
+                _positive_int(context.get("bundle_retrieval_source_diversity")) or 0
             )
             memory_count += context_memory_count
             source_ref_count += context_source_ref_count
@@ -1497,6 +1505,18 @@ def _answer_context_provenance_table(
         "source_ref_item_coverage_rate": _ratio(
             source_ref_item_count,
             memory_count,
+        ),
+        "avg_bundle_source_type_diversity": _avg(source_type_diversities),
+        "max_bundle_source_type_diversity": (
+            max(source_type_diversities) if source_type_diversities else 0
+        ),
+        "avg_bundle_retrieval_source_diversity": _avg(
+            retrieval_source_diversities
+        ),
+        "max_bundle_retrieval_source_diversity": (
+            max(retrieval_source_diversities)
+            if retrieval_source_diversities
+            else 0
         ),
         "source_counts": dict(sorted(source_counts.items())),
         "fallback_reason_counts": dict(sorted(fallback_reason_counts.items())),

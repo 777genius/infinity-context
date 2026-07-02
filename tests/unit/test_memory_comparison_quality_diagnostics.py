@@ -1933,6 +1933,8 @@ def test_fast_gate_metrics_reports_answer_context_provenance() -> None:
                             "source_ref_count": 1,
                             "source_ref_item_count": 1,
                             "source_refless_item_count": 0,
+                            "bundle_source_type_diversity": 2,
+                            "bundle_retrieval_source_diversity": 3,
                         }
                     }
                 },
@@ -1950,6 +1952,8 @@ def test_fast_gate_metrics_reports_answer_context_provenance() -> None:
                             "backfilled_retrieval_item_count": 2,
                             "backfilled_broad_summary_count": 1,
                             "backfilled_conflict_or_stale_count": 1,
+                            "bundle_source_type_diversity": 1,
+                            "bundle_retrieval_source_diversity": 1,
                             "missing_required_roles": ["visual"],
                         }
                     }
@@ -1971,6 +1975,10 @@ def test_fast_gate_metrics_reports_answer_context_provenance() -> None:
     assert provenance["backfilled_broad_summary_count"] == 1
     assert provenance["backfilled_conflict_or_stale_count"] == 1
     assert provenance["avg_backfilled_retrieval_item_count"] == 1.0
+    assert provenance["avg_bundle_source_type_diversity"] == 1.5
+    assert provenance["max_bundle_source_type_diversity"] == 2
+    assert provenance["avg_bundle_retrieval_source_diversity"] == 2.0
+    assert provenance["max_bundle_retrieval_source_diversity"] == 3
     assert provenance["backfilled_context_samples"] == [
         {
             "case_id": "weak-context",
