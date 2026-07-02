@@ -98,6 +98,8 @@ def _backfill_candidates(
         key = _memory_key(memory, retrieval_order=retrieval_order)
         if key in selected_keys:
             continue
+        if not _backfill_candidate_eligible(memory, missing_roles=missing_roles):
+            continue
         candidates.append((retrieval_order, memory))
     return tuple(
         sorted(
@@ -111,6 +113,16 @@ def _backfill_candidates(
             reverse=True,
         )
     )
+
+
+def _backfill_candidate_eligible(
+    memory: RetrievedMemory,
+    *,
+    missing_roles: Sequence[str],
+) -> bool:
+    if not missing_roles:
+        return True
+    return _missing_role_support_score(_candidate_features(memory), missing_roles) > 0
 
 
 def _backfill_candidate_sort_key(

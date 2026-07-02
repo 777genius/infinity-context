@@ -92,7 +92,6 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
         "primary",
         "bridge",
         "contrast-support",
-        "noise",
     ]
     assert context.memories[0].source_refs == ("D4:5",)
     assert context.memories[0].metadata["answer_context_role"] == "primary"
@@ -249,26 +248,23 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
     assert context.memories[2].metadata[
         "answer_context_backfill_missing_role_hits"
     ] == ("contrast",)
-    assert context.memories[3].metadata["answer_context_role"] == (
-        "retrieval_backfill"
-    )
     assert context.to_diagnostics() == {
         "schema_version": "answer_context.v1",
         "source": "evidence_bundle",
-        "memory_count": 4,
+        "memory_count": 3,
         "source_ref_count": 3,
         "source_ref_item_count": 3,
-        "source_refless_item_count": 1,
-        "source_ref_coverage_rate": 0.75,
-        "avg_answerability_score": 0.4475,
+        "source_refless_item_count": 0,
+        "source_ref_coverage_rate": 1.0,
+        "avg_answerability_score": 0.5967,
         "avg_measured_answerability_score": 0.895,
-        "unmeasured_answerability_count": 2,
-        "avg_source_locality_score": 0.475,
+        "unmeasured_answerability_count": 1,
+        "avg_source_locality_score": 0.6333,
         "avg_measured_source_locality_score": 0.95,
-        "unmeasured_source_locality_count": 2,
+        "unmeasured_source_locality_count": 1,
         "selected_bundle_item_count": 2,
         "skipped_bundle_item_count": 0,
-        "backfilled_retrieval_item_count": 2,
+        "backfilled_retrieval_item_count": 1,
         "backfilled_broad_summary_count": 0,
         "backfilled_conflict_or_stale_count": 0,
         "backfilled_source_proximity_support_count": 0,
@@ -298,8 +294,8 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
             "risk:missing_required_contrast",
         ],
         "fallback_reason": None,
-        "item_ids": ["primary", "bridge", "contrast-support", "noise"],
-        "retrieval_orders": [3, 2, 4, 1],
+        "item_ids": ["primary", "bridge", "contrast-support"],
+        "retrieval_orders": [3, 2, 4],
     }
 
 
@@ -887,14 +883,11 @@ def test_answer_context_backfill_requires_typed_role_evidence_over_query_role() 
     assert [memory.item_id for memory in context.memories] == [
         "primary",
         "favorite-preference",
-        "generic-preference",
     ]
     assert context.memories[1].metadata[
         "answer_context_backfill_missing_role_hits"
     ] == ("favorite_support",)
-    assert "answer_context_backfill_missing_role_hits" not in context.memories[
-        2
-    ].metadata
+    assert context.backfilled_retrieval_item_count == 1
 
 
 def test_answer_context_backfill_prefers_unmeasured_grounded_role_evidence() -> None:
@@ -1090,15 +1083,11 @@ def test_answer_context_backfill_requires_content_time_for_temporal_role_hit() -
     assert [memory.item_id for memory in context.memories] == [
         "primary",
         "content-time",
-        "metadata-only-time",
     ]
     assert context.memories[1].metadata[
         "answer_context_backfill_missing_role_hits"
     ] == ("temporal_support",)
-    assert (
-        "answer_context_backfill_missing_role_hits"
-        not in context.memories[2].metadata
-    )
+    assert context.backfilled_retrieval_item_count == 1
 
 
 def test_answer_context_backfill_requires_visual_and_time_for_visual_temporal_role() -> None:
@@ -1160,15 +1149,11 @@ def test_answer_context_backfill_requires_visual_and_time_for_visual_temporal_ro
     assert [memory.item_id for memory in context.memories] == [
         "primary",
         "visual-time",
-        "visual-only",
     ]
     assert context.memories[1].metadata[
         "answer_context_backfill_missing_role_hits"
     ] == ("visual_temporal_support",)
-    assert (
-        "answer_context_backfill_missing_role_hits"
-        not in context.memories[2].metadata
-    )
+    assert context.backfilled_retrieval_item_count == 1
 
 
 def test_answer_context_falls_back_for_empty_bundle() -> None:

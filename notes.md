@@ -77,3 +77,21 @@
   -> 497 passed, 1 warning.
 - `uv run --extra dev ruff check packages/infinity_context_server/infinity_context_server/memory_comparison_answer_context_backfill.py tests/unit/test_memory_comparison_answer_context.py`
   -> passed.
+
+## 2026-07-02 Follow-up 4
+
+- Tightened incomplete-bundle answer-context backfill further: when required
+  roles are missing, retrieval backfill now excludes candidates that do not
+  satisfy any missing role with matching evidence. This prevents generic/noise
+  retrieval items from being appended just because the backfill target count has
+  spare room.
+- Updated answer-context tests so generic preference, metadata-only temporal,
+  visual-only temporal and unrelated noise candidates are excluded from
+  role-repair backfill.
+
+## Verification
+
+- `uv run --extra dev pytest -q tests/unit/test_memory_comparison*.py`
+  -> 497 passed, 1 warning.
+- `uv run --extra dev ruff check packages/infinity_context_server/infinity_context_server/memory_comparison_answer_context_backfill.py tests/unit/test_memory_comparison_answer_context.py`
+  -> passed.
