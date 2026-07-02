@@ -1358,6 +1358,27 @@ _CONTENT_TOPIC_TERMS = frozenset(
         "writing",
     }
 )
+_SPORT_TEAM_ATTRIBUTE_TERMS = frozenset(
+    {
+        "basketball",
+        "coach",
+        "game",
+        "games",
+        "jersey",
+        "jerseys",
+        "play",
+        "played",
+        "player",
+        "position",
+        "school",
+        "schools",
+        "sport",
+        "sports",
+        "team",
+        "teammates",
+        "trip",
+    }
+)
 _SALIENT_DROP_VARIANTS = frozenset(
     {
         *_QUESTION_STOPWORDS,
@@ -1981,6 +2002,20 @@ def build_query_decomposition_plan(
             ),
             reason="decomposition_activity_participation",
         )
+    if _requests_sport_team_attribute(raw_tokens=raw_tokens, variants=variants):
+        _append_candidate(
+            candidates,
+            query=_compose_query(
+                (*identities, *salient_terms),
+                (
+                    "sports team basketball position jersey school high school "
+                    "signed sign contract roster club franchise teammate teammates "
+                    "coach coaching point guard forward center years season trip "
+                    "travel tournament game played"
+                ),
+            ),
+            reason="decomposition_sport_team_attribute",
+        )
     if _requests_inventory_list_context(raw_tokens=raw_tokens, variants=variants):
         _append_candidate(
             candidates,
@@ -2519,6 +2554,33 @@ def _requests_activity_participation(
     if not variants.intersection({"activity", "hobby", "sport", "sports"}):
         return False
     return bool(raw_tokens.intersection(_ACTIVITY_PARTICIPATION_TERMS))
+
+
+def _requests_sport_team_attribute(
+    *,
+    raw_tokens: frozenset[str],
+    variants: frozenset[str],
+) -> bool:
+    if variants.intersection({"collectible", "collectibles"}):
+        return False
+    if not variants.intersection(_SPORT_TEAM_ATTRIBUTE_TERMS):
+        return False
+    return bool(
+        raw_tokens.intersection(
+            {
+                "how",
+                "position",
+                "school",
+                "schools",
+                "sign",
+                "signed",
+                "team",
+                "which",
+                "what",
+                "when",
+            }
+        )
+    )
 
 
 def _requests_inventory_list_context(

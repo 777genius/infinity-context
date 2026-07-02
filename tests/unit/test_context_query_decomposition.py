@@ -1909,3 +1909,56 @@ def test_best_query_relevance_uses_impact_and_content_topic_decompositions() -> 
 
         assert reason == expected_reason
         assert relevance.distinctive_term_hits >= 4
+
+
+def test_query_decomposition_adds_sport_team_attribute_query() -> None:
+    cases = (
+        "Which team did John sign with on 21 May, 2023?",
+        "What position does John play on his basketball team?",
+        (
+            "What schools did John play basketball in and how many years was he "
+            "with his team during high school?"
+        ),
+    )
+
+    for query in cases:
+        plan = build_query_decomposition_plan(query)
+        sport_team = next(
+            item
+            for item in plan.decompositions
+            if item.reason == "decomposition_sport_team_attribute"
+        )
+
+        assert "sports team basketball position jersey school high school" in sport_team.query
+        assert "signed sign contract roster" in sport_team.query
+
+
+def test_best_query_relevance_uses_sport_team_attribute_decomposition() -> None:
+    cases = (
+        (
+            "Which team did John sign with on 21 May, 2023?",
+            "John signed with the Chicago Bulls basketball team on 21 May, 2023.",
+        ),
+        (
+            "What position does John play on his basketball team?",
+            "John plays point guard on his basketball team.",
+        ),
+        (
+            (
+                "What schools did John play basketball in and how many years was he "
+                "with his team during high school?"
+            ),
+            (
+                "John played basketball at Lincoln High and Central High for "
+                "four years with his team."
+            ),
+        ),
+    )
+
+    for query, text in cases:
+        plan = build_query_expansion_plan(query)
+
+        _, reason, relevance = best_query_relevance(plan, text=text)
+
+        assert reason == "decomposition_sport_team_attribute"
+        assert relevance.distinctive_term_hits >= 5
