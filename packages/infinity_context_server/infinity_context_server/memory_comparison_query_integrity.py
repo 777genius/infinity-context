@@ -67,7 +67,11 @@ def query_integrity_diagnostics(
 ) -> dict[str, object]:
     metadata = _mapping(search_result.metadata)
     query_decomposition = _mapping(metadata.get("query_decomposition"))
-    queries = _str_tuple(query_decomposition.get("queries")) or (search_result.query,)
+    queries = _retrieval_query_texts(
+        metadata=metadata,
+        query_decomposition=query_decomposition,
+        fallback_query=search_result.query,
+    )
     query_tokens = _diagnostic_token_set(" ".join(queries))
     original_question_tokens = _diagnostic_token_set(case.question)
     added_query_tokens = query_tokens - original_question_tokens
@@ -110,6 +114,31 @@ def query_integrity_diagnostics(
         "expected_answer_original_question_overlap_count": len(original_overlap),
         "expected_answer_original_question_overlap_terms": original_overlap[:20],
     }
+
+
+def _retrieval_query_texts(
+    *,
+    metadata: Mapping[str, object],
+    query_decomposition: Mapping[str, object],
+    fallback_query: str,
+) -> tuple[str, ...]:
+    benchmark_rerank = _mapping(metadata.get("benchmark_rerank"))
+    query_expansion = _mapping(metadata.get("query_expansion"))
+    values: list[str] = []
+    for payload in (query_decomposition, query_expansion, benchmark_rerank):
+        values.extend(_str_tuple(payload.get("queries")))
+        values.extend(_str_tuple(payload.get("expanded_query")))
+        values.extend(_query_plan_selected_queries(_mapping(payload.get("query_plan"))))
+    values.extend(_str_tuple(fallback_query))
+    return tuple(dict.fromkeys(value for value in values if value.strip()))
+
+
+def _query_plan_selected_queries(query_plan: Mapping[str, object]) -> tuple[str, ...]:
+    queries: list[str] = []
+    for item in _sequence(query_plan.get("selected")):
+        payload = _mapping(item)
+        queries.extend(_str_tuple(payload.get("query")))
+    return tuple(queries)
 
 
 def _query_profile_integrity_token_set(
