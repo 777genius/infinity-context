@@ -310,10 +310,11 @@ def _has_employment_profile_support(
 _HEALTH_PROFILE_SURFACE_RE = re.compile(
     r"\b(?:doctor|dentist|dental|therapist|clinic|prescription|medication|"
     r"medicine|allergy|allergic|condition)\b"
+    r"|\bprimary\s+care\s+(?:doctor|physician|provider)\b"
     r"|\b(?:medical|doctor(?:'s)?|dentist(?:'s)?|therapy|clinic)\s+"
     r"appointment\b"
     r"|\bappointment\s+with\s+(?:the\s+)?"
-    r"(?:doctor|dentist|therapist|clinic|dr\.?\s+[A-Z][a-zA-Z0-9_-]*)\b"
+    r"(?:doctor|physician|dentist|therapist|clinic|dr\.?\s+[A-Z][a-zA-Z0-9_-]*)\b"
     r"|\b(?:take|takes|taking)\s+"
     r"(?:[A-Z][a-zA-Z0-9_-]+|"
     r"(?:a\s+|an\s+|the\s+)?(?:pill|medication|medicine|prescription))\b"
@@ -501,6 +502,7 @@ def _has_health_profile_support(
             "dentist",
             "doctor",
             "medical",
+            "physician",
             "therapy",
             "therapist",
         }

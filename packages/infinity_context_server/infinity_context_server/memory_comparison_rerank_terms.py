@@ -250,6 +250,7 @@ RELATION_QUERY_VARIANTS = {
     "group": ("friends", "family", "mentors", "support"),
     "health": (
         "doctor",
+        "physician",
         "therapist",
         "medication",
         "medicine",

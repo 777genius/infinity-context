@@ -660,6 +660,7 @@ def _health_support_query_terms(
         "medical",
         "medication",
         "medicine",
+        "physician",
         "prescription",
         "take",
         "taking",

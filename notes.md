@@ -26,6 +26,36 @@
 - `git push origin main` -> blocked because the non-interactive runtime has no
   GitHub username/credential prompt available.
 
+## 2026-07-02 Follow-up 29
+
+- Expanded typed health-profile support for primary-care physician questions
+  and evidence such as "My primary care physician is Dr. Lee."
+- Added `physician` to health query-role fanout and typed relation category
+  terms, while keeping evidence support grounded on profile phrasing like
+  `primary care physician` or appointments so topical physician mentions do not
+  receive health-profile evidence.
+- Added query decomposition and rerank regressions proving primary-care
+  physician evidence receives typed `health_support` while a topical physician
+  article remains untyped.
+
+## Verification
+
+- `uv run --extra dev pytest -q tests/unit/test_memory_comparison_benchmark.py::test_query_decomposition_expands_health_profile_queries tests/unit/test_memory_comparison_benchmark.py::test_benchmark_rerank_boosts_health_profile_evidence tests/unit/test_memory_comparison_benchmark.py::test_benchmark_rerank_boosts_primary_care_physician_evidence`
+  -> 3 passed, 1 warning.
+- `uv run --extra dev ruff check packages/infinity_context_server/infinity_context_server/memory_comparison_relation_support.py packages/infinity_context_server/infinity_context_server/memory_comparison_rerank_terms.py packages/infinity_context_server/infinity_context_server/memory_comparison_query_terms.py packages/infinity_context_server/infinity_context_server/memory_comparison_rerank_text.py packages/infinity_context_server/infinity_context_server/memory_comparison_intent.py packages/infinity_context_server/infinity_context_server/memory_comparison_rerank.py tests/unit/test_memory_comparison_benchmark.py`
+  -> passed.
+- `uv run --extra dev pytest -q tests/unit/test_memory_comparison*.py`
+  -> 521 passed, 1 warning.
+- `uv run --extra dev pytest -q tests/architecture/test_memory_boundaries.py`
+  -> 6 passed.
+- `git diff --check` -> passed.
+- `uv run --extra dev python -m infinity_context_server.eval memory-comparison-benchmark --dataset ./datasets/locomo10.json --memo-api-url http://127.0.0.1:7788 --mem0-url http://127.0.0.1:8888 --benchmark locomo --locomo-ingest-mode official-turns --case-set locomo-fast --report-mode compact --top-k 200 --top-k-cutoff 10 --top-k-cutoff 20 --top-k-cutoff 50 --top-k-cutoff 200 --allow-live --preflight-only`
+  -> blocked safely because `./datasets/locomo10.json` and memory auth token
+  are absent. Fast-readiness blockers were empty; no long/full LoCoMo run was
+  attempted.
+- `git push origin main` -> still blocked because the non-interactive runtime
+  has no GitHub username/credential prompt available.
+
 ## 2026-07-02 Follow-up 28
 
 - Expanded typed vehicle-profile evidence for owned model shorthand such as
