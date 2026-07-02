@@ -38,6 +38,9 @@ from infinity_context_server.memory_comparison_models import (
     RetrievedMemory,
     TokenCostRate,
 )
+from infinity_context_server.memory_comparison_query_integrity import (
+    query_integrity_diagnostics,
+)
 from infinity_context_server.public_benchmark_models import (
     BenchmarkDocumentInput,
     BenchmarkMemoryInput,
@@ -3674,6 +3677,14 @@ def test_query_decomposition_expands_locomo_topic_relations() -> None:
         "melanie activity hobby partake class creative fun express refresh"
     )
     assert "activity" in activity_metadata["query_profile"]["relation_terms"]
+    assert activity_metadata["query_profile"]["relation_category_terms"][
+        "activity"
+    ] == (
+        "activity",
+        "hobby",
+        "class",
+        "creative",
+    )
     assert "hobby" in activity_metadata["query_profile"]["relation_variant_terms"]
     assert "class" in activity_metadata["query_profile"]["relation_variant_terms"]
     assert "creative" in activity_metadata["query_profile"]["relation_variant_terms"]
@@ -3689,6 +3700,15 @@ def test_query_decomposition_expands_locomo_topic_relations() -> None:
         "swim",
         "violin",
     }.intersection(activity_metadata["query_profile"]["relation_variant_terms"])
+    assert not {
+        "camping",
+        "painting",
+        "pottery",
+        "swimming",
+        "violin",
+    }.intersection(
+        activity_metadata["query_profile"]["relation_category_terms"]["activity"]
+    )
     assert camp_queries[2] == "melanie camp camping family unplug connection close"
     assert "camp" in camp_metadata["query_profile"]["relation_terms"]
     assert "family" in camp_metadata["query_profile"]["relation_variant_terms"]
@@ -3818,6 +3838,30 @@ def test_query_decomposition_expands_locomo_topic_relations() -> None:
     assert not {"me-time", "running", "violin"}.intersection(
         self_care_metadata["query_profile"]["relation_variant_terms"]
     )
+
+
+def test_query_decomposition_keeps_activity_answer_terms_out_of_typed_intent() -> None:
+    case = _case(
+        case_id="conv-26:qa:16",
+        question="What activities does Melanie partake in?",
+        expected_terms=("pottery", "camping", "painting", "swimming"),
+        answer="pottery, camping, painting, swimming",
+    )
+
+    queries, metadata = rerank_module.decomposed_search_queries(case)
+    integrity = query_integrity_diagnostics(
+        case,
+        BackendSearchResult(
+            query=case.question,
+            memories=(),
+            metadata={"query_decomposition": metadata},
+        ),
+    )
+
+    assert queries[2] == "melanie activity hobby partake class creative fun express refresh"
+    assert integrity["expected_answer_query_overlap_terms"] == []
+    assert integrity["expected_answer_query_profile_overlap_terms"] == []
+    assert integrity["expected_answer_retrieval_intent_overlap_terms"] == []
 
 
 def test_query_decomposition_keeps_topic_entities_out_of_speakers() -> None:

@@ -224,21 +224,6 @@ def infer_relation_intents(
         variants = tuple(
             term for term in relation_variant_terms if term in config["variants"]
         )
-        if category == "activity" and "activity" in relation_set:
-            variants = tuple(
-                dict.fromkeys(
-                    (
-                        *variants,
-                        "camping",
-                        "painting",
-                        "pottery",
-                        "swimming",
-                        "unplug",
-                        "violin",
-                        "workshop",
-                    )
-                )
-            )
         marker_hit = bool(set(config["markers"]) & set(multi_hop_markers))
         if not terms and not marker_hit:
             continue
