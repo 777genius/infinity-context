@@ -23,6 +23,7 @@ class AnswerContext:
     bundle_source_proximity_support_count: int = 0
     bundle_causal_support_count: int = 0
     bundle_inference_support_count: int = 0
+    bundle_location_support_count: int = 0
     bundle_preference_support_count: int = 0
     bundle_visual_support_count: int = 0
     role_requirement_complete: bool | None = None
@@ -45,6 +46,7 @@ class AnswerContext:
             ),
             "bundle_causal_support_count": self.bundle_causal_support_count,
             "bundle_inference_support_count": self.bundle_inference_support_count,
+            "bundle_location_support_count": self.bundle_location_support_count,
             "bundle_preference_support_count": self.bundle_preference_support_count,
             "bundle_visual_support_count": self.bundle_visual_support_count,
             "role_requirement_complete": self.role_requirement_complete,
@@ -144,6 +146,12 @@ def answer_context_from_evidence_bundle(
         bundle_inference_support_count=(
             _positive_int(
                 bundle_context.get("answer_context_bundle_inference_support_count")
+            )
+            or 0
+        ),
+        bundle_location_support_count=(
+            _positive_int(
+                bundle_context.get("answer_context_bundle_location_support_count")
             )
             or 0
         ),
@@ -249,6 +257,7 @@ def _answer_context_cutoff_metrics(
     bundle_source_proximity_support_counts: list[int] = []
     bundle_causal_support_counts: list[int] = []
     bundle_inference_support_counts: list[int] = []
+    bundle_location_support_counts: list[int] = []
     bundle_preference_support_counts: list[int] = []
     bundle_visual_support_counts: list[int] = []
     missing_required_role_counts: Counter[str] = Counter()
@@ -303,6 +312,9 @@ def _answer_context_cutoff_metrics(
         bundle_inference_support_counts.append(
             _positive_int(context.get("bundle_inference_support_count")) or 0
         )
+        bundle_location_support_counts.append(
+            _positive_int(context.get("bundle_location_support_count")) or 0
+        )
         bundle_preference_support_counts.append(
             _positive_int(context.get("bundle_preference_support_count")) or 0
         )
@@ -356,6 +368,12 @@ def _answer_context_cutoff_metrics(
         ),
         "total_bundle_inference_support_count": sum(
             bundle_inference_support_counts
+        ),
+        "avg_bundle_location_support_count": _avg(
+            bundle_location_support_counts
+        ),
+        "total_bundle_location_support_count": sum(
+            bundle_location_support_counts
         ),
         "avg_bundle_preference_support_count": _avg(
             bundle_preference_support_counts
@@ -481,6 +499,11 @@ def _bundle_context_metadata(bundle: Mapping[str, object]) -> dict[str, object]:
     if inference_support_count is not None:
         metadata["answer_context_bundle_inference_support_count"] = (
             inference_support_count
+        )
+    location_support_count = _positive_int(quality.get("location_support_count"))
+    if location_support_count is not None:
+        metadata["answer_context_bundle_location_support_count"] = (
+            location_support_count
         )
     preference_support_count = _positive_int(quality.get("preference_support_count"))
     if preference_support_count is not None:

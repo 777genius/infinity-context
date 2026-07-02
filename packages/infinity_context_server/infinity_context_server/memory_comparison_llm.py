@@ -260,6 +260,11 @@ def _bundle_support_counts(metadata: Mapping[str, object]) -> tuple[str, ...]:
     )
     if inference is not None:
         counts.append(f"inference:{inference}")
+    location = _positive_int(
+        metadata.get("answer_context_bundle_location_support_count")
+    )
+    if location is not None:
+        counts.append(f"location:{location}")
     preference = _positive_int(
         metadata.get("answer_context_bundle_preference_support_count")
     )

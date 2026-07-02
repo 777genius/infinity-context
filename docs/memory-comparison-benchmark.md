@@ -296,7 +296,8 @@ source-ref counts and coverage rates, while quality diagnostics aggregate this
 as `answer_context_provenance.v1`, so fast reports show whether selected
 evidence actually reached the prompt-facing context with provenance intact.
 Planned evidence prompt lines include the selected item role, original rank,
-retrieval order, answerability and planner reason codes, so answer adapters see
+retrieval order, answerability, typed support counts such as location, causal,
+inference, preference and visual, and planner reason codes, so answer adapters see
 provenance and evidence function without accessing benchmark labels.
 If a grounded multi-hop bridge item also carries temporal/session surfaces, it
 keeps the `bridge` role instead of being swallowed by `temporal_support`; a
