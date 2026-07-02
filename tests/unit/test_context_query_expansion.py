@@ -3912,6 +3912,53 @@ def test_best_query_relevance_uses_vehicle_issue_bridge() -> None:
     assert relevance.distinctive_term_hits >= 6
 
 
+def test_query_expansion_bridges_favorite_preference_queries() -> None:
+    book = build_query_expansion_plan("What was Melanie's favorite book from childhood?")
+    dessert = build_query_expansion_plan("What are Nate's favorite desserts?")
+    style = build_query_expansion_plan("What is Gina's favorite style of dance?")
+    memory = build_query_expansion_plan("What was Jon's favorite dancing memory?")
+    player = build_query_expansion_plan("Who is Tim and John's favorite basketball player?")
+    movie = build_query_expansion_plan("What is Nate's favorite genre of movies?")
+
+    assert "favorite favourite preferred prefer" in _expansion_query(
+        book,
+        "favorite_preference_bridge",
+    )
+    assert "book books novel novels series childhood reading" in _expansion_query(
+        book,
+        "favorite_preference_bridge",
+    )
+    assert "dessert desserts dish dishes treat" in _expansion_query(
+        dessert,
+        "favorite_preference_bridge",
+    )
+    assert "style type kind genre dance dancing" in _expansion_query(
+        style,
+        "favorite_preference_bridge",
+    )
+    assert "memory memories moment experience" in _expansion_query(
+        memory,
+        "favorite_preference_bridge",
+    )
+    assert "player athlete sports basketball" in _expansion_query(
+        player,
+        "favorite_preference_bridge",
+    )
+    assert "favorite_preference_bridge" not in {item.reason for item in movie.expansions}
+
+
+def test_best_query_relevance_uses_favorite_preference_bridge() -> None:
+    plan = build_query_expansion_plan("What is Gina's favorite style of dance?")
+
+    _, reason, relevance = best_query_relevance(
+        plan,
+        text="Gina said salsa is her favorite dance style and she enjoys the movement.",
+    )
+
+    assert reason == "favorite_preference_bridge"
+    assert relevance.distinctive_term_hits >= 6
+
+
 def test_query_expansion_bridges_career_month_setbacks() -> None:
     plan = build_query_expansion_plan(
         "Was September a good month career-wise for Dana and Morgan?"

@@ -288,6 +288,7 @@ _PROTECTED_EXPANSION_HEAD_REASONS = frozenset(
         "entity_relation_inventory_bridge",
         "family_hardship_support_bridge",
         "family_origin_bridge",
+        "favorite_preference_bridge",
         "followup_task_bridge",
         "future_plan_timing_bridge",
         "gotcha_failure_bridge",
