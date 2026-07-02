@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
@@ -20,6 +21,7 @@ class CandidateFusionConfig:
 
 
 DEFAULT_CANDIDATE_FUSION_CONFIG = CandidateFusionConfig()
+_TURN_REF_RE = re.compile(r"\bD\d+:\d+\b")
 
 
 @dataclass(frozen=True)
@@ -39,20 +41,27 @@ def fuse_query_results(
     """Fuse repeated candidates from bounded query fanout."""
 
     occurrences_by_key: dict[str, list[_CandidateOccurrence]] = defaultdict(list)
+    key_to_group: dict[str, str] = {}
+    group_keys: dict[str, set[str]] = {}
     raw_result_count = 0
     for query_index, (_query, memories) in enumerate(query_results, start=1):
         query_role = _query_role(query_roles, query_index)
         for ordinal, memory in enumerate(memories, start=1):
             raw_result_count += 1
             rank = memory.rank if memory.rank > 0 else ordinal
-            occurrences_by_key[_memory_merge_key(memory)].append(
-                _CandidateOccurrence(
-                    query_index=query_index,
-                    query_role=query_role,
-                    rank=rank,
-                    memory=memory,
-                )
+            occurrence = _CandidateOccurrence(
+                query_index=query_index,
+                query_role=query_role,
+                rank=rank,
+                memory=memory,
             )
+            group_key = _candidate_group_key(
+                memory,
+                occurrences_by_key=occurrences_by_key,
+                key_to_group=key_to_group,
+                group_keys=group_keys,
+            )
+            occurrences_by_key[group_key].append(occurrence)
 
     fused: list[RetrievedMemory] = []
     match_counts: list[int] = []
@@ -247,13 +256,61 @@ def _multi_query_boost(
     return min(config.max_multi_query_boost, 0.03 * (query_match_count - 1))
 
 
-def _memory_merge_key(memory: RetrievedMemory) -> str:
+def _candidate_group_key(
+    memory: RetrievedMemory,
+    *,
+    occurrences_by_key: dict[str, list[_CandidateOccurrence]],
+    key_to_group: dict[str, str],
+    group_keys: dict[str, set[str]],
+) -> str:
+    keys = _memory_merge_keys(memory)
+    existing_groups = tuple(
+        dict.fromkeys(key_to_group[key] for key in keys if key in key_to_group)
+    )
+    if not existing_groups:
+        group_key = keys[0]
+        group_keys[group_key] = set(keys)
+        for key in keys:
+            key_to_group[key] = group_key
+        return group_key
+
+    group_key = existing_groups[0]
+    for other_group in existing_groups[1:]:
+        if other_group == group_key:
+            continue
+        occurrences_by_key[group_key].extend(occurrences_by_key.pop(other_group, ()))
+        group_keys[group_key].update(group_keys.pop(other_group, set()))
+    group_keys[group_key].update(keys)
+    for key in group_keys[group_key]:
+        key_to_group[key] = group_key
+    return group_key
+
+
+def _memory_merge_keys(memory: RetrievedMemory) -> tuple[str, ...]:
+    keys: list[str] = []
+    precise_source_key = _precise_source_ref_merge_key(memory.source_refs)
+    if precise_source_key:
+        keys.append(precise_source_key)
     if memory.item_id:
-        return f"id:{memory.item_id}"
+        keys.append(f"id:{memory.item_id}")
     if memory.source_refs:
         refs = tuple(sorted(dict.fromkeys(str(ref) for ref in memory.source_refs if ref)))
-        return f"refs:{'|'.join(refs)}"
-    return f"text:{' '.join(memory.text.casefold().split())[:240]}"
+        keys.append(f"refs:{'|'.join(refs)}")
+    keys.append(f"text:{' '.join(memory.text.casefold().split())[:240]}")
+    return tuple(dict.fromkeys(keys))
+
+
+def _precise_source_ref_merge_key(source_refs: Sequence[str]) -> str:
+    turn_refs = tuple(
+        dict.fromkeys(
+            ref
+            for source_ref in source_refs
+            for ref in _TURN_REF_RE.findall(str(source_ref))
+        )
+    )
+    if not turn_refs or len(turn_refs) > 3:
+        return ""
+    return "turn_refs:" + "|".join(sorted(turn_refs))
 
 
 def _source_refs(

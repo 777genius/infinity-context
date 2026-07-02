@@ -129,6 +129,72 @@ def test_candidate_fusion_preserves_non_winning_source_refs() -> None:
     assert fusion["retrieval_sources"] == ["semantic_chunks", "raw_turns"]
 
 
+def test_candidate_fusion_merges_distinct_ids_for_same_precise_turn_ref() -> None:
+    chunk = RetrievedMemory(
+        item_id="chunk-123",
+        rank=2,
+        score=0.82,
+        text="Caroline looked into adoption agencies.",
+        source_refs=("locomo:conv-26:session_2:D2:8:chunk",),
+        metadata={
+            "item_type": "chunk",
+            "diagnostics": {"retrieval_sources": ["semantic_chunks"]},
+        },
+    )
+    raw_turn = RetrievedMemory(
+        item_id="raw-turn-456",
+        rank=1,
+        score=0.79,
+        text="D2:8 Caroline: I looked into adoption agencies.",
+        source_refs=("locomo:conv-26:session_2:D2:8:turn",),
+        metadata={
+            "item_type": "raw_turn",
+            "diagnostics": {"retrieval_sources": ["raw_turns"]},
+        },
+    )
+
+    fused, diagnostics = fuse_query_results(
+        (("semantic", (chunk,)), ("raw-turn", (raw_turn,)))
+    )
+
+    assert len(fused) == 1
+    assert diagnostics["duplicate_result_count"] == 1
+    assert fused[0].item_id == "chunk-123"
+    assert fused[0].score > chunk.score
+    fusion = fused[0].metadata["diagnostics"]["benchmark_candidate_fusion"]
+    assert fusion["dedupe_key"] == "turn_refs:D2:8"
+    assert fusion["source_refs"] == [
+        "locomo:conv-26:session_2:D2:8:chunk",
+        "locomo:conv-26:session_2:D2:8:turn",
+    ]
+    assert fusion["source_types"] == ["chunk", "raw_turn"]
+
+
+def test_candidate_fusion_keeps_broad_source_ref_sets_separate() -> None:
+    summary = RetrievedMemory(
+        item_id="summary",
+        rank=1,
+        score=0.9,
+        text="Summary mentioning several turns.",
+        source_refs=("D1:1", "D1:2", "D1:3", "D1:4"),
+    )
+    turn = RetrievedMemory(
+        item_id="turn",
+        rank=2,
+        score=0.85,
+        text="D1:1 Morgan: I made the checklist.",
+        source_refs=("D1:1",),
+    )
+
+    fused, diagnostics = fuse_query_results(
+        (("summary", (summary,)), ("turn", (turn,)))
+    )
+
+    assert len(fused) == 2
+    assert diagnostics["duplicate_result_count"] == 0
+    assert [memory.item_id for memory in fused] == ["summary", "turn"]
+
+
 def test_candidate_fusion_leaves_single_query_candidates_unboosted() -> None:
     memory = RetrievedMemory(
         item_id="single",
