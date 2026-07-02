@@ -62,6 +62,53 @@ def test_evidence_bundle_includes_feature_backed_entity_disambiguation() -> None
     assert bundle["bundle_planner"]["role_counts"]["entity_disambiguation"] == 1
 
 
+def test_evidence_bundle_allows_unmeasured_feature_backed_static_evidence() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:static-relation",
+        question="What helped the plan?",
+        expected_terms=("blue envelope",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={
+            "category": 1,
+            "evidence_terms": ("D3:9",),
+        },
+    )
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text="D3:9 The blue envelope connected Morgan's plan to the studio.",
+                rank=1,
+                item_id="static-relation",
+                source_refs=("D3:9",),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.0,
+                            "source_locality_score": 0.0,
+                            "entity_hits": ["morgan"],
+                            "relation_hits": ["plan", "studio"],
+                            "source_type": "chunk",
+                        }
+                    }
+                },
+            ),
+        ),
+    )
+
+    item = bundle["items"][0]
+    assert item["id"] == "static-relation"
+    assert item["eligibility_reason_codes"] == [
+        "feature_backed",
+        "answerability_unmeasured",
+        "source_locality_unmeasured",
+        "entity_relation_grounding",
+    ]
+    assert bundle["covered_evidence_terms"] == ["D3:9"]
+
+
 def test_evidence_bundle_requires_location_support_for_location_queries() -> None:
     case = PublicBenchmarkCase(
         benchmark="locomo",

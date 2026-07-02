@@ -292,9 +292,11 @@ def _feature_backed_bundle_candidate_reasons(
 ) -> tuple[str, ...]:
     if not features:
         return ()
-    if _float_value(features.get("answerability_score")) < 0.55:
+    answerability_score = _float_value(features.get("answerability_score"))
+    source_locality_score = _float_value(features.get("source_locality_score"))
+    if _is_measured_low_answerability(answerability_score):
         return ()
-    if _float_value(features.get("source_locality_score")) < 0.45:
+    if _is_measured_weak_source_locality(source_locality_score):
         return ()
 
     entity_grounded = bool(
@@ -320,7 +322,10 @@ def _feature_backed_bundle_candidate_reasons(
         or _bool_value(features.get("stale_surface"))
     )
     visual_grounded = _bool_value(features.get("has_visual_evidence"))
-    reasons: list[str] = ["answerability_feature", "source_locality_feature"]
+    reasons: list[str] = [
+        _answerability_feature_reason(answerability_score),
+        _source_locality_feature_reason(source_locality_score),
+    ]
     if _bool_value(features.get("direct_speaker_turn")) and (
         entity_grounded or relation_grounded
     ):
@@ -342,6 +347,26 @@ def _feature_backed_bundle_candidate_reasons(
     if len(reasons) == 2:
         return ()
     return tuple(reasons)
+
+
+def _is_measured_low_answerability(score: float) -> bool:
+    return 0 < score < 0.55
+
+
+def _is_measured_weak_source_locality(score: float) -> bool:
+    return 0 < score < 0.45
+
+
+def _answerability_feature_reason(score: float) -> str:
+    if score <= 0:
+        return "answerability_unmeasured"
+    return "answerability_feature"
+
+
+def _source_locality_feature_reason(score: float) -> str:
+    if score <= 0:
+        return "source_locality_unmeasured"
+    return "source_locality_feature"
 
 
 def _required_bundle_roles(
