@@ -1048,8 +1048,6 @@ def _compact_relation_query_role(intent: RetrievalIntent) -> str:
         return "commitment_support"
     if "contact_profile" in evidence_needs:
         return "contact_support"
-    if "current_goal" in evidence_needs:
-        return "current_goal_support"
     if "date_profile" in evidence_needs:
         return "date_support"
     if "diet_profile" in evidence_needs:
@@ -1078,6 +1076,8 @@ def _compact_relation_query_role(intent: RetrievalIntent) -> str:
         return "causal_support"
     if "support_goal" in evidence_needs:
         return "support_goal_support"
+    if "current_goal" in evidence_needs:
+        return "current_goal_support"
     if "favorite_preference" in evidence_needs:
         return "favorite_support"
     role_priority = (

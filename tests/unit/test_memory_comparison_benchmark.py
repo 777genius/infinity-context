@@ -4025,6 +4025,12 @@ def test_query_decomposition_expands_locomo_topic_relations() -> None:
     )
     assert summer_plan_queries[2] == "caroline plan summer future upcoming season goal"
     assert "summer" in summer_plan_metadata["query_profile"]["relation_terms"]
+    assert summer_plan_metadata["query_profile"]["evidence_need"] == ("current_goal",)
+    assert summer_plan_metadata["query_plan"]["selected_roles"] == [
+        "original_question",
+        "expanded_focus",
+        "current_goal_support",
+    ]
     assert "future" in summer_plan_metadata["query_profile"]["relation_variant_terms"]
     assert not {
         "adoption",

@@ -636,6 +636,18 @@ def _has_current_goal_intent(
     if not {"want", "plan"} & set(relation_terms):
         return False
     normalized = " ".join(str(question or "").casefold().split())
+    if "plan" in set(relation_terms) and re.search(
+        r"\b(?:plan|plans|planned|planning)\b",
+        normalized,
+    ):
+        return True
+    if "want" in set(relation_terms) and re.search(
+        r"\b(?:want|wants|wanted|wanting)\s+to\s+"
+        r"(?:create|build|make|teach|keep|expand|move|meet|work|go|do|try|"
+        r"share|learn|pursue|start|open|organize|visit|live)\b",
+        normalized,
+    ):
+        return True
     return bool(
         normalized
         and (
@@ -1523,7 +1535,7 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
             }
         ),
         "markers": frozenset(),
-        "evidence_need": "inference_support",
+        "evidence_need": "current_goal",
     },
     "identity_profile": {
         "terms": frozenset(
