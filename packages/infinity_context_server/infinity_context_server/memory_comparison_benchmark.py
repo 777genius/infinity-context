@@ -1449,12 +1449,26 @@ def _query_integrity_gate_metrics(items: Sequence[Mapping[str, object]]) -> dict
         for item, payload in item_payloads
         if _positive_int(payload.get("expected_answer_query_profile_overlap_count"))
     ]
+    intent_overlap_items = [
+        (item, payload)
+        for item, payload in item_payloads
+        if _positive_int(
+            payload.get("expected_answer_retrieval_intent_overlap_count")
+        )
+    ]
     overlap_counts = [
         _positive_int(payload.get("expected_answer_query_overlap_count")) or 0
         for _item, payload in item_payloads
     ]
     profile_overlap_counts = [
         _positive_int(payload.get("expected_answer_query_profile_overlap_count")) or 0
+        for _item, payload in item_payloads
+    ]
+    intent_overlap_counts = [
+        _positive_int(
+            payload.get("expected_answer_retrieval_intent_overlap_count")
+        )
+        or 0
         for _item, payload in item_payloads
     ]
     ranked_overlap_items = _ranked_query_integrity_overlap_items(
@@ -1465,6 +1479,10 @@ def _query_integrity_gate_metrics(items: Sequence[Mapping[str, object]]) -> dict
         profile_overlap_items,
         count_key="expected_answer_query_profile_overlap_count",
     )
+    ranked_intent_overlap_items = _ranked_query_integrity_overlap_items(
+        intent_overlap_items,
+        count_key="expected_answer_retrieval_intent_overlap_count",
+    )
     overlap_samples = _query_integrity_overlap_samples(
         ranked_overlap_items,
         count_key="expected_answer_query_overlap_count",
@@ -1474,6 +1492,11 @@ def _query_integrity_gate_metrics(items: Sequence[Mapping[str, object]]) -> dict
         ranked_profile_overlap_items,
         count_key="expected_answer_query_profile_overlap_count",
         terms_key="expected_answer_query_profile_overlap_terms",
+    )
+    intent_overlap_samples = _query_integrity_overlap_samples(
+        ranked_intent_overlap_items,
+        count_key="expected_answer_retrieval_intent_overlap_count",
+        terms_key="expected_answer_retrieval_intent_overlap_terms",
     )
     return {
         "diagnostic_only": True,
@@ -1492,10 +1515,21 @@ def _query_integrity_gate_metrics(items: Sequence[Mapping[str, object]]) -> dict
         ),
         "avg_profile_overlap_count": _avg(profile_overlap_counts),
         "max_profile_overlap_count": max(profile_overlap_counts, default=0),
+        "retrieval_intent_overlap_case_count": len(intent_overlap_items),
+        "retrieval_intent_overlap_token_total": sum(intent_overlap_counts),
+        "retrieval_intent_overlap_case_rate": _ratio(
+            len(intent_overlap_items),
+            len(item_payloads),
+        ),
+        "avg_retrieval_intent_overlap_count": _avg(intent_overlap_counts),
+        "max_retrieval_intent_overlap_count": max(intent_overlap_counts, default=0),
         "query_integrity_clean": (
-            len(overlap_items) == 0 and len(profile_overlap_items) == 0
+            len(overlap_items) == 0
+            and len(profile_overlap_items) == 0
+            and len(intent_overlap_items) == 0
         ),
         "profile_query_integrity_clean": len(profile_overlap_items) == 0,
+        "retrieval_intent_query_integrity_clean": len(intent_overlap_items) == 0,
         "sample_overlap_case_ids": [
             str(item.get("case_id"))
             for item, _payload in ranked_overlap_items[:10]
@@ -1508,6 +1542,12 @@ def _query_integrity_gate_metrics(items: Sequence[Mapping[str, object]]) -> dict
             if item.get("case_id")
         ],
         "sample_profile_overlap_cases": profile_overlap_samples,
+        "sample_retrieval_intent_overlap_case_ids": [
+            str(item.get("case_id"))
+            for item, _payload in ranked_intent_overlap_items[:10]
+            if item.get("case_id")
+        ],
+        "sample_retrieval_intent_overlap_cases": intent_overlap_samples,
     }
 
 

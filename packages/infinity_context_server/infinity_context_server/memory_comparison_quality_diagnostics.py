@@ -203,7 +203,9 @@ def fast_gate_metrics(
     scored_count = sum(1 for item in items if item.get("scored") is True)
     bundle_complete_count = sum(1 for item in items if _bundle_complete(item))
     ref_gate = evidence_ref_rank_gate_metrics(items)
-    query_overlap_count, profile_overlap_count = _leakage_counts(items)
+    query_overlap_count, profile_overlap_count, intent_overlap_count = (
+        _leakage_counts(items)
+    )
     bundle_quality = _bundle_quality_table(items)
     bundle_incomplete = _bundle_incomplete_diagnostics(items)
     query_role_effectiveness = _query_role_effectiveness_table(items)
@@ -220,7 +222,7 @@ def fast_gate_metrics(
     gates = {
         "case_count": _min_gate(scored_count, expected_case_count),
         "query_profile_leakage_zero": _zero_gate(
-            query_overlap_count + profile_overlap_count
+            query_overlap_count + profile_overlap_count + intent_overlap_count
         ),
         "all_refs_top5": _min_gate(
             _positive_int(ref_gate.get("all_refs_top5_count")) or 0,
@@ -2094,6 +2096,7 @@ def _query_leakage_report(
 ) -> dict[str, object]:
     query_overlap = []
     profile_overlap = []
+    intent_overlap = []
     for item in items:
         integrity = _query_integrity(item)
         query_count = _positive_int(
@@ -2102,22 +2105,30 @@ def _query_leakage_report(
         profile_count = _positive_int(
             integrity.get("expected_answer_query_profile_overlap_count")
         ) or 0
+        intent_count = _positive_int(
+            integrity.get("expected_answer_retrieval_intent_overlap_count")
+        ) or 0
         if query_count:
             query_overlap.append((item, query_count))
         if profile_count:
             profile_overlap.append((item, profile_count))
+        if intent_count:
+            intent_overlap.append((item, intent_count))
     return {
         "query_overlap_case_count": len(query_overlap),
         "profile_overlap_case_count": len(profile_overlap),
-        "clean": not query_overlap and not profile_overlap,
+        "retrieval_intent_overlap_case_count": len(intent_overlap),
+        "clean": not query_overlap and not profile_overlap and not intent_overlap,
         "query_overlap_samples": _overlap_samples(query_overlap),
         "profile_overlap_samples": _overlap_samples(profile_overlap),
+        "retrieval_intent_overlap_samples": _overlap_samples(intent_overlap),
     }
 
 
-def _leakage_counts(items: Sequence[Mapping[str, object]]) -> tuple[int, int]:
+def _leakage_counts(items: Sequence[Mapping[str, object]]) -> tuple[int, int, int]:
     query_overlap_count = 0
     profile_overlap_count = 0
+    intent_overlap_count = 0
     for item in items:
         integrity = _query_integrity(item)
         query_overlap_count += (
@@ -2129,7 +2140,13 @@ def _leakage_counts(items: Sequence[Mapping[str, object]]) -> tuple[int, int]:
             )
             or 0
         )
-    return query_overlap_count, profile_overlap_count
+        intent_overlap_count += (
+            _positive_int(
+                integrity.get("expected_answer_retrieval_intent_overlap_count")
+            )
+            or 0
+        )
+    return query_overlap_count, profile_overlap_count, intent_overlap_count
 
 
 def _min_gate(actual: int, target: int) -> dict[str, object]:

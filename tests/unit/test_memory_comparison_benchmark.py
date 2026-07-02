@@ -856,6 +856,94 @@ def test_query_integrity_checks_locomo_answer_preview_tokens(
     assert gate["query_integrity_clean"] is False
 
 
+def test_query_integrity_checks_typed_retrieval_intent_tokens(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "unused.json"
+    dataset.write_text("[]", encoding="utf-8")
+    case = _case(
+        case_id="conv-1:qa:typed-intent-leak",
+        question="What did Caroline mention?",
+        expected_terms=("love", "faith"),
+        answer="love and faith",
+    )
+
+    class _TypedIntentLeakBackend(_StaticBackend):
+        def search(
+            self,
+            case: PublicBenchmarkCase,
+            *,
+            run_id: str,
+            top_k: int,
+        ) -> BackendSearchResult:
+            self.search_calls[case.case_id] += 1
+            return BackendSearchResult(
+                query=case.question,
+                memories=self.memories_by_case.get(case.case_id, ())[:top_k],
+                metadata={
+                    "query_decomposition": {
+                        "queries": [case.question],
+                        "query_profile": {"relation_terms": ["mention"]},
+                        "retrieval_intent": {
+                            "schema_version": "retrieval_intent.v1",
+                            "evidence_need": ["single_fact"],
+                            "risk_flags": [],
+                            "relations": {
+                                "terms": ["mention"],
+                                "intents": [
+                                    {
+                                        "category": "symbolic_meaning",
+                                        "terms": ["mention"],
+                                        "variant_terms": ["love", "faith"],
+                                    }
+                                ],
+                            },
+                        },
+                    },
+                    "run_id": run_id,
+                },
+            )
+
+    backend = _TypedIntentLeakBackend(
+        "memo-stack",
+        {
+            case.case_id: (
+                RetrievedMemory(
+                    text="Caroline mentioned love and faith.",
+                    rank=1,
+                ),
+            )
+        },
+    )
+
+    result = run_memory_comparison_benchmark(
+        dataset_path=dataset,
+        backends=(backend,),
+        cases_override=(case,),
+        top_k=1,
+        top_k_cutoffs=(1,),
+        run_id="query-integrity-typed-intent-unit",
+    )
+
+    integrity = result["evaluations"][0]["retrieval"]["metadata"]["query_integrity"]
+    assert integrity["expected_answer_query_overlap_count"] == 0
+    assert integrity["expected_answer_query_profile_overlap_count"] == 0
+    assert integrity["expected_answer_retrieval_intent_overlap_count"] == 2
+    assert integrity["expected_answer_retrieval_intent_overlap_terms"] == [
+        "faith",
+        "love",
+    ]
+    gate = result["backend_metrics"]["memo-stack"]["query_integrity_gate"]
+    assert gate["query_integrity_clean"] is False
+    assert gate["profile_query_integrity_clean"] is True
+    assert gate["retrieval_intent_query_integrity_clean"] is False
+    assert gate["retrieval_intent_overlap_case_count"] == 1
+    assert gate["retrieval_intent_overlap_token_total"] == 2
+    assert gate["sample_retrieval_intent_overlap_case_ids"] == [
+        "conv-1:qa:typed-intent-leak"
+    ]
+
+
 def test_query_integrity_ignores_structural_bundle_roles_for_profile_leakage(
     tmp_path: Path,
 ) -> None:

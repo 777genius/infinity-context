@@ -75,10 +75,18 @@ def query_integrity_diagnostics(
         metadata,
         query_decomposition,
     )
+    retrieval_intent_tokens = _retrieval_intent_integrity_token_set(
+        metadata,
+        query_decomposition,
+    )
     added_query_profile_tokens = query_profile_tokens - original_question_tokens
+    added_retrieval_intent_tokens = (
+        retrieval_intent_tokens - original_question_tokens
+    )
     expected_tokens = _query_integrity_expected_answer_token_set(case)
     added_overlap = sorted(added_query_tokens & expected_tokens)
     profile_overlap = sorted(added_query_profile_tokens & expected_tokens)
+    intent_overlap = sorted(added_retrieval_intent_tokens & expected_tokens)
     original_overlap = sorted(original_question_tokens & expected_tokens)
     intent_diagnostics = _retrieval_intent_diagnostics(metadata, query_decomposition)
     return {
@@ -90,11 +98,15 @@ def query_integrity_diagnostics(
         "added_query_token_count": len(added_query_tokens),
         "query_profile_token_count": len(query_profile_tokens),
         "added_query_profile_token_count": len(added_query_profile_tokens),
+        "retrieval_intent_token_count": len(retrieval_intent_tokens),
+        "added_retrieval_intent_token_count": len(added_retrieval_intent_tokens),
         "expected_token_count": len(expected_tokens),
         "expected_answer_query_overlap_count": len(added_overlap),
         "expected_answer_query_overlap_terms": added_overlap[:20],
         "expected_answer_query_profile_overlap_count": len(profile_overlap),
         "expected_answer_query_profile_overlap_terms": profile_overlap[:20],
+        "expected_answer_retrieval_intent_overlap_count": len(intent_overlap),
+        "expected_answer_retrieval_intent_overlap_terms": intent_overlap[:20],
         "expected_answer_original_question_overlap_count": len(original_overlap),
         "expected_answer_original_question_overlap_terms": original_overlap[:20],
     }
@@ -114,6 +126,47 @@ def _query_profile_integrity_token_set(
             for value in _str_tuple(profile.get(key)):
                 tokens.update(_diagnostic_token_set(value))
     return tokens
+
+
+def _retrieval_intent_integrity_token_set(
+    metadata: Mapping[str, object],
+    query_decomposition: Mapping[str, object],
+) -> set[str]:
+    tokens: set[str] = set()
+    benchmark_rerank = _mapping(metadata.get("benchmark_rerank"))
+    for intent in (
+        _mapping(query_decomposition.get("retrieval_intent")),
+        _mapping(benchmark_rerank.get("retrieval_intent")),
+    ):
+        _collect_intent_tokens(tokens, intent)
+    return tokens
+
+
+def _collect_intent_tokens(tokens: set[str], intent: Mapping[str, object]) -> None:
+    for entity in _sequence(intent.get("entities")):
+        entity_payload = _mapping(entity)
+        for key in ("canonical", "surfaces", "speaker_surfaces"):
+            for value in _str_tuple(entity_payload.get(key)):
+                tokens.update(_diagnostic_token_set(value))
+
+    relations = _mapping(intent.get("relations"))
+    for key in ("terms", "variant_terms"):
+        for value in _str_tuple(relations.get(key)):
+            tokens.update(_diagnostic_token_set(value))
+    for relation_intent in _sequence(relations.get("intents")):
+        relation_payload = _mapping(relation_intent)
+        for key in ("terms", "variant_terms"):
+            for value in _str_tuple(relation_payload.get(key)):
+                tokens.update(_diagnostic_token_set(value))
+
+    time_intent = _mapping(intent.get("time_intent"))
+    for key in ("terms", "surface_terms"):
+        for value in _str_tuple(time_intent.get(key)):
+            tokens.update(_diagnostic_token_set(value))
+
+    for key in ("visual_terms", "multi_hop_markers"):
+        for value in _str_tuple(intent.get(key)):
+            tokens.update(_diagnostic_token_set(value))
 
 
 def _retrieval_intent_diagnostics(
