@@ -564,9 +564,10 @@ def decomposed_search_queries(
         else:
             relation_term_limit = 6
         compact_entity_surfaces = speaker_surfaces or entity_surfaces
+        compact_relation_role = _compact_relation_query_role(intent)
         query_candidates.append(
             QueryPlanCandidate(
-                role="compact_relation",
+                role=compact_relation_role,
                 query=" ".join(
                     (
                         *compact_entity_surfaces,
@@ -575,7 +576,11 @@ def decomposed_search_queries(
                 ),
                 priority=30,
                 query_type="lexical",
-                reason_codes=("relation_terms", "raw_turn_compact"),
+                reason_codes=(
+                    "relation_terms",
+                    "raw_turn_compact",
+                    f"query_role:{compact_relation_role}",
+                ),
             )
         )
     contrast_query_terms = (
@@ -759,6 +764,24 @@ def _recommended_query_role_families(intent: RetrievalIntent) -> tuple[str, ...]
     if "multi_hop" in intent.evidence_need or intent.multi_hop_markers:
         families.append("multi_hop")
     return tuple(dict.fromkeys(families))
+
+
+def _compact_relation_query_role(intent: RetrievalIntent) -> str:
+    role_priority = (
+        "communication_support",
+        "event_support",
+        "exchange_support",
+        "emotion_response_support",
+        "symbolic_meaning_support",
+        "preference_support",
+        "causal_support",
+        "inference_support",
+    )
+    roles = set(intent.bundle_evidence_roles)
+    for role in role_priority:
+        if role in roles:
+            return role
+    return "compact_relation"
 
 
 def _temporal_query_role(time_kind: str) -> str:

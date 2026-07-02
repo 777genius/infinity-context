@@ -2976,7 +2976,12 @@ def test_query_decomposition_reports_typed_retrieval_intent() -> None:
     assert relationship_plan["selected_roles"] == [
         "original_question",
         "expanded_focus",
-        "compact_relation",
+        "inference_support",
+    ]
+    assert relationship_plan["selected_role_families"] == [
+        "base_query",
+        "expanded_focus",
+        "relation_compact",
     ]
     assert relationship_plan["leakage_guard"]["answer_terms_allowed"] is False
     kinship_intent = kinship_metadata["retrieval_intent"]
@@ -3397,7 +3402,7 @@ def test_query_decomposition_expands_locomo_topic_relations() -> None:
     assert adoption_choice_metadata["query_plan"]["selected_roles"] == [
         "original_question",
         "expanded_focus",
-        "compact_relation",
+        "causal_support",
         "multi_hop_bridge",
     ]
     assert "causal_support" in adoption_choice_metadata["query_profile"][
@@ -4949,6 +4954,16 @@ def test_query_decomposition_reports_exchange_relation_intent() -> None:
         "actions: bought, got, purchased, buy, purchas",
         "melanie bought got purchased buy purchas",
     )
+    assert metadata["query_plan"]["selected_roles"] == [
+        "original_question",
+        "expanded_focus",
+        "exchange_support",
+    ]
+    assert metadata["query_plan"]["selected_role_families"] == [
+        "base_query",
+        "expanded_focus",
+        "relation_compact",
+    ]
     assert query_profile["relation_categories"] == ("exchange",)
     assert query_profile["relation_category_terms"]["exchange"] == (
         "bought",
