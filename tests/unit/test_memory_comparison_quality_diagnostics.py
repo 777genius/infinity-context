@@ -385,6 +385,60 @@ def test_quality_diagnostics_reports_intents_policies_bundle_gaps_and_leakage() 
     assert diagnostics["query_leakage_report"]["query_overlap_case_count"] == 1
 
 
+def test_quality_diagnostics_groups_profile_support_query_roles() -> None:
+    diagnostics = quality_diagnostics(
+        (
+            _item(
+                case_id="profile-role",
+                group="single-hop",
+                retrieval=_retrieval_payload(
+                    evidence_need=("profile_fact",),
+                    bundle_evidence_roles=("primary", "health_support"),
+                    policy_score=0.25,
+                    candidate_features={
+                        "query_roles": ("health_support",),
+                        "answerability_score": 0.8,
+                        "source_locality_score": 0.9,
+                    },
+                ),
+                evidence_bundle={
+                    "bundle_complete": True,
+                    "evidence_term_count": 1,
+                    "covered_evidence_terms": ["D1:1"],
+                    "items": [
+                        {
+                            "role": "health_support",
+                            "retrieval_order": 1,
+                            "covered_evidence_terms": ["D1:1"],
+                            "focused_evidence_score": 1.0,
+                            "query_roles": ["health_support"],
+                            "answerability_score": 0.82,
+                            "source_locality_score": 0.88,
+                        }
+                    ],
+                },
+            ),
+        )
+    )
+
+    query_roles = diagnostics["query_role_effectiveness_table"]
+
+    assert query_roles["candidate_role_counts"] == {"health_support": 1}
+    assert query_roles["lifted_candidate_role_counts"] == {"health_support": 1}
+    assert query_roles["selected_item_role_counts"] == {"health_support": 1}
+    assert query_roles["candidate_role_family_counts"] == {"relation_compact": 1}
+    assert query_roles["lifted_candidate_role_family_counts"] == {
+        "relation_compact": 1
+    }
+    assert query_roles["selected_item_role_family_counts"] == {
+        "relation_compact": 1
+    }
+    assert query_roles["roles_without_selected_items"] == []
+    assert query_roles["role_stats"]["health_support"]["selected_bundle_role_counts"] == {
+        "health_support": 1
+    }
+
+
 def test_quality_diagnostics_false_positive_counts_typed_intent_leakage() -> None:
     diagnostics = quality_diagnostics(
         (
@@ -2500,6 +2554,40 @@ def test_quality_diagnostics_reports_evidence_role_query_family_gap() -> None:
     assert table["samples"][0]["missing_evidence_role_query_families"] == (
         "temporal_support",
     )
+
+
+def test_quality_diagnostics_accepts_relation_compact_for_profile_support_roles() -> None:
+    query_plan = {
+        "schema_version": "query_plan.v2",
+        "selected_query_count": 1,
+        "dropped_query_count": 0,
+        "selected_roles": ["health_support"],
+        "dropped_roles": [],
+        "recommended_role_families": ["relation_compact"],
+        "selected_role_families": ["relation_compact"],
+        "missing_recommended_role_families": [],
+        "selected_role_family_counts": {"relation_compact": 1},
+        "fanout_integrity": {"bounded": True},
+    }
+    item = _item(
+        case_id="profile-role-query-covered",
+        group="single-hop",
+        retrieval=_retrieval_payload(
+            evidence_need=("profile_fact",),
+            bundle_evidence_roles=("primary", "health_support"),
+            policy_score=0.0,
+            query_plan=query_plan,
+        ),
+    )
+
+    diagnostics = quality_diagnostics((item,))
+    table = diagnostics["query_plan_integrity_table"]
+
+    assert table["plan_gap_case_count"] == 0
+    assert table["missing_evidence_role_query_family_total"] == 0
+    assert table["missing_evidence_role_query_family_counts"] == {}
+    assert table["gap_reason_counts"] == {}
+    assert table["samples"] == []
 
 
 def test_fast_gate_metrics_passes_bundle_quality_when_all_bundles_are_usable() -> None:

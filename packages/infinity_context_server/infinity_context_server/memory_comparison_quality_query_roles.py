@@ -37,6 +37,25 @@ from infinity_context_server.memory_comparison_quality_accessors import (
     str_tuple as _str_tuple,
 )
 
+_PROFILE_SUPPORT_ROLES = frozenset(
+    {
+        "activity_support",
+        "age_support",
+        "alias_support",
+        "commitment_support",
+        "contact_support",
+        "date_support",
+        "diet_support",
+        "education_support",
+        "employment_support",
+        "health_support",
+        "pet_support",
+        "skill_support",
+        "status_support",
+        "vehicle_support",
+    }
+)
+
 
 def query_role_effectiveness_table(
     items: Sequence[Mapping[str, object]],
@@ -195,6 +214,8 @@ def _query_role_family(query_role: str) -> str:
         "preference_support",
         "symbolic_meaning_support",
     }:
+        return "relation_compact"
+    if role in _PROFILE_SUPPORT_ROLES:
         return "relation_compact"
     if role == "contrast_support":
         return "contrast_support"

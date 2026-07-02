@@ -125,6 +125,25 @@ from infinity_context_server.memory_comparison_quality_query_roles import (
     query_role_effectiveness_table as _query_role_effectiveness_table,
 )
 
+_PROFILE_SUPPORT_ROLES = frozenset(
+    {
+        "activity_support",
+        "age_support",
+        "alias_support",
+        "commitment_support",
+        "contact_support",
+        "date_support",
+        "diet_support",
+        "education_support",
+        "employment_support",
+        "health_support",
+        "pet_support",
+        "skill_support",
+        "status_support",
+        "vehicle_support",
+    }
+)
+
 
 def evidence_ref_rank_gate_metrics(
     items: Sequence[Mapping[str, object]],
@@ -2035,6 +2054,8 @@ def _missing_evidence_role_query_families(
 
 
 def _evidence_role_query_families(role: str) -> tuple[str, ...]:
+    if role in _PROFILE_SUPPORT_ROLES:
+        return ("relation_compact", "expanded_focus")
     return {
         "primary": ("base_query", "expanded_focus", "relation_compact"),
         "supporting": ("base_query", "expanded_focus", "relation_compact"),
