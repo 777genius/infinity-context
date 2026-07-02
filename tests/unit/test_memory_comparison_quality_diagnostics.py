@@ -460,6 +460,8 @@ def test_quality_diagnostics_reports_answer_context_provenance_table() -> None:
                             "source_ref_item_count": 2,
                             "source_refless_item_count": 0,
                             "source_ref_coverage_rate": 1.0,
+                            "backfilled_retrieval_item_count": 1,
+                            "missing_required_roles": ["contrast"],
                         }
                     }
                 },
@@ -494,6 +496,9 @@ def test_quality_diagnostics_reports_answer_context_provenance_table() -> None:
     assert table["source_ref_count"] == 4
     assert table["source_ref_item_count"] == 3
     assert table["source_refless_item_count"] == 2
+    assert table["backfilled_context_count"] == 1
+    assert table["backfilled_retrieval_item_count"] == 1
+    assert table["avg_backfilled_retrieval_item_count"] == 0.5
     assert table["source_ref_context_rate"] == 1.0
     assert table["source_ref_item_coverage_rate"] == 0.6
     assert table["source_counts"] == {
@@ -501,6 +506,16 @@ def test_quality_diagnostics_reports_answer_context_provenance_table() -> None:
         "retrieval_slice": 1,
     }
     assert table["fallback_reason_counts"] == {"empty_bundle": 1}
+    assert table["backfilled_context_samples"] == [
+        {
+            "case_id": "bundle-context",
+            "cutoff": "200",
+            "source": "evidence_bundle",
+            "memory_count": 2,
+            "backfilled_retrieval_item_count": 1,
+            "missing_required_roles": ["contrast"],
+        }
+    ]
     assert table["source_refless_context_samples"] == [
         {
             "case_id": "fallback-context",
@@ -1572,6 +1587,8 @@ def test_fast_gate_metrics_reports_answer_context_provenance() -> None:
                             "source_ref_count": 0,
                             "source_ref_item_count": 0,
                             "source_refless_item_count": 2,
+                            "backfilled_retrieval_item_count": 2,
+                            "missing_required_roles": ["visual"],
                         }
                     }
                 },
@@ -1587,6 +1604,19 @@ def test_fast_gate_metrics_reports_answer_context_provenance() -> None:
     assert provenance["source_ref_context_count"] == 1
     assert provenance["source_refless_context_count"] == 1
     assert provenance["source_ref_item_coverage_rate"] == 0.3333
+    assert provenance["backfilled_context_count"] == 1
+    assert provenance["backfilled_retrieval_item_count"] == 2
+    assert provenance["avg_backfilled_retrieval_item_count"] == 1.0
+    assert provenance["backfilled_context_samples"] == [
+        {
+            "case_id": "weak-context",
+            "cutoff": "200",
+            "source": "evidence_bundle",
+            "memory_count": 2,
+            "backfilled_retrieval_item_count": 2,
+            "missing_required_roles": ["visual"],
+        }
+    ]
     assert provenance["source_refless_context_samples"] == [
         {
             "case_id": "weak-context",

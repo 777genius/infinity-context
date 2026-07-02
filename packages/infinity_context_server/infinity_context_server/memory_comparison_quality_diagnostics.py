@@ -1304,10 +1304,13 @@ def _answer_context_provenance_table(
     source_ref_count = 0
     source_ref_item_count = 0
     source_refless_item_count = 0
+    backfilled_context_count = 0
+    backfilled_retrieval_item_count = 0
     fallback_context_count = 0
     source_counts: Counter[str] = Counter()
     fallback_reason_counts: Counter[str] = Counter()
     source_refless_context_samples: list[dict[str, object]] = []
+    backfilled_context_samples: list[dict[str, object]] = []
 
     for item in items:
         for cutoff, context in _answer_contexts(item):
@@ -1332,12 +1335,33 @@ def _answer_context_provenance_table(
             context_source_refless_item_count = (
                 _positive_int(context.get("source_refless_item_count")) or 0
             )
+            context_backfilled_count = (
+                _positive_int(context.get("backfilled_retrieval_item_count")) or 0
+            )
             memory_count += context_memory_count
             source_ref_count += context_source_ref_count
             source_ref_item_count += context_source_ref_item_count
             source_refless_item_count += context_source_refless_item_count
+            backfilled_retrieval_item_count += context_backfilled_count
+            if context_backfilled_count > 0:
+                backfilled_context_count += 1
             if context_source_ref_count > 0 or context_source_ref_item_count > 0:
                 source_ref_context_count += 1
+            if context_backfilled_count > 0 and len(backfilled_context_samples) < 10:
+                backfilled_context_samples.append(
+                    {
+                        "case_id": str(item.get("case_id") or ""),
+                        "cutoff": cutoff,
+                        "source": source,
+                        "memory_count": context_memory_count,
+                        "backfilled_retrieval_item_count": (
+                            context_backfilled_count
+                        ),
+                        "missing_required_roles": list(
+                            _str_tuple(context.get("missing_required_roles"))
+                        ),
+                    }
+                )
             if context_source_refless_item_count > 0 and len(
                 source_refless_context_samples
             ) < 10:
@@ -1365,6 +1389,12 @@ def _answer_context_provenance_table(
         "source_ref_count": source_ref_count,
         "source_ref_item_count": source_ref_item_count,
         "source_refless_item_count": source_refless_item_count,
+        "backfilled_context_count": backfilled_context_count,
+        "backfilled_retrieval_item_count": backfilled_retrieval_item_count,
+        "avg_backfilled_retrieval_item_count": _ratio(
+            backfilled_retrieval_item_count,
+            context_count,
+        ),
         "source_ref_context_rate": _ratio(source_ref_context_count, context_count),
         "source_ref_item_coverage_rate": _ratio(
             source_ref_item_count,
@@ -1372,6 +1402,7 @@ def _answer_context_provenance_table(
         ),
         "source_counts": dict(sorted(source_counts.items())),
         "fallback_reason_counts": dict(sorted(fallback_reason_counts.items())),
+        "backfilled_context_samples": backfilled_context_samples,
         "source_refless_context_samples": source_refless_context_samples,
     }
 
