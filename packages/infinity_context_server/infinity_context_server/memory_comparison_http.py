@@ -226,7 +226,6 @@ class InfinityContextHttpComparisonBackend:
                         source_type="memory_comparison_benchmark",
                         source_id=source_id,
                         quote_preview=memory.text[:240],
-                        timestamp=memory.metadata.get("timestamp"),
                     )
                 ],
             },
@@ -516,7 +515,6 @@ def _mirrored_memory_documents(
                         source_type="memory_comparison_benchmark",
                         source_id=safe_identifier(source_external_id, max_chars=160),
                         quote_preview=memory.text[:240],
-                        timestamp=memory.metadata.get("timestamp"),
                     ),
                 ),
             )
@@ -529,18 +527,12 @@ def _source_ref_payload(
     source_type: str,
     source_id: str,
     quote_preview: str,
-    timestamp: object,
 ) -> dict[str, object]:
-    payload: dict[str, object] = {
+    return {
         "source_type": source_type,
         "source_id": source_id,
         "quote_preview": quote_preview,
     }
-    timestamp_ms = _timestamp_ms(timestamp)
-    if timestamp_ms is not None:
-        payload["time_start_ms"] = timestamp_ms
-        payload["time_end_ms"] = timestamp_ms
-    return payload
 
 
 def _source_temporal_metadata(metadata: Mapping[str, object]) -> dict[str, object]:
@@ -554,12 +546,6 @@ def _source_temporal_metadata(metadata: Mapping[str, object]) -> dict[str, objec
             result[key] = value
     return result
 
-
-def _timestamp_ms(value: object) -> int | None:
-    timestamp = _optional_int(value)
-    if timestamp is None:
-        return None
-    return timestamp * 1000
 
 
 def _retrieval_source_counts(memories: Sequence[RetrievedMemory]) -> dict[str, int]:

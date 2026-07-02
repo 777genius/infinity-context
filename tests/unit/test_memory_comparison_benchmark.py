@@ -2757,12 +2757,12 @@ def test_infinity_context_http_ingest_mirrors_memory_only_cases_as_documents() -
     assert [path for path, _ in seen_requests] == ["/v1/facts", "/v1/documents"]
     fact_payload = seen_requests[0][1]
     document_payload = seen_requests[1][1]
-    assert fact_payload["source_refs"][0]["time_start_ms"] == 1683546960000
-    assert fact_payload["source_refs"][0]["time_end_ms"] == 1683546960000
+    assert "time_start_ms" not in fact_payload["source_refs"][0]
+    assert "time_end_ms" not in fact_payload["source_refs"][0]
     assert document_payload["source_type"] == "memory_comparison_raw_turn"
     assert document_payload["text"] == case.memories[0].text
-    assert document_payload["source_refs"][0]["time_start_ms"] == 1683546960000
-    assert document_payload["source_refs"][0]["time_end_ms"] == 1683546960000
+    assert "time_start_ms" not in document_payload["source_refs"][0]
+    assert "time_end_ms" not in document_payload["source_refs"][0]
     assert result.items_processed == 2
     assert result.metadata["mirrored_memory_documents_created"] == 1
     assert result.metadata["hybrid_raw_turn_documents_enabled"] is True
