@@ -110,6 +110,7 @@ def test_rerank_policy_reports_relation_category_coverage_boost() -> None:
         ("status_profile", "missing_status_profile_evidence"),
         ("causal", "missing_causal_evidence"),
         ("location_transition", "missing_location_transition_evidence"),
+        ("preference", "missing_preference_evidence"),
     ),
 )
 def test_rerank_policy_caps_missing_typed_relation_evidence(

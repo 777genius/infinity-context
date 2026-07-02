@@ -309,6 +309,65 @@ def _has_location_transition_support(memory_terms: set[str]) -> bool:
     return bool((movement_action and origin_context) or (travel_surface and travel_context))
 
 
+def _has_preference_support(memory_terms: set[str]) -> bool:
+    preference_action = {
+        "enjoy",
+        "enjoyed",
+        "fan",
+        "interest",
+        "interested",
+        "like",
+        "liked",
+        "love",
+        "loved",
+        "prefer",
+        "preferred",
+    } & memory_terms
+    preference_context = {
+        "animal",
+        "animals",
+        "bach",
+        "book",
+        "books",
+        "camp",
+        "campfire",
+        "camping",
+        "classic",
+        "company",
+        "exhibit",
+        "family",
+        "hike",
+        "kid",
+        "kids",
+        "marshmallow",
+        "meteor",
+        "mozart",
+        "music",
+        "outdoor",
+        "outdoors",
+        "park",
+        "song",
+        "songs",
+        "story",
+        "summer",
+    } & memory_terms
+    outdoor_context = {"camp", "camping", "outdoor", "outdoors", "park"} & memory_terms
+    self_care_surface = {"self-care", "relax", "refresh", "refreshes", "routine"} & memory_terms
+    self_care_context = {"balance", "family", "present", "wellness"} & memory_terms
+    durable_outdoor_context = {
+        "campfire",
+        "marshmallow",
+        "meteor",
+        "story",
+        "summer",
+    } & memory_terms
+    return bool(
+        (preference_action and preference_context)
+        or (outdoor_context and durable_outdoor_context)
+        or (self_care_surface and self_care_context)
+    )
+
+
 def _has_activity_support(memory_terms: set[str]) -> bool:
     concrete_activity = {
         "camp",
@@ -480,6 +539,7 @@ _TYPED_SUPPORT_CHECKS: dict[str, Callable[[set[str]], bool]] = {
     "identity_profile": _has_identity_profile_support,
     "location_transition": _has_location_transition_support,
     "participation_event": _has_participation_event_support,
+    "preference": _has_preference_support,
     "registration_event": _has_registration_event_support,
     "status_profile": _has_status_profile_support,
     "support_goal": _has_support_goal_support,

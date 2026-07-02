@@ -152,6 +152,12 @@ def test_candidate_features_capture_focused_direct_turn_and_provenance() -> None
             {"from", "home", "country"},
         ),
         (
+            "preference",
+            ("like",),
+            ("animal", "outdoors", "refresh", "routine"),
+            {"like", "animal"},
+        ),
+        (
             "support_goal",
             ("counsel", "support", "receive", "grow"),
             ("counseling", "mental", "health", "helped"),

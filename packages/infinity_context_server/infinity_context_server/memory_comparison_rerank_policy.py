@@ -353,6 +353,7 @@ def _provenance_safety_cap(
         "missing_emotion_response_evidence",
         "missing_communication_evidence",
         "missing_exchange_evidence",
+        "missing_preference_evidence",
         "missing_status_profile_evidence",
         "missing_activity_evidence",
         "missing_current_goal_evidence",

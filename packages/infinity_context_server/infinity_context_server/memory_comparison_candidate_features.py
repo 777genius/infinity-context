@@ -604,6 +604,9 @@ def _intent_answerability(
 ) -> tuple[float, tuple[str, ...]]:
     scores: list[float] = []
     reasons: list[str] = []
+    category_set = set(relation_categories)
+    category_hit_set = set(relation_category_hits)
+    has_non_preference_category_hit = bool(category_hit_set - {"preference"})
     if is_temporal_query:
         score, reason = _temporal_intent_answerability(
             time_intent_kind=time_intent_kind,
@@ -617,7 +620,7 @@ def _intent_answerability(
         )
         scores.append(score)
         reasons.append(reason)
-    if is_preference_query:
+    if is_preference_query and not has_non_preference_category_hit:
         scores.append(1.0 if has_preference_evidence else 0.0)
         reasons.append(
             "preference_evidence" if has_preference_evidence else "missing_preference_evidence"
@@ -642,8 +645,6 @@ def _intent_answerability(
     if has_visual_terms:
         scores.append(1.0 if has_visual_evidence else 0.0)
         reasons.append("visual_evidence" if has_visual_evidence else "missing_visual_evidence")
-    category_set = set(relation_categories)
-    category_hit_set = set(relation_category_hits)
     for category in (
         "causal",
         "registration_event",
@@ -652,6 +653,7 @@ def _intent_answerability(
         "emotion_response",
         "communication",
         "exchange",
+        "preference",
         "status_profile",
         "activity",
         "current_goal",
@@ -664,7 +666,12 @@ def _intent_answerability(
         if category in category_hit_set:
             scores.append(1.0)
             reasons.append(f"{category}_evidence")
-        elif category in {"identity_profile", "support_goal"} and category_hit_set:
+        elif (
+            category == "preference"
+            and has_non_preference_category_hit
+            or category in {"identity_profile", "support_goal"}
+            and category_hit_set
+        ):
             continue
         else:
             scores.append(0.2)
