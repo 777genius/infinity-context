@@ -318,6 +318,10 @@ def test_query_planner_prefers_specific_recommended_role_under_type_cap() -> Non
         "compact_relation",
     ]
     assert diagnostics["selected_type_counts"] == {"semantic": 1, "lexical": 1}
+    assert diagnostics["dropped_type_limit_roles"] == ["expanded_focus"]
+    assert diagnostics["replaced_type_limit_roles"] == ["compact_relation"]
+    assert diagnostics["type_limit_replacement_roles"] == ["location_support"]
+    assert diagnostics["fanout_integrity"]["type_limit_hit"] is True
     assert diagnostics["missing_recommended_role_families"] == [
         "relation_compact"
     ]

@@ -39,6 +39,8 @@ class QueryPlan:
     dropped: tuple[QueryPlanCandidate, ...]
     duplicate_roles: tuple[str, ...]
     dropped_type_limit_roles: tuple[str, ...]
+    replaced_type_limit_roles: tuple[str, ...]
+    type_limit_replacement_roles: tuple[str, ...]
     recommended_role_families: tuple[str, ...]
     empty_query_candidate_count: int
     max_queries: int
@@ -88,6 +90,10 @@ class QueryPlan:
             ),
             "duplicate_roles": list(self.duplicate_roles),
             "dropped_type_limit_roles": list(self.dropped_type_limit_roles),
+            "replaced_type_limit_roles": list(self.replaced_type_limit_roles),
+            "type_limit_replacement_roles": list(
+                self.type_limit_replacement_roles
+            ),
             "role_counts": dict(Counter(candidate_roles)),
             "role_family_counts": dict(Counter(candidate_role_families)),
             "selected_role_family_counts": dict(Counter(selected_role_families)),
@@ -102,7 +108,10 @@ class QueryPlan:
             "fanout_integrity": {
                 "bounded": True,
                 "fanout_limit_hit": bool(self.dropped),
-                "type_limit_hit": bool(self.dropped_type_limit_roles),
+                "type_limit_hit": bool(
+                    self.dropped_type_limit_roles
+                    or self.replaced_type_limit_roles
+                ),
                 "empty_query_candidate_count": self.empty_query_candidate_count,
                 "selected_query_token_counts": [
                     _query_token_count(candidate) for candidate in self.selected
@@ -173,7 +182,13 @@ class QueryPlannerV2:
                 if str(family).strip()
             )
         )
-        selected, dropped, dropped_type_limit_roles = self._select_diverse(
+        (
+            selected,
+            dropped,
+            dropped_type_limit_roles,
+            replaced_type_limit_roles,
+            type_limit_replacement_roles,
+        ) = self._select_diverse(
             deduped,
             recommended_role_families=normalized_recommended_role_families,
         )
@@ -183,6 +198,8 @@ class QueryPlannerV2:
             dropped=dropped,
             duplicate_roles=tuple(duplicate_roles),
             dropped_type_limit_roles=dropped_type_limit_roles,
+            replaced_type_limit_roles=replaced_type_limit_roles,
+            type_limit_replacement_roles=type_limit_replacement_roles,
             recommended_role_families=normalized_recommended_role_families,
             empty_query_candidate_count=empty_query_candidate_count,
             max_queries=self._max_queries,
@@ -198,10 +215,15 @@ class QueryPlannerV2:
         tuple[QueryPlanCandidate, ...],
         tuple[QueryPlanCandidate, ...],
         tuple[str, ...],
+        tuple[str, ...],
+        tuple[str, ...],
     ]:
         enforce_type_limit = len({candidate.query_type for candidate in deduped}) > 1
         selected: list[QueryPlanCandidate] = []
         delayed_type_limit: list[QueryPlanCandidate] = []
+        replaced_type_limit_roles: list[str] = []
+        type_limit_replacement_roles: list[str] = []
+        replaced_ids: set[int] = set()
         type_counts: Counter[str] = Counter()
         selected_ids: set[int] = set()
 
@@ -228,7 +250,10 @@ class QueryPlannerV2:
                     candidate=candidate,
                     family=family,
                 )
-                if replaced:
+                if replaced is not None:
+                    replaced_type_limit_roles.append(replaced.role)
+                    type_limit_replacement_roles.append(candidate.role)
+                    replaced_ids.add(id(replaced))
                     selected_ids.add(id(candidate))
                     continue
                 delayed_type_limit.append(candidate)
@@ -238,7 +263,7 @@ class QueryPlannerV2:
             type_counts[candidate.query_type] += 1
 
         for candidate in deduped:
-            if id(candidate) in selected_ids:
+            if id(candidate) in selected_ids or id(candidate) in replaced_ids:
                 continue
             if len(selected) >= self._max_queries:
                 continue
@@ -259,7 +284,13 @@ class QueryPlannerV2:
             for candidate in delayed_type_limit
             if id(candidate) not in selected_ids
         )
-        return tuple(selected), dropped, dropped_type_limit_roles
+        return (
+            tuple(selected),
+            dropped,
+            dropped_type_limit_roles,
+            tuple(replaced_type_limit_roles),
+            tuple(type_limit_replacement_roles),
+        )
 
     def _type_slot_available(
         self,
@@ -310,7 +341,7 @@ def _replace_weaker_type_slot(
     selected_ids: set[int],
     candidate: QueryPlanCandidate,
     family: str,
-) -> bool:
+) -> QueryPlanCandidate | None:
     replacement_priority = _role_family_replacement_priority(family)
     replacement_index = next(
         (
@@ -323,11 +354,11 @@ def _replace_weaker_type_slot(
         None,
     )
     if replacement_index is None:
-        return False
+        return None
     replaced = selected[replacement_index]
     selected[replacement_index] = candidate
     selected_ids.discard(id(replaced))
-    return True
+    return replaced
 
 
 def _candidate_replacement_priority(candidate: QueryPlanCandidate) -> int:
