@@ -1756,3 +1756,55 @@ def test_best_query_relevance_uses_emotion_cause_decomposition_for_paraphrases()
 
         assert reason == "decomposition_emotion_cause"
         assert relevance.distinctive_term_hits >= 3
+
+
+def test_query_decomposition_adds_kind_type_descriptor_query() -> None:
+    plan = build_query_decomposition_plan(
+        "What type of venue did John and his girlfriend choose for their wedding ceremony?"
+    )
+
+    descriptor = next(
+        item
+        for item in plan.decompositions
+        if item.reason == "decomposition_kind_type_descriptor"
+    )
+
+    assert descriptor.query.casefold().startswith("john ")
+    assert "venue girlfriend choose wedding ceremony" in descriptor.query
+    assert "kind type category genre style form format" in descriptor.query
+
+
+def test_query_decomposition_does_not_treat_professional_acceptance_as_emotion() -> None:
+    plan = build_query_decomposition_plan(
+        "What kind of professional experience did Gina get accepted for on May 23, 2023?"
+    )
+
+    reasons = {item.reason for item in plan.decompositions}
+
+    assert "decomposition_kind_type_descriptor" in reasons
+    assert "decomposition_emotion_cause" not in reasons
+
+
+def test_best_query_relevance_uses_kind_type_descriptor_decomposition() -> None:
+    cases = (
+        (
+            "What type of training was the workshop Audrey signed up for in May 2023?",
+            "Audrey signed up for obedience training at the workshop in May 2023.",
+        ),
+        (
+            "What kind of flooring is Jon looking for in his dance studio?",
+            "Jon is looking for sprung wood flooring in his dance studio.",
+        ),
+        (
+            "What kind of online group did John join?",
+            "John joined a service-focused online support group last week.",
+        ),
+    )
+
+    for query, text in cases:
+        plan = build_query_expansion_plan(query)
+
+        _, reason, relevance = best_query_relevance(plan, text=text)
+
+        assert reason == "decomposition_kind_type_descriptor"
+        assert relevance.distinctive_term_hits >= 4

@@ -346,6 +346,18 @@ _EMOTION_CAUSE_STATE_TERMS = frozenset(
         "свой",
     }
 )
+_NON_EMOTIONAL_ACCEPTANCE_CONTEXT_TERMS = frozenset(
+    {
+        "experience",
+        "internship",
+        "job",
+        "position",
+        "professional",
+        "program",
+        "role",
+        "workshop",
+    }
+)
 _INFERENCE_TERMS = frozenset(
     {
         "considered",
@@ -1296,6 +1308,15 @@ _COUNTRY_DESTINATION_ACTION_TERMS = frozenset(
         "visiting",
     }
 )
+_KIND_TYPE_DESCRIPTOR_TERMS = frozenset(
+    {
+        "kind",
+        "kinds",
+        "sort",
+        "type",
+        "types",
+    }
+)
 _SALIENT_DROP_VARIANTS = frozenset(
     {
         *_QUESTION_STOPWORDS,
@@ -1304,8 +1325,12 @@ _SALIENT_DROP_VARIANTS = frozenset(
         "consider",
         "considered",
         "does",
+        "kind",
+        "kinds",
         "option",
         "still",
+        "type",
+        "types",
     }
 )
 _MAX_SALIENT_TERMS = 5
@@ -1922,6 +1947,18 @@ def build_query_decomposition_plan(
             ),
             reason="decomposition_inventory_list",
         )
+    if _requests_kind_type_descriptor_context(raw_tokens=raw_tokens, variants=variants):
+        _append_candidate(
+            candidates,
+            query=_compose_query(
+                (*identities, *salient_terms),
+                (
+                    "kind type category genre style form format descriptor described "
+                    "called named specific exact what kind what type answer evidence"
+                ),
+            ),
+            reason="decomposition_kind_type_descriptor",
+        )
     if _requests_commonality_context(identities=identities, variants=variants):
         _append_candidate(
             candidates,
@@ -2225,6 +2262,12 @@ def _requests_emotion_cause(
 ) -> bool:
     if not raw_tokens.intersection(_EMOTION_CAUSE_STATE_TERMS):
         return False
+    if (
+        raw_tokens.intersection({"accept", "accepted"})
+        and "for" in raw_tokens
+        and raw_tokens.intersection(_NON_EMOTIONAL_ACCEPTANCE_CONTEXT_TERMS)
+    ):
+        return False
     if raw_tokens.intersection(_EMOTION_CAUSE_PROMPT_TERMS):
         return True
     return bool(
@@ -2430,6 +2473,16 @@ def _requests_inventory_list_context(
         or variants.intersection(_INVENTORY_LIST_ACTION_TERMS)
         or variants.intersection({"areas", "countries", "places", "states", "types", "kinds"})
     )
+
+
+def _requests_kind_type_descriptor_context(
+    *,
+    raw_tokens: frozenset[str],
+    variants: frozenset[str],
+) -> bool:
+    if not variants.intersection(_KIND_TYPE_DESCRIPTOR_TERMS):
+        return False
+    return bool(raw_tokens.intersection({"what", "which", "какой", "какая", "какие"}))
 
 
 def _requests_people_inventory_context(

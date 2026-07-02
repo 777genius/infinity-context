@@ -14,7 +14,6 @@ _FREQUENCY_PROMPT_TERMS = frozenset(
         "regular",
         "regularly",
         "routine",
-        "schedule",
         "usually",
         "кажд",
         "регулярно",
