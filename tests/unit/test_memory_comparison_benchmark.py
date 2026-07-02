@@ -3435,6 +3435,27 @@ def test_query_decomposition_expands_locomo_topic_relations() -> None:
         "caroline necklace symbolize symbol mean gift grandma"
     )
     assert "necklace" in necklace_metadata["query_profile"]["relation_terms"]
+    assert necklace_metadata["query_profile"]["relation_categories"] == (
+        "symbolic_meaning",
+    )
+    assert necklace_metadata["query_profile"]["relation_category_terms"][
+        "symbolic_meaning"
+    ] == (
+        "necklace",
+        "symbolize",
+        "symbol",
+        "mean",
+        "represent",
+        "message",
+        "value",
+        "gift",
+        "grandma",
+        "root",
+        "reminder",
+        "family",
+        "support",
+        "special",
+    )
     assert "symbol" in necklace_metadata["query_profile"]["relation_variant_terms"]
     assert "gift" in necklace_metadata["query_profile"]["relation_variant_terms"]
     assert "grandma" in necklace_metadata["query_profile"]["relation_variant_terms"]
@@ -5247,6 +5268,62 @@ def test_benchmark_rerank_boosts_participation_event_evidence() -> None:
         topic_diagnostics["score_signals"]["benchmark_participation_event_boost"]
         == 0
     )
+
+
+def test_benchmark_rerank_boosts_symbolic_meaning_evidence() -> None:
+    case = _case(
+        case_id="symbolic-meaning-rerank",
+        question="What does Caroline's necklace symbolize?",
+        expected_terms=("keepsake",),
+        answer="keepsake",
+        category=4,
+    )
+    object_mention = RetrievedMemory(
+        item_id="object-mention",
+        rank=1,
+        score=0.05,
+        text=(
+            "session_1 turn D1:1 date: 9:00 am "
+            "D1:1 Caroline: I wore the necklace with my jacket."
+        ),
+        source_refs=("D1:1",),
+    )
+    meaning_evidence = RetrievedMemory(
+        item_id="meaning-evidence",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:4 date: 9:10 am "
+            "D2:4 Caroline: The necklace was a gift from grandma and "
+            "represents my roots, a special reminder."
+        ),
+        source_refs=("D2:4",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (object_mention, meaning_evidence),
+    )
+
+    assert metadata["applied"] is True
+    assert [memory.item_id for memory in reranked] == [
+        "meaning-evidence",
+        "object-mention",
+    ]
+    evidence_diagnostics = reranked[0].metadata["diagnostics"]
+    object_diagnostics = reranked[1].metadata["diagnostics"]
+    assert evidence_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["symbolic_meaning"]
+    assert (
+        evidence_diagnostics["score_signals"]["benchmark_symbolic_meaning_boost"]
+        > 0
+    )
+    assert (
+        object_diagnostics["score_signals"]["benchmark_symbolic_meaning_boost"]
+        == 0
+    )
+    assert "keepsake" not in json.dumps(metadata["retrieval_intent"])
 
 
 def test_benchmark_rerank_boosts_speaker_grounded_communication_evidence() -> None:

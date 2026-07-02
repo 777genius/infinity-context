@@ -759,6 +759,27 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
         "markers": frozenset(),
         "evidence_need": "single_fact",
     },
+    "symbolic_meaning": {
+        "terms": frozenset({"necklace", "symbolize"}),
+        "variants": frozenset(
+            {
+                "family",
+                "gift",
+                "grandma",
+                "mean",
+                "message",
+                "reminder",
+                "represent",
+                "root",
+                "special",
+                "support",
+                "symbol",
+                "value",
+            }
+        ),
+        "markers": frozenset(),
+        "evidence_need": "single_fact",
+    },
     "registration_event": {
         "terms": frozenset({"enroll", "register", "sign"}),
         "variants": frozenset(

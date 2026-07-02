@@ -390,6 +390,11 @@ def _relation_category_hits(
         ):
             hits.append(str(category))
             continue
+        if category == "symbolic_meaning" and _has_symbolic_meaning_support(
+            memory_terms
+        ):
+            hits.append(str(category))
+            continue
         if category == "participation_event" and _has_participation_event_support(
             memory_terms
         ):
@@ -415,6 +420,30 @@ def _has_registration_event_support(memory_terms: set[str]) -> bool:
     } & memory_terms
     event_context = {"class", "course", "lesson", "workshop", "event"} & memory_terms
     return bool(registration_action and event_context)
+
+
+def _has_symbolic_meaning_support(memory_terms: set[str]) -> bool:
+    symbolic_surface = {
+        "mean",
+        "meaning",
+        "meant",
+        "message",
+        "reminder",
+        "represent",
+        "symbol",
+        "symbolize",
+        "value",
+    } & memory_terms
+    object_context = {
+        "family",
+        "gift",
+        "grandma",
+        "necklace",
+        "root",
+        "special",
+        "support",
+    } & memory_terms
+    return bool(symbolic_surface and object_context)
 
 
 def _has_participation_event_support(memory_terms: set[str]) -> bool:

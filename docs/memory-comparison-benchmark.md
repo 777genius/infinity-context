@@ -420,7 +420,10 @@ title/composer entities instead of injecting judged genre phrases such as
 Necklace/symbol queries use generic `symbol/meaning/message/value` plus
 evidence-shape surfaces such as `gift`, `grandma`, `roots`, `reminder`,
 `family`, `support` and `special` instead of injecting judged values such as
-`love`, `faith` or `strength`.
+`love`, `faith` or `strength`. Symbolic-meaning evidence now has typed
+diagnostics and a bounded rerank signal only when a meaning surface such as
+`represent`, `symbol`, `mean` or `reminder` appears with object context such as
+`necklace`, `gift`, `grandma` or `root`.
 Relation hits are deduped before rerank, and dense topic evidence can get a
 bounded relation boost even when the evidence sentence does not repeat the named
 person.

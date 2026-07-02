@@ -78,6 +78,10 @@ def focused_intent_policy_boosts(
         memory_terms=memory_terms,
         relation_set=relation_set,
     )
+    boosts["benchmark_symbolic_meaning_boost"] = _symbolic_meaning_boost(
+        memory_terms=memory_terms,
+        relation_set=relation_set,
+    )
     boosts["benchmark_participation_event_boost"] = _participation_event_boost(
         memory_terms=memory_terms,
         relation_set=relation_set,
@@ -100,6 +104,7 @@ def _empty_intent_policy_boosts() -> dict[str, float]:
         "benchmark_relationship_status_context_boost": 0.0,
         "benchmark_current_goal_context_boost": 0.0,
         "benchmark_registration_event_boost": 0.0,
+        "benchmark_symbolic_meaning_boost": 0.0,
         "benchmark_participation_event_boost": 0.0,
     }
 
@@ -286,6 +291,36 @@ def _registration_event_boost(
     } & memory_terms
     event_context = {"class", "course", "lesson", "workshop", "event"} & memory_terms
     return 0.12 if registration_action and event_context else 0.0
+
+
+def _symbolic_meaning_boost(
+    *,
+    memory_terms: set[str],
+    relation_set: set[str],
+) -> float:
+    if not {"necklace", "symbolize"} <= relation_set:
+        return 0.0
+    symbolic_surface = {
+        "mean",
+        "meaning",
+        "meant",
+        "message",
+        "reminder",
+        "represent",
+        "symbol",
+        "symbolize",
+        "value",
+    } & memory_terms
+    object_context = {
+        "family",
+        "gift",
+        "grandma",
+        "necklace",
+        "root",
+        "special",
+        "support",
+    } & memory_terms
+    return 0.12 if symbolic_surface and object_context else 0.0
 
 
 def _participation_event_boost(
