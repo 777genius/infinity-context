@@ -2876,6 +2876,12 @@ def test_query_decomposition_reports_typed_retrieval_intent() -> None:
         expected_terms=("single",),
         answer="single",
     )
+    kinship_case = _case(
+        case_id="conv-26:qa:kinship",
+        question="Who is Melanie's husband?",
+        expected_terms=("Alex",),
+        answer="Alex",
+    )
     duration_case = _case(
         case_id="conv-26:qa:11",
         question="How long has Caroline had her current group of friends for?",
@@ -2913,6 +2919,9 @@ def test_query_decomposition_reports_typed_retrieval_intent() -> None:
 
     _, relationship_metadata = rerank_module.decomposed_search_queries(
         relationship_case
+    )
+    kinship_queries, kinship_metadata = rerank_module.decomposed_search_queries(
+        kinship_case
     )
     _, duration_metadata = rerank_module.decomposed_search_queries(duration_case)
     contrast_queries, contrast_metadata = rerank_module.decomposed_search_queries(
@@ -2957,6 +2966,16 @@ def test_query_decomposition_reports_typed_retrieval_intent() -> None:
         "compact_relation",
     ]
     assert relationship_plan["leakage_guard"]["answer_terms_allowed"] is False
+    kinship_intent = kinship_metadata["retrieval_intent"]
+    kinship_facets = kinship_intent["relations"]["intents"]
+    assert kinship_intent["relations"]["terms"] == ["husband"]
+    assert kinship_facets[0]["category"] == "status_profile"
+    assert kinship_metadata["query_profile"]["risk_flags"] == ()
+    assert "status_profile" in kinship_metadata["query_profile"][
+        "relation_categories"
+    ]
+    assert "spouse" in kinship_metadata["query_profile"]["relation_variant_terms"]
+    assert kinship_queries[2] == "melanie husband spouse partner wife marry married"
 
     duration_intent = duration_metadata["retrieval_intent"]
     assert duration_intent["time_intent"]["kind"] == "duration"
