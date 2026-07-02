@@ -285,6 +285,7 @@ _PROTECTED_EXPANSION_HEAD_REASONS = frozenset(
         "current_recommendation_bridge",
         "current_residence_bridge",
         "deadline_commitment_bridge",
+        "dog_activity_care_bridge",
         "entity_relation_inventory_bridge",
         "family_hardship_support_bridge",
         "family_origin_bridge",

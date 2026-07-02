@@ -3959,6 +3959,55 @@ def test_best_query_relevance_uses_favorite_preference_bridge() -> None:
     assert relevance.distinctive_term_hits >= 6
 
 
+def test_query_expansion_bridges_dog_activity_and_care_queries() -> None:
+    classes = build_query_expansion_plan(
+        "What kind of classes has Audrey joined to take better care of her dogs?"
+    )
+    park = build_query_expansion_plan(
+        "What type of games do Audrey's dogs like to play at the park?"
+    )
+    walks = build_query_expansion_plan("How often does Audrey take her dogs for walks?")
+    breed = build_query_expansion_plan(
+        "What type of dog was Andrew looking to adopt based on his living space?"
+    )
+    pet_names = build_query_expansion_plan("What are Maria's dogs' names?")
+
+    assert "dog dogs puppy pup pet pets care training" in _expansion_query(
+        classes,
+        "dog_activity_care_bridge",
+    )
+    assert "dog park playdate playdates park games fetch" in _expansion_query(
+        park,
+        "dog_activity_care_bridge",
+    )
+    assert "leash walk walks walking" in _expansion_query(
+        walks,
+        "dog_activity_care_bridge",
+    )
+    assert "breed size living space apartment open space" in _expansion_query(
+        breed,
+        "dog_activity_care_bridge",
+    )
+    assert "dog_activity_care_bridge" not in {item.reason for item in pet_names.expansions}
+
+
+def test_best_query_relevance_uses_dog_activity_care_bridge() -> None:
+    plan = build_query_expansion_plan(
+        "What type of games do Audrey's dogs like to play at the park?"
+    )
+
+    _, reason, relevance = best_query_relevance(
+        plan,
+        text=(
+            "Audrey's dogs play fetch and run at the dog park during "
+            "their regular playdates."
+        ),
+    )
+
+    assert reason == "dog_activity_care_bridge"
+    assert relevance.distinctive_term_hits >= 6
+
+
 def test_query_expansion_bridges_career_month_setbacks() -> None:
     plan = build_query_expansion_plan(
         "Was September a good month career-wise for Dana and Morgan?"
