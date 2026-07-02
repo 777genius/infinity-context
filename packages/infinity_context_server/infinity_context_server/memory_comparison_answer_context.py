@@ -25,6 +25,7 @@ class AnswerContext:
     bundle_causal_support_count: int = 0
     bundle_inference_support_count: int = 0
     bundle_location_support_count: int = 0
+    bundle_emotion_response_support_count: int = 0
     bundle_preference_support_count: int = 0
     bundle_visual_support_count: int = 0
     bundle_contrast_count: int = 0
@@ -50,6 +51,9 @@ class AnswerContext:
             "bundle_causal_support_count": self.bundle_causal_support_count,
             "bundle_inference_support_count": self.bundle_inference_support_count,
             "bundle_location_support_count": self.bundle_location_support_count,
+            "bundle_emotion_response_support_count": (
+                self.bundle_emotion_response_support_count
+            ),
             "bundle_preference_support_count": self.bundle_preference_support_count,
             "bundle_visual_support_count": self.bundle_visual_support_count,
             "bundle_contrast_count": self.bundle_contrast_count,
@@ -163,6 +167,14 @@ def answer_context_from_evidence_bundle(
             )
             or 0
         ),
+        bundle_emotion_response_support_count=(
+            _positive_int(
+                bundle_context.get(
+                    "answer_context_bundle_emotion_response_support_count"
+                )
+            )
+            or 0
+        ),
         bundle_preference_support_count=(
             _positive_int(
                 bundle_context.get("answer_context_bundle_preference_support_count")
@@ -271,6 +283,7 @@ def _answer_context_cutoff_metrics(
     bundle_causal_support_counts: list[int] = []
     bundle_inference_support_counts: list[int] = []
     bundle_location_support_counts: list[int] = []
+    bundle_emotion_response_support_counts: list[int] = []
     bundle_preference_support_counts: list[int] = []
     bundle_visual_support_counts: list[int] = []
     bundle_contrast_counts: list[int] = []
@@ -331,6 +344,9 @@ def _answer_context_cutoff_metrics(
         )
         bundle_location_support_counts.append(
             _positive_int(context.get("bundle_location_support_count")) or 0
+        )
+        bundle_emotion_response_support_counts.append(
+            _positive_int(context.get("bundle_emotion_response_support_count")) or 0
         )
         bundle_preference_support_counts.append(
             _positive_int(context.get("bundle_preference_support_count")) or 0
@@ -396,6 +412,12 @@ def _answer_context_cutoff_metrics(
         ),
         "total_bundle_location_support_count": sum(
             bundle_location_support_counts
+        ),
+        "avg_bundle_emotion_response_support_count": _avg(
+            bundle_emotion_response_support_counts
+        ),
+        "total_bundle_emotion_response_support_count": sum(
+            bundle_emotion_response_support_counts
         ),
         "avg_bundle_preference_support_count": _avg(
             bundle_preference_support_counts
@@ -531,6 +553,13 @@ def _bundle_context_metadata(bundle: Mapping[str, object]) -> dict[str, object]:
     if location_support_count is not None:
         metadata["answer_context_bundle_location_support_count"] = (
             location_support_count
+        )
+    emotion_response_support_count = _positive_int(
+        quality.get("emotion_response_support_count")
+    )
+    if emotion_response_support_count is not None:
+        metadata["answer_context_bundle_emotion_response_support_count"] = (
+            emotion_response_support_count
         )
     preference_support_count = _positive_int(quality.get("preference_support_count"))
     if preference_support_count is not None:

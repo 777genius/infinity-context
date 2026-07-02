@@ -268,6 +268,11 @@ def _bundle_support_counts(metadata: Mapping[str, object]) -> tuple[str, ...]:
     )
     if location is not None:
         counts.append(f"location:{location}")
+    emotion_response = _positive_int(
+        metadata.get("answer_context_bundle_emotion_response_support_count")
+    )
+    if emotion_response is not None:
+        counts.append(f"emotion_response:{emotion_response}")
     preference = _positive_int(
         metadata.get("answer_context_bundle_preference_support_count")
     )

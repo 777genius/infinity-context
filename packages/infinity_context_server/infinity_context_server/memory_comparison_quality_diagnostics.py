@@ -18,6 +18,7 @@ _EVIDENCE_NEED_GAP_REASONS = frozenset(
     {
         "missing_causal_support",
         "missing_contrast",
+        "missing_emotion_response_support",
         "missing_inference_support",
         "missing_location_support",
         "missing_preference_support",
@@ -25,6 +26,7 @@ _EVIDENCE_NEED_GAP_REASONS = frozenset(
         "missing_required_bridge",
         "missing_required_causal_support",
         "missing_required_contrast",
+        "missing_required_emotion_response_support",
         "missing_required_inference_support",
         "missing_required_location_support",
         "missing_required_preference_support",
@@ -648,6 +650,8 @@ def _bundle_incomplete_reasons(item: Mapping[str, object]) -> tuple[str, ...]:
         reasons.append("missing_inference_support")
     if _needs_location_support(item) and not _bundle_has_location_support(bundle):
         reasons.append("missing_location_support")
+    if _needs_emotion_response_support(item) and not _bundle_has_emotion_response_support(bundle):
+        reasons.append("missing_emotion_response_support")
     if _needs_preference_support(item) and not _bundle_has_preference_support(bundle):
         reasons.append("missing_preference_support")
     if _needs_visual_support(item) and not _bundle_has_visual_support(bundle):
@@ -693,6 +697,7 @@ def _bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, ob
     causal_support_counts: list[int] = []
     inference_support_counts: list[int] = []
     location_support_counts: list[int] = []
+    emotion_response_support_counts: list[int] = []
     preference_support_counts: list[int] = []
     visual_support_counts: list[int] = []
     location_relation_category_hit_counts: list[int] = []
@@ -721,6 +726,9 @@ def _bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, ob
         )
         location_support_counts.append(
             _positive_int(quality.get("location_support_count")) or 0
+        )
+        emotion_response_support_counts.append(
+            _positive_int(quality.get("emotion_response_support_count")) or 0
         )
         preference_support_counts.append(
             _positive_int(quality.get("preference_support_count")) or 0
@@ -778,6 +786,13 @@ def _bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, ob
         "location_support_bundle_count": sum(
             1 for count in location_support_counts if count > 0
         ),
+        "avg_emotion_response_support_count": _avg(emotion_response_support_counts),
+        "total_emotion_response_support_count": sum(
+            emotion_response_support_counts
+        ),
+        "emotion_response_support_bundle_count": sum(
+            1 for count in emotion_response_support_counts if count > 0
+        ),
         "avg_preference_support_count": _avg(preference_support_counts),
         "total_preference_support_count": sum(preference_support_counts),
         "preference_support_bundle_count": sum(
@@ -825,6 +840,12 @@ def _bundle_support_counts(bundle_quality: Mapping[str, object]) -> dict[str, in
         "location": (
             _positive_int(bundle_quality.get("total_location_support_count")) or 0
         ),
+        "emotion_response": (
+            _positive_int(
+                bundle_quality.get("total_emotion_response_support_count")
+            )
+            or 0
+        ),
         "preference": (
             _positive_int(bundle_quality.get("total_preference_support_count")) or 0
         ),
@@ -852,6 +873,12 @@ def _bundle_support_bundle_counts(
         ),
         "location": (
             _positive_int(bundle_quality.get("location_support_bundle_count")) or 0
+        ),
+        "emotion_response": (
+            _positive_int(
+                bundle_quality.get("emotion_response_support_bundle_count")
+            )
+            or 0
         ),
         "preference": (
             _positive_int(bundle_quality.get("preference_support_bundle_count")) or 0
@@ -898,6 +925,9 @@ def _bundle_quality_sample(
         ),
         "location_support_count": (
             _positive_int(quality.get("location_support_count")) or 0
+        ),
+        "emotion_response_support_count": (
+            _positive_int(quality.get("emotion_response_support_count")) or 0
         ),
         "preference_support_count": (
             _positive_int(quality.get("preference_support_count")) or 0
@@ -2207,6 +2237,36 @@ def _needs_preference_support(item: Mapping[str, object]) -> bool:
     )
 
 
+def _needs_emotion_response_support(item: Mapping[str, object]) -> bool:
+    metadata = _retrieval_metadata(item)
+    query_decomposition = _mapping(metadata.get("query_decomposition"))
+    query_profile = _mapping(query_decomposition.get("query_profile"))
+    intent = _mapping(query_decomposition.get("retrieval_intent"))
+    evidence_need = (
+        _str_tuple(query_profile.get("evidence_need"))
+        or _str_tuple(intent.get("evidence_need"))
+    )
+    roles = (
+        _str_tuple(query_profile.get("bundle_evidence_roles"))
+        or _str_tuple(intent.get("bundle_evidence_roles"))
+    )
+    relation_categories = _str_tuple(query_profile.get("relation_categories"))
+    if not relation_categories:
+        relation_categories = tuple(
+            str(relation.get("category") or "").strip()
+            for relation in _sequence(
+                _mapping(_mapping(intent.get("relations")).get("intents"))
+            )
+            if isinstance(relation, Mapping)
+            and str(relation.get("category") or "").strip()
+        )
+    return bool(
+        "emotion_response" in evidence_need
+        or "emotion_response_support" in roles
+        or "emotion_response" in relation_categories
+    )
+
+
 def _needs_visual_support(item: Mapping[str, object]) -> bool:
     metadata = _retrieval_metadata(item)
     query_decomposition = _mapping(metadata.get("query_decomposition"))
@@ -2320,6 +2380,21 @@ def _bundle_has_preference_support(bundle: Mapping[str, object]) -> bool:
             item.get("has_preference_evidence") is True
             or "preference" in _str_tuple(item.get("relation_category_hits"))
             or "preference_evidence" in _str_tuple(item.get("planner_reason_codes"))
+        )
+        for item in _bundle_items(bundle)
+    )
+
+
+def _bundle_has_emotion_response_support(bundle: Mapping[str, object]) -> bool:
+    if "emotion_response_support" in _bundle_roles(bundle):
+        return True
+    if _bundle_has_planner_reason(bundle, "emotion_response_support"):
+        return True
+    return any(
+        bool(
+            "emotion_response" in _str_tuple(item.get("relation_category_hits"))
+            or "emotion_response_relation_category_hits"
+            in _str_tuple(item.get("planner_reason_codes"))
         )
         for item in _bundle_items(bundle)
     )

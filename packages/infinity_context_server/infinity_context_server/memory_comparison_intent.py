@@ -336,11 +336,29 @@ def infer_bundle_evidence_roles(
         roles.append("preference_support")
     if "visual_evidence" in evidence_need_set:
         roles.append("visual_support")
+    if "emotion_response" in evidence_need_set:
+        roles.append("emotion_response_support")
     if "causal_support" in evidence_need_set:
         roles.append("causal_support")
     if "inference_support" in evidence_need_set and len(roles) == 1:
         roles.append("inference_support")
     return tuple(dict.fromkeys(roles))
+
+
+def merge_relation_evidence_needs(
+    evidence_need: tuple[str, ...],
+    relation_intents: tuple[RetrievalRelationIntent, ...],
+) -> tuple[str, ...]:
+    """Promote selected typed relation-facet needs into bundle planning."""
+
+    relation_needs = tuple(
+        intent.evidence_need
+        for intent in relation_intents
+        if intent.evidence_need == "emotion_response"
+    )
+    if not relation_needs:
+        return evidence_need
+    return tuple(dict.fromkeys((*evidence_need, *relation_needs)))
 
 
 def _has_contrast_intent(
@@ -712,7 +730,7 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
             }
         ),
         "markers": frozenset(),
-        "evidence_need": "single_fact",
+        "evidence_need": "emotion_response",
     },
     "support_goal": {
         "terms": frozenset(

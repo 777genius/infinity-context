@@ -5247,6 +5247,8 @@ def test_query_decomposition_reports_emotion_response_intent() -> None:
     assert feel_queries[2] == "melanie feel adoption felt reaction response excited"
     feel_profile = feel_metadata["query_profile"]
     assert "emotion_response" in feel_profile["relation_categories"]
+    assert "emotion_response" in feel_profile["evidence_need"]
+    assert "emotion_response_support" in feel_profile["bundle_evidence_roles"]
     assert feel_profile["relation_category_terms"]["emotion_response"] == (
         "feel",
         "felt",
@@ -5263,6 +5265,8 @@ def test_query_decomposition_reports_emotion_response_intent() -> None:
     assert excite_queries[2] == "caroline excite make create thrilled process adoption"
     excite_profile = excite_metadata["query_profile"]
     assert "emotion_response" in excite_profile["relation_categories"]
+    assert "emotion_response" in excite_profile["evidence_need"]
+    assert "emotion_response_support" in excite_profile["bundle_evidence_roles"]
     assert excite_profile["relation_category_terms"]["emotion_response"] == (
         "excite",
         "enthusiastic",

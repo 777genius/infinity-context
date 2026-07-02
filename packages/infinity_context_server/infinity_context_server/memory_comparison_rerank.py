@@ -18,6 +18,7 @@ from infinity_context_server.memory_comparison_intent import (
     infer_relation_intents,
     infer_risk_flags,
     infer_time_intent_kind,
+    merge_relation_evidence_needs,
 )
 from infinity_context_server.memory_comparison_models import RetrievedMemory
 from infinity_context_server.memory_comparison_query_plan import (
@@ -1740,13 +1741,16 @@ def _query_retrieval_intent(case: PublicBenchmarkCase) -> RetrievalIntent:
         visual_terms=visual_terms,
         multi_hop_markers=multi_hop_markers,
     )
-    evidence_need = infer_evidence_need(
-        question=question,
-        relation_terms=relation_terms,
-        time_intent=time_intent,
-        visual_terms=visual_terms,
-        multi_hop_markers=multi_hop_markers,
-        benchmark_category=category,
+    evidence_need = merge_relation_evidence_needs(
+        infer_evidence_need(
+            question=question,
+            relation_terms=relation_terms,
+            time_intent=time_intent,
+            visual_terms=visual_terms,
+            multi_hop_markers=multi_hop_markers,
+            benchmark_category=category,
+        ),
+        relation_intents,
     )
     return RetrievalIntent(
         question=question,

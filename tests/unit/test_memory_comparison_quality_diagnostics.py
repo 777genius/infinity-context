@@ -99,11 +99,12 @@ def test_quality_diagnostics_reports_intents_policies_bundle_gaps_and_leakage() 
                             primary_count=1,
                             supporting_count=1,
                             bridge_count=1,
-                            causal_support_count=1,
-                            inference_support_count=1,
-                            location_support_count=1,
-                            preference_support_count=1,
-                            visual_support_count=1,
+                                causal_support_count=1,
+                                inference_support_count=1,
+                                location_support_count=1,
+                                emotion_response_support_count=1,
+                                preference_support_count=1,
+                                visual_support_count=1,
                             contrast_count=1,
                             location_relation_category_hit_count=1,
                             source_proximity_support_count=1,
@@ -880,6 +881,7 @@ def test_fast_gate_metrics_reports_bundle_support_summaries() -> None:
                             causal_support_count=1,
                             inference_support_count=1,
                             location_support_count=1,
+                            emotion_response_support_count=1,
                             preference_support_count=1,
                             visual_support_count=1,
                             contrast_count=1,
@@ -904,6 +906,7 @@ def test_fast_gate_metrics_reports_bundle_support_summaries() -> None:
         "bridge": 1,
         "causal": 1,
         "contrast": 1,
+        "emotion_response": 1,
         "inference": 1,
         "location": 1,
         "preference": 1,
@@ -914,6 +917,7 @@ def test_fast_gate_metrics_reports_bundle_support_summaries() -> None:
         "bridge": 1,
         "causal": 1,
         "contrast": 1,
+        "emotion_response": 1,
         "inference": 1,
         "location": 1,
         "preference": 1,
@@ -1268,6 +1272,105 @@ def test_fast_gate_metrics_accepts_preference_support_evidence() -> None:
     assert "missing_preference_support" not in breakdown["reason_counts"]
     assert "missing_required_preference_support" not in breakdown["reason_counts"]
     assert "missing_preference_support" not in breakdown[
+        "evidence_need_gap_reason_counts"
+    ]
+
+
+def test_fast_gate_metrics_reports_missing_emotion_response_support_gap() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="missing-emotion-response",
+                group="single-hop",
+                retrieval=_retrieval_payload(
+                    evidence_need=("emotion_response",),
+                    bundle_evidence_roles=("primary", "emotion_response_support"),
+                    relation_categories=("emotion_response",),
+                    policy_score=0.0,
+                ),
+                evidence_bundle={
+                    "bundle_complete": False,
+                    "item_count": 1,
+                    "primary_evidence_count": 1,
+                    "supporting_evidence_count": 0,
+                    "query_support_term_recall": 0.5,
+                    "covered_evidence_terms": [],
+                    "missing_required_roles": ["emotion_response_support"],
+                    "items": [
+                        {
+                            "role": "primary",
+                            "retrieval_order": 1,
+                            "focused_evidence_score": 1.0,
+                            "planner_reason_codes": ["primary_signal"],
+                        }
+                    ],
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    breakdown = gate["bundle_gap_breakdown"]
+
+    assert breakdown["reason_counts"]["missing_emotion_response_support"] == 1
+    assert (
+        breakdown["reason_counts"]["missing_required_emotion_response_support"]
+        == 1
+    )
+    assert breakdown["evidence_need_gap_reason_counts"] == {
+        "missing_emotion_response_support": 1,
+        "missing_required_emotion_response_support": 1,
+    }
+    assert "missing_emotion_response_support" in breakdown["samples"][0]["reasons"]
+    assert "missing_required_emotion_response_support" in breakdown["samples"][0][
+        "reasons"
+    ]
+
+
+def test_fast_gate_metrics_accepts_emotion_response_support_evidence() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="has-emotion-response",
+                group="single-hop",
+                retrieval=_retrieval_payload(
+                    evidence_need=("emotion_response",),
+                    bundle_evidence_roles=("primary", "emotion_response_support"),
+                    relation_categories=("emotion_response",),
+                    policy_score=0.0,
+                ),
+                evidence_bundle={
+                    "bundle_complete": False,
+                    "item_count": 1,
+                    "primary_evidence_count": 1,
+                    "supporting_evidence_count": 0,
+                    "query_support_term_recall": 0.5,
+                    "covered_evidence_terms": [],
+                    "items": [
+                        {
+                            "role": "emotion_response_support",
+                            "retrieval_order": 1,
+                            "focused_evidence_score": 1.0,
+                            "relation_category_hits": ["emotion_response"],
+                            "planner_reason_codes": [
+                                "emotion_response_support",
+                                "emotion_response_relation_category_hits",
+                            ],
+                        }
+                    ],
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    breakdown = gate["bundle_gap_breakdown"]
+
+    assert "missing_emotion_response_support" not in breakdown["reason_counts"]
+    assert "missing_required_emotion_response_support" not in breakdown[
+        "reason_counts"
+    ]
+    assert "missing_emotion_response_support" not in breakdown[
         "evidence_need_gap_reason_counts"
     ]
 
@@ -2104,6 +2207,7 @@ def _bundle_quality(
     causal_support_count: int = 0,
     inference_support_count: int = 0,
     location_support_count: int = 0,
+    emotion_response_support_count: int = 0,
     preference_support_count: int = 0,
     visual_support_count: int = 0,
     contrast_count: int = 0,
@@ -2129,6 +2233,7 @@ def _bundle_quality(
         "causal_support_count": causal_support_count,
         "inference_support_count": inference_support_count,
         "location_support_count": location_support_count,
+        "emotion_response_support_count": emotion_response_support_count,
         "preference_support_count": preference_support_count,
         "visual_support_count": visual_support_count,
         "contrast_count": contrast_count,
