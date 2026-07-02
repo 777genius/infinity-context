@@ -412,7 +412,16 @@ def expanded_search_query(case: PublicBenchmarkCase) -> tuple[str, dict[str, obj
                 f"speakers: {', '.join(f'{entity}:' for entity in speaker_surfaces)}"
             )
     if relation_terms:
-        focus_actions = _relation_query_terms(relation_terms, relation_variant_terms)
+        focus_actions = (
+            _communication_support_query_terms(
+                relation_terms=relation_terms,
+                relation_variant_terms=relation_variant_terms,
+                lexical_terms=intent.lexical_terms,
+                entity_surfaces=entity_surfaces,
+            )
+            if "communication_support" in intent.bundle_evidence_roles
+            else _relation_query_terms(relation_terms, relation_variant_terms)
+        )
         focus_parts.append(
             f"actions: {', '.join(_render_query_terms(focus_actions[:8]))}"
         )

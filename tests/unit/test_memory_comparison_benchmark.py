@@ -5392,6 +5392,7 @@ def test_query_decomposition_reports_communication_relation_intent() -> None:
         "communication_support"
         in tell_metadata["query_profile"]["bundle_evidence_roles"]
     )
+    assert tell_queries[1].endswith("actions: tell, told, mention, delay")
     assert tell_queries[2] == "alex project atlas tell told mention delay"
     assert "maria" not in " ".join(tell_queries).casefold()
     assert ask_metadata["query_profile"]["relation_terms"] == ("ask",)
@@ -5401,6 +5402,7 @@ def test_query_decomposition_reports_communication_relation_intent() -> None:
     assert "request" in ask_metadata["query_profile"]["relation_category_terms"][
         "communication"
     ]
+    assert ask_queries[1].endswith("actions: ask, request, send, invoice, asked")
     assert ask_queries[2] == "project atlas alex ask request send invoice asked"
     assert "maria" not in " ".join(ask_queries).casefold()
     assert recommend_metadata["query_profile"]["relation_categories"] == (
@@ -5410,6 +5412,10 @@ def test_query_decomposition_reports_communication_relation_intent() -> None:
     assert recommend_metadata["query_profile"]["relation_category_terms"][
         "communication"
     ] == ("recommend", "suggest", "advis", "told")
+    assert recommend_queries[1].endswith(
+        "actions: recommend, read, suggest, advis, told, book, recommended, "
+        "suggested"
+    )
     assert recommend_queries[2] == (
         "melanie becoming nicole recommend read suggest advis told book recommended "
         "suggested"
