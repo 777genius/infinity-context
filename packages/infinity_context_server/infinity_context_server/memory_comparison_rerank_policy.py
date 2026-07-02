@@ -356,6 +356,7 @@ def _provenance_safety_cap(
         "missing_activity_evidence",
         "missing_current_goal_evidence",
         "missing_support_goal_evidence",
+        "missing_identity_profile_evidence",
     ):
         if reason in answerability_reasons:
             caps.append((0.4, f"{reason}_cap"))

@@ -6098,6 +6098,17 @@ def test_benchmark_rerank_prefers_visual_identity_turn() -> None:
 
     assert metadata["applied"] is True
     assert [memory.item_id for memory in reranked] == ["visual-identity", "generic-identity"]
+    visual_features = reranked[0].metadata["diagnostics"][
+        "benchmark_candidate_features"
+    ]
+    generic_features = reranked[1].metadata["diagnostics"][
+        "benchmark_candidate_features"
+    ]
+    assert visual_features["relation_category_hits"] == ["identity_profile"]
+    assert generic_features["relation_category_hits"] == []
+    assert "missing_identity_profile_evidence" in generic_features[
+        "answerability_reason_codes"
+    ]
     signals = reranked[0].metadata["diagnostics"]["score_signals"]
     assert signals["benchmark_identity_visual_identity_boost"] > 0
     assert signals["benchmark_focused_turn_boost"] > 0
@@ -6144,6 +6155,14 @@ def test_benchmark_rerank_prefers_political_context_turn() -> None:
         "political-context",
         "general-rights",
     ]
+    political_features = reranked[0].metadata["diagnostics"][
+        "benchmark_candidate_features"
+    ]
+    general_features = reranked[1].metadata["diagnostics"][
+        "benchmark_candidate_features"
+    ]
+    assert political_features["relation_category_hits"] == ["identity_profile"]
+    assert general_features["relation_category_hits"] == ["identity_profile"]
     signals = reranked[0].metadata["diagnostics"]["score_signals"]
     assert signals["benchmark_political_context_boost"] > 0
     assert signals["benchmark_focused_turn_boost"] > 0

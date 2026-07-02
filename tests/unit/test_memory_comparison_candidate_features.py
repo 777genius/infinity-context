@@ -145,6 +145,12 @@ def test_candidate_features_capture_focused_direct_turn_and_provenance() -> None
             ("counseling", "mental", "health", "helped"),
             {"support", "got", "counseling", "life"},
         ),
+        (
+            "identity_profile",
+            ("identity",),
+            ("support", "inspir", "story", "pride"),
+            {"transgender", "pride", "flag", "mural", "story"},
+        ),
     ),
 )
 def test_candidate_features_require_typed_relation_evidence_for_answerability(

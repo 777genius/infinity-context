@@ -655,13 +655,14 @@ def _intent_answerability(
         "activity",
         "current_goal",
         "support_goal",
+        "identity_profile",
     ):
         if category not in category_set:
             continue
         if category in category_hit_set:
             scores.append(1.0)
             reasons.append(f"{category}_evidence")
-        elif category == "support_goal" and category_hit_set:
+        elif category in {"identity_profile", "support_goal"} and category_hit_set:
             continue
         else:
             scores.append(0.2)

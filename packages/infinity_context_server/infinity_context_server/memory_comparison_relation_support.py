@@ -353,12 +353,48 @@ def _has_support_goal_support(memory_terms: set[str]) -> bool:
     )
 
 
+def _has_identity_profile_support(memory_terms: set[str]) -> bool:
+    visual_identity = {"transgender", "pride", "flag", "mural"} <= memory_terms and {
+        "inspir",
+        "story",
+        "support",
+    } & memory_terms
+    political_context = (
+        {"conservative", "hike", "upset"} <= memory_terms
+        and {"lgbtq", "right", "work"} <= memory_terms
+        and {"accept", "support"} <= memory_terms
+    )
+    religious_context = {"church", "conservative", "journey"} <= memory_terms and {
+        "acceptance",
+        "chang",
+        "faith",
+        "think",
+    } & memory_terms
+    community_support = (
+        {"lgbtq", "right", "support"} <= memory_terms
+        or {"lgbtq+", "adoption", "inclusivity", "support"} <= memory_terms
+        or {"community", "ally", "support"} <= memory_terms
+    )
+    personality_context = (
+        {"care", "real", "help"} <= memory_terms
+        or {"concern", "thoughtful"} <= memory_terms
+    )
+    return bool(
+        visual_identity
+        or political_context
+        or religious_context
+        or community_support
+        or personality_context
+    )
+
+
 _TYPED_SUPPORT_CHECKS: dict[str, Callable[[set[str]], bool]] = {
     "activity": _has_activity_support,
     "communication": _has_communication_support,
     "current_goal": _has_current_goal_support,
     "emotion_response": _has_emotion_response_support,
     "exchange": _has_exchange_support,
+    "identity_profile": _has_identity_profile_support,
     "participation_event": _has_participation_event_support,
     "registration_event": _has_registration_event_support,
     "status_profile": _has_status_profile_support,
