@@ -12,6 +12,10 @@ def source_identity_refs_from_dedupe_key(value: object) -> tuple[str, ...]:
     key = str(value or "").strip()
     if not key:
         return ()
+    if key.startswith("source_identity:"):
+        return source_identity_refs_from_dedupe_key(
+            key.removeprefix("source_identity:")
+        )
     for prefix in ("source_refs:", "refs:"):
         if key.startswith(prefix):
             return _split_identity_refs(key.removeprefix(prefix))
