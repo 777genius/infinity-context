@@ -8297,6 +8297,82 @@ def test_benchmark_rerank_boosts_health_profile_evidence() -> None:
     )
 
 
+def test_benchmark_rerank_boosts_contact_profile_evidence() -> None:
+    case = _case(
+        case_id="contact-profile-rerank",
+        question="What is Alex's email address?",
+        expected_terms=("alex@example.test",),
+        answer="alex@example.test",
+        category=4,
+    )
+    topical_email = RetrievedMemory(
+        item_id="topical-email",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex talked about email etiquette with Maria."
+        ),
+        source_refs=("D1:1",),
+    )
+    contact_profile = RetrievedMemory(
+        item_id="contact-profile",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: My email address is alex@example.test."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_email, contact_profile),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("contact_profile",)
+    assert reranked[0].item_id == "contact-profile"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    contact_diagnostics = diagnostics_by_id["contact-profile"]
+    topical_diagnostics = diagnostics_by_id["topical-email"]
+    assert contact_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["contact_profile"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert (
+        contact_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        > 0
+    )
+    assert contact_diagnostics["score_signals"][
+        "benchmark_typed_relation_support_roles"
+    ] == ["contact_support"]
+    assert (
+        topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        == 0
+    )
+
+
+def test_benchmark_contact_profile_ignores_addressing_issue_wording() -> None:
+    case = _case(
+        case_id="contact-profile-address-guard",
+        question="What issue did Alex address with Maria?",
+        expected_terms=("budget",),
+        answer="budget",
+        category=4,
+    )
+
+    intent = rerank_module.query_retrieval_intent(case)
+
+    assert "contact" not in intent.relation_terms
+    assert "contact_profile" not in intent.evidence_need
+
+
 def test_benchmark_rerank_boosts_pet_profile_evidence() -> None:
     case = _case(
         case_id="pet-profile-rerank",

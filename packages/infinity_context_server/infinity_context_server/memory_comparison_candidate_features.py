@@ -454,6 +454,7 @@ def _typed_category_has_query_grounding(
         "activity_profile",
         "age_profile",
         "alias_profile",
+        "contact_profile",
         "date_profile",
         "education_profile",
         "employment_profile",

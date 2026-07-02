@@ -397,6 +397,23 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
         flags=re.IGNORECASE,
     ):
         terms.append("health")
+    contact_surface = re.search(
+        r"\b(?:contact\s+(?:info|information|details)|"
+        r"email|e-mail|phone|telephone|cell|mobile|address)\b",
+        text,
+        flags=re.IGNORECASE,
+    )
+    address_as_action = re.search(
+        r"\baddress(?:ed|es|ing)?\s+(?:a|an|the|their|his|her|my|our)?\s*"
+        r"(?:concern|issue|problem|question|risk|topic)\b|"
+        r"\b(?:concern|issue|problem|question|risk|topic)\b.+"
+        r"\baddress(?:ed|es|ing)?\b|"
+        r"\baddress(?:ed|es|ing)?\b.+\bwith\b",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if contact_surface and not address_as_action:
+        terms.append("contact")
     if re.search(
         r"\bhow\s+old\b|\bwhat\b.+\bage\b|\bage\b.+\b(?:is|of)\b",
         text,

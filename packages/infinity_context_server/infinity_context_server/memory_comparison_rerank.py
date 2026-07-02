@@ -142,6 +142,7 @@ _RELATION_QUERY_TERMS = {
     "compare",
     "consider",
     "conference",
+    "contact",
     "decide",
     "destress",
     "discus",
@@ -401,6 +402,7 @@ def expanded_search_query(case: PublicBenchmarkCase) -> tuple[str, dict[str, obj
             communication_support=(
                 "communication_support" in intent.bundle_evidence_roles
             ),
+            contact_support="contact_profile" in intent.evidence_need,
             education_support="education_profile" in intent.evidence_need,
             employment_support="employment_profile" in intent.evidence_need,
             age_support="age_profile" in intent.evidence_need,
@@ -542,6 +544,7 @@ def decomposed_search_queries(
             lexical_terms=lexical_terms,
             entity_surfaces=entity_surfaces,
             communication_support=compact_relation_role == "communication_support",
+            contact_support=compact_relation_role == "contact_support",
             education_support=compact_relation_role == "education_support",
             employment_support=compact_relation_role == "employment_support",
             age_support=compact_relation_role == "age_support",
@@ -781,6 +784,8 @@ def _recommended_query_role_families(intent: RetrievalIntent) -> tuple[str, ...]
 def _compact_relation_query_role(intent: RetrievalIntent) -> str:
     if "education_profile" in set(intent.evidence_need):
         return "education_support"
+    if "contact_profile" in set(intent.evidence_need):
+        return "contact_support"
     if "activity_profile" in set(intent.evidence_need):
         return "activity_support"
     if "employment_profile" in set(intent.evidence_need):
@@ -1103,6 +1108,10 @@ def _filter_relation_terms_for_profile(
             normalized_question,
         ):
             continue
+        if term == "contact" and not _has_contact_profile_question(
+            normalized_question,
+        ):
+            continue
         if term in {"exercise", "hobby", "sport"} and not _has_activity_profile_question(
             normalized_question,
         ):
@@ -1188,6 +1197,25 @@ def _has_health_profile_question(normalized_question: str) -> bool:
         re.search(
             r"\b(?:doctor|therapist|medication|medicine|prescription|allerg"
             r"(?:y|ic)|health\s+issue|condition)\b",
+            normalized_question,
+        )
+    )
+
+
+def _has_contact_profile_question(normalized_question: str) -> bool:
+    if re.search(
+        r"\baddress(?:ed|es|ing)?\s+(?:a|an|the|their|his|her|my|our)?\s*"
+        r"(?:concern|issue|problem|question|risk|topic)\b|"
+        r"\b(?:concern|issue|problem|question|risk|topic)\b.+"
+        r"\baddress(?:ed|es|ing)?\b|"
+        r"\baddress(?:ed|es|ing)?\b.+\bwith\b",
+        normalized_question,
+    ):
+        return False
+    return bool(
+        re.search(
+            r"\b(?:contact\s+(?:info|information|details)|"
+            r"email|e mail|phone|telephone|cell|mobile|address)\b",
             normalized_question,
         )
     )

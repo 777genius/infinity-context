@@ -20,6 +20,8 @@ def typed_relation_category_support(
         return _has_activity_profile_support(memory_terms, memory_text=memory_text)
     if category == "communication":
         return _has_communication_support(memory_terms, memory_text=memory_text)
+    if category == "contact_profile":
+        return _has_contact_profile_support(memory_terms, memory_text=memory_text)
     if category == "employment_profile":
         return _has_employment_profile_support(
             memory_terms,
@@ -379,6 +381,39 @@ def _has_health_profile_support(
         health_surface
         or (medication_action and medication_context)
         or _HEALTH_PROFILE_SURFACE_RE.search(memory_text)
+    )
+
+
+_CONTACT_PROFILE_SURFACE_RE = re.compile(
+    r"\b[\w.+-]+@[\w.-]+\.[a-zA-Z]{2,}\b"
+    r"|\b(?:email|e-mail)(?:\s+address)?\s+(?:is|was)\s+\S+"
+    r"|\b(?:phone|telephone|cell|mobile)(?:\s+number)?\s+"
+    r"(?:is|was)\s+(?:\+?\d[\d()\-\s.]{5,}\d)\b"
+    r"|\b(?:contact\s+(?:info|information|details)|"
+    r"(?:mailing\s+)?address)\s+(?:is|was)\s+"
+    r"(?:\d{1,6}\s+)?[A-Za-z0-9][A-Za-z0-9 .'-]{2,}",
+    re.IGNORECASE,
+)
+
+
+def _has_contact_profile_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
+    phone_surface = {"cell", "mobile", "phone", "telephone"} & memory_terms
+    contact_surface = {"contact"} & memory_terms
+    address_surface = {"address"} & memory_terms
+    number_surface = {"number"} & memory_terms
+    return bool(
+        (phone_surface and number_surface)
+        or (contact_surface and {"detail", "details", "info", "information"} & memory_terms)
+        or (
+            address_surface
+            and {"avenue", "home", "mailing", "road", "street"} & memory_terms
+            and not {"concern", "issue", "problem", "topic"} & memory_terms
+        )
+        or _CONTACT_PROFILE_SURFACE_RE.search(memory_text)
     )
 
 
@@ -1175,6 +1210,7 @@ _TYPED_SUPPORT_CHECKS: dict[str, Callable[[set[str]], bool]] = {
     "age_profile": _has_age_profile_support,
     "alias_profile": _has_alias_profile_support,
     "causal": _has_causal_support,
+    "contact_profile": _has_contact_profile_support,
     "contrast": _has_contrast_support,
     "current_goal": _has_current_goal_support,
     "date_profile": _has_date_profile_support,

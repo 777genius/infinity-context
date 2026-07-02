@@ -70,6 +70,17 @@ RELATION_QUERY_VARIANTS = {
     "choose": ("chose", "picked", "selected"),
     "consider": ("considered", "considering", "looked at", "thinking"),
     "conference": ("event", "attend", "going"),
+    "contact": (
+        "address",
+        "cell",
+        "contact",
+        "e-mail",
+        "email",
+        "mobile",
+        "number",
+        "phone",
+        "telephone",
+    ),
     "decide": ("decided", "chose", "planned", "thinking", "figuring"),
     "dating": ("partner", "relationship", "boyfriend", "girlfriend"),
     "destress": (

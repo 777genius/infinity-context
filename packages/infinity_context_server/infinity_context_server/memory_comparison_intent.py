@@ -236,6 +236,11 @@ def infer_relation_intents(
             relation_terms=relation_terms,
         ):
             continue
+        if category == "contact_profile" and not _has_contact_profile_intent(
+            question=question,
+            relation_terms=relation_terms,
+        ):
+            continue
         if category == "pet_profile" and not _has_pet_profile_intent(
             question=question,
             relation_terms=relation_terms,
@@ -392,6 +397,8 @@ def infer_bundle_evidence_roles(
         roles.append("symbolic_meaning_support")
     if "communication" in evidence_need_set:
         roles.append("communication_support")
+    if "contact_profile" in evidence_need_set:
+        roles.append("contact_support")
     if "exchange" in evidence_need_set:
         roles.append("exchange_support")
     if {"registration_event", "participation_event"} & evidence_need_set:
@@ -414,6 +421,7 @@ def merge_relation_evidence_needs(
 
     promoted_needs = {
         "emotion_response",
+        "contact_profile",
         "education_profile",
         "employment_profile",
         "age_profile",
@@ -755,6 +763,32 @@ def _has_health_profile_intent(
         re.search(
             r"\b(?:doctor|therapist|medication|medicine|prescription|allerg"
             r"(?:y|ic)|health\s+issue|condition)\b",
+            normalized_question,
+        )
+    )
+
+
+def _has_contact_profile_intent(
+    *,
+    question: str,
+    relation_terms: tuple[str, ...],
+) -> bool:
+    if "contact" not in set(relation_terms):
+        return False
+    normalized_question = re.sub(r"[^0-9a-z]+", " ", question.casefold()).strip()
+    if re.search(
+        r"\baddress(?:ed|es|ing)?\s+(?:a|an|the|their|his|her|my|our)?\s*"
+        r"(?:concern|issue|problem|question|risk|topic)\b|"
+        r"\b(?:concern|issue|problem|question|risk|topic)\b.+"
+        r"\baddress(?:ed|es|ing)?\b|"
+        r"\baddress(?:ed|es|ing)?\b.+\bwith\b",
+        normalized_question,
+    ):
+        return False
+    return bool(
+        re.search(
+            r"\b(?:contact\s+(?:info|information|details)|"
+            r"email|e mail|phone|telephone|cell|mobile|address)\b",
             normalized_question,
         )
     )
@@ -1276,6 +1310,24 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
         ),
         "markers": frozenset(),
         "evidence_need": "health_profile",
+    },
+    "contact_profile": {
+        "terms": frozenset({"contact"}),
+        "variants": frozenset(
+            {
+                "address",
+                "cell",
+                "contact",
+                "e-mail",
+                "email",
+                "mobile",
+                "number",
+                "phone",
+                "telephone",
+            }
+        ),
+        "markers": frozenset(),
+        "evidence_need": "contact_profile",
     },
     "age_profile": {
         "terms": frozenset({"age"}),
