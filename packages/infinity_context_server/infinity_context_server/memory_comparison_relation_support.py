@@ -166,6 +166,7 @@ def _has_communication_support(
         "recommended",
         "request",
         "requested",
+        "say",
         "said",
         "suggest",
         "suggested",

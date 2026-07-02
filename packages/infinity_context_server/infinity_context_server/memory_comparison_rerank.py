@@ -230,6 +230,8 @@ _RELATION_QUERY_TERMS = {
     "realize",
     "research",
     "run",
+    "say",
+    "said",
     "sign",
     "suggest",
     "symbolize",
@@ -840,7 +842,7 @@ def _communication_support_query_terms(
     }
     allowed_communication_terms: set[str] = set()
     relation_term_set = set(relation_terms)
-    if relation_term_set & {"tell", "mention"}:
+    if relation_term_set & {"say", "said", "tell", "mention"}:
         allowed_communication_terms.update(("mention", "said", "tell", "told"))
     if "ask" in relation_term_set:
         allowed_communication_terms.update(("ask", "asked", "request"))
@@ -1282,7 +1284,10 @@ def _relation_variant_terms(relation: str) -> tuple[str, ...]:
         for term in terms
         if term != relation
         and term not in _QUERY_TOKEN_ALIASES
-        and relation not in _QUERY_TOKEN_ALIASES.get(term, ())
+        and (
+            relation not in _QUERY_TOKEN_ALIASES.get(term, ())
+            or {relation, term} <= {"say", "said"}
+        )
     )
 
 
@@ -1390,6 +1395,8 @@ def _filter_relation_variant_terms_for_profile(
         normalized_question,
     ):
         blocked_terms.update({"inclusive", "inclusivity", "lgbtq"})
+    if {"personality", "trait"} & relation_term_set:
+        blocked_terms.update({"mention", "mentioned", "said", "say", "tell", "told"})
     if not blocked_terms:
         return tuple(relation_variant_terms)
     return tuple(term for term in relation_variant_terms if term not in blocked_terms)
@@ -1424,6 +1431,10 @@ def _relation_query_terms(
     generic_relation_terms = {"consider"}
     if "receive" in relation_terms and "grow" in relation_terms:
         generic_relation_terms.add("career")
+    if {"personality", "trait", "say"} <= set(relation_terms):
+        generic_relation_terms.add("say")
+    if {"personality", "trait", "said"} <= set(relation_terms):
+        generic_relation_terms.add("said")
     base_terms = (
         tuple(term for term in relation_terms if term not in generic_relation_terms)
         if len(relation_terms) > 1
@@ -1763,11 +1774,13 @@ def _relation_query_terms(
         "mention",
         "recommend",
         "request",
+        "say",
+        "said",
         "suggest",
         "tell",
         "told",
     } & relation_term_set:
-        if relation_term_set & {"mention", "tell", "told"}:
+        if relation_term_set & {"mention", "say", "said", "tell", "told"}:
             priority_variant_order.extend(("told", "said", "mentioned"))
         if relation_term_set & {"ask", "request"}:
             priority_variant_order.extend(("asked", "request"))

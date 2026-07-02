@@ -90,7 +90,6 @@ QUERY_STOPWORDS = {
     "out",
     "over",
     "own",
-    "said",
     "she",
     "should",
     "that",

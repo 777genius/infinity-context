@@ -5763,14 +5763,14 @@ def test_query_decomposition_reports_communication_relation_intent() -> None:
     )
     assert tell_metadata["query_profile"]["relation_category_terms"][
         "communication"
-    ] == ("tell", "told", "mention")
+    ] == ("tell", "told", "said", "mention")
     assert "communication" in tell_metadata["query_profile"]["evidence_need"]
     assert (
         "communication_support"
         in tell_metadata["query_profile"]["bundle_evidence_roles"]
     )
-    assert tell_queries[1].endswith("actions: tell, told, mention, delay")
-    assert tell_queries[2] == "alex project atlas tell told mention delay"
+    assert tell_queries[1].endswith("actions: tell, told, said, mention, delay")
+    assert tell_queries[2] == "alex project atlas tell told said mention delay"
     assert "maria" not in " ".join(tell_queries).casefold()
     assert ask_metadata["query_profile"]["relation_terms"] == ("ask",)
     assert ask_metadata["query_profile"]["relation_categories"] == (
@@ -5837,8 +5837,8 @@ def test_query_decomposition_reports_past_tense_communication_intent() -> None:
     )
     assert told_metadata["query_profile"]["relation_category_terms"][
         "communication"
-    ] == ("told", "mention")
-    assert told_queries[2] == "alex project atlas told tell mention delay"
+    ] == ("told", "said", "mention")
+    assert told_queries[2] == "alex project atlas told tell said mention delay"
     assert "maria" not in " ".join(told_queries).casefold()
 
     assert advised_metadata["query_profile"]["relation_terms"] == ("advise", "read")
@@ -5877,6 +5877,70 @@ def test_query_decomposition_does_not_promote_plain_mention_lookup_to_communicat
     profile = metadata["query_profile"]
 
     assert "mention" in profile["relation_terms"]
+    assert "communication" not in profile["relation_categories"]
+    assert "communication" not in profile["evidence_need"]
+    assert "communication_support" not in profile["bundle_evidence_roles"]
+
+
+def test_query_decomposition_reports_say_communication_intent() -> None:
+    say_case = _case(
+        case_id="communication-say",
+        question="What did Alex say about the Project Atlas delay?",
+        expected_terms=("postponed",),
+        answer="postponed",
+        category=1,
+    )
+    said_case = _case(
+        case_id="communication-said",
+        question="What did Alex said about the Project Atlas delay?",
+        expected_terms=("postponed",),
+        answer="postponed",
+        category=1,
+    )
+
+    say_queries, say_metadata = rerank_module.decomposed_search_queries(say_case)
+    said_queries, said_metadata = rerank_module.decomposed_search_queries(said_case)
+
+    say_profile = say_metadata["query_profile"]
+    assert say_profile["relation_terms"] == ("say",)
+    assert say_profile["relation_categories"] == ("communication",)
+    assert say_profile["relation_category_terms"]["communication"] == (
+        "say",
+        "said",
+        "told",
+        "mention",
+    )
+    assert say_profile["evidence_need"] == ("communication",)
+    assert "communication_support" in say_profile["bundle_evidence_roles"]
+    assert say_queries[2] == "alex project atlas say said tell told mention delay"
+    assert "postponed" not in json.dumps(say_metadata["retrieval_intent"])
+
+    said_profile = said_metadata["query_profile"]
+    assert said_profile["relation_terms"] == ("said",)
+    assert said_profile["relation_categories"] == ("communication",)
+    assert said_profile["relation_category_terms"]["communication"] == (
+        "said",
+        "say",
+        "told",
+        "mention",
+    )
+    assert said_queries[2] == "alex project atlas said say tell told mention delay"
+    assert "postponed" not in json.dumps(said_metadata["retrieval_intent"])
+
+
+def test_query_decomposition_does_not_promote_non_speaker_say_to_communication() -> None:
+    case = _case(
+        case_id="communication-non-speaker-say",
+        question="What does the sign say?",
+        expected_terms=("open",),
+        answer="open",
+        category=1,
+    )
+
+    _, metadata = rerank_module.decomposed_search_queries(case)
+    profile = metadata["query_profile"]
+
+    assert "say" in profile["relation_terms"]
     assert "communication" not in profile["relation_categories"]
     assert "communication" not in profile["evidence_need"]
     assert "communication_support" not in profile["bundle_evidence_roles"]
@@ -6295,6 +6359,54 @@ def test_benchmark_rerank_boosts_symbolic_meaning_evidence() -> None:
         "score_signals"
     ]["benchmark_provenance_safety_reason_codes"]
     assert "keepsake" not in json.dumps(metadata["retrieval_intent"])
+
+
+def test_benchmark_rerank_boosts_said_communication_evidence() -> None:
+    case = _case(
+        case_id="communication-say-rerank",
+        question="What did Alex say about the Project Atlas delay?",
+        expected_terms=("postponed",),
+        answer="postponed",
+        category=1,
+    )
+    topic_turn = RetrievedMemory(
+        item_id="topic-turn",
+        rank=1,
+        score=0.15,
+        text=(
+            "session_2 turn D2:1 date: 9:00 pm "
+            "D2:1 Alex: I reviewed Project Atlas during standup."
+        ),
+        source_refs=("D2:1",),
+    )
+    communication_turn = RetrievedMemory(
+        item_id="communication-turn",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 9:10 pm "
+            "D2:3 Alex: I said the Project Atlas delay was postponed "
+            "after the invoice call."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topic_turn, communication_turn),
+    )
+
+    assert metadata["applied"] is True
+    assert reranked[0].item_id == "communication-turn"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    assert diagnostics_by_id["communication-turn"]["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["communication"]
+    assert diagnostics_by_id["topic-turn"]["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
 
 
 def test_benchmark_rerank_boosts_speaker_grounded_communication_evidence() -> None:

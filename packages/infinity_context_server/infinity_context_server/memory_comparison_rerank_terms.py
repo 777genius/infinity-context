@@ -260,6 +260,8 @@ RELATION_QUERY_VARIANTS = {
     "receive": ("received", "got", "support", "help", "growing up"),
     "recommend": ("recommended", "suggested", "advised", "told"),
     "request": ("requested", "ask", "asked", "message"),
+    "say": ("said", "tell", "told", "mention", "mentioned"),
+    "said": ("say", "tell", "told", "mention", "mentioned"),
     "register": (
         "registered",
         "registration",

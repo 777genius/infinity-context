@@ -540,9 +540,26 @@ def _has_communication_intent(
         & relation_set
     ):
         return True
+    normalized_question = re.sub(r"[^0-9a-z]+", " ", question.casefold()).strip()
+    if {"say", "said"} & relation_set:
+        if {"personality", "trait"} & relation_set:
+            return False
+        if re.search(
+            r"\b(?:what|which)\s+(?:do|does|did)\s+(?:the\s+)?"
+            r"(?:book|card|document|label|letter|note|sign|text)\s+"
+            r"(?:say|said)\b",
+            normalized_question,
+        ):
+            return False
+        return bool(
+            re.search(r"\b(?:what|who|whom)\b.+\b(?:say|said)\b", normalized_question)
+            or re.search(
+                r"\b(?:say|said)\b.+\b(?:about|that|to|with)\b",
+                normalized_question,
+            )
+        )
     if "mention" not in relation_set:
         return False
-    normalized_question = re.sub(r"[^0-9a-z]+", " ", question.casefold()).strip()
     return bool(
         re.search(
             r"\b(?:who|whom)\b.+\bmention\b|\bmention(?:ed)?\b.+\b(?:to|with)\b",
@@ -1002,6 +1019,8 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "mention",
                 "recommend",
                 "request",
+                "say",
+                "said",
                 "suggest",
                 "tell",
                 "told",
@@ -1016,6 +1035,7 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "recommend",
                 "request",
                 "requested",
+                "say",
                 "said",
                 "suggest",
                 "suggested",
