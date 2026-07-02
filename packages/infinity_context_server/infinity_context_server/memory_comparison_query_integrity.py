@@ -16,6 +16,7 @@ _QUERY_INTEGRITY_STOPWORDS = frozenset(
         "and",
         "be",
         "been",
+        "because",
         "for",
         "had",
         "has",

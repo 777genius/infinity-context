@@ -3755,6 +3755,15 @@ def test_query_decomposition_expands_locomo_topic_relations() -> None:
     assert not {"inclusivity", "support", "lgbtq"}.intersection(
         adoption_choice_metadata["query_profile"]["relation_variant_terms"]
     )
+    adoption_choice_integrity = query_integrity_diagnostics(
+        adoption_choice_case,
+        BackendSearchResult(
+            query=adoption_choice_case.question,
+            memories=(),
+            metadata={"query_decomposition": adoption_choice_metadata},
+        ),
+    )
+    assert adoption_choice_integrity["expected_answer_query_overlap_terms"] == []
     assert adoption_process_queries[2] == (
         "caroline excite make create thrilled process adoption"
     )
