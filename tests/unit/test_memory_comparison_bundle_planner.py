@@ -1534,6 +1534,8 @@ def test_evidence_bundle_planner_scores_source_proximity_support() -> None:
     quality = plan.to_diagnostics()["bundle_quality"]
 
     assert quality["source_proximity_support_count"] == 1
+    assert quality["source_proximity_closest_distance"] == 2
+    assert quality["source_proximity_distance_counts"] == {"2": 1}
     assert quality["source_proximity_window"] == 3
     assert quality["component_scores"]["source_proximity"] == 0.03
     assert "has_source_proximity_support" in quality["reason_codes"]
@@ -1579,6 +1581,8 @@ def test_evidence_bundle_planner_prefers_nearby_support_after_primary() -> None:
     ]
     quality = plan.to_diagnostics()["bundle_quality"]
     assert quality["source_proximity_support_count"] == 1
+    assert quality["source_proximity_closest_distance"] == 2
+    assert quality["source_proximity_distance_counts"] == {"2": 1}
     assert quality["component_scores"]["source_proximity"] == 0.03
 
 
@@ -1609,6 +1613,8 @@ def test_evidence_bundle_planner_uses_dedupe_turn_refs_for_proximity() -> None:
     quality = plan.to_diagnostics()["bundle_quality"]
     assert quality["source_ref_item_count"] == 0
     assert quality["source_proximity_support_count"] == 1
+    assert quality["source_proximity_closest_distance"] == 2
+    assert quality["source_proximity_distance_counts"] == {"2": 1}
     assert quality["component_scores"]["source_proximity"] == 0.03
 
 

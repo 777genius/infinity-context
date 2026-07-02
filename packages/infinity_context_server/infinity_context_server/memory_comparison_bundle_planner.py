@@ -1399,6 +1399,8 @@ def _bundle_quality_diagnostics(
             "visual_support_count": 0,
             "location_relation_category_hit_count": 0,
             "source_proximity_support_count": 0,
+            "source_proximity_closest_distance": None,
+            "source_proximity_distance_counts": {},
             "source_proximity_window": _SOURCE_PROXIMITY_WINDOW,
             "missing_required_role_count": len(missing_roles),
             "missing_required_roles": list(missing_roles),
@@ -1456,7 +1458,8 @@ def _bundle_quality_diagnostics(
         for item in items
         if "location_transition" in set(item.candidate.relation_category_hits)
     )
-    source_proximity_support_count = _source_proximity_support_count(items)
+    source_proximity_distances = _source_proximity_distances(items)
+    source_proximity_support_count = len(source_proximity_distances)
     contrast_count = sum(1 for item in items if item.role == "contrast")
     contrast_surface_count = sum(1 for item in items if item.candidate.contrast_surface)
     currentness_surface_count = sum(
@@ -1584,6 +1587,14 @@ def _bundle_quality_diagnostics(
             location_relation_category_hit_count
         ),
         "source_proximity_support_count": source_proximity_support_count,
+        "source_proximity_closest_distance": (
+            min(source_proximity_distances) if source_proximity_distances else None
+        ),
+        "source_proximity_distance_counts": dict(
+            sorted(
+                Counter(str(distance) for distance in source_proximity_distances).items()
+            )
+        ),
         "source_proximity_window": _SOURCE_PROXIMITY_WINDOW,
         "missing_required_role_count": len(missing_roles),
         "missing_required_roles": list(missing_roles),
@@ -1596,7 +1607,7 @@ def _bundle_quality_diagnostics(
     }
 
 
-def _source_proximity_support_count(items: Sequence[PlannedEvidenceItem]) -> int:
+def _source_proximity_distances(items: Sequence[PlannedEvidenceItem]) -> tuple[int, ...]:
     primary_turn_refs = tuple(
         turn_ref
         for item in items
@@ -1604,32 +1615,19 @@ def _source_proximity_support_count(items: Sequence[PlannedEvidenceItem]) -> int
         for turn_ref in _candidate_turn_refs(item.candidate)
     )
     if not primary_turn_refs:
-        return 0
-    count = 0
+        return ()
+    distances: list[int] = []
     for item in items:
         if item.role == "primary":
             continue
-        if _candidate_near_turn_refs(
+        closest_distance = _closest_turn_ref_distance(
             item.candidate,
             primary_turn_refs=primary_turn_refs,
-            max_distance=_SOURCE_PROXIMITY_WINDOW,
-        ):
-            count += 1
-    return count
-
-
-def _candidate_near_turn_refs(
-    candidate: EvidenceBundleCandidate,
-    *,
-    primary_turn_refs: Sequence[tuple[int, int]],
-    max_distance: int,
-) -> bool:
-    return any(
-        primary_dialogue == candidate_dialogue
-        and abs(primary_turn - candidate_turn) <= max_distance
-        for primary_dialogue, primary_turn in primary_turn_refs
-        for candidate_dialogue, candidate_turn in _candidate_turn_refs(candidate)
-    )
+        )
+        if closest_distance is None or closest_distance > _SOURCE_PROXIMITY_WINDOW:
+            continue
+        distances.append(closest_distance)
+    return tuple(distances)
 
 
 def _candidate_turn_refs(candidate: EvidenceBundleCandidate) -> tuple[tuple[int, int], ...]:
