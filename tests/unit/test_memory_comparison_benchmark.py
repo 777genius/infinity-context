@@ -4028,18 +4028,18 @@ def test_query_decomposition_expands_temporal_action_queries() -> None:
         realize_metadata["query_profile"]["relation_variant_terms"]
     )
     assert destress_queries[2] == (
-        "melanie destress stress relax unwind class clear mind headspace "
-        "run farther"
+        "melanie destress stress relax unwind class clear mind run therapy therapeutic"
     )
     assert not {"pottery", "running"}.intersection(
         destress_metadata["query_profile"]["relation_variant_terms"]
     )
     assert "destress" in destress_metadata["query_profile"]["relation_terms"]
-    assert "headspace" in destress_metadata["query_profile"]["relation_variant_terms"]
     assert "run" in destress_metadata["query_profile"]["relation_variant_terms"]
-    assert "farther" in destress_metadata["query_profile"]["relation_variant_terms"]
     assert "class" in destress_metadata["query_profile"]["relation_variant_terms"]
     assert "therapy" in destress_metadata["query_profile"]["relation_variant_terms"]
+    assert not {"headspace", "farther"}.intersection(
+        destress_metadata["query_profile"]["relation_variant_terms"]
+    )
 
 
 def test_infinity_context_http_search_expands_temporal_action_queries() -> None:
@@ -4536,19 +4536,18 @@ def test_infinity_context_http_search_expands_destress_queries() -> None:
         payload = json.loads(request.content)
         seen_payloads.append(payload)
         if payload["query"] == (
-            "melanie destress stress relax unwind class clear mind headspace "
-            "run farther"
+            "melanie destress stress relax unwind class clear mind run therapy therapeutic"
         ):
             items = [
                 {
-                    "item_id": "headspace-destress-evidence",
+                    "item_id": "clear-mind-destress-evidence",
                     "item_type": "chunk",
                     "text": (
                         "D7:22 Melanie: It is a way to de-stress, clear "
                         "my mind, and help my headspace."
                     ),
                     "score": 0.82,
-                    "source_refs": [{"source_id": "memory-headspace-destress"}],
+                    "source_refs": [{"source_id": "memory-clear-mind-destress"}],
                 }
             ]
         else:
@@ -4585,23 +4584,23 @@ def test_infinity_context_http_search_expands_destress_queries() -> None:
         "What does Melanie do to destress?",
         "What does Melanie do to destress?\n"
         "Search focus: entities: melanie; speakers: melanie:; "
-        "actions: destress, stress, relax, unwind, class, clear, mind, headspace",
-        "melanie destress stress relax unwind class clear mind headspace "
-        "run farther",
+        "actions: destress, stress, relax, unwind, class, clear, mind, run",
+        "melanie destress stress relax unwind class clear mind run therapy therapeutic",
     ]
-    assert result.memories[0].item_id == "headspace-destress-evidence"
+    assert result.memories[0].item_id == "clear-mind-destress-evidence"
     query_profile = result.metadata["query_decomposition"]["query_profile"]
     assert "destress" in query_profile["relation_terms"]
-    assert "headspace" in query_profile["relation_variant_terms"]
     assert "run" in query_profile["relation_variant_terms"]
-    assert "farther" in query_profile["relation_variant_terms"]
     assert "class" in query_profile["relation_variant_terms"]
+    assert not {"headspace", "farther"}.intersection(
+        query_profile["relation_variant_terms"]
+    )
     assert not {"pottery", "running"}.intersection(
         query_profile["relation_variant_terms"]
     )
     diagnostics = result.memories[0].metadata["diagnostics"]
     assert diagnostics["score_signals"]["benchmark_relation_boost"] > 0
-    assert diagnostics["score_signals"]["benchmark_relation_variant_hit_count"] >= 3
+    assert diagnostics["score_signals"]["benchmark_relation_variant_hit_count"] >= 2
     assert diagnostics["score_signals"]["benchmark_focused_turn_boost"] > 0
 
 

@@ -89,7 +89,10 @@ def focused_evidence_shape_boosts(
         )
     if "destress" in relation_set:
         boosts["benchmark_destress_running_shape_boost"] = (
-            0.12 if {"run", "headspace"} <= memory_terms else 0.0
+            0.26
+            if "run" in memory_terms
+            and {"de-stres", "destress", "stress"} & memory_terms
+            else 0.0
         )
     if {"write", "career"}.issubset(relation_set):
         career_path = {"counsel", "mental", "health"} <= memory_terms and (
