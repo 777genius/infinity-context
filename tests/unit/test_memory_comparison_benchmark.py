@@ -4006,8 +4006,10 @@ def test_query_decomposition_expands_temporal_action_queries() -> None:
     assert birthday_duration_queries[1] == "caroline birthday 18th year ago born age"
     assert "18th" in birthday_duration_metadata["query_profile"]["lexical_terms"]
     assert "birthday" in birthday_duration_metadata["query_profile"]["relation_terms"]
-    assert pottery_queries[1] == "melanie sign signed signup class pottery yesterday"
+    assert pottery_queries[1] == "melanie sign signed signup class pottery registered"
     assert "sign" in pottery_metadata["query_profile"]["relation_terms"]
+    assert "pottery" in pottery_metadata["query_profile"]["lexical_terms"]
+    assert "pottery" not in pottery_metadata["query_profile"]["relation_variant_terms"]
     assert sunrise_queries[1] == (
         "melanie paint sunrise painting when date time image caption"
     )
@@ -4093,13 +4095,14 @@ def test_infinity_context_http_search_expands_temporal_action_queries() -> None:
 
     assert [payload["query"] for payload in seen_payloads] == [
         "When did Melanie sign up for a pottery class?",
-        "melanie sign signed signup class pottery yesterday",
+        "melanie sign signed signup class pottery registered",
         "melanie when session date time last today yesterday",
     ]
     assert result.memories[0].item_id == "pottery-date"
     query_profile = result.metadata["query_decomposition"]["query_profile"]
     assert "sign" in query_profile["relation_terms"]
-    assert "pottery" in query_profile["relation_variant_terms"]
+    assert "pottery" in query_profile["lexical_terms"]
+    assert "pottery" not in query_profile["relation_variant_terms"]
     diagnostics = result.memories[0].metadata["diagnostics"]
     assert diagnostics["score_signals"]["benchmark_speaker_boost"] > 0
     assert diagnostics["score_signals"]["benchmark_relation_boost"] > 0

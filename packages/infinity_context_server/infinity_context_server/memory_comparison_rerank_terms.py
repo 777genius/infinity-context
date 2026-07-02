@@ -288,7 +288,7 @@ RELATION_QUERY_VARIANTS = {
     "realize": ("realized", "learned", "understood"),
     "research": ("researching", "looked into", "looking into", "check out", "checked out"),
     "run": ("ran", "running", "race", "charity", "marathon"),
-    "sign": ("signed", "signup", "class", "pottery", "registered"),
+    "sign": ("signed", "signup", "class", "registered"),
     "suggest": ("suggested", "recommend", "recommended", "advised"),
     "sibling": ("brother", "sister", "family"),
     "sister": ("sibling", "brother", "family"),

@@ -412,15 +412,14 @@ def expanded_search_query(case: PublicBenchmarkCase) -> tuple[str, dict[str, obj
                 f"speakers: {', '.join(f'{entity}:' for entity in speaker_surfaces)}"
             )
     if relation_terms:
-        focus_actions = (
-            _communication_support_query_terms(
-                relation_terms=relation_terms,
-                relation_variant_terms=relation_variant_terms,
-                lexical_terms=intent.lexical_terms,
-                entity_surfaces=entity_surfaces,
-            )
-            if "communication_support" in intent.bundle_evidence_roles
-            else _relation_query_terms(relation_terms, relation_variant_terms)
+        focus_actions = _support_query_terms(
+            relation_terms=relation_terms,
+            relation_variant_terms=relation_variant_terms,
+            lexical_terms=intent.lexical_terms,
+            entity_surfaces=entity_surfaces,
+            communication_support=(
+                "communication_support" in intent.bundle_evidence_roles
+            ),
         )
         focus_parts.append(
             f"actions: {', '.join(_render_query_terms(focus_actions[:8]))}"
@@ -547,18 +546,12 @@ def decomposed_search_queries(
         )
     if relation_terms:
         compact_relation_role = _compact_relation_query_role(intent)
-        relation_query_terms = (
-            _communication_support_query_terms(
-                relation_terms=relation_terms,
-                relation_variant_terms=relation_variant_terms,
-                lexical_terms=lexical_terms,
-                entity_surfaces=entity_surfaces,
-            )
-            if compact_relation_role == "communication_support"
-            else _relation_query_terms(
-                relation_terms,
-                relation_variant_terms,
-            )
+        relation_query_terms = _support_query_terms(
+            relation_terms=relation_terms,
+            relation_variant_terms=relation_variant_terms,
+            lexical_terms=lexical_terms,
+            entity_surfaces=entity_surfaces,
+            communication_support=compact_relation_role == "communication_support",
         )
         compact_temporal_terms = (
             _compact_temporal_relation_terms(lexical_terms) if is_temporal_query else ()
@@ -767,6 +760,31 @@ def _multi_hop_bridge_query_terms(
     return tuple(dict.fromkeys(bridge_terms))
 
 
+def _support_query_terms(
+    *,
+    relation_terms: tuple[str, ...],
+    relation_variant_terms: tuple[str, ...],
+    lexical_terms: tuple[str, ...],
+    entity_surfaces: tuple[str, ...],
+    communication_support: bool,
+) -> tuple[str, ...]:
+    if communication_support:
+        return _communication_support_query_terms(
+            relation_terms=relation_terms,
+            relation_variant_terms=relation_variant_terms,
+            lexical_terms=lexical_terms,
+            entity_surfaces=entity_surfaces,
+        )
+    if {"sign", "enroll", "register"} & set(relation_terms):
+        return _registration_event_query_terms(
+            relation_terms=relation_terms,
+            relation_variant_terms=relation_variant_terms,
+            lexical_terms=lexical_terms,
+            entity_surfaces=entity_surfaces,
+        )
+    return _relation_query_terms(relation_terms, relation_variant_terms)
+
+
 def _communication_support_query_terms(
     *,
     relation_terms: tuple[str, ...],
@@ -834,6 +852,31 @@ def _communication_support_query_terms(
                 *relation_specific_variants,
             )
         )
+    )
+
+
+def _registration_event_query_terms(
+    *,
+    relation_terms: tuple[str, ...],
+    relation_variant_terms: tuple[str, ...],
+    lexical_terms: tuple[str, ...],
+    entity_surfaces: tuple[str, ...],
+) -> tuple[str, ...]:
+    entity_tokens = {
+        token for surface in entity_surfaces for token in _normalized_terms(surface)
+    }
+    base_terms = _relation_query_terms(relation_terms, relation_variant_terms)
+    topical_terms = tuple(
+        term
+        for term in lexical_terms
+        if term not in _QUERY_STOPWORDS
+        and term not in relation_terms
+        and term not in relation_variant_terms
+        and term not in _QUERY_TOKEN_ALIASES
+        and term not in entity_tokens
+    )
+    return tuple(
+        dict.fromkeys((*base_terms[:4], *topical_terms[:4], *base_terms[4:]))
     )
 
 
@@ -1681,8 +1724,8 @@ def _relation_query_terms(
     if "move" in relation_term_set:
         priority_variant_order.extend(("moved", "home", "country", "relocated"))
     if "sign" in relation_term_set:
-        priority_variant_order.extend(("signed", "signup", "class", "pottery", "yesterday"))
-        priority_surface_terms.update(("signed", "yesterday"))
+        priority_variant_order.extend(("signed", "signup", "class", "registered"))
+        priority_surface_terms.add("signed")
     if {"enroll", "register"} & relation_term_set:
         priority_variant_order.extend(
             (
