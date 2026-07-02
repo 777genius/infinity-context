@@ -1657,10 +1657,12 @@ def _required_evidence_roles(item: Mapping[str, object]) -> tuple[str, ...]:
     query_decomposition = _mapping(metadata.get("query_decomposition"))
     query_profile = _mapping(query_decomposition.get("query_profile"))
     intent = _mapping(query_decomposition.get("retrieval_intent"))
-    roles = _str_tuple(query_profile.get("bundle_evidence_roles"))
-    if roles:
-        return roles
-    return _str_tuple(intent.get("bundle_evidence_roles"))
+    return tuple(
+        dict.fromkeys(
+            _str_tuple(query_profile.get("bundle_evidence_roles"))
+            + _str_tuple(intent.get("bundle_evidence_roles"))
+        )
+    )
 
 
 def _missing_evidence_role_query_families(

@@ -7,14 +7,8 @@ from collections.abc import Mapping, Sequence
 
 def needs_temporal_support(item: Mapping[str, object]) -> bool:
     query_profile, intent = _query_profile_and_intent(item)
-    evidence_need = (
-        _str_tuple(query_profile.get("evidence_need"))
-        or _str_tuple(intent.get("evidence_need"))
-    )
-    roles = (
-        _str_tuple(query_profile.get("bundle_evidence_roles"))
-        or _str_tuple(intent.get("bundle_evidence_roles"))
-    )
+    evidence_need = _merged_query_values(query_profile, intent, "evidence_need")
+    roles = _merged_query_values(query_profile, intent, "bundle_evidence_roles")
     relation_categories = _relation_categories(query_profile, intent)
     return bool(
         {"temporal_support", "temporal_sequence"}.intersection(evidence_need)
@@ -25,14 +19,8 @@ def needs_temporal_support(item: Mapping[str, object]) -> bool:
 
 def needs_contrast_evidence(item: Mapping[str, object]) -> bool:
     query_profile, intent = _query_profile_and_intent(item)
-    evidence_need = (
-        _str_tuple(query_profile.get("evidence_need"))
-        or _str_tuple(intent.get("evidence_need"))
-    )
-    roles = (
-        _str_tuple(query_profile.get("bundle_evidence_roles"))
-        or _str_tuple(intent.get("bundle_evidence_roles"))
-    )
+    evidence_need = _merged_query_values(query_profile, intent, "evidence_need")
+    roles = _merged_query_values(query_profile, intent, "bundle_evidence_roles")
     relation_categories = _relation_categories(query_profile, intent)
     return bool(
         "contrast" in evidence_need
@@ -43,15 +31,9 @@ def needs_contrast_evidence(item: Mapping[str, object]) -> bool:
 
 def needs_causal_support(item: Mapping[str, object]) -> bool:
     query_profile, intent = _query_profile_and_intent(item)
-    evidence_need = (
-        _str_tuple(query_profile.get("evidence_need"))
-        or _str_tuple(intent.get("evidence_need"))
-    )
+    evidence_need = _merged_query_values(query_profile, intent, "evidence_need")
     relation_categories = _relation_categories(query_profile, intent)
-    roles = (
-        _str_tuple(query_profile.get("bundle_evidence_roles"))
-        or _str_tuple(intent.get("bundle_evidence_roles"))
-    )
+    roles = _merged_query_values(query_profile, intent, "bundle_evidence_roles")
     return bool(
         "causal_support" in evidence_need
         or "causal_support" in roles
@@ -61,14 +43,8 @@ def needs_causal_support(item: Mapping[str, object]) -> bool:
 
 def needs_location_support(item: Mapping[str, object]) -> bool:
     query_profile, intent = _query_profile_and_intent(item)
-    evidence_need = (
-        _str_tuple(query_profile.get("evidence_need"))
-        or _str_tuple(intent.get("evidence_need"))
-    )
-    roles = (
-        _str_tuple(query_profile.get("bundle_evidence_roles"))
-        or _str_tuple(intent.get("bundle_evidence_roles"))
-    )
+    evidence_need = _merged_query_values(query_profile, intent, "evidence_need")
+    roles = _merged_query_values(query_profile, intent, "bundle_evidence_roles")
     relation_categories = _relation_categories(query_profile, intent)
     return bool(
         "location_support" in evidence_need
@@ -79,27 +55,15 @@ def needs_location_support(item: Mapping[str, object]) -> bool:
 
 def needs_inference_support(item: Mapping[str, object]) -> bool:
     query_profile, intent = _query_profile_and_intent(item)
-    evidence_need = (
-        _str_tuple(query_profile.get("evidence_need"))
-        or _str_tuple(intent.get("evidence_need"))
-    )
-    roles = (
-        _str_tuple(query_profile.get("bundle_evidence_roles"))
-        or _str_tuple(intent.get("bundle_evidence_roles"))
-    )
+    evidence_need = _merged_query_values(query_profile, intent, "evidence_need")
+    roles = _merged_query_values(query_profile, intent, "bundle_evidence_roles")
     return bool("inference_support" in evidence_need or "inference_support" in roles)
 
 
 def needs_preference_support(item: Mapping[str, object]) -> bool:
     query_profile, intent = _query_profile_and_intent(item)
-    evidence_need = (
-        _str_tuple(query_profile.get("evidence_need"))
-        or _str_tuple(intent.get("evidence_need"))
-    )
-    roles = (
-        _str_tuple(query_profile.get("bundle_evidence_roles"))
-        or _str_tuple(intent.get("bundle_evidence_roles"))
-    )
+    evidence_need = _merged_query_values(query_profile, intent, "evidence_need")
+    roles = _merged_query_values(query_profile, intent, "bundle_evidence_roles")
     relation_categories = _relation_categories(query_profile, intent)
     return bool(
         "preference" in evidence_need
@@ -110,14 +74,8 @@ def needs_preference_support(item: Mapping[str, object]) -> bool:
 
 def needs_emotion_response_support(item: Mapping[str, object]) -> bool:
     query_profile, intent = _query_profile_and_intent(item)
-    evidence_need = (
-        _str_tuple(query_profile.get("evidence_need"))
-        or _str_tuple(intent.get("evidence_need"))
-    )
-    roles = (
-        _str_tuple(query_profile.get("bundle_evidence_roles"))
-        or _str_tuple(intent.get("bundle_evidence_roles"))
-    )
+    evidence_need = _merged_query_values(query_profile, intent, "evidence_need")
+    roles = _merged_query_values(query_profile, intent, "bundle_evidence_roles")
     relation_categories = _relation_categories(query_profile, intent)
     return bool(
         "emotion_response" in evidence_need
@@ -128,14 +86,8 @@ def needs_emotion_response_support(item: Mapping[str, object]) -> bool:
 
 def needs_event_support(item: Mapping[str, object]) -> bool:
     query_profile, intent = _query_profile_and_intent(item)
-    evidence_need = (
-        _str_tuple(query_profile.get("evidence_need"))
-        or _str_tuple(intent.get("evidence_need"))
-    )
-    roles = (
-        _str_tuple(query_profile.get("bundle_evidence_roles"))
-        or _str_tuple(intent.get("bundle_evidence_roles"))
-    )
+    evidence_need = _merged_query_values(query_profile, intent, "evidence_need")
+    roles = _merged_query_values(query_profile, intent, "bundle_evidence_roles")
     relation_categories = _relation_categories(query_profile, intent)
     event_categories = {"participation_event", "registration_event"}
     return bool(
@@ -147,14 +99,8 @@ def needs_event_support(item: Mapping[str, object]) -> bool:
 
 def needs_exchange_support(item: Mapping[str, object]) -> bool:
     query_profile, intent = _query_profile_and_intent(item)
-    evidence_need = (
-        _str_tuple(query_profile.get("evidence_need"))
-        or _str_tuple(intent.get("evidence_need"))
-    )
-    roles = (
-        _str_tuple(query_profile.get("bundle_evidence_roles"))
-        or _str_tuple(intent.get("bundle_evidence_roles"))
-    )
+    evidence_need = _merged_query_values(query_profile, intent, "evidence_need")
+    roles = _merged_query_values(query_profile, intent, "bundle_evidence_roles")
     relation_categories = _relation_categories(query_profile, intent)
     return bool(
         "exchange" in evidence_need
@@ -165,14 +111,8 @@ def needs_exchange_support(item: Mapping[str, object]) -> bool:
 
 def needs_communication_support(item: Mapping[str, object]) -> bool:
     query_profile, intent = _query_profile_and_intent(item)
-    evidence_need = (
-        _str_tuple(query_profile.get("evidence_need"))
-        or _str_tuple(intent.get("evidence_need"))
-    )
-    roles = (
-        _str_tuple(query_profile.get("bundle_evidence_roles"))
-        or _str_tuple(intent.get("bundle_evidence_roles"))
-    )
+    evidence_need = _merged_query_values(query_profile, intent, "evidence_need")
+    roles = _merged_query_values(query_profile, intent, "bundle_evidence_roles")
     relation_categories = _relation_categories(query_profile, intent)
     return bool(
         "communication" in evidence_need
@@ -183,14 +123,8 @@ def needs_communication_support(item: Mapping[str, object]) -> bool:
 
 def needs_symbolic_meaning_support(item: Mapping[str, object]) -> bool:
     query_profile, intent = _query_profile_and_intent(item)
-    evidence_need = (
-        _str_tuple(query_profile.get("evidence_need"))
-        or _str_tuple(intent.get("evidence_need"))
-    )
-    roles = (
-        _str_tuple(query_profile.get("bundle_evidence_roles"))
-        or _str_tuple(intent.get("bundle_evidence_roles"))
-    )
+    evidence_need = _merged_query_values(query_profile, intent, "evidence_need")
+    roles = _merged_query_values(query_profile, intent, "bundle_evidence_roles")
     relation_categories = _relation_categories(query_profile, intent)
     return bool(
         "symbolic_meaning" in evidence_need
@@ -201,14 +135,8 @@ def needs_symbolic_meaning_support(item: Mapping[str, object]) -> bool:
 
 def needs_visual_support(item: Mapping[str, object]) -> bool:
     query_profile, intent = _query_profile_and_intent(item)
-    evidence_need = (
-        _str_tuple(query_profile.get("evidence_need"))
-        or _str_tuple(intent.get("evidence_need"))
-    )
-    roles = (
-        _str_tuple(query_profile.get("bundle_evidence_roles"))
-        or _str_tuple(intent.get("bundle_evidence_roles"))
-    )
+    evidence_need = _merged_query_values(query_profile, intent, "evidence_need")
+    roles = _merged_query_values(query_profile, intent, "bundle_evidence_roles")
     relation_categories = _relation_categories(query_profile, intent)
     visual_terms = _str_tuple(query_profile.get("visual_terms"))
     return bool(
@@ -563,14 +491,26 @@ def _relation_categories(
     query_profile: Mapping[str, object],
     intent: Mapping[str, object],
 ) -> tuple[str, ...]:
-    categories = _str_tuple(query_profile.get("relation_categories"))
-    if categories:
-        return categories
     relation_items = _sequence(_mapping(intent.get("relations")).get("intents"))
-    return tuple(
+    intent_categories = tuple(
         str(relation.get("category") or "").strip()
         for relation in relation_items
         if isinstance(relation, Mapping) and str(relation.get("category") or "").strip()
+    )
+    return tuple(
+        dict.fromkeys(
+            _str_tuple(query_profile.get("relation_categories")) + intent_categories
+        )
+    )
+
+
+def _merged_query_values(
+    query_profile: Mapping[str, object],
+    intent: Mapping[str, object],
+    key: str,
+) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(_str_tuple(query_profile.get(key)) + _str_tuple(intent.get(key)))
     )
 
 

@@ -1251,6 +1251,55 @@ def test_query_plan_integrity_maps_preference_and_visual_support_roles() -> None
     )
 
 
+def test_query_plan_integrity_merges_required_roles_from_profile_and_intent() -> None:
+    base_only_plan = {
+        "schema_version": "query_plan.v2",
+        "selected_query_count": 1,
+        "dropped_query_count": 0,
+        "selected_roles": ["original_question"],
+        "dropped_roles": [],
+        "recommended_role_families": ["base_query"],
+        "selected_role_families": ["base_query"],
+        "missing_recommended_role_families": [],
+        "selected_role_family_counts": {"base_query": 1},
+        "fanout_integrity": {"bounded": True},
+    }
+    retrieval = _retrieval_payload(
+        evidence_need=(),
+        bundle_evidence_roles=("primary",),
+        relation_categories=(),
+        policy_score=0.0,
+        query_plan=base_only_plan,
+    )
+    query_decomposition = retrieval["metadata"]["query_decomposition"]
+    query_decomposition["retrieval_intent"]["bundle_evidence_roles"] = [
+        "primary",
+        "visual_support",
+    ]
+
+    diagnostics = quality_diagnostics(
+        (
+            _item(
+                case_id="intent-only-required-visual-role",
+                group="single-hop",
+                retrieval=retrieval,
+            ),
+        )
+    )
+    table = diagnostics["query_plan_integrity_table"]
+
+    assert table["missing_evidence_role_query_family_counts"] == {
+        "visual_support": 1
+    }
+    assert table["samples"][0]["required_evidence_roles"] == (
+        "primary",
+        "visual_support",
+    )
+    assert table["samples"][0]["missing_evidence_role_query_families"] == (
+        "visual_support",
+    )
+
+
 def test_query_plan_integrity_maps_emotion_response_support_role() -> None:
     base_only_plan = {
         "schema_version": "query_plan.v2",

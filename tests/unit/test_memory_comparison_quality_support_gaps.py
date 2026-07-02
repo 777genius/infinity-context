@@ -455,6 +455,61 @@ def test_fast_gate_metrics_reads_support_need_from_bundle_roles() -> None:
         assert missing_reason in breakdown["samples"][0]["reasons"]
 
 
+def test_fast_gate_metrics_merges_support_need_from_profile_and_intent() -> None:
+    retrieval = _retrieval_payload(
+        evidence_need=(),
+        bundle_evidence_roles=("primary",),
+        relation_categories=("status_profile",),
+        policy_score=0.0,
+    )
+    query_decomposition = retrieval["metadata"]["query_decomposition"]
+    query_decomposition["retrieval_intent"]["evidence_need"] = ["visual_evidence"]
+    query_decomposition["retrieval_intent"]["bundle_evidence_roles"] = [
+        "primary",
+        "visual_support",
+    ]
+    query_decomposition["retrieval_intent"]["relations"] = {
+        "intents": [{"category": "preference"}]
+    }
+
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="mixed-profile-intent-support",
+                group="single-hop",
+                retrieval=retrieval,
+                evidence_bundle={
+                    "bundle_complete": False,
+                    "item_count": 1,
+                    "primary_evidence_count": 1,
+                    "supporting_evidence_count": 0,
+                    "query_support_term_recall": 0.5,
+                    "covered_evidence_terms": [],
+                    "items": [
+                        {
+                            "role": "primary",
+                            "retrieval_order": 1,
+                            "focused_evidence_score": 1.0,
+                        }
+                    ],
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    breakdown = gate["bundle_gap_breakdown"]
+
+    assert breakdown["reason_counts"]["missing_visual_support"] == 1
+    assert breakdown["reason_counts"]["missing_preference_support"] == 1
+    assert breakdown["evidence_need_gap_reason_counts"] == {
+        "missing_preference_support": 1,
+        "missing_visual_support": 1,
+    }
+    assert "missing_visual_support" in breakdown["samples"][0]["reasons"]
+    assert "missing_preference_support" in breakdown["samples"][0]["reasons"]
+
+
 def test_fast_gate_metrics_reports_missing_location_support_gap() -> None:
     gate = fast_gate_metrics(
         (
