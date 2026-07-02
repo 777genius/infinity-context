@@ -286,9 +286,12 @@ class PreferenceIntentPolicy:
     name = "PreferenceIntentPolicy"
 
     def score(self, features: RerankPolicyFeatures) -> RerankPolicyContribution:
+        grounded = _preference_evidence_grounded(features)
         preference_boost = (
             0.12
-            if features.is_preference_query and features.has_preference_evidence
+            if features.is_preference_query
+            and features.has_preference_evidence
+            and grounded
             else 0.0
         )
         policy_boosts = _rounded_boosts(features.policy_boosts)
@@ -297,6 +300,7 @@ class PreferenceIntentPolicy:
             score=preference_boost + sum(policy_boosts.values()),
             signals={
                 "benchmark_preference_evidence_boost": round(preference_boost, 6),
+                "benchmark_preference_evidence_grounded": grounded,
                 **policy_boosts,
             },
             reason_codes=(
@@ -659,6 +663,18 @@ def _speaker_grounding_eligible(features: RerankPolicyFeatures) -> bool:
         and not _has_positive_boost(features.policy_boosts)
         and not _has_positive_boost(features.shape_boosts)
     )
+
+
+def _preference_evidence_grounded(features: RerankPolicyFeatures) -> bool:
+    if not features.has_preference_evidence:
+        return False
+    if features.broad_summary:
+        return False
+    if features.source_locality_score < 0.65:
+        return False
+    if features.query_has_entities and not (features.entity_hits or features.speaker_hits):
+        return False
+    return bool(features.direct_speaker_turn or features.relation_hits)
 
 
 def _has_positive_boost(boosts: Mapping[str, float]) -> bool:
