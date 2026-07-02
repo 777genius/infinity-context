@@ -477,6 +477,53 @@ def test_rerank_policy_requires_grounded_preference_evidence() -> None:
     assert grounded.boost > broad.boost
 
 
+def test_rerank_policy_requires_grounded_visual_evidence() -> None:
+    grounded = score_benchmark_rerank_candidate(
+        _features(
+            overlap_terms=("melanie", "painting"),
+            entity_hits=("melanie",),
+            speaker_hits=("melanie",),
+            relation_hits=("painting",),
+            relation_terms=("painting",),
+            has_visual_terms=True,
+            has_visual_evidence=True,
+            direct_speaker_turn=True,
+            source_locality_score=1.0,
+            source_ref_count=1,
+            turn_ref_count=1,
+        )
+    )
+    broad = score_benchmark_rerank_candidate(
+        _features(
+            overlap_terms=("melanie", "painting"),
+            entity_hits=("melanie",),
+            relation_hits=("painting",),
+            relation_terms=("painting",),
+            has_visual_terms=True,
+            has_visual_evidence=True,
+            broad_summary=True,
+            source_locality_score=0.35,
+            source_ref_count=8,
+            turn_ref_count=12,
+        )
+    )
+
+    grounded_signals = grounded.signals["score_signals"]
+    broad_signals = broad.signals["score_signals"]
+    grounded_policy = grounded.signals["policy_contributions"]
+    broad_policy = broad.signals["policy_contributions"]
+
+    assert grounded_signals["benchmark_visual_evidence_boost"] == 0.16
+    assert grounded_signals["benchmark_visual_evidence_grounded"] is True
+    assert "visual_evidence" in grounded_policy["reason_codes_by_policy"][
+        "EvidenceBundlePolicy"
+    ]
+    assert broad_signals["benchmark_visual_evidence_boost"] == 0.0
+    assert broad_signals["benchmark_visual_evidence_grounded"] is False
+    assert "EvidenceBundlePolicy" not in broad_policy["reason_codes_by_policy"]
+    assert grounded.boost > broad.boost
+
+
 def test_rerank_policy_accepts_typed_communication_support_need() -> None:
     score = score_benchmark_rerank_candidate(
         _features(

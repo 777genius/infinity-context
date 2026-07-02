@@ -371,8 +371,13 @@ class EvidenceBundlePolicy:
     name = "EvidenceBundlePolicy"
 
     def score(self, features: RerankPolicyFeatures) -> RerankPolicyContribution:
+        visual_grounded = _visual_evidence_grounded(features)
         visual_boost = (
-            0.16 if features.has_visual_terms and features.has_visual_evidence else 0.0
+            0.16
+            if features.has_visual_terms
+            and features.has_visual_evidence
+            and visual_grounded
+            else 0.0
         )
         shape_boosts = _rounded_boosts(features.shape_boosts)
         direct_provenance_boost = (
@@ -387,6 +392,7 @@ class EvidenceBundlePolicy:
             score=visual_boost + direct_provenance_boost + sum(shape_boosts.values()),
             signals={
                 "benchmark_visual_evidence_boost": round(visual_boost, 6),
+                "benchmark_visual_evidence_grounded": visual_grounded,
                 "benchmark_direct_provenance_boost": round(
                     direct_provenance_boost,
                     6,
@@ -675,6 +681,22 @@ def _preference_evidence_grounded(features: RerankPolicyFeatures) -> bool:
     if features.query_has_entities and not (features.entity_hits or features.speaker_hits):
         return False
     return bool(features.direct_speaker_turn or features.relation_hits)
+
+
+def _visual_evidence_grounded(features: RerankPolicyFeatures) -> bool:
+    if not features.has_visual_evidence:
+        return False
+    if features.broad_summary:
+        return False
+    if features.source_locality_score < 0.65:
+        return False
+    if features.query_has_entities and not (features.entity_hits or features.speaker_hits):
+        return False
+    return bool(
+        features.direct_speaker_turn
+        or features.source_ref_count > 0
+        or features.turn_ref_count > 0
+    )
 
 
 def _has_positive_boost(boosts: Mapping[str, float]) -> bool:
