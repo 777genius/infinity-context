@@ -3906,6 +3906,13 @@ def test_query_decomposition_expands_temporal_action_queries() -> None:
         answer="10 years",
         category=2,
     )
+    generic_birthday_case = _case(
+        case_id="conv-26:qa:generic-birthday",
+        question="When is Caroline's birthday?",
+        expected_terms=("May",),
+        answer="May",
+        category=2,
+    )
     pottery_case = _case(
         case_id="conv-26:qa:17",
         question="When did Melanie sign up for a pottery class?",
@@ -3965,6 +3972,9 @@ def test_query_decomposition_expands_temporal_action_queries() -> None:
     birthday_duration_queries, birthday_duration_metadata = (
         rerank_module.decomposed_search_queries(birthday_duration_case)
     )
+    generic_birthday_queries, generic_birthday_metadata = (
+        rerank_module.decomposed_search_queries(generic_birthday_case)
+    )
     pottery_queries, pottery_metadata = rerank_module.decomposed_search_queries(
         pottery_case
     )
@@ -4005,9 +4015,14 @@ def test_query_decomposition_expands_temporal_action_queries() -> None:
     assert "current" in friend_duration_metadata["query_profile"]["relation_terms"]
     assert "known" in friend_duration_metadata["query_profile"]["relation_variant_terms"]
     assert "year" in friend_duration_metadata["query_profile"]["relation_variant_terms"]
-    assert birthday_duration_queries[1] == "caroline birthday 18th year ago born age"
+    assert birthday_duration_queries[1] == "caroline birthday year ago born 18th age"
     assert "18th" in birthday_duration_metadata["query_profile"]["lexical_terms"]
     assert "birthday" in birthday_duration_metadata["query_profile"]["relation_terms"]
+    assert generic_birthday_queries[1] == "caroline birthday year ago born age"
+    assert "18th" not in generic_birthday_metadata["query_profile"]["lexical_terms"]
+    assert "18th" not in generic_birthday_metadata["query_profile"][
+        "relation_variant_terms"
+    ]
     assert pottery_queries[1] == "melanie sign signed signup class pottery registered"
     assert "sign" in pottery_metadata["query_profile"]["relation_terms"]
     assert "pottery" in pottery_metadata["query_profile"]["lexical_terms"]

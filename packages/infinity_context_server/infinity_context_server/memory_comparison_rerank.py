@@ -1473,7 +1473,6 @@ def _relation_query_terms(
         priority_surface_terms.update(("animal", "learning"))
     if "birthday" in relation_term_set:
         priority_variant_order.extend(("18th", "year", "ago", "born", "age"))
-        priority_surface_terms.add("18th")
     if "camp" in relation_term_set:
         priority_variant_order.extend(
             ("camping", "family", "unplug", "connection", "close", "outdoor", "trip")
