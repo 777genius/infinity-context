@@ -5,6 +5,106 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
 
+from infinity_context_server.memory_comparison_quality_accessors import (
+    active_policy_reasons as _active_policy_reasons,
+)
+from infinity_context_server.memory_comparison_quality_accessors import avg as _avg
+from infinity_context_server.memory_comparison_quality_accessors import (
+    bundle_complete as _bundle_complete,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    bundle_items as _bundle_items,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    bundle_planner as _bundle_planner,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    candidate_features as _candidate_features,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    count_mapping as _count_mapping,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    direct_source_refs_from_memory as _direct_source_refs_from_memory,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    evidence_recall as _evidence_recall,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    expected_recall as _expected_recall,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    fusion_source_refs as _fusion_source_refs,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    has_evidence_recall as _has_evidence_recall,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    judgment_score as _judgment_score,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    mapping as _mapping,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    memory_diagnostics as _memory_diagnostics,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    memory_id as _memory_id,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    metric_value as _metric_value,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    only_broad_bundle_evidence as _only_broad_bundle_evidence,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    positive_int as _positive_int,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    positive_policy_score as _positive_policy_score,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    positive_signal_names as _positive_signal_names,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    query_integrity as _query_integrity,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    query_overlap_count as _query_overlap_count,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    query_plan as _query_plan,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    ratio as _ratio,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    retrieval_metadata as _retrieval_metadata,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    retrieval_results as _retrieval_results,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    selected_source_locality_score as _selected_source_locality_score,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    sequence as _sequence,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    source_refs_from_bundle_item as _source_refs_from_bundle_item,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    source_refs_from_memory as _source_refs_from_memory,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    str_tuple as _str_tuple,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    top_counts as _top_counts,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    top_signal_values as _top_signal_values,
+)
 from infinity_context_server.memory_comparison_quality_support import (
     bundle_has_causal_support as _bundle_has_causal_support,
 )
@@ -2185,103 +2285,6 @@ def _bundle_evidence_ref_positions(
     return positions, focused_positions
 
 
-def _retrieval_results(
-    items: Sequence[Mapping[str, object]],
-) -> tuple[Mapping[str, object], ...]:
-    return tuple(
-        result
-        for item in items
-        for result in _sequence(_mapping(item.get("retrieval")).get("results"))
-        if isinstance(result, Mapping)
-    )
-
-
-def _candidate_features(memory: Mapping[str, object]) -> Mapping[str, object]:
-    diagnostics = _memory_diagnostics(memory)
-    return _mapping(diagnostics.get("benchmark_candidate_features"))
-
-
-def _source_refs_from_memory(memory: Mapping[str, object]) -> tuple[str, ...]:
-    return tuple(
-        dict.fromkeys(
-            (
-                *_direct_source_refs_from_memory(memory),
-                *_fusion_source_refs(memory),
-            )
-        )
-    )
-
-
-def _direct_source_refs_from_memory(memory: Mapping[str, object]) -> tuple[str, ...]:
-    return _str_tuple(memory.get("source_refs"))
-
-
-def _fusion_source_refs(memory: Mapping[str, object]) -> tuple[str, ...]:
-    fusion = _mapping(_memory_diagnostics(memory).get("benchmark_candidate_fusion"))
-    return _str_tuple(fusion.get("source_refs"))
-
-
-def _source_refs_from_bundle_item(item: Mapping[str, object]) -> tuple[str, ...]:
-    return _str_tuple(item.get("source_refs"))
-
-
-def _memory_diagnostics(memory: Mapping[str, object]) -> Mapping[str, object]:
-    return _mapping(_mapping(memory.get("metadata")).get("diagnostics"))
-
-
-def _positive_policy_score(diagnostics: Mapping[str, object]) -> float:
-    policy = _mapping(diagnostics.get("benchmark_rerank_policy"))
-    total = 0.0
-    for contribution in _sequence(policy.get("contributions")):
-        score = _metric_value(_mapping(contribution), "score")
-        if score > 0:
-            total += score
-    return round(total, 6)
-
-
-def _active_policy_reasons(
-    diagnostics: Mapping[str, object],
-) -> dict[str, tuple[str, ...]]:
-    policy_reasons: dict[str, tuple[str, ...]] = {}
-    policy = _mapping(diagnostics.get("benchmark_rerank_policy"))
-    for contribution in _sequence(policy.get("contributions")):
-        payload = _mapping(contribution)
-        score = _metric_value(payload, "score")
-        reasons = _str_tuple(payload.get("reason_codes"))
-        if score <= 0 and not reasons:
-            continue
-        name = str(payload.get("policy") or "unknown")
-        policy_reasons[name] = reasons
-    return policy_reasons
-
-
-def _positive_signal_names(score_signals: Mapping[str, object]) -> tuple[str, ...]:
-    names: list[str] = []
-    for name, value in score_signals.items():
-        if isinstance(value, bool):
-            if value:
-                names.append(str(name))
-            continue
-        if _metric_value(score_signals, str(name)) > 0:
-            names.append(str(name))
-    return tuple(names)
-
-
-def _top_signal_values(score_signals: Mapping[str, object]) -> dict[str, object]:
-    values: dict[str, object] = {}
-    for name in _positive_signal_names(score_signals):
-        value = score_signals.get(name)
-        if isinstance(value, bool):
-            values[name] = value
-        else:
-            values[name] = round(_metric_value(score_signals, name), 6)
-    return dict(sorted(values.items(), key=lambda pair: str(pair[0]))[:8])
-
-
-def _memory_id(memory: Mapping[str, object]) -> str:
-    return str(memory.get("id") or memory.get("item_id") or "")
-
-
 def _is_multi_hop_item(item: Mapping[str, object]) -> bool:
     if str(item.get("group") or "").replace("_", "-") == "multi-hop":
         return True
@@ -2290,148 +2293,3 @@ def _is_multi_hop_item(item: Mapping[str, object]) -> bool:
     query_profile = _mapping(query_decomposition.get("query_profile"))
     evidence_need = _str_tuple(query_profile.get("evidence_need"))
     return any(need in {"multi_hop", "multi-hop", "inference_support"} for need in evidence_need)
-
-
-def _selected_source_locality_score(item: Mapping[str, object]) -> float:
-    planner = _bundle_planner(item)
-    if "average_selected_source_locality_score" in planner:
-        return _metric_value(planner, "average_selected_source_locality_score")
-    bundle_items = _bundle_items(_mapping(item.get("evidence_bundle")))
-    locality_scores = [
-        _metric_value(bundle_item, "source_locality_score")
-        for bundle_item in bundle_items
-        if "source_locality_score" in bundle_item
-    ]
-    return _avg(locality_scores)
-
-
-def _bundle_items(bundle: Mapping[str, object]) -> tuple[Mapping[str, object], ...]:
-    return tuple(item for item in _sequence(bundle.get("items")) if isinstance(item, Mapping))
-
-
-def _bundle_quality(item: Mapping[str, object]) -> Mapping[str, object]:
-    return _mapping(_bundle_planner(item).get("bundle_quality"))
-
-
-def _bundle_planner(item: Mapping[str, object]) -> Mapping[str, object]:
-    bundle = _mapping(item.get("evidence_bundle"))
-    return _mapping(bundle.get("bundle_planner"))
-
-
-def _retrieval_metadata(item: Mapping[str, object]) -> Mapping[str, object]:
-    return _mapping(_mapping(item.get("retrieval")).get("metadata"))
-
-
-def _query_integrity(item: Mapping[str, object]) -> Mapping[str, object]:
-    return _mapping(_retrieval_metadata(item).get("query_integrity"))
-
-
-def _query_plan(item: Mapping[str, object]) -> Mapping[str, object]:
-    query_decomposition = _mapping(
-        _retrieval_metadata(item).get("query_decomposition")
-    )
-    return _mapping(query_decomposition.get("query_plan"))
-
-
-def _query_overlap_count(item: Mapping[str, object]) -> int:
-    integrity = _query_integrity(item)
-    return (
-        _positive_int(integrity.get("expected_answer_query_overlap_count"))
-        or _positive_int(integrity.get("expected_answer_query_profile_overlap_count"))
-        or 0
-    )
-
-
-def _only_broad_bundle_evidence(item: Mapping[str, object]) -> bool:
-    bundle_items = _bundle_items(_mapping(item.get("evidence_bundle")))
-    if not bundle_items:
-        return False
-    return all(
-        _metric_value(bundle_item, "focused_evidence_score") <= 0
-        for bundle_item in bundle_items
-    )
-
-
-def _bundle_complete(item: Mapping[str, object]) -> bool:
-    return bool(_mapping(item.get("evidence_bundle")).get("bundle_complete"))
-
-
-def _has_evidence_recall(item: Mapping[str, object]) -> bool:
-    return "evidence_term_recall" in _mapping(item.get("retrieval_quality"))
-
-
-def _expected_recall(item: Mapping[str, object]) -> float:
-    return _metric_value(_mapping(item.get("retrieval_quality")), "expected_term_recall")
-
-
-def _evidence_recall(item: Mapping[str, object]) -> float:
-    return _metric_value(_mapping(item.get("retrieval_quality")), "evidence_term_recall")
-
-
-def _judgment_score(item: Mapping[str, object]) -> float:
-    return _metric_value(_mapping(item.get("judgment")), "score")
-
-
-def _mapping(value: object) -> Mapping[str, object]:
-    return value if isinstance(value, Mapping) else {}
-
-
-def _sequence(value: object) -> tuple[object, ...]:
-    if isinstance(value, Sequence) and not isinstance(value, str | bytes):
-        return tuple(value)
-    return ()
-
-
-def _str_tuple(value: object) -> tuple[str, ...]:
-    if isinstance(value, str):
-        stripped = value.strip()
-        return (stripped,) if stripped else ()
-    return tuple(str(item) for item in _sequence(value) if str(item).strip())
-
-
-def _count_mapping(value: object) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    for key, raw_count in _mapping(value).items():
-        role = str(key).strip()
-        if not role:
-            continue
-        counts[role] = _positive_int(raw_count) or 0
-    return dict(sorted(counts.items()))
-
-
-def _positive_int(value: object) -> int | None:
-    if isinstance(value, bool):
-        return None
-    try:
-        parsed = int(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return None
-    return parsed if parsed > 0 else None
-
-
-def _metric_value(item: Mapping[str, object], key: str) -> float:
-    value = item.get(key)
-    if isinstance(value, bool):
-        return 0.0
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return 0.0
-
-
-def _top_counts(counter: Counter[str], limit: int = 20) -> dict[str, int]:
-    return dict(
-        sorted(
-            counter.most_common(limit),
-            key=lambda pair: (-pair[1], pair[0]),
-        )
-    )
-
-
-def _ratio(numerator: int, denominator: int) -> float:
-    return round(numerator / denominator, 4) if denominator else 0.0
-
-
-def _avg(values: Sequence[float] | object) -> float:
-    sequence = tuple(float(value) for value in values)  # type: ignore[arg-type]
-    return round(sum(sequence) / len(sequence), 4) if sequence else 0.0
