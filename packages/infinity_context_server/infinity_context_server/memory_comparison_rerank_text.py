@@ -139,6 +139,7 @@ QUERY_TOKEN_ALIASES = {
     "excit": ("excite",),
     "gather": ("gathering",),
     "giv": ("give",),
+    "graduat": ("graduate", "graduated"),
     "interest": ("interest",),
     "interested": ("interest",),
     "kids": ("kid",),
@@ -182,6 +183,7 @@ QUERY_RENDER_SURFACES = {
     "lov": "loving",
     "register": "registered",
     "engag": "engaged",
+    "graduat": "graduated",
     "relocat": "relocated",
     "thrill": "thrilled",
     "upbring": "upbringing",
@@ -389,7 +391,9 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
         r"\bwhat\s+(?:is|was)\b.+\bdegree\b(?:\s+(?:in|from)\b|[?.!]*\s*$)|"
         r"\bwhat\s+degree\s+(?:does|did|is|was|has|have)\b|"
         r"\bdegree\s+(?:does|did)\b.+\bhave\b|"
-        r"\b(?:major|degree)\s+in\b",
+        r"\b(?:major|degree)\s+in\b|"
+        r"\b(?:where|when|what\s+school)\b.+\bgraduat(?:e|ed|ion)\b|"
+        r"\bgraduat(?:e|ed|ion)\b.+\b(?:from|school|college|university)\b",
         text,
         flags=re.IGNORECASE,
     ):
@@ -560,7 +564,8 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
         text,
         flags=re.IGNORECASE,
     ) and not re.search(
-        r"\b(?:move|moved|moving|relocate|relocated|relocation)\b",
+        r"\b(?:move|moved|moving|relocate|relocated|relocation|"
+        r"graduat(?:e|ed|ion))\b",
         text,
         flags=re.IGNORECASE,
     ):

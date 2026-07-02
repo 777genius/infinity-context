@@ -177,6 +177,9 @@ RELATION_QUERY_VARIANTS = {
         "major",
         "majoring",
         "degree",
+        "graduate",
+        "graduated",
+        "graduation",
         "campus",
     ),
     "employment": (

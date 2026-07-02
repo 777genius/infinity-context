@@ -220,7 +220,13 @@ _EDUCATION_PROFILE_SURFACE_RE = re.compile(
     r"|\b(?:have|has|had|earn|earned|got|receive|received)\s+"
     r"(?:a\s+|an\s+|the\s+)?(?:[a-zA-Z][a-zA-Z0-9_-]+\s+){0,3}"
     r"degree\s+in\s+"
-    r"(?:[A-Z][a-zA-Z0-9_-]+|[a-zA-Z][a-zA-Z0-9_-]+)",
+    r"(?:[A-Z][a-zA-Z0-9_-]+|[a-zA-Z][a-zA-Z0-9_-]+)"
+    r"|\bgraduat(?:e|ed|ing)\s+(?:from|at)\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+(?:\s+[A-Z][a-zA-Z0-9_-]+){0,3}|"
+    r"(?:college|university|school))\b"
+    r"|\bgraduation\s+(?:from|at)\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+(?:\s+[A-Z][a-zA-Z0-9_-]+){0,3}|"
+    r"(?:college|university|school))\b",
     re.IGNORECASE,
 )
 

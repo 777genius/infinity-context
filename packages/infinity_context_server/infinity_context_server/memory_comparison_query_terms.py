@@ -506,6 +506,10 @@ def _education_support_query_terms(
         "course",
         "degree",
         "education",
+        "graduat",
+        "graduate",
+        "graduated",
+        "graduation",
         "major",
         "majoring",
         "school",
@@ -516,6 +520,8 @@ def _education_support_query_terms(
     }
     credential_terms = {"degree", "major", "majoring"}
     credential_focus = bool(credential_terms & set(lexical_terms))
+    graduate_terms = {"graduat", "graduate", "graduated", "graduation"}
+    graduate_focus = bool(graduate_terms & set(lexical_terms))
     relation_action_terms = {"attend", "education", "go", "school"}
     topical_terms = tuple(
         term
@@ -532,6 +538,11 @@ def _education_support_query_terms(
                 *(
                     term
                     for term in relation_variant_terms
+                    if graduate_focus and term in graduate_terms
+                ),
+                *(
+                    term
+                    for term in relation_variant_terms
                     if credential_focus and term in credential_terms
                 ),
                 *(
@@ -539,6 +550,7 @@ def _education_support_query_terms(
                     for term in relation_variant_terms
                     if term in education_terms
                     and not (credential_focus and term in credential_terms)
+                    and not (graduate_focus and term in graduate_terms)
                 ),
                 *topical_terms[:4],
                 *(

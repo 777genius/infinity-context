@@ -1213,6 +1213,8 @@ def _has_education_profile_question(normalized_question: str) -> bool:
             r"\bwhat\s+degree\s+(?:does|did|is|was|has|have)\b|"
             r"\bdegree\s+(?:does|did)\b.+\bhave\b|"
             r"\b(?:major|degree)\s+in\b|"
+            r"\b(?:where|when|what\s+school)\b.+\bgraduat(?:e|ed|ion)\b|"
+            r"\bgraduat(?:e|ed|ion)\b.+\b(?:from|school|college|university)\b|"
             r"\bwhat\s+class\b",
             normalized_question,
         )

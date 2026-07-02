@@ -4445,6 +4445,12 @@ def test_query_decomposition_expands_education_profile_queries() -> None:
         expected_terms=("psychology",),
         answer="psychology",
     )
+    graduate_case = _case(
+        case_id="education-profile-graduate",
+        question="Where did Alex graduate from?",
+        expected_terms=("Stanford",),
+        answer="Stanford",
+    )
     major_issue_case = _case(
         case_id="education-profile-major-issue-guard",
         question="What major issue did Alex discuss?",
@@ -4456,6 +4462,12 @@ def test_query_decomposition_expands_education_profile_queries() -> None:
         question="What degree of difficulty did Alex mention?",
         expected_terms=("advanced",),
         answer="advanced",
+    )
+    graduate_to_case = _case(
+        case_id="education-profile-graduate-to-guard",
+        question="What did Alex graduate to doing?",
+        expected_terms=("mentoring",),
+        answer="mentoring",
     )
     speech_school_case = _case(
         case_id="education-profile-speech-school-guard",
@@ -4490,11 +4502,17 @@ def test_query_decomposition_expands_education_profile_queries() -> None:
     degree_queries, degree_metadata = rerank_module.decomposed_search_queries(
         degree_case
     )
+    graduate_queries, graduate_metadata = rerank_module.decomposed_search_queries(
+        graduate_case
+    )
     major_issue_queries, major_issue_metadata = (
         rerank_module.decomposed_search_queries(major_issue_case)
     )
     degree_difficulty_queries, degree_difficulty_metadata = (
         rerank_module.decomposed_search_queries(degree_difficulty_case)
+    )
+    graduate_to_queries, graduate_to_metadata = (
+        rerank_module.decomposed_search_queries(graduate_to_case)
     )
     speech_queries, speech_metadata = rerank_module.decomposed_search_queries(
         speech_school_case
@@ -4553,6 +4571,17 @@ def test_query_decomposition_expands_education_profile_queries() -> None:
         "education_profile",
     )
 
+    assert graduate_queries[2] == (
+        "alex education graduate graduated graduation school college"
+    )
+    assert graduate_metadata["query_profile"]["relation_terms"] == ("education",)
+    assert graduate_metadata["query_profile"]["relation_categories"] == (
+        "education_profile",
+    )
+    assert graduate_metadata["query_profile"]["evidence_need"] == (
+        "education_profile",
+    )
+
     assert major_issue_queries[2] == (
         "alex discus discuss discussion talk conversation major issue"
     )
@@ -4562,6 +4591,11 @@ def test_query_decomposition_expands_education_profile_queries() -> None:
 
     assert degree_difficulty_queries[2] == "alex mention told said talk"
     assert "education_profile" not in degree_difficulty_metadata["query_profile"][
+        "relation_categories"
+    ]
+
+    assert graduate_to_queries[0] == "What did Alex graduate to doing?"
+    assert "education_profile" not in graduate_to_metadata["query_profile"][
         "relation_categories"
     ]
 
@@ -9304,6 +9338,63 @@ def test_benchmark_rerank_boosts_degree_education_evidence() -> None:
         "relation_category_hits"
     ] == []
     assert degree_diagnostics["score_signals"][
+        "benchmark_typed_relation_support_roles"
+    ] == ["education_support"]
+    assert (
+        topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        == 0
+    )
+
+
+def test_benchmark_rerank_boosts_graduation_education_evidence() -> None:
+    case = _case(
+        case_id="education-profile-graduation-rerank",
+        question="Where did Alex graduate from?",
+        expected_terms=("Stanford",),
+        answer="Stanford",
+        category=4,
+    )
+    topical_from = RetrievedMemory(
+        item_id="topical-from",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex traveled from Stanford with Maria."
+        ),
+        source_refs=("D1:1",),
+    )
+    graduation_profile = RetrievedMemory(
+        item_id="graduation-profile",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: I graduated from Stanford."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_from, graduation_profile),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("education_profile",)
+    assert reranked[0].item_id == "graduation-profile"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    graduation_diagnostics = diagnostics_by_id["graduation-profile"]
+    topical_diagnostics = diagnostics_by_id["topical-from"]
+    assert graduation_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["education_profile"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert graduation_diagnostics["score_signals"][
         "benchmark_typed_relation_support_roles"
     ] == ["education_support"]
     assert (
