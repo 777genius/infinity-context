@@ -308,15 +308,18 @@ def _intent_keys(item: Mapping[str, object]) -> tuple[str, ...]:
         query_decomposition.get("query_profile") or rerank.get("query_profile")
     )
     intent = _mapping(query_decomposition.get("retrieval_intent"))
-    evidence_need = _str_tuple(query_profile.get("evidence_need")) or _str_tuple(
-        intent.get("evidence_need")
+    evidence_need = _merged_intent_values(query_profile, intent, "evidence_need")
+    bundle_evidence_roles = _merged_intent_values(
+        query_profile,
+        intent,
+        "bundle_evidence_roles",
     )
-    bundle_evidence_roles = _str_tuple(
-        query_profile.get("bundle_evidence_roles")
-    ) or _str_tuple(intent.get("bundle_evidence_roles"))
-    relation_categories = _str_tuple(
-        query_profile.get("relation_categories")
-    ) or _relation_categories(intent)
+    relation_categories = tuple(
+        dict.fromkeys(
+            _str_tuple(query_profile.get("relation_categories"))
+            + _relation_categories(intent)
+        )
+    )
     time_intent = _mapping(intent.get("time_intent"))
     time_kind = str(time_intent.get("kind") or "").strip()
     keys = [f"need:{need}" for need in evidence_need]
@@ -338,6 +341,16 @@ def _relation_categories(intent: Mapping[str, object]) -> tuple[str, ...]:
         if category:
             categories.append(category)
     return tuple(dict.fromkeys(categories))
+
+
+def _merged_intent_values(
+    query_profile: Mapping[str, object],
+    intent: Mapping[str, object],
+    key: str,
+) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(_str_tuple(query_profile.get(key)) + _str_tuple(intent.get(key)))
+    )
 
 
 def _intent_metric_payload(items: Sequence[Mapping[str, object]]) -> dict[str, object]:

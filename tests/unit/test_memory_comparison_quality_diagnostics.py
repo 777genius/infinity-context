@@ -361,6 +361,45 @@ def test_quality_diagnostics_reports_intents_policies_bundle_gaps_and_leakage() 
     assert diagnostics["query_leakage_report"]["query_overlap_case_count"] == 1
 
 
+def test_quality_diagnostics_per_intent_merges_profile_and_typed_intent() -> None:
+    retrieval = _retrieval_payload(
+        evidence_need=("single_fact",),
+        bundle_evidence_roles=("primary",),
+        relation_categories=("status_profile",),
+        policy_score=0.0,
+    )
+    query_decomposition = retrieval["metadata"]["query_decomposition"]
+    query_decomposition["retrieval_intent"]["evidence_need"] = [
+        "single_fact",
+        "visual_evidence",
+    ]
+    query_decomposition["retrieval_intent"]["bundle_evidence_roles"] = [
+        "primary",
+        "visual_support",
+    ]
+    query_decomposition["retrieval_intent"]["relations"] = {
+        "intents": [{"category": "preference"}]
+    }
+
+    diagnostics = quality_diagnostics(
+        (
+            _item(
+                case_id="mixed-profile-intent-per-intent",
+                group="single-hop",
+                score=1.0,
+                retrieval=retrieval,
+            ),
+        )
+    )
+
+    assert diagnostics["per_intent"]["need:single_fact"]["total"] == 1
+    assert diagnostics["per_intent"]["need:visual_evidence"]["total"] == 1
+    assert diagnostics["per_intent"]["role:primary"]["total"] == 1
+    assert diagnostics["per_intent"]["role:visual_support"]["total"] == 1
+    assert diagnostics["per_intent"]["relation:status_profile"]["total"] == 1
+    assert diagnostics["per_intent"]["relation:preference"]["total"] == 1
+
+
 def test_quality_diagnostics_reports_source_ref_provenance_table() -> None:
     diagnostics = quality_diagnostics(
         (
