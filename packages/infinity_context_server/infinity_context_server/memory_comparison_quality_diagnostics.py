@@ -5,6 +5,73 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
 
+from infinity_context_server.memory_comparison_quality_support import (
+    bundle_has_causal_support as _bundle_has_causal_support,
+)
+from infinity_context_server.memory_comparison_quality_support import (
+    bundle_has_contrast_support as _bundle_has_contrast_support,
+)
+from infinity_context_server.memory_comparison_quality_support import (
+    bundle_has_emotion_response_support as _bundle_has_emotion_response_support,
+)
+from infinity_context_server.memory_comparison_quality_support import (
+    bundle_has_event_support as _bundle_has_event_support,
+)
+from infinity_context_server.memory_comparison_quality_support import (
+    bundle_has_inference_support as _bundle_has_inference_support,
+)
+from infinity_context_server.memory_comparison_quality_support import (
+    bundle_has_location_support as _bundle_has_location_support,
+)
+from infinity_context_server.memory_comparison_quality_support import (
+    bundle_has_planner_reason as _bundle_has_planner_reason,
+)
+from infinity_context_server.memory_comparison_quality_support import (
+    bundle_has_preference_support as _bundle_has_preference_support,
+)
+from infinity_context_server.memory_comparison_quality_support import (
+    bundle_has_symbolic_meaning_support as _bundle_has_symbolic_meaning_support,
+)
+from infinity_context_server.memory_comparison_quality_support import (
+    bundle_has_temporal_support as _bundle_has_temporal_support,
+)
+from infinity_context_server.memory_comparison_quality_support import (
+    bundle_has_visual_support as _bundle_has_visual_support,
+)
+from infinity_context_server.memory_comparison_quality_support import (
+    bundle_roles as _bundle_roles,
+)
+from infinity_context_server.memory_comparison_quality_support import (
+    needs_causal_support as _needs_causal_support,
+)
+from infinity_context_server.memory_comparison_quality_support import (
+    needs_contrast_evidence as _needs_contrast_evidence,
+)
+from infinity_context_server.memory_comparison_quality_support import (
+    needs_emotion_response_support as _needs_emotion_response_support,
+)
+from infinity_context_server.memory_comparison_quality_support import (
+    needs_event_support as _needs_event_support,
+)
+from infinity_context_server.memory_comparison_quality_support import (
+    needs_inference_support as _needs_inference_support,
+)
+from infinity_context_server.memory_comparison_quality_support import (
+    needs_location_support as _needs_location_support,
+)
+from infinity_context_server.memory_comparison_quality_support import (
+    needs_preference_support as _needs_preference_support,
+)
+from infinity_context_server.memory_comparison_quality_support import (
+    needs_symbolic_meaning_support as _needs_symbolic_meaning_support,
+)
+from infinity_context_server.memory_comparison_quality_support import (
+    needs_temporal_support as _needs_temporal_support,
+)
+from infinity_context_server.memory_comparison_quality_support import (
+    needs_visual_support as _needs_visual_support,
+)
+
 _BRIDGE_GAP_REASONS = frozenset(
     {
         "missing_bridge",
@@ -689,7 +756,7 @@ def _multi_hop_bundle_gap_reasons(
         reasons.append("missing_bridge_entity")
     if not _bundle_has_planner_reason(bundle, "bridge_relation_hits"):
         reasons.append("missing_bridge_relation")
-    if _needs_temporal_bridge(item) and not _bundle_has_temporal_support(bundle):
+    if _needs_temporal_support(item) and not _bundle_has_temporal_support(bundle):
         reasons.append("missing_temporal_bridge")
     locality_score = _selected_source_locality_score(item)
     if locality_score and locality_score < 0.5:
@@ -2163,399 +2230,6 @@ def _is_multi_hop_item(item: Mapping[str, object]) -> bool:
     query_profile = _mapping(query_decomposition.get("query_profile"))
     evidence_need = _str_tuple(query_profile.get("evidence_need"))
     return any(need in {"multi_hop", "multi-hop", "inference_support"} for need in evidence_need)
-
-
-def _needs_temporal_bridge(item: Mapping[str, object]) -> bool:
-    return _needs_temporal_support(item)
-
-
-def _needs_temporal_support(item: Mapping[str, object]) -> bool:
-    metadata = _retrieval_metadata(item)
-    query_decomposition = _mapping(metadata.get("query_decomposition"))
-    query_profile = _mapping(query_decomposition.get("query_profile"))
-    intent = _mapping(query_decomposition.get("retrieval_intent"))
-    evidence_need = (
-        _str_tuple(query_profile.get("evidence_need"))
-        or _str_tuple(intent.get("evidence_need"))
-    )
-    relation_categories = _str_tuple(query_profile.get("relation_categories"))
-    return bool(
-        {"temporal_support", "temporal_sequence"}.intersection(evidence_need)
-        or "temporal" in relation_categories
-    )
-
-
-def _needs_contrast_evidence(item: Mapping[str, object]) -> bool:
-    metadata = _retrieval_metadata(item)
-    query_decomposition = _mapping(metadata.get("query_decomposition"))
-    query_profile = _mapping(query_decomposition.get("query_profile"))
-    intent = _mapping(query_decomposition.get("retrieval_intent"))
-    evidence_need = (
-        _str_tuple(query_profile.get("evidence_need"))
-        or _str_tuple(intent.get("evidence_need"))
-    )
-    relation_categories = _str_tuple(query_profile.get("relation_categories"))
-    return bool("contrast" in evidence_need or "contrast" in relation_categories)
-
-
-def _needs_causal_support(item: Mapping[str, object]) -> bool:
-    metadata = _retrieval_metadata(item)
-    query_decomposition = _mapping(metadata.get("query_decomposition"))
-    query_profile = _mapping(query_decomposition.get("query_profile"))
-    intent = _mapping(query_decomposition.get("retrieval_intent"))
-    evidence_need = (
-        _str_tuple(query_profile.get("evidence_need"))
-        or _str_tuple(intent.get("evidence_need"))
-    )
-    relation_categories = _str_tuple(query_profile.get("relation_categories"))
-    if not relation_categories:
-        relation_categories = tuple(
-            str(relation.get("category") or "").strip()
-            for relation in _sequence(
-                _mapping(_mapping(intent.get("relations")).get("intents"))
-            )
-            if isinstance(relation, Mapping)
-            and str(relation.get("category") or "").strip()
-        )
-    roles = (
-        _str_tuple(query_profile.get("bundle_evidence_roles"))
-        or _str_tuple(intent.get("bundle_evidence_roles"))
-    )
-    return bool(
-        "causal_support" in evidence_need
-        or "causal_support" in roles
-        or "causal" in relation_categories
-    )
-
-
-def _needs_location_support(item: Mapping[str, object]) -> bool:
-    metadata = _retrieval_metadata(item)
-    query_decomposition = _mapping(metadata.get("query_decomposition"))
-    query_profile = _mapping(query_decomposition.get("query_profile"))
-    intent = _mapping(query_decomposition.get("retrieval_intent"))
-    evidence_need = (
-        _str_tuple(query_profile.get("evidence_need"))
-        or _str_tuple(intent.get("evidence_need"))
-    )
-    relation_categories = _str_tuple(query_profile.get("relation_categories"))
-    if not relation_categories:
-        relation_categories = tuple(
-            str(relation.get("category") or "").strip()
-            for relation in _sequence(
-                _mapping(_mapping(intent.get("relations")).get("intents"))
-            )
-            if isinstance(relation, Mapping)
-            and str(relation.get("category") or "").strip()
-        )
-    return bool(
-        "location_support" in evidence_need
-        or "location_transition" in relation_categories
-    )
-
-
-def _needs_inference_support(item: Mapping[str, object]) -> bool:
-    metadata = _retrieval_metadata(item)
-    query_decomposition = _mapping(metadata.get("query_decomposition"))
-    query_profile = _mapping(query_decomposition.get("query_profile"))
-    intent = _mapping(query_decomposition.get("retrieval_intent"))
-    evidence_need = (
-        _str_tuple(query_profile.get("evidence_need"))
-        or _str_tuple(intent.get("evidence_need"))
-    )
-    roles = (
-        _str_tuple(query_profile.get("bundle_evidence_roles"))
-        or _str_tuple(intent.get("bundle_evidence_roles"))
-    )
-    return bool("inference_support" in evidence_need or "inference_support" in roles)
-
-
-def _needs_preference_support(item: Mapping[str, object]) -> bool:
-    metadata = _retrieval_metadata(item)
-    query_decomposition = _mapping(metadata.get("query_decomposition"))
-    query_profile = _mapping(query_decomposition.get("query_profile"))
-    intent = _mapping(query_decomposition.get("retrieval_intent"))
-    evidence_need = (
-        _str_tuple(query_profile.get("evidence_need"))
-        or _str_tuple(intent.get("evidence_need"))
-    )
-    roles = (
-        _str_tuple(query_profile.get("bundle_evidence_roles"))
-        or _str_tuple(intent.get("bundle_evidence_roles"))
-    )
-    relation_categories = _str_tuple(query_profile.get("relation_categories"))
-    return bool(
-        "preference" in evidence_need
-        or "preference_support" in roles
-        or "preference" in relation_categories
-    )
-
-
-def _needs_emotion_response_support(item: Mapping[str, object]) -> bool:
-    metadata = _retrieval_metadata(item)
-    query_decomposition = _mapping(metadata.get("query_decomposition"))
-    query_profile = _mapping(query_decomposition.get("query_profile"))
-    intent = _mapping(query_decomposition.get("retrieval_intent"))
-    evidence_need = (
-        _str_tuple(query_profile.get("evidence_need"))
-        or _str_tuple(intent.get("evidence_need"))
-    )
-    roles = (
-        _str_tuple(query_profile.get("bundle_evidence_roles"))
-        or _str_tuple(intent.get("bundle_evidence_roles"))
-    )
-    relation_categories = _str_tuple(query_profile.get("relation_categories"))
-    if not relation_categories:
-        relation_categories = tuple(
-            str(relation.get("category") or "").strip()
-            for relation in _sequence(
-                _mapping(_mapping(intent.get("relations")).get("intents"))
-            )
-            if isinstance(relation, Mapping)
-            and str(relation.get("category") or "").strip()
-        )
-    return bool(
-        "emotion_response" in evidence_need
-        or "emotion_response_support" in roles
-        or "emotion_response" in relation_categories
-    )
-
-
-def _needs_event_support(item: Mapping[str, object]) -> bool:
-    metadata = _retrieval_metadata(item)
-    query_decomposition = _mapping(metadata.get("query_decomposition"))
-    query_profile = _mapping(query_decomposition.get("query_profile"))
-    intent = _mapping(query_decomposition.get("retrieval_intent"))
-    evidence_need = (
-        _str_tuple(query_profile.get("evidence_need"))
-        or _str_tuple(intent.get("evidence_need"))
-    )
-    roles = (
-        _str_tuple(query_profile.get("bundle_evidence_roles"))
-        or _str_tuple(intent.get("bundle_evidence_roles"))
-    )
-    relation_categories = _str_tuple(query_profile.get("relation_categories"))
-    event_categories = {"participation_event", "registration_event"}
-    return bool(
-        event_categories & set(evidence_need)
-        or "event_support" in roles
-        or event_categories & set(relation_categories)
-    )
-
-
-def _needs_symbolic_meaning_support(item: Mapping[str, object]) -> bool:
-    metadata = _retrieval_metadata(item)
-    query_decomposition = _mapping(metadata.get("query_decomposition"))
-    query_profile = _mapping(query_decomposition.get("query_profile"))
-    intent = _mapping(query_decomposition.get("retrieval_intent"))
-    evidence_need = (
-        _str_tuple(query_profile.get("evidence_need"))
-        or _str_tuple(intent.get("evidence_need"))
-    )
-    roles = (
-        _str_tuple(query_profile.get("bundle_evidence_roles"))
-        or _str_tuple(intent.get("bundle_evidence_roles"))
-    )
-    relation_categories = _str_tuple(query_profile.get("relation_categories"))
-    return bool(
-        "symbolic_meaning" in evidence_need
-        or "symbolic_meaning_support" in roles
-        or "symbolic_meaning" in relation_categories
-    )
-
-
-def _needs_visual_support(item: Mapping[str, object]) -> bool:
-    metadata = _retrieval_metadata(item)
-    query_decomposition = _mapping(metadata.get("query_decomposition"))
-    query_profile = _mapping(query_decomposition.get("query_profile"))
-    intent = _mapping(query_decomposition.get("retrieval_intent"))
-    evidence_need = (
-        _str_tuple(query_profile.get("evidence_need"))
-        or _str_tuple(intent.get("evidence_need"))
-    )
-    roles = (
-        _str_tuple(query_profile.get("bundle_evidence_roles"))
-        or _str_tuple(intent.get("bundle_evidence_roles"))
-    )
-    relation_categories = _str_tuple(query_profile.get("relation_categories"))
-    visual_terms = _str_tuple(query_profile.get("visual_terms"))
-    return bool(
-        "visual_evidence" in evidence_need
-        or "visual_support" in roles
-        or "visual" in relation_categories
-        or visual_terms
-    )
-
-
-def _bundle_roles(bundle: Mapping[str, object]) -> set[str]:
-    roles = {
-        str(item.get("role") or "").strip()
-        for item in _bundle_items(bundle)
-        if str(item.get("role") or "").strip()
-    }
-    planner = _mapping(bundle.get("bundle_planner"))
-    role_counts = _mapping(planner.get("role_counts"))
-    roles.update(str(role).strip() for role in role_counts if str(role).strip())
-    return roles
-
-
-def _bundle_has_planner_reason(bundle: Mapping[str, object], reason: str) -> bool:
-    return any(
-        reason in _str_tuple(item.get("planner_reason_codes"))
-        for item in _bundle_items(bundle)
-    )
-
-
-def _bundle_has_temporal_support(bundle: Mapping[str, object]) -> bool:
-    if "temporal_support" in _bundle_roles(bundle):
-        return True
-    return any(
-        bool(
-            item.get("has_temporal_surface")
-            or item.get("has_sequence_surface")
-            or item.get("currentness_surface")
-            or "temporal_surface" in _str_tuple(item.get("planner_reason_codes"))
-            or "sequence_surface" in _str_tuple(item.get("planner_reason_codes"))
-            or "currentness_surface" in _str_tuple(item.get("planner_reason_codes"))
-        )
-        for item in _bundle_items(bundle)
-    )
-
-
-def _bundle_has_contrast_support(bundle: Mapping[str, object]) -> bool:
-    if "contrast" in _bundle_roles(bundle):
-        return True
-    return any(
-        bool(
-            item.get("contrast_surface")
-            or item.get("stale_surface")
-            or item.get("negation_surface")
-            or "contrast_surface" in _str_tuple(item.get("planner_reason_codes"))
-            or "stale_surface" in _str_tuple(item.get("planner_reason_codes"))
-            or "negation_surface" in _str_tuple(item.get("planner_reason_codes"))
-        )
-        for item in _bundle_items(bundle)
-    )
-
-
-def _bundle_has_causal_support(bundle: Mapping[str, object]) -> bool:
-    if "causal_support" in _bundle_roles(bundle):
-        return True
-    return any(
-        bool(
-            "causal_support" in _str_tuple(item.get("planner_reason_codes"))
-            or "causal_relation_hits" in _str_tuple(item.get("planner_reason_codes"))
-            or "causal_relation_category_hits"
-            in _str_tuple(item.get("planner_reason_codes"))
-        )
-        for item in _bundle_items(bundle)
-    )
-
-
-def _bundle_has_location_support(bundle: Mapping[str, object]) -> bool:
-    if "location_support" in _bundle_roles(bundle):
-        return True
-    if _bundle_has_planner_reason(bundle, "location_support"):
-        return True
-    return any(
-        bool(
-            "location_transition" in _str_tuple(item.get("relation_category_hits"))
-            or "location_relation_category_hits"
-            in _str_tuple(item.get("planner_reason_codes"))
-        )
-        for item in _bundle_items(bundle)
-    )
-
-
-def _bundle_has_preference_support(bundle: Mapping[str, object]) -> bool:
-    if "preference_support" in _bundle_roles(bundle):
-        return True
-    if _bundle_has_planner_reason(bundle, "preference_support"):
-        return True
-    return any(
-        bool(
-            item.get("has_preference_evidence") is True
-            or "preference" in _str_tuple(item.get("relation_category_hits"))
-            or "preference_evidence" in _str_tuple(item.get("planner_reason_codes"))
-        )
-        for item in _bundle_items(bundle)
-    )
-
-
-def _bundle_has_emotion_response_support(bundle: Mapping[str, object]) -> bool:
-    if "emotion_response_support" in _bundle_roles(bundle):
-        return True
-    if _bundle_has_planner_reason(bundle, "emotion_response_support"):
-        return True
-    return any(
-        bool(
-            "emotion_response" in _str_tuple(item.get("relation_category_hits"))
-            or "emotion_response_relation_category_hits"
-            in _str_tuple(item.get("planner_reason_codes"))
-        )
-        for item in _bundle_items(bundle)
-    )
-
-
-def _bundle_has_event_support(bundle: Mapping[str, object]) -> bool:
-    if "event_support" in _bundle_roles(bundle):
-        return True
-    if _bundle_has_planner_reason(bundle, "event_support"):
-        return True
-    return any(
-        bool(
-            {"registration_event", "participation_event"}
-            & set(_str_tuple(item.get("relation_category_hits")))
-            or "event_relation_category_hits"
-            in _str_tuple(item.get("planner_reason_codes"))
-        )
-        for item in _bundle_items(bundle)
-    )
-
-
-def _bundle_has_symbolic_meaning_support(bundle: Mapping[str, object]) -> bool:
-    if "symbolic_meaning_support" in _bundle_roles(bundle):
-        return True
-    if _bundle_has_planner_reason(bundle, "symbolic_meaning_support"):
-        return True
-    return any(
-        bool(
-            "symbolic_meaning" in _str_tuple(item.get("relation_category_hits"))
-            or "symbolic_meaning_relation_category_hits"
-            in _str_tuple(item.get("planner_reason_codes"))
-        )
-        for item in _bundle_items(bundle)
-    )
-
-
-def _bundle_has_visual_support(bundle: Mapping[str, object]) -> bool:
-    if "visual_support" in _bundle_roles(bundle):
-        return True
-    if _bundle_has_planner_reason(bundle, "visual_support"):
-        return True
-    return any(
-        bool(
-            item.get("has_visual_evidence") is True
-            or "visual" in _str_tuple(item.get("relation_category_hits"))
-            or "visual_evidence" in _str_tuple(item.get("planner_reason_codes"))
-        )
-        for item in _bundle_items(bundle)
-    )
-
-
-def _bundle_has_inference_support(bundle: Mapping[str, object]) -> bool:
-    if "inference_support" in _bundle_roles(bundle):
-        return True
-    return any(
-        bool(
-            "inference_support" in _str_tuple(item.get("planner_reason_codes"))
-            or (
-                "inference_entity_hits" in _str_tuple(item.get("planner_reason_codes"))
-                and "inference_relation_hits"
-                in _str_tuple(item.get("planner_reason_codes"))
-            )
-        )
-        for item in _bundle_items(bundle)
-    )
 
 
 def _selected_source_locality_score(item: Mapping[str, object]) -> float:
