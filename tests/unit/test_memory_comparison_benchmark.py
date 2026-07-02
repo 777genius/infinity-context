@@ -9540,7 +9540,7 @@ def test_benchmark_rerank_boosts_vehicle_profile_evidence() -> None:
     topical_car = RetrievedMemory(
         item_id="topical-car",
         rank=1,
-        score=0.2,
+        score=0.05,
         text=(
             "session_1 turn D1:1 date: 10:00 am "
             "D1:1 Alex talked about Prius models with Maria."
@@ -9592,6 +9592,111 @@ def test_benchmark_rerank_boosts_vehicle_profile_evidence() -> None:
         ]
         == 0
     )
+
+
+def test_benchmark_rerank_boosts_named_vehicle_model_evidence() -> None:
+    case = _case(
+        case_id="vehicle-model-rerank",
+        question="What car does Alex drive?",
+        expected_terms=("Tesla",),
+        answer="Tesla",
+        category=4,
+    )
+    topical_car = RetrievedMemory(
+        item_id="topical-car",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex talked about Tesla chargers with Maria."
+        ),
+        source_refs=("D1:1",),
+    )
+    vehicle_model = RetrievedMemory(
+        item_id="vehicle-model",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: My Tesla is blue."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_car, vehicle_model),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("vehicle_profile",)
+    assert reranked[0].item_id == "vehicle-model"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    vehicle_diagnostics = diagnostics_by_id["vehicle-model"]
+    topical_diagnostics = diagnostics_by_id["topical-car"]
+    assert vehicle_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["vehicle_profile"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert vehicle_diagnostics["score_signals"][
+        "benchmark_typed_relation_support_roles"
+    ] == ["vehicle_support"]
+    assert (
+        topical_diagnostics["score_signals"][
+            "benchmark_typed_relation_support_boost"
+        ]
+        == 0
+    )
+
+
+def test_benchmark_rerank_boosts_person_possessive_vehicle_model_evidence() -> None:
+    case = _case(
+        case_id="vehicle-possessive-model-rerank",
+        question="What car does Alex drive?",
+        expected_terms=("Tesla",),
+        answer="Tesla",
+        category=4,
+    )
+    topical_car = RetrievedMemory(
+        item_id="topical-car",
+        rank=1,
+        score=0.05,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Maria compared Tesla range estimates with Alex."
+        ),
+        source_refs=("D1:1",),
+    )
+    vehicle_model = RetrievedMemory(
+        item_id="vehicle-model",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex's Tesla is blue."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, _ = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_car, vehicle_model),
+    )
+
+    assert reranked[0].item_id == "vehicle-model"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    assert diagnostics_by_id["vehicle-model"]["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["vehicle_profile"]
+    assert diagnostics_by_id["topical-car"]["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
 
 
 def test_benchmark_rerank_boosts_favorite_preference_evidence() -> None:

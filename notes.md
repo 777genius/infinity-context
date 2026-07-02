@@ -26,6 +26,36 @@
 - `git push origin main` -> blocked because the non-interactive runtime has no
   GitHub username/credential prompt available.
 
+## 2026-07-02 Follow-up 28
+
+- Expanded typed vehicle-profile evidence for owned model shorthand such as
+  "My Tesla is blue" and person-possessive model evidence such as
+  "Alex's Tesla is blue," which LoCoMo-style car questions should treat as
+  vehicle evidence even when the word "car" is absent.
+- Kept vehicle model grounding out of compact query fanout: possessive model
+  surfaces now satisfy the vehicle category grounding gate without adding
+  brand/model terms to search queries.
+- Added rerank regressions proving owned/possessive Tesla evidence receives
+  typed `vehicle_support` while topical Tesla mentions remain untyped.
+
+## Verification
+
+- `uv run --extra dev pytest -q tests/unit/test_memory_comparison_benchmark.py::test_benchmark_rerank_boosts_named_vehicle_model_evidence tests/unit/test_memory_comparison_benchmark.py::test_benchmark_rerank_boosts_person_possessive_vehicle_model_evidence`
+  -> 2 passed, 1 warning.
+- `uv run --extra dev ruff check packages/infinity_context_server/infinity_context_server/memory_comparison_relation_support.py packages/infinity_context_server/infinity_context_server/memory_comparison_candidate_features.py tests/unit/test_memory_comparison_benchmark.py`
+  -> passed.
+- `uv run --extra dev pytest -q tests/unit/test_memory_comparison*.py`
+  -> 520 passed, 1 warning.
+- `uv run --extra dev pytest -q tests/architecture/test_memory_boundaries.py`
+  -> 6 passed.
+- `git diff --check` -> passed.
+- `uv run --extra dev python -m infinity_context_server.eval memory-comparison-benchmark --dataset ./datasets/locomo10.json --memo-api-url http://127.0.0.1:7788 --mem0-url http://127.0.0.1:8888 --benchmark locomo --locomo-ingest-mode official-turns --case-set locomo-fast --report-mode compact --top-k 200 --top-k-cutoff 10 --top-k-cutoff 20 --top-k-cutoff 50 --top-k-cutoff 200 --allow-live --preflight-only`
+  -> blocked safely because `./datasets/locomo10.json` and memory auth token
+  are absent. Fast-readiness blockers were empty; no long/full LoCoMo run was
+  attempted.
+- `git push origin main` -> still blocked because the non-interactive runtime
+  has no GitHub username/credential prompt available.
+
 ## 2026-07-02 Follow-up 27
 
 - Expanded typed pet-profile support for breed questions such as "What breed

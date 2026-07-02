@@ -743,8 +743,21 @@ def _has_skill_profile_support(
     )
 
 
+_VEHICLE_MODEL_NAME_PATTERN = (
+    r"(?:accord|audi|bmw|camry|civic|corolla|ford|honda|jeep|mazda|"
+    r"nissan|prius|rav4|subaru|tesla|toyota|volvo)"
+)
+_VEHICLE_MODEL_OWNER_PATTERN = (
+    r"(?:(?i:my|our|his|her|their)|[A-Z][a-zA-Z0-9_-]{1,40}'s)"
+)
+_VEHICLE_MODEL_SURFACE_RE = re.compile(
+    rf"\b{_VEHICLE_MODEL_OWNER_PATTERN}\s+"
+    rf"(?i:{_VEHICLE_MODEL_NAME_PATTERN})\b",
+)
 _VEHICLE_PROFILE_SURFACE_RE = re.compile(
     r"\b(?:my|our|his|her|their)\s+(?:car|vehicle|truck|suv|sedan|van)\b"
+    rf"|\b{_VEHICLE_MODEL_OWNER_PATTERN}\s+"
+    rf"(?i:{_VEHICLE_MODEL_NAME_PATTERN})\b"
     r"|\b(?:drive|drives|driving)\s+"
     r"(?:a|an|the|my|his|her|their)\s+"
     r"(?:(?:black|blue|green|red|silver|white)\s+)?"
@@ -756,6 +769,10 @@ _VEHICLE_PROFILE_SURFACE_RE = re.compile(
     r"|\b(?:car|vehicle|truck|suv|sedan|van)\s+(?:is|was)\s+"
     r"(?:black|blue|green|red|silver|white|[A-Z][a-zA-Z0-9_-]+)\b",
 )
+
+
+def has_vehicle_model_surface(memory_text: str) -> bool:
+    return bool(_VEHICLE_MODEL_SURFACE_RE.search(memory_text))
 
 
 def _has_vehicle_profile_support(
