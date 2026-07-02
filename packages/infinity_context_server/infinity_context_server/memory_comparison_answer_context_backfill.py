@@ -311,6 +311,7 @@ def _memory_source_refs(memory: RetrievedMemory) -> tuple[str, ...]:
                 *_source_identity_refs_from_dedupe_key(
                     features.get("source_ref_dedupe_key")
                 ),
+                *_source_identity_refs_from_dedupe_key(fusion.get("dedupe_key")),
                 *_source_identity_refs_from_text(memory.text, source_refs=source_refs),
             )
         )

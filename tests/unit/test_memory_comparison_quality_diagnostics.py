@@ -601,6 +601,49 @@ def test_quality_diagnostics_counts_source_ref_dedupe_identity() -> None:
     assert table["source_refless_selected_samples"] == []
 
 
+def test_quality_diagnostics_counts_fusion_turn_ref_dedupe_identity() -> None:
+    diagnostics = quality_diagnostics(
+        (
+            _item(
+                case_id="fusion-turn-ref-dedupe",
+                retrieval={
+                    "metadata": {},
+                    "results": [
+                        {
+                            "id": "fused",
+                            "rank": 1,
+                            "metadata": {
+                                "diagnostics": {
+                                    "benchmark_candidate_fusion": {
+                                        "dedupe_key": "turn_refs:D4:2|D4:3"
+                                    }
+                                }
+                            },
+                        }
+                    ],
+                },
+                evidence_bundle={
+                    "items": [
+                        {
+                            "id": "fused",
+                            "role": "primary",
+                            "retrieval_order": 1,
+                            "source_ref_dedupe_key": "source_turn_refs:D4:3",
+                        }
+                    ]
+                },
+            ),
+        )
+    )
+
+    table = diagnostics["source_ref_provenance_table"]
+    assert table["retrieval_source_ref_candidate_count"] == 1
+    assert table["retrieval_source_ref_count"] == 2
+    assert table["selected_bundle_source_ref_item_count"] == 1
+    assert table["selected_bundle_source_ref_count"] == 1
+    assert table["selected_bundle_source_refless_item_count"] == 0
+
+
 def test_quality_diagnostics_reports_answer_context_provenance_table() -> None:
     diagnostics = quality_diagnostics(
         (

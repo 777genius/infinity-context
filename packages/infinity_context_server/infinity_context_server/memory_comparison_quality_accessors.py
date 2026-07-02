@@ -33,6 +33,7 @@ def candidate_features(memory: Mapping[str, object]) -> Mapping[str, object]:
 
 def source_refs_from_memory(memory: Mapping[str, object]) -> tuple[str, ...]:
     direct_refs = direct_source_refs_from_memory(memory)
+    fusion = mapping(memory_diagnostics(memory).get("benchmark_candidate_fusion"))
     return tuple(
         dict.fromkeys(
             (
@@ -41,6 +42,7 @@ def source_refs_from_memory(memory: Mapping[str, object]) -> tuple[str, ...]:
                 *_source_identity_refs_from_dedupe_key(
                     candidate_features(memory).get("source_ref_dedupe_key")
                 ),
+                *_source_identity_refs_from_dedupe_key(fusion.get("dedupe_key")),
                 *_source_identity_refs_from_text(
                     str(memory.get("text") or memory.get("memory") or ""),
                     source_refs=direct_refs,

@@ -398,6 +398,43 @@ def test_answer_context_matches_partial_multi_turn_source_identity() -> None:
     assert context.memories[0].metadata["answer_context_retrieval_order"] == 2
 
 
+def test_answer_context_matches_fusion_turn_ref_dedupe_key() -> None:
+    memories = (
+        RetrievedMemory(
+            text="Caroline adoption evidence",
+            rank=1,
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_fusion": {
+                        "dedupe_key": "turn_refs:D2:8|D2:9"
+                    }
+                }
+            },
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "items": [
+                {
+                    "role": "primary",
+                    "source_ref_dedupe_key": "source_turn_refs:D2:9",
+                }
+            ]
+        },
+        cutoff=1,
+    )
+
+    assert [memory.text for memory in context.memories] == [
+        "Caroline adoption evidence"
+    ]
+    assert context.memories[0].source_refs == (
+        "source_turn_refs:D2:8",
+        "source_turn_refs:D2:9",
+    )
+
+
 def test_answer_context_backfill_carries_text_turn_source_identity() -> None:
     memories = (
         RetrievedMemory(text="primary", rank=1, item_id="primary"),
