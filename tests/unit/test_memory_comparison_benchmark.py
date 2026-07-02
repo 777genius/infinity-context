@@ -8222,6 +8222,13 @@ def test_benchmark_rerank_boosts_current_goal_over_origin_history() -> None:
         > 0
     )
     assert (
+        goal_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        > 0
+    )
+    assert goal_diagnostics["score_signals"][
+        "benchmark_typed_relation_support_roles"
+    ] == ["current_goal_support"]
+    assert (
         origin_diagnostics["score_signals"]["benchmark_current_goal_context_boost"]
         == 0
     )
