@@ -540,6 +540,13 @@ _EXACT_REPAIR_RECOMMENDATION_ANAPHORIC_CONTEXT_RE = re.compile(
     r"\b(?:it|that|this)\b(?=.{0,80}\brecommend(?:ed|ing|s)?\b)",
     re.IGNORECASE | re.DOTALL,
 )
+_EXACT_REPAIR_SHORT_ANAPHORIC_REPLY_RE = re.compile(
+    r"\b(?:yes|yeah|yep|no|nope|right|correct|exactly|definitely|"
+    r"absolutely|sure)\b"
+    r"(?=.{0,120}\b(?:it|that|this|they|them|these|those|one|ones|"
+    r"there|he|she)\b)",
+    re.IGNORECASE | re.DOTALL,
+)
 _EXACT_REPAIR_TEXT_MARKER_DERIVATION_REASONS = frozenset(
     {
         "activity-competition-evidence-bridge",
@@ -1519,7 +1526,11 @@ def _source_sibling_answer_previous_context_reason(
     answer_evidence: bool,
 ) -> str:
     reason = _exact_source_repair_query_reason(item)
-    if not answer_evidence or reason not in _EXACT_REPAIR_RECOMMENDATION_REASONS:
+    if not answer_evidence:
+        return ""
+    if _is_short_anaphoric_answer_reply(item.text):
+        return reason
+    if reason not in _EXACT_REPAIR_RECOMMENDATION_REASONS:
         return ""
     kind = recommendation_list_answer_kind(text=item.text, query_reason=reason)
     if kind == "confirmation":
@@ -1531,6 +1542,25 @@ def _source_sibling_answer_previous_context_reason(
     ):
         return reason
     return ""
+
+
+def _is_short_anaphoric_answer_reply(text: str) -> bool:
+    reply = _dialogue_reply_body(text)
+    if not reply:
+        return False
+    if len(re.findall(r"\b[\w']+\b", reply)) > 16:
+        return False
+    return _EXACT_REPAIR_SHORT_ANAPHORIC_REPLY_RE.search(reply) is not None
+
+
+def _dialogue_reply_body(text: str) -> str:
+    marker_match = re.search(r"\bD\d+:\d+\b", text)
+    if marker_match is not None:
+        text = text[marker_match.end() :]
+    speaker_match = re.match(r"\s*[^:\n]{1,48}:\s*", text)
+    if speaker_match is not None:
+        text = text[speaker_match.end() :]
+    return text.strip()
 
 
 def _next_dialogue_turn_source_id(source_id: str) -> str:

@@ -8,6 +8,10 @@ from dataclasses import dataclass, replace
 from infinity_context_core.application.context_aggregation_answer_slots import (
     aggregation_answer_slot_count,
 )
+from infinity_context_core.application.context_creative_work_count_exact_turns import (
+    creative_work_count_answer_rank,
+    creative_work_count_role_alignment_rank,
+)
 from infinity_context_core.application.context_english_lifestyle_inference import (
     english_lifestyle_answer_slot_and_rank,
     english_lifestyle_query_kind,
@@ -97,12 +101,6 @@ _CREATIVE_WORK_COUNT_SOURCE_SIBLING_REASONS = frozenset(
         "screenplay-count-bridge",
         "source-sibling-answer-evidence",
     }
-)
-_CREATIVE_WORK_COUNT_ORDINAL_REFERENCE_SOURCE_SIBLING_RE = re.compile(
-    r"\b(?:is|was|that'?s|that\s+is|this\s+is|your|my|her|his|their)\s+"
-    r"(?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\s+one\b"
-    r"(?=[^?]{0,120}\?)",
-    re.IGNORECASE,
 )
 _COMMON_INTEREST_ANIMAL_SOURCE_SIBLING_QUERY_RE = re.compile(
     r"\b(?:animals?|pets?|turtles?|reptiles?)\b",
@@ -1453,6 +1451,12 @@ def source_sibling_answer_evidence(
             expansion_reason=expansion_reason,
         ):
             return _is_gaming_medium_direct_answer_evidence(
+                expansion_query=expansion_query,
+                expansion_reason=expansion_reason,
+                text=text,
+            )
+        if _is_creative_work_count_source_sibling_scope(expansion_reason):
+            return _is_creative_work_count_source_sibling_answer_evidence(
                 expansion_query=expansion_query,
                 expansion_reason=expansion_reason,
                 text=text,
@@ -2850,18 +2854,34 @@ def _is_creative_work_count_source_sibling_answer_evidence(
     expansion_reason: str,
     text: str,
 ) -> bool:
-    if (
-        expansion_reason.replace("_", "-")
-        not in _CREATIVE_WORK_COUNT_SOURCE_SIBLING_REASONS
-    ):
+    if not _is_creative_work_count_source_sibling_scope(expansion_reason):
         return False
     if not _query_person_matches_text(expansion_query=expansion_query, text=text):
         return False
-    return _is_precise_turn_retrieval_text(
-        text
-    ) and _CREATIVE_WORK_COUNT_ORDINAL_REFERENCE_SOURCE_SIBLING_RE.search(
-        text
-    ) is not None
+    if not _is_precise_turn_retrieval_text(text):
+        return False
+    return (
+        creative_work_count_role_alignment_rank(
+            text=text,
+            query=expansion_query,
+            query_reason=expansion_reason,
+        )
+        <= 1
+        and creative_work_count_answer_rank(
+            text=text,
+            query=expansion_query,
+            query_reason=expansion_reason,
+            has_exact_turn=True,
+        )
+        <= 1
+    )
+
+
+def _is_creative_work_count_source_sibling_scope(expansion_reason: str) -> bool:
+    return (
+        expansion_reason.replace("_", "-")
+        in _CREATIVE_WORK_COUNT_SOURCE_SIBLING_REASONS
+    )
 
 
 def _is_named_preference_source_sibling_answer_evidence(

@@ -95,7 +95,12 @@ def test_existing_focused_turn_blocks_duplicate_continuation_hydration() -> None
 
     requests = _source_sibling_answer_continuation_hydration_requests(
         (question_turn, exact_answer_turn),
-        existing_source_ids=frozenset({"locomo:conv-fixture:session_2:D2:9:turn"}),
+        existing_source_ids=frozenset(
+            {
+                "locomo:conv-fixture:session_2:D2:8:turn",
+                "locomo:conv-fixture:session_2:D2:9:turn",
+            }
+        ),
     )
 
     assert requests == {}
@@ -133,6 +138,73 @@ def test_relationship_duration_question_does_not_request_activity_hydration() ->
 
     requests = _source_sibling_answer_continuation_hydration_requests(
         (question_turn,),
+        existing_source_ids=frozenset(),
+    )
+
+    assert requests == {}
+
+
+def test_short_anaphoric_answer_requests_previous_question_context() -> None:
+    answer_turn = _answer_support_item(
+        "anaphoric_answer",
+        "D2:9 Morgan: Yes, they are.",
+        source_id="locomo:conv-fixture:session_2:D2:9:turn",
+        reason="activity_competition_evidence_bridge",
+    )
+
+    requests = _source_sibling_answer_continuation_hydration_requests(
+        (answer_turn,),
+        existing_source_ids=frozenset(),
+    )
+
+    assert requests == {
+        "locomo:conv-fixture:session_2:D2:8:turn": (
+            "activity_competition_evidence_bridge"
+        )
+    }
+
+
+def test_existing_focused_question_blocks_duplicate_previous_context() -> None:
+    question_turn = _answer_support_item(
+        "visual_question",
+        "D2:8 Riley: Are they yours at the festival?",
+        source_id="locomo:conv-fixture:session_2:D2:8:turn",
+        reason="activity_competition_evidence_bridge",
+    )
+    answer_turn = _answer_support_item(
+        "anaphoric_answer",
+        "D2:9 Morgan: Yes, they are.",
+        source_id="locomo:conv-fixture:session_2:D2:9:turn",
+        reason="activity_competition_evidence_bridge",
+    )
+
+    requests = _source_sibling_answer_continuation_hydration_requests(
+        (question_turn, answer_turn),
+        existing_source_ids=frozenset(
+            {
+                "locomo:conv-fixture:session_2:D2:8:turn",
+                "locomo:conv-fixture:session_2:D2:9:turn",
+            }
+        ),
+    )
+
+    assert requests == {}
+
+
+def test_long_direct_answer_does_not_request_previous_question_context() -> None:
+    answer_turn = _answer_support_item(
+        "direct_answer",
+        (
+            "D2:9 Morgan: Yes, they are mine and they are performing at the "
+            "festival with the group I joined last summer after training for "
+            "several months."
+        ),
+        source_id="locomo:conv-fixture:session_2:D2:9:turn",
+        reason="activity_competition_evidence_bridge",
+    )
+
+    requests = _source_sibling_answer_continuation_hydration_requests(
+        (answer_turn,),
         existing_source_ids=frozenset(),
     )
 
