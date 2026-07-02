@@ -200,3 +200,21 @@
   -> passed.
 - `git push origin main` -> still blocked because the non-interactive runtime
   has no GitHub username/credential prompt available.
+
+## 2026-07-02 Follow-up 11
+
+- Promoted typed relation hit-role gaps into fast-gate query-role breakdowns.
+  A lifted or selected typed query role now still reports a gap when no matching
+  typed evidence category was actually hit.
+- Added fast-gate coverage for mixed health/status profile fanout where only
+  health evidence is grounded, so status support is reported as
+  `typed_relation_not_hit`.
+
+## Verification
+
+- `uv run --extra dev pytest -q tests/unit/test_memory_comparison*.py`
+  -> 503 passed, 1 warning.
+- `uv run --extra dev ruff check packages/infinity_context_server/infinity_context_server/memory_comparison_quality_diagnostics.py tests/unit/test_memory_comparison_quality_diagnostics.py`
+  -> passed.
+- `git push origin main` -> still blocked because the non-interactive runtime
+  has no GitHub username/credential prompt available.

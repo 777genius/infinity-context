@@ -2127,16 +2127,22 @@ def test_fast_gate_metrics_reports_query_role_gap_breakdown() -> None:
     assert breakdown["role_gap_count"] == 1
     assert breakdown["candidate_role_counts"] == {"relative_temporal_support": 1}
     assert breakdown["selected_item_role_counts"] == {"primary": 1}
+    assert breakdown["typed_relation_hit_role_counts"] == {}
+    assert breakdown["typed_relation_lifted_hit_role_counts"] == {}
     assert breakdown["candidate_role_family_counts"] == {"temporal_support": 1}
     assert breakdown["selected_item_role_family_counts"] == {"primary": 1}
     assert breakdown["roles_without_selected_items"] == ["relative_temporal_support"]
     assert breakdown["roles_without_lifted_candidates"] == []
+    assert breakdown["roles_without_typed_relation_hits"] == []
     assert breakdown["role_gaps"]["relative_temporal_support"] == {
         "candidate_count": 1,
         "lifted_candidate_count": 1,
         "selected_item_count": 0,
+        "typed_relation_hit_count": 0,
+        "typed_relation_lifted_hit_count": 0,
         "selection_rate": 0.0,
         "lifted_rate": 1.0,
+        "typed_relation_hit_rate": 0.0,
         "bridge_query_hit_candidate_count": 0,
         "bridge_query_hit_selected_count": 0,
         "avg_candidate_answerability_score": 0.72,
@@ -2153,6 +2159,86 @@ def test_fast_gate_metrics_reports_query_role_gap_breakdown() -> None:
         "selected_unmeasured_source_locality_count": 0,
         "selected_bundle_role_counts": {},
         "gap_reasons": ["not_selected"],
+    }
+
+
+def test_fast_gate_metrics_reports_typed_relation_hit_role_gaps() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="typed-hit-gap",
+                group="single-hop",
+                retrieval=_retrieval_payload(
+                    evidence_need=("health_profile", "status_profile"),
+                    bundle_evidence_roles=(
+                        "primary",
+                        "health_support",
+                        "status_support",
+                    ),
+                    policy_score=0.2,
+                    candidate_features={
+                        "query_roles": ("health_support", "status_support"),
+                        "answerability_score": 0.8,
+                        "source_locality_score": 0.9,
+                    },
+                    score_signals={
+                        "benchmark_typed_relation_support_hit_roles": [
+                            "health_support"
+                        ],
+                    },
+                ),
+                evidence_bundle={
+                    "bundle_complete": True,
+                    "evidence_term_count": 1,
+                    "covered_evidence_terms": ["D1:1"],
+                    "items": [
+                        {
+                            "role": "health_support",
+                            "retrieval_order": 1,
+                            "covered_evidence_terms": ["D1:1"],
+                            "query_roles": ["health_support"],
+                            "answerability_score": 0.8,
+                            "source_locality_score": 0.9,
+                        }
+                    ],
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    breakdown = gate["query_role_gap_breakdown"]
+
+    assert breakdown["typed_relation_hit_role_counts"] == {"health_support": 1}
+    assert breakdown["typed_relation_lifted_hit_role_counts"] == {
+        "health_support": 1
+    }
+    assert breakdown["roles_without_typed_relation_hits"] == ["status_support"]
+    assert breakdown["role_gaps"]["status_support"] == {
+        "candidate_count": 1,
+        "lifted_candidate_count": 1,
+        "selected_item_count": 0,
+        "typed_relation_hit_count": 0,
+        "typed_relation_lifted_hit_count": 0,
+        "selection_rate": 0.0,
+        "lifted_rate": 1.0,
+        "typed_relation_hit_rate": 0.0,
+        "bridge_query_hit_candidate_count": 0,
+        "bridge_query_hit_selected_count": 0,
+        "avg_candidate_answerability_score": 0.8,
+        "avg_measured_candidate_answerability_score": 0.8,
+        "candidate_unmeasured_answerability_count": 0,
+        "avg_candidate_source_locality_score": 0.9,
+        "avg_measured_candidate_source_locality_score": 0.9,
+        "candidate_unmeasured_source_locality_count": 0,
+        "avg_selected_answerability_score": 0.0,
+        "avg_measured_selected_answerability_score": 0.0,
+        "selected_unmeasured_answerability_count": 0,
+        "avg_selected_source_locality_score": 0.0,
+        "avg_measured_selected_source_locality_score": 0.0,
+        "selected_unmeasured_source_locality_count": 0,
+        "selected_bundle_role_counts": {},
+        "gap_reasons": ["not_selected", "typed_relation_not_hit"],
     }
 
 

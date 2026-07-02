@@ -612,6 +612,12 @@ def _query_role_gap_breakdown(
     selected_item_role_counts = _count_mapping(
         query_role_effectiveness.get("selected_item_role_counts")
     )
+    typed_relation_hit_role_counts = _count_mapping(
+        query_role_effectiveness.get("typed_relation_hit_role_counts")
+    )
+    typed_relation_lifted_hit_role_counts = _count_mapping(
+        query_role_effectiveness.get("typed_relation_lifted_hit_role_counts")
+    )
     candidate_role_family_counts = _count_mapping(
         query_role_effectiveness.get("candidate_role_family_counts")
     )
@@ -640,6 +646,11 @@ def _query_role_gap_breakdown(
         selected_count = selected_item_role_counts.get(role, 0)
         bridge_candidate_count = bridge_hit_candidate_counts.get(role, 0)
         bridge_selected_count = bridge_hit_selected_counts.get(role, 0)
+        typed_relation_hit_count = typed_relation_hit_role_counts.get(role, 0)
+        typed_relation_lifted_hit_count = typed_relation_lifted_hit_role_counts.get(
+            role,
+            0,
+        )
         gap_reasons: list[str] = []
         if selected_count <= 0:
             gap_reasons.append("not_selected")
@@ -647,6 +658,11 @@ def _query_role_gap_breakdown(
             gap_reasons.append("not_lifted")
         if bridge_candidate_count > bridge_selected_count:
             gap_reasons.append("bridge_hit_not_selected")
+        if role in _typed_relation_roles_without_hits(
+            query_role_effectiveness,
+            candidate_role_counts=candidate_role_counts,
+        ):
+            gap_reasons.append("typed_relation_not_hit")
         if not gap_reasons:
             continue
 
@@ -654,8 +670,14 @@ def _query_role_gap_breakdown(
             "candidate_count": candidate_count,
             "lifted_candidate_count": lifted_count,
             "selected_item_count": selected_count,
+            "typed_relation_hit_count": typed_relation_hit_count,
+            "typed_relation_lifted_hit_count": typed_relation_lifted_hit_count,
             "selection_rate": round(_metric_value(stats, "selection_rate"), 4),
             "lifted_rate": round(_metric_value(stats, "lifted_rate"), 4),
+            "typed_relation_hit_rate": round(
+                _metric_value(stats, "typed_relation_hit_rate"),
+                4,
+            ),
             "bridge_query_hit_candidate_count": bridge_candidate_count,
             "bridge_query_hit_selected_count": bridge_selected_count,
             "avg_candidate_answerability_score": round(
@@ -733,6 +755,10 @@ def _query_role_gap_breakdown(
         "candidate_role_counts": candidate_role_counts,
         "lifted_candidate_role_counts": lifted_candidate_role_counts,
         "selected_item_role_counts": selected_item_role_counts,
+        "typed_relation_hit_role_counts": typed_relation_hit_role_counts,
+        "typed_relation_lifted_hit_role_counts": (
+            typed_relation_lifted_hit_role_counts
+        ),
         "candidate_role_family_counts": candidate_role_family_counts,
         "lifted_candidate_role_family_counts": lifted_candidate_role_family_counts,
         "selected_item_role_family_counts": selected_item_role_family_counts,
@@ -758,8 +784,26 @@ def _query_role_gap_breakdown(
             if bridge_hit_candidate_counts.get(role, 0) > 0
             and bridge_hit_selected_counts.get(role, 0) <= 0
         ],
+        "roles_without_typed_relation_hits": _typed_relation_roles_without_hits(
+            query_role_effectiveness,
+            candidate_role_counts=candidate_role_counts,
+        ),
         "role_gaps": role_gaps,
     }
+
+
+def _typed_relation_roles_without_hits(
+    query_role_effectiveness: Mapping[str, object],
+    *,
+    candidate_role_counts: Mapping[str, int],
+) -> list[str]:
+    return [
+        role
+        for role in _str_tuple(
+            query_role_effectiveness.get("roles_without_typed_relation_hits")
+        )
+        if candidate_role_counts.get(role, 0) > 0
+    ]
 
 
 def _query_plan_gap_breakdown(
