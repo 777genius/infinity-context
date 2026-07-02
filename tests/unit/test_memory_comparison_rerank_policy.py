@@ -432,6 +432,89 @@ def test_rerank_policy_accepts_typed_location_support_need() -> None:
     ]
 
 
+def test_rerank_policy_accepts_typed_communication_support_need() -> None:
+    score = score_benchmark_rerank_candidate(
+        _features(
+            overlap_terms=("caroline", "recommend", "book"),
+            entity_hits=("caroline",),
+            speaker_hits=("caroline",),
+            relation_hits=("recommend", "book", "said"),
+            relation_terms=("recommend", "book"),
+            relation_categories=("communication",),
+            relation_category_hits=("communication",),
+            relation_category_coverage_ratio=1.0,
+            direct_speaker_turn=True,
+            source_locality_score=1.0,
+            evidence_need=("communication",),
+            query_roles=("communication_support",),
+        )
+    )
+
+    signals = score.signals["score_signals"]
+    policy = score.signals["policy_contributions"]
+    assert signals["benchmark_typed_relation_support_boost"] == 0.045
+    assert signals["benchmark_typed_relation_query_role_boost"] == 0.02
+    assert signals["benchmark_typed_relation_support_roles"] == [
+        "communication_support"
+    ]
+    assert signals["benchmark_typed_relation_support_category_hits"] == [
+        "communication"
+    ]
+    assert "typed_relation_support" in policy["reason_codes_by_policy"][
+        "TypedRelationSupportPolicy"
+    ]
+    assert "typed_relation_query_role_support" in policy["reason_codes_by_policy"][
+        "TypedRelationSupportPolicy"
+    ]
+
+
+def test_rerank_policy_rejects_typed_support_role_without_category_hit() -> None:
+    score = score_benchmark_rerank_candidate(
+        _features(
+            overlap_terms=("caroline", "recommend"),
+            entity_hits=("caroline",),
+            speaker_hits=("caroline",),
+            relation_hits=("recommend", "book"),
+            relation_terms=("recommend", "book"),
+            relation_categories=("communication",),
+            direct_speaker_turn=True,
+            source_locality_score=1.0,
+            evidence_need=("communication",),
+            query_roles=("communication_support",),
+        )
+    )
+
+    signals = score.signals["score_signals"]
+    policy = score.signals["policy_contributions"]
+    assert signals["benchmark_typed_relation_support_boost"] == 0.0
+    assert signals["benchmark_typed_relation_query_role_boost"] == 0.0
+    assert "TypedRelationSupportPolicy" not in policy["reason_codes_by_policy"]
+
+
+def test_rerank_policy_requires_speaker_grounding_for_communication_support() -> None:
+    score = score_benchmark_rerank_candidate(
+        _features(
+            overlap_terms=("alex", "project", "delay"),
+            entity_hits=("alex",),
+            relation_hits=("told",),
+            relation_terms=("tell",),
+            relation_categories=("communication",),
+            relation_category_hits=("communication",),
+            relation_category_coverage_ratio=1.0,
+            direct_speaker_turn=True,
+            source_locality_score=1.0,
+            evidence_need=("communication",),
+            query_roles=("communication_support",),
+        )
+    )
+
+    signals = score.signals["score_signals"]
+    policy = score.signals["policy_contributions"]
+    assert signals["benchmark_typed_relation_support_boost"] == 0.0
+    assert signals["benchmark_typed_relation_query_role_boost"] == 0.0
+    assert "TypedRelationSupportPolicy" not in policy["reason_codes_by_policy"]
+
+
 def test_rerank_policy_boosts_precise_speaker_grounding() -> None:
     grounded = score_benchmark_rerank_candidate(
         _features(

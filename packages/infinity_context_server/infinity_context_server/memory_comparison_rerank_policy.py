@@ -106,6 +106,10 @@ def score_benchmark_rerank_candidate(
         score_signals,
         "benchmark_location_support_boost",
     ) + _float_signal(score_signals, "benchmark_location_query_role_boost")
+    typed_relation_support_boost = _float_signal(
+        score_signals,
+        "benchmark_typed_relation_support_boost",
+    ) + _float_signal(score_signals, "benchmark_typed_relation_query_role_boost")
     strong_relation_evidence = _bool_signal(
         score_signals,
         "benchmark_strong_relation_evidence",
@@ -145,6 +149,7 @@ def score_benchmark_rerank_candidate(
         temporal_role_support_boost=temporal_role_support_boost,
         contrast_support_boost=contrast_support_boost,
         location_support_boost=location_support_boost,
+        typed_relation_support_boost=typed_relation_support_boost,
         policy_boosts=policy_boosts,
         shape_boosts=shape_boosts,
     )
@@ -235,6 +240,7 @@ def _boost_cap(
     temporal_role_support_boost: float,
     contrast_support_boost: float,
     location_support_boost: float,
+    typed_relation_support_boost: float,
     policy_boosts: Mapping[str, float],
     shape_boosts: Mapping[str, float],
 ) -> float:
@@ -287,6 +293,8 @@ def _boost_cap(
         return 0.46
     if location_support_boost > 0:
         return 0.46
+    if typed_relation_support_boost > 0:
+        return 0.46
     if speaker_grounding_boost > 0:
         return 0.4
     if answerability_boost > 0:
@@ -302,6 +310,7 @@ def _boost_cap(
         or currentness_boost > 0
         or contrast_support_boost > 0
         or location_support_boost > 0
+        or typed_relation_support_boost > 0
     ):
         return 0.38
     return 0.28
@@ -413,6 +422,8 @@ def _has_role_specific_grounding(
             "location_transition" in set(features.relation_category_hits)
             and features.relation_hits
         )
+    if _float_signal(score_signals, "benchmark_typed_relation_support_boost") > 0:
+        return bool(features.relation_category_hits and features.relation_hits)
     return bool(_has_contrast_grounding(score_signals))
 
 

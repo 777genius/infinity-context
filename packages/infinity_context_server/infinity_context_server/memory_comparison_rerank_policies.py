@@ -533,6 +533,53 @@ class LocationIntentPolicy:
         )
 
 
+class TypedRelationSupportPolicy:
+    name = "TypedRelationSupportPolicy"
+
+    def score(self, features: RerankPolicyFeatures) -> RerankPolicyContribution:
+        support_roles = _typed_relation_support_roles(features)
+        category_hits = _typed_relation_support_category_hits(features, support_roles)
+        precise_provenance = features.direct_speaker_turn or (
+            features.source_locality_score >= 0.65 and not features.broad_summary
+        )
+        grounded = bool(
+            category_hits
+            and precise_provenance
+            and _typed_relation_support_grounded(features, support_roles)
+        )
+        evidence_boost = min(0.06, 0.045 * len(category_hits)) if grounded else 0.0
+        role_boost = (
+            min(0.03, 0.02 * len(support_roles))
+            if evidence_boost > 0 and support_roles
+            else 0.0
+        )
+        return RerankPolicyContribution(
+            policy=self.name,
+            score=evidence_boost + role_boost,
+            signals={
+                "benchmark_typed_relation_support_boost": round(
+                    evidence_boost,
+                    6,
+                ),
+                "benchmark_typed_relation_query_role_boost": round(
+                    role_boost,
+                    6,
+                ),
+                "benchmark_typed_relation_support_roles": list(support_roles),
+                "benchmark_typed_relation_support_category_hits": list(
+                    category_hits
+                ),
+                "benchmark_typed_relation_support_precise_provenance": (
+                    precise_provenance
+                ),
+            },
+            reason_codes=(
+                *_reason_codes(("typed_relation_support", evidence_boost)),
+                *_reason_codes(("typed_relation_query_role_support", role_boost)),
+            ),
+        )
+
+
 def score_rerank_policy_contributions(
     features: RerankPolicyFeatures,
     *,
@@ -730,6 +777,72 @@ def _contrast_boost_eligible(features: RerankPolicyFeatures) -> bool:
     )
 
 
+_TYPED_RELATION_SUPPORT_ROLE_CATEGORIES = {
+    "causal_support": frozenset({"causal"}),
+    "communication_support": frozenset({"communication"}),
+    "emotion_response_support": frozenset({"emotion_response"}),
+    "event_support": frozenset({"participation_event", "registration_event"}),
+    "exchange_support": frozenset({"exchange"}),
+    "symbolic_meaning_support": frozenset({"symbolic_meaning"}),
+}
+_TYPED_RELATION_SUPPORT_NEEDS = {
+    "causal_support": frozenset({"causal_support"}),
+    "communication_support": frozenset({"communication"}),
+    "emotion_response_support": frozenset({"emotion_response"}),
+    "event_support": frozenset({"participation_event", "registration_event"}),
+    "exchange_support": frozenset({"exchange"}),
+    "symbolic_meaning_support": frozenset({"symbolic_meaning"}),
+}
+
+
+def _typed_relation_support_roles(
+    features: RerankPolicyFeatures,
+) -> tuple[str, ...]:
+    evidence_needs = set(features.evidence_need)
+    relation_categories = set(features.relation_categories)
+    query_roles = set(features.query_roles)
+    roles: list[str] = []
+    for role, categories in _TYPED_RELATION_SUPPORT_ROLE_CATEGORIES.items():
+        role_needed = bool(
+            role in query_roles
+            or categories & relation_categories
+            or _TYPED_RELATION_SUPPORT_NEEDS[role] & evidence_needs
+        )
+        if role_needed:
+            roles.append(role)
+    return tuple(roles)
+
+
+def _typed_relation_support_category_hits(
+    features: RerankPolicyFeatures,
+    support_roles: Sequence[str],
+) -> tuple[str, ...]:
+    category_hits = set(features.relation_category_hits)
+    hits: list[str] = []
+    for role in support_roles:
+        hits.extend(
+            category
+            for category in _TYPED_RELATION_SUPPORT_ROLE_CATEGORIES[role]
+            if category in category_hits
+        )
+    return tuple(dict.fromkeys(hits))
+
+
+def _typed_relation_support_grounded(
+    features: RerankPolicyFeatures,
+    support_roles: Sequence[str],
+) -> bool:
+    if not (features.relation_hits or features.high_signal_relation_hit_count > 0):
+        return False
+    if "communication_support" in set(support_roles) and features.query_has_entities:
+        return bool(features.speaker_hits)
+    return bool(
+        features.entity_hits
+        or features.speaker_hits
+        or not features.query_has_entities
+    )
+
+
 _LOCATION_SUPPORT_TERMS = frozenset(
     {
         "city",
@@ -759,5 +872,6 @@ _DEFAULT_POLICIES: tuple[RerankPolicy, ...] = (
     AnswerabilityPolicy(),
     MultiHopPolicy(),
     ContrastIntentPolicy(),
+    TypedRelationSupportPolicy(),
     LocationIntentPolicy(),
 )
