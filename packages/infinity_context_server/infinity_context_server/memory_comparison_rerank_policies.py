@@ -25,6 +25,7 @@ class RerankPolicyFeatures(Protocol):
     has_duration_surface: bool
     has_relative_time_surface: bool
     has_explicit_time_surface: bool
+    has_explicit_time_content_surface: bool
     has_temporal_sequence_surface: bool
     is_preference_query: bool
     has_preference_evidence: bool
@@ -209,10 +210,7 @@ class TemporalPolicy:
         sequence_boost = (
             0.055
             if features.is_temporal_query
-            and (
-                features.has_sequence_surface
-                or features.has_temporal_sequence_surface
-            )
+            and features.has_temporal_sequence_surface
             else 0.0
         )
         currentness_boost = (
@@ -255,6 +253,9 @@ class TemporalPolicy:
                 ),
                 "benchmark_has_explicit_time_surface": (
                     features.has_explicit_time_surface
+                ),
+                "benchmark_has_explicit_time_content_surface": (
+                    features.has_explicit_time_content_surface
                 ),
                 "benchmark_has_temporal_sequence_surface": (
                     features.has_temporal_sequence_surface
@@ -624,7 +625,7 @@ def _rounded_boosts(boosts: Mapping[str, float]) -> dict[str, float]:
 def _typed_temporal_boost(features: RerankPolicyFeatures) -> tuple[float, str]:
     if not features.is_temporal_query:
         return 0.0, "not_temporal_query"
-    generic_temporal = features.has_temporal_surface or features.has_sequence_surface
+    generic_temporal = _has_content_temporal_evidence(features)
     time_kind = features.time_intent_kind
     if time_kind == "duration":
         if features.has_duration_surface:
@@ -641,14 +642,14 @@ def _typed_temporal_boost(features: RerankPolicyFeatures) -> tuple[float, str]:
             "missing_relative_temporal_evidence",
         )
     if time_kind == "explicit_time":
-        if features.has_explicit_time_surface:
+        if features.has_explicit_time_content_surface:
             return 0.08, "explicit_temporal_evidence"
         return (0.03, "explicit_temporal_evidence_partial") if generic_temporal else (
             0.0,
             "missing_explicit_temporal_evidence",
         )
     if time_kind == "temporal_sequence":
-        if features.has_temporal_sequence_surface or features.has_sequence_surface:
+        if features.has_temporal_sequence_surface:
             return 0.08, "sequence_temporal_evidence"
         return (0.025, "sequence_temporal_evidence_partial") if generic_temporal else (
             0.0,
@@ -671,13 +672,19 @@ def _temporal_role_support_eligible(features: RerankPolicyFeatures) -> bool:
     ):
         return False
     return bool(
-        features.has_temporal_surface
-        or features.has_sequence_surface
-        or features.has_duration_surface
+        features.has_duration_surface
         or features.has_relative_time_surface
-        or features.has_explicit_time_surface
+        or features.has_explicit_time_content_surface
         or features.has_temporal_sequence_surface
-        or features.currentness_surface
+    )
+
+
+def _has_content_temporal_evidence(features: RerankPolicyFeatures) -> bool:
+    return bool(
+        features.has_duration_surface
+        or features.has_relative_time_surface
+        or features.has_explicit_time_content_surface
+        or features.has_temporal_sequence_surface
     )
 
 

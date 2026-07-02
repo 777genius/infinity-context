@@ -534,6 +534,10 @@ Temporal event questions add action surfaces such as `run/race/charity/last`,
 `conference/month/community` and
 `destress/stress/relax/unwind/class/clear/mind/headspace/run/farther`,
 so date questions do not collapse to `person + when + date` only.
+Temporal rerank evidence distinguishes spoken/content time surfaces from
+provenance-only labels such as `date:` or turn references, so a topic-only
+timestamped memory does not satisfy temporal support without actual temporal
+content such as `yesterday`, an explicit day/month/year, or a duration.
 Registration paraphrases such as `register` and `enroll` share typed event
 surfaces with `sign up`, including `signup`, `class`, `course`, `lesson` and
 `workshop`, so class-registration evidence can outrank sign or schedule

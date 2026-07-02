@@ -61,6 +61,13 @@ _EXPLICIT_TIME_EVIDENCE_RE = re.compile(
     r"september|october|november|december)\b",
     re.IGNORECASE,
 )
+_EXPLICIT_TIME_CONTENT_RE = re.compile(
+    r"\b(?:\d{1,2}:\d{2}|\d{1,2}\s*(?:am|pm)|(?:19|20)\d{2}|"
+    r"monday|tuesday|wednesday|thursday|friday|saturday|sunday|"
+    r"january|february|march|april|may|june|july|august|"
+    r"september|october|november|december)\b",
+    re.IGNORECASE,
+)
 _TEMPORAL_SEQUENCE_EVIDENCE_RE = re.compile(
     r"\b(?:before|after|then|following|subsequent|subsequently|"
     r"previously|earlier|later|prior)\b",
@@ -92,6 +99,7 @@ class CandidateEvidenceFeatures:
     has_duration_surface: bool
     has_relative_time_surface: bool
     has_explicit_time_surface: bool
+    has_explicit_time_content_surface: bool
     has_temporal_sequence_surface: bool
     has_preference_evidence: bool
     has_visual_evidence: bool
@@ -172,6 +180,9 @@ class CandidateEvidenceFeatures:
             "has_duration_surface": self.has_duration_surface,
             "has_relative_time_surface": self.has_relative_time_surface,
             "has_explicit_time_surface": self.has_explicit_time_surface,
+            "has_explicit_time_content_surface": (
+                self.has_explicit_time_content_surface
+            ),
             "has_temporal_sequence_surface": self.has_temporal_sequence_surface,
             "has_preference_evidence": self.has_preference_evidence,
             "has_visual_evidence": self.has_visual_evidence,
@@ -267,6 +278,9 @@ def build_candidate_evidence_features(
         has_duration_surface=temporal_features["has_duration_surface"],
         has_relative_time_surface=temporal_features["has_relative_time_surface"],
         has_explicit_time_surface=temporal_features["has_explicit_time_surface"],
+        has_explicit_time_content_surface=temporal_features[
+            "has_explicit_time_content_surface"
+        ],
         has_temporal_sequence_surface=temporal_features[
             "has_temporal_sequence_surface"
         ],
@@ -309,6 +323,9 @@ def build_candidate_evidence_features(
         has_duration_surface=temporal_features["has_duration_surface"],
         has_relative_time_surface=temporal_features["has_relative_time_surface"],
         has_explicit_time_surface=temporal_features["has_explicit_time_surface"],
+        has_explicit_time_content_surface=temporal_features[
+            "has_explicit_time_content_surface"
+        ],
         has_temporal_sequence_surface=temporal_features[
             "has_temporal_sequence_surface"
         ],
@@ -363,16 +380,29 @@ def _contrast_features(text: str) -> dict[str, bool]:
 
 
 def _temporal_evidence_features(text: str) -> dict[str, bool]:
+    content_text = _evidence_content_text(text)
     duration_surface = bool(_DURATION_EVIDENCE_RE.search(text))
     relative_time_surface = bool(_RELATIVE_TIME_EVIDENCE_RE.search(text))
     explicit_time_surface = bool(_EXPLICIT_TIME_EVIDENCE_RE.search(text))
+    explicit_time_content_surface = bool(_EXPLICIT_TIME_CONTENT_RE.search(content_text))
     temporal_sequence_surface = bool(_TEMPORAL_SEQUENCE_EVIDENCE_RE.search(text))
     return {
         "has_duration_surface": duration_surface,
         "has_relative_time_surface": relative_time_surface,
         "has_explicit_time_surface": explicit_time_surface,
+        "has_explicit_time_content_surface": explicit_time_content_surface,
         "has_temporal_sequence_surface": temporal_sequence_surface,
     }
+
+
+def _evidence_content_text(text: str) -> str:
+    match = re.search(
+        r"\bD\d+:\d+\s+[A-Z][a-zA-Z0-9_-]{1,40}\s*:\s*",
+        text,
+    )
+    if not match:
+        return text
+    return text[match.end() :]
 
 
 def _relation_category_hits(
@@ -492,6 +522,7 @@ def _answerability(
     has_duration_surface: bool,
     has_relative_time_surface: bool,
     has_explicit_time_surface: bool,
+    has_explicit_time_content_surface: bool,
     has_temporal_sequence_surface: bool,
     is_preference_query: bool,
     has_preference_evidence: bool,
@@ -525,6 +556,7 @@ def _answerability(
         has_duration_surface=has_duration_surface,
         has_relative_time_surface=has_relative_time_surface,
         has_explicit_time_surface=has_explicit_time_surface,
+        has_explicit_time_content_surface=has_explicit_time_content_surface,
         has_temporal_sequence_surface=has_temporal_sequence_surface,
         is_preference_query=is_preference_query,
         has_preference_evidence=has_preference_evidence,
@@ -618,6 +650,7 @@ def _intent_answerability(
     has_duration_surface: bool,
     has_relative_time_surface: bool,
     has_explicit_time_surface: bool,
+    has_explicit_time_content_surface: bool,
     has_temporal_sequence_surface: bool,
     is_preference_query: bool,
     has_preference_evidence: bool,
@@ -642,6 +675,7 @@ def _intent_answerability(
             has_duration_surface=has_duration_surface,
             has_relative_time_surface=has_relative_time_surface,
             has_explicit_time_surface=has_explicit_time_surface,
+            has_explicit_time_content_surface=has_explicit_time_content_surface,
             has_temporal_sequence_surface=has_temporal_sequence_surface,
         )
         scores.append(score)
@@ -691,9 +725,15 @@ def _temporal_intent_answerability(
     has_duration_surface: bool,
     has_relative_time_surface: bool,
     has_explicit_time_surface: bool,
+    has_explicit_time_content_surface: bool,
     has_temporal_sequence_surface: bool,
 ) -> tuple[float, str]:
-    generic_temporal = has_temporal_surface or has_sequence_surface
+    generic_temporal = (
+        has_duration_surface
+        or has_relative_time_surface
+        or has_explicit_time_content_surface
+        or has_temporal_sequence_surface
+    )
     if time_intent_kind == "duration":
         if has_duration_surface:
             return 1.0, "duration_temporal_evidence"
@@ -709,14 +749,14 @@ def _temporal_intent_answerability(
             "missing_relative_temporal_evidence",
         )
     if time_intent_kind == "explicit_time":
-        if has_explicit_time_surface:
+        if has_explicit_time_content_surface:
             return 1.0, "explicit_temporal_evidence"
         return (0.5, "explicit_temporal_evidence_partial") if generic_temporal else (
             0.0,
             "missing_explicit_temporal_evidence",
         )
     if time_intent_kind == "temporal_sequence":
-        if has_sequence_surface or has_temporal_sequence_surface:
+        if has_temporal_sequence_surface:
             return 1.0, "sequence_temporal_evidence"
         return (0.45, "sequence_temporal_evidence_partial") if generic_temporal else (
             0.0,

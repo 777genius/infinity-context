@@ -55,6 +55,7 @@ class BenchmarkRerankFeatures:
     has_duration_surface: bool = False
     has_relative_time_surface: bool = False
     has_explicit_time_surface: bool = False
+    has_explicit_time_content_surface: bool = False
     has_temporal_sequence_surface: bool = False
 
 
@@ -383,10 +384,8 @@ def _has_role_specific_grounding(
         return bool(
             features.has_duration_surface
             or features.has_relative_time_surface
-            or features.has_explicit_time_surface
+            or features.has_explicit_time_content_surface
             or features.has_temporal_sequence_surface
-            or features.has_temporal_surface
-            or features.has_sequence_surface
         )
     if _float_signal(score_signals, "benchmark_location_support_boost") > 0:
         return bool(

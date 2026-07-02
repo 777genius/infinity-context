@@ -2735,7 +2735,7 @@ def test_infinity_context_http_search_boosts_relative_temporal_text() -> None:
         "relation_category_hits"
     ]
     assert diagnostics["score_signals"]["benchmark_temporal_text_boost"] > 0
-    assert diagnostics["score_signals"]["benchmark_temporal_sequence_boost"] > 0
+    assert diagnostics["score_signals"]["benchmark_temporal_sequence_boost"] == 0
     assert diagnostics["score_signals"]["benchmark_participation_event_boost"] > 0
 
 
@@ -5264,9 +5264,17 @@ def test_benchmark_rerank_boosts_participation_event_evidence() -> None:
         evidence_diagnostics["score_signals"]["benchmark_participation_event_boost"]
         > 0
     )
+    assert evidence_diagnostics["score_signals"]["benchmark_temporal_text_boost"] > 0
     assert (
         topic_diagnostics["score_signals"]["benchmark_participation_event_boost"]
         == 0
+    )
+    assert topic_diagnostics["score_signals"]["benchmark_temporal_text_boost"] == 0
+    assert (
+        topic_diagnostics["score_signals"]["benchmark_temporal_sequence_boost"] == 0
+    )
+    assert topic_diagnostics["score_signals"]["benchmark_typed_temporal_reason"] == (
+        "missing_temporal_evidence"
     )
 
 

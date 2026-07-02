@@ -2505,6 +2505,9 @@ def _benchmark_rerank_boost(
             has_duration_surface=candidate_features.has_duration_surface,
             has_relative_time_surface=candidate_features.has_relative_time_surface,
             has_explicit_time_surface=candidate_features.has_explicit_time_surface,
+            has_explicit_time_content_surface=(
+                candidate_features.has_explicit_time_content_surface
+            ),
             has_temporal_sequence_surface=(
                 candidate_features.has_temporal_sequence_surface
             ),

@@ -611,6 +611,73 @@ def test_candidate_features_score_typed_duration_temporal_evidence() -> None:
     assert duration.to_diagnostics()["time_intent_kind"] == "duration"
 
 
+def test_candidate_features_do_not_count_metadata_date_as_temporal_answer() -> None:
+    metadata_only = build_candidate_evidence_features(
+        RetrievedMemory(
+            item_id="studio-topic",
+            rank=1,
+            text=(
+                "session_2 turn D2:1 date: 10:00 am "
+                "D2:1 Morgan: I reviewed the studio schedule."
+            ),
+            source_refs=("D2:1",),
+        ),
+        memory_terms={"morgan", "studio", "schedule"},
+        query_terms=("morgan", "visit", "studio"),
+        relation_terms=("visit",),
+        relation_variant_terms=("studio",),
+        entities=("morgan",),
+        entity_hits=("morgan",),
+        speaker_hits=("morgan",),
+        high_signal_relation_terms=set(),
+        is_temporal_query=True,
+        time_intent_kind="temporal_lookup",
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=True,
+        has_sequence_surface=True,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+    content_time = build_candidate_evidence_features(
+        RetrievedMemory(
+            item_id="studio-visit",
+            rank=2,
+            text=(
+                "session_5 turn D5:2 date: 8:00 pm "
+                "D5:2 Morgan: I visited the studio yesterday."
+            ),
+            source_refs=("D5:2",),
+        ),
+        memory_terms={"morgan", "visit", "studio", "yesterday"},
+        query_terms=("morgan", "visit", "studio"),
+        relation_terms=("visit",),
+        relation_variant_terms=("studio",),
+        entities=("morgan",),
+        entity_hits=("morgan",),
+        speaker_hits=("morgan",),
+        high_signal_relation_terms=set(),
+        is_temporal_query=True,
+        time_intent_kind="temporal_lookup",
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=True,
+        has_sequence_surface=True,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+
+    assert metadata_only.has_explicit_time_surface is True
+    assert metadata_only.has_explicit_time_content_surface is False
+    assert "missing_temporal_evidence" in metadata_only.answerability_reason_codes
+    assert "generic_temporal_evidence" in content_time.answerability_reason_codes
+    assert content_time.answerability_score > metadata_only.answerability_score
+
+
 def test_candidate_features_do_not_count_question_echo_as_category_hit() -> None:
     memory = RetrievedMemory(
         item_id="current-group-distractor",
