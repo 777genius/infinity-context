@@ -5,6 +5,10 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
 
+from infinity_context_server.memory_comparison_candidate_risks import (
+    payload_has_broad_summary,
+    payload_has_conflict_or_stale,
+)
 from infinity_context_server.memory_comparison_quality_accessors import (
     active_policy_reasons as _active_policy_reasons,
 )
@@ -1146,15 +1150,17 @@ def _evidence_feature_table(items: Sequence[Mapping[str, object]]) -> dict[str, 
         )
         for key in (
             "direct_speaker_turn",
-            "broad_summary",
             "negation_surface",
             "currentness_surface",
             "stale_surface",
             "contrast_surface",
-            "conflict_or_stale",
         ):
             if features.get(key) is True:
                 surface_counts[key] += 1
+        if payload_has_broad_summary(memory, features):
+            surface_counts["broad_summary"] += 1
+        if payload_has_conflict_or_stale(memory, features):
+            surface_counts["conflict_or_stale"] += 1
         for key in (
             "has_duration_surface",
             "has_relative_time_surface",
@@ -1935,9 +1941,9 @@ def _rerank_lift_table(items: Sequence[Mapping[str, object]]) -> dict[str, objec
             answerability_score = _metric_value(features, "answerability_score")
             if answerability_score < 0.55:
                 low_answerability_lift_count += 1
-            if features.get("broad_summary") is True:
+            if payload_has_broad_summary(memory, features):
                 broad_summary_lift_count += 1
-            if features.get("conflict_or_stale") is True:
+            if payload_has_conflict_or_stale(memory, features):
                 conflict_or_stale_lift_count += 1
             if features.get("direct_speaker_turn") is True:
                 direct_speaker_lift_count += 1
@@ -2004,8 +2010,8 @@ def _rerank_lift_sample(
         ),
         "source_type": str(features.get("source_type") or "unknown"),
         "direct_speaker_turn": features.get("direct_speaker_turn") is True,
-        "broad_summary": features.get("broad_summary") is True,
-        "conflict_or_stale": features.get("conflict_or_stale") is True,
+        "broad_summary": payload_has_broad_summary(memory, features),
+        "conflict_or_stale": payload_has_conflict_or_stale(memory, features),
     }
     safety_reason_codes = _str_tuple(
         score_signals.get("benchmark_provenance_safety_reason_codes")

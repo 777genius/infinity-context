@@ -5,6 +5,10 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Mapping, Sequence
 
+from infinity_context_server.memory_comparison_candidate_risks import (
+    payload_candidate_features,
+)
+
 
 def retrieval_results(
     items: Sequence[Mapping[str, object]],
@@ -18,8 +22,7 @@ def retrieval_results(
 
 
 def candidate_features(memory: Mapping[str, object]) -> Mapping[str, object]:
-    diagnostics = memory_diagnostics(memory)
-    return mapping(diagnostics.get("benchmark_candidate_features"))
+    return payload_candidate_features(memory)
 
 
 def source_refs_from_memory(memory: Mapping[str, object]) -> tuple[str, ...]:

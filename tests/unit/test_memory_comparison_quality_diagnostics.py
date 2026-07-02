@@ -627,7 +627,10 @@ def test_quality_diagnostics_reports_rerank_lifts_without_memory_text() -> None:
                     item_id="broad-summary",
                     rank=3,
                     score=0.71,
-                    memory_text="Private source text should not be copied.",
+                    memory_text=(
+                        "Conversation summary: private source text should not be copied."
+                    ),
+                    stale_reason="older_generated_summary",
                     score_signals={
                         "benchmark_answerability_boost": 0.08,
                         "benchmark_effective_boost_cap": 0.24,
@@ -643,8 +646,6 @@ def test_quality_diagnostics_reports_rerank_lifts_without_memory_text() -> None:
                     candidate_features={
                         "source_type": "summary",
                         "relation_category_hits": ["status_profile"],
-                        "broad_summary": True,
-                        "conflict_or_stale": True,
                         "answerability_score": 0.31,
                     },
                 ),
@@ -1955,6 +1956,7 @@ def _retrieval_payload(
     rank: int = 1,
     score: float = 0.5,
     memory_text: str = "",
+    stale_reason: str = "",
 ) -> dict[str, object]:
     return {
         "metadata": {
@@ -2000,6 +2002,7 @@ def _retrieval_payload(
                 "memory": memory_text,
                 "metadata": {
                     "diagnostics": {
+                        **({"stale_reason": stale_reason} if stale_reason else {}),
                         "benchmark_rerank_boosted": bool(policy_score),
                         "score_signals": score_signals or {},
                         "benchmark_candidate_features": candidate_features or {},
