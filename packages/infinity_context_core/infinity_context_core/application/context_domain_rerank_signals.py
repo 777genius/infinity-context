@@ -109,11 +109,46 @@ _TEMPORAL_CAMPING_DETAIL_RERANK_REASONS = frozenset(
         "temporal_event_detail_bridge",
     )
 )
+_IDENTITY_RERANK_REASONS = frozenset(
+    (
+        "decomposition_identity_attribute",
+        "identity_bridge",
+    )
+)
+_IDENTITY_QUERY_RE = re.compile(
+    r"\b(?:identity|gender\s+identity|identify|identifies|true\s+self)\b|"
+    r"\b(?:transgender|trans|queer|nonbinary)\b(?=.{0,80}\b(?:identity|person|"
+    r"woman|man|self)\b)",
+    re.IGNORECASE | re.DOTALL,
+)
+_IDENTITY_EXACT_RE = re.compile(
+    r"\b(?:identif(?:y|ies|ied)\s+as|"
+    r"(?:is|am|are|was|were)\s+(?:a\s+)?(?:transgender|trans|queer|nonbinary|"
+    r"gay|lesbian|bisexual)\b|"
+    r"transgender\s+woman|trans\s+woman|transgender\s+man|trans\s+man|"
+    r"gender\s+identity|true\s+self|my\s+identity|her\s+identity|"
+    r"his\s+identity|their\s+identity)\b",
+    re.IGNORECASE,
+)
+_IDENTITY_TOPIC_WEAK_RE = re.compile(
+    r"\b(?:support\s+group|pride\s+(?:flag|mural|event|parade)|"
+    r"transgender\s+stories|lgbtq?\s+(?:event|community|group)|"
+    r"support(?:s|ed|ive|ing)?\s+(?:the\s+)?(?:transgender|lgbtq?|queer)\s+"
+    r"(?:community|events?|rights?))\b",
+    re.IGNORECASE,
+)
 _RELATIONSHIP_STATUS_RERANK_REASONS = frozenset(
     (
         "relationship_status_bridge",
         "decomposition_relationship_status",
     )
+)
+_RELATIONSHIP_STATUS_QUERY_RE = re.compile(
+    r"\brelationship\s+status\b|"
+    r"\b(?:single|dating|married|partner|spouse|husband|wife)\b"
+    r"(?=.{0,80}\b(?:status|relationship)\b)|"
+    r"\b(?:отношения|статус|пара|партн[её]р|супруг|супруга)\b",
+    re.IGNORECASE | re.DOTALL,
 )
 _RELATIONSHIP_DURATION_RERANK_REASONS = frozenset(
     (
@@ -846,7 +881,7 @@ _SYMBOL_IMPORTANCE_TECHNICAL_NOISE_RE = re.compile(
     re.IGNORECASE,
 )
 _POST_EVENT_EMOTION_EXACT_RE = re.compile(
-    r"\b(?:felt|feel|feeling|grateful|thankful|relieved|lucky|scared|"
+    r"\b(?:felt|feel|feeling|realiz(?:e|ed)|learned|grateful|thankful|relieved|lucky|scared|"
     r"freaked|inspired|proud|happy|sad|upset|awe|means?\s+the\s+world|"
     r"meaningful)\b",
     re.IGNORECASE,
@@ -1332,13 +1367,42 @@ def commonality_who_else_anchor_override(
     )
 
 
-def relationship_status_rerank_signal(
+def identity_rerank_signal(
     *,
+    query: str = "",
     query_reason: str,
     item: ContextItem,
     relevance: QueryRelevance,
 ) -> DomainRerankSignal:
-    if not _is_relationship_status_candidate(query_reason=query_reason, item=item):
+    if not _is_identity_candidate(query=query, query_reason=query_reason, item=item):
+        return DomainRerankSignal()
+    if _IDENTITY_EXACT_RE.search(item.text) is not None:
+        return DomainRerankSignal(
+            boost=0.042,
+            reason="identity_exact_evidence",
+        )
+    if _IDENTITY_TOPIC_WEAK_RE.search(item.text) is not None or (
+        relevance.distinctive_term_hits < 4
+    ):
+        return DomainRerankSignal(
+            penalty=0.04,
+            reason="identity_topic_only_evidence",
+        )
+    return DomainRerankSignal()
+
+
+def relationship_status_rerank_signal(
+    *,
+    query: str = "",
+    query_reason: str,
+    item: ContextItem,
+    relevance: QueryRelevance,
+) -> DomainRerankSignal:
+    if not _is_relationship_status_candidate(
+        query=query,
+        query_reason=query_reason,
+        item=item,
+    ):
         return DomainRerankSignal()
     if _RELATIONSHIP_STATUS_WORK_PARTNER_RE.search(item.text) is not None:
         return DomainRerankSignal(
@@ -1976,10 +2040,30 @@ def _is_temporal_camping_detail_candidate(
     )
 
 
-def _is_relationship_status_candidate(*, query_reason: str, item: ContextItem) -> bool:
+def _is_relationship_status_candidate(
+    *,
+    query: str = "",
+    query_reason: str,
+    item: ContextItem,
+) -> bool:
     if query_reason in _RELATIONSHIP_STATUS_RERANK_REASONS:
         return True
+    if query and _RELATIONSHIP_STATUS_QUERY_RE.search(query) is not None:
+        return True
     return _score_signal_reason(item) in _RELATIONSHIP_STATUS_RERANK_REASONS
+
+
+def _is_identity_candidate(
+    *,
+    query: str = "",
+    query_reason: str,
+    item: ContextItem,
+) -> bool:
+    if query_reason in _IDENTITY_RERANK_REASONS:
+        return True
+    if query and _IDENTITY_QUERY_RE.search(query) is not None:
+        return True
+    return _score_signal_reason(item) in _IDENTITY_RERANK_REASONS
 
 
 def _is_relationship_duration_candidate(*, query_reason: str, item: ContextItem) -> bool:

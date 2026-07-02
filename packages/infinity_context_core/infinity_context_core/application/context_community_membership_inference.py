@@ -71,7 +71,7 @@ _COMMUNITY_ALLY_NOISE_RE = re.compile(
     r"\b(?:ally|allies|supportive|supported|encourag(?:e|ed|es|ing)|"
     r"advocat(?:e|ed|es|ing))\b.{0,100}\b(?:lgbtq?|trans(?:gender)?|"
     r"queer|community|rights)\b|"
-    r"\b(?:lgbtq?|trans(?:gender)?|queer|community|rights)\b.{0,100}"
+    r"\b(?:lgbtq?|trans(?:gender)?|queer|pride|community|rights)\b.{0,100}"
     r"\b(?:ally|allies|supportive|supported|encourag(?:e|ed|es|ing)|"
     r"advocat(?:e|ed|es|ing))\b",
     re.IGNORECASE | re.DOTALL,
@@ -102,7 +102,7 @@ def community_membership_inference_signal(
         )
     if _COMMUNITY_ALLY_NOISE_RE.search(text):
         return AnswerEvidenceSignal(
-            penalty=0.038,
+            penalty=0.046,
             reason="inference_community_membership_ally_noise",
         )
     if _GENERAL_COMMUNITY_TOPIC_RE.search(text):

@@ -263,6 +263,8 @@ _POST_EVENT_EMOTION_TERMS = frozenset(
         "feel",
         "feeling",
         "felt",
+        "realize",
+        "realized",
     }
 )
 _POST_EVENT_CONTEXT_TERMS = frozenset(

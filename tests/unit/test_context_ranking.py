@@ -4720,6 +4720,53 @@ def test_deterministic_rerank_prefers_political_values_evidence() -> None:
     )
 
 
+def test_deterministic_rerank_prefers_identity_self_evidence() -> None:
+    query = "What is Caroline's identity?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    direct_identity = _item(
+        "caroline_identity",
+        score=0.7,
+        retrieval_source="keyword_chunks",
+        text="Caroline is a transgender woman embracing her true self and gender identity.",
+    )
+    support_group_topic = _item(
+        "caroline_support_group",
+        score=0.74,
+        retrieval_source="keyword_chunks",
+        text="Caroline went to an LGBTQ support group and felt accepted.",
+    )
+    pride_topic = _item(
+        "caroline_pride_mural",
+        score=0.74,
+        retrieval_source="keyword_chunks",
+        text="Caroline saw a transgender pride flag mural.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (support_group_topic, pride_topic, direct_identity),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert by_id["caroline_identity"].score > by_id["caroline_support_group"].score
+    assert by_id["caroline_identity"].score > by_id["caroline_pride_mural"].score
+    assert (
+        "identity_exact_evidence"
+        in by_id["caroline_identity"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+    assert (
+        "identity_topic_only_evidence"
+        in by_id["caroline_support_group"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+
+
 def test_deterministic_rerank_prefers_community_membership_evidence() -> None:
     query = "Would Melanie be considered a member of the LGBTQ community?"
     plan = build_query_expansion_plan(query)
@@ -4729,6 +4776,12 @@ def test_deterministic_rerank_prefers_community_membership_evidence() -> None:
         score=0.74,
         retrieval_source="keyword_chunks",
         text="Melanie is supportive of Caroline and encourages the LGBTQ community as an ally.",
+    )
+    pride_ally_noise = _item(
+        "melanie_pride_ally_noise",
+        score=0.74,
+        retrieval_source="keyword_chunks",
+        text="Melanie went to a pride event as an ally.",
     )
     membership = _item(
         "melanie_lgbtq_membership",
@@ -4747,7 +4800,7 @@ def test_deterministic_rerank_prefers_community_membership_evidence() -> None:
     )
 
     reranked = apply_deterministic_rerank_adjustments(
-        (ally_noise, topic_noise, membership),
+        (ally_noise, pride_ally_noise, topic_noise, membership),
         query=query,
         plan=plan,
         query_anchor_intent=intent,
@@ -4755,6 +4808,9 @@ def test_deterministic_rerank_prefers_community_membership_evidence() -> None:
     by_id = {item.item_id: item for item in reranked}
 
     assert by_id["melanie_lgbtq_membership"].score > by_id["melanie_ally_noise"].score
+    assert by_id["melanie_lgbtq_membership"].score > by_id[
+        "melanie_pride_ally_noise"
+    ].score
     assert by_id["melanie_lgbtq_membership"].score > by_id["melanie_community_event"].score
     assert (
         "inference_community_membership_evidence"
@@ -4765,6 +4821,12 @@ def test_deterministic_rerank_prefers_community_membership_evidence() -> None:
     assert (
         "inference_community_membership_ally_noise"
         in by_id["melanie_ally_noise"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+    assert (
+        "inference_community_membership_ally_noise"
+        in by_id["melanie_pride_ally_noise"].diagnostics["provenance"][
             "deterministic_rerank_reasons"
         ]
     )

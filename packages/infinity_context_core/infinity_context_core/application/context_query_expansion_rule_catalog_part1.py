@@ -41,9 +41,9 @@ EXPANSION_RULES_PART_1: tuple[tuple[frozenset[str], str, str], ...] = (
             frozenset({"relationship", "status"}),
             (
                 "relationship status single parent breakup partner married husband wife "
-                "spouse friends family mentors rocks support system known friends home "
-                "country tough breakup relationship love kids children challenge make "
-                "family thrilled"
+                "spouse dating not dating single divorced separated romantic partner "
+                "life partner girlfriend boyfriend fiance fiancee after breakup tough "
+                "breakup relationship"
             ),
             "relationship_status_bridge",
         ),
@@ -727,8 +727,9 @@ EXPANSION_RULES_PART_1: tuple[tuple[frozenset[str], str, str], ...] = (
     (
             frozenset({"how", "long", "married"}),
             (
-                "married husband wife spouse wedding anniversary years already time flies "
-                "dress put this dress on"
+                "married husband wife spouse wedding anniversary years already time "
+                "flies been married for have been married we've been married my "
+                "husband and I together duration dress put this dress on"
             ),
             "relationship_duration_bridge",
         ),
@@ -800,6 +801,14 @@ EXPANSION_RULES_PART_1: tuple[tuple[frozenset[str], str, str], ...] = (
             "temporal_event_detail_bridge",
         ),
     (
+            frozenset({"when", "adoption", "interview"}),
+            (
+                "when date passed adoption interview agency application process "
+                "becoming a parent ready family children kids loving home milestone"
+            ),
+            "temporal_event_detail_bridge",
+        ),
+    (
             frozenset({"when", "birthday"}),
             (
                 "birthday date daughter's birthday son's birthday child birthday "
@@ -843,6 +852,22 @@ EXPANSION_RULES_PART_1: tuple[tuple[frozenset[str], str, str], ...] = (
             "temporal_event_detail_bridge",
         ),
     (
+            frozenset({"when", "museum"}),
+            (
+                "when date museum exhibit dinosaur dinosaurs bones animals learning "
+                "went visit visited took kids children family relative date day weekday"
+            ),
+            "temporal_event_detail_bridge",
+        ),
+    (
+            frozenset({"when", "picnic"}),
+            (
+                "when date picnic park hiking hike friends family outdoors outing "
+                "went had relative date day weekday"
+            ),
+            "temporal_event_detail_bridge",
+        ),
+    (
             frozenset({"when", "store", "open"}),
             (
                 "when date online clothing store open opened is open clothes store "
@@ -859,6 +884,15 @@ EXPANSION_RULES_PART_1: tuple[tuple[frozenset[str], str, str], ...] = (
             "temporal_event_detail_bridge",
         ),
     (
+            frozenset({"when", "support", "group"}),
+            (
+                "when date lgbtq support group went attended joined meeting event "
+                "transgender stories powerful accepted online service focused "
+                "relative date day weekday"
+            ),
+            "temporal_event_detail_bridge",
+        ),
+    (
             frozenset({"when", "pride", "parade"}),
             (
                 "when date relative day week weekday LGBTQ pride parade happy "
@@ -868,6 +902,14 @@ EXPANSION_RULES_PART_1: tuple[tuple[frozenset[str], str, str], ...] = (
         ),
     (
             frozenset({"when", "pride", "festival"}),
+            (
+                "when date relative year Pride fest festival supportive friends "
+                "together went attended"
+            ),
+            "temporal_event_detail_bridge",
+        ),
+    (
+            frozenset({"when", "pride", "fesetival"}),
             (
                 "when date relative year Pride fest festival supportive friends "
                 "together went attended"
@@ -891,10 +933,50 @@ EXPANSION_RULES_PART_1: tuple[tuple[frozenset[str], str, str], ...] = (
             "temporal_event_detail_bridge",
         ),
     (
+            frozenset({"when", "mentorship", "program"}),
+            (
+                "when date joined mentorship mentoring mentor program youth community "
+                "support guidance students relative date day weekday"
+            ),
+            "temporal_event_detail_bridge",
+        ),
+    (
+            frozenset({"when", "self", "portrait"}),
+            (
+                "when date drew draw painted self portrait identity art drawing "
+                "sketch showed shared relative date day weekday"
+            ),
+            "temporal_event_detail_bridge",
+        ),
+    (
+            frozenset({"when", "biking"}),
+            (
+                "when date biking bike ride cycling friends group outdoors trail "
+                "went relative date day weekday"
+            ),
+            "temporal_event_detail_bridge",
+        ),
+    (
             frozenset({"when", "volunteering", "shelter"}),
             (
                 "started volunteering shelter about a year ago homeless family "
                 "struggling streets reached out volunteers fulfilling"
+            ),
+            "temporal_event_detail_bridge",
+        ),
+    (
+            frozenset({"when", "friend", "adopt"}),
+            (
+                "when date friend adopted child adoption family kids parent parenthood "
+                "relative date day weekday"
+            ),
+            "temporal_event_detail_bridge",
+        ),
+    (
+            frozenset({"when", "hurt"}),
+            (
+                "when date hurt injured injury accident fell pain recovery family "
+                "relative date day weekday"
             ),
             "temporal_event_detail_bridge",
         ),

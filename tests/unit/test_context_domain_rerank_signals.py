@@ -13,6 +13,7 @@ from infinity_context_core.application.context_domain_rerank_signals import (
     current_state_rerank_signal,
     event_sequence_rerank_signal,
     family_hike_detail_rerank_signal,
+    identity_rerank_signal,
     inventory_list_rerank_signal,
     item_purchase_rerank_signal,
     lifestyle_recommendation_rerank_signal,
@@ -704,6 +705,28 @@ def test_choice_reason_signal_prefers_because_evidence_over_topic_only() -> None
     assert topic_signal.reason == "choice_reason_weak_evidence"
 
 
+def test_choice_reason_signal_accepts_adoption_reason_without_repeated_choice_verb() -> None:
+    item = _item(
+        "adoption_reason",
+        text=(
+            "D2:12 Caroline: Their support for LGBTQ+ parents and inclusive "
+            "adoption services spoke to me because they help families like mine."
+        ),
+        query_expansion_reason="choice_reason_bridge",
+    )
+
+    signal = choice_reason_rerank_signal(
+        query="Why did Caroline choose the adoption agency?",
+        query_reason="choice_reason_bridge",
+        item=item,
+        relevance=_relevance(distinctive_term_hits=5, unique_term_hits=5),
+    )
+
+    assert signal.boost > 0
+    assert signal.reason == "choice_reason_exact_evidence"
+    assert signal.rank_signal_key == "choice_reason_answer_evidence"
+
+
 def test_commonality_signal_boosts_who_else_single_anchor_answer() -> None:
     also_person = _item(
         "maria_also_camping",
@@ -921,6 +944,37 @@ def test_relationship_status_signal_prefers_status_over_social_decoy() -> None:
     assert work_signal.reason == "relationship_status_weak_evidence"
 
 
+def test_identity_signal_prefers_self_identification_over_topic_context() -> None:
+    exact = _item(
+        "identity",
+        text="Caroline is a transgender woman embracing her true self and gender identity.",
+        query_expansion_reason="identity_bridge",
+    )
+    topic = _item(
+        "support_group",
+        text="Caroline went to an LGBTQ support group and felt accepted.",
+        query_expansion_reason="identity_bridge",
+    )
+
+    exact_signal = identity_rerank_signal(
+        query="What is Caroline's identity?",
+        query_reason="identity_bridge",
+        item=exact,
+        relevance=_relevance(distinctive_term_hits=6, unique_term_hits=6),
+    )
+    topic_signal = identity_rerank_signal(
+        query="What is Caroline's identity?",
+        query_reason="identity_bridge",
+        item=topic,
+        relevance=_relevance(distinctive_term_hits=6, unique_term_hits=6),
+    )
+
+    assert exact_signal.boost > 0
+    assert exact_signal.reason == "identity_exact_evidence"
+    assert topic_signal.penalty > 0
+    assert topic_signal.reason == "identity_topic_only_evidence"
+
+
 def test_relationship_status_signal_penalizes_non_romantic_partner_contexts() -> None:
     cases = (
         "Alex is Caroline's accountability partner for marathon training.",
@@ -941,6 +995,22 @@ def test_relationship_status_signal_penalizes_non_romantic_partner_contexts() ->
 
         assert signal.penalty > 0
         assert signal.reason == "relationship_status_weak_evidence"
+
+
+def test_relationship_status_signal_uses_query_when_reason_is_original() -> None:
+    signal = relationship_status_rerank_signal(
+        query="What is Caroline's relationship status?",
+        query_reason="original_query",
+        item=_item(
+            "old_friend",
+            text="Caroline's old friend from school is Maria.",
+            query_expansion_reason="original_query",
+        ),
+        relevance=_relevance(distinctive_term_hits=5, unique_term_hits=5),
+    )
+
+    assert signal.penalty > 0
+    assert signal.reason == "relationship_status_weak_evidence"
 
 
 def test_relationship_duration_signal_prefers_duration_over_generic_relation() -> None:

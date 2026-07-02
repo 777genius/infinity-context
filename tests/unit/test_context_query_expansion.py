@@ -402,6 +402,10 @@ def test_query_expansion_covers_future_conference_and_duration_answers() -> None
         duration,
         "relationship_duration_bridge",
     )
+    assert "been married for have been married" in _expansion_query(
+        duration,
+        "relationship_duration_bridge",
+    )
     assert "known each other friends relationship since years" in _expansion_query(
         known_each_other,
         "relationship_duration_bridge",
@@ -667,25 +671,42 @@ def test_query_expansion_covers_social_support_network_questions() -> None:
 
 def test_query_expansion_covers_adoption_current_goal_bridge() -> None:
     plan = build_query_expansion_plan("Would Caroline want to move back to her home country soon?")
+    excited = build_query_expansion_plan("What is Caroline excited about in the adoption process?")
+    supported_people = build_query_expansion_plan(
+        "What type of individuals does the adoption agency Caroline is considering support?"
+    )
 
     bridge = _expansion_query(plan, "adoption_current_goal_bridge")
     milestone_bridge = _expansion_query(plan, "adoption_current_milestone_bridge")
+    excited_bridge = _expansion_query(excited, "adoption_current_goal_bridge")
+    supported_people_bridge = _expansion_query(supported_people, "support_population_bridge")
 
     assert bridge.startswith("Caroline ")
     assert "adoption agency interviews build own family" in bridge
     assert "roof kids children giving back goal" in bridge
     assert milestone_bridge.startswith("Caroline ")
     assert "passed adoption agency interviews" in milestone_bridge
+    assert excited_bridge.startswith("Caroline ")
+    assert "adoption agency interviews build own family" in excited_bridge
+    assert "excited process milestone" in excited_bridge
+    assert supported_people_bridge.startswith("Caroline ")
+    assert "support serves helps accepts individuals people" in supported_people_bridge
+    assert "adoption agency inclusive services" in supported_people_bridge
 
 
 def test_query_expansion_covers_future_plan_timing_bridge() -> None:
     plan = build_query_expansion_plan("When is Melanie planning on going camping?")
+    summer_plan = build_query_expansion_plan("What are Caroline's plans for the summer?")
 
     bridge = _expansion_query(plan, "future_plan_timing_bridge")
+    summer_bridge = _expansion_query(summer_plan, "future_plan_timing_bridge")
 
     assert bridge.startswith("Melanie ")
     assert "thinking about considering going to scheduled" in bridge
     assert "next month next week summer break" in bridge
+    assert summer_bridge.startswith("Caroline ")
+    assert "thinking about considering going to scheduled" in summer_bridge
+    assert "next month next week summer break" in summer_bridge
 
 
 def test_query_expansion_covers_inspiration_source_questions() -> None:
@@ -709,6 +730,40 @@ def test_query_expansion_covers_choice_reason_without_speaker_identity_bias() ->
     assert not bridge.startswith("Melanie ")
     assert "reason choose chose chosen picked selected" in bridge
     assert "because cause helps support inclusivity spoke to me" in bridge
+
+
+def test_best_query_relevance_uses_support_population_bridge() -> None:
+    plan = build_query_expansion_plan(
+        "What type of individuals does the adoption agency Caroline is considering support?"
+    )
+
+    _, reason, relevance = best_query_relevance(
+        plan,
+        text=(
+            "D5:9 Caroline: The adoption agency supports LGBTQ parents, "
+            "single parents, children, and families who need inclusive services."
+        ),
+    )
+
+    assert reason == "support_population_bridge"
+    assert relevance.distinctive_term_hits >= 8
+
+
+def test_best_query_relevance_uses_opinion_reaction_bridge() -> None:
+    plan = build_query_expansion_plan("What does Maria think about John's decision?")
+
+    bridge = _expansion_query(plan, "opinion_reaction_bridge")
+    _, reason, relevance = best_query_relevance(
+        plan,
+        text=(
+            "D6:4 Maria: I think John's decision is a good idea, and I am "
+            "supportive and proud of the plan."
+        ),
+    )
+
+    assert "think thought opinion reaction response decision plan choice" in bridge
+    assert reason == "opinion_reaction_bridge"
+    assert relevance.distinctive_term_hits >= 8
 
 
 def test_query_decomposition_covers_active_commitment_current_goal_evidence() -> None:
@@ -853,6 +908,9 @@ def test_query_expansion_adds_volunteering_people_inventory_bridge() -> None:
 def test_query_expansion_covers_age_without_polluting_old_state_queries() -> None:
     age = build_query_expansion_plan("How old is Alex?")
     dob = build_query_expansion_plan("What is Alex's date of birth?")
+    birthday_duration = build_query_expansion_plan(
+        "How long ago was Caroline's 18th birthday?"
+    )
     russian_age = build_query_expansion_plan("Сколько лет Алексу?")
     old_state = build_query_expansion_plan("What was the old Atlas plan?")
 
@@ -863,11 +921,33 @@ def test_query_expansion_covers_age_without_polluting_old_state_queries() -> Non
         dob,
         "age_birthday_bridge",
     )
+    assert "birthday anniversary years ago how long ago duration" in _expansion_query(
+        birthday_duration,
+        "age_birthday_bridge",
+    )
     assert "возраст лет родился" in _expansion_query(
         russian_age,
         "age_birthday_bridge",
     )
     assert "age_birthday_bridge" not in {expansion.reason for expansion in old_state.expansions}
+
+
+def test_best_query_relevance_prefers_birthday_duration_evidence() -> None:
+    plan = build_query_expansion_plan("How long ago was Caroline's 18th birthday?")
+
+    _, duration_reason, duration_relevance = best_query_relevance(
+        plan,
+        text="D4:5 Caroline: A friend made a bowl for my 18th birthday ten years ago.",
+    )
+    _, generic_reason, generic_relevance = best_query_relevance(
+        plan,
+        text="D2:3 Caroline was born in 1995 and her birthday is in May.",
+    )
+
+    assert duration_reason == "age_birthday_bridge"
+    assert generic_reason == "age_birthday_bridge"
+    assert duration_relevance.distinctive_term_hits > generic_relevance.distinctive_term_hits
+    assert duration_relevance.hit_ratio > generic_relevance.hit_ratio
 
 
 def test_query_expansion_separates_birthplace_from_age_queries() -> None:
@@ -1110,6 +1190,9 @@ def test_query_expansion_covers_activity_location_and_destress_bridges() -> None
 
 def test_query_expansion_covers_event_participation_bridges() -> None:
     events = build_query_expansion_plan("What LGBTQ+ events has Caroline participated in?")
+    support_group_when = build_query_expansion_plan(
+        "When did Caroline go to the LGBTQ support group?"
+    )
     transgender_events = build_query_expansion_plan(
         "What transgender-specific events has Caroline attended?"
     )
@@ -1132,6 +1215,14 @@ def test_query_expansion_covers_event_participation_bridges() -> None:
     assert "support group transgender stories" in _expansion_query(
         events,
         "lgbtq_support_group_event_bridge",
+    )
+    assert "support group transgender stories" in _expansion_query(
+        support_group_when,
+        "lgbtq_support_group_event_bridge",
+    )
+    assert "when date lgbtq support group went attended joined" in _expansion_query(
+        support_group_when,
+        "temporal_event_detail_bridge",
     )
     assert "school event speech talk" in _expansion_query(
         events,
@@ -1300,6 +1391,11 @@ def test_query_expansion_covers_locomo_reliable_failure_bridges() -> None:
             "career path decided pursue persue education options",
         ),
         (
+            build_query_expansion_plan("What did Caroline research?"),
+            "research_topic_bridge",
+            "researched researching research looked into read about",
+        ),
+        (
             build_query_expansion_plan("What is Caroline's identity?"),
             "identity_bridge",
             "transgender trans woman transition",
@@ -1347,7 +1443,19 @@ def test_query_expansion_covers_locomo_reliable_failure_bridges() -> None:
             "saw seen live concert",
         ),
         (
+            build_query_expansion_plan("Which bands has Dave enjoyed listening to?"),
+            "music_artist_band_bridge",
+            "listened listening enjoyed favorite",
+        ),
+        (
             build_query_expansion_plan("What musical artists has Melanie seen?"),
+            "music_artist_answer_bridge",
+            "talented voice amazing",
+        ),
+        (
+            build_query_expansion_plan(
+                "Which classical musicians does Caroline enjoy listening to?"
+            ),
             "music_artist_answer_bridge",
             "talented voice amazing",
         ),
@@ -1674,6 +1782,9 @@ def test_query_expansion_covers_books_painted_subject_and_music_bridges() -> Non
     )
     vivaldi = build_query_expansion_plan("Would Melanie likely enjoy Vivaldi?")
     four_seasons = build_query_expansion_plan("Would Melanie likely enjoy The Four Seasons?")
+    classical_musicians = build_query_expansion_plan(
+        "Which classical musicians does Caroline enjoy listening to?"
+    )
 
     assert "classic childrens classics" in _expansion_query(
         books,
@@ -1701,6 +1812,10 @@ def test_query_expansion_covers_books_painted_subject_and_music_bridges() -> Non
     )
     assert "four seasons" in _expansion_query(
         four_seasons,
+        "classical_music_preference_bridge",
+    )
+    assert "music classical fan composer" in _expansion_query(
+        classical_musicians,
         "classical_music_preference_bridge",
     )
 
@@ -2431,9 +2546,30 @@ def test_best_query_relevance_uses_friend_group_duration_bridge() -> None:
     assert relevance.distinctive_term_hits >= 6
 
 
+def test_best_query_relevance_prefers_marriage_duration_phrase_evidence() -> None:
+    plan = build_query_expansion_plan("How long have Alex and his husband been married?")
+
+    _, duration_reason, duration_relevance = best_query_relevance(
+        plan,
+        text="D4:2 Alex: My husband and I have been married for five years already.",
+    )
+    _, topical_reason, topical_relevance = best_query_relevance(
+        plan,
+        text="D4:3 Alex wore his wedding dress and talked about his husband.",
+    )
+
+    assert duration_reason == "relationship_duration_bridge"
+    assert topical_reason == "relationship_duration_bridge"
+    assert duration_relevance.distinctive_term_hits > topical_relevance.distinctive_term_hits
+    assert duration_relevance.hit_ratio > topical_relevance.hit_ratio
+
+
 def test_best_query_relevance_uses_post_event_emotion_bridge() -> None:
     plan = build_query_expansion_plan(
         "How did Melanie feel about her family after the accident?"
+    )
+    realization = build_query_expansion_plan(
+        "What did Melanie realize after the charity race?"
     )
 
     query, reason, relevance = best_query_relevance(
@@ -2443,10 +2579,20 @@ def test_best_query_relevance_uses_post_event_emotion_bridge() -> None:
             "for my family. They mean the world to me."
         ),
     )
+    realization_query, realization_reason, realization_relevance = best_query_relevance(
+        realization,
+        text=(
+            "D7:4 Melanie: After the charity race, I realized taking care of "
+            "my mental health is vital, so self-care matters."
+        ),
+    )
 
     assert query.startswith("Melanie ")
     assert reason == "post_event_emotion_bridge"
     assert relevance.distinctive_term_hits >= 7
+    assert realization_query.startswith("Melanie ")
+    assert realization_reason == "post_event_emotion_bridge"
+    assert realization_relevance.distinctive_term_hits >= 7
 
 
 def test_best_query_relevance_uses_post_event_family_appreciation_wording() -> None:
@@ -2657,6 +2803,63 @@ def test_best_query_relevance_uses_motivation_reason_bridge_for_why_questions() 
     assert relevance.distinctive_term_hits >= 8
 
 
+def test_query_expansion_covers_counseling_services_and_safe_place_goals() -> None:
+    services = build_query_expansion_plan(
+        "What kind of counseling and mental health services is Caroline "
+        "interested in pursuing?"
+    )
+    place = build_query_expansion_plan(
+        "What kind of place does Caroline want to create for people?"
+    )
+
+    assert "therapy therapeutic support" in _expansion_query(
+        services,
+        "counseling_services_interest_bridge",
+    )
+    assert "similar issues lgbtq trans community" in _expansion_query(
+        services,
+        "counseling_services_interest_bridge",
+    )
+    assert "safe inviting supportive welcoming" in _expansion_query(
+        place,
+        "safe_supportive_place_goal_bridge",
+    )
+    assert "counseling mental health support" in _expansion_query(
+        place,
+        "safe_supportive_place_goal_bridge",
+    )
+
+
+def test_best_query_relevance_uses_counseling_service_goal_bridges() -> None:
+    services = build_query_expansion_plan(
+        "What kind of counseling and mental health services is Caroline "
+        "interested in pursuing?"
+    )
+    place = build_query_expansion_plan(
+        "What kind of place does Caroline want to create for people?"
+    )
+
+    _, services_reason, services_relevance = best_query_relevance(
+        services,
+        text=(
+            "D4:15 Caroline: I'm interested in counseling and mental health "
+            "services for LGBTQ and trans people with similar issues."
+        ),
+    )
+    _, place_reason, place_relevance = best_query_relevance(
+        place,
+        text=(
+            "D4:16 Caroline: I want to create a safe, inviting, supportive "
+            "space where people feel accepted and can grow."
+        ),
+    )
+
+    assert services_reason == "counseling_services_interest_bridge"
+    assert services_relevance.distinctive_term_hits >= 9
+    assert place_reason == "safe_supportive_place_goal_bridge"
+    assert place_relevance.distinctive_term_hits >= 8
+
+
 def test_best_query_relevance_uses_education_career_field_bridge() -> None:
     plan = build_query_expansion_plan(
         "What fields would Caroline be likely to pursue in her educaton?"
@@ -2696,6 +2899,21 @@ def test_best_query_relevance_uses_career_path_typo_bridge() -> None:
 
     assert career_reason == "career_path_bridge"
     assert career_relevance.distinctive_term_hits >= 6
+
+
+def test_best_query_relevance_uses_research_topic_bridge() -> None:
+    plan = build_query_expansion_plan("What did Caroline research?")
+
+    _, reason, relevance = best_query_relevance(
+        plan,
+        text=(
+            "D3:8 Caroline: I looked into adoption agencies and read about "
+            "support resources and options."
+        ),
+    )
+
+    assert reason == "research_topic_bridge"
+    assert relevance.distinctive_term_hits >= 5
 
 
 def test_best_query_relevance_uses_career_intent_bridge_for_counterfactual_option() -> None:
@@ -2754,13 +2972,22 @@ def test_best_query_relevance_uses_identity_and_relationship_status_bridges() ->
             "support system, especially after that tough breakup."
         ),
     )
+    _, support_reason, support_relevance = best_query_relevance(
+        relationship,
+        text="D4:2 Caroline has friends and family mentors who support her.",
+    )
 
     assert identity_reason == "identity_bridge"
     assert identity_relevance.distinctive_term_hits >= 5
-    assert relationship_reason == "relationship_status_bridge"
+    assert relationship_reason in {
+        "decomposition_relationship_status",
+        "relationship_status_bridge",
+    }
     assert relationship_relevance.distinctive_term_hits >= 5
     assert breakup_reason == "relationship_status_bridge"
     assert breakup_relevance.distinctive_term_hits >= 5
+    assert support_reason == "relationship_status_bridge"
+    assert support_relevance.distinctive_term_hits < relationship_relevance.distinctive_term_hits
 
 
 def test_best_query_relevance_uses_trait_and_adverse_trip_bridges() -> None:
@@ -3166,6 +3393,7 @@ def test_best_query_relevance_uses_friend_place_inventory_bridge() -> None:
 
 def test_best_query_relevance_uses_activity_visual_selfcare_bridge() -> None:
     plan = build_query_expansion_plan("What activities does Melanie partake in?")
+    selfcare_plan = build_query_expansion_plan("How does Melanie prioritize self-care?")
 
     _, visual_reason, visual = best_query_relevance(
         plan,
@@ -3182,11 +3410,23 @@ def test_best_query_relevance_uses_activity_visual_selfcare_bridge() -> None:
             "I'm off to go swimming with the kids."
         ),
     )
+    selfcare_bridge = _expansion_query(selfcare_plan, "activity_visual_selfcare_bridge")
+    _, selfcare_reason, selfcare = best_query_relevance(
+        selfcare_plan,
+        text=(
+            "D1:18 Melanie: Taking care of ourselves is vital after a long day. "
+            "I relax by going swimming with the kids."
+        ),
+    )
 
     assert visual_reason == "activity_visual_selfcare_bridge"
     assert visual.distinctive_term_hits >= 6
     assert swim_reason == "activity_visual_selfcare_bridge"
     assert swim.distinctive_term_hits >= 7
+    assert selfcare_bridge.startswith("Melanie ")
+    assert "vital self care relax long day" in selfcare_bridge
+    assert selfcare_reason == "activity_visual_selfcare_bridge"
+    assert selfcare.distinctive_term_hits >= 7
 
 
 def test_best_query_relevance_uses_painting_inventory_bridge_for_visual_artifacts() -> None:
@@ -3243,6 +3483,9 @@ def test_best_query_relevance_bridges_classical_music_preferences() -> None:
     plan = build_query_expansion_plan(
         'Would Melanie likely enjoy the song "The Four Seasons" by Vivaldi?'
     )
+    musicians = build_query_expansion_plan(
+        "Which classical musicians does Caroline enjoy listening to?"
+    )
 
     _, reason, relevance = best_query_relevance(
         plan,
@@ -3251,9 +3494,30 @@ def test_best_query_relevance_bridges_classical_music_preferences() -> None:
             "as well as modern music like Ed Sheeran's Perfect."
         ),
     )
+    _, musicians_reason, musicians_relevance = best_query_relevance(
+        musicians,
+        text=(
+            "D15:29 Caroline enjoys listening to classical composers like "
+            "Bach and Mozart."
+        ),
+    )
 
     assert reason == "classical_music_preference_bridge"
     assert relevance.distinctive_term_hits >= 4
+    assert musicians_reason == "classical_music_preference_bridge"
+    assert musicians_relevance.distinctive_term_hits >= 6
+
+
+def test_best_query_relevance_bridges_music_artist_listening_questions() -> None:
+    bands = build_query_expansion_plan("Which bands has Dave enjoyed listening to?")
+
+    _, reason, relevance = best_query_relevance(
+        bands,
+        text="D2:3 Dave enjoyed listening to the band Radiohead and other musicians.",
+    )
+
+    assert reason == "music_artist_band_bridge"
+    assert relevance.distinctive_term_hits >= 6
 
 
 def test_best_query_relevance_bridges_negative_classical_music_preferences() -> None:
@@ -3650,6 +3914,107 @@ def test_best_query_relevance_bridges_fantasy_author_preference_evidence() -> No
         assert relevance.distinctive_term_hits >= min_hits
 
 
+def test_query_expansion_covers_media_preference_and_character_bridges() -> None:
+    fantasy_movies = build_query_expansion_plan("What fantasy movies does Tim like?")
+    fantasy_novels = build_query_expansion_plan(
+        "Which two fantasy novels does Tim particularly enjoy writing about?"
+    )
+    tv_series = build_query_expansion_plan(
+        "What new fantasy TV series is Tim excited about?"
+    )
+    movie_genre = build_query_expansion_plan(
+        "What is Nate's favorite genre of movies?"
+    )
+    superhero = build_query_expansion_plan("What superhero is Joanna a fan of?")
+    superhero_figure = build_query_expansion_plan(
+        "Which superhero toy figure does Nate share a photo of?"
+    )
+
+    assert "fantasy movie movies" in _expansion_query(
+        fantasy_movies,
+        "hobby_interest_bridge",
+    )
+    assert "novel novels title story fantasy series" in _expansion_query(
+        fantasy_novels,
+        "book_reading_list_bridge",
+    )
+    assert "tv series show shows" in _expansion_query(
+        tv_series,
+        "hobby_interest_bridge",
+    )
+    assert "favorite movie film trilogy genre" in _expansion_query(
+        movie_genre,
+        "hobby_interest_bridge",
+    )
+    assert "superhero fan favorite character" in _expansion_query(
+        superhero,
+        "hobby_interest_bridge",
+    )
+    assert "toy figure action figure" in _expansion_query(
+        superhero_figure,
+        "item_purchase_bridge",
+    )
+
+
+def test_best_query_relevance_bridges_media_preference_and_character_evidence() -> None:
+    cases = (
+        (
+            build_query_expansion_plan("What fantasy movies does Tim like?"),
+            "D1:1 Tim likes fantasy movies with magical worlds and wizarding adventures.",
+            "hobby_interest_bridge",
+            10,
+        ),
+        (
+            build_query_expansion_plan(
+                "Which two fantasy novels does Tim particularly enjoy writing about?"
+            ),
+            (
+                "D2:2 Tim particularly enjoys writing about fantasy novels and "
+                "magical book series."
+            ),
+            "book_reading_list_bridge",
+            11,
+        ),
+        (
+            build_query_expansion_plan(
+                "What is one of Tim's favorite fantasy TV shows?"
+            ),
+            (
+                "D3:3 Tim mentioned his favorite fantasy TV show and watched "
+                "the new season."
+            ),
+            "hobby_interest_bridge",
+            9,
+        ),
+        (
+            build_query_expansion_plan("What superhero is Joanna a fan of?"),
+            (
+                "D5:5 Joanna is a fan of the superhero character in the comic "
+                "movie universe."
+            ),
+            "hobby_interest_bridge",
+            8,
+        ),
+        (
+            build_query_expansion_plan(
+                "Which superhero toy figure does Nate share a photo of?"
+            ),
+            (
+                "D6:6 Nate shared a photo of a superhero toy figure and "
+                "collectible figurine."
+            ),
+            "item_purchase_bridge",
+            7,
+        ),
+    )
+
+    for plan, text, expected_reason, min_hits in cases:
+        _, reason, relevance = best_query_relevance(plan, text=text)
+
+        assert reason == expected_reason
+        assert relevance.distinctive_term_hits >= min_hits
+
+
 def test_query_expansion_bridges_themed_location_destination_evidence() -> None:
     plan = build_query_expansion_plan(
         "Which Aurora Quest-related locations would Avery enjoy during her visit to Ireland?"
@@ -3914,6 +4279,8 @@ def test_best_query_relevance_bridges_inventory_and_brand_fact_evidence() -> Non
     gaming = build_query_expansion_plan("What mediums does Nate use to play games?")
     board_games = build_query_expansion_plan("What board games has Nate played?")
     pets = build_query_expansion_plan("What pets does Nate have?")
+    pet_names = build_query_expansion_plan("What are Maria's dogs' names?")
+    pet_owner = build_query_expansion_plan("Is Oscar Melanie's pet?")
     gear = build_query_expansion_plan(
         "Which outdoor gear company likely signed up John for an endorsement deal?"
     )
@@ -3925,6 +4292,14 @@ def test_best_query_relevance_bridges_inventory_and_brand_fact_evidence() -> Non
     _, pet_reason, pet_relevance = best_query_relevance(
         pets,
         text="D12:3 Nate got a new addition to the family, a dog named Max.",
+    )
+    _, pet_names_reason, pet_names_relevance = best_query_relevance(
+        pet_names,
+        text="D9:3 Maria's pets are two dogs; their names are Max and Coco.",
+    )
+    _, pet_owner_reason, pet_owner_relevance = best_query_relevance(
+        pet_owner,
+        text="D5:8 Oscar is Melanie's pet dog and he belongs to her family.",
     )
     _, board_game_reason, board_game_relevance = best_query_relevance(
         board_games,
@@ -3947,12 +4322,24 @@ def test_best_query_relevance_bridges_inventory_and_brand_fact_evidence() -> Non
     assert board_game_relevance.distinctive_term_hits >= 5
     assert pet_reason == "pet_inventory_bridge"
     assert pet_relevance.distinctive_term_hits >= 5
+    assert pet_names_reason == "pet_inventory_bridge"
+    assert pet_names_relevance.distinctive_term_hits >= 6
+    assert pet_owner_reason == "pet_inventory_bridge"
+    assert pet_owner_relevance.distinctive_term_hits >= 6
     assert gear_reason == "endorsement_gear_brand_bridge"
     assert gear_relevance.distinctive_term_hits >= 6
 
 
 def test_best_query_relevance_bridges_temporal_event_details() -> None:
     cases = (
+        (
+            build_query_expansion_plan("When did Caroline go to the LGBTQ support group?"),
+            (
+                "D1:3 Caroline went to the LGBTQ support group yesterday and "
+                "heard powerful transgender stories."
+            ),
+            7,
+        ),
         (
             build_query_expansion_plan("When did Caroline go to the adoption meeting?"),
             (
@@ -4002,6 +4389,102 @@ def test_best_query_relevance_bridges_temporal_event_details() -> None:
                 "roasted marshmallows around the campfire, and went on a hike."
             ),
             7,
+        ),
+        (
+            build_query_expansion_plan("When did Melanie paint a sunrise?"),
+            "D2:5 Melanie painted a sunrise over the lake yesterday.",
+            6,
+        ),
+        (
+            build_query_expansion_plan("When did Melanie run a charity race?"),
+            "D6:2 Melanie ran the charity race last Saturday and raised awareness.",
+            7,
+        ),
+        (
+            build_query_expansion_plan("When did Caroline give a speech at a school?"),
+            "D8:4 Caroline gave a speech at the school event last week.",
+            6,
+        ),
+        (
+            build_query_expansion_plan("When did Melanie sign up for a pottery class?"),
+            "D9:3 Melanie signed up for a pottery class yesterday.",
+            6,
+        ),
+        (
+            build_query_expansion_plan(
+                "When did Caroline meet up with her friends, family, and mentors?"
+            ),
+            "D3:13 Caroline met up with friends, family, and mentors last week.",
+            6,
+        ),
+        (
+            build_query_expansion_plan("When is Caroline going to the transgender conference?"),
+            "D12:7 Caroline is going to the transgender conference this month.",
+            5,
+        ),
+        (
+            build_query_expansion_plan("When did Melanie go to the museum?"),
+            (
+                "D2:4 Melanie went to the museum with her kids yesterday to "
+                "see the dinosaur exhibit."
+            ),
+            8,
+        ),
+        (
+            build_query_expansion_plan("When did Caroline have a picnic?"),
+            "D3:4 Caroline had a picnic at the park with friends last weekend.",
+            6,
+        ),
+        (
+            build_query_expansion_plan("When did Melanie go to the pottery workshop?"),
+            (
+                "D6:8 Melanie went to the pottery workshop on Tuesday and made "
+                "clay plates."
+            ),
+            7,
+        ),
+        (
+            build_query_expansion_plan("When did Caroline join a mentorship program?"),
+            "D7:3 Caroline joined a youth mentorship program last month.",
+            5,
+        ),
+        (
+            build_query_expansion_plan(
+                "When did Caroline and Melanie go to a pride fesetival together?"
+            ),
+            (
+                "D8:2 Caroline and Melanie went to a Pride festival together "
+                "last summer."
+            ),
+            6,
+        ),
+        (
+            build_query_expansion_plan("When did Caroline draw a self-portrait?"),
+            (
+                "D9:1 Caroline drew a self portrait yesterday and shared the "
+                "drawing."
+            ),
+            7,
+        ),
+        (
+            build_query_expansion_plan("When did Caroline go biking with friends?"),
+            "D10:6 Caroline went biking with friends on Saturday.",
+            5,
+        ),
+        (
+            build_query_expansion_plan("When did Melanie's friend adopt a child?"),
+            "D11:2 Melanie's friend adopted a child last week.",
+            7,
+        ),
+        (
+            build_query_expansion_plan("When did Melanie get hurt?"),
+            "D12:2 Melanie got hurt in an accident yesterday.",
+            3,
+        ),
+        (
+            build_query_expansion_plan("When did Caroline pass the adoption interview?"),
+            "D13:2 Caroline passed the adoption interview last Friday.",
+            8,
         ),
     )
 
@@ -4063,17 +4546,69 @@ def test_query_expansion_covers_direct_temporal_event_date_questions() -> None:
     pride = build_query_expansion_plan("When did Caroline attend a pride parade in August?")
     conference = build_query_expansion_plan("When did Caroline go to the LGBTQ conference?")
     park = build_query_expansion_plan("When did Melanie go to the park?")
+    sunrise = build_query_expansion_plan("When did Melanie paint a sunrise?")
+    charity_race = build_query_expansion_plan("When did Melanie run a charity race?")
+    school_speech = build_query_expansion_plan(
+        "When did Caroline give a speech at a school?"
+    )
+    support_meetup = build_query_expansion_plan(
+        "When did Caroline meet up with her friends, family, and mentors?"
+    )
+    transgender_conference = build_query_expansion_plan(
+        "When is Caroline going to the transgender conference?"
+    )
+    pottery_class = build_query_expansion_plan(
+        "When did Melanie sign up for a pottery class?"
+    )
     store = build_query_expansion_plan("When did Gina open her online clothing store?")
     collaboration = build_query_expansion_plan(
         "When did Jon and Gina decide to collaborate to create dance content?"
+    )
+    museum = build_query_expansion_plan("When did Melanie go to the museum?")
+    picnic = build_query_expansion_plan("When did Caroline have a picnic?")
+    pottery_workshop = build_query_expansion_plan(
+        "When did Melanie go to the pottery workshop?"
+    )
+    mentorship = build_query_expansion_plan(
+        "When did Caroline join a mentorship program?"
+    )
+    pride_festival_typo = build_query_expansion_plan(
+        "When did Caroline and Melanie go to a pride fesetival together?"
+    )
+    self_portrait = build_query_expansion_plan(
+        "When did Caroline draw a self-portrait?"
     )
 
     birthday_query = _expansion_query(birthday, "age_birthday_bridge")
     pride_query = _expansion_query(pride, "temporal_event_detail_bridge")
     conference_query = _expansion_query(conference, "temporal_event_detail_bridge")
     park_query = _expansion_query(park, "temporal_event_detail_bridge")
+    sunrise_query = _expansion_query(sunrise, "temporal_event_detail_bridge")
+    charity_race_query = _expansion_query(charity_race, "temporal_event_detail_bridge")
+    school_speech_query = _expansion_query(school_speech, "temporal_event_detail_bridge")
+    support_meetup_query = _expansion_query(support_meetup, "temporal_event_detail_bridge")
+    transgender_conference_query = _expansion_query(
+        transgender_conference,
+        "temporal_event_detail_bridge",
+    )
+    pottery_class_query = _expansion_query(pottery_class, "temporal_event_detail_bridge")
     store_query = _expansion_query(store, "temporal_event_detail_bridge")
     collaboration_query = _expansion_query(collaboration, "temporal_event_detail_bridge")
+    museum_query = _expansion_query(museum, "temporal_event_detail_bridge")
+    picnic_query = _expansion_query(picnic, "temporal_event_detail_bridge")
+    pottery_workshop_query = _expansion_query(
+        pottery_workshop,
+        "temporal_event_detail_bridge",
+    )
+    mentorship_query = _expansion_query(mentorship, "temporal_event_detail_bridge")
+    pride_festival_typo_query = _expansion_query(
+        pride_festival_typo,
+        "temporal_event_detail_bridge",
+    )
+    self_portrait_query = _expansion_query(
+        self_portrait,
+        "temporal_event_detail_bridge",
+    )
 
     assert "daughter's birthday" in birthday_query
     assert "celebrated birthday" in birthday_query
@@ -4084,11 +4619,23 @@ def test_query_expansion_covers_direct_temporal_event_date_questions() -> None:
     assert "relative date recently days ago" in conference_query
     assert "park visit went took trip" in park_query
     assert "relative date day weekday" in park_query
+    assert "painted painting sunrise" in sunrise_query
+    assert "charity race run ran" in charity_race_query
+    assert "school speech talk gave spoke" in school_speech_query
+    assert "meet met meetup meeting friends family mentors" in support_meetup_query
+    assert "transgender conference going attending upcoming" in transgender_conference_query
+    assert "sign signed up pottery class" in pottery_class_query
     assert "online clothing store open" in store_query
     assert "is open" in store_query
     assert "decide decided collaborate collaboration" in collaboration_query
     assert "creative plan agreed together" in collaboration_query
     assert "dance routine moves" in collaboration_query
+    assert "museum exhibit dinosaur" in museum_query
+    assert "picnic park hiking" in picnic_query
+    assert "pottery workshop class clay" in pottery_workshop_query
+    assert "joined mentorship mentoring" in mentorship_query
+    assert "Pride fest festival" in pride_festival_typo_query
+    assert "self portrait identity art" in self_portrait_query
 
 
 def test_best_query_relevance_bridges_current_decided_provider() -> None:

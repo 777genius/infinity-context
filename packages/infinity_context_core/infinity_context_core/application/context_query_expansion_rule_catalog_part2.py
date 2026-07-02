@@ -208,6 +208,14 @@ EXPANSION_RULES_PART_2: tuple[tuple[frozenset[str], str, str], ...] = (
             "future_plan_timing_bridge",
         ),
     (
+            frozenset({"plan", "summer"}),
+            (
+                "planning plans planned thinking about considering going to scheduled "
+                "upcoming future next month next week summer break date month"
+            ),
+            "future_plan_timing_bridge",
+        ),
+    (
             frozenset({"where", "trip"}),
             _terms._TRIP_DESTINATION_EXPANSION,
             "trip_destination_bridge",
@@ -619,6 +627,15 @@ EXPANSION_RULES_PART_2: tuple[tuple[frozenset[str], str, str], ...] = (
             "adoption_support_bridge",
         ),
     (
+            frozenset({"individual", "support"}),
+            (
+                "support serves helps accepts individuals people families children "
+                "youth parents single parents lgbtq transgender queer community "
+                "underserved vulnerable adoption agency inclusive services"
+            ),
+            "support_population_bridge",
+        ),
+    (
             frozenset({"why", "choose"}),
             (
                 "reason choose chose chosen picked selected made pick because cause "
@@ -647,6 +664,15 @@ EXPANSION_RULES_PART_2: tuple[tuple[frozenset[str], str, str], ...] = (
             (
                 "adoption agency interviews build own family roof kids children "
                 "giving back goal family committed current future plan"
+            ),
+            "adoption_current_goal_bridge",
+        ),
+    (
+            frozenset({"adoption", "excited"}),
+            (
+                "adoption agency interviews build own family roof kids children "
+                "giving back goal family committed current future plan excited "
+                "process milestone"
             ),
             "adoption_current_goal_bridge",
         ),

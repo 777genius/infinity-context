@@ -96,6 +96,12 @@ def _exact_choice_reason_evidence(*, query: str, text: str) -> bool:
         and _ADOPTION_AGENCY_EVIDENCE_RE.search(text) is None
     ):
         return False
+    if (
+        _ADOPTION_AGENCY_QUERY_RE.search(query) is not None
+        and _REASON_MARKER_RE.search(text) is not None
+        and _CHOICE_REASON_DOMAIN_RE.search(text) is not None
+    ):
+        return True
     return (
         _CHOICE_ACTION_RE.search(text) is not None
         and _REASON_MARKER_RE.search(text) is not None

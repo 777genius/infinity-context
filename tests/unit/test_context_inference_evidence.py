@@ -512,14 +512,23 @@ def test_inference_evidence_signal_boosts_community_membership_evidence() -> Non
 
 
 def test_inference_evidence_signal_penalizes_ally_noise_for_membership_query() -> None:
+    query = "Would Melanie be considered a member of the LGBTQ community?"
+
     signal = inference_evidence_rerank_signal(
-        query="Would Melanie be considered a member of the LGBTQ community?",
+        query=query,
         text="Melanie is supportive of Caroline and encourages the LGBTQ community as an ally.",
+    )
+    pride_signal = inference_evidence_rerank_signal(
+        query=query,
+        text="Melanie went to a pride event as an ally.",
     )
 
     assert signal.boost == 0
     assert signal.penalty > 0
     assert signal.reason == "inference_community_membership_ally_noise"
+    assert pride_signal.boost == 0
+    assert pride_signal.penalty > 0
+    assert pride_signal.reason == "inference_community_membership_ally_noise"
 
 
 def test_inference_evidence_signal_penalizes_general_community_topic_noise() -> None:

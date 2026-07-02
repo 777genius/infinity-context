@@ -279,6 +279,7 @@ _PRECISE_EVIDENCE_SOURCE_REASONS = frozenset(
         "choice_reason_bridge",
         "business_commonality_bridge",
         "store_promotion_inventory_bridge",
+        "camping_location_bridge",
         "degree_policy_inference_bridge",
         "exercise_activity_inventory_bridge",
         "endorsement_gear_brand_bridge",

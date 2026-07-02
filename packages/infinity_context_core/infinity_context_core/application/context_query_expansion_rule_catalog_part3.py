@@ -114,7 +114,18 @@ EXPANSION_RULES_PART_3: tuple[tuple[frozenset[str], str, str], ...] = (
         ),
     (
             frozenset({"camped"}),
-            "camping camped family mountains beach forest outdoors trip",
+            (
+                "camping camped campsite campground family mountains beach forest "
+                "lake park trail outdoors trip location place"
+            ),
+            "camping_location_bridge",
+        ),
+    (
+            frozenset({"where", "camping"}),
+            (
+                "camping camped campsite campground family mountains beach forest "
+                "lake park trail outdoors trip location place"
+            ),
             "camping_location_bridge",
         ),
     (
@@ -231,10 +242,26 @@ EXPANSION_RULES_PART_3: tuple[tuple[frozenset[str], str, str], ...] = (
             "activity_aggregation_bridge",
         ),
     (
+            frozenset({"research"}),
+            (
+                "researched researching research looked into read about studied "
+                "explored investigated topic information resources options"
+            ),
+            "research_topic_bridge",
+        ),
+    (
             frozenset({"partake"}),
             (
                 "sunrise sunset lake take look swimming kids taking care ourselves "
                 "vital self care relax long day"
+            ),
+            "activity_visual_selfcare_bridge",
+        ),
+    (
+            frozenset({"self", "care"}),
+            (
+                "sunrise sunset lake take look swimming kids taking care ourselves "
+                "vital self care relax long day prioritize unwind recharge activity"
             ),
             "activity_visual_selfcare_bridge",
         ),
@@ -271,6 +298,14 @@ EXPANSION_RULES_PART_3: tuple[tuple[frozenset[str], str, str], ...] = (
                 "nature latest work canvas"
             ),
             "painting_inventory_bridge",
+        ),
+    (
+            frozenset({"when", "paint", "sunrise"}),
+            (
+                "when date painted painting sunrise artwork picture photo image "
+                "caption visual query lake sunset relative date day weekday yesterday"
+            ),
+            "temporal_event_detail_bridge",
         ),
     (
             frozenset({"event", "attend"}),
@@ -319,6 +354,32 @@ EXPANSION_RULES_PART_3: tuple[tuple[frozenset[str], str, str], ...] = (
             "cause_awareness_event_bridge",
         ),
     (
+            frozenset({"realize", "after"}),
+            (
+                "realize realized learned understood after event race run charity "
+                "self care self-care taking care important vital mental health "
+                "emotion reaction inspired proud motivation"
+            ),
+            "post_event_emotion_bridge",
+        ),
+    (
+            frozenset({"think"}),
+            (
+                "think thought opinion reaction response decision plan choice "
+                "supportive proud excited happy agree approve concerned disagree "
+                "good idea great idea encouragement"
+            ),
+            "opinion_reaction_bridge",
+        ),
+    (
+            frozenset({"when", "charity", "race"}),
+            (
+                "when date charity race run ran fundraiser event participated "
+                "signed up raised awareness relative date day weekday last saturday"
+            ),
+            "temporal_event_detail_bridge",
+        ),
+    (
             frozenset({"lgbtq", "event", "attend"}),
             (
                 "lgbtq pride parade marched flags signs celebrating love diversity "
@@ -335,12 +396,36 @@ EXPANSION_RULES_PART_3: tuple[tuple[frozenset[str], str, str], ...] = (
             "lgbtq_support_group_event_bridge",
         ),
     (
+            frozenset({"lgbtq", "support", "group"}),
+            (
+                "lgbtq support group transgender stories powerful inspiring accepted "
+                "courage embrace community attended went joined"
+            ),
+            "lgbtq_support_group_event_bridge",
+        ),
+    (
             frozenset({"lgbtq", "event", "attend"}),
             (
                 "school event speech talk transgender journey students involved "
                 "community reactions awareness allies inclusion gender identity"
             ),
             "lgbtq_school_event_bridge",
+        ),
+    (
+            frozenset({"when", "school", "speech"}),
+            (
+                "when date school speech talk gave spoke students audience event "
+                "journey support community relative date day weekday last week"
+            ),
+            "temporal_event_detail_bridge",
+        ),
+    (
+            frozenset({"when", "meet", "friends"}),
+            (
+                "when date meet met meetup meeting friends family mentors support "
+                "network gathering together relative date day weekday week"
+            ),
+            "temporal_event_detail_bridge",
         ),
     (
             frozenset({"event", "attend", "help"}),
@@ -367,6 +452,57 @@ EXPANSION_RULES_PART_3: tuple[tuple[frozenset[str], str, str], ...] = (
                 "safe space professionals support acceptance enlightening"
             ),
             "counseling_workshop_bridge",
+        ),
+    (
+            frozenset({"counseling", "services"}),
+            (
+                "counseling mental health services therapy therapeutic support "
+                "counselor help people similar issues lgbtq trans community safe "
+                "supportive space interested pursuing career"
+            ),
+            "counseling_services_interest_bridge",
+        ),
+    (
+            frozenset({"mental", "health", "services"}),
+            (
+                "counseling mental health services therapy therapeutic support "
+                "counselor help people similar issues lgbtq trans community safe "
+                "supportive space interested pursuing career"
+            ),
+            "counseling_services_interest_bridge",
+        ),
+    (
+            frozenset({"create", "place", "people"}),
+            (
+                "create creating place space people safe inviting supportive "
+                "welcoming accepted acceptance grow heal community counseling "
+                "mental health support belong"
+            ),
+            "safe_supportive_place_goal_bridge",
+        ),
+    (
+            frozenset({"when", "transgender", "conference"}),
+            (
+                "when date transgender conference going attending upcoming this "
+                "month advocacy professionals community support relative date day"
+            ),
+            "temporal_event_detail_bridge",
+        ),
+    (
+            frozenset({"when", "pottery", "class"}),
+            (
+                "when date sign signed up pottery class workshop clay creative "
+                "therapeutic activity relative date day weekday"
+            ),
+            "temporal_event_detail_bridge",
+        ),
+    (
+            frozenset({"when", "pottery", "workshop"}),
+            (
+                "when date pottery workshop class clay creative made make plate "
+                "bowl cups kids children therapeutic activity relative date day weekday"
+            ),
+            "temporal_event_detail_bridge",
         ),
     (
             frozenset({"degree"}),
@@ -527,6 +663,30 @@ EXPANSION_RULES_PART_3: tuple[tuple[frozenset[str], str, str], ...] = (
             (
                 "pets has have dog new addition family turtles critters new friend "
                 "puppy pup doggo pet turtle"
+            ),
+            "pet_inventory_bridge",
+        ),
+    (
+            frozenset({"pets", "names"}),
+            (
+                "pets pet names named called dog dogs cat cats puppy pup turtle "
+                "turtles new addition family companion belongs to has have"
+            ),
+            "pet_inventory_bridge",
+        ),
+    (
+            frozenset({"dogs", "names"}),
+            (
+                "dogs dog names named called puppy pup pets pet new addition family "
+                "companion belongs to has have"
+            ),
+            "pet_inventory_bridge",
+        ),
+    (
+            frozenset({"is", "pet"}),
+            (
+                "is pet belongs to has have dog cat puppy pup turtle named called "
+                "new addition family companion owner"
             ),
             "pet_inventory_bridge",
         ),

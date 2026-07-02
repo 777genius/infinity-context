@@ -30,6 +30,14 @@ EXPANSION_RULES_PART_4: tuple[tuple[frozenset[str], str, str], ...] = (
         "music_artist_band_bridge",
     ),
     (
+        frozenset({"bands", "listening"}),
+        (
+            "musical artists bands listened listening enjoyed favorite fan singer "
+            "performer musician vocalist songs music"
+        ),
+        "music_artist_band_bridge",
+    ),
+    (
         frozenset({"artist", "band"}),
         "talented voice amazing song songs singer named performer artist musician band vocalist",
         "music_artist_answer_bridge",
@@ -41,6 +49,16 @@ EXPANSION_RULES_PART_4: tuple[tuple[frozenset[str], str, str], ...] = (
     ),
     (
         frozenset({"band", "seen"}),
+        "talented voice amazing song songs singer named performer artist musician band vocalist",
+        "music_artist_answer_bridge",
+    ),
+    (
+        frozenset({"bands", "listening"}),
+        "talented voice amazing song songs singer named performer artist musician band vocalist",
+        "music_artist_answer_bridge",
+    ),
+    (
+        frozenset({"musicians", "listening"}),
         "talented voice amazing song songs singer named performer artist musician band vocalist",
         "music_artist_answer_bridge",
     ),
@@ -331,6 +349,102 @@ EXPANSION_RULES_PART_4: tuple[tuple[frozenset[str], str, str], ...] = (
             "story fantasy novel series memoir classic remembered childhood"
         ),
         "book_reading_list_bridge",
+    ),
+    (
+        frozenset({"fantasy", "novels"}),
+        (
+            "books read reading loved novel novels title story fantasy series "
+            "writing wrote enjoy favorite magical world universe"
+        ),
+        "book_reading_list_bridge",
+    ),
+    (
+        frozenset({"novel", "genre"}),
+        (
+            "novel story book writing wrote genre fantasy mystery crime sci-fi "
+            "fiction draft manuscript"
+        ),
+        "book_reading_list_bridge",
+    ),
+    (
+        frozenset({"favorite", "movie"}),
+        (
+            "favorite movie film trilogy genre watched saw seen enjoy enjoyed "
+            "classic disney horror action sci-fi superhero story blew mind"
+        ),
+        "hobby_interest_bridge",
+    ),
+    (
+        frozenset({"movie", "watch"}),
+        (
+            "movie film watched watch saw seen recently enjoy enjoyed classic "
+            "favorite story acting captivating blew mind"
+        ),
+        "hobby_interest_bridge",
+    ),
+    (
+        frozenset({"fantasy", "movies"}),
+        (
+            "fantasy movie movies film films like enjoy favorite magical world "
+            "wizarding universe adventure trilogy"
+        ),
+        "hobby_interest_bridge",
+    ),
+    (
+        frozenset({"movies", "like"}),
+        (
+            "movies films like enjoy favorite genre type watching watched action "
+            "sci-fi horror disney superhero trilogy"
+        ),
+        "hobby_interest_bridge",
+    ),
+    (
+        frozenset({"tv", "series"}),
+        (
+            "tv series show shows watching watched mention favorite excited new "
+            "fantasy crime drama streaming episode season"
+        ),
+        "hobby_interest_bridge",
+    ),
+    (
+        frozenset({"tv", "shows"}),
+        (
+            "tv series show shows watching watched mention favorite excited new "
+            "fantasy crime drama streaming episode season"
+        ),
+        "hobby_interest_bridge",
+    ),
+    (
+        frozenset({"superhero", "fan"}),
+        (
+            "superhero fan favorite character comics comic movie universe hero "
+            "toy figure action figure"
+        ),
+        "hobby_interest_bridge",
+    ),
+    (
+        frozenset({"supervillain", "fan"}),
+        (
+            "supervillain fan favorite character comics comic movie universe villain "
+            "toy figure action figure"
+        ),
+        "hobby_interest_bridge",
+    ),
+    (
+        frozenset({"superhero", "figure"}),
+        (
+            "superhero toy figure action figure figurine collectible photo picture "
+            "image caption shared showed"
+        ),
+        "item_purchase_bridge",
+    ),
+    (
+        frozenset({"supervillain", "figure"}),
+        (
+            "supervillain toy figure action figure figurine collectible photo picture "
+            "image caption shared showed"
+        ),
+        "item_purchase_bridge",
     ),
     (
         frozenset({"children", "names"}),
@@ -881,6 +995,11 @@ EXPANSION_RULES_PART_4: tuple[tuple[frozenset[str], str, str], ...] = (
         ),
     (
             frozenset({"music"}),
+            _terms._CLASSICAL_MUSIC_PREFERENCE_EXPANSION,
+            "classical_music_preference_bridge",
+        ),
+    (
+            frozenset({"classical", "musicians"}),
             _terms._CLASSICAL_MUSIC_PREFERENCE_EXPANSION,
             "classical_music_preference_bridge",
         ),

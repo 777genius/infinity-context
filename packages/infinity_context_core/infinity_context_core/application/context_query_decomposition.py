@@ -1688,10 +1688,9 @@ def build_query_decomposition_plan(
             query=_compose_query(
                 identities,
                 (
-                    "relationship status single parent partner spouse husband wife "
-                    "married marriage wedding dating breakup divorced separated "
-                    "friends family kids children отношения статус друзья дружба "
-                    "партнер супруг семья вместе"
+                    "relationship status single parent not dating breakup divorced "
+                    "separated partner spouse husband wife married dating romantic "
+                    "отношения статус друзья дружба партнер супруг семья вместе"
                 ),
             ),
             reason="decomposition_relationship_status",

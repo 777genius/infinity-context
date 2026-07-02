@@ -30,6 +30,7 @@ from infinity_context_core.application.context_domain_rerank_signals import (
     current_state_rerank_signal,
     event_sequence_rerank_signal,
     family_hike_detail_rerank_signal,
+    identity_rerank_signal,
     inventory_list_rerank_signal,
     item_purchase_rerank_signal,
     lifestyle_recommendation_rerank_signal,
@@ -208,7 +209,14 @@ def _domain_rerank_signals(
             item=item,
             relevance=relevance,
         ),
+        identity_rerank_signal(
+            query=query,
+            query_reason=query_reason,
+            item=item,
+            relevance=relevance,
+        ),
         relationship_status_rerank_signal(
+            query=query,
             query_reason=query_reason,
             item=item,
             relevance=relevance,

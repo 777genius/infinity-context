@@ -1218,8 +1218,9 @@ def test_query_decomposition_adds_relationship_status_query() -> None:
 
     assert relationship.query.casefold().startswith("caroline ")
     assert "relationship status single parent" in relationship.query
-    assert "partner spouse husband wife married marriage wedding" in relationship.query
-    assert "dating breakup divorced separated friends family" in relationship.query
+    assert "partner spouse husband wife married dating" in relationship.query
+    assert "not dating breakup divorced separated" in relationship.query
+    assert "friends family kids children" not in relationship.query
     assert russian_relationship.query.casefold().startswith("алекс мария ")
     assert "отношения статус друзья дружба" in russian_relationship.query
     assert connected_relationship.query.casefold().startswith("алекс марией ")
