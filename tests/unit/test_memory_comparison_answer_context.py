@@ -292,6 +292,68 @@ def test_answer_context_respects_cutoff_and_falls_back_to_raw_slice() -> None:
     assert context.skipped_bundle_item_count == 1
 
 
+def test_answer_context_backfill_prefers_local_role_evidence_over_summary() -> None:
+    memories = (
+        RetrievedMemory(text="primary", rank=1, item_id="primary"),
+        RetrievedMemory(
+            text=(
+                "Conversation summary: Morgan used to prefer solo work, "
+                "but now prefers teams."
+            ),
+            rank=2,
+            item_id="summary-contrast",
+            source_refs=("D5:1", "D5:2", "D5:3", "D5:4"),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "answerability_score": 0.98,
+                        "source_locality_score": 0.45,
+                        "relation_category_hits": ["contrast"],
+                        "contrast_surface": True,
+                        "broad_summary": True,
+                    }
+                }
+            },
+        ),
+        RetrievedMemory(
+            text="D5:3 Morgan: I used to prefer solo work, but now I prefer teams.",
+            rank=3,
+            item_id="localized-contrast",
+            source_refs=("D5:3",),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "answerability_score": 0.82,
+                        "source_locality_score": 1.0,
+                        "relation_category_hits": ["contrast"],
+                        "contrast_surface": True,
+                    }
+                }
+            },
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "role_requirement_complete": False,
+            "missing_required_roles": ["contrast"],
+            "items": [{"id": "primary", "retrieval_order": 1, "role": "primary"}],
+        },
+        cutoff=3,
+    )
+
+    assert [memory.item_id for memory in context.memories] == [
+        "primary",
+        "localized-contrast",
+        "summary-contrast",
+    ]
+    assert context.memories[1].metadata[
+        "answer_context_backfill_missing_role_hits"
+    ] == ("contrast",)
+    assert context.backfilled_retrieval_item_count == 2
+
+
 def test_answer_context_falls_back_for_empty_bundle() -> None:
     memories = (
         RetrievedMemory(text="first", rank=1, item_id="first"),

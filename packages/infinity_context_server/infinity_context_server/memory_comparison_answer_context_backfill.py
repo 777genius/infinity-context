@@ -107,10 +107,10 @@ def _backfill_candidate_sort_key(
         quality_penalty += 0.4
     return (
         missing_role_score,
+        -quality_penalty,
         answerability,
         locality,
         has_source_refs,
-        -quality_penalty,
         -retrieval_order,
     )
 
