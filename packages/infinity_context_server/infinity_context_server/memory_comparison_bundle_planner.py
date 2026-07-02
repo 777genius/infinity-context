@@ -1108,13 +1108,7 @@ def _source_type_keys(candidate: EvidenceBundleCandidate) -> tuple[str, ...]:
 
 
 def _source_ref_overlap_keys(candidate: EvidenceBundleCandidate) -> tuple[str, ...]:
-    return tuple(
-        dict.fromkeys(
-            turn_ref
-            for source_ref in candidate.source_refs
-            for turn_ref in _TURN_REF_RE.findall(str(source_ref))
-        )
-    )
+    return _candidate_turn_ref_strings(candidate)
 
 
 def _reason_codes(
@@ -1640,8 +1634,8 @@ def _candidate_near_turn_refs(
 
 def _candidate_turn_refs(candidate: EvidenceBundleCandidate) -> tuple[tuple[int, int], ...]:
     refs: list[tuple[int, int]] = []
-    for source_ref in candidate.source_refs:
-        for match in _TURN_REF_PARTS_RE.finditer(str(source_ref)):
+    for turn_ref in _candidate_turn_ref_strings(candidate):
+        for match in _TURN_REF_PARTS_RE.finditer(turn_ref):
             refs.append(
                 (
                     int(match.group("dialogue")),
@@ -1649,6 +1643,16 @@ def _candidate_turn_refs(candidate: EvidenceBundleCandidate) -> tuple[tuple[int,
                 )
             )
     return tuple(dict.fromkeys(refs))
+
+
+def _candidate_turn_ref_strings(candidate: EvidenceBundleCandidate) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            turn_ref
+            for value in (*candidate.source_refs, candidate.dedupe_key)
+            for turn_ref in _TURN_REF_RE.findall(str(value))
+        )
+    )
 
 
 def _bundle_quality_reason_codes(

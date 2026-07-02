@@ -1582,6 +1582,36 @@ def test_evidence_bundle_planner_prefers_nearby_support_after_primary() -> None:
     assert quality["component_scores"]["source_proximity"] == 0.03
 
 
+def test_evidence_bundle_planner_uses_dedupe_turn_refs_for_proximity() -> None:
+    primary = _candidate(
+        item_id="primary",
+        retrieval_order=1,
+        dedupe_key="source_turn_refs:D4:10",
+        covered_evidence_terms=("plan",),
+        primary_signal=True,
+        focused_evidence_score=1.0,
+        direct_speaker_turn=True,
+        answerability_score=0.9,
+    )
+    near_support = _candidate(
+        item_id="near-support",
+        retrieval_order=2,
+        dedupe_key="source_turn_refs:D4:12",
+        query_support_terms=("origin", "country"),
+        answerability_score=0.82,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, near_support),
+        case_group="single",
+    )
+
+    quality = plan.to_diagnostics()["bundle_quality"]
+    assert quality["source_ref_item_count"] == 0
+    assert quality["source_proximity_support_count"] == 1
+    assert quality["component_scores"]["source_proximity"] == 0.03
+
+
 def _candidate(
     *,
     item_id: str,
