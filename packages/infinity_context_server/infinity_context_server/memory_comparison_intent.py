@@ -291,6 +291,8 @@ def infer_evidence_need(
         multi_hop_markers
     ):
         needs.append("causal_support")
+    if {"move", "relocate", "relocated", "roadtrip"} & relation_set:
+        needs.append("location_support")
     if not needs:
         needs.append("single_fact")
     return tuple(dict.fromkeys(needs))
@@ -560,6 +562,24 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
         ),
         "markers": frozenset(),
         "evidence_need": "inference_support",
+    },
+    "location_transition": {
+        "terms": frozenset({"move", "relocate", "relocated", "roadtrip"}),
+        "variants": frozenset(
+            {
+                "city",
+                "country",
+                "drive",
+                "from",
+                "home",
+                "origin",
+                "relocated",
+                "travel",
+                "trip",
+            }
+        ),
+        "markers": frozenset(),
+        "evidence_need": "location_support",
     },
     "contrast": {
         "terms": frozenset(

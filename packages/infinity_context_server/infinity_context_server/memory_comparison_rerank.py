@@ -465,7 +465,7 @@ _RELATION_QUERY_VARIANTS = {
     ),
     "meet": ("met", "meeting", "friends", "family", "mentors", "gathering"),
     "mention": ("mentioned", "said", "talked", "told"),
-    "move": ("moved", "from", "relocated", "came", "home", "country"),
+    "move": ("moved", "from", "relocated", "came", "home", "country", "origin"),
     "plan": (
         "planned",
         "planning",
