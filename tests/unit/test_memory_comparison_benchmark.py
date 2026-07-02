@@ -6387,6 +6387,60 @@ def test_benchmark_rerank_boosts_status_profile_evidence() -> None:
     )
 
 
+def test_benchmark_rerank_boosts_named_possessive_status_evidence() -> None:
+    case = _case(
+        case_id="status-profile-named-possessive-rerank",
+        question="Who is Dana's roommate?",
+        expected_terms=("Riley",),
+        answer="Riley",
+        category=4,
+    )
+    topical_roommate = RetrievedMemory(
+        item_id="topical-roommate",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Dana talked about a roommate matching app with Riley."
+        ),
+        source_refs=("D1:1",),
+    )
+    named_possessive_status = RetrievedMemory(
+        item_id="named-possessive-status",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Dana: Riley is Dana's roommate."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_roommate, named_possessive_status),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("status_profile",)
+    assert reranked[0].item_id == "named-possessive-status"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    status_diagnostics = diagnostics_by_id["named-possessive-status"]
+    topical_diagnostics = diagnostics_by_id["topical-roommate"]
+    assert status_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["status_profile"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert (
+        status_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        > 0
+    )
+
+
 def test_query_decomposition_expands_favorite_preference_queries() -> None:
     favorite_color_case = _case(
         case_id="favorite-preference-color",

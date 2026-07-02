@@ -80,6 +80,31 @@
 - `git push origin main` -> still blocked because the non-interactive runtime
   has no GitHub username/credential prompt available.
 
+## 2026-07-02 Follow-up 19
+
+- Expanded status-profile relation support to recognize named possessive
+  person-role evidence such as "Riley is Dana's roommate." This improves
+  LoCoMo-style kinship/roommate/colleague questions where evidence is phrased
+  with names rather than first-person pronouns.
+- Added a rerank regression proving a topical roommate mention is not treated
+  as status evidence while the named possessive status turn receives typed
+  status support and ranks first.
+
+## Verification
+
+- `uv run --extra dev pytest -q tests/unit/test_memory_comparison_benchmark.py::test_benchmark_rerank_boosts_named_possessive_status_evidence tests/unit/test_memory_comparison_benchmark.py::test_benchmark_rerank_boosts_status_profile_evidence`
+  -> 2 passed, 1 warning.
+- `uv run --extra dev pytest -q tests/unit/test_memory_comparison*.py`
+  -> 511 passed, 1 warning.
+- `uv run --extra dev ruff check packages/infinity_context_server/infinity_context_server/memory_comparison_relation_support.py tests/unit/test_memory_comparison_benchmark.py`
+  -> passed.
+- `uv run --extra dev python -m infinity_context_server.eval memory-comparison-benchmark --dataset ./datasets/locomo10.json --memo-api-url http://127.0.0.1:7788 --mem0-url http://127.0.0.1:8888 --benchmark locomo --locomo-ingest-mode official-turns --case-set locomo-fast --report-mode compact --top-k 200 --top-k-cutoff 10 --top-k-cutoff 20 --top-k-cutoff 50 --top-k-cutoff 200 --allow-live --preflight-only`
+  -> blocked safely because `./datasets/locomo10.json` and memory auth token
+  are absent. Fast-readiness blockers were empty; no long/full LoCoMo run was
+  attempted.
+- `git push origin main` -> still blocked because the non-interactive runtime
+  has no GitHub username/credential prompt available.
+
 ## 2026-07-02 Follow-up 18
 
 - Allowed answerability boosts for grounded typed category evidence even when
