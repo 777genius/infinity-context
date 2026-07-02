@@ -518,7 +518,12 @@ def _has_exchange_intent(
     if {"get", "got"} & relation_set:
         normalized_question = re.sub(r"[^0-9a-z]+", " ", question.casefold()).strip()
         return bool(
-            re.search(r"\b(?:what|which)\b.+\b(?:get|got)\b", normalized_question)
+            re.search(
+                r"\b(?:what|which)(?:\s+\w+){0,3}\s+"
+                r"(?:did|do|does|had|has|have|will|would|could|should)\b"
+                r".+\b(?:get|got)\b",
+                normalized_question,
+            )
             or re.search(r"\b(?:get|got)\b.+\bfrom\b", normalized_question)
         )
     return True

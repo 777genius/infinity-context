@@ -5561,6 +5561,24 @@ def test_query_decomposition_does_not_promote_get_support_to_exchange() -> None:
     assert "support_goal" in query_profile["relation_categories"]
 
 
+def test_query_decomposition_does_not_promote_causative_got_to_exchange() -> None:
+    case = _case(
+        case_id="causative-got-query",
+        question="What got Melanie interested in camping?",
+        expected_terms=("story",),
+        answer="story",
+        category=1,
+    )
+
+    _, metadata = rerank_module.decomposed_search_queries(case)
+    query_profile = metadata["query_profile"]
+
+    assert "exchange" not in query_profile["relation_categories"]
+    assert "exchange" not in query_profile["evidence_need"]
+    assert "exchange_support" not in query_profile["bundle_evidence_roles"]
+    assert "preference" in query_profile["relation_categories"]
+
+
 def test_benchmark_rerank_boosts_focused_exchange_evidence() -> None:
     case = _case(
         case_id="exchange-rerank",
