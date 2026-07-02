@@ -188,7 +188,8 @@ def _bundle_item_has_temporal_support(item: Mapping[str, object]) -> bool:
         item.get("has_relative_time_surface") or "relative_time_surface" in reasons
     )
     has_explicit = bool(
-        item.get("has_explicit_time_surface") or "explicit_time_surface" in reasons
+        item.get("has_explicit_time_content_surface")
+        or "explicit_time_content_surface" in reasons
     )
     has_temporal_sequence = bool(
         item.get("has_temporal_sequence_surface")
@@ -202,7 +203,7 @@ def _bundle_item_has_temporal_support(item: Mapping[str, object]) -> bool:
     if time_kind == "temporal_sequence":
         return has_temporal_sequence or has_sequence
     if time_kind == "explicit_time":
-        return has_explicit or has_temporal
+        return has_explicit
     if time_kind == "relative_time":
         return has_relative or has_currentness or has_temporal
     return bool(

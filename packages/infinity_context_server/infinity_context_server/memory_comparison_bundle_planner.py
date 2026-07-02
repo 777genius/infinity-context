@@ -71,6 +71,7 @@ class EvidenceBundleCandidate:
     has_duration_surface: bool = False
     has_relative_time_surface: bool = False
     has_explicit_time_surface: bool = False
+    has_explicit_time_content_surface: bool = False
     has_temporal_sequence_surface: bool = False
     conflict_or_stale: bool = False
     negation_surface: bool = False
@@ -125,6 +126,9 @@ class PlannedEvidenceItem:
             "has_duration_surface": self.candidate.has_duration_surface,
             "has_relative_time_surface": self.candidate.has_relative_time_surface,
             "has_explicit_time_surface": self.candidate.has_explicit_time_surface,
+            "has_explicit_time_content_surface": (
+                self.candidate.has_explicit_time_content_surface
+            ),
             "has_temporal_sequence_surface": (
                 self.candidate.has_temporal_sequence_surface
             ),
@@ -914,7 +918,7 @@ def _candidate_has_temporal_support(candidate: EvidenceBundleCandidate) -> bool:
     if time_kind == "temporal_sequence":
         return candidate.has_temporal_sequence_surface or candidate.has_sequence_surface
     if time_kind == "explicit_time":
-        return candidate.has_explicit_time_surface or candidate.has_temporal_surface
+        return candidate.has_explicit_time_content_surface
     if time_kind == "relative_time":
         return bool(
             candidate.has_relative_time_surface
@@ -926,7 +930,7 @@ def _candidate_has_temporal_support(candidate: EvidenceBundleCandidate) -> bool:
         or candidate.has_sequence_surface
         or candidate.has_duration_surface
         or candidate.has_relative_time_surface
-        or candidate.has_explicit_time_surface
+        or candidate.has_explicit_time_content_surface
         or candidate.has_temporal_sequence_surface
         or candidate.currentness_surface
     )
@@ -1331,6 +1335,8 @@ def _reason_codes(
         reasons.append("relative_time_surface")
     if candidate.has_explicit_time_surface:
         reasons.append("explicit_time_surface")
+    if candidate.has_explicit_time_content_surface:
+        reasons.append("explicit_time_content_surface")
     if candidate.has_temporal_sequence_surface:
         reasons.append("temporal_sequence_surface")
     if candidate.conflict_or_stale:

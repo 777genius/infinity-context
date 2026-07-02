@@ -924,6 +924,53 @@ def test_evidence_bundle_keeps_duration_temporal_role_missing_for_broad_summary(
     assert "risk:broad_summary" in quality["reason_codes"]
 
 
+def test_evidence_bundle_requires_content_time_for_explicit_temporal_support() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:explicit-time-metadata-only",
+        question="When did Alex mention the checklist?",
+        expected_terms=("Friday",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={"category": 2},
+    )
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text=(
+                    "session_1 turn D1:1 date: 10:00 am "
+                    "D1:1 Alex mentioned the checklist."
+                ),
+                rank=1,
+                item_id="metadata-only",
+                source_refs=("D1:1",),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.76,
+                            "source_locality_score": 0.9,
+                            "entity_hits": ["alex"],
+                            "speaker_hits": ["alex"],
+                            "relation_hits": ["mention", "checklist"],
+                            "has_explicit_time_surface": True,
+                            "has_explicit_time_content_surface": False,
+                            "time_intent_kind": "explicit_time",
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+        ),
+    )
+
+    assert bundle["required_roles"] == ["primary", "temporal_support"]
+    assert bundle["satisfied_required_roles"] == ["primary"]
+    assert bundle["missing_required_roles"] == ["temporal_support"]
+    assert bundle["items"][0]["has_explicit_time_surface"] is True
+    assert bundle["items"][0]["has_explicit_time_content_surface"] is False
+
+
 def test_evidence_bundle_rejects_ungrounded_query_role_candidate() -> None:
     case = PublicBenchmarkCase(
         benchmark="locomo",

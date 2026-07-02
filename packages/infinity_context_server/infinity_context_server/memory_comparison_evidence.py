@@ -175,6 +175,9 @@ def evidence_bundle(
                 has_explicit_time_surface=_bool_value(
                     features.get("has_explicit_time_surface")
                 ),
+                has_explicit_time_content_surface=_bool_value(
+                    features.get("has_explicit_time_content_surface")
+                ),
                 has_temporal_sequence_surface=_bool_value(
                     features.get("has_temporal_sequence_surface")
                 ),
@@ -333,7 +336,7 @@ def _feature_backed_bundle_candidate_reasons(
         or _bool_value(features.get("has_sequence_surface"))
         or _bool_value(features.get("has_duration_surface"))
         or _bool_value(features.get("has_relative_time_surface"))
-        or _bool_value(features.get("has_explicit_time_surface"))
+        or _bool_value(features.get("has_explicit_time_content_surface"))
         or _bool_value(features.get("has_temporal_sequence_surface"))
         or _bool_value(features.get("currentness_surface"))
     )

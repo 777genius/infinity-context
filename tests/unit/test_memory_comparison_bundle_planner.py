@@ -707,6 +707,53 @@ def test_evidence_bundle_planner_rejects_weak_temporal_role_completion() -> None
     assert grounded.missing_required_roles == ()
 
 
+def test_evidence_bundle_planner_rejects_metadata_only_explicit_time_completion() -> None:
+    primary = _candidate(
+        item_id="primary",
+        covered_expected_terms=("friday",),
+        primary_signal=True,
+    )
+    metadata_only = _candidate(
+        item_id="metadata-only",
+        dedupe_key="refs:D1:1",
+        time_intent_kind="explicit_time",
+        has_explicit_time_surface=True,
+        query_support_terms=("appointment", "calendar"),
+        entity_hits=("alex",),
+        source_locality_score=0.9,
+        answerability_score=0.76,
+    )
+    content_time = _candidate(
+        item_id="content-time",
+        dedupe_key="refs:D2:3",
+        time_intent_kind="explicit_time",
+        has_explicit_time_surface=True,
+        has_explicit_time_content_surface=True,
+        query_support_terms=("friday", "afternoon"),
+        entity_hits=("alex",),
+        source_locality_score=0.9,
+        answerability_score=0.86,
+    )
+
+    incomplete = EvidenceBundlePlanner().plan(
+        (primary, metadata_only),
+        case_group="temporal",
+        required_roles=("primary", "temporal_support"),
+    )
+    complete = EvidenceBundlePlanner().plan(
+        (primary, metadata_only, content_time),
+        case_group="temporal",
+        required_roles=("primary", "temporal_support"),
+    )
+
+    assert incomplete.satisfied_required_roles == ("primary",)
+    assert incomplete.missing_required_roles == ("temporal_support",)
+    assert complete.satisfied_required_roles == ("primary", "temporal_support")
+    assert complete.missing_required_roles == ()
+    temporal_item = next(item for item in complete.items if item.role == "temporal_support")
+    assert temporal_item.candidate.item_id == "content-time"
+
+
 def test_evidence_bundle_planner_repairs_missing_required_role_selection() -> None:
     primary = _candidate(
         item_id="primary",
@@ -2378,6 +2425,7 @@ def _candidate(
     has_duration_surface: bool = False,
     has_relative_time_surface: bool = False,
     has_explicit_time_surface: bool = False,
+    has_explicit_time_content_surface: bool = False,
     has_temporal_sequence_surface: bool = False,
     conflict_or_stale: bool = False,
     negation_surface: bool = False,
@@ -2422,6 +2470,7 @@ def _candidate(
         has_duration_surface=has_duration_surface,
         has_relative_time_surface=has_relative_time_surface,
         has_explicit_time_surface=has_explicit_time_surface,
+        has_explicit_time_content_surface=has_explicit_time_content_surface,
         has_temporal_sequence_surface=has_temporal_sequence_surface,
         conflict_or_stale=conflict_or_stale,
         negation_surface=negation_surface,
