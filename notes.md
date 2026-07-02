@@ -95,3 +95,21 @@
   -> 497 passed, 1 warning.
 - `uv run --extra dev ruff check packages/infinity_context_server/infinity_context_server/memory_comparison_answer_context_backfill.py tests/unit/test_memory_comparison_answer_context.py`
   -> passed.
+
+## 2026-07-02 Follow-up 5
+
+- Surfaced `favorite_support_count` as a first-class evidence bundle and
+  answer-context diagnostic instead of only burying it under generic typed
+  relation counts.
+- Added a regression that a required favorite bundle role is satisfied only by
+  explicit `favorite_preference` evidence, while generic preference evidence is
+  rejected for that role even when it has stronger bundle score.
+
+## Verification
+
+- `uv run --extra dev pytest -q tests/unit/test_memory_comparison*.py`
+  -> 498 passed, 1 warning.
+- `uv run --extra dev ruff check packages/infinity_context_server/infinity_context_server/memory_comparison_bundle_planner.py packages/infinity_context_server/infinity_context_server/memory_comparison_answer_context.py tests/unit/test_memory_comparison_bundle_planner.py tests/unit/test_memory_comparison_answer_context.py`
+  -> passed.
+- `git push origin main` -> still blocked because the non-interactive runtime
+  has no GitHub username/credential prompt available.

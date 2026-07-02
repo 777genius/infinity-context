@@ -1523,6 +1523,73 @@ def test_evidence_bundle_planner_selects_required_preference_support() -> None:
     ]
 
 
+def test_evidence_bundle_planner_selects_required_favorite_support() -> None:
+    primary = _candidate(
+        item_id="primary",
+        covered_evidence_terms=("D1:1",),
+        primary_signal=True,
+        source_refs=("D1:1",),
+        direct_speaker_turn=True,
+        answerability_score=0.9,
+        source_locality_score=1.0,
+    )
+    generic_preference = _candidate(
+        item_id="generic-preference",
+        dedupe_key="refs:D2:2",
+        query_support_terms=("melanie", "likes", "animal"),
+        relation_hits=("like", "animal"),
+        relation_category_hits=("preference",),
+        entity_hits=("melanie",),
+        has_preference_evidence=True,
+        query_has_entities=True,
+        source_refs=("D2:2",),
+        source_locality_score=0.95,
+        answerability_score=0.88,
+        bundle_strength_score=10.0,
+    )
+    favorite_support = _candidate(
+        item_id="favorite-support",
+        dedupe_key="refs:D2:3",
+        query_support_terms=("melanie", "favorite", "animal"),
+        relation_hits=("favorite", "animal"),
+        relation_category_hits=("favorite_preference",),
+        entity_hits=("melanie",),
+        has_preference_evidence=True,
+        query_has_entities=True,
+        source_refs=("D2:3",),
+        source_locality_score=0.9,
+        answerability_score=0.74,
+        bundle_strength_score=2.0,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, generic_preference, favorite_support),
+        case_group="single",
+        required_roles=("primary", "favorite_support"),
+    )
+
+    assert [item.candidate.item_id for item in plan.items] == [
+        "primary",
+        "favorite-support",
+    ]
+    support_item = plan.items[1]
+    assert support_item.role == "favorite_support"
+    assert "favorite_support" in support_item.reason_codes
+    assert "typed_relation_category_hits" in support_item.reason_codes
+    diagnostics = plan.to_diagnostics()
+    assert diagnostics["role_counts"] == {"favorite_support": 1, "primary": 1}
+    assert diagnostics["satisfied_required_roles"] == [
+        "primary",
+        "favorite_support",
+    ]
+    quality = diagnostics["bundle_quality"]
+    assert quality["favorite_support_count"] == 1
+    assert quality["preference_support_count"] == 0
+    assert quality["typed_relation_support_counts"] == {"favorite_support": 1}
+    assert quality["component_scores"]["favorite_support"] == 0.08
+    assert "has_favorite_support_evidence" in quality["reason_codes"]
+
+
 def test_evidence_bundle_planner_selects_required_visual_support() -> None:
     primary = _candidate(
         item_id="primary",

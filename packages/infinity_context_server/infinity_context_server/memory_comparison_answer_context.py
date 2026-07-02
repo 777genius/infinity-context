@@ -54,6 +54,7 @@ class AnswerContext:
     bundle_emotion_response_support_count: int = 0
     bundle_symbolic_meaning_support_count: int = 0
     bundle_preference_support_count: int = 0
+    bundle_favorite_support_count: int = 0
     bundle_visual_support_count: int = 0
     bundle_contrast_count: int = 0
     role_requirement_complete: bool | None = None
@@ -102,6 +103,7 @@ class AnswerContext:
                 self.bundle_symbolic_meaning_support_count
             ),
             "bundle_preference_support_count": self.bundle_preference_support_count,
+            "bundle_favorite_support_count": self.bundle_favorite_support_count,
             "bundle_visual_support_count": self.bundle_visual_support_count,
             "bundle_contrast_count": self.bundle_contrast_count,
             "role_requirement_complete": self.role_requirement_complete,
@@ -291,6 +293,12 @@ def answer_context_from_evidence_bundle(
             )
             or 0
         ),
+        bundle_favorite_support_count=(
+            _positive_int(
+                bundle_context.get("answer_context_bundle_favorite_support_count")
+            )
+            or 0
+        ),
         bundle_visual_support_count=(
             _positive_int(
                 bundle_context.get("answer_context_bundle_visual_support_count")
@@ -468,6 +476,7 @@ def _answer_context_cutoff_metrics(
     bundle_emotion_response_support_counts: list[int] = []
     bundle_symbolic_meaning_support_counts: list[int] = []
     bundle_preference_support_counts: list[int] = []
+    bundle_favorite_support_counts: list[int] = []
     bundle_visual_support_counts: list[int] = []
     bundle_contrast_counts: list[int] = []
     answerability_scores: list[float] = []
@@ -610,6 +619,9 @@ def _answer_context_cutoff_metrics(
         )
         bundle_preference_support_counts.append(
             _positive_int(context.get("bundle_preference_support_count")) or 0
+        )
+        bundle_favorite_support_counts.append(
+            _positive_int(context.get("bundle_favorite_support_count")) or 0
         )
         bundle_visual_support_counts.append(
             _positive_int(context.get("bundle_visual_support_count")) or 0
@@ -761,6 +773,8 @@ def _answer_context_cutoff_metrics(
         "total_bundle_preference_support_count": sum(
             bundle_preference_support_counts
         ),
+        "avg_bundle_favorite_support_count": _avg(bundle_favorite_support_counts),
+        "total_bundle_favorite_support_count": sum(bundle_favorite_support_counts),
         "avg_bundle_visual_support_count": _avg(bundle_visual_support_counts),
         "total_bundle_visual_support_count": sum(bundle_visual_support_counts),
         "avg_bundle_contrast_count": _avg(bundle_contrast_counts),
@@ -944,6 +958,11 @@ def _bundle_context_metadata(bundle: Mapping[str, object]) -> dict[str, object]:
     if preference_support_count is not None:
         metadata["answer_context_bundle_preference_support_count"] = (
             preference_support_count
+        )
+    favorite_support_count = _positive_int(quality.get("favorite_support_count"))
+    if favorite_support_count is not None:
+        metadata["answer_context_bundle_favorite_support_count"] = (
+            favorite_support_count
         )
     visual_support_count = _positive_int(quality.get("visual_support_count"))
     if visual_support_count is not None:

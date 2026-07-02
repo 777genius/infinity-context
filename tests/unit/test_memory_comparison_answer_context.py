@@ -58,6 +58,7 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
                     "emotion_response_support_count": 6,
                     "symbolic_meaning_support_count": 7,
                     "preference_support_count": 3,
+                    "favorite_support_count": 11,
                     "visual_support_count": 4,
                     "contrast_count": 2,
                     "reason_codes": [
@@ -139,6 +140,7 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
     assert context.bundle_emotion_response_support_count == 6
     assert context.bundle_symbolic_meaning_support_count == 7
     assert context.bundle_preference_support_count == 3
+    assert context.bundle_favorite_support_count == 11
     assert context.bundle_visual_support_count == 4
     assert context.bundle_contrast_count == 2
     assert context.memories[0].metadata["answer_context_bundle_bridge_count"] == 1
@@ -215,6 +217,10 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
         == 3
     )
     assert (
+        context.memories[0].metadata["answer_context_bundle_favorite_support_count"]
+        == 11
+    )
+    assert (
         context.memories[0].metadata["answer_context_bundle_visual_support_count"]
         == 4
     )
@@ -285,6 +291,7 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
         "bundle_emotion_response_support_count": 6,
         "bundle_symbolic_meaning_support_count": 7,
         "bundle_preference_support_count": 3,
+        "bundle_favorite_support_count": 11,
         "bundle_visual_support_count": 4,
         "bundle_contrast_count": 2,
         "role_requirement_complete": False,
@@ -1210,6 +1217,7 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
                             "bundle_emotion_response_support_count": 6,
                             "bundle_symbolic_meaning_support_count": 7,
                             "bundle_preference_support_count": 3,
+                            "bundle_favorite_support_count": 11,
                             "bundle_visual_support_count": 4,
                             "bundle_contrast_count": 2,
                             "role_requirement_complete": False,
@@ -1307,6 +1315,8 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
     assert primary["total_bundle_symbolic_meaning_support_count"] == 7
     assert primary["avg_bundle_preference_support_count"] == 1.5
     assert primary["total_bundle_preference_support_count"] == 3
+    assert primary["avg_bundle_favorite_support_count"] == 5.5
+    assert primary["total_bundle_favorite_support_count"] == 11
     assert primary["avg_bundle_visual_support_count"] == 2.0
     assert primary["total_bundle_visual_support_count"] == 4
     assert primary["avg_bundle_contrast_count"] == 1.0
