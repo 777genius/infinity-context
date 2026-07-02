@@ -257,6 +257,7 @@ def build_candidate_evidence_features(
     query_relation_surface_count = len(
         tuple(dict.fromkeys((*relation_terms, *relation_variant_terms)))
     )
+    relation_categories = tuple((relation_category_terms or {}).keys())
     conflict_or_stale = _conflict_or_stale(memory)
     query_roles = _query_roles(memory)
     answerability_score, answerability_reasons = _answerability(
@@ -294,13 +295,15 @@ def build_candidate_evidence_features(
         has_visual_terms=has_visual_terms,
         has_visual_evidence=has_visual_evidence,
         has_multi_hop_markers=has_multi_hop_markers,
+        relation_categories=relation_categories,
+        relation_category_hits=relation_category_hits,
     )
     source_type = _source_type(memory)
     return CandidateEvidenceFeatures(
         memory_terms=frozenset(memory_terms),
         overlap_terms=overlap_terms,
         relation_hits=relation_hits,
-        relation_categories=tuple((relation_category_terms or {}).keys()),
+        relation_categories=relation_categories,
         relation_category_hits=relation_category_hits,
         relation_category_coverage_ratio=_ratio(
             len(relation_category_hits),
@@ -430,6 +433,11 @@ def _relation_category_hits(
         ):
             hits.append(str(category))
             continue
+        if category == "emotion_response" and _has_emotion_response_support(
+            memory_terms
+        ):
+            hits.append(str(category))
+            continue
         grounding_terms = tuple(term for term in term_values if term not in query_term_set)
         terms_to_match = grounding_terms or term_values
         if any(term in memory_terms for term in terms_to_match):
@@ -502,6 +510,46 @@ def _has_participation_event_support(memory_terms: set[str]) -> bool:
     return bool(participation_action and event_context)
 
 
+def _has_emotion_response_support(memory_terms: set[str]) -> bool:
+    emotion_surface = {
+        "anxious",
+        "concern",
+        "excite",
+        "excited",
+        "feel",
+        "felt",
+        "happy",
+        "nervous",
+        "overwhelm",
+        "overwhelmed",
+        "proud",
+        "relieved",
+        "reliev",
+        "thrill",
+        "thrilled",
+        "upset",
+        "worried",
+        "worri",
+    } & memory_terms
+    response_context = {
+        "about",
+        "because",
+        "news",
+        "family",
+        "kid",
+        "kids",
+        "make",
+        "process",
+        "reaction",
+        "response",
+        "said",
+        "thought",
+        "think",
+        "when",
+    } & memory_terms
+    return bool(emotion_surface and response_context)
+
+
 def _answerability(
     *,
     entity_count: int,
@@ -534,6 +582,8 @@ def _answerability(
     has_visual_terms: bool,
     has_visual_evidence: bool,
     has_multi_hop_markers: bool,
+    relation_categories: Sequence[str],
+    relation_category_hits: Sequence[str],
 ) -> tuple[float, tuple[str, ...]]:
     entity_score = (
         1.0
@@ -570,6 +620,8 @@ def _answerability(
         has_multi_hop_markers=has_multi_hop_markers,
         relation_hit_count=relation_hit_count,
         overlap_count=overlap_count,
+        relation_categories=relation_categories,
+        relation_category_hits=relation_category_hits,
     )
     score = (
         (0.32 * entity_score)
@@ -664,6 +716,8 @@ def _intent_answerability(
     has_multi_hop_markers: bool,
     relation_hit_count: int,
     overlap_count: int,
+    relation_categories: Sequence[str],
+    relation_category_hits: Sequence[str],
 ) -> tuple[float, tuple[str, ...]]:
     scores: list[float] = []
     reasons: list[str] = []
@@ -705,6 +759,13 @@ def _intent_answerability(
     if has_visual_terms:
         scores.append(1.0 if has_visual_evidence else 0.0)
         reasons.append("visual_evidence" if has_visual_evidence else "missing_visual_evidence")
+    if "emotion_response" in set(relation_categories):
+        if "emotion_response" in set(relation_category_hits):
+            scores.append(1.0)
+            reasons.append("emotion_response_evidence")
+        else:
+            scores.append(0.2)
+            reasons.append("missing_emotion_response_evidence")
     if has_multi_hop_markers:
         scores.append(1.0 if relation_hit_count >= 2 and overlap_count >= 2 else 0.35)
         reasons.append(

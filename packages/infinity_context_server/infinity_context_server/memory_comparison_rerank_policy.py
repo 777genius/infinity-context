@@ -256,6 +256,7 @@ def _boost_cap(
         "benchmark_registration_event_boost",
         "benchmark_symbolic_meaning_boost",
         "benchmark_participation_event_boost",
+        "benchmark_emotion_response_boost",
     }
     if (
         any(policy_boosts.get(key, 0.0) > 0 for key in high_confidence_policy_keys)
@@ -343,6 +344,8 @@ def _provenance_safety_cap(
         and not _has_role_specific_grounding(features, score_signals=score_signals)
     ):
         caps.append((0.26, "low_answerability_cap"))
+    if "missing_emotion_response_evidence" in set(features.answerability_reason_codes):
+        caps.append((0.4, "missing_emotion_response_evidence_cap"))
     if features.conflict_or_stale and not _has_contrast_grounding(score_signals):
         caps.append((0.22, "unsupported_stale_evidence_cap"))
     if not caps:

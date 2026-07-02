@@ -5223,6 +5223,52 @@ def test_query_decomposition_reports_participation_event_intent() -> None:
     assert "meetup" not in json.dumps(participate_metadata["retrieval_intent"])
 
 
+def test_query_decomposition_reports_emotion_response_intent() -> None:
+    feel_case = _case(
+        case_id="emotion-response-query",
+        question="How did Melanie feel about the adoption news?",
+        expected_terms=("direct emotion",),
+        answer="direct emotion",
+        category=4,
+    )
+    excite_case = _case(
+        case_id="emotion-excite-query",
+        question="What is Caroline excited about in the adoption process?",
+        expected_terms=("direct emotion",),
+        answer="direct emotion",
+        category=4,
+    )
+
+    feel_queries, feel_metadata = rerank_module.decomposed_search_queries(feel_case)
+    excite_queries, excite_metadata = rerank_module.decomposed_search_queries(
+        excite_case
+    )
+
+    assert feel_queries[2] == "melanie feel adoption felt reaction response excited"
+    feel_profile = feel_metadata["query_profile"]
+    assert "emotion_response" in feel_profile["relation_categories"]
+    assert feel_profile["relation_category_terms"]["emotion_response"] == (
+        "feel",
+        "felt",
+        "reaction",
+        "response",
+        "nervous",
+        "relieved",
+        "proud",
+        "worried",
+        "upset",
+    )
+    assert "direct emotion" not in json.dumps(feel_metadata["retrieval_intent"])
+
+    assert excite_queries[2] == "caroline excite make create thrilled process adoption"
+    excite_profile = excite_metadata["query_profile"]
+    assert "emotion_response" in excite_profile["relation_categories"]
+    assert excite_profile["relation_category_terms"]["emotion_response"] == (
+        "excite",
+        "enthusiastic",
+    )
+
+
 def test_benchmark_rerank_boosts_participation_event_evidence() -> None:
     case = _case(
         case_id="participation-rerank",
@@ -5282,6 +5328,60 @@ def test_benchmark_rerank_boosts_participation_event_evidence() -> None:
     )
     assert topic_diagnostics["score_signals"]["benchmark_typed_temporal_reason"] == (
         "missing_temporal_evidence"
+    )
+
+
+def test_benchmark_rerank_boosts_emotion_response_evidence() -> None:
+    case = _case(
+        case_id="emotion-response-rerank",
+        question="How did Melanie feel about the adoption news?",
+        expected_terms=("direct emotion",),
+        answer="direct emotion",
+        category=4,
+    )
+    topic_mention = RetrievedMemory(
+        item_id="adoption-topic",
+        rank=1,
+        score=0.15,
+        text=(
+            "session_1 turn D1:1 date: 9:00 am "
+            "D1:1 Melanie: The adoption process has several documents."
+        ),
+        source_refs=("D1:1",),
+    )
+    emotion_evidence = RetrievedMemory(
+        item_id="emotion-evidence",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:4 date: 9:10 am "
+            "D2:4 Melanie: My reaction to the adoption news was nervous "
+            "but hopeful."
+        ),
+        source_refs=("D2:4",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topic_mention, emotion_evidence),
+    )
+
+    assert metadata["applied"] is True
+    assert [memory.item_id for memory in reranked] == [
+        "emotion-evidence",
+        "adoption-topic",
+    ]
+    evidence_diagnostics = reranked[0].metadata["diagnostics"]
+    topic_diagnostics = reranked[1].metadata["diagnostics"]
+    assert "emotion_response" in evidence_diagnostics[
+        "benchmark_candidate_features"
+    ]["relation_category_hits"]
+    assert (
+        evidence_diagnostics["score_signals"]["benchmark_emotion_response_boost"]
+        > 0
+    )
+    assert (
+        topic_diagnostics["score_signals"]["benchmark_emotion_response_boost"] == 0
     )
 
 

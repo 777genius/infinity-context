@@ -443,6 +443,12 @@ as `reaction`, `response`, `opinion`, `feel`, `lovely` and `luck` rather than
 injecting judged sentiment words like `amazing`, `awesome` or `mom`. The compact
 query keeps `think` and family context while moving generic `decision/adopt`
 terms behind reaction signals.
+Emotion-response questions that explicitly ask how someone felt or what they
+were excited about now expose a typed `emotion_response` facet. Candidate
+answerability requires actual emotion/response evidence such as `felt`,
+`reaction`, `nervous`, `thrilled` or `upset`, and topic-only direct turns get a
+bounded missing-emotion cap instead of satisfying the question through entity and
+topic overlap alone.
 Generic activity questions render non-answer activity-family surfaces such as
 `hobby`, `partake`, `class`, `paint`, `swim`, `run`, `violin`, `kid`, `photo`,
 `creative`, `fun`, `express`, `refresh`, `therapeutic`, `pastime` and `leisure`

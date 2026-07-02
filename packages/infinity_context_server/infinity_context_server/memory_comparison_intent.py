@@ -686,6 +686,34 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
         "markers": frozenset({"why", "how"}),
         "evidence_need": "causal_support",
     },
+    "emotion_response": {
+        "terms": frozenset({"excite", "feel"}),
+        "variants": frozenset(
+            {
+                "anxious",
+                "concern",
+                "emotion",
+                "enthusiastic",
+                "excite",
+                "excited",
+                "feel",
+                "feeling",
+                "felt",
+                "happy",
+                "nervous",
+                "overwhelmed",
+                "proud",
+                "reaction",
+                "relieved",
+                "response",
+                "thrilled",
+                "upset",
+                "worried",
+            }
+        ),
+        "markers": frozenset(),
+        "evidence_need": "single_fact",
+    },
     "support_goal": {
         "terms": frozenset(
             {

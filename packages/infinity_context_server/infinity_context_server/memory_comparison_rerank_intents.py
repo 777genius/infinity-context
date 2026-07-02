@@ -86,6 +86,10 @@ def focused_intent_policy_boosts(
         memory_terms=memory_terms,
         relation_set=relation_set,
     )
+    boosts["benchmark_emotion_response_boost"] = _emotion_response_boost(
+        memory_terms=memory_terms,
+        relation_set=relation_set,
+    )
     return boosts
 
 
@@ -106,6 +110,7 @@ def _empty_intent_policy_boosts() -> dict[str, float]:
         "benchmark_registration_event_boost": 0.0,
         "benchmark_symbolic_meaning_boost": 0.0,
         "benchmark_participation_event_boost": 0.0,
+        "benchmark_emotion_response_boost": 0.0,
     }
 
 
@@ -353,3 +358,47 @@ def _participation_event_boost(
         "workshop",
     } & memory_terms
     return 0.1 if participation_action and event_context else 0.0
+
+
+def _emotion_response_boost(
+    *,
+    memory_terms: set[str],
+    relation_set: set[str],
+) -> float:
+    if not {"excite", "feel"} & relation_set:
+        return 0.0
+    emotion_surface = {
+        "anxious",
+        "concern",
+        "excite",
+        "excited",
+        "feel",
+        "felt",
+        "happy",
+        "nervous",
+        "overwhelm",
+        "overwhelmed",
+        "proud",
+        "reliev",
+        "relieved",
+        "thrill",
+        "thrilled",
+        "upset",
+        "worri",
+        "worried",
+    } & memory_terms
+    response_context = {
+        "because",
+        "family",
+        "kid",
+        "kids",
+        "make",
+        "news",
+        "process",
+        "reaction",
+        "response",
+        "said",
+        "thought",
+        "think",
+    } & memory_terms
+    return 0.1 if emotion_surface and response_context else 0.0

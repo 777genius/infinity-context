@@ -172,6 +172,8 @@ _QUERY_TOKEN_ALIASES = {
     "lik": ("like",),
     "marri": ("marry", "married"),
     "mov": ("move", "moved"),
+    "nervou": ("nervous",),
+    "overwhelm": ("overwhelmed",),
     "persue": ("pursue",),
     "plann": ("plan",),
     "participat": ("participate",),
@@ -184,11 +186,13 @@ _QUERY_TOKEN_ALIASES = {
     "read": ("read",),
     "realiz": ("realize",),
     "refreshe": ("refresh",),
+    "reliev": ("relieved",),
     "religiou": ("religious",),
     "relocat": ("relocated",),
     "statu": ("status",),
     "stres": ("stress",),
     "symboliz": ("symbolize", "symbol"),
+    "worri": ("worried",),
     "writ": ("write", "writing"),
     "grow": ("growing", "childhood"),
 }
@@ -485,8 +489,18 @@ _RELATION_QUERY_VARIANTS = {
         "lesson",
         "workshop",
     ),
-    "excite": ("excited", "looking forward", "enthusiastic"),
-    "feel": ("felt", "feeling"),
+    "excite": ("excited", "looking forward", "enthusiastic", "thrilled"),
+    "feel": (
+        "felt",
+        "feeling",
+        "reaction",
+        "response",
+        "nervous",
+        "relieved",
+        "proud",
+        "worried",
+        "upset",
+    ),
     "field": ("career", "option", "education", "study", "work", "working", "profession"),
     "child": ("children", "kid", "kids", "son", "daughter", "parent", "family"),
     "children": ("child", "kid", "kids", "son", "daughter", "parent", "family"),
@@ -2065,6 +2079,27 @@ def _relation_query_terms(
                 "kid",
             )
         )
+    if {"excite", "feel"} & relation_term_set and not {
+        "adoption",
+        "excite",
+        "process",
+    }.issubset(relation_term_set):
+        priority_variant_order.extend(
+            (
+                "felt",
+                "feeling",
+                "reaction",
+                "response",
+                "excited",
+                "thrilled",
+                "nervous",
+                "relieved",
+                "proud",
+                "worried",
+                "upset",
+            )
+        )
+        priority_surface_terms.update(("excited", "thrilled", "worried"))
     if "political" in relation_term_set:
         priority_variant_order.extend(
             (
