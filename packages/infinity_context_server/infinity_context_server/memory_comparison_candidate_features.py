@@ -8,6 +8,9 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from infinity_context_server.memory_comparison_models import RetrievedMemory
+from infinity_context_server.memory_comparison_relation_support import (
+    typed_relation_category_support,
+)
 
 _TURN_REF_RE = re.compile(r"\bD\d+:\d+\b")
 _TURN_REF_PARTS_RE = re.compile(r"\bD(?P<dialogue>\d+):(?P<turn>\d+)\b")
@@ -418,28 +421,9 @@ def _relation_category_hits(
     query_term_set = set(query_terms)
     for category, terms in relation_category_terms.items():
         term_values = tuple(str(term) for term in terms if str(term).strip())
-        if category == "registration_event":
-            if _has_registration_event_support(memory_terms):
-                hits.append(str(category))
-            continue
-        if category == "symbolic_meaning":
-            if _has_symbolic_meaning_support(memory_terms):
-                hits.append(str(category))
-            continue
-        if category == "participation_event":
-            if _has_participation_event_support(memory_terms):
-                hits.append(str(category))
-            continue
-        if category == "emotion_response":
-            if _has_emotion_response_support(memory_terms):
-                hits.append(str(category))
-            continue
-        if category == "communication":
-            if _has_communication_support(memory_terms):
-                hits.append(str(category))
-            continue
-        if category == "exchange":
-            if _has_exchange_support(memory_terms):
+        typed_support = typed_relation_category_support(str(category), memory_terms)
+        if typed_support is not None:
+            if typed_support:
                 hits.append(str(category))
             continue
         grounding_terms = tuple(term for term in term_values if term not in query_term_set)
@@ -447,183 +431,6 @@ def _relation_category_hits(
         if any(term in memory_terms for term in terms_to_match):
             hits.append(str(category))
     return tuple(dict.fromkeys(hits))
-
-
-def _has_registration_event_support(memory_terms: set[str]) -> bool:
-    registration_action = {
-        "enroll",
-        "enrolled",
-        "register",
-        "registered",
-        "registration",
-        "sign",
-        "signed",
-        "signup",
-    } & memory_terms
-    event_context = {"class", "course", "lesson", "workshop", "event"} & memory_terms
-    return bool(registration_action and event_context)
-
-
-def _has_symbolic_meaning_support(memory_terms: set[str]) -> bool:
-    symbolic_surface = {
-        "mean",
-        "meaning",
-        "meant",
-        "message",
-        "reminder",
-        "represent",
-        "symbol",
-        "symbolize",
-        "value",
-    } & memory_terms
-    object_context = {
-        "family",
-        "gift",
-        "grandma",
-        "necklace",
-        "root",
-        "special",
-        "support",
-    } & memory_terms
-    return bool(symbolic_surface and object_context)
-
-
-def _has_participation_event_support(memory_terms: set[str]) -> bool:
-    participation_action = {
-        "attend",
-        "attended",
-        "join",
-        "joined",
-        "participate",
-        "participated",
-        "visit",
-        "visited",
-    } & memory_terms
-    event_context = {
-        "class",
-        "club",
-        "conference",
-        "event",
-        "group",
-        "meeting",
-        "place",
-        "studio",
-        "trip",
-        "workshop",
-    } & memory_terms
-    return bool(participation_action and event_context)
-
-
-def _has_emotion_response_support(memory_terms: set[str]) -> bool:
-    emotion_surface = {
-        "anxious",
-        "concern",
-        "excite",
-        "excited",
-        "feel",
-        "felt",
-        "happy",
-        "nervous",
-        "overwhelm",
-        "overwhelmed",
-        "proud",
-        "relieved",
-        "reliev",
-        "thrill",
-        "thrilled",
-        "upset",
-        "worried",
-        "worri",
-    } & memory_terms
-    response_context = {
-        "about",
-        "because",
-        "news",
-        "family",
-        "kid",
-        "kids",
-        "make",
-        "process",
-        "reaction",
-        "response",
-        "said",
-        "thought",
-        "think",
-        "when",
-    } & memory_terms
-    return bool(emotion_surface and response_context)
-
-
-def _has_communication_support(memory_terms: set[str]) -> bool:
-    communication_action = {
-        "advis",
-        "advise",
-        "advised",
-        "ask",
-        "asked",
-        "mention",
-        "mentioned",
-        "recommend",
-        "recommended",
-        "request",
-        "requested",
-        "said",
-        "suggest",
-        "suggested",
-        "tell",
-        "told",
-    } & memory_terms
-    communication_context = {
-        "about",
-        "advice",
-        "book",
-        "call",
-        "conversation",
-        "delay",
-        "invoice",
-        "message",
-        "project",
-        "read",
-        "request",
-        "requested",
-        "recommendation",
-        "response",
-    } & memory_terms
-    return bool(communication_action and communication_context)
-
-
-def _has_exchange_support(memory_terms: set[str]) -> bool:
-    exchange_actions = {
-        "bought",
-        "bring",
-        "brought",
-        "buy",
-        "gave",
-        "gift",
-        "got",
-        "offer",
-        "offered",
-        "purchas",
-        "purchase",
-        "purchased",
-        "receiv",
-        "receive",
-        "received",
-    } & memory_terms
-    object_context = {
-        "book",
-        "card",
-        "gift",
-        "item",
-        "items",
-        "necklace",
-        "object",
-        "photo",
-        "picture",
-        "ticket",
-        "tickets",
-    } & memory_terms
-    return bool(len(exchange_actions) >= 2 or (exchange_actions and object_context))
 
 
 def _answerability(
@@ -844,6 +651,7 @@ def _intent_answerability(
         "emotion_response",
         "communication",
         "exchange",
+        "status_profile",
     ):
         if category not in category_set:
             continue

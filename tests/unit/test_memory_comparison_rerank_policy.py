@@ -103,6 +103,42 @@ def test_rerank_policy_reports_relation_category_coverage_boost() -> None:
     ]
 
 
+def test_rerank_policy_caps_missing_status_profile_evidence() -> None:
+    score = score_benchmark_rerank_candidate(
+        BenchmarkRerankFeatures(
+            overlap_terms=("caroline", "relationship", "status"),
+            entity_hits=("caroline",),
+            speaker_hits=("caroline",),
+            relation_hits=("relationship", "status"),
+            relation_terms=("relationship", "status"),
+            query_has_entities=True,
+            high_signal_relation_hit_count=0,
+            is_temporal_query=False,
+            has_temporal_surface=False,
+            has_sequence_surface=False,
+            is_preference_query=False,
+            has_preference_evidence=False,
+            has_visual_terms=False,
+            has_visual_evidence=False,
+            focused_turn_boost=0.08,
+            has_multi_hop_markers=False,
+            relation_categories=("status_profile",),
+            relation_category_hits=(),
+            relation_category_coverage_ratio=0.0,
+            direct_speaker_turn=True,
+            source_locality_score=1.0,
+            answerability_score=0.5,
+            answerability_reason_codes=("missing_status_profile_evidence",),
+        )
+    )
+
+    signals = score.signals["score_signals"]
+    assert score.boost <= 0.4
+    assert "missing_status_profile_evidence_cap" in signals[
+        "benchmark_provenance_safety_reason_codes"
+    ]
+
+
 def test_rerank_policy_guards_writing_career_from_generic_density_boost() -> None:
     score = score_benchmark_rerank_candidate(
         BenchmarkRerankFeatures(
