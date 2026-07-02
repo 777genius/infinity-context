@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from infinity_context_server.memory_comparison_quality_diagnostics import (
     evidence_ref_rank_gate_metrics,
     fast_gate_metrics,
@@ -937,6 +939,8 @@ def test_fast_gate_metrics_reports_bundle_support_summaries() -> None:
                             visual_support_count=1,
                             contrast_count=1,
                             source_proximity_support_count=2,
+                            source_proximity_closest_distance=1,
+                            source_proximity_distance_counts={"1": 1, "3": 1},
                         )
                     },
                     "items": [
@@ -982,6 +986,14 @@ def test_fast_gate_metrics_reports_bundle_support_summaries() -> None:
         "source_proximity": 1,
         "symbolic_meaning": 1,
         "visual": 1,
+    }
+    assert gate["bundle_source_proximity"] == {
+        "support_count": 2,
+        "bundle_count": 1,
+        "avg_support_count": 2.0,
+        "avg_closest_distance": 1.0,
+        "closest_distance_min": 1.0,
+        "distance_counts": {"1": 1, "3": 1},
     }
 
 
@@ -2820,6 +2832,8 @@ def _bundle_quality(
     broad_summary_count: int = 0,
     conflict_or_stale_count: int = 0,
     source_proximity_support_count: int = 0,
+    source_proximity_closest_distance: int | None = None,
+    source_proximity_distance_counts: Mapping[str, int] | None = None,
 ) -> dict[str, object]:
     return {
         "schema_version": "evidence_bundle_quality.v1",
@@ -2849,4 +2863,8 @@ def _bundle_quality(
         "broad_summary_count": broad_summary_count,
         "conflict_or_stale_count": conflict_or_stale_count,
         "source_proximity_support_count": source_proximity_support_count,
+        "source_proximity_closest_distance": source_proximity_closest_distance,
+        "source_proximity_distance_counts": dict(
+            source_proximity_distance_counts or {}
+        ),
     }

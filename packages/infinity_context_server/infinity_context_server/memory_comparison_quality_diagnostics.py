@@ -375,6 +375,7 @@ def fast_gate_metrics(
         "weak_bundle_count": _positive_int(bundle_quality.get("weak_bundle_count")) or 0,
         "bundle_support_counts": _bundle_support_counts(bundle_quality),
         "bundle_support_bundle_counts": _bundle_support_bundle_counts(bundle_quality),
+        "bundle_source_proximity": _bundle_source_proximity_summary(bundle_quality),
         "bundle_gap_breakdown": _bundle_gap_breakdown(bundle_incomplete),
         "answerability_gap_breakdown": answerability_gap_breakdown,
         "query_role_gap_breakdown": _query_role_gap_breakdown(
@@ -969,6 +970,8 @@ def _bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, ob
     visual_support_counts: list[int] = []
     location_relation_category_hit_counts: list[int] = []
     source_proximity_support_counts: list[int] = []
+    source_proximity_closest_distances: list[float] = []
+    source_proximity_distance_counts: Counter[str] = Counter()
     contrast_counts: list[int] = []
     selected_source_locality_scores: list[float] = []
     band_counts: Counter[str] = Counter()
@@ -1020,6 +1023,14 @@ def _bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, ob
         )
         source_proximity_support_counts.append(
             _positive_int(quality.get("source_proximity_support_count")) or 0
+        )
+        closest_distance = _positive_int(
+            quality.get("source_proximity_closest_distance")
+        )
+        if closest_distance is not None:
+            source_proximity_closest_distances.append(float(closest_distance))
+        source_proximity_distance_counts.update(
+            _count_mapping(quality.get("source_proximity_distance_counts"))
         )
         contrast_counts.append(_positive_int(quality.get("contrast_count")) or 0)
         if "average_selected_source_locality_score" in planner:
@@ -1113,6 +1124,17 @@ def _bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, ob
         "total_source_proximity_support_count": sum(source_proximity_support_counts),
         "source_proximity_bundle_count": sum(
             1 for count in source_proximity_support_counts if count > 0
+        ),
+        "avg_source_proximity_closest_distance": _avg(
+            source_proximity_closest_distances
+        ),
+        "source_proximity_closest_distance_min": (
+            min(source_proximity_closest_distances)
+            if source_proximity_closest_distances
+            else 0.0
+        ),
+        "source_proximity_distance_counts": dict(
+            sorted(source_proximity_distance_counts.items())
         ),
         "avg_contrast_count": _avg(contrast_counts),
         "total_contrast_count": sum(contrast_counts),
@@ -1222,6 +1244,41 @@ def _bundle_support_bundle_counts(
     }
 
 
+def _bundle_source_proximity_summary(
+    bundle_quality: Mapping[str, object],
+) -> dict[str, object]:
+    return {
+        "support_count": (
+            _positive_int(
+                bundle_quality.get("total_source_proximity_support_count")
+            )
+            or 0
+        ),
+        "bundle_count": (
+            _positive_int(bundle_quality.get("source_proximity_bundle_count")) or 0
+        ),
+        "avg_support_count": round(
+            _metric_value(bundle_quality, "avg_source_proximity_support_count"),
+            6,
+        ),
+        "avg_closest_distance": round(
+            _metric_value(bundle_quality, "avg_source_proximity_closest_distance"),
+            6,
+        ),
+        "closest_distance_min": round(
+            _metric_value(bundle_quality, "source_proximity_closest_distance_min"),
+            6,
+        ),
+        "distance_counts": dict(
+            sorted(
+                _count_mapping(
+                    bundle_quality.get("source_proximity_distance_counts")
+                ).items()
+            )
+        ),
+    }
+
+
 def _bundle_quality_sample(
     item: Mapping[str, object],
     quality: Mapping[str, object],
@@ -1283,6 +1340,16 @@ def _bundle_quality_sample(
         ),
         "source_proximity_support_count": (
             _positive_int(quality.get("source_proximity_support_count")) or 0
+        ),
+        "source_proximity_closest_distance": (
+            _positive_int(quality.get("source_proximity_closest_distance"))
+        ),
+        "source_proximity_distance_counts": dict(
+            sorted(
+                _count_mapping(
+                    quality.get("source_proximity_distance_counts")
+                ).items()
+            )
         ),
         "contrast_count": _positive_int(quality.get("contrast_count")) or 0,
         "broad_summary_count": (
