@@ -573,6 +573,9 @@ _CONTACT_PROFILE_SURFACE_RE = re.compile(
     r"|\b(?:instagram|signal|slack|telegram|whatsapp)\s+"
     r"(?:handle|username|number)\s+(?:is|was)\s+@?[\w.+()-][\w.+()\-\s]{1,}"
     r"|\b(?:handle|username)\s+(?:is|was)\s+@[\w.-]+\b"
+    r"|\bemergency\s+contact\s+(?:is|was)\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+(?:\s+[A-Z][a-zA-Z0-9_-]+){0,2}|"
+    r"my|him|her|them)\b"
     r"|\b(?:contact\s+(?:info|information|details)|"
     r"(?:mailing\s+)?address)\s+(?:is|was)\s+"
     r"(?:\d{1,6}\s+)?[A-Za-z0-9][A-Za-z0-9 .'-]{2,}",

@@ -391,6 +391,7 @@ def _contact_support_query_terms(
         "telephone",
     }
     social_contact_terms = {
+        "emergency",
         "handle",
         "instagram",
         "signal",

@@ -419,6 +419,7 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
         terms.append("health")
     contact_surface = re.search(
         r"\b(?:contact\s+(?:info|information|details)|"
+        r"emergency\s+contact|"
         r"email|e-mail|phone|telephone|cell|mobile|address)\b|"
         r"\b(?:phone|telephone|cell|mobile)\s+number\b|"
         r"\b(?:instagram|signal|slack|telegram|whatsapp)\s+"

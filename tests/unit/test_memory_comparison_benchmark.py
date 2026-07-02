@@ -9518,6 +9518,38 @@ def test_query_decomposition_expands_social_contact_queries() -> None:
     ]
 
 
+def test_query_decomposition_expands_emergency_contact_queries() -> None:
+    contact_case = _case(
+        case_id="contact-profile-emergency",
+        question="Who is Alex's emergency contact?",
+        expected_terms=("Maria",),
+        answer="Maria",
+    )
+    event_case = _case(
+        case_id="contact-profile-emergency-guard",
+        question="Who did Alex contact during the emergency?",
+        expected_terms=("Maria",),
+        answer="Maria",
+    )
+
+    contact_queries, contact_metadata = rerank_module.decomposed_search_queries(
+        contact_case
+    )
+    _, event_metadata = rerank_module.decomposed_search_queries(event_case)
+
+    assert contact_queries[2] == "alex contact emergency cell e-mail email mobile"
+    assert contact_metadata["query_profile"]["relation_terms"] == ("contact",)
+    assert "emergency" in contact_metadata["query_profile"]["lexical_terms"]
+    assert contact_metadata["query_profile"]["relation_categories"] == (
+        "contact_profile",
+    )
+    assert contact_metadata["query_profile"]["evidence_need"] == ("contact_profile",)
+
+    assert "contact_profile" not in event_metadata["query_profile"][
+        "relation_categories"
+    ]
+
+
 def test_benchmark_rerank_boosts_contact_number_evidence() -> None:
     case = _case(
         case_id="contact-profile-number-rerank",
@@ -9688,6 +9720,63 @@ def test_benchmark_rerank_boosts_social_contact_evidence() -> None:
         "relation_category_hits"
     ] == []
     assert topical_handle_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert contact_diagnostics["score_signals"][
+        "benchmark_typed_relation_support_roles"
+    ] == ["contact_support"]
+    assert (
+        topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        == 0
+    )
+
+
+def test_benchmark_rerank_boosts_emergency_contact_evidence() -> None:
+    case = _case(
+        case_id="contact-profile-emergency-rerank",
+        question="Who is Alex's emergency contact?",
+        expected_terms=("Maria",),
+        answer="Maria",
+        category=4,
+    )
+    topical_emergency = RetrievedMemory(
+        item_id="topical-emergency",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex contacted Maria during the emergency drill."
+        ),
+        source_refs=("D1:1",),
+    )
+    contact_profile = RetrievedMemory(
+        item_id="contact-profile",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: My emergency contact is Maria."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_emergency, contact_profile),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("contact_profile",)
+    assert reranked[0].item_id == "contact-profile"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    contact_diagnostics = diagnostics_by_id["contact-profile"]
+    topical_diagnostics = diagnostics_by_id["topical-emergency"]
+    assert contact_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["contact_profile"]
+    assert topical_diagnostics["benchmark_candidate_features"][
         "relation_category_hits"
     ] == []
     assert contact_diagnostics["score_signals"][
