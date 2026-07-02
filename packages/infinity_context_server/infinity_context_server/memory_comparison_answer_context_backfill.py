@@ -124,11 +124,23 @@ def _backfill_candidate_sort_key(
     return (
         missing_role_score,
         -quality_penalty,
-        answerability,
-        locality,
+        _backfill_answerability_sort_score(answerability),
+        _backfill_locality_sort_score(locality),
         has_source_refs,
         -retrieval_order,
     )
+
+
+def _backfill_answerability_sort_score(score: float) -> float:
+    if score <= 0:
+        return 0.55
+    return score
+
+
+def _backfill_locality_sort_score(score: float) -> float:
+    if score <= 0:
+        return 0.45
+    return score
 
 
 def _missing_role_support_score(

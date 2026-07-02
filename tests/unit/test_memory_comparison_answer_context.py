@@ -685,6 +685,64 @@ def test_answer_context_backfill_prefers_local_role_evidence_over_summary() -> N
     assert diagnostics["backfilled_conflict_or_stale_count"] == 1
 
 
+def test_answer_context_backfill_prefers_unmeasured_grounded_role_evidence() -> None:
+    memories = (
+        RetrievedMemory(text="primary", rank=1, item_id="primary"),
+        RetrievedMemory(
+            text="D5:2 Morgan maybe changed their preference.",
+            rank=2,
+            item_id="measured-weak",
+            source_refs=("D5:2",),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "answerability_score": 0.4,
+                        "source_locality_score": 0.3,
+                        "relation_category_hits": ["contrast"],
+                        "contrast_surface": True,
+                    }
+                }
+            },
+        ),
+        RetrievedMemory(
+            text="D5:3 Morgan: I used to prefer solo work, but now I prefer teams.",
+            rank=3,
+            item_id="unmeasured-grounded",
+            source_refs=("D5:3",),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "answerability_score": 0.0,
+                        "source_locality_score": 0.0,
+                        "relation_category_hits": ["contrast"],
+                        "contrast_surface": True,
+                    }
+                }
+            },
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "role_requirement_complete": False,
+            "missing_required_roles": ["contrast"],
+            "items": [{"id": "primary", "retrieval_order": 1, "role": "primary"}],
+        },
+        cutoff=3,
+    )
+
+    assert [memory.item_id for memory in context.memories] == [
+        "primary",
+        "unmeasured-grounded",
+        "measured-weak",
+    ]
+    assert "answer_context_answerability_score" not in context.memories[1].metadata
+    assert "answer_context_source_locality_score" not in context.memories[1].metadata
+    assert context.memories[2].metadata["answer_context_answerability_score"] == 0.4
+    assert context.memories[2].metadata["answer_context_source_locality_score"] == 0.3
+
+
 def test_answer_context_falls_back_for_empty_bundle() -> None:
     memories = (
         RetrievedMemory(text="first", rank=1, item_id="first"),
