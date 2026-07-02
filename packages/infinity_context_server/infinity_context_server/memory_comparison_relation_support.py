@@ -426,6 +426,13 @@ _LOCATION_TRANSITION_SURFACE_RE = re.compile(
     r"(?:back\s+)?(?:from|to|into|out\s+of)\s+"
     r"(?:[A-Z][a-zA-Z0-9_-]+|the\s+[a-zA-Z][a-zA-Z0-9_-]+)",
 )
+_LOCATION_PROFILE_SURFACE_RE = re.compile(
+    r"\b(?:live|lived|living|stay|stayed|staying)\s+"
+    r"(?:in|at|near|around)\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|the\s+[a-zA-Z][a-zA-Z0-9_-]+)"
+    r"|\b(?:from|born\s+in|grew\s+up\s+in)\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|the\s+[a-zA-Z][a-zA-Z0-9_-]+)",
+)
 
 
 def _has_location_transition_support(
@@ -449,6 +456,30 @@ def _has_location_transition_support(
         "origin",
         "place",
     } & memory_terms
+    location_profile_action = {
+        "live",
+        "lived",
+        "living",
+        "stay",
+        "stayed",
+        "staying",
+    } & memory_terms
+    location_profile_context = {
+        "city",
+        "conference",
+        "country",
+        "home",
+        "hotel",
+        "place",
+    } & memory_terms
+    origin_profile_surface = {
+        "born",
+        "childhood",
+        "from",
+        "grew",
+        "hometown",
+        "origin",
+    } & memory_terms
     travel_surface = {"drive", "roadtrip", "travel", "trip"} & memory_terms
     travel_context = {
         "city",
@@ -462,6 +493,9 @@ def _has_location_transition_support(
     return bool(
         (movement_action and origin_context)
         or (movement_action and _LOCATION_TRANSITION_SURFACE_RE.search(memory_text))
+        or (location_profile_action and location_profile_context)
+        or (origin_profile_surface and origin_context)
+        or _LOCATION_PROFILE_SURFACE_RE.search(memory_text)
         or (travel_surface and travel_context)
     )
 

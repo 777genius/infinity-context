@@ -208,6 +208,7 @@ _RELATION_QUERY_TERMS = {
     "join",
     "learn",
     "like",
+    "live",
     "love",
     "make",
     "marry",
@@ -217,6 +218,7 @@ _RELATION_QUERY_TERMS = {
     "mention",
     "move",
     "offer",
+    "origin",
     "participate",
     "plan",
     "political",
@@ -243,6 +245,7 @@ _RELATION_QUERY_TERMS = {
     "symbolize",
     "support",
     "status",
+    "stay",
     "talk",
     "tell",
     "text",
@@ -811,7 +814,25 @@ def _support_query_terms(
             lexical_terms=lexical_terms,
             entity_surfaces=entity_surfaces,
         )
-    if {"sign", "enroll", "register", "conference"} & set(relation_terms):
+    relation_term_set = set(relation_terms)
+    if (
+        (
+            {"live", "move", "origin", "relocate", "relocated", "roadtrip"}
+            & relation_term_set
+            or (
+                {"grow", "stay"} & relation_term_set
+                and {"where", "from", "city", "country", "place", "origin"}
+                & set(lexical_terms)
+            )
+        )
+        and not {"plan", "want"} & relation_term_set
+    ):
+        return _location_support_query_terms(
+            relation_terms=relation_terms,
+            relation_variant_terms=relation_variant_terms,
+            lexical_terms=lexical_terms,
+        )
+    if {"sign", "enroll", "register", "conference"} & relation_term_set:
         return _topical_relation_query_terms(
             relation_terms=relation_terms,
             relation_variant_terms=relation_variant_terms,
@@ -1080,6 +1101,15 @@ def _location_support_query_terms(
         "home",
         "country",
         "city",
+        "place",
+        "live",
+        "lived",
+        "living",
+        "stay",
+        "stayed",
+        "hotel",
+        "grew",
+        "childhood",
         "relocated",
         "moved",
         "came",
@@ -1256,6 +1286,10 @@ def _query_retrieval_intent(case: PublicBenchmarkCase) -> RetrievalIntent:
         for entity in entity_names
     )
     relation_terms = tuple(term for term in lexical_terms if term in _RELATION_QUERY_TERMS)
+    relation_terms = _filter_relation_terms_for_profile(
+        question=question,
+        relation_terms=relation_terms,
+    )
     relation_variant_terms = tuple(
         dict.fromkeys(
             variant
@@ -1365,6 +1399,23 @@ def _relation_variant_terms(relation: str) -> tuple[str, ...]:
             or {relation, term} <= {"say", "said"}
         )
     )
+
+
+def _filter_relation_terms_for_profile(
+    *,
+    question: str,
+    relation_terms: Sequence[str],
+) -> tuple[str, ...]:
+    normalized_question = re.sub(r"[^0-9a-z]+", " ", question.casefold()).strip()
+    filtered: list[str] = []
+    for term in relation_terms:
+        if term == "stay" and not re.search(
+            r"\bwhere\b.+\bstay\b|\bstay(?:ed|ing)?\b.+\b(?:in|at|near)\b",
+            normalized_question,
+        ):
+            continue
+        filtered.append(term)
+    return tuple(filtered)
 
 
 def _filter_relation_variant_terms_for_profile(

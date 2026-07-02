@@ -513,7 +513,7 @@ class LocationIntentPolicy:
             0.05
             if location_need
             and category_hit
-            and location_hit_count >= 2
+            and location_hit_count >= 1
             and precise_provenance
             else 0.0
         )
@@ -926,11 +926,20 @@ _LOCATION_SUPPORT_TERMS = frozenset(
         "country",
         "drive",
         "from",
+        "grew",
         "home",
+        "hotel",
+        "live",
+        "lived",
+        "living",
         "move",
         "moved",
         "origin",
+        "place",
         "relocated",
+        "stay",
+        "stayed",
+        "staying",
         "travel",
         "trip",
     }

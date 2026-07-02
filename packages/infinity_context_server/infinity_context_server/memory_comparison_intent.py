@@ -414,7 +414,17 @@ def _has_location_transition_intent(
     question: str,
     relation_terms: tuple[str, ...],
 ) -> bool:
-    if not {"move", "relocate", "relocated", "roadtrip"} & set(relation_terms):
+    relation_set = set(relation_terms)
+    if not {
+        "grow",
+        "live",
+        "move",
+        "origin",
+        "relocate",
+        "relocated",
+        "roadtrip",
+        "stay",
+    } & relation_set:
         return False
     normalized = " ".join(str(question or "").casefold().split())
     if not normalized:
@@ -435,7 +445,9 @@ def _has_location_transition_intent(
             normalized,
         )
         or re.search(
-            r"\b(?:move|moved|moving|relocate|relocated)\s+from\b",
+            r"\b(?:move|moved|moving|relocate|relocated|live|lived|living|"
+            r"stay|stayed|staying|grow|grew)\s+"
+            r"(?:from|in|at|near|around|up\b)",
             normalized,
         )
     )
@@ -1109,16 +1121,33 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
         "evidence_need": "communication",
     },
     "location_transition": {
-        "terms": frozenset({"move", "relocate", "relocated", "roadtrip"}),
+        "terms": frozenset(
+            {
+                "grow",
+                "live",
+                "move",
+                "origin",
+                "relocate",
+                "relocated",
+                "roadtrip",
+                "stay",
+            }
+        ),
         "variants": frozenset(
             {
+                "childhood",
                 "city",
                 "country",
                 "drive",
                 "from",
+                "grew",
                 "home",
+                "hotel",
                 "origin",
+                "place",
                 "relocated",
+                "stayed",
+                "staying",
                 "travel",
                 "trip",
             }

@@ -354,6 +354,30 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
     terms: list[str] = []
     if re.search(r"\bgo\s+to\b", text, flags=re.IGNORECASE):
         terms.append("go")
+    if re.search(
+        r"\bwhere\b.+\blive\b|\blive\b.+\bwhere\b",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        terms.append("live")
+    if re.search(
+        r"\b(?:where|city|place)\b.+\bfrom\b",
+        text,
+        flags=re.IGNORECASE,
+    ) and not re.search(
+        r"\b(?:move|moved|moving|relocate|relocated|relocation)\b",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        terms.append("origin")
+    if re.search(
+        r"\bwhere\b.+\b(?:grow|grew)\s+up\b",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        terms.extend(("grow", "origin"))
+    if re.search(r"\bwhere\b.+\bstay\b", text, flags=re.IGNORECASE):
+        terms.append("stay")
     return tuple(terms)
 
 

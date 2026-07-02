@@ -180,6 +180,7 @@ RELATION_QUERY_VARIANTS = {
     "join": ("joined", "joining", "group", "community", "class", "club", "event"),
     "learn": ("learned", "learning", "studied"),
     "like": ("liked", "enjoy", "enjoyed", "love"),
+    "live": ("lived", "living", "home", "city", "place"),
     "love": ("loved", "enjoy", "enjoyed", "like"),
     "make": ("made", "create", "created"),
     "marry": (
@@ -199,6 +200,7 @@ RELATION_QUERY_VARIANTS = {
     "mother": ("mom", "parent", "family", "father", "child", "children"),
     "move": ("moved", "from", "relocated", "came", "home", "country", "origin"),
     "offer": ("offered", "give", "gave"),
+    "origin": ("from", "home", "city", "country", "grew up"),
     "relocate": ("relocated", "from", "moved", "home", "country", "origin"),
     "relocated": ("relocated", "from", "moved", "home", "country", "origin"),
     "relocation": ("relocated", "from", "moved", "home", "country", "origin"),
@@ -322,6 +324,7 @@ RELATION_QUERY_VARIANTS = {
     "son": ("child", "kid", "family", "parent", "mother", "father"),
     "symbolize": ("symbolized", "symbol", "represents", "meaning", "stands for"),
     "spouse": ("husband", "wife", "partner", "married", "marriage", "family"),
+    "stay": ("stayed", "staying", "hotel", "place", "conference"),
     "support": ("supported", "supporting", "help", "helped"),
     "status": (
         "relationship",
