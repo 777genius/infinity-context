@@ -687,7 +687,7 @@ def _preference_evidence_grounded(features: RerankPolicyFeatures) -> bool:
         return False
     if features.broad_summary:
         return False
-    if features.source_locality_score < 0.65:
+    if 0 < features.source_locality_score < 0.65:
         return False
     if features.query_has_entities and not (features.entity_hits or features.speaker_hits):
         return False
@@ -699,7 +699,7 @@ def _visual_evidence_grounded(features: RerankPolicyFeatures) -> bool:
         return False
     if features.broad_summary:
         return False
-    if features.source_locality_score < 0.65:
+    if 0 < features.source_locality_score < 0.65:
         return False
     if features.query_has_entities and not (features.entity_hits or features.speaker_hits):
         return False

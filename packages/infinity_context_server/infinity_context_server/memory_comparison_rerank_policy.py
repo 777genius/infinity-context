@@ -343,7 +343,7 @@ def _provenance_safety_cap(
     ):
         caps.append((0.24, "broad_summary_low_provenance_cap"))
     if (
-        features.source_locality_score < 0.45
+        0 < features.source_locality_score < 0.45
         and not _has_precise_grounding(features, score_signals=score_signals)
     ):
         caps.append((0.3, "weak_source_locality_cap"))

@@ -515,6 +515,34 @@ def test_rerank_policy_requires_grounded_preference_evidence() -> None:
     assert grounded.boost > broad.boost
 
 
+def test_rerank_policy_allows_unmeasured_direct_preference_locality() -> None:
+    score = score_benchmark_rerank_candidate(
+        _features(
+            overlap_terms=("melanie", "like", "camping"),
+            entity_hits=("melanie",),
+            speaker_hits=("melanie",),
+            relation_hits=("like", "camping"),
+            relation_terms=("like", "camping"),
+            is_preference_query=True,
+            has_preference_evidence=True,
+            direct_speaker_turn=True,
+            source_locality_score=0.0,
+        )
+    )
+
+    signals = score.signals["score_signals"]
+    policy = score.signals["policy_contributions"]
+
+    assert signals["benchmark_preference_evidence_boost"] == 0.12
+    assert signals["benchmark_preference_evidence_grounded"] is True
+    assert "preference_evidence" in policy["reason_codes_by_policy"][
+        "PreferenceIntentPolicy"
+    ]
+    assert "weak_source_locality_cap" not in signals[
+        "benchmark_provenance_safety_reason_codes"
+    ]
+
+
 def test_rerank_policy_requires_grounded_visual_evidence() -> None:
     grounded = score_benchmark_rerank_candidate(
         _features(
@@ -560,6 +588,36 @@ def test_rerank_policy_requires_grounded_visual_evidence() -> None:
     assert broad_signals["benchmark_visual_evidence_grounded"] is False
     assert "EvidenceBundlePolicy" not in broad_policy["reason_codes_by_policy"]
     assert grounded.boost > broad.boost
+
+
+def test_rerank_policy_allows_unmeasured_direct_visual_locality() -> None:
+    score = score_benchmark_rerank_candidate(
+        _features(
+            overlap_terms=("melanie", "painting"),
+            entity_hits=("melanie",),
+            speaker_hits=("melanie",),
+            relation_hits=("painting",),
+            relation_terms=("painting",),
+            has_visual_terms=True,
+            has_visual_evidence=True,
+            direct_speaker_turn=True,
+            source_locality_score=0.0,
+            source_ref_count=1,
+            turn_ref_count=1,
+        )
+    )
+
+    signals = score.signals["score_signals"]
+    policy = score.signals["policy_contributions"]
+
+    assert signals["benchmark_visual_evidence_boost"] == 0.16
+    assert signals["benchmark_visual_evidence_grounded"] is True
+    assert "visual_evidence" in policy["reason_codes_by_policy"][
+        "EvidenceBundlePolicy"
+    ]
+    assert "weak_source_locality_cap" not in signals[
+        "benchmark_provenance_safety_reason_codes"
+    ]
 
 
 def test_rerank_policy_accepts_typed_communication_support_need() -> None:
