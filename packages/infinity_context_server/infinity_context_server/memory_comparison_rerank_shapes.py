@@ -83,11 +83,16 @@ def focused_evidence_shape_boosts(
             else 0.0
         )
     if "birthday" in relation_set:
+        birthday_context = "birthday" in memory_terms and (
+            {"18th", "age", "year", "years"} & memory_terms
+        )
+        personal_memento = (
+            {"gift", "keepsake", "memento", "special", "treasure", "remember"}
+            & memory_terms
+        )
+        giver_context = {"friend", "family", "parent", "mother", "father"} & memory_terms
         boosts["benchmark_birthday_memory_boost"] = (
-            0.08
-            if {"18th", "birthday", "bowl", "friend"} <= memory_terms
-            and {"hand-paint", "treasure"} & memory_terms
-            else 0.0
+            0.08 if birthday_context and personal_memento and giver_context else 0.0
         )
     if "activity" in relation_set or "hike" in relation_set:
         boosts["benchmark_activity_coverage_shape_boost"] = (

@@ -6814,8 +6814,8 @@ def test_benchmark_rerank_prefers_conference_plan_time_turn() -> None:
             "conv-26:qa:13",
             "How long ago was Caroline's 18th birthday?",
             "D3:1 Caroline: I talked about my school event last week.",
-            "D4:5 Caroline: My hand-painted bowl from a friend for my 18th "
-            "birthday is something I still treasure years later.",
+            "D4:5 Caroline: My special keepsake gift from a friend for my 18th "
+            "birthday is something I still remember years later.",
             "benchmark_birthday_memory_boost",
         ),
         (
