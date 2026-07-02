@@ -4892,6 +4892,91 @@ def test_infinity_context_http_search_expands_preference_queries() -> None:
     assert diagnostics["score_signals"]["benchmark_preference_evidence_boost"] > 0
 
 
+def test_query_decomposition_reports_exchange_relation_intent() -> None:
+    case = _case(
+        case_id="exchange-query",
+        question="What items has Melanie bought?",
+        expected_terms=("keepsake",),
+        answer="keepsake",
+        category=1,
+    )
+
+    queries, metadata = rerank_module.decomposed_search_queries(case)
+    query_profile = metadata["query_profile"]
+    exchange_intent = metadata["retrieval_intent"]["relations"]["intents"][0]
+
+    assert queries == (
+        "What items has Melanie bought?",
+        "What items has Melanie bought?\n"
+        "Search focus: entities: melanie; speakers: melanie:; "
+        "actions: bought, got, purchased, buy, purchas",
+        "melanie bought got purchased buy purchas",
+    )
+    assert query_profile["relation_categories"] == ("exchange",)
+    assert query_profile["relation_category_terms"]["exchange"] == (
+        "bought",
+        "buy",
+        "purchas",
+        "got",
+    )
+    assert query_profile["evidence_need"] == ("single_fact",)
+    assert query_profile["bundle_evidence_roles"] == ("primary", "bridge")
+    assert exchange_intent["category"] == "exchange"
+    assert exchange_intent["evidence_need"] == "single_fact"
+    assert exchange_intent["reason_codes"] == [
+        "category:exchange",
+        "relation_terms",
+        "relation_variants",
+    ]
+
+
+def test_benchmark_rerank_boosts_focused_exchange_evidence() -> None:
+    case = _case(
+        case_id="exchange-rerank",
+        question="What items has Melanie bought?",
+        expected_terms=("keepsake",),
+        answer="keepsake",
+        category=1,
+    )
+    broad_context = RetrievedMemory(
+        item_id="broad-context",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_19 date: 9:10 pm D19:1 Caroline: Melanie mentioned "
+            "family love and playful pets during the conversation."
+        ),
+    )
+    exchange_turn = RetrievedMemory(
+        item_id="exchange-turn",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_19 turn D19:2 date: 9:11 pm "
+            "D19:2 Melanie: I bought a small keepsake yesterday and got it "
+            "after the fair."
+        ),
+        source_refs=("D19:2",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (broad_context, exchange_turn),
+    )
+
+    assert metadata["applied"] is True
+    assert reranked[0].item_id == "exchange-turn"
+    diagnostics = reranked[0].metadata["diagnostics"]
+    assert diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["exchange"]
+    assert diagnostics["score_signals"]["benchmark_relation_boost"] > 0
+    assert (
+        diagnostics["score_signals"]["benchmark_relation_category_coverage_boost"]
+        > 0
+    )
+
+
 def test_benchmark_rerank_prefers_focused_turn_over_broad_session() -> None:
     case = _case(
         case_id="conv-26:qa:43",

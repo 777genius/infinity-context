@@ -268,6 +268,7 @@ _RELATION_QUERY_TERMS = {
     "bought",
     "between",
     "bring",
+    "brought",
     "camp",
     "cause",
     "choose",
@@ -282,6 +283,7 @@ _RELATION_QUERY_TERMS = {
     "excite",
     "feel",
     "former",
+    "gift",
     "give",
     "go",
     "friend",
@@ -302,6 +304,8 @@ _RELATION_QUERY_TERMS = {
     "political",
     "previous",
     "prioritize",
+    "purchas",
+    "purchase",
     "pursue",
     "raise",
     "receive",
@@ -407,6 +411,7 @@ _RELATION_QUERY_VARIANTS = {
     "brother": ("sibling", "sister", "family"),
     "bought": ("buy", "purchased", "got"),
     "bring": ("brought", "take", "took"),
+    "brought": ("bring", "brought", "took"),
     "camp": (
         "camped",
         "camping",
@@ -454,6 +459,7 @@ _RELATION_QUERY_VARIANTS = {
     "daughter": ("child", "kid", "family", "parent", "mother", "father"),
     "family": ("parent", "mother", "father", "child", "children", "partner", "spouse"),
     "father": ("dad", "parent", "family", "mother", "child", "children"),
+    "gift": ("gift", "gave", "received", "special"),
     "give": ("gave", "giving", "offered"),
     "go": ("went", "going", "visited"),
     "current": ("known", "years", "been", "existing", "ongoing"),
@@ -560,6 +566,8 @@ _RELATION_QUERY_VARIANTS = {
         "keen",
     ),
     "raise": ("raised", "raising", "awareness", "fundraiser"),
+    "purchas": ("purchased", "buy", "bought", "got"),
+    "purchase": ("purchased", "buy", "bought", "got"),
     "receive": ("received", "got", "support", "help", "growing up"),
     "read": ("reading", "books", "book", "bookshelf"),
     "religious": (
@@ -1877,6 +1885,9 @@ def _relation_query_terms(
         priority_surface_terms.update(("books", "kids", "stories"))
     if {"receive", "support", "grow"}.issubset(relation_term_set):
         priority_variant_order.extend(("got", "help", "growing", "journey"))
+    if {"bought", "buy", "purchas", "purchase"} & relation_term_set:
+        priority_variant_order.extend(("got", "purchased", "buy", "bought"))
+        priority_surface_terms.update(("got", "purchased"))
     if "destress" in relation_term_set:
         priority_variant_order.extend(
             (

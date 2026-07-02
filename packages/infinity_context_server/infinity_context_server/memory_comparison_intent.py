@@ -670,6 +670,36 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
         "markers": frozenset(),
         "evidence_need": "inference_support",
     },
+    "exchange": {
+        "terms": frozenset(
+            {
+                "bought",
+                "bring",
+                "brought",
+                "gift",
+                "purchas",
+                "purchase",
+                "receive",
+            }
+        ),
+        "variants": frozenset(
+            {
+                "buy",
+                "brought",
+                "gave",
+                "gift",
+                "got",
+                "offer",
+                "offered",
+                "purchas",
+                "purchased",
+                "receiv",
+                "received",
+            }
+        ),
+        "markers": frozenset(),
+        "evidence_need": "single_fact",
+    },
     "location_transition": {
         "terms": frozenset({"move", "relocate", "relocated", "roadtrip"}),
         "variants": frozenset(
