@@ -221,6 +221,8 @@ def bundle_has_contrast_support(bundle: Mapping[str, object]) -> bool:
 
 
 def _bundle_item_has_contrast_support(item: Mapping[str, object]) -> bool:
+    if not _passes_support_quality(item):
+        return False
     reasons = _str_tuple(item.get("planner_reason_codes"))
     if item.get("contrast_surface") or "contrast_surface" in reasons:
         return True
