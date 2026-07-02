@@ -1885,6 +1885,36 @@ def test_evidence_bundle_planner_counts_fused_source_type_provenance() -> None:
     assert "retrieval_source_diverse" in quality["reason_codes"]
 
 
+def test_evidence_bundle_planner_caps_fused_source_type_keys() -> None:
+    primary = _candidate(
+        item_id="primary-raw",
+        covered_evidence_terms=("D2:8",),
+        primary_signal=True,
+        source_type="raw_turn",
+        source_refs=("D2:8",),
+        focused_evidence_score=1.0,
+        direct_speaker_turn=True,
+        answerability_score=0.9,
+    )
+    fused_context = _candidate(
+        item_id="fused-context",
+        dedupe_key="refs:D2:9",
+        source_type="chunk",
+        source_types=("chunk", "raw_turn"),
+        answerability_score=0.7,
+    )
+
+    plan = EvidenceBundlePlanner(
+        max_items=2,
+        max_items_per_source_type=1,
+    ).plan((primary, fused_context), case_group="single")
+
+    assert [item.candidate.item_id for item in plan.items] == ["primary-raw"]
+    assert plan.source_type_counts == {"raw_turn": 1}
+    assert plan.dropped_diversity_count == 1
+    assert plan.dropped_source_type_diversity_count == 1
+
+
 def test_evidence_bundle_quality_penalizes_missing_required_roles() -> None:
     primary = _candidate(
         item_id="direct-primary",

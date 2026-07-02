@@ -431,7 +431,7 @@ class EvidenceBundlePlanner:
                 )
             )
             item = remaining.pop(0)
-            source_type = item.candidate.source_type
+            source_type_keys = _source_type_keys(item.candidate)
             retrieval_source_keys = _retrieval_source_keys(item.candidate)
             source_ref_keys = _source_ref_overlap_keys(item.candidate)
             adds_required_terms = not item.candidate.required_terms.issubset(
@@ -443,8 +443,9 @@ class EvidenceBundlePlanner:
             source_ref_overlap_full = bool(source_ref_keys) and set(
                 source_ref_keys
             ).issubset(selected_source_ref_keys)
-            source_type_diversity_full = (
+            source_type_diversity_full = any(
                 source_type_counts[source_type] >= self._max_items_per_source_type
+                for source_type in source_type_keys
             )
             retrieval_source_diversity_full = any(
                 retrieval_source_counts[source] >= self._max_items_per_retrieval_source
@@ -473,7 +474,7 @@ class EvidenceBundlePlanner:
                     dropped_source_ref_overlap_count += 1
                 continue
             selected.append(item)
-            source_type_counts[source_type] += 1
+            source_type_counts.update(source_type_keys)
             retrieval_source_counts.update(retrieval_source_keys)
             selected_source_ref_keys.update(source_ref_keys)
             covered_terms.update(item.candidate.required_terms)
@@ -1395,7 +1396,10 @@ def _max_item_drop_counts(
     for item in remaining:
         if item.role in _DIVERSITY_EXEMPT_ROLES:
             continue
-        if source_type_counts[item.candidate.source_type] >= max_items_per_source_type:
+        if any(
+            source_type_counts[source_type] >= max_items_per_source_type
+            for source_type in _source_type_keys(item.candidate)
+        ):
             source_type_drops += 1
         if any(
             retrieval_source_counts[source] >= max_items_per_retrieval_source
