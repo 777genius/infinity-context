@@ -74,6 +74,10 @@ def focused_intent_policy_boosts(
         memory_terms=memory_terms,
         relation_set=relation_set,
     )
+    boosts["benchmark_registration_event_boost"] = _registration_event_boost(
+        memory_terms=memory_terms,
+        relation_set=relation_set,
+    )
     return boosts
 
 
@@ -91,6 +95,7 @@ def _empty_intent_policy_boosts() -> dict[str, float]:
         "benchmark_conference_plan_time_boost": 0.0,
         "benchmark_relationship_status_context_boost": 0.0,
         "benchmark_current_goal_context_boost": 0.0,
+        "benchmark_registration_event_boost": 0.0,
     }
 
 
@@ -255,3 +260,24 @@ def _current_goal_context_boost(
     if {"hope", "plan"} & memory_terms:
         return 0.12
     return 0.0
+
+
+def _registration_event_boost(
+    *,
+    memory_terms: set[str],
+    relation_set: set[str],
+) -> float:
+    if not {"enroll", "register", "sign"} & relation_set:
+        return 0.0
+    registration_action = {
+        "enroll",
+        "enrolled",
+        "register",
+        "registered",
+        "registration",
+        "sign",
+        "signed",
+        "signup",
+    } & memory_terms
+    event_context = {"class", "course", "lesson", "workshop", "event"} & memory_terms
+    return 0.12 if registration_action and event_context else 0.0

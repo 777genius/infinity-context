@@ -759,6 +759,23 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
         "markers": frozenset(),
         "evidence_need": "single_fact",
     },
+    "registration_event": {
+        "terms": frozenset({"enroll", "register", "sign"}),
+        "variants": frozenset(
+            {
+                "class",
+                "course",
+                "enrolled",
+                "lesson",
+                "registration",
+                "signed",
+                "signup",
+                "workshop",
+            }
+        ),
+        "markers": frozenset(),
+        "evidence_need": "single_fact",
+    },
     "communication": {
         "terms": frozenset(
             {

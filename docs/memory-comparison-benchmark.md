@@ -531,6 +531,10 @@ Temporal event questions add action surfaces such as `run/race/charity/last`,
 `conference/month/community` and
 `destress/stress/relax/unwind/class/clear/mind/headspace/run/farther`,
 so date questions do not collapse to `person + when + date` only.
+Registration paraphrases such as `register` and `enroll` share typed event
+surfaces with `sign up`, including `signup`, `class`, `course`, `lesson` and
+`workshop`, so class-registration evidence can outrank sign or schedule
+distractors without adding the requested date or specific class answer.
 When a question is both temporal and visual, the bounded fanout prioritizes a
 combined query such as `person + paint + sunrise + when + date` before generic
 `person + when + date`. Paint/image date questions also render `painting` and

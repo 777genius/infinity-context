@@ -5026,6 +5026,123 @@ def test_query_decomposition_reports_communication_relation_intent() -> None:
     ] == ("recommend", "suggest", "advis", "told")
 
 
+def test_query_decomposition_reports_registration_event_intent() -> None:
+    register_case = _case(
+        case_id="registration-query-register",
+        question="When did Melanie register for a class?",
+        expected_terms=("Friday",),
+        answer="Friday",
+        category=2,
+    )
+    enroll_case = _case(
+        case_id="registration-query-enroll",
+        question="What class did Melanie enroll in?",
+        expected_terms=("workshop",),
+        answer="workshop",
+        category=4,
+    )
+
+    register_queries, register_metadata = rerank_module.decomposed_search_queries(
+        register_case
+    )
+    enroll_queries, enroll_metadata = rerank_module.decomposed_search_queries(
+        enroll_case
+    )
+
+    assert register_queries == (
+        "When did Melanie register for a class?",
+        "melanie registered signed signup class registration",
+        "melanie when session date time last today yesterday",
+    )
+    register_profile = register_metadata["query_profile"]
+    assert register_profile["relation_terms"] == ("register",)
+    assert register_profile["relation_categories"] == (
+        "registration_event",
+        "temporal",
+    )
+    assert register_profile["relation_category_terms"]["registration_event"] == (
+        "register",
+        "registration",
+        "signup",
+        "class",
+        "course",
+        "lesson",
+        "workshop",
+    )
+    assert register_metadata["retrieval_intent"]["relations"]["intents"][0][
+        "evidence_need"
+    ] == "single_fact"
+    assert "Friday" not in json.dumps(register_metadata["retrieval_intent"])
+
+    assert enroll_queries[1].endswith(
+        "actions: enroll, signed, signup, class, registered, registration, "
+        "enrolled, course"
+    )
+    assert enroll_queries[2] == (
+        "melanie enroll signed signup class registered registration"
+    )
+    enroll_profile = enroll_metadata["query_profile"]
+    assert enroll_profile["relation_terms"] == ("enroll",)
+    assert enroll_profile["relation_categories"] == ("registration_event",)
+    assert "register" in enroll_profile["relation_variant_terms"]
+    assert "workshop" in enroll_profile["relation_variant_terms"]
+
+
+def test_benchmark_rerank_boosts_registration_event_evidence() -> None:
+    case = _case(
+        case_id="registration-rerank",
+        question="When did Melanie register for a class?",
+        expected_terms=("Friday",),
+        answer="Friday",
+        category=2,
+    )
+    sign_distractor = RetrievedMemory(
+        item_id="sign-distractor",
+        rank=1,
+        score=0.1,
+        text=(
+            "session_1 turn D1:2 date: 9:00 am "
+            "D1:2 Morgan: Melanie noticed a sign near the studio door."
+        ),
+        source_refs=("D1:2",),
+    )
+    registration_evidence = RetrievedMemory(
+        item_id="registration-evidence",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_4 turn D4:5 date: 6:00 pm "
+            "D4:5 Melanie: I registered for the class last Friday after "
+            "checking the schedule."
+        ),
+        source_refs=("D4:5",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (sign_distractor, registration_evidence),
+    )
+
+    assert metadata["applied"] is True
+    assert [memory.item_id for memory in reranked] == [
+        "registration-evidence",
+        "sign-distractor",
+    ]
+    evidence_diagnostics = reranked[0].metadata["diagnostics"]
+    distractor_diagnostics = reranked[1].metadata["diagnostics"]
+    assert "registration_event" in evidence_diagnostics[
+        "benchmark_candidate_features"
+    ]["relation_category_hits"]
+    assert (
+        evidence_diagnostics["score_signals"]["benchmark_registration_event_boost"]
+        > 0
+    )
+    assert (
+        distractor_diagnostics["score_signals"]["benchmark_registration_event_boost"]
+        == 0
+    )
+
+
 def test_benchmark_rerank_boosts_speaker_grounded_communication_evidence() -> None:
     case = _case(
         case_id="communication-rerank",

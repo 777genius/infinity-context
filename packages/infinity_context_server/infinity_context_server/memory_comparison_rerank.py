@@ -161,6 +161,7 @@ _QUERY_TOKEN_ALIASES = {
     "decid": ("decide",),
     "destres": ("destress",),
     "educaton": ("education",),
+    "enrol": ("enroll",),
     "enjoy": ("enjoy",),
     "excit": ("excite",),
     "gather": ("gathering",),
@@ -282,6 +283,7 @@ _RELATION_QUERY_TERMS = {
     "different",
     "difference",
     "enjoy",
+    "enroll",
     "excite",
     "feel",
     "former",
@@ -313,6 +315,7 @@ _RELATION_QUERY_TERMS = {
     "raise",
     "receive",
     "recommend",
+    "register",
     "read",
     "religious",
     "relationship",
@@ -457,6 +460,17 @@ _RELATION_QUERY_VARIANTS = {
         "self-care",
     ),
     "enjoy": ("enjoyed", "like", "liked", "love", "fan", "interested"),
+    "enroll": (
+        "enrolled",
+        "enrolling",
+        "registered",
+        "registration",
+        "signup",
+        "class",
+        "course",
+        "lesson",
+        "workshop",
+    ),
     "excite": ("excited", "looking forward", "enthusiastic"),
     "feel": ("felt", "feeling"),
     "field": ("career", "option", "education", "study", "work", "working", "profession"),
@@ -589,6 +603,16 @@ _RELATION_QUERY_VARIANTS = {
     "purchase": ("purchased", "buy", "bought", "got"),
     "receive": ("received", "got", "support", "help", "growing up"),
     "recommend": ("recommended", "suggested", "advised", "told"),
+    "register": (
+        "registered",
+        "registration",
+        "signup",
+        "signed up",
+        "class",
+        "course",
+        "lesson",
+        "workshop",
+    ),
     "read": ("reading", "books", "book", "bookshelf"),
     "religious": (
         "religion",
@@ -2177,6 +2201,21 @@ def _relation_query_terms(
     if "sign" in relation_term_set:
         priority_variant_order.extend(("signed", "signup", "class", "pottery", "yesterday"))
         priority_surface_terms.update(("signed", "yesterday"))
+    if {"enroll", "register"} & relation_term_set:
+        priority_variant_order.extend(
+            (
+                "signed",
+                "signup",
+                "class",
+                "registered",
+                "registration",
+                "enrolled",
+                "course",
+                "lesson",
+                "workshop",
+            )
+        )
+        priority_surface_terms.update(("signed", "registered", "enrolled"))
     if "conference" in relation_term_set:
         priority_variant_order.extend(("transgender", "going", "month", "community", "event"))
         priority_surface_terms.update(("month", "community"))

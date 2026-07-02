@@ -385,11 +385,31 @@ def _relation_category_hits(
     query_term_set = set(query_terms)
     for category, terms in relation_category_terms.items():
         term_values = tuple(str(term) for term in terms if str(term).strip())
+        if category == "registration_event" and _has_registration_event_support(
+            memory_terms
+        ):
+            hits.append(str(category))
+            continue
         grounding_terms = tuple(term for term in term_values if term not in query_term_set)
         terms_to_match = grounding_terms or term_values
         if any(term in memory_terms for term in terms_to_match):
             hits.append(str(category))
     return tuple(dict.fromkeys(hits))
+
+
+def _has_registration_event_support(memory_terms: set[str]) -> bool:
+    registration_action = {
+        "enroll",
+        "enrolled",
+        "register",
+        "registered",
+        "registration",
+        "sign",
+        "signed",
+        "signup",
+    } & memory_terms
+    event_context = {"class", "course", "lesson", "workshop", "event"} & memory_terms
+    return bool(registration_action and event_context)
 
 
 def _answerability(
