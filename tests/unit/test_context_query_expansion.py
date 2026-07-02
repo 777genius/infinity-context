@@ -4234,6 +4234,64 @@ def test_best_query_relevance_uses_fitness_activity_bridge() -> None:
     assert relevance.distinctive_term_hits >= 6
 
 
+def test_query_expansion_bridges_sports_activity_queries() -> None:
+    basketball = build_query_expansion_plan(
+        "What is John's number one goal in his basketball career?"
+    )
+    surfing = build_query_expansion_plan("What year did John start surfing?")
+    points = build_query_expansion_plan(
+        "What was the highest number of points John scored in a game recently?"
+    )
+    recovery = build_query_expansion_plan(
+        "What is John trying out to improve his strength and flexibility after recovery?"
+    )
+
+    assert "sports sport basketball career goals" in _expansion_query(
+        basketball,
+        "sports_activity_bridge",
+    )
+    assert "surfing surf surfed waves" in _expansion_query(
+        surfing,
+        "sports_activity_bridge",
+    )
+    assert "points assists career-high" in _expansion_query(
+        points,
+        "sports_activity_bridge",
+    )
+    assert "recovery ankle injury strength flexibility" in _expansion_query(
+        recovery,
+        "sports_activity_bridge",
+    )
+
+
+def test_best_query_relevance_uses_sports_activity_bridge() -> None:
+    plan = build_query_expansion_plan(
+        "What is John's number one goal in his basketball career?"
+    )
+
+    _, reason, relevance = best_query_relevance(
+        plan,
+        text=(
+            "John's basketball career goal is to improve his team performance "
+            "through training and practice."
+        ),
+    )
+
+    assert reason == "sports_activity_bridge"
+    assert relevance.distinctive_term_hits >= 6
+
+
+def test_query_expansion_keeps_exercise_performance_query_on_exercise_bridge() -> None:
+    plan = build_query_expansion_plan(
+        "What other exercises can help John with his basketball performance?"
+    )
+
+    reasons = {item.reason for item in plan.expansions}
+
+    assert "exercise_activity_inventory_bridge" in reasons
+    assert "sports_activity_bridge" not in reasons
+
+
 def test_query_expansion_bridges_career_month_setbacks() -> None:
     plan = build_query_expansion_plan(
         "Was September a good month career-wise for Dana and Morgan?"

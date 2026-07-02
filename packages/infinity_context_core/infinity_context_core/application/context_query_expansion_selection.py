@@ -431,6 +431,10 @@ def should_skip_expansion_rule(
         {"delay", "delayed", "off", "postpone", "postponed", "why"}
     ):
         return True
+    if reason == "sports_activity_bridge" and raw_tokens.intersection(
+        {"exercise", "exercises"}
+    ):
+        return True
     if reason == "hobby_interest_bridge" and _requests_outdoor_activity_inventory(
         raw_tokens
     ):

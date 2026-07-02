@@ -197,6 +197,7 @@ _HIGH_SIGNAL_EXPANSION_REASONS = frozenset(
         "state_residence_inference_bridge",
         "state_transition_bridge",
         "stale_state_temporal_bridge",
+        "sports_activity_bridge",
         "support_career_motivation_bridge",
         "support_counterfactual_bridge",
         "support_network_bridge",
