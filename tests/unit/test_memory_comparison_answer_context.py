@@ -247,6 +247,8 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
         "selected_bundle_item_count": 2,
         "skipped_bundle_item_count": 0,
         "backfilled_retrieval_item_count": 2,
+        "backfilled_broad_summary_count": 0,
+        "backfilled_conflict_or_stale_count": 0,
         "bundle_confidence_score": 0.68,
         "bundle_confidence_band": "medium",
         "bundle_bridge_count": 1,
@@ -352,6 +354,9 @@ def test_answer_context_backfill_prefers_local_role_evidence_over_summary() -> N
         "answer_context_backfill_missing_role_hits"
     ] == ("contrast",)
     assert context.backfilled_retrieval_item_count == 2
+    diagnostics = context.to_diagnostics()
+    assert diagnostics["backfilled_broad_summary_count"] == 1
+    assert diagnostics["backfilled_conflict_or_stale_count"] == 0
 
 
 def test_answer_context_falls_back_for_empty_bundle() -> None:
@@ -383,6 +388,9 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
                             "source_ref_coverage_rate": 1.0,
                             "selected_bundle_item_count": 1,
                             "skipped_bundle_item_count": 0,
+                            "backfilled_retrieval_item_count": 0,
+                            "backfilled_broad_summary_count": 0,
+                            "backfilled_conflict_or_stale_count": 0,
                             "bundle_confidence_score": 0.68,
                             "bundle_confidence_band": "medium",
                             "bundle_bridge_count": 1,
@@ -442,6 +450,8 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
     assert primary["fallback_context_count"] == 1
     assert primary["avg_backfilled_retrieval_item_count"] == 0.0
     assert primary["total_backfilled_retrieval_item_count"] == 0
+    assert primary["total_backfilled_broad_summary_count"] == 0
+    assert primary["total_backfilled_conflict_or_stale_count"] == 0
     assert primary["source_counts"] == {
         "evidence_bundle": 1,
         "retrieval_slice": 1,

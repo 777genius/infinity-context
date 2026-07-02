@@ -461,6 +461,8 @@ def test_quality_diagnostics_reports_answer_context_provenance_table() -> None:
                             "source_refless_item_count": 0,
                             "source_ref_coverage_rate": 1.0,
                             "backfilled_retrieval_item_count": 1,
+                            "backfilled_broad_summary_count": 1,
+                            "backfilled_conflict_or_stale_count": 0,
                             "missing_required_roles": ["contrast"],
                         }
                     }
@@ -498,6 +500,8 @@ def test_quality_diagnostics_reports_answer_context_provenance_table() -> None:
     assert table["source_refless_item_count"] == 2
     assert table["backfilled_context_count"] == 1
     assert table["backfilled_retrieval_item_count"] == 1
+    assert table["backfilled_broad_summary_count"] == 1
+    assert table["backfilled_conflict_or_stale_count"] == 0
     assert table["avg_backfilled_retrieval_item_count"] == 0.5
     assert table["source_ref_context_rate"] == 1.0
     assert table["source_ref_item_coverage_rate"] == 0.6
@@ -513,6 +517,8 @@ def test_quality_diagnostics_reports_answer_context_provenance_table() -> None:
             "source": "evidence_bundle",
             "memory_count": 2,
             "backfilled_retrieval_item_count": 1,
+            "backfilled_broad_summary_count": 1,
+            "backfilled_conflict_or_stale_count": 0,
             "missing_required_roles": ["contrast"],
         }
     ]
@@ -1588,6 +1594,8 @@ def test_fast_gate_metrics_reports_answer_context_provenance() -> None:
                             "source_ref_item_count": 0,
                             "source_refless_item_count": 2,
                             "backfilled_retrieval_item_count": 2,
+                            "backfilled_broad_summary_count": 1,
+                            "backfilled_conflict_or_stale_count": 1,
                             "missing_required_roles": ["visual"],
                         }
                     }
@@ -1606,6 +1614,8 @@ def test_fast_gate_metrics_reports_answer_context_provenance() -> None:
     assert provenance["source_ref_item_coverage_rate"] == 0.3333
     assert provenance["backfilled_context_count"] == 1
     assert provenance["backfilled_retrieval_item_count"] == 2
+    assert provenance["backfilled_broad_summary_count"] == 1
+    assert provenance["backfilled_conflict_or_stale_count"] == 1
     assert provenance["avg_backfilled_retrieval_item_count"] == 1.0
     assert provenance["backfilled_context_samples"] == [
         {
@@ -1614,6 +1624,8 @@ def test_fast_gate_metrics_reports_answer_context_provenance() -> None:
             "source": "evidence_bundle",
             "memory_count": 2,
             "backfilled_retrieval_item_count": 2,
+            "backfilled_broad_summary_count": 1,
+            "backfilled_conflict_or_stale_count": 1,
             "missing_required_roles": ["visual"],
         }
     ]

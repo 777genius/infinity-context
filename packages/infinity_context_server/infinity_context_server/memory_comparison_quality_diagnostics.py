@@ -1306,6 +1306,8 @@ def _answer_context_provenance_table(
     source_refless_item_count = 0
     backfilled_context_count = 0
     backfilled_retrieval_item_count = 0
+    backfilled_broad_summary_count = 0
+    backfilled_conflict_or_stale_count = 0
     fallback_context_count = 0
     source_counts: Counter[str] = Counter()
     fallback_reason_counts: Counter[str] = Counter()
@@ -1338,11 +1340,21 @@ def _answer_context_provenance_table(
             context_backfilled_count = (
                 _positive_int(context.get("backfilled_retrieval_item_count")) or 0
             )
+            context_backfilled_broad_summary_count = (
+                _positive_int(context.get("backfilled_broad_summary_count")) or 0
+            )
+            context_backfilled_conflict_or_stale_count = (
+                _positive_int(context.get("backfilled_conflict_or_stale_count")) or 0
+            )
             memory_count += context_memory_count
             source_ref_count += context_source_ref_count
             source_ref_item_count += context_source_ref_item_count
             source_refless_item_count += context_source_refless_item_count
             backfilled_retrieval_item_count += context_backfilled_count
+            backfilled_broad_summary_count += context_backfilled_broad_summary_count
+            backfilled_conflict_or_stale_count += (
+                context_backfilled_conflict_or_stale_count
+            )
             if context_backfilled_count > 0:
                 backfilled_context_count += 1
             if context_source_ref_count > 0 or context_source_ref_item_count > 0:
@@ -1356,6 +1368,12 @@ def _answer_context_provenance_table(
                         "memory_count": context_memory_count,
                         "backfilled_retrieval_item_count": (
                             context_backfilled_count
+                        ),
+                        "backfilled_broad_summary_count": (
+                            context_backfilled_broad_summary_count
+                        ),
+                        "backfilled_conflict_or_stale_count": (
+                            context_backfilled_conflict_or_stale_count
                         ),
                         "missing_required_roles": list(
                             _str_tuple(context.get("missing_required_roles"))
@@ -1391,6 +1409,8 @@ def _answer_context_provenance_table(
         "source_refless_item_count": source_refless_item_count,
         "backfilled_context_count": backfilled_context_count,
         "backfilled_retrieval_item_count": backfilled_retrieval_item_count,
+        "backfilled_broad_summary_count": backfilled_broad_summary_count,
+        "backfilled_conflict_or_stale_count": backfilled_conflict_or_stale_count,
         "avg_backfilled_retrieval_item_count": _ratio(
             backfilled_retrieval_item_count,
             context_count,

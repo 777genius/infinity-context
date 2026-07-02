@@ -44,6 +44,7 @@ class AnswerContext:
 
     def to_diagnostics(self) -> dict[str, object]:
         source_ref_stats = _source_ref_stats(self.memories)
+        backfill_risk_stats = _backfill_risk_stats(self.memories)
         return {
             "schema_version": "answer_context.v1",
             "source": self.source,
@@ -52,6 +53,7 @@ class AnswerContext:
             "selected_bundle_item_count": self.selected_bundle_item_count,
             "skipped_bundle_item_count": self.skipped_bundle_item_count,
             "backfilled_retrieval_item_count": self.backfilled_retrieval_item_count,
+            **backfill_risk_stats,
             "bundle_confidence_score": self.bundle_confidence_score,
             "bundle_confidence_band": self.bundle_confidence_band,
             "bundle_bridge_count": self.bundle_bridge_count,
@@ -341,6 +343,8 @@ def _answer_context_cutoff_metrics(
     selected_bundle_counts: list[int] = []
     skipped_bundle_counts: list[int] = []
     backfilled_retrieval_counts: list[int] = []
+    backfilled_broad_summary_counts: list[int] = []
+    backfilled_conflict_or_stale_counts: list[int] = []
     source_ref_counts: list[int] = []
     source_ref_item_counts: list[int] = []
     source_refless_item_counts: list[int] = []
@@ -390,6 +394,12 @@ def _answer_context_cutoff_metrics(
         )
         backfilled_retrieval_counts.append(
             _positive_int(context.get("backfilled_retrieval_item_count")) or 0
+        )
+        backfilled_broad_summary_counts.append(
+            _positive_int(context.get("backfilled_broad_summary_count")) or 0
+        )
+        backfilled_conflict_or_stale_counts.append(
+            _positive_int(context.get("backfilled_conflict_or_stale_count")) or 0
         )
         source_ref_counts.append(_positive_int(context.get("source_ref_count")) or 0)
         source_ref_item_counts.append(
@@ -481,6 +491,12 @@ def _answer_context_cutoff_metrics(
         "avg_skipped_bundle_item_count": _avg(skipped_bundle_counts),
         "avg_backfilled_retrieval_item_count": _avg(backfilled_retrieval_counts),
         "total_backfilled_retrieval_item_count": sum(backfilled_retrieval_counts),
+        "total_backfilled_broad_summary_count": sum(
+            backfilled_broad_summary_counts
+        ),
+        "total_backfilled_conflict_or_stale_count": sum(
+            backfilled_conflict_or_stale_counts
+        ),
         "avg_source_ref_count": _avg(source_ref_counts),
         "avg_source_ref_item_count": _avg(source_ref_item_counts),
         "avg_source_refless_item_count": _avg(source_refless_item_counts),
@@ -781,6 +797,26 @@ def _source_ref_stats(memories: Sequence[RetrievedMemory]) -> dict[str, object]:
     }
 
 
+def _backfill_risk_stats(memories: Sequence[RetrievedMemory]) -> dict[str, object]:
+    backfilled = tuple(
+        memory
+        for memory in memories
+        if memory.metadata.get("answer_context_role") == "retrieval_backfill"
+    )
+    broad_summary_count = 0
+    conflict_or_stale_count = 0
+    for memory in backfilled:
+        features = _candidate_features(memory)
+        if features.get("broad_summary") is True:
+            broad_summary_count += 1
+        if features.get("conflict_or_stale") is True:
+            conflict_or_stale_count += 1
+    return {
+        "backfilled_broad_summary_count": broad_summary_count,
+        "backfilled_conflict_or_stale_count": conflict_or_stale_count,
+    }
+
+
 def _merged_source_refs(
     memory: RetrievedMemory,
     bundle_item: Mapping[str, object],
@@ -806,6 +842,11 @@ def _memory_source_refs(memory: RetrievedMemory) -> tuple[str, ...]:
             )
         )
     )
+
+
+def _candidate_features(memory: RetrievedMemory) -> Mapping[str, object]:
+    diagnostics = _mapping(memory.metadata.get("diagnostics"))
+    return _mapping(diagnostics.get("benchmark_candidate_features"))
 
 
 def _positive_int(value: object) -> int | None:
