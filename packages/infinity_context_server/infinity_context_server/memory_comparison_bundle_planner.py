@@ -1003,11 +1003,7 @@ def _candidate_has_inference_support(candidate: EvidenceBundleCandidate) -> bool
         return False
     if candidate.answerability_score and candidate.answerability_score < 0.55:
         return False
-    return bool(
-        candidate.relation_hits
-        or candidate.relation_category_hits
-        or candidate.query_support_terms
-    )
+    return bool(candidate.relation_hits or candidate.relation_category_hits)
 
 
 def _candidate_has_causal_support(candidate: EvidenceBundleCandidate) -> bool:
