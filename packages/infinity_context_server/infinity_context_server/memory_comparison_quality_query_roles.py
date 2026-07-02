@@ -36,6 +36,11 @@ from infinity_context_server.memory_comparison_quality_accessors import (
 from infinity_context_server.memory_comparison_quality_accessors import (
     str_tuple as _str_tuple,
 )
+from infinity_context_server.memory_comparison_quality_support import (
+    typed_relation_support_roles as _typed_relation_support_roles,
+)
+
+_TYPED_RELATION_SUPPORT_ROLES = frozenset(_typed_relation_support_roles())
 
 _PROFILE_SUPPORT_ROLES = frozenset(
     {
@@ -210,8 +215,7 @@ def query_role_effectiveness_table(
         "roles_without_typed_relation_hits": [
             query_role
             for query_role in query_roles
-            if query_role.endswith("_support")
-            and _query_role_family(query_role) == "relation_compact"
+            if query_role in _TYPED_RELATION_SUPPORT_ROLES
             and not typed_relation_hit_role_counts[query_role]
         ],
         "role_stats": role_stats,

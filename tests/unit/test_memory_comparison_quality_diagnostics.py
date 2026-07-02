@@ -504,6 +504,33 @@ def test_quality_diagnostics_tracks_typed_relation_hit_roles_separately() -> Non
     assert query_roles["role_stats"]["status_support"]["typed_relation_hit_rate"] == 0.0
 
 
+def test_quality_diagnostics_does_not_require_typed_hits_for_preference_support() -> None:
+    diagnostics = quality_diagnostics(
+        (
+            _item(
+                case_id="preference-role",
+                group="single-hop",
+                retrieval=_retrieval_payload(
+                    evidence_need=("preference",),
+                    bundle_evidence_roles=("primary", "preference_support"),
+                    policy_score=0.25,
+                    candidate_features={
+                        "query_roles": ("preference_support",),
+                        "answerability_score": 0.8,
+                        "source_locality_score": 0.9,
+                    },
+                ),
+            ),
+        )
+    )
+
+    query_roles = diagnostics["query_role_effectiveness_table"]
+
+    assert query_roles["candidate_role_counts"] == {"preference_support": 1}
+    assert query_roles["typed_relation_hit_role_counts"] == {}
+    assert query_roles["roles_without_typed_relation_hits"] == []
+
+
 def test_quality_diagnostics_false_positive_counts_typed_intent_leakage() -> None:
     diagnostics = quality_diagnostics(
         (
@@ -2244,6 +2271,49 @@ def test_fast_gate_metrics_reports_typed_relation_hit_role_gaps() -> None:
         "selected_bundle_role_counts": {},
         "gap_reasons": ["not_selected", "typed_relation_not_hit"],
     }
+
+
+def test_fast_gate_metrics_does_not_fail_typed_hit_gate_for_preference_support() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="preference-role",
+                group="single-hop",
+                retrieval=_retrieval_payload(
+                    evidence_need=("preference",),
+                    bundle_evidence_roles=("primary", "preference_support"),
+                    policy_score=0.2,
+                    candidate_features={
+                        "query_roles": ("preference_support",),
+                        "answerability_score": 0.8,
+                        "source_locality_score": 0.9,
+                    },
+                ),
+                evidence_bundle={
+                    "bundle_complete": True,
+                    "evidence_term_count": 1,
+                    "covered_evidence_terms": ["D1:1"],
+                    "items": [
+                        {
+                            "role": "preference_support",
+                            "retrieval_order": 1,
+                            "covered_evidence_terms": ["D1:1"],
+                            "query_roles": ["preference_support"],
+                            "answerability_score": 0.8,
+                            "source_locality_score": 0.9,
+                        }
+                    ],
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    breakdown = gate["query_role_gap_breakdown"]
+
+    assert breakdown["roles_without_typed_relation_hits"] == []
+    assert breakdown["role_gap_count"] == 0
+    assert "query_role_gaps_clear" not in gate["failed_gates"]
 
 
 def test_fast_gate_metrics_reports_source_ref_provenance() -> None:

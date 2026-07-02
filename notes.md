@@ -200,6 +200,8 @@
   -> passed.
 - `git push origin main` -> still blocked because the non-interactive runtime
   has no GitHub username/credential prompt available.
+- `git push origin main` -> still blocked because the non-interactive runtime
+  has no GitHub username/credential prompt available.
 
 ## 2026-07-02 Follow-up 11
 
@@ -218,8 +220,6 @@
   -> passed.
 - `git push origin main` -> still blocked because the non-interactive runtime
   has no GitHub username/credential prompt available.
-- `git push origin main` -> still blocked because the non-interactive runtime
-  has no GitHub username/credential prompt available.
 
 ## 2026-07-02 Follow-up 12
 
@@ -235,4 +235,21 @@
 - `uv run --extra dev pytest -q tests/unit/test_memory_comparison*.py`
   -> 503 passed, 1 warning.
 - `uv run --extra dev ruff check packages/infinity_context_server/infinity_context_server/memory_comparison_quality_diagnostics.py tests/unit/test_memory_comparison_quality_diagnostics.py`
+  -> passed.
+
+## 2026-07-02 Follow-up 13
+
+- Tightened typed-hit gap diagnostics so `roles_without_typed_relation_hits`
+  only considers roles from the typed relation support registry. Non-typed
+  relation roles such as `preference_support` no longer create false
+  typed-hit readiness failures.
+- Added diagnostics and fast-gate regressions proving preference support can
+  remain clear without typed relation hit metadata, while typed profile roles
+  still report typed-hit gaps.
+
+## Verification
+
+- `uv run --extra dev pytest -q tests/unit/test_memory_comparison*.py`
+  -> 505 passed, 1 warning.
+- `uv run --extra dev ruff check packages/infinity_context_server/infinity_context_server/memory_comparison_quality_query_roles.py tests/unit/test_memory_comparison_quality_diagnostics.py`
   -> passed.
