@@ -451,6 +451,7 @@ def infer_bundle_evidence_roles(
         roles.append("communication_support")
     profile_role_by_need = {
         "action_support": "action_support",
+        "activity_support": "activity_support",
         "activity_profile": "activity_support",
         "age_profile": "age_support",
         "alias_profile": "alias_support",
@@ -514,6 +515,7 @@ def merge_relation_evidence_needs(
         "age_profile",
         "alias_profile",
         "activity_profile",
+        "activity_support",
         "action_support",
         "date_profile",
         "health_profile",
@@ -1384,7 +1386,7 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
             }
         ),
         "markers": frozenset(),
-        "evidence_need": "single_fact",
+        "evidence_need": "activity_support",
     },
     "action_event": {
         "terms": frozenset({"action"}),
@@ -1525,7 +1527,7 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
     },
     "identity_profile": {
         "terms": frozenset(
-            {"ally", "identity", "individual", "personality", "political", "religious"}
+            {"ally", "identity", "personality", "political", "religious"}
         ),
         "variants": frozenset(
             {

@@ -3731,6 +3731,9 @@ def test_query_decomposition_expands_profile_attribute_queries() -> None:
     assert read_books_queries[2] == "melanie book read reading bookshelf kid story"
     assert "book" in read_books_metadata["query_profile"]["relation_terms"]
     assert "read" in read_books_metadata["query_profile"]["relation_terms"]
+    assert read_books_metadata["query_profile"]["evidence_need"] == (
+        "activity_support",
+    )
     assert political_queries[2] == "caroline political rights lgbtq support accepted belief"
     assert "political" in political_metadata["query_profile"]["relation_terms"]
     assert "identity_profile" in political_metadata["query_profile"]["evidence_need"]
@@ -3854,6 +3857,12 @@ def test_query_decomposition_expands_locomo_topic_relations() -> None:
         "melanie activity hobby partake class creative fun express refresh"
     )
     assert "activity" in activity_metadata["query_profile"]["relation_terms"]
+    assert activity_metadata["query_profile"]["evidence_need"] == ("activity_support",)
+    assert activity_metadata["query_plan"]["selected_roles"] == [
+        "original_question",
+        "expanded_focus",
+        "activity_support",
+    ]
     assert activity_metadata["query_profile"]["relation_category_terms"][
         "activity"
     ] == (
@@ -3895,6 +3904,7 @@ def test_query_decomposition_expands_locomo_topic_relations() -> None:
     assert camp_metadata["query_profile"]["bundle_evidence_roles"] == (
         "primary",
         "location_support",
+        "activity_support",
     )
     assert "family" in camp_metadata["query_profile"]["relation_variant_terms"]
     assert "unplug" in camp_metadata["query_profile"]["relation_variant_terms"]
@@ -4332,6 +4342,7 @@ def test_query_decomposition_expands_temporal_action_queries() -> None:
         destress_metadata["query_profile"]["relation_variant_terms"]
     )
     assert "destress" in destress_metadata["query_profile"]["relation_terms"]
+    assert destress_metadata["query_profile"]["evidence_need"] == ("activity_support",)
     assert "run" in destress_metadata["query_profile"]["relation_variant_terms"]
     assert "class" in destress_metadata["query_profile"]["relation_variant_terms"]
     assert "therapy" in destress_metadata["query_profile"]["relation_variant_terms"]

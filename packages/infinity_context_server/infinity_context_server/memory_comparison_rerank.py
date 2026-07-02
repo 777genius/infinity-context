@@ -1056,7 +1056,7 @@ def _compact_relation_query_role(intent: RetrievalIntent) -> str:
         return "diet_support"
     if "identity_profile" in evidence_needs:
         return "identity_support"
-    if "activity_profile" in evidence_needs:
+    if {"activity_profile", "activity_support"} & evidence_needs:
         return "activity_support"
     if "employment_profile" in evidence_needs:
         return "employment_support"
