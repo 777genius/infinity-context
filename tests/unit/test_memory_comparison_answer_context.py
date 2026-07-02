@@ -277,6 +277,55 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
     }
 
 
+def test_answer_context_merges_role_completion_from_bundle_and_planner() -> None:
+    memories = (
+        RetrievedMemory(
+            text="primary evidence",
+            rank=1,
+            item_id="primary",
+            source_refs=("D1:1",),
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "role_requirement_complete": True,
+            "missing_required_roles": ["contrast"],
+            "bundle_planner": {
+                "role_requirement_complete": False,
+                "missing_required_roles": ["visual_support"],
+                "bundle_quality": {
+                    "confidence_score": 0.42,
+                    "confidence_band": "low",
+                    "reason_codes": ["risk:missing_required_visual_support"],
+                },
+            },
+            "items": [
+                {
+                    "id": "primary",
+                    "retrieval_order": 1,
+                    "role": "primary",
+                    "source_refs": ["D1:1"],
+                }
+            ],
+        },
+        cutoff=1,
+    )
+
+    metadata = context.memories[0].metadata
+    assert metadata["answer_context_role_requirement_complete"] is False
+    assert metadata["answer_context_missing_required_roles"] == (
+        "contrast",
+        "visual_support",
+    )
+    assert context.to_diagnostics()["role_requirement_complete"] is False
+    assert context.to_diagnostics()["missing_required_roles"] == [
+        "contrast",
+        "visual_support",
+    ]
+
+
 def test_answer_context_respects_cutoff_and_falls_back_to_raw_slice() -> None:
     memories = (
         RetrievedMemory(text="first", rank=1, item_id="first"),

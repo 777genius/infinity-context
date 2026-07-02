@@ -752,15 +752,24 @@ def _bundle_context_metadata(bundle: Mapping[str, object]) -> dict[str, object]:
     contrast_count = _positive_int(quality.get("contrast_count"))
     if contrast_count is not None:
         metadata["answer_context_bundle_contrast_count"] = contrast_count
-    role_requirement_complete = bundle.get("role_requirement_complete")
-    if not isinstance(role_requirement_complete, bool):
-        role_requirement_complete = planner.get("role_requirement_complete")
-    if isinstance(role_requirement_complete, bool):
+    role_requirement_values = tuple(
+        value
+        for value in (
+            bundle.get("role_requirement_complete"),
+            planner.get("role_requirement_complete"),
+        )
+        if isinstance(value, bool)
+    )
+    if role_requirement_values:
+        role_requirement_complete = all(role_requirement_values)
         metadata["answer_context_role_requirement_complete"] = (
             role_requirement_complete
         )
-    missing_roles = _string_tuple(bundle.get("missing_required_roles")) or _string_tuple(
-        planner.get("missing_required_roles")
+    missing_roles = tuple(
+        dict.fromkeys(
+            _string_tuple(bundle.get("missing_required_roles"))
+            + _string_tuple(planner.get("missing_required_roles"))
+        )
     )
     if missing_roles:
         metadata["answer_context_missing_required_roles"] = missing_roles
