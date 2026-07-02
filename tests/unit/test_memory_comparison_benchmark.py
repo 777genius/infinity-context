@@ -6653,12 +6653,21 @@ def test_query_decomposition_expands_favorite_preference_queries() -> None:
         expected_terms=("Cafe Luna",),
         answer="Cafe Luna",
     )
+    go_to_restaurant_case = _case(
+        case_id="favorite-preference-go-to-restaurant",
+        question="What is Alex's go-to restaurant?",
+        expected_terms=("Cafe Luna",),
+        answer="Cafe Luna",
+    )
 
     color_queries, color_metadata = rerank_module.decomposed_search_queries(
         favorite_color_case
     )
     restaurant_queries, restaurant_metadata = rerank_module.decomposed_search_queries(
         favourite_restaurant_case
+    )
+    go_to_queries, go_to_metadata = rerank_module.decomposed_search_queries(
+        go_to_restaurant_case
     )
 
     assert color_queries[2] == "alex favorite color favourite prefer like love"
@@ -6681,6 +6690,16 @@ def test_query_decomposition_expands_favorite_preference_queries() -> None:
         "favorite_preference",
         "preference",
     )
+
+    assert go_to_queries[2] == "alex favorite restaurant favourite prefer like love"
+    assert go_to_metadata["query_profile"]["relation_terms"] == ("favorite",)
+    assert go_to_metadata["query_profile"]["relation_categories"] == (
+        "favorite_preference",
+        "preference",
+    )
+    assert "favorite_support" in go_to_metadata["query_profile"][
+        "bundle_evidence_roles"
+    ]
 
 
 def test_infinity_context_http_search_expands_preference_queries() -> None:
@@ -10154,6 +10173,66 @@ def test_benchmark_rerank_boosts_favorite_preference_evidence() -> None:
         favorite_diagnostics["score_signals"]["benchmark_preference_evidence_boost"]
         > 0
     )
+    assert (
+        topical_diagnostics["score_signals"]["benchmark_preference_evidence_boost"]
+        == 0
+    )
+
+
+def test_benchmark_rerank_boosts_go_to_favorite_preference_evidence() -> None:
+    case = _case(
+        case_id="favorite-preference-go-to-rerank",
+        question="What is Alex's go-to restaurant?",
+        expected_terms=("Cafe Luna",),
+        answer="Cafe Luna",
+        category=4,
+    )
+    topical_restaurant = RetrievedMemory(
+        item_id="topical-restaurant",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex walked past Cafe Luna with Maria."
+        ),
+        source_refs=("D1:1",),
+    )
+    favorite_restaurant = RetrievedMemory(
+        item_id="favorite-restaurant",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: My go-to restaurant is Cafe Luna."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_restaurant, favorite_restaurant),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == (
+        "favorite_preference",
+        "preference",
+    )
+    assert reranked[0].item_id == "favorite-restaurant"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    favorite_diagnostics = diagnostics_by_id["favorite-restaurant"]
+    topical_diagnostics = diagnostics_by_id["topical-restaurant"]
+    assert favorite_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["favorite_preference"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert favorite_diagnostics["score_signals"][
+        "benchmark_typed_relation_support_roles"
+    ] == ["favorite_support"]
     assert (
         topical_diagnostics["score_signals"]["benchmark_preference_evidence_boost"]
         == 0

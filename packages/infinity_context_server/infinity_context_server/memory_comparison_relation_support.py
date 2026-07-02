@@ -63,6 +63,11 @@ def typed_relation_category_support(
         )
     if category == "exchange":
         return _has_exchange_support(memory_terms, memory_text=memory_text)
+    if category == "favorite_preference":
+        return _has_favorite_preference_support(
+            memory_terms,
+            memory_text=memory_text,
+        )
     check = _TYPED_SUPPORT_CHECKS.get(category)
     if check is None:
         return None
@@ -1374,7 +1379,20 @@ def _has_preference_support(memory_terms: set[str]) -> bool:
     )
 
 
-def _has_favorite_preference_support(memory_terms: set[str]) -> bool:
+_FAVORITE_PREFERENCE_SURFACE_RE = re.compile(
+    r"\b(?:my|his|her|their|our|your)\s+go-to\s+"
+    r"(?:book|choice|color|food|music|place|restaurant|song|spot)\s+"
+    r"(?:is|was)\b"
+    r"|\bgo-to\s+(?:book|choice|color|food|music|place|restaurant|song|spot)\b",
+    re.IGNORECASE,
+)
+
+
+def _has_favorite_preference_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
     favorite_surface = {"favorite", "favourite"} & memory_terms
     favorite_context = {
         "book",
@@ -1385,7 +1403,10 @@ def _has_favorite_preference_support(memory_terms: set[str]) -> bool:
         "restaurant",
         "song",
     } & memory_terms
-    return bool(favorite_surface and favorite_context)
+    return bool(
+        (favorite_surface and favorite_context)
+        or _FAVORITE_PREFERENCE_SURFACE_RE.search(memory_text)
+    )
 
 
 def _has_contrast_support(memory_terms: set[str]) -> bool:
@@ -1603,7 +1624,6 @@ _TYPED_SUPPORT_CHECKS: dict[str, Callable[[set[str]], bool]] = {
     "employment_profile": _has_employment_profile_support,
     "emotion_response": _has_emotion_response_support,
     "exchange": _has_exchange_support,
-    "favorite_preference": _has_favorite_preference_support,
     "health_profile": _has_health_profile_support,
     "identity_profile": _has_identity_profile_support,
     "pet_profile": _has_pet_profile_support,

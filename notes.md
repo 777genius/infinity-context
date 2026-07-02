@@ -26,6 +26,36 @@
 - `git push origin main` -> blocked because the non-interactive runtime has no
   GitHub username/credential prompt available.
 
+## 2026-07-02 Follow-up 34
+
+- Expanded typed favorite-preference support for "go-to" favorite questions
+  such as "What is Alex's go-to restaurant?" and evidence such as
+  "My go-to restaurant is Cafe Luna."
+- Routed hyphenated go-to questions through the existing favorite-support
+  query role while keeping ordinary "go to" education/travel wording on its
+  existing paths.
+- Added query decomposition and rerank regressions proving go-to evidence
+  receives typed `favorite_support` while topical restaurant mentions remain
+  untyped.
+
+## Verification
+
+- `uv run --extra dev pytest -q tests/unit/test_memory_comparison_benchmark.py::test_query_decomposition_expands_favorite_preference_queries tests/unit/test_memory_comparison_benchmark.py::test_benchmark_rerank_boosts_favorite_preference_evidence tests/unit/test_memory_comparison_benchmark.py::test_benchmark_rerank_boosts_go_to_favorite_preference_evidence`
+  -> 3 passed, 1 warning.
+- `uv run --extra dev ruff check packages/infinity_context_server/infinity_context_server/memory_comparison_relation_support.py packages/infinity_context_server/infinity_context_server/memory_comparison_rerank_text.py tests/unit/test_memory_comparison_benchmark.py`
+  -> passed.
+- `uv run --extra dev pytest -q tests/unit/test_memory_comparison*.py`
+  -> 528 passed, 1 warning.
+- `uv run --extra dev pytest -q tests/architecture/test_memory_boundaries.py`
+  -> 6 passed.
+- `git diff --check` -> passed.
+- `uv run --extra dev python -m infinity_context_server.eval memory-comparison-benchmark --dataset ./datasets/locomo10.json --memo-api-url http://127.0.0.1:7788 --mem0-url http://127.0.0.1:8888 --benchmark locomo --locomo-ingest-mode official-turns --case-set locomo-fast --report-mode compact --top-k 200 --top-k-cutoff 10 --top-k-cutoff 20 --top-k-cutoff 50 --top-k-cutoff 200 --allow-live --preflight-only`
+  -> blocked safely because `./datasets/locomo10.json` and memory auth token
+  are absent. Fast-readiness blockers were empty; no long/full LoCoMo run was
+  attempted.
+- `git push origin main` -> still blocked because the non-interactive runtime
+  has no GitHub username/credential prompt available.
+
 ## 2026-07-02 Follow-up 33
 
 - Expanded typed diet-profile support for avoidance evidence such as "I avoid

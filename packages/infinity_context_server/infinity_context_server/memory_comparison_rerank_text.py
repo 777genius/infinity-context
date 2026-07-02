@@ -53,7 +53,7 @@ _VISUAL_EVIDENCE_RE = re.compile(
     re.IGNORECASE,
 )
 _PREFERENCE_EVIDENCE_RE = re.compile(
-    r"\b(?:love|loved|like|liked|enjoy|enjoyed|favorite|favourite|"
+    r"\b(?:love|loved|like|liked|enjoy|enjoyed|favorite|favourite|go-to|"
     r"interested|prefer|preferred|"
     r"outdoors|camping|national park|self-care|relax|refresh|refreshes|"
     r"refreshing)\b",
@@ -363,6 +363,8 @@ def normalized_terms(text: str) -> tuple[str, ...]:
 
 def question_phrase_terms(text: str) -> tuple[str, ...]:
     terms: list[str] = []
+    if re.search(r"\bgo-to\b", text, flags=re.IGNORECASE):
+        terms.append("favorite")
     if re.search(r"\bgo\s+to\b", text, flags=re.IGNORECASE):
         terms.append("go")
     if re.search(
