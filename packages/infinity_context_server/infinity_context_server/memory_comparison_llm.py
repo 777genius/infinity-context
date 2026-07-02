@@ -159,6 +159,11 @@ def _render_memory_evidence_line(memory: RetrievedMemory, *, index: int) -> str:
     )
     if missing_roles:
         labels.append(f"missing_roles={','.join(missing_roles[:4])}")
+    backfill_roles = _string_sequence(
+        metadata.get("answer_context_backfill_missing_role_hits")
+    )
+    if backfill_roles:
+        labels.append(f"backfill_roles={','.join(backfill_roles[:4])}")
     role_complete = metadata.get("answer_context_role_requirement_complete")
     if role_complete is False:
         labels.append("role_complete=false")

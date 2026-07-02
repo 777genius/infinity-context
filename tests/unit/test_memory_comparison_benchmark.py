@@ -244,6 +244,7 @@ def test_render_answer_prompt_labels_planned_evidence_context() -> None:
                         "role:primary",
                         "query_support",
                     ),
+                    "answer_context_backfill_missing_role_hits": ("contrast",),
                 },
             ),
         ),
@@ -269,6 +270,7 @@ def test_render_answer_prompt_labels_planned_evidence_context() -> None:
         in prompt
     )
     assert "missing_roles=contrast" in prompt
+    assert "backfill_roles=contrast" in prompt
     assert "role_complete=false" in prompt
     assert "reasons=role:primary,query_support" in prompt
     assert (
