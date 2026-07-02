@@ -881,9 +881,15 @@ def test_quality_diagnostics_reports_answer_context_provenance_table() -> None:
                             "avg_measured_source_locality_score": 0.7,
                             "unmeasured_source_locality_count": 1,
                             "backfilled_retrieval_item_count": 1,
+                            "skipped_duplicate_source_bundle_item_count": 1,
+                            "skipped_noisy_overlap_bundle_item_count": 1,
+                            "skipped_redundant_risky_backfill_count": 1,
+                            "skipped_redundant_source_backfill_count": 1,
+                            "skipped_redundant_role_backfill_count": 1,
                             "backfilled_broad_summary_count": 1,
                             "backfilled_conflict_or_stale_count": 0,
                             "backfilled_source_proximity_support_count": 1,
+                            "backfilled_chained_source_proximity_support_count": 1,
                             "backfilled_source_proximity_closest_distance": 2,
                             "missing_required_roles": ["contrast"],
                         }
@@ -921,11 +927,25 @@ def test_quality_diagnostics_reports_answer_context_provenance_table() -> None:
     assert table["source_ref_item_count"] == 3
     assert table["source_refless_item_count"] == 2
     assert table["backfilled_context_count"] == 1
+    assert table["duplicate_source_bundle_skip_context_count"] == 1
+    assert table["noisy_overlap_bundle_skip_context_count"] == 1
     assert table["backfilled_retrieval_item_count"] == 1
+    assert table["skipped_duplicate_source_bundle_item_count"] == 1
+    assert table["avg_skipped_duplicate_source_bundle_item_count"] == 0.5
+    assert table["skipped_noisy_overlap_bundle_item_count"] == 1
+    assert table["avg_skipped_noisy_overlap_bundle_item_count"] == 0.5
+    assert table["skipped_redundant_risky_backfill_count"] == 1
+    assert table["avg_skipped_redundant_risky_backfill_count"] == 0.5
+    assert table["skipped_redundant_source_backfill_count"] == 1
+    assert table["avg_skipped_redundant_source_backfill_count"] == 0.5
+    assert table["skipped_redundant_role_backfill_count"] == 1
+    assert table["avg_skipped_redundant_role_backfill_count"] == 0.5
     assert table["backfilled_broad_summary_count"] == 1
     assert table["backfilled_conflict_or_stale_count"] == 0
     assert table["backfilled_source_proximity_support_count"] == 1
     assert table["avg_backfilled_source_proximity_support_count"] == 0.5
+    assert table["backfilled_chained_source_proximity_support_count"] == 1
+    assert table["avg_backfilled_chained_source_proximity_support_count"] == 0.5
     assert table["avg_backfilled_source_proximity_closest_distance"] == 2.0
     assert table["min_backfilled_source_proximity_closest_distance"] == 2
     assert table["avg_backfilled_retrieval_item_count"] == 0.5
@@ -953,11 +973,39 @@ def test_quality_diagnostics_reports_answer_context_provenance_table() -> None:
             "source": "evidence_bundle",
             "memory_count": 2,
             "backfilled_retrieval_item_count": 1,
+            "skipped_duplicate_source_bundle_item_count": 1,
+            "skipped_noisy_overlap_bundle_item_count": 1,
+            "skipped_redundant_risky_backfill_count": 1,
+            "skipped_redundant_source_backfill_count": 1,
+            "skipped_redundant_role_backfill_count": 1,
             "backfilled_broad_summary_count": 1,
             "backfilled_conflict_or_stale_count": 0,
             "backfilled_source_proximity_support_count": 1,
+            "backfilled_chained_source_proximity_support_count": 1,
             "backfilled_source_proximity_closest_distance": 2,
             "missing_required_roles": ["contrast"],
+        }
+    ]
+    assert table["duplicate_source_bundle_skip_context_samples"] == [
+        {
+            "case_id": "bundle-context",
+            "cutoff": "200",
+            "source": "evidence_bundle",
+            "memory_count": 2,
+            "skipped_duplicate_source_bundle_item_count": 1,
+            "source_ref_count": 3,
+            "source_ref_item_count": 2,
+        }
+    ]
+    assert table["noisy_overlap_bundle_skip_context_samples"] == [
+        {
+            "case_id": "bundle-context",
+            "cutoff": "200",
+            "source": "evidence_bundle",
+            "memory_count": 2,
+            "skipped_noisy_overlap_bundle_item_count": 1,
+            "source_ref_count": 3,
+            "source_ref_item_count": 2,
         }
     ]
     assert table["source_refless_context_samples"] == [
@@ -2484,9 +2532,15 @@ def test_fast_gate_metrics_reports_answer_context_provenance() -> None:
                             "source_ref_item_count": 0,
                             "source_refless_item_count": 2,
                             "backfilled_retrieval_item_count": 2,
+                            "skipped_duplicate_source_bundle_item_count": 1,
+                            "skipped_noisy_overlap_bundle_item_count": 1,
+                            "skipped_redundant_risky_backfill_count": 1,
+                            "skipped_redundant_source_backfill_count": 1,
+                            "skipped_redundant_role_backfill_count": 1,
                             "backfilled_broad_summary_count": 1,
                             "backfilled_conflict_or_stale_count": 1,
                             "backfilled_source_proximity_support_count": 1,
+                            "backfilled_chained_source_proximity_support_count": 1,
                             "backfilled_source_proximity_closest_distance": 1,
                             "bundle_source_type_diversity": 1,
                             "bundle_retrieval_source_diversity": 1,
@@ -2507,11 +2561,25 @@ def test_fast_gate_metrics_reports_answer_context_provenance() -> None:
     assert provenance["source_refless_context_count"] == 1
     assert provenance["source_ref_item_coverage_rate"] == 0.3333
     assert provenance["backfilled_context_count"] == 1
+    assert provenance["duplicate_source_bundle_skip_context_count"] == 1
+    assert provenance["noisy_overlap_bundle_skip_context_count"] == 1
     assert provenance["backfilled_retrieval_item_count"] == 2
+    assert provenance["skipped_duplicate_source_bundle_item_count"] == 1
+    assert provenance["avg_skipped_duplicate_source_bundle_item_count"] == 0.5
+    assert provenance["skipped_noisy_overlap_bundle_item_count"] == 1
+    assert provenance["avg_skipped_noisy_overlap_bundle_item_count"] == 0.5
+    assert provenance["skipped_redundant_risky_backfill_count"] == 1
+    assert provenance["avg_skipped_redundant_risky_backfill_count"] == 0.5
+    assert provenance["skipped_redundant_source_backfill_count"] == 1
+    assert provenance["avg_skipped_redundant_source_backfill_count"] == 0.5
+    assert provenance["skipped_redundant_role_backfill_count"] == 1
+    assert provenance["avg_skipped_redundant_role_backfill_count"] == 0.5
     assert provenance["backfilled_broad_summary_count"] == 1
     assert provenance["backfilled_conflict_or_stale_count"] == 1
     assert provenance["backfilled_source_proximity_support_count"] == 1
     assert provenance["avg_backfilled_source_proximity_support_count"] == 0.5
+    assert provenance["backfilled_chained_source_proximity_support_count"] == 1
+    assert provenance["avg_backfilled_chained_source_proximity_support_count"] == 0.5
     assert provenance["avg_backfilled_source_proximity_closest_distance"] == 1.0
     assert provenance["min_backfilled_source_proximity_closest_distance"] == 1
     assert provenance["avg_backfilled_retrieval_item_count"] == 1.0
@@ -2536,11 +2604,39 @@ def test_fast_gate_metrics_reports_answer_context_provenance() -> None:
             "source": "evidence_bundle",
             "memory_count": 2,
             "backfilled_retrieval_item_count": 2,
+            "skipped_duplicate_source_bundle_item_count": 1,
+            "skipped_noisy_overlap_bundle_item_count": 1,
+            "skipped_redundant_risky_backfill_count": 1,
+            "skipped_redundant_source_backfill_count": 1,
+            "skipped_redundant_role_backfill_count": 1,
             "backfilled_broad_summary_count": 1,
             "backfilled_conflict_or_stale_count": 1,
             "backfilled_source_proximity_support_count": 1,
+            "backfilled_chained_source_proximity_support_count": 1,
             "backfilled_source_proximity_closest_distance": 1,
             "missing_required_roles": ["visual"],
+        }
+    ]
+    assert provenance["duplicate_source_bundle_skip_context_samples"] == [
+        {
+            "case_id": "weak-context",
+            "cutoff": "200",
+            "source": "evidence_bundle",
+            "memory_count": 2,
+            "skipped_duplicate_source_bundle_item_count": 1,
+            "source_ref_count": 0,
+            "source_ref_item_count": 0,
+        }
+    ]
+    assert provenance["noisy_overlap_bundle_skip_context_samples"] == [
+        {
+            "case_id": "weak-context",
+            "cutoff": "200",
+            "source": "evidence_bundle",
+            "memory_count": 2,
+            "skipped_noisy_overlap_bundle_item_count": 1,
+            "source_ref_count": 0,
+            "source_ref_item_count": 0,
         }
     ]
     assert provenance["source_refless_context_samples"] == [

@@ -1159,6 +1159,55 @@ def test_candidate_features_detect_labeled_generated_summary() -> None:
     assert "broad_summary_penalty" in features.answerability_reason_codes
 
 
+def test_candidate_features_keep_compact_related_turns_localized() -> None:
+    memory = RetrievedMemory(
+        item_id="compact-source-sibling",
+        rank=1,
+        text=(
+            "related turns: D2:8 Caroline: The adoption agency felt inclusive. "
+            "D2:9 Caroline: Riley helped me compare the options."
+        ),
+        source_refs=("D2:8", "D2:9"),
+    )
+
+    features = build_candidate_evidence_features(
+        memory,
+        memory_terms={
+            "caroline",
+            "adoption",
+            "agency",
+            "inclusive",
+            "riley",
+            "helped",
+            "compare",
+            "options",
+        },
+        query_terms=("caroline", "adoption", "agency"),
+        relation_terms=("adoption", "agency"),
+        relation_variant_terms=("inclusive", "helped", "compare"),
+        entities=("caroline",),
+        entity_hits=("caroline",),
+        speaker_hits=("caroline",),
+        high_signal_relation_terms={"inclusive"},
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=True,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+
+    assert features.broad_summary is False
+    assert features.direct_speaker_turn is True
+    assert features.source_turn_refs == ("D2:8", "D2:9")
+    assert features.source_locality_score == 1.0
+    assert features.source_locality_reason_codes == ("direct_localized_turn",)
+    assert "broad_summary_penalty" not in features.answerability_reason_codes
+
+
 def test_candidate_features_keep_direct_turn_summary_phrase_localized() -> None:
     memory = RetrievedMemory(
         item_id="direct-summary-phrase",

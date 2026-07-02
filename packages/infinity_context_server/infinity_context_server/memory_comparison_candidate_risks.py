@@ -8,10 +8,12 @@ from collections.abc import Mapping
 from infinity_context_server.memory_comparison_models import RetrievedMemory
 
 _BROAD_SUMMARY_SURFACE_RE = re.compile(
-    r"\b(?:conversation summary|memory summary|observations|related turns|"
+    r"\b(?:conversation summary|memory summary|observations|"
     r"events date|summari[sz]ed turns|summary of)\b|\bsummary\s*:",
     re.IGNORECASE,
 )
+_RELATED_TURNS_LABEL_RE = re.compile(r"\brelated turns\b", re.IGNORECASE)
+_TURN_REF_RE = re.compile(r"\bD(?P<dialogue>\d+):(?P<turn>\d+)\b")
 
 
 def candidate_features(memory: RetrievedMemory) -> Mapping[str, object]:
@@ -29,8 +31,9 @@ def memory_has_broad_summary(
     features: Mapping[str, object] | None = None,
 ) -> bool:
     candidate_features = features if features is not None else {}
-    return candidate_features.get("broad_summary") is True or bool(
-        _BROAD_SUMMARY_SURFACE_RE.search(memory.text or "")
+    return (
+        candidate_features.get("broad_summary") is True
+        or _has_broad_summary_surface(memory.text or "")
     )
 
 
@@ -39,9 +42,27 @@ def payload_has_broad_summary(
     features: Mapping[str, object] | None = None,
 ) -> bool:
     candidate_features = features if features is not None else {}
-    return candidate_features.get("broad_summary") is True or bool(
-        _BROAD_SUMMARY_SURFACE_RE.search(_payload_text(memory))
+    return (
+        candidate_features.get("broad_summary") is True
+        or _has_broad_summary_surface(_payload_text(memory))
     )
+
+
+def _has_broad_summary_surface(text: str) -> bool:
+    if _BROAD_SUMMARY_SURFACE_RE.search(text):
+        return True
+    if not _RELATED_TURNS_LABEL_RE.search(text):
+        return False
+    turn_refs = tuple(_TURN_REF_RE.finditer(text))
+    if len(turn_refs) > 3:
+        return True
+    if not turn_refs:
+        return True
+    dialogues = {match.group("dialogue") for match in turn_refs}
+    if len(dialogues) != 1:
+        return True
+    turns = [int(match.group("turn")) for match in turn_refs]
+    return (max(turns) - min(turns) + 1) > 3
 
 
 def memory_has_conflict_or_stale(

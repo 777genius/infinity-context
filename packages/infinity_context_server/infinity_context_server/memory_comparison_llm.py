@@ -167,6 +167,9 @@ def _render_memory_evidence_line(memory: RetrievedMemory, *, index: int) -> str:
     support_counts = _bundle_support_counts(metadata)
     if support_counts:
         labels.append(f"bundle_support={','.join(support_counts)}")
+    skipped_bundle = _bundle_skip_counts(metadata)
+    if skipped_bundle:
+        labels.append(f"bundle_skipped={','.join(skipped_bundle)}")
     missing_roles = _string_sequence(
         metadata.get("answer_context_missing_required_roles")
     )
@@ -182,6 +185,9 @@ def _render_memory_evidence_line(memory: RetrievedMemory, *, index: int) -> str:
     )
     if backfill_proximity is not None:
         labels.append(f"backfill_proximity={backfill_proximity}")
+    skipped_backfill = _backfill_skip_counts(metadata)
+    if skipped_backfill:
+        labels.append(f"backfill_skipped={','.join(skipped_backfill)}")
     role_complete = metadata.get("answer_context_role_requirement_complete")
     if role_complete is False:
         labels.append("role_complete=false")
@@ -338,6 +344,41 @@ def _bundle_support_counts(metadata: Mapping[str, object]) -> tuple[str, ...]:
     contrast = _positive_int(metadata.get("answer_context_bundle_contrast_count"))
     if contrast is not None:
         counts.append(f"contrast:{contrast}")
+    return tuple(counts)
+
+
+def _backfill_skip_counts(metadata: Mapping[str, object]) -> tuple[str, ...]:
+    counts: list[str] = []
+    risky = _positive_int(
+        metadata.get("answer_context_skipped_redundant_risky_backfill_count")
+    )
+    if risky is not None:
+        counts.append(f"risky:{risky}")
+    source = _positive_int(
+        metadata.get("answer_context_skipped_redundant_source_backfill_count")
+    )
+    if source is not None:
+        counts.append(f"source:{source}")
+    role = _positive_int(
+        metadata.get("answer_context_skipped_redundant_role_backfill_count")
+    )
+    if role is not None:
+        counts.append(f"role:{role}")
+    return tuple(counts)
+
+
+def _bundle_skip_counts(metadata: Mapping[str, object]) -> tuple[str, ...]:
+    counts: list[str] = []
+    duplicate_source = _positive_int(
+        metadata.get("answer_context_skipped_duplicate_source_bundle_item_count")
+    )
+    if duplicate_source is not None:
+        counts.append(f"duplicate_source:{duplicate_source}")
+    noisy_overlap = _positive_int(
+        metadata.get("answer_context_skipped_noisy_overlap_bundle_item_count")
+    )
+    if noisy_overlap is not None:
+        counts.append(f"noisy_overlap:{noisy_overlap}")
     return tuple(counts)
 
 

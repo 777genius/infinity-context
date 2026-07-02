@@ -251,6 +251,11 @@ def test_render_answer_prompt_labels_planned_evidence_context() -> None:
                     ),
                     "answer_context_backfill_missing_role_hits": ("contrast",),
                     "answer_context_backfill_source_proximity_distance": 2,
+                    "answer_context_skipped_duplicate_source_bundle_item_count": 1,
+                    "answer_context_skipped_noisy_overlap_bundle_item_count": 2,
+                    "answer_context_skipped_redundant_risky_backfill_count": 1,
+                    "answer_context_skipped_redundant_source_backfill_count": 2,
+                    "answer_context_skipped_redundant_role_backfill_count": 3,
                 },
             ),
         ),
@@ -277,8 +282,10 @@ def test_render_answer_prompt_labels_planned_evidence_context() -> None:
         in prompt
     )
     assert "missing_roles=contrast" in prompt
+    assert "bundle_skipped=duplicate_source:1,noisy_overlap:2" in prompt
     assert "backfill_roles=contrast" in prompt
     assert "backfill_proximity=2" in prompt
+    assert "backfill_skipped=risky:1,source:2,role:3" in prompt
     assert "role_complete=false" in prompt
     assert "reasons=role:primary,query_support" in prompt
     assert (

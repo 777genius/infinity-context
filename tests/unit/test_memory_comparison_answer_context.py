@@ -289,10 +289,16 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
         "unmeasured_source_locality_count": 1,
         "selected_bundle_item_count": 2,
         "skipped_bundle_item_count": 0,
+        "skipped_duplicate_source_bundle_item_count": 0,
+        "skipped_noisy_overlap_bundle_item_count": 0,
         "backfilled_retrieval_item_count": 1,
+        "skipped_redundant_risky_backfill_count": 0,
+        "skipped_redundant_source_backfill_count": 0,
+        "skipped_redundant_role_backfill_count": 0,
         "backfilled_broad_summary_count": 0,
         "backfilled_conflict_or_stale_count": 0,
         "backfilled_source_proximity_support_count": 0,
+        "backfilled_chained_source_proximity_support_count": 0,
         "backfilled_source_proximity_closest_distance": None,
         "bundle_confidence_score": 0.68,
         "bundle_confidence_band": "medium",
@@ -555,6 +561,259 @@ def test_answer_context_matches_fusion_source_identity_dedupe_key() -> None:
     assert context.memories[0].source_refs == ("source_turn_refs:D2:9",)
 
 
+def test_answer_context_skips_duplicate_source_bundle_items() -> None:
+    memories = (
+        RetrievedMemory(
+            text="Caroline found the support group helpful.",
+            rank=1,
+            item_id="turn-chunk-a",
+            source_refs=("locomo:conv-19:session_4:D4:2:chunk-a",),
+        ),
+        RetrievedMemory(
+            text="Caroline found the support group helpful again.",
+            rank=2,
+            item_id="turn-chunk-b",
+            source_refs=("locomo:conv-19:session_4:D4:2:chunk-b",),
+        ),
+        RetrievedMemory(
+            text="Caroline said the group met nearby.",
+            rank=3,
+            item_id="nearby-turn",
+            source_refs=("D4:3",),
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "items": [
+                {
+                    "id": "turn-chunk-a",
+                    "retrieval_order": 1,
+                    "role": "primary",
+                    "source_refs": ["locomo:conv-19:session_4:D4:2:chunk-a"],
+                },
+                {
+                    "id": "turn-chunk-b",
+                    "retrieval_order": 2,
+                    "role": "support",
+                    "source_refs": ["locomo:conv-19:session_4:D4:2:chunk-b"],
+                },
+                {
+                    "id": "nearby-turn",
+                    "retrieval_order": 3,
+                    "role": "support",
+                    "source_refs": ["D4:3"],
+                },
+            ]
+        },
+        cutoff=3,
+    )
+
+    assert [memory.item_id for memory in context.memories] == [
+        "turn-chunk-a",
+        "nearby-turn",
+    ]
+    assert context.memories[0].metadata[
+        "answer_context_skipped_duplicate_source_bundle_item_count"
+    ] == 1
+    assert context.selected_bundle_item_count == 2
+    assert context.skipped_bundle_item_count == 1
+    assert context.skipped_duplicate_source_bundle_item_count == 1
+    diagnostics = context.to_diagnostics()
+    assert diagnostics["skipped_bundle_item_count"] == 1
+    assert diagnostics["skipped_duplicate_source_bundle_item_count"] == 1
+
+
+def test_answer_context_skips_duplicate_exact_and_canonical_turn_sources() -> None:
+    memories = (
+        RetrievedMemory(
+            text="D4:2 Caroline found the support group helpful.",
+            rank=1,
+            item_id="exact-turn",
+            source_refs=("D4:2",),
+        ),
+        RetrievedMemory(
+            text="Caroline found the support group helpful.",
+            rank=2,
+            item_id="canonical-turn",
+            source_refs=("locomo:conv-19:session_4:D4:2:chunk",),
+        ),
+        RetrievedMemory(
+            text="D4:3 Caroline said the group met nearby.",
+            rank=3,
+            item_id="sibling-turn",
+            source_refs=("D4:3",),
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "items": [
+                {
+                    "id": "exact-turn",
+                    "retrieval_order": 1,
+                    "role": "primary",
+                    "source_refs": ["D4:2"],
+                },
+                {
+                    "id": "canonical-turn",
+                    "retrieval_order": 2,
+                    "role": "support",
+                    "source_refs": ["locomo:conv-19:session_4:D4:2:chunk"],
+                },
+                {
+                    "id": "sibling-turn",
+                    "retrieval_order": 3,
+                    "role": "support",
+                    "source_refs": ["D4:3"],
+                },
+            ]
+        },
+        cutoff=3,
+    )
+
+    assert [memory.item_id for memory in context.memories] == [
+        "exact-turn",
+        "sibling-turn",
+    ]
+    assert context.skipped_duplicate_source_bundle_item_count == 1
+
+
+def test_answer_context_skips_noisy_overlapping_bundle_summary() -> None:
+    memories = (
+        RetrievedMemory(
+            text="D4:2 Caroline found the support group helpful.",
+            rank=1,
+            item_id="primary-turn",
+            source_refs=("D4:2",),
+        ),
+        RetrievedMemory(
+            text=(
+                "Conversation summary: related turns D4:2 and D4:3 say "
+                "Caroline discussed the support group."
+            ),
+            rank=2,
+            item_id="overlapping-summary",
+            source_refs=("D4:2", "D4:3"),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {"broad_summary": True}
+                }
+            },
+        ),
+        RetrievedMemory(
+            text="D4:3 Caroline said the group met nearby.",
+            rank=3,
+            item_id="sibling-turn",
+            source_refs=("D4:3",),
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "items": [
+                {
+                    "id": "primary-turn",
+                    "retrieval_order": 1,
+                    "role": "primary",
+                    "source_refs": ["D4:2"],
+                },
+                {
+                    "id": "overlapping-summary",
+                    "retrieval_order": 2,
+                    "role": "support",
+                    "source_refs": ["D4:2", "D4:3"],
+                },
+                {
+                    "id": "sibling-turn",
+                    "retrieval_order": 3,
+                    "role": "support",
+                    "source_refs": ["D4:3"],
+                },
+            ]
+        },
+        cutoff=3,
+    )
+
+    assert [memory.item_id for memory in context.memories] == [
+        "primary-turn",
+        "sibling-turn",
+    ]
+    assert context.memories[0].metadata[
+        "answer_context_skipped_noisy_overlap_bundle_item_count"
+    ] == 1
+    assert context.skipped_duplicate_source_bundle_item_count == 0
+    assert context.skipped_noisy_overlap_bundle_item_count == 1
+
+
+def test_answer_context_skips_noisy_summary_even_when_ranked_first() -> None:
+    memories = (
+        RetrievedMemory(
+            text=(
+                "Conversation summary: related turns D4:2 and D4:3 say "
+                "Caroline discussed the support group."
+            ),
+            rank=1,
+            item_id="overlapping-summary",
+            source_refs=("D4:2", "D4:3"),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {"broad_summary": True}
+                }
+            },
+        ),
+        RetrievedMemory(
+            text="D4:2 Caroline found the support group helpful.",
+            rank=2,
+            item_id="primary-turn",
+            source_refs=("D4:2",),
+        ),
+        RetrievedMemory(
+            text="D4:3 Caroline said the group met nearby.",
+            rank=3,
+            item_id="sibling-turn",
+            source_refs=("D4:3",),
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "items": [
+                {
+                    "id": "overlapping-summary",
+                    "retrieval_order": 1,
+                    "role": "support",
+                    "source_refs": ["D4:2", "D4:3"],
+                },
+                {
+                    "id": "primary-turn",
+                    "retrieval_order": 2,
+                    "role": "primary",
+                    "source_refs": ["D4:2"],
+                },
+                {
+                    "id": "sibling-turn",
+                    "retrieval_order": 3,
+                    "role": "support",
+                    "source_refs": ["D4:3"],
+                },
+            ]
+        },
+        cutoff=3,
+    )
+
+    assert [memory.item_id for memory in context.memories] == [
+        "primary-turn",
+        "sibling-turn",
+    ]
+    assert context.skipped_duplicate_source_bundle_item_count == 0
+    assert context.skipped_noisy_overlap_bundle_item_count == 1
+
+
 def test_answer_context_backfill_carries_text_turn_source_identity() -> None:
     memories = (
         RetrievedMemory(text="primary", rank=1, item_id="primary"),
@@ -703,13 +962,199 @@ def test_answer_context_backfill_prefers_local_role_evidence_over_summary() -> N
     assert [memory.item_id for memory in context.memories] == [
         "primary",
         "localized-contrast",
-        "summary-contrast",
     ]
     assert context.memories[1].metadata[
         "answer_context_backfill_missing_role_hits"
     ] == ("contrast",)
-    assert context.backfilled_retrieval_item_count == 2
+    assert context.backfilled_retrieval_item_count == 1
+    assert context.skipped_redundant_risky_backfill_count == 1
     diagnostics = context.to_diagnostics()
+    assert diagnostics["skipped_redundant_risky_backfill_count"] == 1
+    assert diagnostics["backfilled_broad_summary_count"] == 0
+    assert diagnostics["backfilled_conflict_or_stale_count"] == 0
+
+
+def test_answer_context_backfill_skips_when_no_missing_roles_are_reported() -> None:
+    memories = (
+        RetrievedMemory(text="primary", rank=1, item_id="primary"),
+        RetrievedMemory(
+            text="D5:3 Morgan: I used to prefer solo work, but now I prefer teams.",
+            rank=2,
+            item_id="localized-contrast",
+            source_refs=("D5:3",),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "answerability_score": 0.82,
+                        "source_locality_score": 1.0,
+                        "relation_category_hits": ["contrast"],
+                        "contrast_surface": True,
+                    }
+                }
+            },
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "role_requirement_complete": False,
+            "items": [{"id": "primary", "retrieval_order": 1, "role": "primary"}],
+        },
+        cutoff=2,
+    )
+
+    assert [memory.item_id for memory in context.memories] == ["primary"]
+    assert context.backfilled_retrieval_item_count == 0
+    diagnostics = context.to_diagnostics()
+    assert diagnostics["backfilled_broad_summary_count"] == 0
+    assert diagnostics["skipped_redundant_role_backfill_count"] == 0
+
+
+def test_answer_context_backfill_honors_selected_bundle_role_metadata() -> None:
+    memories = (
+        RetrievedMemory(
+            text="D5:3 Morgan: I used to prefer solo work, but now I prefer teams.",
+            rank=1,
+            item_id="selected-contrast",
+            source_refs=("D5:3",),
+        ),
+        RetrievedMemory(
+            text="D9:20 Morgan mentioned a weaker contrast later.",
+            rank=2,
+            item_id="far-contrast",
+            source_refs=("D9:20",),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "answerability_score": 0.7,
+                        "source_locality_score": 0.6,
+                        "relation_category_hits": ["contrast"],
+                        "contrast_surface": True,
+                    }
+                }
+            },
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "role_requirement_complete": False,
+            "missing_required_roles": ["contrast"],
+            "items": [
+                {
+                    "id": "selected-contrast",
+                    "retrieval_order": 1,
+                    "role": "support",
+                    "relation_category_hits": ["contrast"],
+                }
+            ],
+        },
+        cutoff=2,
+    )
+
+    assert [memory.item_id for memory in context.memories] == ["selected-contrast"]
+    assert context.backfilled_retrieval_item_count == 0
+    assert context.skipped_redundant_role_backfill_count == 1
+    assert context.to_diagnostics()["skipped_redundant_role_backfill_count"] == 1
+
+
+def test_answer_context_backfill_honors_selected_bundle_direct_role() -> None:
+    memories = (
+        RetrievedMemory(
+            text="D5:3 Morgan: I used to prefer solo work, but now I prefer teams.",
+            rank=1,
+            item_id="selected-contrast",
+            source_refs=("D5:3",),
+        ),
+        RetrievedMemory(
+            text="D9:20 Morgan mentioned a weaker contrast later.",
+            rank=2,
+            item_id="far-contrast",
+            source_refs=("D9:20",),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "answerability_score": 0.7,
+                        "source_locality_score": 0.6,
+                        "relation_category_hits": ["contrast"],
+                        "contrast_surface": True,
+                    }
+                }
+            },
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "role_requirement_complete": False,
+            "missing_required_roles": ["contrast_support"],
+            "items": [
+                {
+                    "id": "selected-contrast",
+                    "retrieval_order": 1,
+                    "role": "contrast",
+                }
+            ],
+        },
+        cutoff=2,
+    )
+
+    assert [memory.item_id for memory in context.memories] == ["selected-contrast"]
+    assert context.backfilled_retrieval_item_count == 0
+    assert context.skipped_redundant_role_backfill_count == 1
+
+
+def test_answer_context_backfill_keeps_risky_role_evidence_when_no_compact_support() -> None:
+    memories = (
+        RetrievedMemory(
+            text="D5:1 Morgan: I prefer teams now.",
+            rank=1,
+            item_id="primary",
+            source_refs=("D5:1",),
+        ),
+        RetrievedMemory(
+            text=(
+                "Conversation summary: D5:1 D5:2 D5:3 D5:4 Morgan used to "
+                "prefer solo work, but now prefers teams."
+            ),
+            rank=2,
+            item_id="summary-contrast",
+            source_refs=("D5:1", "D5:2", "D5:3", "D5:4"),
+            metadata={
+                "diagnostics": {
+                    "stale_reason": "older_preference_summary",
+                    "benchmark_candidate_features": {
+                        "answerability_score": 0.98,
+                        "source_locality_score": 0.45,
+                        "relation_category_hits": ["contrast"],
+                        "contrast_surface": True,
+                    }
+                }
+            },
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "role_requirement_complete": False,
+            "missing_required_roles": ["contrast"],
+            "items": [{"id": "primary", "retrieval_order": 1, "role": "primary"}],
+        },
+        cutoff=2,
+    )
+
+    assert [memory.item_id for memory in context.memories] == [
+        "primary",
+        "summary-contrast",
+    ]
+    assert context.backfilled_retrieval_item_count == 1
+    assert context.skipped_redundant_risky_backfill_count == 0
+    diagnostics = context.to_diagnostics()
+    assert diagnostics["skipped_redundant_risky_backfill_count"] == 0
     assert diagnostics["backfilled_broad_summary_count"] == 1
     assert diagnostics["backfilled_conflict_or_stale_count"] == 1
 
@@ -1032,7 +1477,6 @@ def test_answer_context_backfill_prefers_source_proximate_role_evidence() -> Non
     assert [memory.item_id for memory in context.memories] == [
         "primary",
         "near-event",
-        "far-event",
     ]
     assert "source_proximity_support" in context.memories[1].metadata[
         "answer_context_reason_codes"
@@ -1043,12 +1487,206 @@ def test_answer_context_backfill_prefers_source_proximate_role_evidence() -> Non
         ]
         == 2
     )
-    assert "source_proximity_support" not in context.memories[2].metadata[
-        "answer_context_reason_codes"
-    ]
+    assert context.skipped_redundant_role_backfill_count == 1
     diagnostics = context.to_diagnostics()
+    assert diagnostics["skipped_redundant_role_backfill_count"] == 1
     assert diagnostics["backfilled_source_proximity_support_count"] == 1
     assert diagnostics["backfilled_source_proximity_closest_distance"] == 2
+
+
+def test_answer_context_backfill_extends_source_proximity_from_added_support() -> None:
+    memories = (
+        RetrievedMemory(
+            text="D2:10 Morgan: I signed up for the class.",
+            rank=1,
+            item_id="primary",
+            source_refs=("D2:10",),
+        ),
+        RetrievedMemory(
+            text="D2:13 Morgan: The class registration email arrived.",
+            rank=2,
+            item_id="near-event",
+            source_refs=("D2:13",),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "answerability_score": 0.8,
+                        "source_locality_score": 0.85,
+                        "relation_category_hits": ["registration_event"],
+                    }
+                }
+            },
+        ),
+        RetrievedMemory(
+            text="D2:15 Morgan: I replied to the registration email.",
+            rank=3,
+            item_id="near-added-event",
+            source_refs=("D2:15",),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "answerability_score": 0.7,
+                        "source_locality_score": 0.8,
+                        "relation_category_hits": ["registration_event"],
+                    }
+                }
+            },
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "role_requirement_complete": False,
+            "missing_required_roles": ["event_support"],
+            "items": [{"id": "primary", "retrieval_order": 1, "role": "primary"}],
+        },
+        cutoff=3,
+    )
+
+    assert [memory.item_id for memory in context.memories] == [
+        "primary",
+        "near-event",
+        "near-added-event",
+    ]
+    assert (
+        context.memories[2].metadata[
+            "answer_context_backfill_source_proximity_distance"
+        ]
+        == 2
+    )
+    assert (
+        context.memories[2].metadata[
+            "answer_context_backfill_chained_source_proximity"
+        ]
+        is True
+    )
+    assert "chained_source_proximity_support" in context.memories[2].metadata[
+        "answer_context_reason_codes"
+    ]
+    assert context.backfilled_retrieval_item_count == 2
+
+
+def test_answer_context_backfill_skips_duplicate_source_role_evidence() -> None:
+    memories = (
+        RetrievedMemory(
+            text="D2:10 Morgan: I signed up for the class.",
+            rank=1,
+            item_id="primary",
+            source_refs=("locomo:conv-1:session_2:D2:10:turn",),
+        ),
+        RetrievedMemory(
+            text="D2:12 Morgan: The class registration email arrived.",
+            rank=2,
+            item_id="event-turn",
+            source_refs=("locomo:conv-1:session_2:D2:12:turn",),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "answerability_score": 0.84,
+                        "source_locality_score": 0.95,
+                        "relation_category_hits": ["registration_event"],
+                    }
+                }
+            },
+        ),
+        RetrievedMemory(
+            text="Chunk: Morgan received the class registration email.",
+            rank=3,
+            item_id="event-duplicate-chunk",
+            source_refs=("locomo:conv-1:session_2:D2:12:turn",),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "answerability_score": 0.72,
+                        "source_locality_score": 0.9,
+                        "relation_category_hits": ["registration_event"],
+                    }
+                }
+            },
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "role_requirement_complete": False,
+            "missing_required_roles": ["event_support"],
+            "items": [{"id": "primary", "retrieval_order": 1, "role": "primary"}],
+        },
+        cutoff=3,
+    )
+
+    assert [memory.item_id for memory in context.memories] == [
+        "primary",
+        "event-turn",
+    ]
+    assert context.backfilled_retrieval_item_count == 1
+    assert context.skipped_redundant_source_backfill_count == 1
+    diagnostics = context.to_diagnostics()
+    assert diagnostics["skipped_redundant_source_backfill_count"] == 1
+    assert diagnostics["backfilled_source_proximity_support_count"] == 1
+
+
+def test_answer_context_backfill_skips_selected_source_duplicate() -> None:
+    memories = (
+        RetrievedMemory(
+            text="D2:10 Morgan: I signed up for the class.",
+            rank=1,
+            item_id="primary",
+            source_refs=("D2:10",),
+        ),
+        RetrievedMemory(
+            text="Morgan signed up for the class.",
+            rank=2,
+            item_id="duplicate-primary-chunk",
+            source_refs=("locomo:conv-1:session_2:D2:10:chunk",),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "answerability_score": 0.97,
+                        "source_locality_score": 1.0,
+                        "relation_category_hits": ["activity"],
+                        "query_roles": ["event_support"],
+                    }
+                }
+            },
+        ),
+        RetrievedMemory(
+            text="D2:12 Morgan: The class registration went through.",
+            rank=3,
+            item_id="sibling-event",
+            source_refs=("D2:12",),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "answerability_score": 0.88,
+                        "source_locality_score": 0.92,
+                        "relation_category_hits": ["registration_event"],
+                        "query_roles": ["event_support"],
+                    }
+                }
+            },
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "role_requirement_complete": False,
+            "missing_required_roles": ["event_support"],
+            "items": [{"id": "primary", "retrieval_order": 1, "role": "primary"}],
+        },
+        cutoff=3,
+    )
+
+    assert [memory.item_id for memory in context.memories] == [
+        "primary",
+        "sibling-event",
+    ]
+    assert context.backfilled_retrieval_item_count == 1
+    assert context.skipped_redundant_source_backfill_count == 1
+    assert context.to_diagnostics()["skipped_redundant_source_backfill_count"] == 1
 
 
 def test_answer_context_backfill_requires_content_time_for_temporal_role_hit() -> None:
@@ -1284,10 +1922,16 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
                             "unmeasured_source_locality_count": 1,
                             "selected_bundle_item_count": 1,
                             "skipped_bundle_item_count": 0,
+                            "skipped_duplicate_source_bundle_item_count": 1,
+                            "skipped_noisy_overlap_bundle_item_count": 1,
                             "backfilled_retrieval_item_count": 1,
+                            "skipped_redundant_risky_backfill_count": 1,
+                            "skipped_redundant_source_backfill_count": 1,
+                            "skipped_redundant_role_backfill_count": 1,
                             "backfilled_broad_summary_count": 0,
                             "backfilled_conflict_or_stale_count": 0,
                             "backfilled_source_proximity_support_count": 1,
+                            "backfilled_chained_source_proximity_support_count": 1,
                             "backfilled_source_proximity_closest_distance": 2,
                             "bundle_confidence_score": 0.68,
                             "bundle_confidence_band": "medium",
@@ -1336,6 +1980,8 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
                             "fallback_reason": "empty_bundle",
                             "selected_bundle_item_count": 0,
                             "skipped_bundle_item_count": 0,
+                            "skipped_duplicate_source_bundle_item_count": 0,
+                            "skipped_noisy_overlap_bundle_item_count": 0,
                         },
                     }
                 },
@@ -1351,8 +1997,28 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
     assert metrics["primary_evidence_bundle_context_rate"] == 0.5
     assert metrics["primary_avg_context_memory_count"] == 2.0
     assert metrics["primary_avg_context_compression_ratio"] == 0.6667
+    assert metrics["primary_total_skipped_redundant_risky_backfill_count"] == 1
+    assert metrics["primary_avg_skipped_redundant_risky_backfill_count"] == 0.5
+    assert metrics["primary_total_skipped_redundant_source_backfill_count"] == 1
+    assert metrics["primary_avg_skipped_redundant_source_backfill_count"] == 0.5
+    assert metrics["primary_total_skipped_redundant_role_backfill_count"] == 1
+    assert metrics["primary_avg_skipped_redundant_role_backfill_count"] == 0.5
+    assert metrics["primary_total_skipped_duplicate_source_bundle_item_count"] == 1
+    assert metrics["primary_avg_skipped_duplicate_source_bundle_item_count"] == 0.5
+    assert metrics["primary_total_skipped_noisy_overlap_bundle_item_count"] == 1
+    assert metrics["primary_avg_skipped_noisy_overlap_bundle_item_count"] == 0.5
     assert metrics["primary_total_backfilled_source_proximity_support_count"] == 1
     assert metrics["primary_avg_backfilled_source_proximity_support_count"] == 0.5
+    assert (
+        metrics[
+            "primary_total_backfilled_chained_source_proximity_support_count"
+        ]
+        == 1
+    )
+    assert (
+        metrics["primary_avg_backfilled_chained_source_proximity_support_count"]
+        == 0.5
+    )
     assert metrics["primary_avg_backfilled_source_proximity_closest_distance"] == 2.0
     assert metrics["primary_min_backfilled_source_proximity_closest_distance"] == 2
     assert metrics["primary_avg_source_ref_coverage_rate"] == 0.5
@@ -1370,10 +2036,22 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
     assert primary["fallback_context_count"] == 1
     assert primary["avg_backfilled_retrieval_item_count"] == 0.5
     assert primary["total_backfilled_retrieval_item_count"] == 1
+    assert primary["avg_skipped_redundant_risky_backfill_count"] == 0.5
+    assert primary["total_skipped_redundant_risky_backfill_count"] == 1
+    assert primary["avg_skipped_redundant_source_backfill_count"] == 0.5
+    assert primary["total_skipped_redundant_source_backfill_count"] == 1
+    assert primary["avg_skipped_redundant_role_backfill_count"] == 0.5
+    assert primary["total_skipped_redundant_role_backfill_count"] == 1
+    assert primary["avg_skipped_duplicate_source_bundle_item_count"] == 0.5
+    assert primary["total_skipped_duplicate_source_bundle_item_count"] == 1
+    assert primary["avg_skipped_noisy_overlap_bundle_item_count"] == 0.5
+    assert primary["total_skipped_noisy_overlap_bundle_item_count"] == 1
     assert primary["total_backfilled_broad_summary_count"] == 0
     assert primary["total_backfilled_conflict_or_stale_count"] == 0
     assert primary["total_backfilled_source_proximity_support_count"] == 1
     assert primary["avg_backfilled_source_proximity_support_count"] == 0.5
+    assert primary["total_backfilled_chained_source_proximity_support_count"] == 1
+    assert primary["avg_backfilled_chained_source_proximity_support_count"] == 0.5
     assert primary["avg_backfilled_source_proximity_closest_distance"] == 2.0
     assert primary["min_backfilled_source_proximity_closest_distance"] == 2
     assert primary["source_counts"] == {

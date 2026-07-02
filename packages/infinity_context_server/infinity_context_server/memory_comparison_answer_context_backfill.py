@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 
 from infinity_context_server.memory_comparison_candidate_risks import (
     candidate_features as _candidate_features,
@@ -30,6 +31,16 @@ _SOURCE_PROXIMITY_WINDOW = 3
 _TURN_REF_PARTS_RE = re.compile(r"\bD(?P<dialogue>\d+):(?P<turn>\d+)\b")
 
 
+@dataclass(frozen=True)
+class BackfillResult:
+    """Answer-context backfill counts used for safe retrieval diagnostics."""
+
+    backfilled_count: int = 0
+    skipped_redundant_risky_count: int = 0
+    skipped_redundant_source_count: int = 0
+    skipped_redundant_role_count: int = 0
+
+
 def backfill_incomplete_bundle_context(
     selected: list[RetrievedMemory],
     *,
@@ -37,10 +48,12 @@ def backfill_incomplete_bundle_context(
     raw_slice: Sequence[RetrievedMemory],
     bundle_context: Mapping[str, object],
     bounded_cutoff: int,
-) -> int:
+) -> BackfillResult:
     missing_roles = _string_tuple(
         bundle_context.get("answer_context_missing_required_roles")
     )
+    if not missing_roles:
+        return BackfillResult()
     target_count = _incomplete_bundle_backfill_target_count(
         selected_count=len(selected),
         missing_role_count=len(missing_roles),
@@ -53,22 +66,94 @@ def backfill_incomplete_bundle_context(
         selected_turn_refs=selected_turn_refs,
         missing_roles=missing_roles,
     )
+    original_selected_turn_refs = selected_turn_refs
     backfilled_count = 0
+    skipped_redundant_risky_count = 0
+    skipped_redundant_source_count = 0
+    skipped_redundant_role_count = 0
+    covered_roles = set(_selected_role_hits(selected, missing_roles))
+    covered_backfill_source_refs: set[str] = set()
+    selected_source_match_refs = set(
+        ref
+        for memory in selected
+        for ref in _memory_source_match_refs(memory)
+    )
     for retrieval_order, memory in candidates:
+        features = _candidate_features(memory)
+        role_hits = _missing_role_hits(features, missing_roles)
+        source_refs = set(_memory_source_refs(memory))
+        source_match_refs = set(_memory_source_match_refs(memory))
+        source_proximity_distance = _source_proximity_distance(
+            memory,
+            selected_turn_refs=selected_turn_refs,
+        )
+        source_proximate = (
+            source_proximity_distance is not None
+            and source_proximity_distance <= _SOURCE_PROXIMITY_WINDOW
+        )
+        selected_source_duplicate = (
+            bool(role_hits)
+            and bool(source_match_refs)
+            and bool(source_match_refs.intersection(selected_source_match_refs))
+            and not memory_has_broad_summary(memory, features)
+        )
+        if selected_source_duplicate:
+            skipped_redundant_source_count += 1
+            continue
+        source_redundant = (
+            bool(role_hits)
+            and set(role_hits).issubset(covered_roles)
+            and bool(source_refs)
+            and source_refs.issubset(covered_backfill_source_refs)
+        )
+        if source_redundant:
+            skipped_redundant_source_count += 1
+            continue
+        risky_redundant = (
+            bool(role_hits)
+            and set(role_hits).issubset(covered_roles)
+            and (
+                memory_has_broad_summary(memory, features)
+                or memory_has_conflict_or_stale(memory, features)
+            )
+        )
+        if risky_redundant:
+            skipped_redundant_risky_count += 1
+            continue
+        role_redundant = (
+            bool(role_hits)
+            and set(role_hits).issubset(covered_roles)
+            and not source_proximate
+        )
+        if role_redundant:
+            skipped_redundant_role_count += 1
+            continue
         if len(selected) >= target_count:
-            break
+            continue
         selected_keys.add(_memory_key(memory, retrieval_order=retrieval_order))
         selected.append(
             _with_retrieval_backfill_metadata(
                 memory,
                 bundle_context=bundle_context,
                 missing_roles=missing_roles,
+                original_selected_turn_refs=original_selected_turn_refs,
                 selected_turn_refs=selected_turn_refs,
                 retrieval_order=retrieval_order,
             )
         )
+        covered_roles.update(role_hits)
+        covered_backfill_source_refs.update(source_refs)
+        selected_source_match_refs.update(source_match_refs)
+        selected_turn_refs = tuple(
+            dict.fromkeys((*selected_turn_refs, *_memory_turn_refs(memory)))
+        )
         backfilled_count += 1
-    return backfilled_count
+    return BackfillResult(
+        backfilled_count=backfilled_count,
+        skipped_redundant_risky_count=skipped_redundant_risky_count,
+        skipped_redundant_source_count=skipped_redundant_source_count,
+        skipped_redundant_role_count=skipped_redundant_role_count,
+    )
 
 
 def _incomplete_bundle_backfill_target_count(
@@ -195,6 +280,70 @@ def _missing_role_support_score(
         if str(role).strip()
     ]
     return max(scores, default=0.0)
+
+
+def _missing_role_hits(
+    features: Mapping[str, object],
+    missing_roles: Sequence[str],
+) -> tuple[str, ...]:
+    if not features or not missing_roles:
+        return ()
+    return tuple(
+        role
+        for role in missing_roles
+        if str(role).strip() and _missing_role_match_score(features, str(role)) > 0
+    )
+
+
+def _selected_role_hits(
+    memories: Sequence[RetrievedMemory],
+    missing_roles: Sequence[str],
+) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            role
+            for memory in memories
+            for role in (
+                *_selected_direct_role_hits(memory, missing_roles),
+                *_missing_role_hits(
+                    _role_match_features(memory),
+                    missing_roles,
+                ),
+            )
+        )
+    )
+
+
+def _selected_direct_role_hits(
+    memory: RetrievedMemory,
+    missing_roles: Sequence[str],
+) -> tuple[str, ...]:
+    selected_role = str(memory.metadata.get("answer_context_role") or "").strip()
+    if not selected_role:
+        return ()
+    selected_role_key = selected_role.removesuffix("_support")
+    return tuple(
+        role
+        for role in missing_roles
+        if str(role).strip()
+        and str(role).strip().removesuffix("_support") == selected_role_key
+    )
+
+
+def _role_match_features(memory: RetrievedMemory) -> Mapping[str, object]:
+    features = dict(_candidate_features(memory))
+    metadata = memory.metadata
+    for source_key, target_key in (
+        ("answer_context_query_roles", "query_roles"),
+        ("answer_context_relation_category_hits", "relation_category_hits"),
+        ("answer_context_entity_hits", "entity_hits"),
+        ("answer_context_speaker_hits", "speaker_hits"),
+    ):
+        if target_key not in features:
+            values = _string_tuple(metadata.get(source_key))
+            if values:
+                features[target_key] = values
+    return features
 
 
 def _missing_role_match_score(features: Mapping[str, object], role: str) -> float:
@@ -421,6 +570,7 @@ def _with_retrieval_backfill_metadata(
     *,
     bundle_context: Mapping[str, object],
     missing_roles: Sequence[str],
+    original_selected_turn_refs: Sequence[tuple[int, int]],
     selected_turn_refs: Sequence[tuple[int, int]],
     retrieval_order: int,
 ) -> RetrievedMemory:
@@ -448,6 +598,16 @@ def _with_retrieval_backfill_metadata(
         metadata["answer_context_backfill_source_proximity_distance"] = (
             source_proximity_distance
         )
+        original_source_proximity_distance = _source_proximity_distance(
+            memory,
+            selected_turn_refs=original_selected_turn_refs,
+        )
+        if (
+            original_source_proximity_distance is None
+            or original_source_proximity_distance > _SOURCE_PROXIMITY_WINDOW
+        ):
+            reason_codes.append("chained_source_proximity_support")
+            metadata["answer_context_backfill_chained_source_proximity"] = True
     metadata["answer_context_reason_codes"] = tuple(reason_codes)
     _add_backfill_feature_metadata(metadata, features, missing_roles=missing_roles)
     return RetrievedMemory(
@@ -531,6 +691,35 @@ def _memory_source_refs(memory: RetrievedMemory) -> tuple[str, ...]:
                 ),
                 *_source_identity_refs_from_dedupe_key(fusion.get("dedupe_key")),
                 *_source_identity_refs_from_text(memory.text, source_refs=source_refs),
+            )
+        )
+    )
+
+
+def _memory_source_match_refs(memory: RetrievedMemory) -> tuple[str, ...]:
+    diagnostics = _mapping(memory.metadata.get("diagnostics"))
+    fusion = _mapping(diagnostics.get("benchmark_candidate_fusion"))
+    features = _candidate_features(memory)
+    source_refs = tuple(
+        dict.fromkeys(
+            (
+                *(str(ref).strip() for ref in memory.source_refs if str(ref).strip()),
+                *_string_tuple(fusion.get("source_refs")),
+            )
+        )
+    )
+    return tuple(
+        dict.fromkeys(
+            (
+                *_memory_source_refs(memory),
+                *_source_identity_refs_from_source_refs(
+                    source_refs,
+                    include_exact_turn_refs=True,
+                ),
+                *_source_identity_refs_from_dedupe_key(
+                    features.get("source_ref_dedupe_key")
+                ),
+                *_source_identity_refs_from_dedupe_key(fusion.get("dedupe_key")),
             )
         )
     )

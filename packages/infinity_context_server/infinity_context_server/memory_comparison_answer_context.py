@@ -37,7 +37,12 @@ class AnswerContext:
     fallback_reason: str | None = None
     selected_bundle_item_count: int = 0
     skipped_bundle_item_count: int = 0
+    skipped_duplicate_source_bundle_item_count: int = 0
+    skipped_noisy_overlap_bundle_item_count: int = 0
     backfilled_retrieval_item_count: int = 0
+    skipped_redundant_risky_backfill_count: int = 0
+    skipped_redundant_source_backfill_count: int = 0
+    skipped_redundant_role_backfill_count: int = 0
     bundle_confidence_score: float = 0.0
     bundle_confidence_band: str = ""
     bundle_bridge_count: int = 0
@@ -77,7 +82,22 @@ class AnswerContext:
             **quality_score_stats,
             "selected_bundle_item_count": self.selected_bundle_item_count,
             "skipped_bundle_item_count": self.skipped_bundle_item_count,
+            "skipped_duplicate_source_bundle_item_count": (
+                self.skipped_duplicate_source_bundle_item_count
+            ),
+            "skipped_noisy_overlap_bundle_item_count": (
+                self.skipped_noisy_overlap_bundle_item_count
+            ),
             "backfilled_retrieval_item_count": self.backfilled_retrieval_item_count,
+            "skipped_redundant_risky_backfill_count": (
+                self.skipped_redundant_risky_backfill_count
+            ),
+            "skipped_redundant_source_backfill_count": (
+                self.skipped_redundant_source_backfill_count
+            ),
+            "skipped_redundant_role_backfill_count": (
+                self.skipped_redundant_role_backfill_count
+            ),
             **backfill_risk_stats,
             "bundle_confidence_score": self.bundle_confidence_score,
             "bundle_confidence_band": self.bundle_confidence_band,
@@ -154,7 +174,16 @@ def answer_context_from_evidence_bundle(
 
     selected: list[RetrievedMemory] = []
     selected_keys: set[tuple[str, object]] = set()
+    selected_source_identity_keys: set[tuple[str, ...]] = set()
+    selected_source_turn_refs: set[str] = set()
+    non_noisy_bundle_source_turn_refs = _non_noisy_bundle_source_turn_refs(
+        bundle_items,
+        memories,
+        bounded_cutoff=bounded_cutoff,
+    )
     skipped = 0
+    skipped_duplicate_source = 0
+    skipped_noisy_overlap = 0
     for item in bundle_items:
         memory = _memory_for_bundle_item(item, memories)
         if memory is None:
@@ -169,7 +198,29 @@ def answer_context_from_evidence_bundle(
         key = _memory_key(memory, retrieval_order=retrieval_order)
         if key in selected_keys:
             continue
+        source_identity_key = _bundle_source_identity_key(memory, item)
+        if source_identity_key and source_identity_key in selected_source_identity_keys:
+            skipped += 1
+            skipped_duplicate_source += 1
+            continue
+        source_turn_refs = _bundle_source_turn_refs(memory, item)
+        noisy_source_overlap = (
+            _bundle_item_has_noise_risk(memory)
+            and bool(
+                source_turn_refs.intersection(
+                    selected_source_turn_refs
+                    | non_noisy_bundle_source_turn_refs
+                )
+            )
+        )
+        if noisy_source_overlap:
+            skipped += 1
+            skipped_noisy_overlap += 1
+            continue
         selected_keys.add(key)
+        if source_identity_key:
+            selected_source_identity_keys.add(source_identity_key)
+        selected_source_turn_refs.update(source_turn_refs)
         selected.append(
             _with_answer_context_metadata(
                 memory,
@@ -185,25 +236,61 @@ def answer_context_from_evidence_bundle(
             source="retrieval_slice",
             fallback_reason="no_bundle_items_within_cutoff",
             skipped_bundle_item_count=skipped,
+            skipped_duplicate_source_bundle_item_count=skipped_duplicate_source,
+            skipped_noisy_overlap_bundle_item_count=skipped_noisy_overlap,
         )
 
     bundle_selected_count = len(selected)
     backfilled_count = 0
+    skipped_redundant_risky_backfill_count = 0
+    skipped_redundant_source_backfill_count = 0
+    skipped_redundant_role_backfill_count = 0
     if bundle_context.get("answer_context_role_requirement_complete") is False:
-        backfilled_count = backfill_incomplete_bundle_context(
+        backfill_result = backfill_incomplete_bundle_context(
             selected,
             selected_keys=selected_keys,
             raw_slice=raw_slice,
             bundle_context=bundle_context,
             bounded_cutoff=bounded_cutoff,
         )
+        backfilled_count = backfill_result.backfilled_count
+        skipped_redundant_risky_backfill_count = (
+            backfill_result.skipped_redundant_risky_count
+        )
+        skipped_redundant_source_backfill_count = (
+            backfill_result.skipped_redundant_source_count
+        )
+        skipped_redundant_role_backfill_count = (
+            backfill_result.skipped_redundant_role_count
+        )
+
+    if skipped_duplicate_source or skipped_noisy_overlap:
+        selected = [
+            _with_bundle_skip_metadata(
+                memory,
+                skipped_duplicate_source_count=skipped_duplicate_source,
+                skipped_noisy_overlap_count=skipped_noisy_overlap,
+            )
+            for memory in selected
+        ]
 
     return AnswerContext(
         memories=tuple(selected),
         source="evidence_bundle",
         selected_bundle_item_count=bundle_selected_count,
         skipped_bundle_item_count=skipped,
+        skipped_duplicate_source_bundle_item_count=skipped_duplicate_source,
+        skipped_noisy_overlap_bundle_item_count=skipped_noisy_overlap,
         backfilled_retrieval_item_count=backfilled_count,
+        skipped_redundant_risky_backfill_count=(
+            skipped_redundant_risky_backfill_count
+        ),
+        skipped_redundant_source_backfill_count=(
+            skipped_redundant_source_backfill_count
+        ),
+        skipped_redundant_role_backfill_count=(
+            skipped_redundant_role_backfill_count
+        ),
         bundle_confidence_score=float(
             bundle_context.get("answer_context_bundle_confidence_score") or 0.0
         ),
@@ -389,6 +476,56 @@ def answer_context_metrics(
             primary,
             "avg_context_compression_ratio",
         ),
+        "primary_total_skipped_redundant_risky_backfill_count": (
+            _positive_int(
+                primary.get("total_skipped_redundant_risky_backfill_count")
+            )
+            or 0
+        ),
+        "primary_avg_skipped_redundant_risky_backfill_count": _metric_value(
+            primary,
+            "avg_skipped_redundant_risky_backfill_count",
+        ),
+        "primary_total_skipped_redundant_source_backfill_count": (
+            _positive_int(
+                primary.get("total_skipped_redundant_source_backfill_count")
+            )
+            or 0
+        ),
+        "primary_avg_skipped_redundant_source_backfill_count": _metric_value(
+            primary,
+            "avg_skipped_redundant_source_backfill_count",
+        ),
+        "primary_total_skipped_redundant_role_backfill_count": (
+            _positive_int(
+                primary.get("total_skipped_redundant_role_backfill_count")
+            )
+            or 0
+        ),
+        "primary_avg_skipped_redundant_role_backfill_count": _metric_value(
+            primary,
+            "avg_skipped_redundant_role_backfill_count",
+        ),
+        "primary_total_skipped_duplicate_source_bundle_item_count": (
+            _positive_int(
+                primary.get("total_skipped_duplicate_source_bundle_item_count")
+            )
+            or 0
+        ),
+        "primary_avg_skipped_duplicate_source_bundle_item_count": _metric_value(
+            primary,
+            "avg_skipped_duplicate_source_bundle_item_count",
+        ),
+        "primary_total_skipped_noisy_overlap_bundle_item_count": (
+            _positive_int(
+                primary.get("total_skipped_noisy_overlap_bundle_item_count")
+            )
+            or 0
+        ),
+        "primary_avg_skipped_noisy_overlap_bundle_item_count": _metric_value(
+            primary,
+            "avg_skipped_noisy_overlap_bundle_item_count",
+        ),
         "primary_total_backfilled_source_proximity_support_count": (
             _positive_int(
                 primary.get("total_backfilled_source_proximity_support_count")
@@ -398,6 +535,20 @@ def answer_context_metrics(
         "primary_avg_backfilled_source_proximity_support_count": _metric_value(
             primary,
             "avg_backfilled_source_proximity_support_count",
+        ),
+        "primary_total_backfilled_chained_source_proximity_support_count": (
+            _positive_int(
+                primary.get(
+                    "total_backfilled_chained_source_proximity_support_count"
+                )
+            )
+            or 0
+        ),
+        "primary_avg_backfilled_chained_source_proximity_support_count": (
+            _metric_value(
+                primary,
+                "avg_backfilled_chained_source_proximity_support_count",
+            )
         ),
         "primary_avg_backfilled_source_proximity_closest_distance": _metric_value(
             primary,
@@ -470,10 +621,16 @@ def _answer_context_cutoff_metrics(
     compression_ratios: list[float] = []
     selected_bundle_counts: list[int] = []
     skipped_bundle_counts: list[int] = []
+    skipped_duplicate_source_bundle_counts: list[int] = []
+    skipped_noisy_overlap_bundle_counts: list[int] = []
     backfilled_retrieval_counts: list[int] = []
+    skipped_redundant_risky_backfill_counts: list[int] = []
+    skipped_redundant_source_backfill_counts: list[int] = []
+    skipped_redundant_role_backfill_counts: list[int] = []
     backfilled_broad_summary_counts: list[int] = []
     backfilled_conflict_or_stale_counts: list[int] = []
     backfilled_source_proximity_support_counts: list[int] = []
+    backfilled_chained_source_proximity_support_counts: list[int] = []
     backfilled_source_proximity_closest_distances: list[int] = []
     source_ref_counts: list[int] = []
     source_ref_item_counts: list[int] = []
@@ -533,8 +690,38 @@ def _answer_context_cutoff_metrics(
         skipped_bundle_counts.append(
             _positive_int(context.get("skipped_bundle_item_count")) or 0
         )
+        skipped_duplicate_source_bundle_counts.append(
+            _positive_int(
+                context.get("skipped_duplicate_source_bundle_item_count")
+            )
+            or 0
+        )
+        skipped_noisy_overlap_bundle_counts.append(
+            _positive_int(
+                context.get("skipped_noisy_overlap_bundle_item_count")
+            )
+            or 0
+        )
         backfilled_retrieval_counts.append(
             _positive_int(context.get("backfilled_retrieval_item_count")) or 0
+        )
+        skipped_redundant_risky_backfill_counts.append(
+            _positive_int(
+                context.get("skipped_redundant_risky_backfill_count")
+            )
+            or 0
+        )
+        skipped_redundant_source_backfill_counts.append(
+            _positive_int(
+                context.get("skipped_redundant_source_backfill_count")
+            )
+            or 0
+        )
+        skipped_redundant_role_backfill_counts.append(
+            _positive_int(
+                context.get("skipped_redundant_role_backfill_count")
+            )
+            or 0
         )
         backfilled_broad_summary_counts.append(
             _positive_int(context.get("backfilled_broad_summary_count")) or 0
@@ -545,6 +732,14 @@ def _answer_context_cutoff_metrics(
         backfilled_source_proximity_support_counts.append(
             _positive_int(
                 context.get("backfilled_source_proximity_support_count")
+            )
+            or 0
+        )
+        backfilled_chained_source_proximity_support_counts.append(
+            _positive_int(
+                context.get(
+                    "backfilled_chained_source_proximity_support_count"
+                )
             )
             or 0
         )
@@ -682,8 +877,38 @@ def _answer_context_cutoff_metrics(
         "avg_context_compression_ratio": _avg(compression_ratios),
         "avg_selected_bundle_item_count": _avg(selected_bundle_counts),
         "avg_skipped_bundle_item_count": _avg(skipped_bundle_counts),
+        "avg_skipped_duplicate_source_bundle_item_count": _avg(
+            skipped_duplicate_source_bundle_counts
+        ),
+        "total_skipped_duplicate_source_bundle_item_count": sum(
+            skipped_duplicate_source_bundle_counts
+        ),
+        "avg_skipped_noisy_overlap_bundle_item_count": _avg(
+            skipped_noisy_overlap_bundle_counts
+        ),
+        "total_skipped_noisy_overlap_bundle_item_count": sum(
+            skipped_noisy_overlap_bundle_counts
+        ),
         "avg_backfilled_retrieval_item_count": _avg(backfilled_retrieval_counts),
         "total_backfilled_retrieval_item_count": sum(backfilled_retrieval_counts),
+        "avg_skipped_redundant_risky_backfill_count": _avg(
+            skipped_redundant_risky_backfill_counts
+        ),
+        "total_skipped_redundant_risky_backfill_count": sum(
+            skipped_redundant_risky_backfill_counts
+        ),
+        "avg_skipped_redundant_source_backfill_count": _avg(
+            skipped_redundant_source_backfill_counts
+        ),
+        "total_skipped_redundant_source_backfill_count": sum(
+            skipped_redundant_source_backfill_counts
+        ),
+        "avg_skipped_redundant_role_backfill_count": _avg(
+            skipped_redundant_role_backfill_counts
+        ),
+        "total_skipped_redundant_role_backfill_count": sum(
+            skipped_redundant_role_backfill_counts
+        ),
         "total_backfilled_broad_summary_count": sum(
             backfilled_broad_summary_counts
         ),
@@ -695,6 +920,12 @@ def _answer_context_cutoff_metrics(
         ),
         "avg_backfilled_source_proximity_support_count": _avg(
             backfilled_source_proximity_support_counts
+        ),
+        "total_backfilled_chained_source_proximity_support_count": sum(
+            backfilled_chained_source_proximity_support_counts
+        ),
+        "avg_backfilled_chained_source_proximity_support_count": _avg(
+            backfilled_chained_source_proximity_support_counts
         ),
         "avg_backfilled_source_proximity_closest_distance": _avg(
             backfilled_source_proximity_closest_distances
@@ -906,6 +1137,32 @@ def _with_answer_context_metadata(
     )
 
 
+def _with_bundle_skip_metadata(
+    memory: RetrievedMemory,
+    *,
+    skipped_duplicate_source_count: int,
+    skipped_noisy_overlap_count: int,
+) -> RetrievedMemory:
+    metadata = dict(memory.metadata)
+    if skipped_duplicate_source_count > 0:
+        metadata["answer_context_skipped_duplicate_source_bundle_item_count"] = (
+            skipped_duplicate_source_count
+        )
+    if skipped_noisy_overlap_count > 0:
+        metadata["answer_context_skipped_noisy_overlap_bundle_item_count"] = (
+            skipped_noisy_overlap_count
+        )
+    return RetrievedMemory(
+        text=memory.text,
+        rank=memory.rank,
+        score=memory.score,
+        item_id=memory.item_id,
+        created_at=memory.created_at,
+        source_refs=memory.source_refs,
+        metadata=metadata,
+    )
+
+
 def _bundle_context_metadata(bundle: Mapping[str, object]) -> dict[str, object]:
     planner = _mapping(bundle.get("bundle_planner"))
     quality = _mapping(planner.get("bundle_quality"))
@@ -1069,6 +1326,68 @@ def _memory_key(
     return ("retrieval_order", retrieval_order)
 
 
+def _bundle_source_identity_key(
+    memory: RetrievedMemory,
+    bundle_item: Mapping[str, object],
+) -> tuple[str, ...]:
+    refs = tuple(
+        dict.fromkeys(
+            (
+                *_source_match_refs_from_memory(memory),
+                *_source_match_refs_from_bundle_item(bundle_item),
+            )
+        )
+    )
+    turn_refs = tuple(
+        sorted(ref for ref in refs if ref.startswith("source_turn_refs:"))
+    )
+    if turn_refs:
+        return turn_refs
+    return tuple(sorted(_merged_source_refs(memory, bundle_item)))
+
+
+def _bundle_source_turn_refs(
+    memory: RetrievedMemory,
+    bundle_item: Mapping[str, object],
+) -> set[str]:
+    return {
+        ref
+        for ref in (
+            *_source_match_refs_from_memory(memory),
+            *_source_match_refs_from_bundle_item(bundle_item),
+        )
+        if ref.startswith("source_turn_refs:")
+    }
+
+
+def _non_noisy_bundle_source_turn_refs(
+    bundle_items: Sequence[Mapping[str, object]],
+    memories: Sequence[RetrievedMemory],
+    *,
+    bounded_cutoff: int,
+) -> set[str]:
+    refs: set[str] = set()
+    for item in bundle_items:
+        memory = _memory_for_bundle_item(item, memories)
+        if memory is None or _bundle_item_has_noise_risk(memory):
+            continue
+        retrieval_order = _positive_int(item.get("retrieval_order"))
+        if retrieval_order is None:
+            retrieval_order = _retrieval_order_for_memory(memory, memories)
+        if retrieval_order is None or retrieval_order > bounded_cutoff:
+            continue
+        refs.update(_bundle_source_turn_refs(memory, item))
+    return refs
+
+
+def _bundle_item_has_noise_risk(memory: RetrievedMemory) -> bool:
+    features = _candidate_features(memory)
+    return memory_has_broad_summary(
+        memory,
+        features,
+    ) or memory_has_conflict_or_stale(memory, features)
+
+
 def _source_ref_stats(memories: Sequence[RetrievedMemory]) -> dict[str, object]:
     source_ref_counts = [len(_memory_source_refs(memory)) for memory in memories]
     source_ref_item_count = sum(1 for count in source_ref_counts if count > 0)
@@ -1090,6 +1409,7 @@ def _backfill_risk_stats(memories: Sequence[RetrievedMemory]) -> dict[str, objec
     broad_summary_count = 0
     conflict_or_stale_count = 0
     source_proximity_distances: list[int] = []
+    chained_source_proximity_count = 0
     for memory in backfilled:
         features = _candidate_features(memory)
         if memory_has_broad_summary(memory, features):
@@ -1101,11 +1421,18 @@ def _backfill_risk_stats(memories: Sequence[RetrievedMemory]) -> dict[str, objec
         )
         if source_proximity_distance is not None:
             source_proximity_distances.append(source_proximity_distance)
+        if memory.metadata.get(
+            "answer_context_backfill_chained_source_proximity"
+        ) is True:
+            chained_source_proximity_count += 1
     return {
         "backfilled_broad_summary_count": broad_summary_count,
         "backfilled_conflict_or_stale_count": conflict_or_stale_count,
         "backfilled_source_proximity_support_count": len(
             source_proximity_distances
+        ),
+        "backfilled_chained_source_proximity_support_count": (
+            chained_source_proximity_count
         ),
         "backfilled_source_proximity_closest_distance": (
             min(source_proximity_distances) if source_proximity_distances else None
