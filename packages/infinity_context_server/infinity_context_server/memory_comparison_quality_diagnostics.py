@@ -636,10 +636,26 @@ def _query_role_gap_breakdown(
                 _metric_value(stats, "avg_candidate_answerability_score"),
                 4,
             ),
+            "avg_measured_candidate_answerability_score": round(
+                _metric_value(stats, "avg_measured_candidate_answerability_score"),
+                4,
+            ),
+            "candidate_unmeasured_answerability_count": _positive_int(
+                stats.get("candidate_unmeasured_answerability_count")
+            )
+            or 0,
             "avg_selected_answerability_score": round(
                 _metric_value(stats, "avg_selected_answerability_score"),
                 4,
             ),
+            "avg_measured_selected_answerability_score": round(
+                _metric_value(stats, "avg_measured_selected_answerability_score"),
+                4,
+            ),
+            "selected_unmeasured_answerability_count": _positive_int(
+                stats.get("selected_unmeasured_answerability_count")
+            )
+            or 0,
             "selected_bundle_role_counts": _count_mapping(
                 stats.get("selected_bundle_role_counts")
             ),
@@ -2045,6 +2061,10 @@ def _query_role_stat_payload(
     candidate_count = candidate_role_counts[query_role]
     lifted_count = lifted_candidate_role_counts[query_role]
     selected_count = selected_item_role_counts[query_role]
+    candidate_scores = tuple(candidate_answerability_scores.get(query_role, ()))
+    selected_scores = tuple(selected_answerability_scores.get(query_role, ()))
+    measured_candidate_scores = tuple(score for score in candidate_scores if score > 0)
+    measured_selected_scores = tuple(score for score in selected_scores if score > 0)
     return {
         "candidate_count": candidate_count,
         "lifted_candidate_count": lifted_count,
@@ -2055,11 +2075,15 @@ def _query_role_stat_payload(
             query_role
         ],
         "bridge_query_hit_selected_count": bridge_query_hit_selected_counts[query_role],
-        "avg_candidate_answerability_score": _avg(
-            candidate_answerability_scores.get(query_role, ())
+        "avg_candidate_answerability_score": _avg(candidate_scores),
+        "avg_measured_candidate_answerability_score": _avg(measured_candidate_scores),
+        "candidate_unmeasured_answerability_count": sum(
+            1 for score in candidate_scores if score <= 0
         ),
-        "avg_selected_answerability_score": _avg(
-            selected_answerability_scores.get(query_role, ())
+        "avg_selected_answerability_score": _avg(selected_scores),
+        "avg_measured_selected_answerability_score": _avg(measured_selected_scores),
+        "selected_unmeasured_answerability_count": sum(
+            1 for score in selected_scores if score <= 0
         ),
         "selected_bundle_role_counts": dict(
             sorted(selected_bundle_role_counts.get(query_role, Counter()).items())

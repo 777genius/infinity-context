@@ -341,7 +341,11 @@ def test_quality_diagnostics_reports_intents_policies_bundle_gaps_and_leakage() 
         "bridge_query_hit_candidate_count": 1,
         "bridge_query_hit_selected_count": 1,
         "avg_candidate_answerability_score": 0.9,
+        "avg_measured_candidate_answerability_score": 0.9,
+        "candidate_unmeasured_answerability_count": 0,
         "avg_selected_answerability_score": 0.9,
+        "avg_measured_selected_answerability_score": 0.9,
+        "selected_unmeasured_answerability_count": 0,
         "selected_bundle_role_counts": {"bridge": 1},
     }
     assert query_roles["role_stats"]["temporal_support"] == {
@@ -353,7 +357,11 @@ def test_quality_diagnostics_reports_intents_policies_bundle_gaps_and_leakage() 
         "bridge_query_hit_candidate_count": 0,
         "bridge_query_hit_selected_count": 0,
         "avg_candidate_answerability_score": 0.42,
+        "avg_measured_candidate_answerability_score": 0.42,
+        "candidate_unmeasured_answerability_count": 0,
         "avg_selected_answerability_score": 0.0,
+        "avg_measured_selected_answerability_score": 0.0,
+        "selected_unmeasured_answerability_count": 0,
         "selected_bundle_role_counts": {},
     }
     assert diagnostics["false_positive_categories"]["query_leakage_risk"] == 1
@@ -1923,7 +1931,11 @@ def test_fast_gate_metrics_reports_query_role_gap_breakdown() -> None:
         "bridge_query_hit_candidate_count": 0,
         "bridge_query_hit_selected_count": 0,
         "avg_candidate_answerability_score": 0.72,
+        "avg_measured_candidate_answerability_score": 0.72,
+        "candidate_unmeasured_answerability_count": 0,
         "avg_selected_answerability_score": 0.0,
+        "avg_measured_selected_answerability_score": 0.0,
+        "selected_unmeasured_answerability_count": 0,
         "selected_bundle_role_counts": {},
         "gap_reasons": ["not_selected"],
     }
