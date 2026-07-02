@@ -817,6 +817,80 @@ def test_answer_context_backfill_prefers_source_proximate_role_evidence() -> Non
     assert diagnostics["backfilled_source_proximity_closest_distance"] == 2
 
 
+def test_answer_context_backfill_requires_content_time_for_temporal_role_hit() -> None:
+    memories = (
+        RetrievedMemory(text="primary", rank=1, item_id="primary"),
+        RetrievedMemory(
+            text=(
+                "session_1 turn D1:1 date: 10:00 am "
+                "D1:1 Alex mentioned the checklist."
+            ),
+            rank=2,
+            item_id="metadata-only-time",
+            source_refs=("D1:1",),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "answerability_score": 0.9,
+                        "source_locality_score": 0.9,
+                        "entity_hits": ["alex"],
+                        "speaker_hits": ["alex"],
+                        "relation_hits": ["mention", "checklist"],
+                        "query_roles": ["temporal_support"],
+                        "has_explicit_time_surface": True,
+                        "has_explicit_time_content_surface": False,
+                        "time_intent_kind": "explicit_time",
+                    }
+                }
+            },
+        ),
+        RetrievedMemory(
+            text="D2:3 Alex: I mentioned the checklist on Friday afternoon.",
+            rank=3,
+            item_id="content-time",
+            source_refs=("D2:3",),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "answerability_score": 0.82,
+                        "source_locality_score": 0.9,
+                        "entity_hits": ["alex"],
+                        "speaker_hits": ["alex"],
+                        "relation_hits": ["mention", "checklist"],
+                        "query_roles": ["temporal_support"],
+                        "has_explicit_time_surface": True,
+                        "has_explicit_time_content_surface": True,
+                        "time_intent_kind": "explicit_time",
+                    }
+                }
+            },
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "role_requirement_complete": False,
+            "missing_required_roles": ["temporal_support"],
+            "items": [{"id": "primary", "retrieval_order": 1, "role": "primary"}],
+        },
+        cutoff=3,
+    )
+
+    assert [memory.item_id for memory in context.memories] == [
+        "primary",
+        "content-time",
+        "metadata-only-time",
+    ]
+    assert context.memories[1].metadata[
+        "answer_context_backfill_missing_role_hits"
+    ] == ("temporal_support",)
+    assert (
+        "answer_context_backfill_missing_role_hits"
+        not in context.memories[2].metadata
+    )
+
+
 def test_answer_context_falls_back_for_empty_bundle() -> None:
     memories = (
         RetrievedMemory(text="first", rank=1, item_id="first"),

@@ -195,19 +195,19 @@ def _missing_role_match_score(features: Mapping[str, object], role: str) -> floa
         or _string_tuple(features.get("speaker_hits"))
     )
     if role in query_roles:
+        if role_key in _TEMPORAL_ROLE_KEYS:
+            return (
+                0.92
+                if _has_temporal_features(features, role_key=role_key)
+                else 0.0
+            )
         return 0.92
     if role_key in categories:
         return 0.9
     if role_key in {"contrast"}:
         return 0.88 if _has_contrast_features(features) else 0.0
-    if role_key in {
-        "temporal",
-        "duration_temporal",
-        "explicit_temporal",
-        "relative_temporal",
-        "temporal_sequence",
-    }:
-        return 0.86 if _has_temporal_features(features) else 0.0
+    if role_key in _TEMPORAL_ROLE_KEYS:
+        return 0.86 if _has_temporal_features(features, role_key=role_key) else 0.0
     if role_key == "preference":
         return 0.88 if features.get("has_preference_evidence") is True else 0.0
     if role_key == "visual":
@@ -229,7 +229,41 @@ def _missing_role_match_score(features: Mapping[str, object], role: str) -> floa
     return 0.86 if role_key in categories else 0.0
 
 
-def _has_temporal_features(features: Mapping[str, object]) -> bool:
+_TEMPORAL_ROLE_KEYS = frozenset(
+    {
+        "temporal",
+        "duration_temporal",
+        "explicit_temporal",
+        "relative_temporal",
+        "temporal_sequence",
+    }
+)
+
+
+def _has_temporal_features(
+    features: Mapping[str, object],
+    *,
+    role_key: str,
+) -> bool:
+    time_kind = str(features.get("time_intent_kind") or "").strip()
+    if role_key == "duration_temporal" or time_kind == "duration":
+        return features.get("has_duration_surface") is True
+    if role_key == "explicit_temporal" or time_kind == "explicit_time":
+        return features.get("has_explicit_time_content_surface") is True
+    if role_key == "relative_temporal" or time_kind == "relative_time":
+        return any(
+            features.get(key) is True
+            for key in (
+                "has_relative_time_surface",
+                "currentness_surface",
+                "has_temporal_surface",
+            )
+        )
+    if role_key == "temporal_sequence" or time_kind == "temporal_sequence":
+        return any(
+            features.get(key) is True
+            for key in ("has_temporal_sequence_surface", "has_sequence_surface")
+        )
     return any(
         features.get(key) is True
         for key in (
@@ -237,7 +271,7 @@ def _has_temporal_features(features: Mapping[str, object]) -> bool:
             "has_sequence_surface",
             "has_duration_surface",
             "has_relative_time_surface",
-            "has_explicit_time_surface",
+            "has_explicit_time_content_surface",
             "has_temporal_sequence_surface",
             "currentness_surface",
         )

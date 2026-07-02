@@ -69,6 +69,8 @@ def test_quality_diagnostics_reports_intents_policies_bundle_gaps_and_leakage() 
                         "direct_speaker_turn": True,
                         "time_intent_kind": "duration",
                         "has_duration_surface": True,
+                        "has_explicit_time_surface": True,
+                        "has_explicit_time_content_surface": True,
                         "source_locality_score": 1.0,
                         "source_locality_reason_codes": ["direct_localized_turn"],
                         "answerability_score": 0.9,
@@ -296,6 +298,8 @@ def test_quality_diagnostics_reports_intents_policies_bundle_gaps_and_leakage() 
     }
     assert feature_table["typed_temporal_surface_counts"] == {
         "has_duration_surface": 1,
+        "has_explicit_time_content_surface": 1,
+        "has_explicit_time_surface": 1,
         "has_relative_time_surface": 1,
     }
     assert feature_table["bridge_query_hit_count"] == 1

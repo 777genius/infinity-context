@@ -1328,6 +1328,7 @@ def _evidence_feature_table(items: Sequence[Mapping[str, object]]) -> dict[str, 
             "has_duration_surface",
             "has_relative_time_surface",
             "has_explicit_time_surface",
+            "has_explicit_time_content_surface",
             "has_temporal_sequence_surface",
         ):
             if features.get(key) is True:
