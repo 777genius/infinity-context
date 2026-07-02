@@ -891,9 +891,16 @@ def test_evidence_bundle_planner_rejects_weak_required_contrast_support() -> Non
     diagnostics = plan.to_diagnostics()
     assert diagnostics["role_requirement_complete"] is False
     assert diagnostics["bundle_quality"]["missing_required_roles"] == ["contrast"]
+    assert diagnostics["bundle_quality"]["contrast_count"] == 0
+    assert diagnostics["bundle_quality"]["contrast_surface_count"] == 1
+    assert diagnostics["bundle_quality"]["component_scores"]["contrast_support"] == 0
     assert "risk:missing_required_contrast" in diagnostics["bundle_quality"][
         "reason_codes"
     ]
+    assert "has_contrast_evidence" not in diagnostics["bundle_quality"][
+        "reason_codes"
+    ]
+    assert "has_contrast_surface" in diagnostics["bundle_quality"]["reason_codes"]
 
 
 def test_evidence_bundle_planner_accepts_grounded_required_contrast_support() -> None:
@@ -926,6 +933,11 @@ def test_evidence_bundle_planner_accepts_grounded_required_contrast_support() ->
         "primary",
         "grounded-contrast",
     ]
+    quality = plan.to_diagnostics()["bundle_quality"]
+    assert quality["contrast_count"] == 1
+    assert quality["contrast_surface_count"] == 1
+    assert quality["component_scores"]["contrast_support"] == 0.08
+    assert "has_contrast_evidence" in quality["reason_codes"]
 
 
 def test_evidence_bundle_planner_prioritizes_multi_hop_bridge_evidence() -> None:

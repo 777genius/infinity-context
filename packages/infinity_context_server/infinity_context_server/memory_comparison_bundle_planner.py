@@ -952,7 +952,10 @@ def _candidate_has_contrast_support(candidate: EvidenceBundleCandidate) -> bool:
 def _candidate_has_contrast_grounding(candidate: EvidenceBundleCandidate) -> bool:
     if candidate.broad_summary or candidate.conflict_or_stale:
         return False
-    if candidate.source_locality_score < 0.45 and candidate.focused_evidence_score <= 0:
+    if (
+        0 < candidate.source_locality_score < 0.45
+        and candidate.focused_evidence_score <= 0
+    ):
         return False
     if candidate.answerability_score and candidate.answerability_score < 0.55:
         return False
@@ -1522,7 +1525,9 @@ def _bundle_quality_diagnostics(
     )
     source_proximity_distances = _source_proximity_distances(items)
     source_proximity_support_count = len(source_proximity_distances)
-    contrast_count = sum(1 for item in items if item.role == "contrast")
+    contrast_count = sum(
+        1 for item in items if _candidate_has_contrast_support(item.candidate)
+    )
     contrast_surface_count = sum(1 for item in items if item.candidate.contrast_surface)
     currentness_surface_count = sum(
         1 for item in items if item.candidate.currentness_surface
