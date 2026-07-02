@@ -333,7 +333,11 @@ _DATE_PROFILE_SURFACE_RE = re.compile(
     r"(?:on\s+|in\s+)?(?:\d{1,2}(?:st|nd|rd|th)?|"
     r"january|february|march|april|may|june|july|august|"
     r"september|october|november|december)\b"
-    r"|\bborn\s+(?:on|in)\s+"
+    r"|\bborn\s+(?:(?:on|in)\s+)?"
+    r"(?:\d{1,2}(?:st|nd|rd|th)?|"
+    r"january|february|march|april|may|june|july|august|"
+    r"september|october|november|december)\b"
+    r"|\bdate\s+of\s+birth\s+(?:is|was)\s+"
     r"(?:\d{1,2}(?:st|nd|rd|th)?|"
     r"january|february|march|april|may|june|july|august|"
     r"september|october|november|december)\b",

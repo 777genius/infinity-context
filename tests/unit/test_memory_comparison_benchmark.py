@@ -9502,6 +9502,60 @@ def test_benchmark_rerank_boosts_date_profile_evidence() -> None:
     )
 
 
+def test_benchmark_rerank_boosts_born_date_profile_evidence() -> None:
+    case = _case(
+        case_id="date-profile-born-rerank",
+        question="What is Alex's birthday?",
+        expected_terms=("May 5",),
+        answer="May 5",
+        category=4,
+    )
+    topical_birthday = RetrievedMemory(
+        item_id="topical-birthday",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex kept a birthday gift from Maria."
+        ),
+        source_refs=("D1:1",),
+    )
+    born_date_profile = RetrievedMemory(
+        item_id="born-date-profile",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: I was born May 5."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_birthday, born_date_profile),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("date_profile",)
+    assert reranked[0].item_id == "born-date-profile"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    date_diagnostics = diagnostics_by_id["born-date-profile"]
+    topical_diagnostics = diagnostics_by_id["topical-birthday"]
+    assert date_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["date_profile"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert (
+        date_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        > 0
+    )
+
+
 def test_benchmark_rerank_prefers_focused_turn_over_broad_session() -> None:
     case = _case(
         case_id="conv-26:qa:43",

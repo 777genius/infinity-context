@@ -125,6 +125,30 @@
 - `git push origin main` -> still blocked because the non-interactive runtime
   has no GitHub username/credential prompt available.
 
+## 2026-07-02 Follow-up 21
+
+- Expanded date-profile relation support for birth-date evidence phrased as
+  "I was born May 5" or "date of birth is May 5." This lets birthday/date
+  questions use typed `date_support` even when the evidence does not repeat the
+  word "birthday."
+- Added a rerank regression proving a topical birthday-gift mention stays
+  untyped while birth-date evidence receives typed date support and ranks first.
+
+## Verification
+
+- `uv run --extra dev pytest -q tests/unit/test_memory_comparison_benchmark.py::test_benchmark_rerank_boosts_born_date_profile_evidence tests/unit/test_memory_comparison_benchmark.py::test_benchmark_rerank_boosts_date_profile_evidence`
+  -> 2 passed, 1 warning.
+- `uv run --extra dev pytest -q tests/unit/test_memory_comparison*.py`
+  -> 512 passed, 1 warning.
+- `uv run --extra dev ruff check packages/infinity_context_server/infinity_context_server/memory_comparison_relation_support.py tests/unit/test_memory_comparison_benchmark.py`
+  -> passed.
+- `uv run --extra dev python -m infinity_context_server.eval memory-comparison-benchmark --dataset ./datasets/locomo10.json --memo-api-url http://127.0.0.1:7788 --mem0-url http://127.0.0.1:8888 --benchmark locomo --locomo-ingest-mode official-turns --case-set locomo-fast --report-mode compact --top-k 200 --top-k-cutoff 10 --top-k-cutoff 20 --top-k-cutoff 50 --top-k-cutoff 200 --allow-live --preflight-only`
+  -> blocked safely because `./datasets/locomo10.json` and memory auth token
+  are absent. Fast-readiness blockers were empty; no long/full LoCoMo run was
+  attempted.
+- `git push origin main` -> still blocked because the non-interactive runtime
+  has no GitHub username/credential prompt available.
+
 ## 2026-07-02 Follow-up 18
 
 - Allowed answerability boosts for grounded typed category evidence even when
