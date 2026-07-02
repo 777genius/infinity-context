@@ -1556,7 +1556,7 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
             }
         ),
         "markers": frozenset(),
-        "evidence_need": "inference_support",
+        "evidence_need": "identity_profile",
     },
     "status_profile": {
         "terms": frozenset(

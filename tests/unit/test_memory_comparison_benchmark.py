@@ -3702,6 +3702,8 @@ def test_query_decomposition_expands_profile_attribute_queries() -> None:
     )
     assert "caroline'" not in identity_metadata["query_profile"]["lexical_terms"]
     assert "identity" in identity_metadata["query_profile"]["relation_terms"]
+    assert identity_metadata["query_profile"]["evidence_need"] == ("identity_profile",)
+    assert "identity_support" in identity_metadata["query_plan"]["selected_roles"]
     assert "pride" in identity_metadata["query_profile"]["relation_variant_terms"]
     assert "support" in identity_metadata["query_profile"]["relation_variant_terms"]
     assert "inspir" in identity_metadata["query_profile"]["relation_variant_terms"]
@@ -3731,6 +3733,8 @@ def test_query_decomposition_expands_profile_attribute_queries() -> None:
     assert "read" in read_books_metadata["query_profile"]["relation_terms"]
     assert political_queries[2] == "caroline political rights lgbtq support accepted belief"
     assert "political" in political_metadata["query_profile"]["relation_terms"]
+    assert "identity_profile" in political_metadata["query_profile"]["evidence_need"]
+    assert "identity_support" in political_metadata["query_plan"]["selected_roles"]
     assert "right" in political_metadata["query_profile"]["relation_variant_terms"]
     assert not {"conservative", "transition", "comment", "hike"}.intersection(
         political_metadata["query_profile"]["relation_variant_terms"]
