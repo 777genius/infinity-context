@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -10,6 +11,12 @@ from infinity_context_server.memory_comparison_answer_context_backfill import (
     backfill_incomplete_bundle_context,
 )
 from infinity_context_server.memory_comparison_models import RetrievedMemory
+
+_BROAD_SUMMARY_SURFACE_RE = re.compile(
+    r"\b(?:conversation summary|memory summary|observations|related turns|"
+    r"events date|summari[sz]ed turns|summary of)\b|\bsummary\s*:",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -807,9 +814,9 @@ def _backfill_risk_stats(memories: Sequence[RetrievedMemory]) -> dict[str, objec
     conflict_or_stale_count = 0
     for memory in backfilled:
         features = _candidate_features(memory)
-        if features.get("broad_summary") is True:
+        if _memory_has_broad_summary(memory, features):
             broad_summary_count += 1
-        if features.get("conflict_or_stale") is True:
+        if _memory_has_conflict_or_stale(memory, features):
             conflict_or_stale_count += 1
     return {
         "backfilled_broad_summary_count": broad_summary_count,
@@ -847,6 +854,31 @@ def _memory_source_refs(memory: RetrievedMemory) -> tuple[str, ...]:
 def _candidate_features(memory: RetrievedMemory) -> Mapping[str, object]:
     diagnostics = _mapping(memory.metadata.get("diagnostics"))
     return _mapping(diagnostics.get("benchmark_candidate_features"))
+
+
+def _memory_has_broad_summary(
+    memory: RetrievedMemory,
+    features: Mapping[str, object],
+) -> bool:
+    return features.get("broad_summary") is True or bool(
+        _BROAD_SUMMARY_SURFACE_RE.search(memory.text or "")
+    )
+
+
+def _memory_has_conflict_or_stale(
+    memory: RetrievedMemory,
+    features: Mapping[str, object],
+) -> bool:
+    if features.get("conflict_or_stale") is True:
+        return True
+    diagnostics = _mapping(memory.metadata.get("diagnostics"))
+    stale_reason = diagnostics.get("stale_reason") or memory.metadata.get(
+        "stale_reason"
+    )
+    conflict_count = diagnostics.get("conflict_count") or memory.metadata.get(
+        "conflict_count"
+    )
+    return bool(stale_reason) or bool(_positive_int(conflict_count))
 
 
 def _positive_int(value: object) -> int | None:

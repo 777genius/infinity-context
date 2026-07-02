@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 
 from infinity_context_server.memory_comparison_models import RetrievedMemory
 
+_BROAD_SUMMARY_SURFACE_RE = re.compile(
+    r"\b(?:conversation summary|memory summary|observations|related turns|"
+    r"events date|summari[sz]ed turns|summary of)\b|\bsummary\s*:",
+    re.IGNORECASE,
+)
 _INCOMPLETE_BUNDLE_BACKFILL_MIN_ITEMS = 6
 _INCOMPLETE_BUNDLE_BACKFILL_MAX_ITEMS = 12
 _INCOMPLETE_BUNDLE_BACKFILL_ITEMS_PER_MISSING_ROLE = 2
@@ -101,9 +107,9 @@ def _backfill_candidate_sort_key(
     locality = _metric_value(features, "source_locality_score")
     has_source_refs = 1.0 if _memory_source_refs(memory) else 0.0
     quality_penalty = 0.0
-    if features.get("broad_summary") is True:
+    if _memory_has_broad_summary(memory, features):
         quality_penalty += 0.6
-    if features.get("conflict_or_stale") is True:
+    if _memory_has_conflict_or_stale(memory, features):
         quality_penalty += 0.4
     return (
         missing_role_score,
@@ -295,6 +301,41 @@ def _memory_source_refs(memory: RetrievedMemory) -> tuple[str, ...]:
 def _candidate_features(memory: RetrievedMemory) -> Mapping[str, object]:
     diagnostics = _mapping(memory.metadata.get("diagnostics"))
     return _mapping(diagnostics.get("benchmark_candidate_features"))
+
+
+def _memory_has_broad_summary(
+    memory: RetrievedMemory,
+    features: Mapping[str, object],
+) -> bool:
+    return features.get("broad_summary") is True or bool(
+        _BROAD_SUMMARY_SURFACE_RE.search(memory.text or "")
+    )
+
+
+def _memory_has_conflict_or_stale(
+    memory: RetrievedMemory,
+    features: Mapping[str, object],
+) -> bool:
+    if features.get("conflict_or_stale") is True:
+        return True
+    diagnostics = _mapping(memory.metadata.get("diagnostics"))
+    stale_reason = diagnostics.get("stale_reason") or memory.metadata.get(
+        "stale_reason"
+    )
+    conflict_count = diagnostics.get("conflict_count") or memory.metadata.get(
+        "conflict_count"
+    )
+    return bool(stale_reason) or bool(_positive_int(conflict_count))
+
+
+def _positive_int(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        parsed = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
 
 
 def _metric_value(item: Mapping[str, object], key: str) -> float:

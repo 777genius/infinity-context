@@ -307,12 +307,12 @@ def test_answer_context_backfill_prefers_local_role_evidence_over_summary() -> N
             source_refs=("D5:1", "D5:2", "D5:3", "D5:4"),
             metadata={
                 "diagnostics": {
+                    "stale_reason": "older_preference_summary",
                     "benchmark_candidate_features": {
                         "answerability_score": 0.98,
                         "source_locality_score": 0.45,
                         "relation_category_hits": ["contrast"],
                         "contrast_surface": True,
-                        "broad_summary": True,
                     }
                 }
             },
@@ -356,7 +356,7 @@ def test_answer_context_backfill_prefers_local_role_evidence_over_summary() -> N
     assert context.backfilled_retrieval_item_count == 2
     diagnostics = context.to_diagnostics()
     assert diagnostics["backfilled_broad_summary_count"] == 1
-    assert diagnostics["backfilled_conflict_or_stale_count"] == 0
+    assert diagnostics["backfilled_conflict_or_stale_count"] == 1
 
 
 def test_answer_context_falls_back_for_empty_bundle() -> None:
