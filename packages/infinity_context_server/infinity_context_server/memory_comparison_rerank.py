@@ -1420,22 +1420,11 @@ def _relation_query_terms(
                 "hobbies",
                 "partake",
                 "class",
-                "paint",
-                "swim",
-                "run",
-                "read",
-                "violin",
-                "kid",
-                "photo",
                 "creative",
                 "fun",
                 "interest",
                 "expres",
                 "refresh",
-                "image",
-                "family",
-                "weekend",
-                "unplug",
                 "therapeutic",
                 "leisure",
             )
@@ -1960,6 +1949,8 @@ def _benchmark_rerank_boost(
         memory_terms=set(candidate_features.memory_terms),
         relation_terms=relation_terms,
         focused_turn_boost=candidate_features.focused_turn_score,
+        relation_category_hits=candidate_features.relation_category_hits,
+        direct_speaker_turn=candidate_features.direct_speaker_turn,
     )
     score = score_benchmark_rerank_candidate(
         BenchmarkRerankFeatures(

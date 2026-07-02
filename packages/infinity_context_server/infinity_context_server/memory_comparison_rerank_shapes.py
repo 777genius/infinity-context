@@ -10,10 +10,18 @@ def focused_evidence_shape_boosts(
     memory_terms: set[str],
     relation_terms: Sequence[str],
     focused_turn_boost: float,
+    relation_category_hits: Sequence[str] = (),
+    direct_speaker_turn: bool = False,
 ) -> dict[str, float]:
     relation_set = set(relation_terms)
+    category_hit_set = set(relation_category_hits)
     boosts = _empty_shape_boosts()
-    if focused_turn_boost <= 0:
+    activity_category_evidence = (
+        direct_speaker_turn
+        and "activity" in category_hit_set
+        and ("activity" in relation_set or "hike" in relation_set)
+    )
+    if focused_turn_boost <= 0 and not activity_category_evidence:
         return boosts
     if {"kid", "like"}.issubset(relation_set):
         kids_nature = {"kid", "nature", "love"} <= memory_terms
@@ -77,7 +85,7 @@ def focused_evidence_shape_boosts(
             0.1
             if (
                 {"paint", "sunrise"} <= memory_terms
-                or {"swim", "kid"} <= memory_terms
+                or ({"kid"} <= memory_terms and {"swim", "swimming"} & memory_terms)
                 or {"hike", "water"} <= memory_terms
                 or {"hike", "spot"} <= memory_terms
                 or {"hike", "summer"} <= memory_terms

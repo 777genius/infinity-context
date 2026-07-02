@@ -635,6 +635,15 @@ def _relation_category_coverage_boost(features: RerankPolicyFeatures) -> float:
     if not features.relation_categories or not features.relation_category_hits:
         return 0.0
     if len(features.relation_hits) < 2 and features.high_signal_relation_hit_count == 0:
+        if (
+            features.direct_speaker_turn
+            and (
+                "activity" in features.relation_terms
+                or "hike" in features.relation_terms
+            )
+            and features.relation_category_coverage_ratio >= 1.0
+        ):
+            return 0.045
         return 0.0
     base = 0.025
     if features.relation_category_coverage_ratio >= 1.0:

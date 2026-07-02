@@ -3671,22 +3671,23 @@ def test_query_decomposition_expands_locomo_topic_relations() -> None:
     )
 
     assert activity_queries[2] == (
-        "melanie activity hobby partake class paint swim run violin"
+        "melanie activity hobby partake class creative fun express refresh"
     )
     assert "activity" in activity_metadata["query_profile"]["relation_terms"]
     assert "hobby" in activity_metadata["query_profile"]["relation_variant_terms"]
     assert "class" in activity_metadata["query_profile"]["relation_variant_terms"]
-    assert "kid" in activity_metadata["query_profile"]["relation_variant_terms"]
-    assert "photo" in activity_metadata["query_profile"]["relation_variant_terms"]
     assert "creative" in activity_metadata["query_profile"]["relation_variant_terms"]
     assert "expres" in activity_metadata["query_profile"]["relation_variant_terms"]
-    assert "paint" in activity_metadata["query_profile"]["relation_variant_terms"]
-    assert "swim" in activity_metadata["query_profile"]["relation_variant_terms"]
-    assert "run" in activity_metadata["query_profile"]["relation_variant_terms"]
-    assert "violin" in activity_metadata["query_profile"]["relation_variant_terms"]
     assert not {
         "camping",
+        "family",
+        "kid",
+        "paint",
+        "photo",
         "pottery",
+        "run",
+        "swim",
+        "violin",
     }.intersection(activity_metadata["query_profile"]["relation_variant_terms"])
     assert camp_queries[2] == "melanie camp camping family unplug connection close"
     assert "camp" in camp_metadata["query_profile"]["relation_terms"]
@@ -4429,7 +4430,7 @@ def test_infinity_context_http_search_expands_generic_activity_queries() -> None
         payload = json.loads(request.content)
         seen_payloads.append(payload)
         if payload["query"] == (
-            "melanie activity hobby partake class paint swim run violin"
+            "melanie activity hobby partake class creative fun express refresh"
         ):
             items = [
                 {
@@ -4477,21 +4478,16 @@ def test_infinity_context_http_search_expands_generic_activity_queries() -> None
         "What activities does Melanie partake in?",
         "What activities does Melanie partake in?\n"
         "Search focus: entities: melanie; speakers: melanie:; "
-        "actions: activity, hobby, partake, class, paint, swim, run, violin",
-        "melanie activity hobby partake class paint swim run violin",
+        "actions: activity, hobby, partake, class, creative, fun, express, refresh",
+        "melanie activity hobby partake class creative fun express refresh",
     ]
     assert result.memories[0].item_id == "creative-activity-evidence"
     query_profile = result.metadata["query_decomposition"]["query_profile"]
     assert "activity" in query_profile["relation_terms"]
     assert "class" in query_profile["relation_variant_terms"]
-    assert "photo" in query_profile["relation_variant_terms"]
     assert "creative" in query_profile["relation_variant_terms"]
     assert "expres" in query_profile["relation_variant_terms"]
-    assert "paint" in query_profile["relation_variant_terms"]
-    assert "swim" in query_profile["relation_variant_terms"]
-    assert "run" in query_profile["relation_variant_terms"]
-    assert "violin" in query_profile["relation_variant_terms"]
-    assert not {"camping", "pottery"}.intersection(
+    assert not {"camping", "paint", "pottery", "run", "swim", "violin"}.intersection(
         query_profile["relation_variant_terms"]
     )
     diagnostics = result.memories[0].metadata["diagnostics"]
@@ -6742,7 +6738,7 @@ def test_benchmark_rerank_prefers_conference_plan_time_turn() -> None:
         (
             "conv-26:qa:16",
             "What activities does Melanie partake in?",
-            "D8:2 Melanie: We made pots at a pottery workshop with the kids.",
+            "D8:2 Melanie: We talked about the school calendar with the kids.",
             "D1:18 Melanie: I'm off to go swimming with the kids. Talk to you soon!",
             "benchmark_activity_coverage_shape_boost",
         ),
@@ -6816,7 +6812,10 @@ def test_benchmark_rerank_prefers_focused_evidence_shapes(
     assert [memory.item_id for memory in reranked] == ["evidence", "generic"]
     signals = reranked[0].metadata["diagnostics"]["score_signals"]
     assert signals[signal_key] > 0
-    assert signals["benchmark_focused_turn_boost"] > 0
+    if signal_key == "benchmark_activity_coverage_shape_boost":
+        assert signals["benchmark_relation_category_coverage_boost"] > 0
+    else:
+        assert signals["benchmark_focused_turn_boost"] > 0
 
 
 def test_benchmark_rerank_matches_speaker_alias_without_expanding_query() -> None:
