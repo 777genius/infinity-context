@@ -198,10 +198,6 @@
   -> 502 passed, 1 warning.
 - `uv run --extra dev ruff check packages/infinity_context_server/infinity_context_server/memory_comparison_quality_query_roles.py tests/unit/test_memory_comparison_quality_diagnostics.py`
   -> passed.
-- `git push origin main` -> still blocked because the non-interactive runtime
-  has no GitHub username/credential prompt available.
-- `git push origin main` -> still blocked because the non-interactive runtime
-  has no GitHub username/credential prompt available.
 
 ## 2026-07-02 Follow-up 11
 
@@ -253,3 +249,23 @@
   -> 505 passed, 1 warning.
 - `uv run --extra dev ruff check packages/infinity_context_server/infinity_context_server/memory_comparison_quality_query_roles.py tests/unit/test_memory_comparison_quality_diagnostics.py`
   -> passed.
+
+## 2026-07-02 Follow-up 14
+
+- Added lifted-only answerability gap diagnostics to the fast gate so reports
+  separate general missing-evidence candidates from candidates the reranker
+  actually boosted or otherwise lifted.
+- Added a `lifted_answerability_gaps_clear` readiness gate. Full LoCoMo is now
+  blocked when a lifted candidate still carries `missing_*_evidence` reason
+  codes, while non-lifted distractor gaps remain diagnostic-only.
+
+## Verification
+
+- `uv run --extra dev pytest -q tests/unit/test_memory_comparison_quality_diagnostics.py -k "answerability or ready_for_full or lifted"`
+  -> 3 passed, 43 deselected.
+- `uv run --extra dev pytest -q tests/unit/test_memory_comparison*.py`
+  -> 506 passed, 1 warning.
+- `uv run --extra dev ruff check packages/infinity_context_server/infinity_context_server/memory_comparison_quality_diagnostics.py tests/unit/test_memory_comparison_quality_diagnostics.py`
+  -> passed.
+- `git push origin main` -> still blocked because the non-interactive runtime
+  has no GitHub username/credential prompt available.

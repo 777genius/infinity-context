@@ -1495,18 +1495,73 @@ def test_fast_gate_metrics_reports_answerability_gap_breakdown() -> None:
     assert breakdown["schema_version"] == "answerability_gap_breakdown.v1"
     assert breakdown["gap_candidate_count"] == 1
     assert breakdown["gap_case_count"] == 1
+    assert breakdown["lifted_gap_candidate_count"] == 0
+    assert breakdown["lifted_gap_case_count"] == 0
     assert breakdown["reason_counts"] == {
         "missing_contrast_evidence": 1,
         "missing_preference_evidence": 1,
     }
+    assert breakdown["lifted_reason_counts"] == {}
     assert breakdown["category_counts"] == {"contrast": 1, "preference": 1}
+    assert breakdown["lifted_category_counts"] == {}
     assert breakdown["samples"][0]["case_id"] == "missing-typed-evidence"
     assert breakdown["samples"][0]["memory_id"] == "topic-only"
+    assert breakdown["samples"][0]["lifted"] is False
+    assert breakdown["samples"][0]["positive_policy_score"] == 0
     assert breakdown["samples"][0]["answerability_score"] == 0.42
     assert breakdown["samples"][0]["relation_categories"] == [
         "preference",
         "contrast",
     ]
+
+
+def test_fast_gate_metrics_blocks_lifted_answerability_gaps() -> None:
+    items = tuple(
+        _item(
+            case_id=f"case-{index}",
+            evidence_bundle={
+                "bundle_complete": True,
+                "evidence_term_count": 1,
+                "covered_evidence_terms": [f"D{index}:1"],
+                "items": [
+                    {
+                        "retrieval_order": 1 if index <= 30 else 2,
+                        "covered_evidence_terms": [f"D{index}:1"],
+                        "focused_evidence_score": 1.0,
+                    }
+                ],
+            },
+            retrieval=_retrieval_payload(
+                evidence_need=("health_support",),
+                policy_score=0.2 if index == 1 else 0.0,
+                item_id=f"candidate-{index}",
+                candidate_features={
+                    "answerability_score": 0.35,
+                    "source_locality_score": 0.8,
+                    "answerability_reason_codes": ["missing_health_evidence"],
+                    "relation_categories": ["health"],
+                    "relation_category_hits": [],
+                }
+                if index == 1
+                else {},
+            ),
+        )
+        for index in range(1, 41)
+    )
+
+    gate = fast_gate_metrics(items)
+    breakdown = gate["answerability_gap_breakdown"]
+
+    assert gate["passed"] is False
+    assert gate["ready_for_full_locomo"] is False
+    assert "lifted_answerability_gaps_clear" in gate["failed_gates"]
+    assert gate["gates"]["lifted_answerability_gaps_clear"]["actual"] == 1
+    assert breakdown["gap_candidate_count"] == 1
+    assert breakdown["lifted_gap_candidate_count"] == 1
+    assert breakdown["lifted_reason_counts"] == {"missing_health_evidence": 1}
+    assert breakdown["lifted_category_counts"] == {"health": 1}
+    assert breakdown["samples"][0]["lifted"] is True
+    assert breakdown["samples"][0]["positive_policy_score"] == 0.2
 
 
 def test_fast_gate_metrics_reports_bundle_support_summaries() -> None:

@@ -281,6 +281,12 @@ def fast_gate_metrics(
         "query_role_gaps_clear": _zero_gate(
             _positive_int(query_role_gap_breakdown.get("role_gap_count")) or 0
         ),
+        "lifted_answerability_gaps_clear": _zero_gate(
+            _positive_int(
+                answerability_gap_breakdown.get("lifted_gap_candidate_count")
+            )
+            or 0
+        ),
     }
     if bundle_quality_count:
         gates["bundle_quality_present"] = _min_gate(
@@ -540,9 +546,13 @@ def _answerability_gap_breakdown(
     items: Sequence[Mapping[str, object]],
 ) -> dict[str, object]:
     reason_counts: Counter[str] = Counter()
+    lifted_reason_counts: Counter[str] = Counter()
     category_counts: Counter[str] = Counter()
+    lifted_category_counts: Counter[str] = Counter()
     case_ids: set[str] = set()
+    lifted_case_ids: set[str] = set()
     candidate_count = 0
+    lifted_candidate_count = 0
     samples: list[dict[str, object]] = []
     for item in items:
         case_id = str(item.get("case_id") or "")
@@ -559,14 +569,23 @@ def _answerability_gap_breakdown(
             )
             if not reasons:
                 continue
+            diagnostics = _memory_diagnostics(memory)
+            lifted = _candidate_lifted(diagnostics)
             candidate_count += 1
             if case_id:
                 case_ids.add(case_id)
+                if lifted:
+                    lifted_case_ids.add(case_id)
+            if lifted:
+                lifted_candidate_count += 1
+                lifted_reason_counts.update(reasons)
             reason_counts.update(reasons)
             for reason in reasons:
                 category = reason.removeprefix("missing_").removesuffix("_evidence")
                 if category:
                     category_counts[category] += 1
+                    if lifted:
+                        lifted_category_counts[category] += 1
             if len(samples) < 10:
                 samples.append(
                     {
@@ -575,6 +594,11 @@ def _answerability_gap_breakdown(
                         "memory_id": _memory_id(memory),
                         "rank": _positive_int(memory.get("rank")),
                         "reasons": list(reasons),
+                        "lifted": lifted,
+                        "positive_policy_score": round(
+                            _positive_policy_score(diagnostics),
+                            6,
+                        ),
                         "answerability_score": round(
                             _metric_value(features, "answerability_score"),
                             6,
@@ -596,8 +620,12 @@ def _answerability_gap_breakdown(
         "schema_version": "answerability_gap_breakdown.v1",
         "gap_candidate_count": candidate_count,
         "gap_case_count": len(case_ids),
+        "lifted_gap_candidate_count": lifted_candidate_count,
+        "lifted_gap_case_count": len(lifted_case_ids),
         "reason_counts": dict(sorted(reason_counts.items())),
+        "lifted_reason_counts": dict(sorted(lifted_reason_counts.items())),
         "category_counts": dict(sorted(category_counts.items())),
+        "lifted_category_counts": dict(sorted(lifted_category_counts.items())),
         "samples": samples,
     }
 
