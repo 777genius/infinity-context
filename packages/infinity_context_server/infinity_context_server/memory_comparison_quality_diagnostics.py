@@ -17,8 +17,10 @@ _BRIDGE_GAP_REASONS = frozenset(
 _EVIDENCE_NEED_GAP_REASONS = frozenset(
     {
         "missing_contrast",
+        "missing_location_support",
         "missing_required_bridge",
         "missing_required_contrast",
+        "missing_required_location_support",
         "missing_required_temporal_support",
         "missing_temporal_support",
     }
@@ -630,6 +632,8 @@ def _bundle_incomplete_reasons(item: Mapping[str, object]) -> tuple[str, ...]:
         reasons.append("no_focused_evidence")
     if _needs_contrast_evidence(item) and not _bundle_has_contrast_support(bundle):
         reasons.append("missing_contrast")
+    if _needs_location_support(item) and not _bundle_has_location_support(bundle):
+        reasons.append("missing_location_support")
     if _needs_temporal_support(item) and not _bundle_has_temporal_support(bundle):
         reasons.append("missing_temporal_support")
     for role in _str_tuple(bundle.get("missing_required_roles")):
@@ -1346,6 +1350,11 @@ def _evidence_role_query_families(role: str) -> tuple[str, ...]:
         "supporting": ("base_query", "expanded_focus", "relation_compact"),
         "bridge": ("multi_hop", "relation_compact", "expanded_focus"),
         "temporal_support": ("temporal_support", "expanded_focus"),
+        "location_support": (
+            "location_support",
+            "relation_compact",
+            "expanded_focus",
+        ),
         "contrast": ("contrast_support", "relation_compact", "expanded_focus"),
         "entity_disambiguation": (
             "base_query",
@@ -1973,6 +1982,31 @@ def _needs_contrast_evidence(item: Mapping[str, object]) -> bool:
     return bool("contrast" in evidence_need or "contrast" in relation_categories)
 
 
+def _needs_location_support(item: Mapping[str, object]) -> bool:
+    metadata = _retrieval_metadata(item)
+    query_decomposition = _mapping(metadata.get("query_decomposition"))
+    query_profile = _mapping(query_decomposition.get("query_profile"))
+    intent = _mapping(query_decomposition.get("retrieval_intent"))
+    evidence_need = (
+        _str_tuple(query_profile.get("evidence_need"))
+        or _str_tuple(intent.get("evidence_need"))
+    )
+    relation_categories = _str_tuple(query_profile.get("relation_categories"))
+    if not relation_categories:
+        relation_categories = tuple(
+            str(relation.get("category") or "").strip()
+            for relation in _sequence(
+                _mapping(_mapping(intent.get("relations")).get("intents"))
+            )
+            if isinstance(relation, Mapping)
+            and str(relation.get("category") or "").strip()
+        )
+    return bool(
+        "location_support" in evidence_need
+        or "location_transition" in relation_categories
+    )
+
+
 def _bundle_roles(bundle: Mapping[str, object]) -> set[str]:
     roles = {
         str(item.get("role") or "").strip()
@@ -2019,6 +2053,21 @@ def _bundle_has_contrast_support(bundle: Mapping[str, object]) -> bool:
             or "contrast_surface" in _str_tuple(item.get("planner_reason_codes"))
             or "stale_surface" in _str_tuple(item.get("planner_reason_codes"))
             or "negation_surface" in _str_tuple(item.get("planner_reason_codes"))
+        )
+        for item in _bundle_items(bundle)
+    )
+
+
+def _bundle_has_location_support(bundle: Mapping[str, object]) -> bool:
+    if "location_support" in _bundle_roles(bundle):
+        return True
+    if _bundle_has_planner_reason(bundle, "location_support"):
+        return True
+    return any(
+        bool(
+            "location_transition" in _str_tuple(item.get("relation_category_hits"))
+            or "location_relation_category_hits"
+            in _str_tuple(item.get("planner_reason_codes"))
         )
         for item in _bundle_items(bundle)
     )

@@ -882,6 +882,101 @@ def test_fast_gate_metrics_reports_missing_contrast_evidence_gap() -> None:
     ]
 
 
+def test_fast_gate_metrics_reports_missing_location_support_gap() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="missing-location",
+                group="single-hop",
+                retrieval=_retrieval_payload(
+                    evidence_need=("location_support",),
+                    relation_categories=("location_transition",),
+                    policy_score=0.0,
+                ),
+                retrieval_quality={
+                    "expected_term_recall": 0.5,
+                    "evidence_term_recall": 0.0,
+                    "missing_evidence_terms": ["D8:2"],
+                },
+                evidence_bundle={
+                    "bundle_complete": False,
+                    "item_count": 1,
+                    "primary_evidence_count": 1,
+                    "supporting_evidence_count": 0,
+                    "query_support_term_recall": 0.5,
+                    "covered_evidence_terms": [],
+                    "items": [
+                        {
+                            "role": "primary",
+                            "retrieval_order": 1,
+                            "covered_evidence_terms": [],
+                            "focused_evidence_score": 1.0,
+                            "relation_category_hits": [],
+                            "planner_reason_codes": ["primary_signal"],
+                        }
+                    ],
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    breakdown = gate["bundle_gap_breakdown"]
+
+    assert breakdown["reason_counts"]["missing_location_support"] == 1
+    assert breakdown["evidence_need_gap_reason_counts"] == {
+        "missing_location_support": 1
+    }
+    assert breakdown["samples"][0]["reasons"] == [
+        "missing_supporting",
+        "missing_evidence_refs",
+        "missing_location_support",
+    ]
+
+
+def test_fast_gate_metrics_accepts_location_relation_evidence() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="has-location",
+                group="single-hop",
+                retrieval=_retrieval_payload(
+                    evidence_need=("location_support",),
+                    relation_categories=("location_transition",),
+                    policy_score=0.0,
+                ),
+                evidence_bundle={
+                    "bundle_complete": False,
+                    "item_count": 1,
+                    "primary_evidence_count": 1,
+                    "supporting_evidence_count": 0,
+                    "query_support_term_recall": 0.5,
+                    "covered_evidence_terms": [],
+                    "items": [
+                        {
+                            "role": "primary",
+                            "retrieval_order": 1,
+                            "focused_evidence_score": 1.0,
+                            "relation_category_hits": ["location_transition"],
+                            "planner_reason_codes": [
+                                "location_relation_category_hits"
+                            ],
+                        }
+                    ],
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    breakdown = gate["bundle_gap_breakdown"]
+
+    assert "missing_location_support" not in breakdown["reason_counts"]
+    assert "missing_location_support" not in breakdown[
+        "evidence_need_gap_reason_counts"
+    ]
+
+
 def test_fast_gate_metrics_reports_missing_required_bundle_roles() -> None:
     gate = fast_gate_metrics(
         (
@@ -921,6 +1016,70 @@ def test_fast_gate_metrics_reports_missing_required_bundle_roles() -> None:
     assert breakdown["reason_counts"]["missing_required_bridge"] == 1
     assert breakdown["evidence_need_gap_reason_counts"]["missing_required_bridge"] == 1
     assert "missing_required_bridge" in breakdown["samples"][0]["reasons"]
+
+
+def test_query_plan_integrity_maps_location_required_role_to_query_family() -> None:
+    missing_location_plan = {
+        "schema_version": "query_plan.v2",
+        "selected_query_count": 1,
+        "dropped_query_count": 0,
+        "selected_roles": ["original_question"],
+        "dropped_roles": [],
+        "recommended_role_families": ["base_query", "location_support"],
+        "selected_role_families": ["base_query"],
+        "missing_recommended_role_families": ["location_support"],
+        "role_family_counts": {"base_query": 1, "location_support": 1},
+        "selected_role_family_counts": {"base_query": 1},
+        "dropped_role_family_counts": {},
+        "candidate_type_counts": {"semantic": 1, "lexical": 1},
+        "selected_type_counts": {"semantic": 1},
+        "fanout_integrity": {"bounded": True},
+    }
+    location_plan = {
+        **missing_location_plan,
+        "selected_query_count": 2,
+        "selected_roles": ["original_question", "location_support"],
+        "selected_role_families": ["base_query", "location_support"],
+        "missing_recommended_role_families": [],
+        "selected_role_family_counts": {
+            "base_query": 1,
+            "location_support": 1,
+        },
+        "selected_type_counts": {"semantic": 1, "lexical": 1},
+    }
+
+    missing_item = _item(
+        case_id="missing-location-query",
+        group="single-hop",
+        retrieval=_retrieval_payload(
+            evidence_need=("location_support",),
+            bundle_evidence_roles=("primary", "location_support"),
+            relation_categories=("location_transition",),
+            policy_score=0.0,
+            query_plan=missing_location_plan,
+        ),
+    )
+    satisfied_item = _item(
+        case_id="has-location-query",
+        group="single-hop",
+        retrieval=_retrieval_payload(
+            evidence_need=("location_support",),
+            bundle_evidence_roles=("primary", "location_support"),
+            relation_categories=("location_transition",),
+            policy_score=0.0,
+            query_plan=location_plan,
+        ),
+    )
+
+    diagnostics = quality_diagnostics((missing_item, satisfied_item))
+    table = diagnostics["query_plan_integrity_table"]
+
+    assert table["missing_evidence_role_query_family_counts"] == {
+        "location_support": 1
+    }
+    assert table["samples"][0]["missing_evidence_role_query_families"] == (
+        "location_support",
+    )
 
 
 def test_fast_gate_metrics_reports_query_role_gap_breakdown() -> None:
