@@ -12,6 +12,12 @@ _HEALTH_LIFESTYLE_EXPANSION = (
     "healthy lifestyle take care serious motivation"
 )
 
+_FITNESS_ACTIVITY_EXPANSION = (
+    "fitness gym workout workouts working out exercise exercises boot camp boot camps "
+    "joined gym started gym go to gym progress routine class stay active improved "
+    "strength flexibility energy health family active training"
+)
+
 HEALTH_LIFESTYLE_EXPANSION_RULES: tuple[tuple[frozenset[str], str, str], ...] = (
     (
         frozenset({"health", "issue"}),
@@ -72,6 +78,41 @@ HEALTH_LIFESTYLE_EXPANSION_RULES: tuple[tuple[frozenset[str], str, str], ...] = 
         frozenset({"gym", "progress"}),
         _HEALTH_LIFESTYLE_EXPANSION,
         "health_lifestyle_bridge",
+    ),
+    (
+        frozenset({"gym", "start"}),
+        _FITNESS_ACTIVITY_EXPANSION,
+        "fitness_activity_bridge",
+    ),
+    (
+        frozenset({"gym", "join"}),
+        _FITNESS_ACTIVITY_EXPANSION,
+        "fitness_activity_bridge",
+    ),
+    (
+        frozenset({"gym", "progress"}),
+        _FITNESS_ACTIVITY_EXPANSION,
+        "fitness_activity_bridge",
+    ),
+    (
+        frozenset({"working", "out"}),
+        _FITNESS_ACTIVITY_EXPANSION,
+        "fitness_activity_bridge",
+    ),
+    (
+        frozenset({"work", "out", "family"}),
+        _FITNESS_ACTIVITY_EXPANSION,
+        "fitness_activity_bridge",
+    ),
+    (
+        frozenset({"fitness", "improved"}),
+        _FITNESS_ACTIVITY_EXPANSION,
+        "fitness_activity_bridge",
+    ),
+    (
+        frozenset({"boot", "camp"}),
+        _FITNESS_ACTIVITY_EXPANSION,
+        "fitness_activity_bridge",
     ),
     (
         frozenset({"knee", "issue"}),

@@ -4193,6 +4193,47 @@ def test_best_query_relevance_uses_health_lifestyle_bridge() -> None:
     assert relevance.distinctive_term_hits >= 6
 
 
+def test_query_expansion_bridges_fitness_activity_queries() -> None:
+    gym = build_query_expansion_plan("When did Sam start working out at the gym?")
+    joined = build_query_expansion_plan("When did Maria join a gym?")
+    family = build_query_expansion_plan("How often does John work out with his family?")
+    fitness = build_query_expansion_plan(
+        "How has John's fitness improved since starting boot camps with his family?"
+    )
+
+    assert "fitness gym workout workouts working out" in _expansion_query(
+        gym,
+        "fitness_activity_bridge",
+    )
+    assert "joined gym started gym go to gym" in _expansion_query(
+        joined,
+        "fitness_activity_bridge",
+    )
+    assert "family active training" in _expansion_query(
+        family,
+        "fitness_activity_bridge",
+    )
+    assert "boot camp boot camps" in _expansion_query(
+        fitness,
+        "fitness_activity_bridge",
+    )
+
+
+def test_best_query_relevance_uses_fitness_activity_bridge() -> None:
+    plan = build_query_expansion_plan("When did Sam start working out at the gym?")
+
+    _, reason, relevance = best_query_relevance(
+        plan,
+        text=(
+            "Sam started working out at the gym in January and kept a regular "
+            "fitness routine."
+        ),
+    )
+
+    assert reason == "fitness_activity_bridge"
+    assert relevance.distinctive_term_hits >= 6
+
+
 def test_query_expansion_bridges_career_month_setbacks() -> None:
     plan = build_query_expansion_plan(
         "Was September a good month career-wise for Dana and Morgan?"
