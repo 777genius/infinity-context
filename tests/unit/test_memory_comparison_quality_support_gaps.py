@@ -272,6 +272,50 @@ def test_fast_gate_metrics_rejects_temporal_role_label_without_surface() -> None
     assert "missing_temporal_support" in breakdown["samples"][0]["reasons"]
 
 
+def test_fast_gate_metrics_rejects_currentness_for_duration_temporal_support() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="duration-currentness-only",
+                group="temporal",
+                retrieval=_retrieval_payload(
+                    evidence_need=("temporal_support",),
+                    bundle_evidence_roles=("primary", "temporal_support"),
+                    relation_categories=("temporal",),
+                    policy_score=0.0,
+                ),
+                evidence_bundle={
+                    "bundle_complete": False,
+                    "item_count": 1,
+                    "primary_evidence_count": 1,
+                    "supporting_evidence_count": 0,
+                    "query_support_term_recall": 0.5,
+                    "covered_evidence_terms": [],
+                    "items": [
+                        {
+                            "role": "temporal_support",
+                            "retrieval_order": 1,
+                            "focused_evidence_score": 1.0,
+                            "time_intent_kind": "duration",
+                            "currentness_surface": True,
+                            "planner_reason_codes": ["currentness_surface"],
+                        }
+                    ],
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    breakdown = gate["bundle_gap_breakdown"]
+
+    assert breakdown["reason_counts"]["missing_temporal_support"] == 1
+    assert breakdown["evidence_need_gap_reason_counts"] == {
+        "missing_temporal_support": 1
+    }
+    assert "missing_temporal_support" in breakdown["samples"][0]["reasons"]
+
+
 def test_fast_gate_metrics_accepts_duration_temporal_evidence() -> None:
     gate = fast_gate_metrics(
         (

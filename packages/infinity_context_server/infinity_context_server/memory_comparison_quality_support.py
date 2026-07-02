@@ -221,27 +221,50 @@ def bundle_has_planner_reason(bundle: Mapping[str, object], reason: str) -> bool
 
 
 def bundle_has_temporal_support(bundle: Mapping[str, object]) -> bool:
-    return any(
-        bool(
-            item.get("has_temporal_surface")
-            or item.get("has_sequence_surface")
-            or item.get("has_duration_surface")
-            or item.get("has_relative_time_surface")
-            or item.get("has_explicit_time_surface")
-            or item.get("has_temporal_sequence_surface")
-            or item.get("currentness_surface")
-            or "temporal_surface" in _str_tuple(item.get("planner_reason_codes"))
-            or "sequence_surface" in _str_tuple(item.get("planner_reason_codes"))
-            or "duration_surface" in _str_tuple(item.get("planner_reason_codes"))
-            or "relative_time_surface"
-            in _str_tuple(item.get("planner_reason_codes"))
-            or "explicit_time_surface"
-            in _str_tuple(item.get("planner_reason_codes"))
-            or "temporal_sequence_surface"
-            in _str_tuple(item.get("planner_reason_codes"))
-            or "currentness_surface" in _str_tuple(item.get("planner_reason_codes"))
-        )
-        for item in _bundle_items(bundle)
+    return any(_bundle_item_has_temporal_support(item) for item in _bundle_items(bundle))
+
+
+def _bundle_item_has_temporal_support(item: Mapping[str, object]) -> bool:
+    time_kind = str(item.get("time_intent_kind") or "").strip()
+    reasons = _str_tuple(item.get("planner_reason_codes"))
+    has_temporal = bool(
+        item.get("has_temporal_surface") or "temporal_surface" in reasons
+    )
+    has_sequence = bool(
+        item.get("has_sequence_surface") or "sequence_surface" in reasons
+    )
+    has_duration = bool(
+        item.get("has_duration_surface") or "duration_surface" in reasons
+    )
+    has_relative = bool(
+        item.get("has_relative_time_surface") or "relative_time_surface" in reasons
+    )
+    has_explicit = bool(
+        item.get("has_explicit_time_surface") or "explicit_time_surface" in reasons
+    )
+    has_temporal_sequence = bool(
+        item.get("has_temporal_sequence_surface")
+        or "temporal_sequence_surface" in reasons
+    )
+    has_currentness = bool(
+        item.get("currentness_surface") or "currentness_surface" in reasons
+    )
+    if time_kind == "duration":
+        return has_duration
+    if time_kind == "temporal_sequence":
+        return has_temporal_sequence or has_sequence
+    if time_kind == "explicit_time":
+        return has_explicit or has_temporal
+    if time_kind == "relative_time":
+        return has_relative or has_currentness or has_temporal
+    return bool(
+        has_temporal
+        or has_sequence
+        or has_duration
+        or has_relative
+        or has_explicit
+        or has_temporal_sequence
+        or has_currentness
     )
 
 
