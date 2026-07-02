@@ -13,6 +13,7 @@ from infinity_context_server.memory_comparison_candidate_risks import (
 )
 from infinity_context_server.memory_comparison_models import RetrievedMemory
 from infinity_context_server.memory_comparison_relation_support import (
+    has_employment_occupation_surface,
     typed_relation_category_support,
 )
 
@@ -486,6 +487,10 @@ def _typed_category_has_query_grounding(
     memory_text: str = "",
 ) -> bool:
     if category == "education_profile" and _has_named_school_surface(memory_text):
+        return True
+    if category == "employment_profile" and has_employment_occupation_surface(
+        memory_text
+    ):
         return True
     if category not in {
         "communication",

@@ -8811,6 +8811,63 @@ def test_benchmark_rerank_boosts_employment_profile_evidence() -> None:
     )
 
 
+def test_benchmark_rerank_boosts_occupation_employment_profile_evidence() -> None:
+    case = _case(
+        case_id="employment-occupation-rerank",
+        question="What is Alex's job?",
+        expected_terms=("nurse",),
+        answer="nurse",
+        category=4,
+    )
+    topical_job = RetrievedMemory(
+        item_id="topical-job",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex talked with a nurse about Maria's appointment."
+        ),
+        source_refs=("D1:1",),
+    )
+    occupation_profile = RetrievedMemory(
+        item_id="occupation-profile",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: I'm a nurse at the clinic."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_job, occupation_profile),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("employment_profile",)
+    assert reranked[0].item_id == "occupation-profile"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    occupation_diagnostics = diagnostics_by_id["occupation-profile"]
+    topical_diagnostics = diagnostics_by_id["topical-job"]
+    assert occupation_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["employment_profile"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert occupation_diagnostics["score_signals"][
+        "benchmark_typed_relation_support_roles"
+    ] == ["employment_support"]
+    assert (
+        topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        == 0
+    )
+
+
 def test_benchmark_rerank_boosts_health_profile_evidence() -> None:
     case = _case(
         case_id="health-profile-rerank",

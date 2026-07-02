@@ -26,6 +26,36 @@
 - `git push origin main` -> blocked because the non-interactive runtime has no
   GitHub username/credential prompt available.
 
+## 2026-07-02 Follow-up 26
+
+- Expanded typed employment-profile evidence for explicit occupation identity
+  turns such as "I'm a nurse" instead of requiring "work for/at/as" or
+  "job is" wording.
+- Kept occupation grounding out of query fanout: explicit occupation profile
+  surfaces now satisfy the employment category grounding gate without adding a
+  broad occupation list to compact search queries.
+- Added a rerank regression proving "I'm a nurse at the clinic" receives typed
+  `employment_support` and outranks a higher-scored topical nurse appointment
+  mention.
+
+## Verification
+
+- `uv run --extra dev pytest -q tests/unit/test_memory_comparison_benchmark.py::test_query_decomposition_expands_employment_profile_queries tests/unit/test_memory_comparison_benchmark.py::test_benchmark_rerank_boosts_employment_profile_evidence tests/unit/test_memory_comparison_benchmark.py::test_benchmark_rerank_boosts_occupation_employment_profile_evidence`
+  -> 3 passed, 1 warning.
+- `uv run --extra dev pytest -q tests/unit/test_memory_comparison*.py`
+  -> 517 passed, 1 warning.
+- `uv run --extra dev ruff check packages/infinity_context_server/infinity_context_server/memory_comparison_relation_support.py packages/infinity_context_server/infinity_context_server/memory_comparison_candidate_features.py tests/unit/test_memory_comparison_benchmark.py`
+  -> passed.
+- `uv run --extra dev pytest -q tests/architecture/test_memory_boundaries.py`
+  -> 6 passed.
+- `git diff --check` -> passed.
+- `uv run --extra dev python -m infinity_context_server.eval memory-comparison-benchmark --dataset ./datasets/locomo10.json --memo-api-url http://127.0.0.1:7788 --mem0-url http://127.0.0.1:8888 --benchmark locomo --locomo-ingest-mode official-turns --case-set locomo-fast --report-mode compact --top-k 200 --top-k-cutoff 10 --top-k-cutoff 20 --top-k-cutoff 50 --top-k-cutoff 200 --allow-live --preflight-only`
+  -> blocked safely because `./datasets/locomo10.json` and memory auth token
+  are absent. Fast-readiness blockers were empty; no long/full LoCoMo run was
+  attempted.
+- `git push origin main` -> blocked because the non-interactive runtime has no
+  GitHub username/credential prompt available.
+
 ## 2026-07-02 Follow-up 25
 
 - Expanded location-origin support for "where was X raised" questions and

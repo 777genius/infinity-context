@@ -257,14 +257,30 @@ def _has_education_profile_support(
     )
 
 
+_OCCUPATION_TITLE_RE = (
+    r"(?:accountant|artist|attorney|chef|counselor|designer|developer|doctor|"
+    r"engineer|lawyer|manager|nurse|photographer|professor|researcher|"
+    r"scientist|teacher|therapist|writer|software\s+engineer|social\s+worker)"
+)
+_EMPLOYMENT_OCCUPATION_SURFACE_RE = re.compile(
+    rf"\b(?:i\s+am|i'm|he\s+is|he's|she\s+is|she's|they\s+are|"
+    rf"they're)\s+(?:a\s+|an\s+)?{_OCCUPATION_TITLE_RE}\b",
+    re.IGNORECASE,
+)
 _EMPLOYMENT_PROFILE_SURFACE_RE = re.compile(
     r"\b(?:work|works|worked|working)\s+(?:at|for|in|as)\s+"
     r"(?:[A-Z][a-zA-Z0-9_-]+|the\s+[a-zA-Z][a-zA-Z0-9_-]+|"
     r"a\s+[a-zA-Z][a-zA-Z0-9_-]+)"
     r"|\b(?:job|occupation|profession|role)\s+(?:is|was|as)\s+"
     r"(?:[A-Z][a-zA-Z0-9_-]+|a\s+[a-zA-Z][a-zA-Z0-9_-]+|"
-    r"the\s+[a-zA-Z][a-zA-Z0-9_-]+)",
+    r"the\s+[a-zA-Z][a-zA-Z0-9_-]+)"
+    rf"|{_EMPLOYMENT_OCCUPATION_SURFACE_RE.pattern}",
+    re.IGNORECASE,
 )
+
+
+def has_employment_occupation_surface(memory_text: str) -> bool:
+    return bool(_EMPLOYMENT_OCCUPATION_SURFACE_RE.search(memory_text))
 
 
 def _has_employment_profile_support(
