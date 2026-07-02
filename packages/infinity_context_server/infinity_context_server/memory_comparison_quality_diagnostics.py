@@ -304,31 +304,45 @@ def _per_intent_metrics(
 
 def _intent_keys(item: Mapping[str, object]) -> tuple[str, ...]:
     metadata = _retrieval_metadata(item)
-    query_decomposition = _mapping(metadata.get("query_decomposition"))
-    rerank = _mapping(metadata.get("benchmark_rerank"))
-    query_profile = _mapping(
-        query_decomposition.get("query_profile") or rerank.get("query_profile")
-    )
-    intent = _mapping(query_decomposition.get("retrieval_intent"))
-    evidence_need = _merged_intent_values(query_profile, intent, "evidence_need")
-    bundle_evidence_roles = _merged_intent_values(
-        query_profile,
-        intent,
+    payloads = _diagnostic_query_payloads(metadata)
+    evidence_need = _merged_payload_intent_values(payloads, "evidence_need")
+    bundle_evidence_roles = _merged_payload_intent_values(
+        payloads,
         "bundle_evidence_roles",
     )
     relation_categories = tuple(
         dict.fromkeys(
-            _str_tuple(query_profile.get("relation_categories"))
-            + _relation_categories(intent)
+            category
+            for payload in payloads
+            for category in (
+                _str_tuple(
+                    _mapping(payload.get("query_profile")).get(
+                        "relation_categories"
+                    )
+                )
+                + _relation_categories(_mapping(payload.get("retrieval_intent")))
+            )
         )
     )
-    time_intent = _mapping(intent.get("time_intent"))
-    time_kind = str(time_intent.get("kind") or "").strip()
+    time_kinds = tuple(
+        dict.fromkeys(
+            kind
+            for payload in payloads
+            for kind in (
+                str(
+                    _mapping(
+                        _mapping(payload.get("retrieval_intent")).get("time_intent")
+                    ).get("kind")
+                    or ""
+                ).strip(),
+            )
+            if kind and kind != "none"
+        )
+    )
     keys = [f"need:{need}" for need in evidence_need]
     keys.extend(f"role:{role}" for role in bundle_evidence_roles)
     keys.extend(f"relation:{category}" for category in relation_categories)
-    if time_kind and time_kind != "none":
-        keys.append(f"time:{time_kind}")
+    keys.extend(f"time:{time_kind}" for time_kind in time_kinds)
     if not keys:
         keys.append("need:unknown")
     return tuple(dict.fromkeys(keys))
@@ -345,13 +359,19 @@ def _relation_categories(intent: Mapping[str, object]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(categories))
 
 
-def _merged_intent_values(
-    query_profile: Mapping[str, object],
-    intent: Mapping[str, object],
+def _merged_payload_intent_values(
+    payloads: Sequence[Mapping[str, object]],
     key: str,
 ) -> tuple[str, ...]:
     return tuple(
-        dict.fromkeys(_str_tuple(query_profile.get(key)) + _str_tuple(intent.get(key)))
+        dict.fromkeys(
+            value
+            for payload in payloads
+            for value in (
+                _str_tuple(_mapping(payload.get("query_profile")).get(key))
+                + _str_tuple(_mapping(payload.get("retrieval_intent")).get(key))
+            )
+        )
     )
 
 

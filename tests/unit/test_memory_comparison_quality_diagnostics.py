@@ -433,6 +433,42 @@ def test_quality_diagnostics_per_intent_merges_profile_and_typed_intent() -> Non
     assert diagnostics["per_intent"]["relation:preference"]["total"] == 1
 
 
+def test_quality_diagnostics_per_intent_reads_query_expansion_intent() -> None:
+    retrieval = _retrieval_payload(
+        evidence_need=("single_fact",),
+        bundle_evidence_roles=("primary",),
+        relation_categories=("status_profile",),
+        policy_score=0.0,
+    )
+    retrieval["metadata"]["query_expansion"] = {
+        "retrieval_intent": {
+            "evidence_need": ["visual_evidence"],
+            "bundle_evidence_roles": ["visual_support"],
+            "relations": {"intents": [{"category": "preference"}]},
+            "time_intent": {"kind": "relative_time"},
+        }
+    }
+
+    diagnostics = quality_diagnostics(
+        (
+            _item(
+                case_id="query-expansion-per-intent",
+                group="single-hop",
+                score=1.0,
+                retrieval=retrieval,
+            ),
+        )
+    )
+
+    assert diagnostics["per_intent"]["need:single_fact"]["total"] == 1
+    assert diagnostics["per_intent"]["need:visual_evidence"]["total"] == 1
+    assert diagnostics["per_intent"]["role:primary"]["total"] == 1
+    assert diagnostics["per_intent"]["role:visual_support"]["total"] == 1
+    assert diagnostics["per_intent"]["relation:status_profile"]["total"] == 1
+    assert diagnostics["per_intent"]["relation:preference"]["total"] == 1
+    assert diagnostics["per_intent"]["time:relative_time"]["total"] == 1
+
+
 def test_quality_diagnostics_reports_source_ref_provenance_table() -> None:
     diagnostics = quality_diagnostics(
         (
