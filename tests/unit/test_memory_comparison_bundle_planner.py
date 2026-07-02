@@ -863,6 +863,71 @@ def test_evidence_bundle_planner_keeps_contrast_before_generic_temporal_support(
     assert diagnostics["bundle_quality"]["contrast_surface_count"] == 1
 
 
+def test_evidence_bundle_planner_rejects_weak_required_contrast_support() -> None:
+    primary = _candidate(
+        item_id="primary",
+        covered_expected_terms=("writing",),
+        primary_signal=True,
+        source_locality_score=1.0,
+        answerability_score=0.9,
+    )
+    weak_contrast = _candidate(
+        item_id="weak-contrast",
+        dedupe_key="refs:D7:5",
+        query_support_terms=("previous", "current"),
+        contrast_surface=True,
+        source_locality_score=0.2,
+        focused_evidence_score=0.0,
+        answerability_score=0.4,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, weak_contrast),
+        case_group="single",
+        required_roles=("primary", "contrast"),
+    )
+
+    assert plan.missing_required_roles == ("contrast",)
+    diagnostics = plan.to_diagnostics()
+    assert diagnostics["role_requirement_complete"] is False
+    assert diagnostics["bundle_quality"]["missing_required_roles"] == ["contrast"]
+    assert "risk:missing_required_contrast" in diagnostics["bundle_quality"][
+        "reason_codes"
+    ]
+
+
+def test_evidence_bundle_planner_accepts_grounded_required_contrast_support() -> None:
+    primary = _candidate(
+        item_id="primary",
+        covered_expected_terms=("writing",),
+        primary_signal=True,
+        source_locality_score=1.0,
+        answerability_score=0.9,
+    )
+    contrast = _candidate(
+        item_id="grounded-contrast",
+        dedupe_key="refs:D7:5",
+        query_support_terms=("previous", "current"),
+        contrast_surface=True,
+        source_locality_score=0.9,
+        focused_evidence_score=1.0,
+        answerability_score=0.82,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, contrast),
+        case_group="single",
+        required_roles=("primary", "contrast"),
+    )
+
+    assert plan.missing_required_roles == ()
+    assert plan.role_requirement_complete is True
+    assert [item.candidate.item_id for item in plan.items] == [
+        "primary",
+        "grounded-contrast",
+    ]
+
+
 def test_evidence_bundle_planner_prioritizes_multi_hop_bridge_evidence() -> None:
     primary = _candidate(
         item_id="primary",

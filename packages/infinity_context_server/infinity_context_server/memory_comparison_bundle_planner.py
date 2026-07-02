@@ -18,6 +18,22 @@ BundleRole = str
 _TURN_REF_RE = re.compile(r"\bD\d+:\d+\b")
 _TURN_REF_PARTS_RE = re.compile(r"\bD(?P<dialogue>\d+):(?P<turn>\d+)\b")
 _SOURCE_PROXIMITY_WINDOW = 3
+_PREDICATE_REQUIRED_ROLES = frozenset(
+    {
+        "causal_support",
+        "communication_support",
+        "contrast",
+        "emotion_response_support",
+        "event_support",
+        "exchange_support",
+        "inference_support",
+        "location_support",
+        "preference_support",
+        "symbolic_meaning_support",
+        "temporal_support",
+        "visual_support",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -602,7 +618,7 @@ def _satisfied_required_roles(
         ):
             satisfied.add(role)
             continue
-        if role in selected_roles and role != "temporal_support":
+        if role in selected_roles and role not in _PREDICATE_REQUIRED_ROLES:
             satisfied.add(role)
             continue
         if role == "contrast" and any(
@@ -922,12 +938,26 @@ def _candidate_has_temporal_grounding(candidate: EvidenceBundleCandidate) -> boo
 
 
 def _candidate_has_contrast_support(candidate: EvidenceBundleCandidate) -> bool:
+    if not _candidate_has_contrast_grounding(candidate):
+        return False
     return bool(
         candidate.contrast_surface
         or (
             candidate.currentness_surface
             and (candidate.stale_surface or candidate.negation_surface)
         )
+    )
+
+
+def _candidate_has_contrast_grounding(candidate: EvidenceBundleCandidate) -> bool:
+    if candidate.broad_summary or candidate.conflict_or_stale:
+        return False
+    if candidate.source_locality_score < 0.45 and candidate.focused_evidence_score <= 0:
+        return False
+    if candidate.answerability_score and candidate.answerability_score < 0.55:
+        return False
+    return not candidate.query_has_entities or bool(
+        candidate.entity_hits or candidate.speaker_hits
     )
 
 
