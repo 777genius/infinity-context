@@ -1204,6 +1204,20 @@ def _has_preference_support(memory_terms: set[str]) -> bool:
     )
 
 
+def _has_favorite_preference_support(memory_terms: set[str]) -> bool:
+    favorite_surface = {"favorite", "favourite"} & memory_terms
+    favorite_context = {
+        "book",
+        "choice",
+        "color",
+        "food",
+        "music",
+        "restaurant",
+        "song",
+    } & memory_terms
+    return bool(favorite_surface and favorite_context)
+
+
 def _has_contrast_support(memory_terms: set[str]) -> bool:
     current_surface = {
         "current",
@@ -1419,6 +1433,7 @@ _TYPED_SUPPORT_CHECKS: dict[str, Callable[[set[str]], bool]] = {
     "employment_profile": _has_employment_profile_support,
     "emotion_response": _has_emotion_response_support,
     "exchange": _has_exchange_support,
+    "favorite_preference": _has_favorite_preference_support,
     "health_profile": _has_health_profile_support,
     "identity_profile": _has_identity_profile_support,
     "pet_profile": _has_pet_profile_support,

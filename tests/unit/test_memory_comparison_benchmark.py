@@ -6389,12 +6389,22 @@ def test_query_decomposition_expands_favorite_preference_queries() -> None:
 
     assert color_queries[2] == "alex favorite color favourite prefer like love"
     assert color_metadata["query_profile"]["relation_terms"] == ("favorite",)
-    assert color_metadata["query_profile"]["relation_categories"] == ("preference",)
-    assert color_metadata["query_profile"]["evidence_need"] == ("preference",)
+    assert color_metadata["query_profile"]["relation_categories"] == (
+        "favorite_preference",
+        "preference",
+    )
+    assert color_metadata["query_profile"]["evidence_need"] == (
+        "favorite_preference",
+        "preference",
+    )
+    assert "favorite_support" in color_metadata["query_profile"][
+        "bundle_evidence_roles"
+    ]
 
     assert restaurant_queries[2] == "alex favourite restaurant favorite prefer like love"
     assert restaurant_metadata["query_profile"]["relation_terms"] == ("favourite",)
     assert restaurant_metadata["query_profile"]["relation_categories"] == (
+        "favorite_preference",
         "preference",
     )
 
@@ -9125,7 +9135,10 @@ def test_benchmark_rerank_boosts_favorite_preference_evidence() -> None:
     )
 
     assert metadata["applied"] is True
-    assert metadata["query_profile"]["evidence_need"] == ("preference",)
+    assert metadata["query_profile"]["evidence_need"] == (
+        "favorite_preference",
+        "preference",
+    )
     assert reranked[0].item_id == "favorite-color"
     diagnostics_by_id = {
         memory.item_id: memory.metadata["diagnostics"] for memory in reranked
@@ -9134,7 +9147,7 @@ def test_benchmark_rerank_boosts_favorite_preference_evidence() -> None:
     topical_diagnostics = diagnostics_by_id["topical-color"]
     assert favorite_diagnostics["benchmark_candidate_features"][
         "relation_category_hits"
-    ] == ["preference"]
+    ] == ["favorite_preference", "preference"]
     assert topical_diagnostics["benchmark_candidate_features"][
         "relation_category_hits"
     ] == []

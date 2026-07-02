@@ -146,7 +146,7 @@ def test_future_home_move_goal_query_is_not_location_support() -> None:
     assert diagnostics["query_plan"]["selected_roles"] == [
         "original_question",
         "expanded_focus",
-        "inference_support",
+        "current_goal_support",
     ]
     assert queries[2] == "caroline want move hop hope plan goal"
 

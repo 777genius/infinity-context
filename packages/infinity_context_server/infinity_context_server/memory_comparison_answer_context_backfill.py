@@ -213,6 +213,8 @@ def _missing_role_match_score(features: Mapping[str, object], role: str) -> floa
         return 0.86 if _has_temporal_features(features, role_key=role_key) else 0.0
     if role_key == "preference":
         return 0.88 if features.get("has_preference_evidence") is True else 0.0
+    if role_key == "favorite":
+        return 0.9 if "favorite_preference" in categories else 0.0
     if role_key == "visual":
         return 0.88 if features.get("has_visual_evidence") is True else 0.0
     if role_key == "location":

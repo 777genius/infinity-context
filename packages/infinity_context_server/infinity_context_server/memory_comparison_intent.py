@@ -369,6 +369,8 @@ def infer_evidence_need(
         )
     if visual_terms:
         needs.append("visual_evidence")
+    if {"favorite", "favourite"} & relation_set:
+        needs.append("favorite_preference")
     if {"favorite", "favourite", "interest", "prefer", "enjoy", "like", "love"} & relation_set:
         needs.append("preference")
     if _has_contrast_intent(
@@ -422,6 +424,8 @@ def infer_bundle_evidence_roles(
         roles.append("location_support")
     if "preference" in evidence_need_set:
         roles.append("preference_support")
+    if "favorite_preference" in evidence_need_set:
+        roles.append("favorite_support")
     if "visual_evidence" in evidence_need_set:
         roles.append("visual_support")
     if "emotion_response" in evidence_need_set:
@@ -459,6 +463,8 @@ def infer_bundle_evidence_roles(
         roles.append("diet_support")
     if "exchange" in evidence_need_set:
         roles.append("exchange_support")
+    if "favorite_preference" in evidence_need_set:
+        roles.append("favorite_support")
     if {"registration_event", "participation_event"} & evidence_need_set:
         roles.append("event_support")
     if "causal_support" in evidence_need_set:
@@ -501,6 +507,7 @@ def merge_relation_evidence_needs(
         "communication",
         "current_goal",
         "exchange",
+        "favorite_preference",
         "inference_support",
         "identity_profile",
         "participation_event",
@@ -1213,6 +1220,27 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
         ),
         "markers": frozenset(),
         "evidence_need": "single_fact",
+    },
+    "favorite_preference": {
+        "terms": frozenset({"favorite", "favourite"}),
+        "variants": frozenset(
+            {
+                "book",
+                "choice",
+                "color",
+                "favorite",
+                "favourite",
+                "food",
+                "go-to",
+                "music",
+                "prefer",
+                "preferred",
+                "restaurant",
+                "song",
+            }
+        ),
+        "markers": frozenset(),
+        "evidence_need": "favorite_preference",
     },
     "preference": {
         "terms": frozenset(

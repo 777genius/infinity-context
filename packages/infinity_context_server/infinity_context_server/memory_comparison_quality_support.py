@@ -36,6 +36,7 @@ _TYPED_RELATION_SUPPORT_CATEGORIES = {
     "diet_support": frozenset({"diet_profile"}),
     "education_support": frozenset({"education_profile"}),
     "employment_support": frozenset({"employment_profile"}),
+    "favorite_support": frozenset({"favorite_preference"}),
     "health_support": frozenset({"health_profile"}),
     "identity_support": frozenset({"identity_profile"}),
     "pet_support": frozenset({"pet_profile"}),

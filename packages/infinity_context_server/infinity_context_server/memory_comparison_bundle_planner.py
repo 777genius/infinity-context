@@ -29,6 +29,7 @@ _TYPED_RELATION_SUPPORT_CATEGORIES = {
     "diet_support": frozenset({"diet_profile"}),
     "education_support": frozenset({"education_profile"}),
     "employment_support": frozenset({"employment_profile"}),
+    "favorite_support": frozenset({"favorite_preference"}),
     "health_support": frozenset({"health_profile"}),
     "identity_support": frozenset({"identity_profile"}),
     "pet_support": frozenset({"pet_profile"}),
@@ -561,6 +562,11 @@ def _role_for_candidate(
     if _candidate_has_location_support(candidate):
         return "location_support"
     if (
+        "favorite_support" in set(required_roles)
+        and _candidate_has_favorite_support(candidate)
+    ):
+        return "favorite_support"
+    if (
         "preference_support" in set(required_roles)
         and _candidate_has_preference_support(candidate)
     ):
@@ -1043,6 +1049,12 @@ def _candidate_has_preference_support(candidate: EvidenceBundleCandidate) -> boo
         candidate.has_preference_evidence
         or "preference" in set(candidate.relation_category_hits)
     )
+
+
+def _candidate_has_favorite_support(candidate: EvidenceBundleCandidate) -> bool:
+    if not _candidate_has_typed_relation_grounding(candidate):
+        return False
+    return "favorite_preference" in set(candidate.relation_category_hits)
 
 
 def _candidate_has_visual_support(candidate: EvidenceBundleCandidate) -> bool:

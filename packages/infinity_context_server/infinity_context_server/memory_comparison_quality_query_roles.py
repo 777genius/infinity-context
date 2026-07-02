@@ -213,6 +213,7 @@ def _query_role_family(query_role: str) -> str:
         "emotion_response_support",
         "event_support",
         "exchange_support",
+        "favorite_support",
         "inference_support",
         "preference_support",
         "symbolic_meaning_support",

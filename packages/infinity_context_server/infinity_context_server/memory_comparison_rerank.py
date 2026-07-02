@@ -561,7 +561,8 @@ def decomposed_search_queries(
             alias_support=compact_relation_role == "alias_support",
             health_support=compact_relation_role == "health_support",
             pet_support=compact_relation_role == "pet_support",
-            preference_support=compact_relation_role == "preference_support",
+            preference_support=compact_relation_role
+            in {"favorite_support", "preference_support"},
             skill_support=compact_relation_role == "skill_support",
             vehicle_support=compact_relation_role == "vehicle_support",
         )
@@ -823,6 +824,8 @@ def _compact_relation_query_role(intent: RetrievalIntent) -> str:
         return "vehicle_support"
     if "support_goal" in evidence_needs:
         return "support_goal_support"
+    if "favorite_preference" in evidence_needs:
+        return "favorite_support"
     role_priority = (
         "communication_support",
         "event_support",
