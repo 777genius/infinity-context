@@ -340,8 +340,11 @@ def test_quality_diagnostics_reports_intents_policies_bundle_gaps_and_leakage() 
         "candidate_count": 1,
         "lifted_candidate_count": 1,
         "selected_item_count": 1,
+        "typed_relation_hit_count": 0,
+        "typed_relation_lifted_hit_count": 0,
         "selection_rate": 1.0,
         "lifted_rate": 1.0,
+        "typed_relation_hit_rate": 0.0,
         "bridge_query_hit_candidate_count": 1,
         "bridge_query_hit_selected_count": 1,
         "avg_candidate_answerability_score": 0.9,
@@ -362,8 +365,11 @@ def test_quality_diagnostics_reports_intents_policies_bundle_gaps_and_leakage() 
         "candidate_count": 1,
         "lifted_candidate_count": 0,
         "selected_item_count": 0,
+        "typed_relation_hit_count": 0,
+        "typed_relation_lifted_hit_count": 0,
         "selection_rate": 0.0,
         "lifted_rate": 0.0,
+        "typed_relation_hit_rate": 0.0,
         "bridge_query_hit_candidate_count": 0,
         "bridge_query_hit_selected_count": 0,
         "avg_candidate_answerability_score": 0.42,
@@ -400,6 +406,11 @@ def test_quality_diagnostics_groups_profile_support_query_roles() -> None:
                         "answerability_score": 0.8,
                         "source_locality_score": 0.9,
                     },
+                    score_signals={
+                        "benchmark_typed_relation_support_hit_roles": [
+                            "health_support"
+                        ],
+                    },
                 ),
                 evidence_bundle={
                     "bundle_complete": True,
@@ -426,6 +437,10 @@ def test_quality_diagnostics_groups_profile_support_query_roles() -> None:
     assert query_roles["candidate_role_counts"] == {"health_support": 1}
     assert query_roles["lifted_candidate_role_counts"] == {"health_support": 1}
     assert query_roles["selected_item_role_counts"] == {"health_support": 1}
+    assert query_roles["typed_relation_hit_role_counts"] == {"health_support": 1}
+    assert query_roles["typed_relation_lifted_hit_role_counts"] == {
+        "health_support": 1
+    }
     assert query_roles["candidate_role_family_counts"] == {"relation_compact": 1}
     assert query_roles["lifted_candidate_role_family_counts"] == {
         "relation_compact": 1
@@ -434,9 +449,59 @@ def test_quality_diagnostics_groups_profile_support_query_roles() -> None:
         "relation_compact": 1
     }
     assert query_roles["roles_without_selected_items"] == []
+    assert query_roles["roles_without_typed_relation_hits"] == []
     assert query_roles["role_stats"]["health_support"]["selected_bundle_role_counts"] == {
         "health_support": 1
     }
+    assert query_roles["role_stats"]["health_support"]["typed_relation_hit_count"] == 1
+
+
+def test_quality_diagnostics_tracks_typed_relation_hit_roles_separately() -> None:
+    diagnostics = quality_diagnostics(
+        (
+            _item(
+                case_id="mixed-profile-role",
+                group="single-hop",
+                retrieval=_retrieval_payload(
+                    evidence_need=("health_profile", "status_profile"),
+                    bundle_evidence_roles=(
+                        "primary",
+                        "health_support",
+                        "status_support",
+                    ),
+                    policy_score=0.25,
+                    candidate_features={
+                        "query_roles": ("health_support", "status_support"),
+                        "answerability_score": 0.8,
+                        "source_locality_score": 0.9,
+                    },
+                    score_signals={
+                        "benchmark_typed_relation_support_hit_roles": [
+                            "health_support"
+                        ],
+                    },
+                ),
+            ),
+        )
+    )
+
+    query_roles = diagnostics["query_role_effectiveness_table"]
+
+    assert query_roles["candidate_role_counts"] == {
+        "health_support": 1,
+        "status_support": 1,
+    }
+    assert query_roles["lifted_candidate_role_counts"] == {
+        "health_support": 1,
+        "status_support": 1,
+    }
+    assert query_roles["typed_relation_hit_role_counts"] == {"health_support": 1}
+    assert query_roles["typed_relation_lifted_hit_role_counts"] == {
+        "health_support": 1
+    }
+    assert query_roles["roles_without_typed_relation_hits"] == ["status_support"]
+    assert query_roles["role_stats"]["health_support"]["typed_relation_hit_rate"] == 1.0
+    assert query_roles["role_stats"]["status_support"]["typed_relation_hit_rate"] == 0.0
 
 
 def test_quality_diagnostics_false_positive_counts_typed_intent_leakage() -> None:

@@ -166,8 +166,6 @@
   -> passed.
 - `git push origin main` -> still blocked because the non-interactive runtime
   has no GitHub username/credential prompt available.
-- `git push origin main` -> still blocked because the non-interactive runtime
-  has no GitHub username/credential prompt available.
 
 ## 2026-07-02 Follow-up 9
 
@@ -184,3 +182,21 @@
   -> 501 passed, 1 warning.
 - `uv run --extra dev ruff check packages/infinity_context_server/infinity_context_server/memory_comparison_rerank_policies.py tests/unit/test_memory_comparison_rerank_policy.py`
   -> passed.
+
+## 2026-07-02 Follow-up 10
+
+- Added query-role effectiveness diagnostics for typed relation hit roles so
+  fast reports can distinguish a typed query role that merely appeared on a
+  lifted candidate from a typed role with matching evidence.
+- Added per-role typed relation hit counts/rates and a
+  `roles_without_typed_relation_hits` list to expose mixed profile fanout where
+  only part of the requested typed evidence was actually grounded.
+
+## Verification
+
+- `uv run --extra dev pytest -q tests/unit/test_memory_comparison*.py`
+  -> 502 passed, 1 warning.
+- `uv run --extra dev ruff check packages/infinity_context_server/infinity_context_server/memory_comparison_quality_query_roles.py tests/unit/test_memory_comparison_quality_diagnostics.py`
+  -> passed.
+- `git push origin main` -> still blocked because the non-interactive runtime
+  has no GitHub username/credential prompt available.
