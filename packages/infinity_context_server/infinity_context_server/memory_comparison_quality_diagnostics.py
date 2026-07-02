@@ -792,6 +792,15 @@ def _query_plan_gap_breakdown(
         "selected_role_family_counts": _count_mapping(
             query_plan_integrity.get("selected_role_family_counts")
         ),
+        "dropped_type_limit_role_counts": _count_mapping(
+            query_plan_integrity.get("dropped_type_limit_role_counts")
+        ),
+        "replaced_type_limit_role_counts": _count_mapping(
+            query_plan_integrity.get("replaced_type_limit_role_counts")
+        ),
+        "type_limit_replacement_role_counts": _count_mapping(
+            query_plan_integrity.get("type_limit_replacement_role_counts")
+        ),
         "samples": list(_sequence(query_plan_integrity.get("samples")))[:5],
     }
 
@@ -1742,6 +1751,9 @@ def _query_plan_integrity_table(
     role_family_counts: Counter[str] = Counter()
     selected_type_counts: Counter[str] = Counter()
     candidate_type_counts: Counter[str] = Counter()
+    dropped_type_limit_role_counts: Counter[str] = Counter()
+    replaced_type_limit_role_counts: Counter[str] = Counter()
+    type_limit_replacement_role_counts: Counter[str] = Counter()
     required_evidence_role_counts: Counter[str] = Counter()
     missing_evidence_role_query_family_counts: Counter[str] = Counter()
     gap_reason_counts: Counter[str] = Counter()
@@ -1780,6 +1792,16 @@ def _query_plan_integrity_table(
         candidate_type_counts.update(
             _count_mapping(query_plan.get("candidate_type_counts"))
         )
+        dropped_type_limit_role_counts.update(
+            _str_tuple(query_plan.get("dropped_type_limit_roles"))
+        )
+        replaced_type_limit_roles = _str_tuple(
+            query_plan.get("replaced_type_limit_roles")
+        )
+        replaced_type_limit_role_counts.update(replaced_type_limit_roles)
+        type_limit_replacement_role_counts.update(
+            _str_tuple(query_plan.get("type_limit_replacement_roles"))
+        )
         selected_role_families = _str_tuple(query_plan.get("selected_role_families"))
         missing_evidence_role_query_families = (
             _missing_evidence_role_query_families(
@@ -1814,6 +1836,8 @@ def _query_plan_integrity_table(
         if fanout.get("type_limit_hit") is True:
             type_limit_hit_count += 1
             gap_reasons.append("type_limit_hit")
+        if replaced_type_limit_roles:
+            gap_reasons.append("type_limit_replacement")
         if empty_count:
             gap_reasons.append("empty_query_candidate")
         gap_reason_counts.update(gap_reasons)
@@ -1863,6 +1887,15 @@ def _query_plan_integrity_table(
         "dropped_role_family_counts": _top_counts(dropped_family_counts),
         "selected_type_counts": _top_counts(selected_type_counts),
         "candidate_type_counts": _top_counts(candidate_type_counts),
+        "dropped_type_limit_role_counts": _top_counts(
+            dropped_type_limit_role_counts
+        ),
+        "replaced_type_limit_role_counts": _top_counts(
+            replaced_type_limit_role_counts
+        ),
+        "type_limit_replacement_role_counts": _top_counts(
+            type_limit_replacement_role_counts
+        ),
         "gap_reason_counts": _top_counts(gap_reason_counts),
         "samples": samples,
     }
@@ -1892,6 +1925,12 @@ def _query_plan_gap_sample(
         "dropped_roles": _str_tuple(query_plan.get("dropped_roles")),
         "dropped_type_limit_roles": _str_tuple(
             query_plan.get("dropped_type_limit_roles")
+        ),
+        "replaced_type_limit_roles": _str_tuple(
+            query_plan.get("replaced_type_limit_roles")
+        ),
+        "type_limit_replacement_roles": _str_tuple(
+            query_plan.get("type_limit_replacement_roles")
         ),
         "recommended_role_families": _str_tuple(
             query_plan.get("recommended_role_families")

@@ -2358,6 +2358,94 @@ def test_quality_diagnostics_reports_query_plan_integrity() -> None:
     ]
 
 
+def test_quality_diagnostics_reports_query_plan_type_limit_replacements() -> None:
+    query_plan = {
+        "schema_version": "query_plan.v2",
+        "selected_query_count": 2,
+        "dropped_query_count": 2,
+        "selected_roles": [
+            "original_question",
+            "location_support",
+        ],
+        "dropped_roles": [
+            "compact_relation",
+            "expanded_focus",
+        ],
+        "dropped_type_limit_roles": ["expanded_focus"],
+        "replaced_type_limit_roles": ["compact_relation"],
+        "type_limit_replacement_roles": ["location_support"],
+        "recommended_role_families": [
+            "base_query",
+            "location_support",
+            "relation_compact",
+        ],
+        "selected_role_families": [
+            "base_query",
+            "location_support",
+        ],
+        "missing_recommended_role_families": ["relation_compact"],
+        "selected_role_family_counts": {
+            "base_query": 1,
+            "location_support": 1,
+        },
+        "dropped_role_family_counts": {
+            "expanded_focus": 1,
+            "relation_compact": 1,
+        },
+        "candidate_type_counts": {"semantic": 1, "lexical": 3},
+        "selected_type_counts": {"semantic": 1, "lexical": 1},
+        "fanout_integrity": {
+            "bounded": True,
+            "type_limit_hit": True,
+        },
+    }
+    item = _item(
+        case_id="type-limit-replacement",
+        group="location",
+        retrieval=_retrieval_payload(
+            evidence_need=("location_support",),
+            bundle_evidence_roles=("primary", "location"),
+            policy_score=0.0,
+            query_plan=query_plan,
+        ),
+    )
+
+    diagnostics = quality_diagnostics((item,))
+    table = diagnostics["query_plan_integrity_table"]
+
+    assert table["type_limit_hit_count"] == 1
+    assert table["dropped_type_limit_role_counts"] == {"expanded_focus": 1}
+    assert table["replaced_type_limit_role_counts"] == {"compact_relation": 1}
+    assert table["type_limit_replacement_role_counts"] == {
+        "location_support": 1
+    }
+    assert table["gap_reason_counts"] == {
+        "dropped_queries": 1,
+        "missing_recommended_role_family": 1,
+        "type_limit_hit": 1,
+        "type_limit_replacement": 1,
+    }
+    assert table["samples"][0]["dropped_type_limit_roles"] == ("expanded_focus",)
+    assert table["samples"][0]["replaced_type_limit_roles"] == (
+        "compact_relation",
+    )
+    assert table["samples"][0]["type_limit_replacement_roles"] == (
+        "location_support",
+    )
+
+    gate = fast_gate_metrics((item,), expected_case_count=1)
+    breakdown = gate["query_plan_gap_breakdown"]
+
+    assert breakdown["dropped_type_limit_role_counts"] == {"expanded_focus": 1}
+    assert breakdown["replaced_type_limit_role_counts"] == {
+        "compact_relation": 1
+    }
+    assert breakdown["type_limit_replacement_role_counts"] == {
+        "location_support": 1
+    }
+    assert breakdown["gap_reason_counts"]["type_limit_replacement"] == 1
+
+
 def test_quality_diagnostics_reports_evidence_role_query_family_gap() -> None:
     query_plan = {
         "schema_version": "query_plan.v2",
