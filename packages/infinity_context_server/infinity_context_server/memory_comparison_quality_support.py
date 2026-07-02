@@ -557,7 +557,11 @@ def _passes_support_quality(item: Mapping[str, object]) -> bool:
     ):
         return False
     answerability_score = _float_value(item.get("answerability_score"))
-    return answerability_score is None or answerability_score >= 0.55
+    return (
+        answerability_score is None
+        or answerability_score <= 0
+        or answerability_score >= 0.55
+    )
 
 
 def _float_value(value: object) -> float | None:
