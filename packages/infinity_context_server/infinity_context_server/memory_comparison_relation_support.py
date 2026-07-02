@@ -227,7 +227,58 @@ def _has_status_profile_support(memory_terms: set[str]) -> bool:
     return bool(explicit_status or direct_relation)
 
 
+def _has_activity_support(memory_terms: set[str]) -> bool:
+    concrete_activity = {
+        "camp",
+        "camping",
+        "music",
+        "paint",
+        "painting",
+        "pottery",
+        "read",
+        "reading",
+        "run",
+        "running",
+        "song",
+        "songs",
+        "swim",
+        "swimming",
+        "violin",
+    } & memory_terms
+    creative_context = {"creative", "express", "fun", "hobby"} & memory_terms
+    hike_surface = {"hik", "hike", "hiking"} & memory_terms
+    hike_occurrence_context = {
+        "photo",
+        "pic",
+        "spot",
+        "summer",
+        "water",
+        "waterfall",
+        "weekend",
+        "went",
+    } & memory_terms
+    roadtrip_surface = {"roadtrip", "trip"} & memory_terms
+    roadtrip_occurrence_context = {
+        "accident",
+        "bad",
+        "forest",
+        "road",
+        "scared",
+        "start",
+    } & memory_terms
+    book_surface = {"book", "books", "bookshelf"} & memory_terms
+    book_context = {"classic", "culture", "educational", "kid", "kids", "story"} & memory_terms
+    return bool(
+        concrete_activity
+        or ({"class"} & memory_terms and creative_context)
+        or (hike_surface and hike_occurrence_context)
+        or (roadtrip_surface and roadtrip_occurrence_context)
+        or (book_surface and book_context)
+    )
+
+
 _TYPED_SUPPORT_CHECKS: dict[str, Callable[[set[str]], bool]] = {
+    "activity": _has_activity_support,
     "communication": _has_communication_support,
     "emotion_response": _has_emotion_response_support,
     "exchange": _has_exchange_support,

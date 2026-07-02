@@ -127,6 +127,12 @@ def test_candidate_features_capture_focused_direct_turn_and_provenance() -> None
             ("parent", "breakup", "family", "support"),
             {"parent", "breakup"},
         ),
+        (
+            "activity",
+            ("activity",),
+            ("hobby", "class", "creative", "paint", "swim", "run"),
+            {"class", "creative"},
+        ),
     ),
 )
 def test_candidate_features_require_typed_relation_evidence_for_answerability(

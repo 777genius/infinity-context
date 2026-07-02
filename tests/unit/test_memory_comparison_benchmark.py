@@ -5849,7 +5849,14 @@ def test_benchmark_rerank_boosts_hike_occurrence_evidence_over_generic_topic() -
     event_features = reranked[0].metadata["diagnostics"][
         "benchmark_candidate_features"
     ]
+    generic_features = reranked[2].metadata["diagnostics"][
+        "benchmark_candidate_features"
+    ]
     assert event_features["relation_category_hits"] == ["activity"]
+    assert generic_features["relation_category_hits"] == []
+    assert "missing_activity_evidence" in generic_features[
+        "answerability_reason_codes"
+    ]
     assert event_signals["benchmark_activity_coverage_shape_boost"] > 0
     assert generic_signals["benchmark_activity_coverage_shape_boost"] == 0
     assert event_signals["benchmark_effective_boost_cap"] > generic_signals[
