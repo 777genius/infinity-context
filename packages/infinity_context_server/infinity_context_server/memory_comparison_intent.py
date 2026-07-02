@@ -206,6 +206,11 @@ def infer_relation_intents(
             relation_terms=relation_terms,
         ):
             continue
+        if category == "current_goal" and not _has_current_goal_intent(
+            question=question,
+            relation_terms=relation_terms,
+        ):
+            continue
         terms = tuple(term for term in relation_terms if term in config["terms"])
         variants = tuple(
             term for term in relation_variant_terms if term in config["variants"]
@@ -361,6 +366,8 @@ def _has_location_transition_intent(
     normalized = " ".join(str(question or "").casefold().split())
     if not normalized:
         return False
+    if _has_future_home_move_goal_intent(normalized):
+        return False
     if re.search(
         r"\b(?:move|moved|moving|relocate|relocated)\s+"
         r"(?:the\s+)?(?:meeting|call|note|document|file|deadline|appointment|"
@@ -378,6 +385,33 @@ def _has_location_transition_intent(
             r"\b(?:move|moved|moving|relocate|relocated)\s+from\b",
             normalized,
         )
+    )
+
+
+def _has_current_goal_intent(
+    *,
+    question: str,
+    relation_terms: tuple[str, ...],
+) -> bool:
+    if not {"want", "plan"} & set(relation_terms):
+        return False
+    normalized = " ".join(str(question or "").casefold().split())
+    return bool(
+        normalized
+        and (
+            _has_future_home_move_goal_intent(normalized)
+            or re.search(r"\b(?:current\s+goal|future|soon)\b", normalized)
+        )
+    )
+
+
+def _has_future_home_move_goal_intent(normalized_question: str) -> bool:
+    if re.search(r"\b(?:where|which\s+(?:city|country|place)|from|origin)\b", normalized_question):
+        return False
+    return bool(
+        re.search(r"\b(?:would|want|wants|wanted|hope|hoping|plan|plans)\b", normalized_question)
+        and re.search(r"\bmove\s+back\b", normalized_question)
+        and re.search(r"\bhome\s+country\b", normalized_question)
     )
 
 
@@ -523,6 +557,22 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
         ),
         "markers": frozenset(),
         "evidence_need": "preference",
+    },
+    "current_goal": {
+        "terms": frozenset({"plan", "want"}),
+        "variants": frozenset(
+            {
+                "future",
+                "goal",
+                "hop",
+                "hope",
+                "plan",
+                "planned",
+                "soon",
+            }
+        ),
+        "markers": frozenset(),
+        "evidence_need": "inference_support",
     },
     "identity_profile": {
         "terms": frozenset(

@@ -512,6 +512,11 @@ Hike-count questions treat `hike` as activity evidence and add generic
 occurrence surfaces such as `trail`, `waterfall`, `went`, `spot`, `weekend` and
 `summer`, so repeated hike turns can beat generic hiking-topic mentions without
 adding answer numbers.
+Future home-move desire questions use generic current-goal surfaces such as
+`goal`, `hope`, `plan`, `future` and `soon`, and do not require
+`location_support` unless the question asks where, from or origin. This keeps
+old origin evidence from satisfying current-goal inference without adding
+answer-specific judged outcomes.
 Self-care prioritization questions render generic wellness surfaces such as
 `routine`, `refreshes`, `present`, `balance`, `rest`, `relax` and `wellness`,
 instead of injecting specific hobbies from the judged answer.

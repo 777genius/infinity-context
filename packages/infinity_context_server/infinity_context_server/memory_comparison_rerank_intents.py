@@ -70,6 +70,10 @@ def focused_intent_policy_boosts(
             relation_set=relation_set,
         )
     )
+    boosts["benchmark_current_goal_context_boost"] = _current_goal_context_boost(
+        memory_terms=memory_terms,
+        relation_set=relation_set,
+    )
     return boosts
 
 
@@ -86,6 +90,7 @@ def _empty_intent_policy_boosts() -> dict[str, float]:
         "benchmark_adoption_agency_support_boost": 0.0,
         "benchmark_conference_plan_time_boost": 0.0,
         "benchmark_relationship_status_context_boost": 0.0,
+        "benchmark_current_goal_context_boost": 0.0,
     }
 
 
@@ -236,3 +241,17 @@ def _relationship_status_context_boost(
     } & memory_terms
     parenting_context = {"parent", "family", "challenge"} <= memory_terms
     return 0.1 if direct_breakup_context or parenting_context else 0.0
+
+
+def _current_goal_context_boost(
+    *,
+    memory_terms: set[str],
+    relation_set: set[str],
+) -> float:
+    if not {"want", "move"} <= relation_set:
+        return 0.0
+    if {"goal", "future"} & memory_terms:
+        return 0.18
+    if {"hope", "plan"} & memory_terms:
+        return 0.12
+    return 0.0

@@ -132,6 +132,25 @@ def test_roadtrip_inference_query_is_not_location_support() -> None:
     assert queries[2] == "melanie roadtrip accident son family safe trip"
 
 
+def test_future_home_move_goal_query_is_not_location_support() -> None:
+    case = _case("Would Caroline want to move back to her home country soon?")
+
+    intent = query_retrieval_intent(case)
+    queries, diagnostics = decomposed_search_queries(case)
+
+    assert "location_support" not in intent.evidence_need
+    assert "location_transition" not in diagnostics["query_profile"][
+        "relation_categories"
+    ]
+    assert "current_goal" in diagnostics["query_profile"]["relation_categories"]
+    assert diagnostics["query_plan"]["selected_roles"] == [
+        "original_question",
+        "expanded_focus",
+        "compact_relation",
+    ]
+    assert queries[2] == "caroline want move hop hope plan goal"
+
+
 def _case(question: str) -> PublicBenchmarkCase:
     return PublicBenchmarkCase(
         benchmark="locomo",

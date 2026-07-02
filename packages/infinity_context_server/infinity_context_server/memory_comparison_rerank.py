@@ -641,7 +641,16 @@ _RELATION_QUERY_VARIANTS = {
     ),
     "tell": ("told", "said", "mentioned"),
     "think": ("thought", "considered"),
-    "want": ("wanted", "wants", "hoping", "planned"),
+    "want": (
+        "wanted",
+        "wants",
+        "hoping",
+        "hope",
+        "planned",
+        "goal",
+        "future",
+        "soon",
+    ),
     "wife": ("spouse", "partner", "married", "marriage", "husband", "family"),
     "work": ("worked", "working", "job", "career"),
 }
@@ -1632,6 +1641,7 @@ def _query_retrieval_intent(case: PublicBenchmarkCase) -> RetrievalIntent:
         )
     )
     relation_variant_terms = _filter_relation_variant_terms_for_profile(
+        question=question,
         relation_terms=relation_terms,
         relation_variant_terms=relation_variant_terms,
     )
@@ -1730,11 +1740,24 @@ def _relation_variant_terms(relation: str) -> tuple[str, ...]:
 
 def _filter_relation_variant_terms_for_profile(
     *,
+    question: str,
     relation_terms: Sequence[str],
     relation_variant_terms: Sequence[str],
 ) -> tuple[str, ...]:
     relation_term_set = set(relation_terms)
     blocked_terms: set[str] = set()
+    normalized_question = " ".join(str(question or "").casefold().split())
+    if _has_future_home_move_goal_intent(normalized_question, relation_terms):
+        blocked_terms.update(
+            {
+                "came",
+                "country",
+                "home",
+                "moved",
+                "origin",
+                "relocated",
+            }
+        )
     if {"choose", "adoption", "agency"}.issubset(relation_term_set):
         blocked_terms.update(
             {
@@ -1765,6 +1788,27 @@ def _filter_relation_variant_terms_for_profile(
     if not blocked_terms:
         return tuple(relation_variant_terms)
     return tuple(term for term in relation_variant_terms if term not in blocked_terms)
+
+
+def _has_future_home_move_goal_intent(
+    normalized_question: str,
+    relation_terms: Sequence[str],
+) -> bool:
+    if not {"want", "move"} <= set(relation_terms):
+        return False
+    if re.search(
+        r"\b(?:where|which\s+(?:city|country|place)|from|origin)\b",
+        normalized_question,
+    ):
+        return False
+    return bool(
+        re.search(
+            r"\b(?:would|want|wants|wanted|hope|hoping|plan|plans)\b",
+            normalized_question,
+        )
+        and re.search(r"\bmove\s+back\b", normalized_question)
+        and re.search(r"\bhome\s+country\b", normalized_question)
+    )
 
 
 def _relation_query_terms(

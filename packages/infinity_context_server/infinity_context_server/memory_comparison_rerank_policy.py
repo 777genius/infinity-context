@@ -251,6 +251,7 @@ def _boost_cap(
         "benchmark_excited_outcome_boost",
         "benchmark_song_preference_boost",
         "benchmark_writing_affinity_boost",
+        "benchmark_current_goal_context_boost",
     }
     if (
         any(policy_boosts.get(key, 0.0) > 0 for key in high_confidence_policy_keys)

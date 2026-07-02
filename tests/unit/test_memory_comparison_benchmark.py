@@ -5073,6 +5073,118 @@ def test_benchmark_rerank_boosts_speaker_grounded_communication_evidence() -> No
     assert diagnostics["score_signals"]["benchmark_focused_turn_boost"] > 0
 
 
+def test_query_decomposition_reports_current_goal_instead_of_location_support() -> None:
+    case = _case(
+        case_id="current-goal-query",
+        question="Would Caroline want to move back to her home country soon?",
+        expected_terms=("current goal",),
+        answer="No; she has a different current goal.",
+        category=3,
+    )
+
+    queries, metadata = rerank_module.decomposed_search_queries(case)
+    query_profile = metadata["query_profile"]
+
+    assert queries == (
+        "Would Caroline want to move back to her home country soon?",
+        "Would Caroline want to move back to her home country soon?\n"
+        "Search focus: entities: caroline; speakers: caroline:; "
+        "actions: want, move, hop, hope, plan, goal, future, soon",
+        "caroline want move hop hope plan goal",
+    )
+    assert query_profile["relation_categories"] == (
+        "preference",
+        "current_goal",
+    )
+    assert "location_support" not in query_profile["evidence_need"]
+    assert "location_transition" not in query_profile["relation_categories"]
+    assert query_profile["bundle_evidence_roles"] == (
+        "primary",
+        "inference_support",
+    )
+    assert query_profile["relation_category_terms"]["current_goal"] == (
+        "want",
+        "hop",
+        "hope",
+        "plan",
+        "goal",
+        "future",
+        "soon",
+    )
+
+
+def test_benchmark_rerank_boosts_current_goal_over_origin_history() -> None:
+    case = _case(
+        case_id="current-goal-rerank",
+        question="Would Caroline want to move back to her home country soon?",
+        expected_terms=("current goal",),
+        answer="No; she has a different current goal.",
+        category=3,
+    )
+    origin_history = RetrievedMemory(
+        item_id="origin-history",
+        rank=1,
+        score=0.1,
+        text=(
+            "session_2 turn D2:2 date: 7:00 pm "
+            "D2:2 Caroline: I moved from my home country years ago "
+            "and still miss it."
+        ),
+        source_refs=("D2:2",),
+    )
+    current_goal = RetrievedMemory(
+        item_id="current-goal",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_19 turn D19:1 date: 9:00 pm "
+            "D19:1 Caroline: I passed the final review last Friday. "
+            "This is a big move towards my goal for the future."
+        ),
+        source_refs=("D19:1",),
+    )
+    future_plan = RetrievedMemory(
+        item_id="future-plan",
+        rank=3,
+        score=0.0,
+        text=(
+            "session_19 turn D19:3 date: 9:02 pm "
+            "D19:3 Caroline: I hope the plan works out soon and changes "
+            "what comes next."
+        ),
+        source_refs=("D19:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (origin_history, current_goal, future_plan),
+    )
+
+    assert metadata["applied"] is True
+    ranked_ids = [memory.item_id for memory in reranked]
+    assert ranked_ids[0] == "current-goal"
+    assert ranked_ids.index("current-goal") < ranked_ids.index("origin-history")
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    goal_diagnostics = diagnostics_by_id["current-goal"]
+    origin_diagnostics = diagnostics_by_id["origin-history"]
+    assert goal_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["current_goal"]
+    assert (
+        goal_diagnostics["score_signals"]["benchmark_current_goal_context_boost"]
+        > 0
+    )
+    assert (
+        origin_diagnostics["score_signals"]["benchmark_current_goal_context_boost"]
+        == 0
+    )
+    assert "location_transition" not in metadata["query_profile"][
+        "relation_categories"
+    ]
+
+
 def test_benchmark_rerank_prefers_focused_turn_over_broad_session() -> None:
     case = _case(
         case_id="conv-26:qa:43",
