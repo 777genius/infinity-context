@@ -1151,6 +1151,9 @@ def _retrieval_source_keys(candidate: EvidenceBundleCandidate) -> tuple[str, ...
                 if str(source).strip()
             )
         )
+    source_types = _source_type_keys(candidate)
+    if source_types:
+        return tuple(f"source_type:{source_type}" for source_type in source_types)
     return (f"source_type:{candidate.source_type}",)
 
 

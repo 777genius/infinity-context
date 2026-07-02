@@ -1885,6 +1885,32 @@ def test_evidence_bundle_planner_counts_fused_source_type_provenance() -> None:
     assert "retrieval_source_diverse" in quality["reason_codes"]
 
 
+def test_evidence_bundle_planner_uses_fused_source_types_as_retrieval_fallback() -> None:
+    fused = _candidate(
+        item_id="fused-evidence",
+        covered_evidence_terms=("D2:8",),
+        query_support_terms=("caroline", "adoption"),
+        primary_signal=True,
+        source_refs=("D2:8",),
+        source_type="chunk",
+        source_types=("chunk", "raw_turn"),
+        focused_evidence_score=1.0,
+        direct_speaker_turn=True,
+        answerability_score=0.9,
+    )
+
+    plan = EvidenceBundlePlanner().plan((fused,), case_group="single")
+    diagnostics = plan.to_diagnostics()
+    quality = diagnostics["bundle_quality"]
+
+    assert diagnostics["retrieval_source_counts"] == {
+        "source_type:chunk": 1,
+        "source_type:raw_turn": 1,
+    }
+    assert quality["retrieval_source_diversity"] == 2
+    assert "retrieval_source_diverse" in quality["reason_codes"]
+
+
 def test_evidence_bundle_planner_caps_fused_source_type_keys() -> None:
     primary = _candidate(
         item_id="primary-raw",
