@@ -33,6 +33,8 @@ def typed_relation_category_support(
             memory_terms,
             memory_text=memory_text,
         )
+    if category == "emotion_response":
+        return _has_emotion_response_support(memory_terms, memory_text=memory_text)
     if category == "age_profile":
         return _has_age_profile_support(memory_terms, memory_text=memory_text)
     if category == "alias_profile":
@@ -676,7 +678,26 @@ def _has_vehicle_profile_support(
     )
 
 
-def _has_emotion_response_support(memory_terms: set[str]) -> bool:
+_EMOTION_RESPONSE_SURFACE_RE = re.compile(
+    r"\b(?:feel|feels|feeling|felt)\s+"
+    r"(?:anxious|concerned|excited|happy|hopeful|nervous|overwhelmed|"
+    r"proud|relieved|sad|thrilled|upset|worried)\b"
+    r"|\b(?:reaction|response)\s+(?:to|about)\s+[^.?!]{0,80}\b"
+    r"(?:was|is|felt)\s+"
+    r"(?:anxious|concerned|excited|happy|hopeful|nervous|overwhelmed|"
+    r"proud|relieved|sad|thrilled|upset|worried)\b"
+    r"|\b(?:i|he|she|they|we)\s+(?:am|are|was|were)\s+"
+    r"(?:anxious|concerned|excited|happy|hopeful|nervous|overwhelmed|"
+    r"proud|relieved|sad|thrilled|upset|worried)\b",
+    re.IGNORECASE,
+)
+
+
+def _has_emotion_response_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
     emotion_surface = {
         "anxious",
         "concern",
@@ -713,7 +734,10 @@ def _has_emotion_response_support(memory_terms: set[str]) -> bool:
         "think",
         "when",
     } & memory_terms
-    return bool(emotion_surface and response_context)
+    return bool(
+        (emotion_surface and response_context)
+        or _EMOTION_RESPONSE_SURFACE_RE.search(memory_text)
+    )
 
 
 _COMMUNICATION_RECIPIENT_RE = (

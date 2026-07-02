@@ -201,6 +201,11 @@ def infer_relation_intents(
     variant_set = set(relation_variant_terms)
     facets: list[RetrievalRelationIntent] = []
     for category, config in _RELATION_FACET_CONFIG.items():
+        if category == "causal" and _has_direct_emotion_response_intent(
+            question=question,
+            relation_terms=relation_terms,
+        ):
+            continue
         if category == "location_transition" and not _has_location_transition_intent(
             question=question,
             relation_terms=relation_terms,
@@ -350,7 +355,11 @@ def infer_evidence_need(
 ) -> tuple[str, ...]:
     needs: list[str] = []
     relation_set = set(relation_terms)
-    if multi_hop_markers:
+    direct_emotion_response = _has_direct_emotion_response_intent(
+        question=question,
+        relation_terms=relation_terms,
+    )
+    if multi_hop_markers and not direct_emotion_response:
         needs.append("multi_hop")
     if time_intent.is_temporal:
         needs.append(
@@ -378,6 +387,9 @@ def infer_evidence_need(
     if not time_intent.is_temporal:
         causal_relation_terms = causal_relation_terms | ({"how"} & relation_set)
         causal_marker_terms = causal_marker_terms | ({"how"} & set(multi_hop_markers))
+    if direct_emotion_response:
+        causal_relation_terms = set()
+        causal_marker_terms = set()
     if causal_relation_terms or causal_marker_terms:
         needs.append("causal_support")
     if _has_location_transition_intent(
@@ -802,6 +814,25 @@ def _has_communication_intent(
             r"\b(?:who|whom)\b.+\bmention\b|\bmention(?:ed)?\b.+\b(?:to|with)\b",
             normalized_question,
         )
+    )
+
+
+def _has_direct_emotion_response_intent(
+    *,
+    question: str,
+    relation_terms: tuple[str, ...],
+) -> bool:
+    relation_set = set(relation_terms)
+    if not {"excite", "feel"} & relation_set:
+        return False
+    if {"cause", "decide", "decision", "realize", "think", "why"} & relation_set:
+        return False
+    normalized_question = re.sub(r"[^0-9a-z]+", " ", question.casefold()).strip()
+    if re.search(r"\bwhy\b|\bwhat\s+(?:made|caused)\b", normalized_question):
+        return False
+    return bool(
+        re.search(r"\bhow\b.+\b(?:feel|feeling|felt)\b", normalized_question)
+        or re.search(r"\bwhat\b.+\bexcited\b", normalized_question)
     )
 
 

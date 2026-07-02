@@ -7705,6 +7705,58 @@ def test_benchmark_rerank_boosts_emotion_response_evidence() -> None:
     )
 
 
+def test_benchmark_rerank_boosts_direct_feeling_evidence() -> None:
+    case = _case(
+        case_id="emotion-direct-feeling-rerank",
+        question="How did Melanie feel?",
+        expected_terms=("relieved",),
+        answer="relieved",
+        category=4,
+    )
+    topical_feel = RetrievedMemory(
+        item_id="topical-feel",
+        rank=1,
+        score=0.15,
+        text=(
+            "session_1 turn D1:1 date: 9:00 am "
+            "D1:1 Melanie: I felt the fabric samples before choosing one."
+        ),
+        source_refs=("D1:1",),
+    )
+    direct_feeling = RetrievedMemory(
+        item_id="direct-feeling",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:4 date: 9:10 am "
+            "D2:4 Melanie: I felt relieved."
+        ),
+        source_refs=("D2:4",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_feel, direct_feeling),
+    )
+
+    assert metadata["applied"] is True
+    assert reranked[0].item_id == "direct-feeling"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    feeling_diagnostics = diagnostics_by_id["direct-feeling"]
+    topical_diagnostics = diagnostics_by_id["topical-feel"]
+    assert feeling_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["emotion_response"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert feeling_diagnostics["score_signals"][
+        "benchmark_typed_relation_support_roles"
+    ] == ["emotion_response_support"]
+
+
 def test_benchmark_rerank_boosts_symbolic_meaning_evidence() -> None:
     case = _case(
         case_id="symbolic-meaning-rerank",
