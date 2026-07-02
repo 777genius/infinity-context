@@ -319,9 +319,7 @@ def _symbolic_meaning_boost(
     object_context = {
         "family",
         "gift",
-        "grandma",
         "necklace",
-        "root",
         "special",
         "support",
     } & memory_terms

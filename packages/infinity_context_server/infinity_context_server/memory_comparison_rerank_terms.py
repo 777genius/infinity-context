@@ -457,8 +457,6 @@ RELATION_QUERY_VARIANTS.update(
             "message",
             "value",
             "gift",
-            "grandma",
-            "roots",
             "reminder",
             "family",
             "support",

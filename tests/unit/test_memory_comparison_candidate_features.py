@@ -124,8 +124,8 @@ def test_candidate_features_capture_focused_direct_turn_and_provenance() -> None
         (
             "symbolic_meaning",
             ("necklace", "symbolize"),
-            ("symbol", "mean", "represent", "gift", "grandma"),
-            {"represent", "gift", "grandma"},
+            ("symbol", "mean", "represent", "gift", "reminder"),
+            {"represent", "gift", "reminder"},
         ),
         (
             "participation_event",

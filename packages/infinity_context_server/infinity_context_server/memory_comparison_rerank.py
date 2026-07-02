@@ -1568,8 +1568,6 @@ def _relation_query_terms(
                 "symbol",
                 "mean",
                 "gift",
-                "grandma",
-                "roots",
                 "reminder",
                 "family",
                 "support",

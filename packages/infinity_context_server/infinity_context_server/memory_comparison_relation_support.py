@@ -47,9 +47,7 @@ def _has_symbolic_meaning_support(memory_terms: set[str]) -> bool:
     object_context = {
         "family",
         "gift",
-        "grandma",
         "necklace",
-        "root",
         "special",
         "support",
     } & memory_terms

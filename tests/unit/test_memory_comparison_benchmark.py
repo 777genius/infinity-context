@@ -3762,9 +3762,7 @@ def test_query_decomposition_expands_locomo_topic_relations() -> None:
     assert not {"classical", "music"}.intersection(
         song_metadata["query_profile"]["relation_variant_terms"]
     )
-    assert necklace_queries[2] == (
-        "caroline necklace symbolize symbol mean gift grandma"
-    )
+    assert necklace_queries[2] == "caroline necklace symbolize symbol mean gift reminder"
     assert "necklace" in necklace_metadata["query_profile"]["relation_terms"]
     assert necklace_metadata["query_profile"]["relation_categories"] == (
         "symbolic_meaning",
@@ -3784,8 +3782,6 @@ def test_query_decomposition_expands_locomo_topic_relations() -> None:
         "message",
         "value",
         "gift",
-        "grandma",
-        "root",
         "reminder",
         "family",
         "support",
@@ -3793,9 +3789,8 @@ def test_query_decomposition_expands_locomo_topic_relations() -> None:
     )
     assert "symbol" in necklace_metadata["query_profile"]["relation_variant_terms"]
     assert "gift" in necklace_metadata["query_profile"]["relation_variant_terms"]
-    assert "grandma" in necklace_metadata["query_profile"]["relation_variant_terms"]
     assert "reminder" in necklace_metadata["query_profile"]["relation_variant_terms"]
-    assert not {"faith", "love", "strength"}.intersection(
+    assert not {"faith", "grandma", "love", "root", "roots", "strength"}.intersection(
         necklace_metadata["query_profile"]["relation_variant_terms"]
     )
     assert summer_plan_queries[2] == "caroline plan summer dream family loving home"

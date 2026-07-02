@@ -882,12 +882,10 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
             {
                 "family",
                 "gift",
-                "grandma",
                 "mean",
                 "message",
                 "reminder",
                 "represent",
-                "root",
                 "special",
                 "support",
                 "symbol",
