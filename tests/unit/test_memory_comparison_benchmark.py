@@ -2570,6 +2570,53 @@ def test_infinity_context_http_search_uses_isolated_context_payload() -> None:
     assert result.metadata["limited_by_http_api_caps"] is False
 
 
+def test_infinity_context_http_search_keeps_string_source_refs() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "data": {
+                    "items": [
+                        {
+                            "item_id": "raw-turn",
+                            "item_type": "chunk",
+                            "text": "D3:4 Morgan: The checklist is in the notebook.",
+                            "score": 0.91,
+                            "source_refs": [
+                                "D3:4",
+                                {
+                                    "source_id": "memory-session-3",
+                                    "time_start_ms": 1200,
+                                },
+                            ],
+                        }
+                    ]
+                }
+            },
+        )
+
+    backend = http_module.InfinityContextHttpComparisonBackend(
+        base_url="http://memo.test",
+        auth_token="unit-token",
+        transport=httpx.MockTransport(handler),
+    )
+    case = _case(
+        case_id="conv-1:qa:1",
+        question="Where is the checklist?",
+        expected_terms=("notebook",),
+        answer="notebook",
+    )
+
+    try:
+        result = backend.search(case, run_id="Run 42", top_k=7)
+    finally:
+        backend.close()
+
+    assert result.memories[0].source_refs == ("D3:4", "memory-session-3")
+    assert result.memories[0].metadata["source_ref_time_start_ms"] == [1200]
+    assert result.memories[0].metadata["has_temporal_source_ref"] is True
+
+
 def test_infinity_context_http_search_temporal_reranks_timestamped_evidence() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(

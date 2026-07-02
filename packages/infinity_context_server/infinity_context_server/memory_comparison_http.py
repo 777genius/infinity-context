@@ -423,18 +423,18 @@ def _infinity_context_memories(raw_items: object) -> list[RetrievedMemory]:
     for rank, item in enumerate(raw_items, start=1):
         if not isinstance(item, Mapping):
             continue
-        source_ref_payloads = tuple(
-            ref for ref in item.get("source_refs") or () if isinstance(ref, Mapping)
-        )
+        source_ref_payloads = _source_ref_payloads(item)
         refs = tuple(
-            str(ref.get("source_id"))
-            for ref in source_ref_payloads
-            if ref.get("source_id")
+            dict.fromkeys(
+                source_id
+                for ref in source_ref_payloads
+                if (source_id := _source_ref_source_id(ref)) is not None
+            )
         )
         time_start_ms = tuple(
             timestamp
             for ref in source_ref_payloads
-            if (timestamp := _optional_int(ref.get("time_start_ms"))) is not None
+            if (timestamp := _source_ref_time_start_ms(ref)) is not None
         )
         memories.append(
             RetrievedMemory(
@@ -452,6 +452,34 @@ def _infinity_context_memories(raw_items: object) -> list[RetrievedMemory]:
             )
         )
     return memories
+
+
+def _source_ref_payloads(item: Mapping[str, object]) -> tuple[object, ...]:
+    source_refs = item.get("source_refs") or ()
+    if isinstance(source_refs, str) and source_refs.strip():
+        return (source_refs.strip(),)
+    if not isinstance(source_refs, Sequence) or isinstance(source_refs, str | bytes):
+        return ()
+    return tuple(source_refs)
+
+
+def _source_ref_source_id(ref: object) -> str | None:
+    if isinstance(ref, str):
+        stripped = ref.strip()
+        return stripped or None
+    if not isinstance(ref, Mapping):
+        return None
+    for key in ("source_id", "source_external_id", "id"):
+        value = ref.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _source_ref_time_start_ms(ref: object) -> int | None:
+    if not isinstance(ref, Mapping):
+        return None
+    return _optional_int(ref.get("time_start_ms"))
 
 
 def _item_diagnostics(item: Mapping[str, object]) -> dict[str, object]:
