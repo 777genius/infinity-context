@@ -11,9 +11,14 @@ def needs_temporal_support(item: Mapping[str, object]) -> bool:
         _str_tuple(query_profile.get("evidence_need"))
         or _str_tuple(intent.get("evidence_need"))
     )
+    roles = (
+        _str_tuple(query_profile.get("bundle_evidence_roles"))
+        or _str_tuple(intent.get("bundle_evidence_roles"))
+    )
     relation_categories = _relation_categories(query_profile, intent)
     return bool(
         {"temporal_support", "temporal_sequence"}.intersection(evidence_need)
+        or "temporal_support" in roles
         or "temporal" in relation_categories
     )
 
@@ -24,8 +29,16 @@ def needs_contrast_evidence(item: Mapping[str, object]) -> bool:
         _str_tuple(query_profile.get("evidence_need"))
         or _str_tuple(intent.get("evidence_need"))
     )
+    roles = (
+        _str_tuple(query_profile.get("bundle_evidence_roles"))
+        or _str_tuple(intent.get("bundle_evidence_roles"))
+    )
     relation_categories = _relation_categories(query_profile, intent)
-    return bool("contrast" in evidence_need or "contrast" in relation_categories)
+    return bool(
+        "contrast" in evidence_need
+        or "contrast" in roles
+        or "contrast" in relation_categories
+    )
 
 
 def needs_causal_support(item: Mapping[str, object]) -> bool:
@@ -52,9 +65,14 @@ def needs_location_support(item: Mapping[str, object]) -> bool:
         _str_tuple(query_profile.get("evidence_need"))
         or _str_tuple(intent.get("evidence_need"))
     )
+    roles = (
+        _str_tuple(query_profile.get("bundle_evidence_roles"))
+        or _str_tuple(intent.get("bundle_evidence_roles"))
+    )
     relation_categories = _relation_categories(query_profile, intent)
     return bool(
         "location_support" in evidence_need
+        or "location_support" in roles
         or "location_transition" in relation_categories
     )
 

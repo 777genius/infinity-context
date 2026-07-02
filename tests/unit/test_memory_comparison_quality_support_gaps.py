@@ -409,6 +409,52 @@ def test_fast_gate_metrics_reads_support_need_from_retrieval_intent_relation() -
         assert missing_reason in breakdown["samples"][0]["reasons"]
 
 
+def test_fast_gate_metrics_reads_support_need_from_bundle_roles() -> None:
+    cases = (
+        ("temporal_support", "missing_temporal_support"),
+        ("contrast", "missing_contrast"),
+        ("location_support", "missing_location_support"),
+    )
+
+    for bundle_role, missing_reason in cases:
+        gate = fast_gate_metrics(
+            (
+                _item(
+                    case_id=f"role-need-{bundle_role}",
+                    group="single-hop",
+                    retrieval=_retrieval_payload(
+                        evidence_need=(),
+                        bundle_evidence_roles=("primary", bundle_role),
+                        relation_categories=(),
+                        policy_score=0.0,
+                    ),
+                    evidence_bundle={
+                        "bundle_complete": False,
+                        "item_count": 1,
+                        "primary_evidence_count": 1,
+                        "supporting_evidence_count": 0,
+                        "query_support_term_recall": 0.5,
+                        "covered_evidence_terms": [],
+                        "items": [
+                            {
+                                "role": "primary",
+                                "retrieval_order": 1,
+                                "focused_evidence_score": 1.0,
+                            }
+                        ],
+                    },
+                ),
+            ),
+            expected_case_count=1,
+        )
+
+        breakdown = gate["bundle_gap_breakdown"]
+
+        assert breakdown["reason_counts"][missing_reason] == 1
+        assert breakdown["evidence_need_gap_reason_counts"] == {missing_reason: 1}
+        assert missing_reason in breakdown["samples"][0]["reasons"]
+
+
 def test_fast_gate_metrics_reports_missing_location_support_gap() -> None:
     gate = fast_gate_metrics(
         (
