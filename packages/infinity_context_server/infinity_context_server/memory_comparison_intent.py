@@ -221,6 +221,11 @@ def infer_relation_intents(
             relation_terms=relation_terms,
         ):
             continue
+        if category == "employment_profile" and not _has_employment_profile_intent(
+            question=question,
+            relation_terms=relation_terms,
+        ):
+            continue
         if category == "communication" and not _has_communication_intent(
             question=question,
             relation_terms=relation_terms,
@@ -380,6 +385,7 @@ def merge_relation_evidence_needs(
     promoted_needs = {
         "emotion_response",
         "education_profile",
+        "employment_profile",
         "communication",
         "exchange",
         "inference_support",
@@ -643,6 +649,26 @@ def _has_education_profile_intent(
             r"\b(?:college|university)\b|"
             r"\b(?:study|studies|studying|major|majoring|degree)\b|"
             r"\bwhat\s+class\b",
+            normalized_question,
+        )
+    )
+
+
+def _has_employment_profile_intent(
+    *,
+    question: str,
+    relation_terms: tuple[str, ...],
+) -> bool:
+    if "employment" not in set(relation_terms):
+        return False
+    normalized_question = re.sub(r"[^0-9a-z]+", " ", question.casefold()).strip()
+    return bool(
+        re.search(
+            r"\b(?:what|which)\s+(?:company|job|occupation|profession|workplace)\b|"
+            r"\b(?:job|occupation|profession|workplace)\b|"
+            r"\bwhere\b.+\bwork\b|"
+            r"\bwhat\b.+\bdo\b.+\bfor\s+work\b|"
+            r"\bwork\b.+\b(?:company|for)\b",
             normalized_question,
         )
     )
@@ -1017,6 +1043,27 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
         ),
         "markers": frozenset(),
         "evidence_need": "education_profile",
+    },
+    "employment_profile": {
+        "terms": frozenset({"employment"}),
+        "variants": frozenset(
+            {
+                "career",
+                "company",
+                "employer",
+                "job",
+                "occupation",
+                "office",
+                "profession",
+                "role",
+                "work",
+                "worked",
+                "working",
+                "workplace",
+            }
+        ),
+        "markers": frozenset(),
+        "evidence_need": "employment_profile",
     },
     "exchange": {
         "terms": frozenset(

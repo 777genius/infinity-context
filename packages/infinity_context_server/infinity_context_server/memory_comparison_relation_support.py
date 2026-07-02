@@ -18,6 +18,11 @@ def typed_relation_category_support(
         return _has_location_transition_support(memory_terms, memory_text=memory_text)
     if category == "communication":
         return _has_communication_support(memory_terms, memory_text=memory_text)
+    if category == "employment_profile":
+        return _has_employment_profile_support(
+            memory_terms,
+            memory_text=memory_text,
+        )
     if category == "exchange":
         return _has_exchange_support(memory_terms, memory_text=memory_text)
     check = _TYPED_SUPPORT_CHECKS.get(category)
@@ -130,6 +135,40 @@ def _has_education_profile_support(memory_terms: set[str]) -> bool:
         "university",
     } & memory_terms
     return bool(education_surface or (education_action and education_context))
+
+
+_EMPLOYMENT_PROFILE_SURFACE_RE = re.compile(
+    r"\b(?:work|works|worked|working)\s+(?:at|for|in|as)\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|the\s+[a-zA-Z][a-zA-Z0-9_-]+|"
+    r"a\s+[a-zA-Z][a-zA-Z0-9_-]+)"
+    r"|\b(?:job|occupation|profession|role)\s+(?:is|was|as)\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|a\s+[a-zA-Z][a-zA-Z0-9_-]+|"
+    r"the\s+[a-zA-Z][a-zA-Z0-9_-]+)",
+)
+
+
+def _has_employment_profile_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
+    employment_context = {
+        "career",
+        "company",
+        "employer",
+        "job",
+        "occupation",
+        "office",
+        "profession",
+        "role",
+        "workplace",
+    } & memory_terms
+    work_action = {"work", "worked", "working", "works"} & memory_terms
+    return bool(
+        employment_context
+        or (work_action and employment_context)
+        or _EMPLOYMENT_PROFILE_SURFACE_RE.search(memory_text)
+    )
 
 
 def _has_emotion_response_support(memory_terms: set[str]) -> bool:
@@ -811,6 +850,7 @@ _TYPED_SUPPORT_CHECKS: dict[str, Callable[[set[str]], bool]] = {
     "contrast": _has_contrast_support,
     "current_goal": _has_current_goal_support,
     "education_profile": _has_education_profile_support,
+    "employment_profile": _has_employment_profile_support,
     "emotion_response": _has_emotion_response_support,
     "exchange": _has_exchange_support,
     "identity_profile": _has_identity_profile_support,

@@ -371,6 +371,16 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
         ):
             terms.append("education")
     if re.search(
+        r"\b(?:what|which)\s+(?:company|job|occupation|profession|workplace)\b|"
+        r"\b(?:job|occupation|profession|workplace)\b|"
+        r"\bwhere\b.+\bwork\b|"
+        r"\bwhat\b.+\bdo\b.+\bfor\s+work\b|"
+        r"\bwork\b.+\b(?:company|for)\b",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        terms.append("employment")
+    if re.search(
         r"\bwhere\b.+\blive\b|\blive\b.+\bwhere\b",
         text,
         flags=re.IGNORECASE,

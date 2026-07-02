@@ -452,6 +452,7 @@ def _typed_category_has_query_grounding(
     if category not in {
         "communication",
         "education_profile",
+        "employment_profile",
         "exchange",
         "status_profile",
     }:

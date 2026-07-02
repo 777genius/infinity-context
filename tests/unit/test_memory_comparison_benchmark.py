@@ -4470,6 +4470,86 @@ def test_query_decomposition_expands_education_profile_queries() -> None:
     ]
 
 
+def test_query_decomposition_expands_employment_profile_queries() -> None:
+    job_case = _case(
+        case_id="employment-profile-job",
+        question="What is Alex's job?",
+        expected_terms=("nurse",),
+        answer="nurse",
+    )
+    company_case = _case(
+        case_id="employment-profile-company",
+        question="What company does Alex work for?",
+        expected_terms=("Acme Robotics",),
+        answer="Acme Robotics",
+    )
+    workplace_case = _case(
+        case_id="employment-profile-workplace",
+        question="Where does Alex work?",
+        expected_terms=("Acme Robotics",),
+        answer="Acme Robotics",
+    )
+    project_work_case = _case(
+        case_id="employment-profile-project-work-guard",
+        question="What did Alex work on with Maria?",
+        expected_terms=("Project Atlas",),
+        answer="Project Atlas",
+    )
+    career_path_case = _case(
+        case_id="employment-profile-career-guard",
+        question="What career path has Caroline decided to persue?",
+        expected_terms=("counseling",),
+        answer="counseling",
+    )
+
+    job_queries, job_metadata = rerank_module.decomposed_search_queries(job_case)
+    company_queries, company_metadata = rerank_module.decomposed_search_queries(
+        company_case
+    )
+    workplace_queries, workplace_metadata = rerank_module.decomposed_search_queries(
+        workplace_case
+    )
+    project_queries, project_metadata = rerank_module.decomposed_search_queries(
+        project_work_case
+    )
+    career_queries, career_metadata = rerank_module.decomposed_search_queries(
+        career_path_case
+    )
+
+    assert job_queries[2] == "alex employment job company employer work workplace"
+    assert job_metadata["query_profile"]["relation_terms"] == ("employment",)
+    assert job_metadata["query_profile"]["relation_categories"] == (
+        "employment_profile",
+    )
+    assert job_metadata["query_profile"]["evidence_need"] == (
+        "employment_profile",
+    )
+
+    assert company_queries[2] == "alex employment job company employer work workplace"
+    assert company_metadata["query_profile"]["relation_terms"] == ("employment",)
+    assert company_metadata["query_profile"]["relation_categories"] == (
+        "employment_profile",
+    )
+
+    assert workplace_queries[2] == (
+        "alex employment job company employer work workplace"
+    )
+    assert workplace_metadata["query_profile"]["relation_terms"] == ("employment",)
+    assert workplace_metadata["query_profile"]["relation_categories"] == (
+        "employment_profile",
+    )
+
+    assert project_queries[2] == "alex maria work job career"
+    assert project_metadata["query_profile"]["relation_terms"] == ("work",)
+    assert "employment_profile" not in project_metadata["query_profile"][
+        "relation_categories"
+    ]
+    assert career_queries[2] == "caroline career path work working think figuring"
+    assert "employment_profile" not in career_metadata["query_profile"][
+        "relation_categories"
+    ]
+
+
 def test_infinity_context_http_search_expands_temporal_action_queries() -> None:
     seen_payloads: list[dict[str, object]] = []
 
@@ -7528,6 +7608,69 @@ def test_benchmark_rerank_boosts_education_profile_evidence() -> None:
     assert study_diagnostics["score_signals"][
         "benchmark_typed_relation_support_roles"
     ] == ["education_support"]
+    assert (
+        topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        == 0
+    )
+
+
+def test_benchmark_rerank_boosts_employment_profile_evidence() -> None:
+    case = _case(
+        case_id="employment-profile-rerank",
+        question="What company does Alex work for?",
+        expected_terms=("Acme Robotics",),
+        answer="Acme Robotics",
+        category=4,
+    )
+    topical_company = RetrievedMemory(
+        item_id="topical-company",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex talked about Acme Robotics with Maria."
+        ),
+        source_refs=("D1:1",),
+    )
+    employment_profile = RetrievedMemory(
+        item_id="employment-profile",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: I work for Acme Robotics now."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_company, employment_profile),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("employment_profile",)
+    assert reranked[0].item_id == "employment-profile"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    employment_diagnostics = diagnostics_by_id["employment-profile"]
+    topical_diagnostics = diagnostics_by_id["topical-company"]
+    assert employment_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["employment_profile"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert (
+        employment_diagnostics["score_signals"][
+            "benchmark_typed_relation_support_boost"
+        ]
+        > 0
+    )
+    assert employment_diagnostics["score_signals"][
+        "benchmark_typed_relation_support_roles"
+    ] == ["employment_support"]
     assert (
         topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
         == 0
