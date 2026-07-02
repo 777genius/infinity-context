@@ -687,6 +687,52 @@ def test_answer_context_backfill_prefers_local_role_evidence_over_summary() -> N
     assert diagnostics["backfilled_conflict_or_stale_count"] == 1
 
 
+def test_answer_context_backfill_matches_profile_support_categories() -> None:
+    memories = (
+        RetrievedMemory(text="primary", rank=1, item_id="primary"),
+        RetrievedMemory(
+            text="D2:4 Alex: Maria is my sister.",
+            rank=2,
+            item_id="status-profile",
+            source_refs=("D2:4",),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "answerability_score": 0.86,
+                        "source_locality_score": 0.9,
+                        "query_roles": ["compact_relation"],
+                        "relation_category_hits": ["status_profile"],
+                        "entity_hits": ["alex", "maria"],
+                        "speaker_hits": ["alex"],
+                    }
+                }
+            },
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "role_requirement_complete": False,
+            "missing_required_roles": ["status_support"],
+            "items": [{"id": "primary", "retrieval_order": 1, "role": "primary"}],
+        },
+        cutoff=2,
+    )
+
+    assert [memory.item_id for memory in context.memories] == [
+        "primary",
+        "status-profile",
+    ]
+    assert context.memories[1].metadata[
+        "answer_context_backfill_missing_role_hits"
+    ] == ("status_support",)
+    assert context.memories[1].metadata["answer_context_relation_category_hits"] == (
+        "status_profile",
+    )
+    assert context.backfilled_retrieval_item_count == 1
+
+
 def test_answer_context_backfill_prefers_unmeasured_grounded_role_evidence() -> None:
     memories = (
         RetrievedMemory(text="primary", rank=1, item_id="primary"),

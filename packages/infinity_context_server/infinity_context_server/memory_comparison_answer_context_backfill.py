@@ -204,6 +204,9 @@ def _missing_role_match_score(features: Mapping[str, object], role: str) -> floa
         return 0.92
     if role_key in categories:
         return 0.9
+    profile_category = _PROFILE_CATEGORY_BY_ROLE_KEY.get(role_key)
+    if profile_category and profile_category in categories:
+        return 0.9
     if role_key in {"contrast"}:
         return 0.88 if _has_contrast_features(features) else 0.0
     if role_key in _TEMPORAL_ROLE_KEYS:
@@ -239,6 +242,23 @@ _TEMPORAL_ROLE_KEYS = frozenset(
         "visual_temporal",
     }
 )
+_PROFILE_CATEGORY_BY_ROLE_KEY = {
+    "activity": "activity_profile",
+    "age": "age_profile",
+    "alias": "alias_profile",
+    "commitment": "commitment_profile",
+    "contact": "contact_profile",
+    "date": "date_profile",
+    "diet": "diet_profile",
+    "education": "education_profile",
+    "employment": "employment_profile",
+    "health": "health_profile",
+    "identity": "identity_profile",
+    "pet": "pet_profile",
+    "skill": "skill_profile",
+    "status": "status_profile",
+    "vehicle": "vehicle_profile",
+}
 
 
 def _has_temporal_features(
