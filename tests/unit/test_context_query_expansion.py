@@ -3240,6 +3240,58 @@ def test_best_query_relevance_uses_travel_inventory_for_shared_visited_city() ->
     assert jon_relevance.distinctive_term_hits >= 2
 
 
+def test_query_expansion_bridges_travel_place_detail_queries() -> None:
+    country = build_query_expansion_plan("Which country did James book tickets for?")
+    city = build_query_expansion_plan(
+        "Which city in Ireland will Tim be staying in during his semester abroad?"
+    )
+    road_trip = build_query_expansion_plan(
+        "How did John describe the views during their road trip?"
+    )
+    rio = build_query_expansion_plan(
+        "What was Jolene doing with her partner in Rio de Janeiro?"
+    )
+    new_york = build_query_expansion_plan("How was John's experience in New York City?")
+    japan = build_query_expansion_plan("What impresses John about Japan?")
+
+    assert "travel traveled travelling traveling trip trips road trip" in _expansion_query(
+        country,
+        "trip_destination_bridge",
+    )
+    assert "stayed staying tickets booked recommended semester abroad" in _expansion_query(
+        city,
+        "trip_destination_bridge",
+    )
+    assert "tour photo photograph coastline views" in _expansion_query(
+        road_trip,
+        "trip_destination_bridge",
+    )
+    assert "Rio de Janeiro Universal Studios New York City" in _expansion_query(
+        rio,
+        "trip_destination_bridge",
+    )
+    assert "Rome Barcelona Paris Canada Japan Ireland" in _expansion_query(
+        new_york,
+        "trip_destination_bridge",
+    )
+    assert "country countries city cities place places" in _expansion_query(
+        japan,
+        "trip_destination_bridge",
+    )
+
+
+def test_best_query_relevance_uses_travel_place_detail_bridge() -> None:
+    plan = build_query_expansion_plan("Which country did James book tickets for?")
+
+    _, reason, relevance = best_query_relevance(
+        plan,
+        text="James booked tickets for a trip to Japan and planned the travel itinerary.",
+    )
+
+    assert reason == "trip_destination_bridge"
+    assert relevance.distinctive_term_hits >= 5
+
+
 def test_best_query_relevance_uses_inventory_list_for_shelters_and_causes() -> None:
     shelter_plan = build_query_expansion_plan("What shelters does Maria volunteer at?")
     cause_plan = build_query_expansion_plan(

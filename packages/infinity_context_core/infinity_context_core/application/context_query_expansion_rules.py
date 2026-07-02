@@ -41,6 +41,9 @@ from infinity_context_core.application.context_query_sports_expansions import (
 from infinity_context_core.application.context_query_temporal_expansions import (
     TEMPORAL_EXPANSION_RULES,
 )
+from infinity_context_core.application.context_query_travel_expansions import (
+    TRAVEL_EXPANSION_RULES,
+)
 from infinity_context_core.application.context_query_vehicle_expansions import (
     VEHICLE_EXPANSION_RULES,
 )
@@ -58,5 +61,6 @@ EXPANSION_RULES: tuple[tuple[frozenset[str], str, str], ...] = (
     *PREFERENCE_EXPANSION_RULES,
     *SPORTS_EXPANSION_RULES,
     *TEMPORAL_EXPANSION_RULES,
+    *TRAVEL_EXPANSION_RULES,
     *VEHICLE_EXPANSION_RULES,
 )
