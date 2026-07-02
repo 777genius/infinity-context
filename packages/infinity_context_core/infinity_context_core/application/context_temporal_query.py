@@ -48,14 +48,24 @@ _PREVIOUS_RELATIVE_TIME_RE = re.compile(
     r"monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b",
     re.IGNORECASE,
 )
+_ORDERED_EVENT_REQUEST_RE = re.compile(
+    r"\b(?:last|previous|prior|next|upcoming)\s+"
+    r"(?:conversation|call|meeting|chat|dm|message|discussion|sync|review|demo|"
+    r"interview|workshop|session)\b|"
+    r"\b(?:последн\w*|предыдущ\w*|следующ\w*)\s+"
+    r"(?:разговор\w*|созвон\w*|встреч\w*|переписк\w*|чат\w*|"
+    r"обсуждени\w*|ревью)\b",
+    re.IGNORECASE,
+)
 _CURRENT_PHRASE_RE = re.compile(
     r"\b(?:right\s+now|as\s+of\s+now|at\s+the\s+moment|for\s+now)\b|"
     r"\b(?:прямо\s+сейчас|на\s+данный\s+момент|в\s+данный\s+момент)\b",
     re.IGNORECASE,
 )
 _RECENT_EVENT_REQUEST_RE = re.compile(
-    r"\b(?:latest|newest|recent|most\s+recent)\s+"
-    r"(?:conversation|call|meeting|chat|dm|message|discussion|sync)\b|"
+    r"\b(?:latest|newest|recent|most\s+recent|last|previous|prior|next|upcoming)\s+"
+    r"(?:conversation|call|meeting|chat|dm|message|discussion|sync|review|demo|"
+    r"interview|workshop|session)\b|"
     r"\b(?:последн\w*|недавн\w*|свеж\w*)\s+"
     r"(?:разговор\w*|созвон\w*|встреч\w*|переписк\w*|чат\w*|"
     r"обсуждени\w*)\b",
@@ -455,6 +465,8 @@ def build_temporal_query_intent(query: str) -> TemporalQueryIntent:
     )
     previous_terms = variants.intersection(_PREVIOUS_TERMS)
     if _PREVIOUS_RELATIVE_TIME_RE.search(query):
+        previous_terms = previous_terms.difference({"previous", "prior"})
+    if _ORDERED_EVENT_REQUEST_RE.search(query):
         previous_terms = previous_terms.difference({"previous", "prior"})
     if (
         _AGE_QUERY_RE.search(query)
