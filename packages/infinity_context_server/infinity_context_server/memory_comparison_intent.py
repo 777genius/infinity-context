@@ -948,7 +948,9 @@ def _has_status_profile_intent(
     if re.search(
         r"\bpartner(?:ed)?\s+with\b.+\b(?:project|work|assignment|team|"
         r"presentation|report)\b|"
-        r"\bwho\s+did\b.+\bpartner\s+with\b",
+        r"\bwho\s+did\b.+\bpartner\s+with\b|"
+        r"\b(?:project|work|assignment|team|presentation|report)\s+"
+        r"partner\s+s\s+name\b",
         normalized_question,
     ):
         return False
@@ -958,8 +960,22 @@ def _has_status_profile_intent(
             r"\bwho\b.+\b(?:boyfriend|boss|brother|child|children|colleague|"
             r"cousin|coworker|daughter|father|fiancee?|friend|girlfriend|"
             r"grandfather|grandmother|husband|"
-            r"manager|mentor|mother|neighbor|parent|partner|roommate|sibling|"
+            r"kids|manager|mentor|mother|neighbor|parent|parents|partner|roommate|sibling|"
             r"sister|son|spouse|teammate|wife)\b",
+            normalized_question,
+        )
+        or re.search(
+            r"\b(?:does|do|did)\b.+\bhave\b.+"
+            r"\b(?:child|children|kids|son|daughter)\b",
+            normalized_question,
+        )
+        or re.search(
+            r"\bwhat\s+(?:is|are|was|were)\b.+"
+            r"\b(?:boyfriend|boss|brother|child|children|colleague|cousin|"
+            r"coworker|daughter|father|fiancee?|friend|girlfriend|grandfather|"
+            r"grandmother|husband|kids|manager|mentor|mother|neighbor|parent|"
+            r"parents|partner|roommate|sibling|sister|son|spouse|teammate|wife)"
+            r"\s+s\s+names?\b",
             normalized_question,
         )
         or re.search(

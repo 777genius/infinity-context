@@ -3499,6 +3499,75 @@ def test_query_decomposition_reports_typed_retrieval_intent() -> None:
     ]
 
 
+def test_query_decomposition_expands_family_status_queries() -> None:
+    children_case = _case(
+        case_id="status-profile-children",
+        question="Does Alex have children?",
+        expected_terms=("two children",),
+        answer="two children",
+    )
+    wife_name_case = _case(
+        case_id="status-profile-wife-name",
+        question="What is Alex's wife's name?",
+        expected_terms=("Maria",),
+        answer="Maria",
+    )
+    parents_case = _case(
+        case_id="status-profile-parents",
+        question="Who are Alex's parents?",
+        expected_terms=("Nora", "Lee"),
+        answer="Nora and Lee",
+    )
+    project_partner_case = _case(
+        case_id="status-profile-project-partner-guard",
+        question="What is Alex's project partner's name?",
+        expected_terms=("Riley",),
+        answer="Riley",
+    )
+
+    children_queries, children_metadata = rerank_module.decomposed_search_queries(
+        children_case
+    )
+    wife_name_queries, wife_name_metadata = rerank_module.decomposed_search_queries(
+        wife_name_case
+    )
+    parents_queries, parents_metadata = rerank_module.decomposed_search_queries(
+        parents_case
+    )
+    _, project_partner_metadata = rerank_module.decomposed_search_queries(
+        project_partner_case
+    )
+
+    assert children_queries[2] == "alex children son daughter parent child kid"
+    assert children_metadata["query_profile"]["relation_terms"] == ("children",)
+    assert children_metadata["query_profile"]["relation_categories"] == (
+        "status_profile",
+    )
+    assert children_metadata["query_profile"]["evidence_need"] == ("status_profile",)
+    assert "status_support" in children_metadata["query_plan"]["selected_roles"]
+
+    assert wife_name_queries[2] == "alex wife spouse partner husband marry married"
+    assert wife_name_metadata["query_profile"]["relation_terms"] == ("wife",)
+    assert wife_name_metadata["query_profile"]["relation_categories"] == (
+        "status_profile",
+    )
+    assert wife_name_metadata["query_profile"]["evidence_need"] == (
+        "status_profile",
+    )
+    assert "status_support" in wife_name_metadata["query_plan"]["selected_roles"]
+
+    assert parents_queries[2] == "alex parent mother father mom dad family"
+    assert parents_metadata["query_profile"]["relation_terms"] == ("parent",)
+    assert parents_metadata["query_profile"]["relation_categories"] == (
+        "status_profile",
+    )
+    assert parents_metadata["query_profile"]["evidence_need"] == ("status_profile",)
+    assert "status_support" in parents_metadata["query_plan"]["selected_roles"]
+    assert "status_profile" not in project_partner_metadata["query_profile"][
+        "relation_categories"
+    ]
+
+
 def test_query_decomposition_expands_open_domain_inference_queries() -> None:
     writing_case = _case(
         case_id="conv-26:qa:28",
@@ -6954,6 +7023,120 @@ def test_benchmark_rerank_boosts_status_profile_evidence() -> None:
         status_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
         > 0
     )
+    assert status_diagnostics["score_signals"][
+        "benchmark_typed_relation_support_roles"
+    ] == ["status_support"]
+    assert (
+        topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        == 0
+    )
+
+
+def test_benchmark_rerank_boosts_children_status_evidence() -> None:
+    case = _case(
+        case_id="status-profile-children-rerank",
+        question="Does Alex have children?",
+        expected_terms=("two children",),
+        answer="two children",
+        category=4,
+    )
+    topical_children = RetrievedMemory(
+        item_id="topical-children",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex donated children's books to the school."
+        ),
+        source_refs=("D1:1",),
+    )
+    status_profile = RetrievedMemory(
+        item_id="status-profile",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: I have two children."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_children, status_profile),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("status_profile",)
+    assert reranked[0].item_id == "status-profile"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    status_diagnostics = diagnostics_by_id["status-profile"]
+    topical_diagnostics = diagnostics_by_id["topical-children"]
+    assert status_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["status_profile"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert status_diagnostics["score_signals"][
+        "benchmark_typed_relation_support_roles"
+    ] == ["status_support"]
+    assert (
+        topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        == 0
+    )
+
+
+def test_benchmark_rerank_boosts_wife_name_status_evidence() -> None:
+    case = _case(
+        case_id="status-profile-wife-name-rerank",
+        question="What is Alex's wife's name?",
+        expected_terms=("Maria",),
+        answer="Maria",
+        category=4,
+    )
+    topical_wife = RetrievedMemory(
+        item_id="topical-wife",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex read a story about a wife with Maria."
+        ),
+        source_refs=("D1:1",),
+    )
+    status_profile = RetrievedMemory(
+        item_id="status-profile",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: Maria is my wife."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_wife, status_profile),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("status_profile",)
+    assert reranked[0].item_id == "status-profile"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    status_diagnostics = diagnostics_by_id["status-profile"]
+    topical_diagnostics = diagnostics_by_id["topical-wife"]
+    assert status_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["status_profile"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
     assert status_diagnostics["score_signals"][
         "benchmark_typed_relation_support_roles"
     ] == ["status_support"]
