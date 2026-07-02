@@ -15,6 +15,25 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
             source_refs=("D2:3",),
         ),
         RetrievedMemory(text="primary", rank=3, item_id="primary"),
+        RetrievedMemory(
+            text="D5:8 Morgan: I used to prefer solo work, but now I like teams.",
+            rank=4,
+            item_id="contrast-support",
+            source_refs=("D5:8",),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "answerability_score": 0.88,
+                        "source_locality_score": 0.9,
+                        "relation_category_hits": ["contrast"],
+                        "entity_hits": ["morgan"],
+                        "speaker_hits": ["morgan"],
+                        "contrast_surface": True,
+                        "stale_surface": True,
+                    }
+                }
+            },
+        ),
     )
     context = answer_context_from_evidence_bundle(
         memories,
@@ -64,12 +83,13 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
                 {"id": "bridge", "retrieval_order": 2, "role": "bridge"},
             ]
         },
-        cutoff=3,
+        cutoff=4,
     )
 
     assert [memory.item_id for memory in context.memories] == [
         "primary",
         "bridge",
+        "contrast-support",
         "noise",
     ]
     assert context.memories[0].source_refs == ("D4:5",)
@@ -203,18 +223,30 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
     assert context.memories[2].metadata["answer_context_reason_codes"] == (
         "incomplete_bundle_backfill",
         "retrieval_slice_support",
+        "missing_role_support",
+    )
+    assert context.memories[2].metadata[
+        "answer_context_relation_category_hits"
+    ] == ("contrast",)
+    assert context.memories[2].metadata["answer_context_answerability_score"] == 0.88
+    assert context.memories[2].metadata["answer_context_source_locality_score"] == 0.9
+    assert context.memories[2].metadata[
+        "answer_context_backfill_missing_role_hits"
+    ] == ("contrast",)
+    assert context.memories[3].metadata["answer_context_role"] == (
+        "retrieval_backfill"
     )
     assert context.to_diagnostics() == {
         "schema_version": "answer_context.v1",
         "source": "evidence_bundle",
-        "memory_count": 3,
-        "source_ref_count": 2,
-        "source_ref_item_count": 2,
+        "memory_count": 4,
+        "source_ref_count": 3,
+        "source_ref_item_count": 3,
         "source_refless_item_count": 1,
-        "source_ref_coverage_rate": 0.6667,
+        "source_ref_coverage_rate": 0.75,
         "selected_bundle_item_count": 2,
         "skipped_bundle_item_count": 0,
-        "backfilled_retrieval_item_count": 1,
+        "backfilled_retrieval_item_count": 2,
         "bundle_confidence_score": 0.68,
         "bundle_confidence_band": "medium",
         "bundle_bridge_count": 1,
@@ -238,8 +270,8 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
             "risk:missing_required_contrast",
         ],
         "fallback_reason": None,
-        "item_ids": ["primary", "bridge", "noise"],
-        "retrieval_orders": [3, 2, 1],
+        "item_ids": ["primary", "bridge", "contrast-support", "noise"],
+        "retrieval_orders": [3, 2, 4, 1],
     }
 
 

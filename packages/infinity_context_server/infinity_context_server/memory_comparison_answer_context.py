@@ -6,11 +6,10 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
+from infinity_context_server.memory_comparison_answer_context_backfill import (
+    backfill_incomplete_bundle_context,
+)
 from infinity_context_server.memory_comparison_models import RetrievedMemory
-
-_INCOMPLETE_BUNDLE_BACKFILL_MIN_ITEMS = 6
-_INCOMPLETE_BUNDLE_BACKFILL_MAX_ITEMS = 12
-_INCOMPLETE_BUNDLE_BACKFILL_ITEMS_PER_MISSING_ROLE = 2
 
 
 @dataclass(frozen=True)
@@ -151,7 +150,7 @@ def answer_context_from_evidence_bundle(
     bundle_selected_count = len(selected)
     backfilled_count = 0
     if bundle_context.get("answer_context_role_requirement_complete") is False:
-        backfilled_count = _backfill_incomplete_bundle_context(
+        backfilled_count = backfill_incomplete_bundle_context(
             selected,
             selected_keys=selected_keys,
             raw_slice=raw_slice,
@@ -275,56 +274,6 @@ def answer_context_from_evidence_bundle(
             bundle_context.get("answer_context_bundle_risk_reason_codes")
         ),
     )
-
-
-def _backfill_incomplete_bundle_context(
-    selected: list[RetrievedMemory],
-    *,
-    selected_keys: set[tuple[str, object]],
-    raw_slice: Sequence[RetrievedMemory],
-    bundle_context: Mapping[str, object],
-    bounded_cutoff: int,
-) -> int:
-    missing_roles = _string_tuple(
-        bundle_context.get("answer_context_missing_required_roles")
-    )
-    target_count = _incomplete_bundle_backfill_target_count(
-        selected_count=len(selected),
-        missing_role_count=len(missing_roles),
-        bounded_cutoff=bounded_cutoff,
-    )
-    backfilled_count = 0
-    for retrieval_order, memory in enumerate(raw_slice, start=1):
-        if len(selected) >= target_count:
-            break
-        key = _memory_key(memory, retrieval_order=retrieval_order)
-        if key in selected_keys:
-            continue
-        selected_keys.add(key)
-        selected.append(
-            _with_retrieval_backfill_metadata(
-                memory,
-                bundle_context=bundle_context,
-                retrieval_order=retrieval_order,
-            )
-        )
-        backfilled_count += 1
-    return backfilled_count
-
-
-def _incomplete_bundle_backfill_target_count(
-    *,
-    selected_count: int,
-    missing_role_count: int,
-    bounded_cutoff: int,
-) -> int:
-    if bounded_cutoff <= selected_count:
-        return selected_count
-    role_backfill = selected_count + (
-        missing_role_count * _INCOMPLETE_BUNDLE_BACKFILL_ITEMS_PER_MISSING_ROLE
-    )
-    target = max(_INCOMPLETE_BUNDLE_BACKFILL_MIN_ITEMS, role_backfill)
-    return min(bounded_cutoff, _INCOMPLETE_BUNDLE_BACKFILL_MAX_ITEMS, target)
 
 
 def answer_context_metrics(
@@ -693,31 +642,6 @@ def _with_answer_context_metadata(
         item_id=memory.item_id,
         created_at=memory.created_at,
         source_refs=source_refs,
-        metadata=metadata,
-    )
-
-
-def _with_retrieval_backfill_metadata(
-    memory: RetrievedMemory,
-    *,
-    bundle_context: Mapping[str, object],
-    retrieval_order: int,
-) -> RetrievedMemory:
-    metadata = dict(memory.metadata)
-    metadata["answer_context_retrieval_order"] = retrieval_order
-    metadata.update(bundle_context)
-    metadata["answer_context_role"] = "retrieval_backfill"
-    metadata["answer_context_reason_codes"] = (
-        "incomplete_bundle_backfill",
-        "retrieval_slice_support",
-    )
-    return RetrievedMemory(
-        text=memory.text,
-        rank=memory.rank,
-        score=memory.score,
-        item_id=memory.item_id,
-        created_at=memory.created_at,
-        source_refs=_memory_source_refs(memory),
         metadata=metadata,
     )
 
