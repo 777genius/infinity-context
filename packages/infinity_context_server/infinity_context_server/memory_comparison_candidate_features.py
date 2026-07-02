@@ -449,7 +449,12 @@ def _typed_category_has_query_grounding(
     memory_terms: set[str],
     term_values: Sequence[str],
 ) -> bool:
-    if category not in {"communication", "exchange", "status_profile"}:
+    if category not in {
+        "communication",
+        "education_profile",
+        "exchange",
+        "status_profile",
+    }:
         return True
     return any(term in memory_terms for term in term_values)
 

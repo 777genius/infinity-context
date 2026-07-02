@@ -179,6 +179,7 @@ _RELATION_QUERY_TERMS = {
     "cause",
     "chat",
     "choose",
+    "class",
     "compare",
     "consider",
     "conference",
@@ -188,6 +189,7 @@ _RELATION_QUERY_TERMS = {
     "discuss",
     "different",
     "difference",
+    "education",
     "enjoy",
     "enroll",
     "excite",
@@ -459,6 +461,7 @@ def expanded_search_query(case: PublicBenchmarkCase) -> tuple[str, dict[str, obj
             communication_support=(
                 "communication_support" in intent.bundle_evidence_roles
             ),
+            education_support="education_profile" in intent.evidence_need,
         )
         focus_parts.append(
             f"actions: {', '.join(_render_query_terms(focus_actions[:8]))}"
@@ -591,6 +594,7 @@ def decomposed_search_queries(
             lexical_terms=lexical_terms,
             entity_surfaces=entity_surfaces,
             communication_support=compact_relation_role == "communication_support",
+            education_support=compact_relation_role == "education_support",
         )
         compact_temporal_terms = (
             _compact_temporal_relation_terms(lexical_terms) if is_temporal_query else ()
@@ -806,9 +810,17 @@ def _support_query_terms(
     lexical_terms: tuple[str, ...],
     entity_surfaces: tuple[str, ...],
     communication_support: bool,
+    education_support: bool,
 ) -> tuple[str, ...]:
     if communication_support:
         return _communication_support_query_terms(
+            relation_terms=relation_terms,
+            relation_variant_terms=relation_variant_terms,
+            lexical_terms=lexical_terms,
+            entity_surfaces=entity_surfaces,
+        )
+    if education_support:
+        return _education_support_query_terms(
             relation_terms=relation_terms,
             relation_variant_terms=relation_variant_terms,
             lexical_terms=lexical_terms,
@@ -841,6 +853,60 @@ def _support_query_terms(
             topic_after=1 if "conference" in relation_terms else 4,
         )
     return _relation_query_terms(relation_terms, relation_variant_terms)
+
+
+def _education_support_query_terms(
+    *,
+    relation_terms: tuple[str, ...],
+    relation_variant_terms: tuple[str, ...],
+    lexical_terms: tuple[str, ...],
+    entity_surfaces: tuple[str, ...],
+) -> tuple[str, ...]:
+    entity_tokens = {
+        token for surface in entity_surfaces for token in _normalized_terms(surface)
+    }
+    education_terms = {
+        "campu",
+        "campus",
+        "class",
+        "college",
+        "course",
+        "degree",
+        "education",
+        "major",
+        "majoring",
+        "school",
+        "studies",
+        "study",
+        "studying",
+        "university",
+    }
+    relation_action_terms = {"attend", "education", "go", "school"}
+    topical_terms = tuple(
+        term
+        for term in lexical_terms
+        if term not in _QUERY_STOPWORDS
+        and term not in relation_terms
+        and term not in relation_variant_terms
+        and term not in entity_tokens
+    )
+    return tuple(
+        dict.fromkeys(
+            (
+                *(term for term in relation_terms if term in relation_action_terms),
+                *(term for term in relation_variant_terms if term in education_terms),
+                *topical_terms[:4],
+                *(
+                    term
+                    for term in _relation_query_terms(
+                        relation_terms,
+                        relation_variant_terms,
+                    )
+                    if term not in education_terms and term not in _QUERY_STOPWORDS
+                ),
+            )
+        )
+    )
 
 
 def _communication_support_query_terms(
@@ -1008,6 +1074,8 @@ def _recommended_query_role_families(intent: RetrievalIntent) -> tuple[str, ...]
 
 
 def _compact_relation_query_role(intent: RetrievalIntent) -> str:
+    if "education_profile" in set(intent.evidence_need):
+        return "education_support"
     role_priority = (
         "communication_support",
         "event_support",
@@ -1410,8 +1478,20 @@ def _filter_relation_terms_for_profile(
     relation_terms: Sequence[str],
 ) -> tuple[str, ...]:
     normalized_question = re.sub(r"[^0-9a-z]+", " ", question.casefold()).strip()
+    relation_set = set(relation_terms)
     filtered: list[str] = []
     for term in relation_terms:
+        if term in {"class", "education"} and {"enroll", "register", "sign"} & relation_set:
+            continue
+        if term == "education" and not _has_education_profile_question(
+            normalized_question,
+        ):
+            continue
+        if term == "class" and not re.search(
+            r"\bwhat\s+class\b|\bclass\b.+\b(?:take|taking|study|studying)\b",
+            normalized_question,
+        ):
+            continue
         if term == "stay" and not re.search(
             r"\bwhere\b.+\bstay\b|\bstay(?:ed|ing)?\b.+\b(?:in|at|near)\b",
             normalized_question,
@@ -1419,6 +1499,18 @@ def _filter_relation_terms_for_profile(
             continue
         filtered.append(term)
     return tuple(filtered)
+
+
+def _has_education_profile_question(normalized_question: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(?:what|which)\s+school\b|"
+            r"\b(?:college|university)\b|"
+            r"\b(?:study|studies|studying|major|majoring|degree)\b|"
+            r"\bwhat\s+class\b",
+            normalized_question,
+        )
+    )
 
 
 def _filter_relation_variant_terms_for_profile(

@@ -4365,6 +4365,111 @@ def test_query_decomposition_expands_location_profile_queries() -> None:
     ]
 
 
+def test_query_decomposition_expands_education_profile_queries() -> None:
+    study_case = _case(
+        case_id="education-profile-study",
+        question="What is Alex studying?",
+        expected_terms=("biology",),
+        answer="biology",
+    )
+    school_case = _case(
+        case_id="education-profile-school",
+        question="What school does Alex go to?",
+        expected_terms=("Stanford",),
+        answer="Stanford",
+    )
+    college_case = _case(
+        case_id="education-profile-college",
+        question="Where did Alex go to college?",
+        expected_terms=("Stanford",),
+        answer="Stanford",
+    )
+    class_case = _case(
+        case_id="education-profile-class",
+        question="What class did Alex take?",
+        expected_terms=("ceramics",),
+        answer="ceramics",
+    )
+    speech_school_case = _case(
+        case_id="education-profile-speech-school-guard",
+        question="When did Caroline give a speech at a school?",
+        expected_terms=("Friday",),
+        answer="Friday",
+        category=2,
+    )
+    pottery_case = _case(
+        case_id="education-profile-pottery-class-guard",
+        question="When did Melanie sign up for a pottery class?",
+        expected_terms=("2 July 2023",),
+        answer="2 July 2023",
+        category=2,
+    )
+
+    study_queries, study_metadata = rerank_module.decomposed_search_queries(
+        study_case
+    )
+    school_queries, school_metadata = rerank_module.decomposed_search_queries(
+        school_case
+    )
+    college_queries, college_metadata = rerank_module.decomposed_search_queries(
+        college_case
+    )
+    class_queries, class_metadata = rerank_module.decomposed_search_queries(
+        class_case
+    )
+    speech_queries, speech_metadata = rerank_module.decomposed_search_queries(
+        speech_school_case
+    )
+    pottery_queries, pottery_metadata = rerank_module.decomposed_search_queries(
+        pottery_case
+    )
+
+    assert study_queries[2] == (
+        "alex education school college university study major"
+    )
+    assert study_metadata["query_profile"]["relation_terms"] == ("education",)
+    assert study_metadata["query_profile"]["relation_categories"] == (
+        "education_profile",
+    )
+    assert study_metadata["query_profile"]["evidence_need"] == (
+        "education_profile",
+    )
+
+    assert school_queries[2] == "alex school go education college university study"
+    assert school_metadata["query_profile"]["relation_terms"] == (
+        "school",
+        "go",
+        "education",
+    )
+    assert school_metadata["query_profile"]["relation_categories"] == (
+        "education_profile",
+    )
+
+    assert college_queries[2] == "alex go education school college university study"
+    assert college_metadata["query_profile"]["relation_categories"] == (
+        "education_profile",
+    )
+
+    assert class_queries[2] == "alex education course study school college university"
+    assert class_metadata["query_profile"]["relation_terms"] == (
+        "class",
+        "education",
+    )
+    assert class_metadata["query_profile"]["relation_categories"] == (
+        "education_profile",
+    )
+
+    assert speech_queries[1] == "caroline give speech school event talk student"
+    assert "education_profile" not in speech_metadata["query_profile"][
+        "relation_categories"
+    ]
+    assert pottery_queries[1] == "melanie sign signed signup class pottery registered"
+    assert "class" not in pottery_metadata["query_profile"]["relation_terms"]
+    assert "education_profile" not in pottery_metadata["query_profile"][
+        "relation_categories"
+    ]
+
+
 def test_infinity_context_http_search_expands_temporal_action_queries() -> None:
     seen_payloads: list[dict[str, object]] = []
 
@@ -7364,6 +7469,67 @@ def test_benchmark_rerank_boosts_origin_profile_evidence() -> None:
     )
     assert (
         topical_diagnostics["score_signals"]["benchmark_location_support_boost"]
+        == 0
+    )
+
+
+def test_benchmark_rerank_boosts_education_profile_evidence() -> None:
+    case = _case(
+        case_id="education-profile-rerank",
+        question="What is Alex studying?",
+        expected_terms=("biology",),
+        answer="biology",
+        category=4,
+    )
+    topical_study = RetrievedMemory(
+        item_id="topical-study",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex talked about biology with Maria."
+        ),
+        source_refs=("D1:1",),
+    )
+    study_profile = RetrievedMemory(
+        item_id="study-profile",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: I am studying biology at the university."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_study, study_profile),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("education_profile",)
+    assert reranked[0].item_id == "study-profile"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    study_diagnostics = diagnostics_by_id["study-profile"]
+    topical_diagnostics = diagnostics_by_id["topical-study"]
+    assert study_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["education_profile"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert (
+        study_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        > 0
+    )
+    assert study_diagnostics["score_signals"][
+        "benchmark_typed_relation_support_roles"
+    ] == ["education_support"]
+    assert (
+        topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
         == 0
     )
 

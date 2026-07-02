@@ -216,6 +216,11 @@ def infer_relation_intents(
             relation_terms=relation_terms,
         ):
             continue
+        if category == "education_profile" and not _has_education_profile_intent(
+            question=question,
+            relation_terms=relation_terms,
+        ):
+            continue
         if category == "communication" and not _has_communication_intent(
             question=question,
             relation_terms=relation_terms,
@@ -374,6 +379,7 @@ def merge_relation_evidence_needs(
 
     promoted_needs = {
         "emotion_response",
+        "education_profile",
         "communication",
         "exchange",
         "inference_support",
@@ -618,6 +624,25 @@ def _has_communication_intent(
     return bool(
         re.search(
             r"\b(?:who|whom)\b.+\bmention\b|\bmention(?:ed)?\b.+\b(?:to|with)\b",
+            normalized_question,
+        )
+    )
+
+
+def _has_education_profile_intent(
+    *,
+    question: str,
+    relation_terms: tuple[str, ...],
+) -> bool:
+    if not {"class", "education"} & set(relation_terms):
+        return False
+    normalized_question = re.sub(r"[^0-9a-z]+", " ", question.casefold()).strip()
+    return bool(
+        re.search(
+            r"\b(?:what|which)\s+school\b|"
+            r"\b(?:college|university)\b|"
+            r"\b(?:study|studies|studying|major|majoring|degree)\b|"
+            r"\bwhat\s+class\b",
             normalized_question,
         )
     )
@@ -972,6 +997,26 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
         ),
         "markers": frozenset(),
         "evidence_need": "inference_support",
+    },
+    "education_profile": {
+        "terms": frozenset({"class", "education"}),
+        "variants": frozenset(
+            {
+                "campus",
+                "college",
+                "course",
+                "degree",
+                "major",
+                "majoring",
+                "school",
+                "studies",
+                "study",
+                "studying",
+                "university",
+            }
+        ),
+        "markers": frozenset(),
+        "evidence_need": "education_profile",
     },
     "exchange": {
         "terms": frozenset(

@@ -89,6 +89,49 @@ def _has_participation_event_support(memory_terms: set[str]) -> bool:
     return bool(participation_action and event_context)
 
 
+def _has_education_profile_support(memory_terms: set[str]) -> bool:
+    education_surface = {
+        "campus",
+        "class",
+        "college",
+        "course",
+        "degree",
+        "education",
+        "major",
+        "majoring",
+        "school",
+        "studies",
+        "study",
+        "studying",
+        "university",
+    } & memory_terms
+    education_action = {
+        "attend",
+        "attended",
+        "go",
+        "goes",
+        "major",
+        "majoring",
+        "study",
+        "studies",
+        "studying",
+        "take",
+        "taking",
+    } & memory_terms
+    education_context = {
+        "campus",
+        "class",
+        "college",
+        "course",
+        "degree",
+        "education",
+        "major",
+        "school",
+        "university",
+    } & memory_terms
+    return bool(education_surface or (education_action and education_context))
+
+
 def _has_emotion_response_support(memory_terms: set[str]) -> bool:
     emotion_surface = {
         "anxious",
@@ -767,6 +810,7 @@ _TYPED_SUPPORT_CHECKS: dict[str, Callable[[set[str]], bool]] = {
     "causal": _has_causal_support,
     "contrast": _has_contrast_support,
     "current_goal": _has_current_goal_support,
+    "education_profile": _has_education_profile_support,
     "emotion_response": _has_emotion_response_support,
     "exchange": _has_exchange_support,
     "identity_profile": _has_identity_profile_support,

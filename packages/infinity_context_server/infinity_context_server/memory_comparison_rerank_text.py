@@ -355,6 +355,22 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
     if re.search(r"\bgo\s+to\b", text, flags=re.IGNORECASE):
         terms.append("go")
     if re.search(
+        r"\b(?:what|which)\s+school\b|"
+        r"\b(?:college|university)\b|"
+        r"\b(?:study|studies|studying|major|majoring|degree)\b",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        terms.append("education")
+    if re.search(r"\bwhat\s+class\b", text, flags=re.IGNORECASE):
+        terms.append("class")
+        if not re.search(
+            r"\b(?:enroll|enrolled|register|registered|sign(?:ed)?)\b",
+            text,
+            flags=re.IGNORECASE,
+        ):
+            terms.append("education")
+    if re.search(
         r"\bwhere\b.+\blive\b|\blive\b.+\bwhere\b",
         text,
         flags=re.IGNORECASE,
