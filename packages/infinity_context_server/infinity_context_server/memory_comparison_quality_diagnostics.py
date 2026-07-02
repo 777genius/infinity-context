@@ -1484,6 +1484,12 @@ def _answer_context_provenance_table(
     fallback_context_count = 0
     source_type_diversities: list[int] = []
     retrieval_source_diversities: list[int] = []
+    answerability_scores: list[float] = []
+    measured_answerability_scores: list[float] = []
+    unmeasured_answerability_count = 0
+    source_locality_scores: list[float] = []
+    measured_source_locality_scores: list[float] = []
+    unmeasured_source_locality_count = 0
     source_counts: Counter[str] = Counter()
     fallback_reason_counts: Counter[str] = Counter()
     source_refless_context_samples: list[dict[str, object]] = []
@@ -1526,6 +1532,31 @@ def _answer_context_provenance_table(
             )
             retrieval_source_diversities.append(
                 _positive_int(context.get("bundle_retrieval_source_diversity")) or 0
+            )
+            answerability_score = _metric_value(context, "avg_answerability_score")
+            answerability_scores.append(answerability_score)
+            measured_answerability_score = _metric_value(
+                context,
+                "avg_measured_answerability_score",
+            )
+            if measured_answerability_score > 0:
+                measured_answerability_scores.append(measured_answerability_score)
+            unmeasured_answerability_count += (
+                _positive_int(context.get("unmeasured_answerability_count")) or 0
+            )
+            source_locality_score = _metric_value(
+                context,
+                "avg_source_locality_score",
+            )
+            source_locality_scores.append(source_locality_score)
+            measured_source_locality_score = _metric_value(
+                context,
+                "avg_measured_source_locality_score",
+            )
+            if measured_source_locality_score > 0:
+                measured_source_locality_scores.append(measured_source_locality_score)
+            unmeasured_source_locality_count += (
+                _positive_int(context.get("unmeasured_source_locality_count")) or 0
             )
             memory_count += context_memory_count
             source_ref_count += context_source_ref_count
@@ -1600,6 +1631,20 @@ def _answer_context_provenance_table(
         "source_ref_item_coverage_rate": _ratio(
             source_ref_item_count,
             memory_count,
+        ),
+        "avg_context_answerability_score": _avg(answerability_scores),
+        "avg_measured_context_answerability_score": _avg(
+            measured_answerability_scores
+        ),
+        "total_unmeasured_context_answerability_count": (
+            unmeasured_answerability_count
+        ),
+        "avg_context_source_locality_score": _avg(source_locality_scores),
+        "avg_measured_context_source_locality_score": _avg(
+            measured_source_locality_scores
+        ),
+        "total_unmeasured_context_source_locality_count": (
+            unmeasured_source_locality_count
         ),
         "avg_bundle_source_type_diversity": _avg(source_type_diversities),
         "max_bundle_source_type_diversity": (
