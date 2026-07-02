@@ -861,6 +861,54 @@ def test_fast_gate_metrics_reports_bundle_gap_breakdown() -> None:
     assert breakdown["samples"][0]["average_selected_source_locality_score"] == 0.35
 
 
+def test_fast_gate_metrics_reports_answerability_gap_breakdown() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="missing-typed-evidence",
+                group="open-domain",
+                retrieval=_retrieval_payload(
+                    evidence_need=("inference_support",),
+                    relation_categories=("preference", "contrast"),
+                    policy_score=0.0,
+                    item_id="topic-only",
+                    candidate_features={
+                        "answerability_score": 0.42,
+                        "source_locality_score": 0.9,
+                        "answerability_reason_codes": [
+                            "missing_preference_evidence",
+                            "missing_contrast_evidence",
+                            "low_answerability",
+                        ],
+                        "relation_categories": ["preference", "contrast"],
+                        "relation_category_hits": [],
+                        "query_roles": ["compact_relation"],
+                    },
+                ),
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    breakdown = gate["answerability_gap_breakdown"]
+
+    assert breakdown["schema_version"] == "answerability_gap_breakdown.v1"
+    assert breakdown["gap_candidate_count"] == 1
+    assert breakdown["gap_case_count"] == 1
+    assert breakdown["reason_counts"] == {
+        "missing_contrast_evidence": 1,
+        "missing_preference_evidence": 1,
+    }
+    assert breakdown["category_counts"] == {"contrast": 1, "preference": 1}
+    assert breakdown["samples"][0]["case_id"] == "missing-typed-evidence"
+    assert breakdown["samples"][0]["memory_id"] == "topic-only"
+    assert breakdown["samples"][0]["answerability_score"] == 0.42
+    assert breakdown["samples"][0]["relation_categories"] == [
+        "preference",
+        "contrast",
+    ]
+
+
 def test_fast_gate_metrics_reports_bundle_support_summaries() -> None:
     gate = fast_gate_metrics(
         (

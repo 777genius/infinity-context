@@ -315,6 +315,7 @@ def fast_gate_metrics(
     risk_flag_table = _risk_flag_table(items)
     source_ref_provenance = _source_ref_provenance_table(items)
     answer_context_provenance = _answer_context_provenance_table(items)
+    answerability_gap_breakdown = _answerability_gap_breakdown(items)
     bundle_quality_count = _positive_int(bundle_quality.get("bundle_count")) or 0
     medium_or_high_bundle_count = (
         _positive_int(bundle_quality.get("medium_or_high_bundle_count")) or 0
@@ -375,6 +376,7 @@ def fast_gate_metrics(
         "bundle_support_counts": _bundle_support_counts(bundle_quality),
         "bundle_support_bundle_counts": _bundle_support_bundle_counts(bundle_quality),
         "bundle_gap_breakdown": _bundle_gap_breakdown(bundle_incomplete),
+        "answerability_gap_breakdown": answerability_gap_breakdown,
         "query_role_gap_breakdown": _query_role_gap_breakdown(
             query_role_effectiveness
         ),
@@ -628,6 +630,72 @@ def _bundle_gap_breakdown(bundle_incomplete: Mapping[str, object]) -> dict[str, 
             )[:10]
         ),
         "samples": list(_sequence(bundle_incomplete.get("samples")))[:5],
+    }
+
+
+def _answerability_gap_breakdown(
+    items: Sequence[Mapping[str, object]],
+) -> dict[str, object]:
+    reason_counts: Counter[str] = Counter()
+    category_counts: Counter[str] = Counter()
+    case_ids: set[str] = set()
+    candidate_count = 0
+    samples: list[dict[str, object]] = []
+    for item in items:
+        case_id = str(item.get("case_id") or "")
+        group = str(item.get("group") or "")
+        retrieval = _mapping(item.get("retrieval"))
+        for memory in _sequence(retrieval.get("results")):
+            if not isinstance(memory, Mapping):
+                continue
+            features = _candidate_features(memory)
+            reasons = tuple(
+                reason
+                for reason in _str_tuple(features.get("answerability_reason_codes"))
+                if reason.startswith("missing_") and reason.endswith("_evidence")
+            )
+            if not reasons:
+                continue
+            candidate_count += 1
+            if case_id:
+                case_ids.add(case_id)
+            reason_counts.update(reasons)
+            for reason in reasons:
+                category = reason.removeprefix("missing_").removesuffix("_evidence")
+                if category:
+                    category_counts[category] += 1
+            if len(samples) < 10:
+                samples.append(
+                    {
+                        "case_id": case_id,
+                        "group": group,
+                        "memory_id": _memory_id(memory),
+                        "rank": _positive_int(memory.get("rank")),
+                        "reasons": list(reasons),
+                        "answerability_score": round(
+                            _metric_value(features, "answerability_score"),
+                            6,
+                        ),
+                        "source_locality_score": round(
+                            _metric_value(features, "source_locality_score"),
+                            6,
+                        ),
+                        "relation_categories": list(
+                            _str_tuple(features.get("relation_categories"))
+                        ),
+                        "relation_category_hits": list(
+                            _str_tuple(features.get("relation_category_hits"))
+                        ),
+                        "query_roles": list(_str_tuple(features.get("query_roles"))),
+                    }
+                )
+    return {
+        "schema_version": "answerability_gap_breakdown.v1",
+        "gap_candidate_count": candidate_count,
+        "gap_case_count": len(case_ids),
+        "reason_counts": dict(sorted(reason_counts.items())),
+        "category_counts": dict(sorted(category_counts.items())),
+        "samples": samples,
     }
 
 
