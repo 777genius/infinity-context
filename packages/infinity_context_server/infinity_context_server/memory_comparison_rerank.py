@@ -1557,20 +1557,17 @@ def _relation_query_terms(
     if "political" in relation_term_set:
         priority_variant_order.extend(
             (
-                "conservatives",
                 "rights",
                 "lgbtq",
-                "transition",
-                "comment",
-                "upset",
                 "support",
                 "accept",
-                "conservative",
                 "belief",
                 "view",
+                "value",
+                "policy",
             )
         )
-        priority_surface_terms.update(("rights", "conservatives"))
+        priority_surface_terms.add("rights")
     if "religious" in relation_term_set:
         priority_variant_order.extend(
             (

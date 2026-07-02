@@ -3553,14 +3553,12 @@ def test_query_decomposition_expands_profile_attribute_queries() -> None:
     assert read_books_queries[2] == "melanie book read reading bookshelf kid story"
     assert "book" in read_books_metadata["query_profile"]["relation_terms"]
     assert "read" in read_books_metadata["query_profile"]["relation_terms"]
-    assert political_queries[2] == (
-        "caroline political conservatives rights lgbtq transition comment"
-    )
+    assert political_queries[2] == "caroline political rights lgbtq support accepted belief"
     assert "political" in political_metadata["query_profile"]["relation_terms"]
     assert "right" in political_metadata["query_profile"]["relation_variant_terms"]
-    assert "conservative" in political_metadata["query_profile"]["relation_variant_terms"]
-    assert "transition" in political_metadata["query_profile"]["relation_variant_terms"]
-    assert "comment" in political_metadata["query_profile"]["relation_variant_terms"]
+    assert not {"conservative", "transition", "comment", "hike"}.intersection(
+        political_metadata["query_profile"]["relation_variant_terms"]
+    )
     assert religious_queries[2] == (
         "caroline religious church conservatives think journey changing"
     )
@@ -4976,17 +4974,15 @@ def test_infinity_context_http_search_expands_political_queries() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         payload = json.loads(request.content)
         seen_payloads.append(payload)
-        if (
-            payload["query"]
-            == "caroline political conservatives rights lgbtq transition comment"
-        ):
+        if payload["query"] == "caroline political rights lgbtq support accepted belief":
             items = [
                 {
                     "item_id": "political-evidence",
                     "item_type": "chunk",
                     "text": (
                         "Caroline was upset by a conservative comment about "
-                        "her transition and said there is work to do for LGBTQ rights."
+                        "her transition and said there is work to do for LGBTQ rights. "
+                        "She relies on people who accept and support her."
                     ),
                     "score": 0.84,
                     "source_refs": [{"source_id": "memory-political"}],
@@ -5026,15 +5022,16 @@ def test_infinity_context_http_search_expands_political_queries() -> None:
         "What would Caroline's political leaning likely be?",
         "What would Caroline's political leaning likely be?\n"
         "Search focus: entities: caroline; speakers: caroline:; "
-        "actions: political, conservatives, rights, lgbtq, transition, comment, upset, support",
-        "caroline political conservatives rights lgbtq transition comment",
+        "actions: political, rights, lgbtq, support, accepted, belief, view, value",
+        "caroline political rights lgbtq support accepted belief",
     ]
     assert result.memories[0].item_id == "political-evidence"
     query_profile = result.metadata["query_decomposition"]["query_profile"]
     assert "political" in query_profile["relation_terms"]
     assert "right" in query_profile["relation_variant_terms"]
-    assert "conservative" in query_profile["relation_variant_terms"]
-    assert "transition" in query_profile["relation_variant_terms"]
+    assert not {"conservative", "transition", "comment", "hike"}.intersection(
+        query_profile["relation_variant_terms"]
+    )
     diagnostics = result.memories[0].metadata["diagnostics"]
     assert diagnostics["score_signals"]["benchmark_relation_boost"] > 0
     assert diagnostics["score_signals"]["benchmark_strong_relation_evidence"] is True
