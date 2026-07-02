@@ -203,6 +203,9 @@ def test_candidate_fusion_selects_local_evidence_within_score_band() -> None:
 
     assert len(fused) == 1
     assert diagnostics["duplicate_result_count"] == 1
+    assert diagnostics["lower_score_evidence_selection_count"] == 1
+    assert diagnostics["source_type_evidence_selection_count"] == 1
+    assert diagnostics["focused_query_evidence_selection_count"] == 0
     assert fused[0].text == raw_turn.text
     assert fused[0].score > broad_chunk.score
     assert fused[0].source_refs == ("D2:9", "D2:8", "D2:10", "D2:11")
@@ -244,6 +247,9 @@ def test_candidate_fusion_prefers_focused_query_evidence_within_score_band() -> 
 
     assert len(fused) == 1
     assert diagnostics["duplicate_result_count"] == 1
+    assert diagnostics["lower_score_evidence_selection_count"] == 1
+    assert diagnostics["source_type_evidence_selection_count"] == 0
+    assert diagnostics["focused_query_evidence_selection_count"] == 1
     assert fused[0].text == focused_hit.text
     assert fused[0].score > generic_hit.score
     fusion = fused[0].metadata["diagnostics"]["benchmark_candidate_fusion"]

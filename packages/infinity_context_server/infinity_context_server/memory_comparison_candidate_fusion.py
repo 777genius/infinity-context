@@ -85,6 +85,9 @@ def fuse_query_results(
     source_diversity_counts: list[int] = []
     query_role_counts: Counter[str] = Counter()
     bridge_query_hit_count = 0
+    lower_score_evidence_selection_count = 0
+    source_type_evidence_selection_count = 0
+    focused_query_evidence_selection_count = 0
     for key, occurrences in occurrences_by_key.items():
         fused_memory, fusion = _fuse_candidate(key, occurrences, config=config)
         fused.append(fused_memory)
@@ -94,6 +97,18 @@ def fuse_query_results(
         query_role_counts.update(_string_sequence(fusion.get("query_roles")))
         if fusion.get("bridge_query_hit") is True:
             bridge_query_hit_count += 1
+        if float(fusion.get("selected_evidence_score") or 0.0) < float(
+            fusion.get("winner_score") or 0.0
+        ):
+            lower_score_evidence_selection_count += 1
+        if fusion.get("selected_evidence_source_type") != fusion.get(
+            "score_winner_source_type"
+        ):
+            source_type_evidence_selection_count += 1
+        if fusion.get("selected_evidence_query_role") != fusion.get(
+            "score_winner_query_role"
+        ):
+            focused_query_evidence_selection_count += 1
 
     fused.sort(key=lambda memory: (-memory.score, memory.rank))
     reranked = [
@@ -109,6 +124,11 @@ def fuse_query_results(
         "multi_query_hit_count": sum(1 for count in match_counts if count > 1),
         "query_role_counts": dict(sorted(query_role_counts.items())),
         "bridge_query_hit_count": bridge_query_hit_count,
+        "lower_score_evidence_selection_count": lower_score_evidence_selection_count,
+        "source_type_evidence_selection_count": source_type_evidence_selection_count,
+        "focused_query_evidence_selection_count": (
+            focused_query_evidence_selection_count
+        ),
         "max_query_match_count": max(match_counts, default=0),
         "max_rrf_score": round(max(rrf_scores, default=0.0), 6),
         "max_source_diversity_count": max(source_diversity_counts, default=0),
