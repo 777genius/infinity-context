@@ -506,6 +506,57 @@ def test_evidence_bundle_planner_rejects_broad_location_support_role() -> None:
     ]
 
 
+def test_evidence_bundle_planner_accepts_unmeasured_location_locality() -> None:
+    primary = _candidate(
+        item_id="primary",
+        covered_expected_terms=("Canada",),
+        primary_signal=True,
+        source_refs=("D1:4",),
+        answerability_score=0.9,
+        source_locality_score=1.0,
+    )
+    unmeasured_location = _candidate(
+        item_id="unmeasured-location",
+        dedupe_key="refs:D1:5",
+        relation_category_hits=("location_transition",),
+        relation_hits=("origin", "country"),
+        entity_hits=("caroline",),
+        query_has_entities=True,
+        query_support_terms=("origin", "country"),
+        source_refs=("D1:5",),
+        answerability_score=0.72,
+        source_locality_score=0.0,
+    )
+    weak_location = _candidate(
+        item_id="weak-location",
+        dedupe_key="refs:D1:6",
+        relation_category_hits=("location_transition",),
+        relation_hits=("origin", "country"),
+        entity_hits=("caroline",),
+        query_has_entities=True,
+        query_support_terms=("origin", "country"),
+        source_refs=("D1:6",),
+        answerability_score=0.72,
+        source_locality_score=0.3,
+    )
+
+    accepted = EvidenceBundlePlanner().plan(
+        (primary, unmeasured_location),
+        case_group="single",
+        required_roles=("primary", "location_support"),
+    )
+    rejected = EvidenceBundlePlanner().plan(
+        (primary, weak_location),
+        case_group="single",
+        required_roles=("primary", "location_support"),
+    )
+
+    assert accepted.satisfied_required_roles == ("primary", "location_support")
+    assert accepted.missing_required_roles == ()
+    assert rejected.satisfied_required_roles == ("primary",)
+    assert rejected.missing_required_roles == ("location_support",)
+
+
 def test_evidence_bundle_planner_requires_matching_temporal_evidence_type() -> None:
     primary = _candidate(
         item_id="primary",

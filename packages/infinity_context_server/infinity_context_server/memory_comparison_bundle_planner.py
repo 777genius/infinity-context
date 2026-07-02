@@ -917,7 +917,10 @@ def _candidate_has_temporal_support(candidate: EvidenceBundleCandidate) -> bool:
 def _candidate_has_temporal_grounding(candidate: EvidenceBundleCandidate) -> bool:
     if candidate.broad_summary or candidate.conflict_or_stale:
         return False
-    if candidate.source_locality_score < 0.45 and candidate.focused_evidence_score <= 0:
+    if (
+        _candidate_has_measured_weak_source_locality(candidate)
+        and candidate.focused_evidence_score <= 0
+    ):
         return False
     if candidate.answerability_score and candidate.answerability_score < 0.55:
         return False
@@ -951,7 +954,7 @@ def _candidate_has_contrast_grounding(candidate: EvidenceBundleCandidate) -> boo
     if candidate.broad_summary or candidate.conflict_or_stale:
         return False
     if (
-        0 < candidate.source_locality_score < 0.45
+        _candidate_has_measured_weak_source_locality(candidate)
         and candidate.focused_evidence_score <= 0
     ):
         return False
@@ -1027,7 +1030,7 @@ def _candidate_has_event_support(candidate: EvidenceBundleCandidate) -> bool:
 def _candidate_has_communication_support(candidate: EvidenceBundleCandidate) -> bool:
     if candidate.broad_summary or candidate.conflict_or_stale:
         return False
-    if candidate.source_locality_score < 0.45:
+    if _candidate_has_measured_weak_source_locality(candidate):
         return False
     if candidate.answerability_score and candidate.answerability_score < 0.55:
         return False
@@ -1049,7 +1052,7 @@ def _candidate_has_typed_relation_grounding(
 ) -> bool:
     if candidate.broad_summary or candidate.conflict_or_stale:
         return False
-    if candidate.source_locality_score < 0.45:
+    if _candidate_has_measured_weak_source_locality(candidate):
         return False
     if candidate.answerability_score and candidate.answerability_score < 0.55:
         return False
@@ -1063,7 +1066,7 @@ def _candidate_has_inference_support(candidate: EvidenceBundleCandidate) -> bool
         return False
     if not (candidate.entity_hits or candidate.speaker_hits):
         return False
-    if candidate.source_locality_score < 0.45:
+    if _candidate_has_measured_weak_source_locality(candidate):
         return False
     if candidate.answerability_score and candidate.answerability_score < 0.55:
         return False
@@ -1075,7 +1078,7 @@ def _candidate_has_causal_support(candidate: EvidenceBundleCandidate) -> bool:
         return False
     if not (candidate.entity_hits or candidate.speaker_hits):
         return False
-    if candidate.source_locality_score < 0.45:
+    if _candidate_has_measured_weak_source_locality(candidate):
         return False
     if candidate.answerability_score and candidate.answerability_score < 0.55:
         return False
@@ -1101,6 +1104,12 @@ def _candidate_has_causal_support(candidate: EvidenceBundleCandidate) -> bool:
         "value",
     }
     return bool(causal_terms.intersection(candidate.relation_hits))
+
+
+def _candidate_has_measured_weak_source_locality(
+    candidate: EvidenceBundleCandidate,
+) -> bool:
+    return 0 < candidate.source_locality_score < 0.45
 
 
 def _selection_has_bridge_support(selected: Sequence[PlannedEvidenceItem]) -> bool:

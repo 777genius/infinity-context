@@ -551,7 +551,10 @@ def _passes_support_quality(item: Mapping[str, object]) -> bool:
     ):
         return False
     source_locality_score = _float_value(item.get("source_locality_score"))
-    if source_locality_score is not None and source_locality_score < 0.45:
+    if (
+        source_locality_score is not None
+        and 0 < source_locality_score < 0.45
+    ):
         return False
     answerability_score = _float_value(item.get("answerability_score"))
     return answerability_score is None or answerability_score >= 0.55
