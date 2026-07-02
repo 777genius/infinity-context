@@ -65,7 +65,7 @@ RELATION_QUERY_VARIANTS = {
     "cause": ("caused", "because", "reason"),
     "choose": ("chose", "picked", "selected"),
     "consider": ("considered", "considering", "looked at", "thinking"),
-    "conference": ("event", "attend", "going", "transgender"),
+    "conference": ("event", "attend", "going"),
     "decide": ("decided", "chose", "planned", "thinking", "figuring"),
     "destress": (
         "stress",

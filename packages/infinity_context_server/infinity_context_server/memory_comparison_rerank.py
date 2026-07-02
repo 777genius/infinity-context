@@ -775,12 +775,13 @@ def _support_query_terms(
             lexical_terms=lexical_terms,
             entity_surfaces=entity_surfaces,
         )
-    if {"sign", "enroll", "register"} & set(relation_terms):
-        return _registration_event_query_terms(
+    if {"sign", "enroll", "register", "conference"} & set(relation_terms):
+        return _topical_relation_query_terms(
             relation_terms=relation_terms,
             relation_variant_terms=relation_variant_terms,
             lexical_terms=lexical_terms,
             entity_surfaces=entity_surfaces,
+            topic_after=1 if "conference" in relation_terms else 4,
         )
     return _relation_query_terms(relation_terms, relation_variant_terms)
 
@@ -855,12 +856,13 @@ def _communication_support_query_terms(
     )
 
 
-def _registration_event_query_terms(
+def _topical_relation_query_terms(
     *,
     relation_terms: tuple[str, ...],
     relation_variant_terms: tuple[str, ...],
     lexical_terms: tuple[str, ...],
     entity_surfaces: tuple[str, ...],
+    topic_after: int,
 ) -> tuple[str, ...]:
     entity_tokens = {
         token for surface in entity_surfaces for token in _normalized_terms(surface)
@@ -876,7 +878,13 @@ def _registration_event_query_terms(
         and term not in entity_tokens
     )
     return tuple(
-        dict.fromkeys((*base_terms[:4], *topical_terms[:4], *base_terms[4:]))
+        dict.fromkeys(
+            (
+                *base_terms[:topic_after],
+                *topical_terms[:4],
+                *base_terms[topic_after:],
+            )
+        )
     )
 
 
@@ -1742,8 +1750,8 @@ def _relation_query_terms(
         )
         priority_surface_terms.update(("signed", "registered", "enrolled"))
     if "conference" in relation_term_set:
-        priority_variant_order.extend(("transgender", "going", "month", "community", "event"))
-        priority_surface_terms.update(("month", "community"))
+        priority_variant_order.extend(("going", "month", "event", "attend"))
+        priority_surface_terms.add("month")
     if "roadtrip" in relation_term_set:
         priority_variant_order.extend(
             (

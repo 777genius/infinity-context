@@ -4018,9 +4018,13 @@ def test_query_decomposition_expands_temporal_action_queries() -> None:
     assert "paint" in sunrise_metadata["query_profile"]["relation_terms"]
     assert "sunrise" in sunrise_metadata["query_profile"]["relation_terms"]
     assert conference_queries[1] == (
-        "caroline conference transgender going month community event"
+        "caroline conference transgender going month event attend"
     )
     assert "conference" in conference_metadata["query_profile"]["relation_terms"]
+    assert "transgender" in conference_metadata["query_profile"]["lexical_terms"]
+    assert "transgender" not in conference_metadata["query_profile"][
+        "relation_variant_terms"
+    ]
     assert awareness_queries[2] == "charity race raising raised awareness fundraiser"
     assert "raise" in awareness_metadata["query_profile"]["relation_terms"]
     assert "race" in awareness_metadata["query_profile"]["relation_terms"]
