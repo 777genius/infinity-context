@@ -54,6 +54,7 @@ class EvidenceBundleCandidate:
     relation_category_hits: tuple[str, ...] = ()
     entity_hits: tuple[str, ...] = ()
     speaker_hits: tuple[str, ...] = ()
+    query_has_entities: bool = False
     has_preference_evidence: bool = False
     has_visual_evidence: bool = False
     query_roles: tuple[str, ...] = ()
@@ -945,11 +946,7 @@ def _candidate_has_visual_support(candidate: EvidenceBundleCandidate) -> bool:
 def _candidate_has_emotion_response_support(
     candidate: EvidenceBundleCandidate,
 ) -> bool:
-    if candidate.broad_summary or candidate.conflict_or_stale:
-        return False
-    if candidate.source_locality_score < 0.45:
-        return False
-    if candidate.answerability_score and candidate.answerability_score < 0.55:
+    if not _candidate_has_typed_relation_grounding(candidate):
         return False
     return "emotion_response" in set(candidate.relation_category_hits)
 
@@ -957,21 +954,13 @@ def _candidate_has_emotion_response_support(
 def _candidate_has_symbolic_meaning_support(
     candidate: EvidenceBundleCandidate,
 ) -> bool:
-    if candidate.broad_summary or candidate.conflict_or_stale:
-        return False
-    if candidate.source_locality_score < 0.45:
-        return False
-    if candidate.answerability_score and candidate.answerability_score < 0.55:
+    if not _candidate_has_typed_relation_grounding(candidate):
         return False
     return "symbolic_meaning" in set(candidate.relation_category_hits)
 
 
 def _candidate_has_event_support(candidate: EvidenceBundleCandidate) -> bool:
-    if candidate.broad_summary or candidate.conflict_or_stale:
-        return False
-    if candidate.source_locality_score < 0.45:
-        return False
-    if candidate.answerability_score and candidate.answerability_score < 0.55:
+    if not _candidate_has_typed_relation_grounding(candidate):
         return False
     return bool(
         {"registration_event", "participation_event"}
@@ -992,13 +981,27 @@ def _candidate_has_communication_support(candidate: EvidenceBundleCandidate) -> 
 
 
 def _candidate_has_exchange_support(candidate: EvidenceBundleCandidate) -> bool:
+    if not _candidate_has_typed_relation_grounding(candidate):
+        return False
+    return "exchange" in set(candidate.relation_category_hits)
+
+
+def _candidate_has_typed_relation_grounding(
+    candidate: EvidenceBundleCandidate,
+) -> bool:
     if candidate.broad_summary or candidate.conflict_or_stale:
         return False
     if candidate.source_locality_score < 0.45:
         return False
     if candidate.answerability_score and candidate.answerability_score < 0.55:
         return False
-    return "exchange" in set(candidate.relation_category_hits)
+    if not candidate.query_has_entities:
+        return True
+    return bool(
+        candidate.entity_hits
+        or candidate.speaker_hits
+        or candidate.direct_speaker_turn
+    )
 
 
 def _candidate_has_inference_support(candidate: EvidenceBundleCandidate) -> bool:

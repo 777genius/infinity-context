@@ -215,6 +215,11 @@ def infer_relation_intents(
             relation_terms=relation_terms,
         ):
             continue
+        if category == "communication" and not _has_communication_intent(
+            question=question,
+            relation_terms=relation_terms,
+        ):
+            continue
         terms = tuple(term for term in relation_terms if term in config["terms"])
         variants = tuple(
             term for term in relation_variant_terms if term in config["variants"]
@@ -489,6 +494,25 @@ def _has_exchange_intent(*, relation_terms: tuple[str, ...]) -> bool:
         return False
     return not (
         "receive" in relation_set and {"support", "grow", "counsel"} & relation_set
+    )
+
+
+def _has_communication_intent(
+    *,
+    question: str,
+    relation_terms: tuple[str, ...],
+) -> bool:
+    relation_set = set(relation_terms)
+    if {"ask", "recommend", "suggest", "tell"} & relation_set:
+        return True
+    if "mention" not in relation_set:
+        return False
+    normalized_question = re.sub(r"[^0-9a-z]+", " ", question.casefold()).strip()
+    return bool(
+        re.search(
+            r"\b(?:who|whom)\b.+\bmention\b|\bmention(?:ed)?\b.+\b(?:to|with)\b",
+            normalized_question,
+        )
     )
 
 

@@ -1179,6 +1179,56 @@ def test_evidence_bundle_planner_selects_required_event_support() -> None:
     ]
 
 
+def test_evidence_bundle_planner_requires_grounded_typed_support_for_entity_query() -> None:
+    primary = _candidate(
+        item_id="primary",
+        covered_evidence_terms=("D1:1",),
+        primary_signal=True,
+        source_refs=("D1:1",),
+        direct_speaker_turn=True,
+        answerability_score=0.9,
+        source_locality_score=1.0,
+    )
+    ungrounded_event = _candidate(
+        item_id="ungrounded-event",
+        dedupe_key="refs:D2:2",
+        query_support_terms=("visited", "studio"),
+        relation_hits=("visited", "studio"),
+        relation_category_hits=("participation_event",),
+        query_has_entities=True,
+        source_refs=("D2:2",),
+        source_locality_score=0.95,
+        answerability_score=0.86,
+        bundle_strength_score=9.0,
+    )
+    grounded_event = _candidate(
+        item_id="grounded-event",
+        dedupe_key="refs:D2:3",
+        query_support_terms=("morgan", "visited", "studio"),
+        relation_hits=("visited", "studio"),
+        relation_category_hits=("participation_event",),
+        entity_hits=("morgan",),
+        query_has_entities=True,
+        source_refs=("D2:3",),
+        source_locality_score=0.9,
+        answerability_score=0.76,
+        bundle_strength_score=2.0,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, ungrounded_event, grounded_event),
+        case_group="single",
+        required_roles=("primary", "event_support"),
+    )
+
+    selected_ids = [item.candidate.item_id for item in plan.items]
+    assert selected_ids == ["primary", "grounded-event"]
+    assert plan.items[1].role == "event_support"
+    diagnostics = plan.to_diagnostics()
+    assert diagnostics["satisfied_required_roles"] == ["primary", "event_support"]
+    assert diagnostics["bundle_quality"]["event_support_count"] == 1
+
+
 def test_evidence_bundle_planner_selects_required_communication_support() -> None:
     primary = _candidate(
         item_id="primary",
@@ -1720,6 +1770,7 @@ def _candidate(
     relation_category_hits: tuple[str, ...] = (),
     entity_hits: tuple[str, ...] = (),
     speaker_hits: tuple[str, ...] = (),
+    query_has_entities: bool = False,
     has_preference_evidence: bool = False,
     has_visual_evidence: bool = False,
     query_roles: tuple[str, ...] = (),
@@ -1763,6 +1814,7 @@ def _candidate(
         relation_category_hits=relation_category_hits,
         entity_hits=entity_hits,
         speaker_hits=speaker_hits,
+        query_has_entities=query_has_entities,
         has_preference_evidence=has_preference_evidence,
         has_visual_evidence=has_visual_evidence,
         query_roles=query_roles,

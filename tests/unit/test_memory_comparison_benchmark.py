@@ -5090,6 +5090,24 @@ def test_query_decomposition_reports_communication_relation_intent() -> None:
     ] == ("recommend", "suggest", "advis", "told")
 
 
+def test_query_decomposition_does_not_promote_plain_mention_lookup_to_communication() -> None:
+    case = _case(
+        case_id="communication-plain-mention",
+        question="What status did Morgan mention?",
+        expected_terms=("current status",),
+        answer="current status",
+        category=4,
+    )
+
+    _, metadata = rerank_module.decomposed_search_queries(case)
+    profile = metadata["query_profile"]
+
+    assert "mention" in profile["relation_terms"]
+    assert "communication" not in profile["relation_categories"]
+    assert "communication" not in profile["evidence_need"]
+    assert "communication_support" not in profile["bundle_evidence_roles"]
+
+
 def test_query_decomposition_reports_registration_event_intent() -> None:
     register_case = _case(
         case_id="registration-query-register",

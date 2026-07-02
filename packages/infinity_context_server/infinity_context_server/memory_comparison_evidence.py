@@ -187,6 +187,7 @@ def evidence_bundle(
                 ),
                 entity_hits=_string_sequence(features.get("entity_hits")),
                 speaker_hits=_string_sequence(features.get("speaker_hits")),
+                query_has_entities=_bool_value(features.get("query_has_entities")),
                 has_preference_evidence=_bool_value(
                     features.get("has_preference_evidence")
                 ),
