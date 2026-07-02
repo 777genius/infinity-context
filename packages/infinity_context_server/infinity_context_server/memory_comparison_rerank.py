@@ -193,6 +193,8 @@ _RELATION_QUERY_TERMS = {
     "give",
     "go",
     "friend",
+    "get",
+    "got",
     "group",
     "grow",
     "help",

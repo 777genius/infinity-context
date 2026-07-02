@@ -212,6 +212,7 @@ def infer_relation_intents(
         ):
             continue
         if category == "exchange" and not _has_exchange_intent(
+            question=question,
             relation_terms=relation_terms,
         ):
             continue
@@ -487,13 +488,19 @@ def _has_inference_support_intent(
     )
 
 
-def _has_exchange_intent(*, relation_terms: tuple[str, ...]) -> bool:
+def _has_exchange_intent(
+    *,
+    question: str,
+    relation_terms: tuple[str, ...],
+) -> bool:
     relation_set = set(relation_terms)
     exchange_terms = {
         "bought",
         "bring",
         "brought",
         "give",
+        "get",
+        "got",
         "gift",
         "offer",
         "purchas",
@@ -502,9 +509,19 @@ def _has_exchange_intent(*, relation_terms: tuple[str, ...]) -> bool:
     }
     if not exchange_terms & relation_set:
         return False
-    return not (
-        "receive" in relation_set and {"support", "grow", "counsel"} & relation_set
-    )
+    if {"support", "grow", "counsel", "help"} & relation_set and {
+        "get",
+        "got",
+        "receive",
+    } & relation_set:
+        return False
+    if {"get", "got"} & relation_set:
+        normalized_question = re.sub(r"[^0-9a-z]+", " ", question.casefold()).strip()
+        return bool(
+            re.search(r"\b(?:what|which)\b.+\b(?:get|got)\b", normalized_question)
+            or re.search(r"\b(?:get|got)\b.+\bfrom\b", normalized_question)
+        )
+    return True
 
 
 def _has_communication_intent(
@@ -886,6 +903,8 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "bring",
                 "brought",
                 "give",
+                "get",
+                "got",
                 "gift",
                 "offer",
                 "purchas",
@@ -898,6 +917,7 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "buy",
                 "brought",
                 "gave",
+                "get",
                 "gift",
                 "got",
                 "offer",
@@ -905,6 +925,7 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "purchas",
                 "purchased",
                 "receiv",
+                "receive",
                 "received",
             }
         ),

@@ -120,6 +120,8 @@ RELATION_QUERY_VARIANTS = {
     "boss": ("manager", "work", "team", "colleague"),
     "colleague": ("coworker", "work", "team", "teammate"),
     "coworker": ("colleague", "work", "team", "teammate"),
+    "get": ("got", "receive", "received"),
+    "got": ("get", "receive", "received"),
     "gift": ("gift", "gave", "received", "special"),
     "girlfriend": ("partner", "dating", "relationship"),
     "give": ("gave", "giving", "offered"),

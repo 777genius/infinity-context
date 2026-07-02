@@ -5511,6 +5511,56 @@ def test_query_decomposition_reports_direct_exchange_relation_intent() -> None:
     assert "scarf" not in json.dumps(metadata["retrieval_intent"])
 
 
+def test_query_decomposition_reports_get_exchange_relation_intent() -> None:
+    case = _case(
+        case_id="exchange-get-query",
+        question="What did Morgan get from Maria?",
+        expected_terms=("scarf",),
+        answer="scarf",
+        category=1,
+    )
+
+    queries, metadata = rerank_module.decomposed_search_queries(case)
+    query_profile = metadata["query_profile"]
+
+    assert queries == (
+        "What did Morgan get from Maria?",
+        "What did Morgan get from Maria?\n"
+        "Search focus: entities: morgan, maria; speakers: morgan:, maria:; "
+        "actions: get, got, receive, received",
+        "morgan maria get got receive received",
+    )
+    assert query_profile["relation_terms"] == ("get",)
+    assert query_profile["relation_categories"] == ("exchange",)
+    assert query_profile["relation_category_terms"]["exchange"] == (
+        "get",
+        "got",
+        "receive",
+        "received",
+    )
+    assert query_profile["evidence_need"] == ("exchange",)
+    assert "exchange_support" in query_profile["bundle_evidence_roles"]
+    assert "scarf" not in json.dumps(metadata["retrieval_intent"])
+
+
+def test_query_decomposition_does_not_promote_get_support_to_exchange() -> None:
+    case = _case(
+        case_id="get-support-query",
+        question="How did Morgan get support?",
+        expected_terms=("support",),
+        answer="support",
+        category=1,
+    )
+
+    _, metadata = rerank_module.decomposed_search_queries(case)
+    query_profile = metadata["query_profile"]
+
+    assert "exchange" not in query_profile["relation_categories"]
+    assert "exchange" not in query_profile["evidence_need"]
+    assert "exchange_support" not in query_profile["bundle_evidence_roles"]
+    assert "support_goal" in query_profile["relation_categories"]
+
+
 def test_benchmark_rerank_boosts_focused_exchange_evidence() -> None:
     case = _case(
         case_id="exchange-rerank",
@@ -5612,6 +5662,53 @@ def test_benchmark_rerank_boosts_direct_exchange_surface() -> None:
         ]
         > 0
     )
+
+
+def test_benchmark_rerank_boosts_get_exchange_surface() -> None:
+    case = _case(
+        case_id="exchange-get-rerank",
+        question="What did Morgan get from Maria?",
+        expected_terms=("scarf",),
+        answer="scarf",
+        category=1,
+    )
+    broad_context = RetrievedMemory(
+        item_id="broad-context",
+        rank=1,
+        score=0.08,
+        text=(
+            "session_2 turn D2:1 date: 8:00 pm "
+            "D2:1 Morgan: I got support after the hard week."
+        ),
+        source_refs=("D2:1",),
+    )
+    exchange_turn = RetrievedMemory(
+        item_id="exchange-turn",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:4 date: 8:05 pm "
+            "D2:4 Morgan: I got a scarf from Maria after dinner."
+        ),
+        source_refs=("D2:4",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (broad_context, exchange_turn),
+    )
+
+    assert metadata["applied"] is True
+    assert reranked[0].item_id == "exchange-turn"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    assert diagnostics_by_id["exchange-turn"]["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["exchange"]
+    assert diagnostics_by_id["broad-context"]["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
 
 
 def test_query_decomposition_reports_communication_relation_intent() -> None:

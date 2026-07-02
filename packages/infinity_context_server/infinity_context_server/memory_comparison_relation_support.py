@@ -212,7 +212,7 @@ _EXCHANGE_OBJECT_RE = (
     r"[a-zA-Z][a-zA-Z0-9_-]+"
 )
 _DIRECT_EXCHANGE_SURFACE_RE = re.compile(
-    rf"\b(?:bought|got|purchased|received)\s+"
+    rf"\b(?:bought|get|got|purchased|received)\s+"
     rf"(?:a|an|the|my|his|her|their|our|some)?\s*{_EXCHANGE_OBJECT_RE}"
     rf"(?:\s+from\s+{_EXCHANGE_RECIPIENT_RE})?"
     rf"|\b(?:bring|brought|gave|give|offered|offer)\s+"
@@ -232,6 +232,7 @@ def _has_exchange_support(
         "brought",
         "buy",
         "gave",
+        "get",
         "give",
         "gift",
         "got",
@@ -272,7 +273,7 @@ def _has_exchange_support(
 
 
 def _exchange_action_family(action: str) -> str:
-    if action in {"bought", "buy", "got", "purchas", "purchase", "purchased"}:
+    if action in {"bought", "buy", "get", "got", "purchas", "purchase", "purchased"}:
         return "acquire"
     if action in {"bring", "brought"}:
         return "bring"
