@@ -183,6 +183,7 @@ _CHANGE_TERMS = frozenset(
 )
 _AFTER_TERMS = frozenset({"after", "following", "later", "после", "позже", "затем"})
 _BEFORE_TERMS = frozenset({"before", "earlier", "prior", "до", "перед", "раньше"})
+_DURING_TERMS = frozenset({"during", "while"})
 _EVENT_SEQUENCE_CONTEXT_TERMS = frozenset(
     {
         "call",
@@ -233,6 +234,7 @@ _EVENT_SEQUENCE_ANCHOR_STOP_VARIANTS = frozenset(
         *_BEFORE_TERMS,
         *_CHANGE_TERMS,
         *_CURRENT_TERMS,
+        *_DURING_TERMS,
         *_EVENT_SEQUENCE_CONTEXT_TERMS,
         *_PREVIOUS_TERMS,
         "about",
@@ -288,7 +290,7 @@ _UNTIL_EVENT_RE = re.compile(
 _EVENT_SEQUENCE_ANCHOR_RE = re.compile(
     r"\b(?:right\s+after|immediately\s+after|shortly\s+after|after|following|since|"
     r"right\s+before|immediately\s+before|shortly\s+before|before|prior\s+to|until|"
-    r"up\s+to)\b\s+(?P<tail>[^?.!,;:\n]{0,96})|"
+    r"up\s+to|during|while)\b\s+(?P<tail>[^?.!,;:\n]{0,96})|"
     r"\b(?:с\s+момента|сразу\s+после|прямо\s+после|после|позже|затем|"
     r"вплоть\s+до|сразу\s+до|прямо\s+перед|перед|раньше|до)\b"
     r"\s+(?P<ru_tail>[^?.!,;:\n]{0,96})",
@@ -371,6 +373,7 @@ class TemporalQueryIntent:
     requests_change: bool
     after_event: bool
     before_event: bool
+    during_event: bool
     excludes_stale: bool
     relative_time_hints: tuple[str, ...] = ()
     event_sequence_terms: tuple[str, ...] = ()
@@ -388,6 +391,7 @@ class TemporalQueryIntent:
                 self.requests_change,
                 self.after_event,
                 self.before_event,
+                self.during_event,
                 self.excludes_stale,
                 self.relative_time_hints,
                 self.event_sequence_terms,
@@ -406,6 +410,8 @@ class TemporalQueryIntent:
             reasons.append("after_event")
         if self.before_event:
             reasons.append("before_event")
+        if self.during_event:
+            reasons.append("during_event")
         if self.excludes_stale:
             reasons.append("excludes_stale")
         if self.relative_time_hints:
@@ -417,6 +423,7 @@ class TemporalQueryIntent:
             "temporal_query_requests_change": self.requests_change,
             "temporal_query_after_event": self.after_event,
             "temporal_query_before_event": self.before_event,
+            "temporal_query_during_event": self.during_event,
             "temporal_query_excludes_stale": self.excludes_stale,
             "temporal_query_include_superseded_review": (self.include_superseded_review),
             "temporal_query_relative_time_hints": list(self.relative_time_hints),
@@ -473,13 +480,19 @@ def build_temporal_query_intent(query: str) -> TemporalQueryIntent:
         query,
         variants,
     )
-    event_sequence_terms = _event_sequence_anchor_terms(query) if after_event or before_event else ()
+    during_event = _has_during_event_context(query, variants)
+    event_sequence_terms = (
+        _event_sequence_anchor_terms(query)
+        if after_event or before_event or during_event
+        else ()
+    )
     current_decision = (
         bool(_CURRENT_DECISION_RE.search(query))
         or bool(_CURRENT_DECISION_PROMPT_RE.search(query))
     ) and not (
         after_event
         or before_event
+        or during_event
         or bool(relative_time_hints)
         or requests_previous
     )
@@ -490,6 +503,7 @@ def build_temporal_query_intent(query: str) -> TemporalQueryIntent:
         requests_change=requests_change,
         after_event=after_event,
         before_event=before_event,
+        during_event=during_event,
         excludes_stale=excludes_stale,
         relative_time_hints=relative_time_hints,
         event_sequence_terms=event_sequence_terms,
@@ -596,6 +610,12 @@ def temporal_query_boost_signal(
             reason=_event_sequence_direction_reason(intent=intent, boost=direction_boost),
             code=_event_sequence_direction_code(intent=intent, boost=direction_boost),
         )
+    if during_boost := _event_sequence_during_boost(intent=intent, text=item.text):
+        return TemporalQueryBoostSignal(
+            boost=during_boost,
+            reason="query asks for during-event context and item matches event",
+            code="during_event_sequence_match",
+        )
     if intent.requests_previous and is_superseded:
         return TemporalQueryBoostSignal(
             boost=0.045,
@@ -696,6 +716,15 @@ def _event_sequence_direction_boost(*, intent: TemporalQueryIntent, text: str) -
     return 0.0
 
 
+def _event_sequence_during_boost(*, intent: TemporalQueryIntent, text: str) -> float:
+    if not intent.during_event:
+        return 0.0
+    variants = _query_variant_set(text)
+    has_during = bool(variants.intersection(_DURING_TERMS))
+    has_same_event = _event_sequence_terms_match(text, intent.event_sequence_terms)
+    return 0.024 if has_during and has_same_event else 0.0
+
+
 def _event_sequence_direction_reason(*, intent: TemporalQueryIntent, boost: float) -> str:
     direction = "after" if intent.after_event else "before"
     if boost > 0:
@@ -759,6 +788,12 @@ def _has_before_event_context(text: str, variants: frozenset[str]) -> bool:
     if _has_until_event_context(text, variants):
         return True
     return bool(variants.intersection(_BEFORE_TERMS)) and bool(
+        variants.intersection(_EVENT_SEQUENCE_CONTEXT_TERMS)
+    )
+
+
+def _has_during_event_context(text: str, variants: frozenset[str]) -> bool:
+    return bool(variants.intersection(_DURING_TERMS)) and bool(
         variants.intersection(_EVENT_SEQUENCE_CONTEXT_TERMS)
     )
 
