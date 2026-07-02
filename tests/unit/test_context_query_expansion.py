@@ -4048,6 +4048,48 @@ def test_best_query_relevance_uses_dog_activity_care_bridge() -> None:
     assert relevance.distinctive_term_hits >= 6
 
 
+def test_query_expansion_bridges_pet_memory_queries() -> None:
+    goodbye = build_query_expansion_plan(
+        "What was the name of the pet that John had to say goodbye to?"
+    )
+    honor = build_query_expansion_plan(
+        "How does John plan to honor the memories of his beloved pet?"
+    )
+    dog = build_query_expansion_plan("What does Joanna use to remember her dog from Michigan?")
+    values = build_query_expansion_plan(
+        "What important values does John want to teach his kids through adopting a rescue dog?"
+    )
+
+    assert "pet dog puppy beloved companion goodbye" in _expansion_query(
+        goodbye,
+        "pet_memory_bridge",
+    )
+    assert "memorial memory memories honor" in _expansion_query(
+        honor,
+        "pet_memory_bridge",
+    )
+    assert "keepsake photo picture collar paw print stuffed animal" in _expansion_query(
+        dog,
+        "pet_memory_bridge",
+    )
+    assert "values responsibility kindness compassion teach kids" in _expansion_query(
+        values,
+        "pet_memory_bridge",
+    )
+
+
+def test_best_query_relevance_uses_pet_memory_bridge() -> None:
+    plan = build_query_expansion_plan("How does John plan to honor his beloved pet?")
+
+    _, reason, relevance = best_query_relevance(
+        plan,
+        text="John planned a memorial photo keepsake to honor his beloved pet's memory.",
+    )
+
+    assert reason == "pet_memory_bridge"
+    assert relevance.distinctive_term_hits >= 6
+
+
 def test_query_expansion_bridges_career_month_setbacks() -> None:
     plan = build_query_expansion_plan(
         "Was September a good month career-wise for Dana and Morgan?"

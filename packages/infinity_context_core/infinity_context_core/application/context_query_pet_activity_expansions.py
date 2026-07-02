@@ -9,6 +9,12 @@ _DOG_ACTIVITY_CARE_EXPANSION = (
     "area breed size living space apartment open space grooming looking good "
     "pet store childhood family dog memories"
 )
+_PET_MEMORY_EXPANSION = (
+    "pet dog puppy beloved companion goodbye passed away died loss grief remember "
+    "memorial memory memories honor honour tribute keepsake photo picture collar "
+    "paw print stuffed animal toy name named childhood family Michigan rescue dog "
+    "values responsibility kindness compassion teach kids"
+)
 
 PET_ACTIVITY_EXPANSION_RULES: tuple[tuple[frozenset[str], str, str], ...] = (
     (
@@ -65,5 +71,35 @@ PET_ACTIVITY_EXPANSION_RULES: tuple[tuple[frozenset[str], str, str], ...] = (
         frozenset({"dog", "type"}),
         _DOG_ACTIVITY_CARE_EXPANSION,
         "dog_activity_care_bridge",
+    ),
+    (
+        frozenset({"pet", "goodbye"}),
+        _PET_MEMORY_EXPANSION,
+        "pet_memory_bridge",
+    ),
+    (
+        frozenset({"pet", "honor"}),
+        _PET_MEMORY_EXPANSION,
+        "pet_memory_bridge",
+    ),
+    (
+        frozenset({"pet", "memories"}),
+        _PET_MEMORY_EXPANSION,
+        "pet_memory_bridge",
+    ),
+    (
+        frozenset({"dog", "remember"}),
+        _PET_MEMORY_EXPANSION,
+        "pet_memory_bridge",
+    ),
+    (
+        frozenset({"dog", "michigan"}),
+        _PET_MEMORY_EXPANSION,
+        "pet_memory_bridge",
+    ),
+    (
+        frozenset({"rescue", "dog"}),
+        _PET_MEMORY_EXPANSION,
+        "pet_memory_bridge",
     ),
 )
