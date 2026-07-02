@@ -964,6 +964,36 @@ def test_quality_diagnostics_reports_rerank_lifts_without_memory_text() -> None:
     assert "memory" not in lift_table["samples"][0]
 
 
+def test_quality_diagnostics_treats_zero_answerability_as_unmeasured() -> None:
+    diagnostics = quality_diagnostics(
+        (
+            _item(
+                case_id="unmeasured-answerability",
+                retrieval=_retrieval_payload(
+                    evidence_need=("single_fact",),
+                    policy_score=0.2,
+                    candidate_features={"answerability_score": 0.0},
+                ),
+            ),
+            _item(
+                case_id="measured-low-answerability",
+                retrieval=_retrieval_payload(
+                    evidence_need=("single_fact",),
+                    policy_score=0.0,
+                    candidate_features={"answerability_score": 0.42},
+                ),
+            ),
+        )
+    )
+
+    feature_table = diagnostics["evidence_feature_table"]
+    lift_table = diagnostics["rerank_lift_table"]
+    assert feature_table["candidate_count"] == 2
+    assert feature_table["low_answerability_count"] == 1
+    assert lift_table["boosted_candidate_count"] == 1
+    assert lift_table["low_answerability_lift_count"] == 0
+
+
 def test_quality_diagnostics_reports_empty_bundle_quality_table() -> None:
     diagnostics = quality_diagnostics(
         (

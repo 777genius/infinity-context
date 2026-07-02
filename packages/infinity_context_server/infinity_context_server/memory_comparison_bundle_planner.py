@@ -1112,6 +1112,10 @@ def _candidate_has_measured_weak_source_locality(
     return 0 < candidate.source_locality_score < 0.45
 
 
+def _is_measured_low_answerability(score: float) -> bool:
+    return 0 < score < 0.55
+
+
 def _selection_has_bridge_support(selected: Sequence[PlannedEvidenceItem]) -> bool:
     if len(selected) < 2:
         return False
@@ -1496,7 +1500,9 @@ def _bundle_quality_diagnostics(
     answerability_scores = [item.candidate.answerability_score for item in items]
     avg_answerability = sum(answerability_scores) / len(answerability_scores)
     max_answerability = max(answerability_scores)
-    low_answerability_count = sum(score < 0.55 for score in answerability_scores)
+    low_answerability_count = sum(
+        _is_measured_low_answerability(score) for score in answerability_scores
+    )
     bridge_count = sum(1 for item in items if item.role == "bridge")
     bridge_query_hit_count = sum(1 for item in items if item.candidate.bridge_query_hit)
     causal_support_count = sum(1 for item in items if item.role == "causal_support")

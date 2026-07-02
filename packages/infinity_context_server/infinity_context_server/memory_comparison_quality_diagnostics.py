@@ -1241,7 +1241,9 @@ def _evidence_feature_table(items: Sequence[Mapping[str, object]]) -> dict[str, 
         ):
             if features.get(key) is True:
                 typed_temporal_surface_counts[key] += 1
-    low_answerability_count = sum(1 for score in answerability_scores if score < 0.55)
+    low_answerability_count = sum(
+        1 for score in answerability_scores if _is_measured_low_answerability(score)
+    )
     return {
         "candidate_count": len(answerability_scores),
         "avg_answerability_score": _avg(answerability_scores),
@@ -2053,7 +2055,7 @@ def _rerank_lift_table(items: Sequence[Mapping[str, object]]) -> dict[str, objec
                 reason_counts.update(reasons)
 
             answerability_score = _metric_value(features, "answerability_score")
-            if answerability_score < 0.55:
+            if _is_measured_low_answerability(answerability_score):
                 low_answerability_lift_count += 1
             if payload_has_broad_summary(memory, features):
                 broad_summary_lift_count += 1
@@ -2262,6 +2264,10 @@ def _zero_gate(actual: int) -> dict[str, object]:
         "target": 0,
         "mode": "zero",
     }
+
+
+def _is_measured_low_answerability(score: float) -> bool:
+    return 0 < score < 0.55
 
 
 def _overlap_samples(

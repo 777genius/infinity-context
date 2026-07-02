@@ -2054,6 +2054,25 @@ def test_evidence_bundle_planner_reports_low_confidence_broad_bundle() -> None:
     assert "risk:all_broad_summary" in quality["reason_codes"]
 
 
+def test_evidence_bundle_quality_does_not_penalize_unmeasured_answerability() -> None:
+    static_evidence = _candidate(
+        item_id="static-support",
+        covered_evidence_terms=("D3:7",),
+        query_support_terms=("caroline", "workshop"),
+        primary_signal=True,
+        source_refs=("D3:7",),
+        source_type="chunk",
+        answerability_score=0.0,
+    )
+
+    plan = EvidenceBundlePlanner().plan((static_evidence,), case_group="single")
+
+    quality = plan.to_diagnostics()["bundle_quality"]
+    assert quality["low_answerability_count"] == 0
+    assert quality["risk_penalty"] == 0.0
+    assert "risk:low_answerability" not in quality["reason_codes"]
+
+
 def test_evidence_bundle_planner_scores_source_proximity_support() -> None:
     primary = _candidate(
         item_id="primary",
