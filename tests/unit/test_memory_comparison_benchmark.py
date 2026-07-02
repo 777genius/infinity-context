@@ -4913,11 +4913,23 @@ def test_query_decomposition_expands_skill_profile_queries() -> None:
         expected_terms=("yes",),
         answer="yes",
     )
+    certification_case = _case(
+        case_id="skill-profile-certification",
+        question="What certification does Alex have?",
+        expected_terms=("CPR",),
+        answer="CPR",
+    )
     park_game_case = _case(
         case_id="skill-profile-park-game-guard",
         question="What game did Alex play at the park?",
         expected_terms=("soccer",),
         answer="soccer",
+    )
+    birth_certificate_case = _case(
+        case_id="skill-profile-certificate-guard",
+        question="What birth certificate did Alex file?",
+        expected_terms=("county form",),
+        answer="county form",
     )
     song_preference_case = _case(
         case_id="skill-profile-song-guard",
@@ -4944,7 +4956,13 @@ def test_query_decomposition_expands_skill_profile_queries() -> None:
     guitar_queries, guitar_metadata = rerank_module.decomposed_search_queries(
         guitar_case
     )
+    certification_queries, certification_metadata = (
+        rerank_module.decomposed_search_queries(certification_case)
+    )
     _, park_game_metadata = rerank_module.decomposed_search_queries(park_game_case)
+    _, birth_certificate_metadata = rerank_module.decomposed_search_queries(
+        birth_certificate_case
+    )
     _, song_preference_metadata = rerank_module.decomposed_search_queries(
         song_preference_case
     )
@@ -4979,7 +4997,23 @@ def test_query_decomposition_expands_skill_profile_queries() -> None:
         "skill_profile",
     )
 
+    assert certification_queries[2] == (
+        "alex skill language speak spoken certification credential"
+    )
+    assert certification_metadata["query_profile"]["relation_categories"] == (
+        "skill_profile",
+    )
+    assert certification_metadata["query_profile"]["evidence_need"] == (
+        "skill_profile",
+    )
+    assert "certification" in certification_metadata["query_profile"][
+        "relation_variant_terms"
+    ]
+
     assert "skill_profile" not in park_game_metadata["query_profile"][
+        "relation_categories"
+    ]
+    assert "skill_profile" not in birth_certificate_metadata["query_profile"][
         "relation_categories"
     ]
     assert "skill_profile" not in song_preference_metadata["query_profile"][
@@ -10519,6 +10553,63 @@ def test_benchmark_rerank_boosts_bilingual_language_skill_evidence() -> None:
         "relation_category_hits"
     ] == []
     assert bilingual_diagnostics["score_signals"][
+        "benchmark_typed_relation_support_roles"
+    ] == ["skill_support"]
+    assert (
+        topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        == 0
+    )
+
+
+def test_benchmark_rerank_boosts_certification_skill_evidence() -> None:
+    case = _case(
+        case_id="skill-profile-certification-rerank",
+        question="What certification does Alex have?",
+        expected_terms=("CPR",),
+        answer="CPR",
+        category=4,
+    )
+    topical_certificate = RetrievedMemory(
+        item_id="topical-certificate",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex filed a birth certificate form."
+        ),
+        source_refs=("D1:1",),
+    )
+    skill_profile = RetrievedMemory(
+        item_id="skill-profile",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: I have a CPR certification."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_certificate, skill_profile),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("skill_profile",)
+    assert reranked[0].item_id == "skill-profile"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    skill_diagnostics = diagnostics_by_id["skill-profile"]
+    topical_diagnostics = diagnostics_by_id["topical-certificate"]
+    assert skill_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["skill_profile"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert skill_diagnostics["score_signals"][
         "benchmark_typed_relation_support_roles"
     ] == ["skill_support"]
     assert (

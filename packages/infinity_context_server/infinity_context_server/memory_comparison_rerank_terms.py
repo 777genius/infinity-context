@@ -511,6 +511,9 @@ RELATION_QUERY_VARIANTS = {
     "sign": ("signed", "signup", "class", "registered"),
     "skill": (
         "language",
+        "certification",
+        "certified",
+        "credential",
         "speak",
         "speaks",
         "spoken",

@@ -500,6 +500,8 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
         r"\blanguages?\b.+\b(?:speak|know|fluent|bilingual)\b|"
         r"\b(?:speak|know)\b.+\blanguages?\b|"
         r"\b(?:fluent|bilingual)\b.+\blanguages?\b|"
+        r"\b(?:certification|credential)\b|"
+        r"\bcertified\s+in\b|"
         r"\binstrument\b.+\bplay\b|\bplay\b.+\binstrument\b|"
         r"\bplay\s+(?:guitar|piano|violin|drums?)\b",
         text,

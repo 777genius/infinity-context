@@ -768,6 +768,14 @@ def _has_pet_profile_support(
 
 
 _SKILL_PROFILE_SURFACE_RE = re.compile(
+    r"\b(?:certification|credential)\s+(?:is|was)\s+"
+    r"[A-Z][a-zA-Z0-9_+-]+(?:\s+[A-Z][a-zA-Z0-9_+-]+){0,3}\b"
+    r"|\b(?:certified|credentialed)\s+in\s+"
+    r"[A-Z][a-zA-Z0-9_+-]+(?:\s+[A-Z][a-zA-Z0-9_+-]+){0,3}\b"
+    r"|\b(?:have|has|had|earned|got)\s+(?:a\s+|an\s+|the\s+)?"
+    r"[A-Z][a-zA-Z0-9_+-]+(?:\s+[A-Z][a-zA-Z0-9_+-]+){0,3}\s+"
+    r"(?:certification|credential)\b"
+    r"|"
     r"\b(?:speak|speaks|speaking|spoken)\s+"
     r"(?:[A-Z][a-zA-Z0-9_-]+|"
     r"(?:english|spanish|french|german|mandarin|japanese|arabic|hindi))\b"
@@ -791,6 +799,12 @@ def _has_skill_profile_support(
     memory_text: str = "",
 ) -> bool:
     language_action = {"speak", "speaks", "spoken", "speaking"} & memory_terms
+    certification_surface = {
+        "certification",
+        "certified",
+        "credential",
+        "credentialed",
+    } & memory_terms
     language_ability = {"bilingual", "fluent", "know", "known"} & memory_terms
     language_context = {
         "arabic",
@@ -812,6 +826,8 @@ def _has_skill_profile_support(
         "violin",
     } & memory_terms
     return bool(
+        certification_surface
+        or
         (language_action and language_context)
         or (language_ability and language_context)
         or (play_action and instrument_context)

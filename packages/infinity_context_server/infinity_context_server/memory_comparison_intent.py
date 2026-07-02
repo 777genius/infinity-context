@@ -1132,6 +1132,8 @@ def _has_skill_profile_intent(
             r"\blanguages?\b.+\b(?:speak|know|fluent|bilingual)\b|"
             r"\b(?:speak|know)\b.+\blanguages?\b|"
             r"\b(?:fluent|bilingual)\b.+\blanguages?\b|"
+            r"\b(?:certification|credential)\b|"
+            r"\bcertified\s+in\b|"
             r"\binstrument\b.+\bplay\b|\bplay\b.+\binstrument\b|"
             r"\bplay\s+(?:guitar|piano|violin|drums?)\b",
             normalized_question,
@@ -1848,6 +1850,9 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "guitar",
                 "instrument",
                 "bilingual",
+                "certification",
+                "certified",
+                "credential",
                 "fluent",
                 "know",
                 "language",

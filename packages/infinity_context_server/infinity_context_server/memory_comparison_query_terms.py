@@ -815,6 +815,8 @@ def _skill_support_query_terms(
     }
     lexical_term_set = set(lexical_terms)
     skill_terms = ["language", "speak", "spoken"]
+    if {"certification", "certified", "credential"} & lexical_term_set:
+        skill_terms.extend(("certification", "certified", "credential"))
     if {"language", "speak", "know", "fluent", "bilingual"} & lexical_term_set:
         ability_order = {
             "bilingual": ("bilingual", "fluent", "know"),
