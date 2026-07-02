@@ -224,6 +224,7 @@ _RELATION_QUERY_TERMS = {
     "messag",
     "mention",
     "move",
+    "nickname",
     "offer",
     "origin",
     "participate",
@@ -472,6 +473,7 @@ def expanded_search_query(case: PublicBenchmarkCase) -> tuple[str, dict[str, obj
             education_support="education_profile" in intent.evidence_need,
             employment_support="employment_profile" in intent.evidence_need,
             age_support="age_profile" in intent.evidence_need,
+            alias_support="alias_profile" in intent.evidence_need,
             health_support="health_profile" in intent.evidence_need,
             pet_support="pet_profile" in intent.evidence_need,
             preference_support="preference" in intent.evidence_need,
@@ -612,6 +614,7 @@ def decomposed_search_queries(
             education_support=compact_relation_role == "education_support",
             employment_support=compact_relation_role == "employment_support",
             age_support=compact_relation_role == "age_support",
+            alias_support=compact_relation_role == "alias_support",
             health_support=compact_relation_role == "health_support",
             pet_support=compact_relation_role == "pet_support",
             preference_support=compact_relation_role == "preference_support",
@@ -835,6 +838,7 @@ def _support_query_terms(
     education_support: bool,
     employment_support: bool,
     age_support: bool,
+    alias_support: bool,
     health_support: bool,
     pet_support: bool,
     preference_support: bool,
@@ -864,6 +868,13 @@ def _support_query_terms(
         )
     if age_support:
         return _age_support_query_terms(
+            relation_terms=relation_terms,
+            relation_variant_terms=relation_variant_terms,
+            lexical_terms=lexical_terms,
+            entity_surfaces=entity_surfaces,
+        )
+    if alias_support:
+        return _alias_support_query_terms(
             relation_terms=relation_terms,
             relation_variant_terms=relation_variant_terms,
             lexical_terms=lexical_terms,
@@ -1063,6 +1074,44 @@ def _age_support_query_terms(
             (
                 *(term for term in relation_terms if term == "age"),
                 *(term for term in relation_variant_terms if term in age_terms),
+                *topical_terms[:4],
+            )
+        )
+    )
+
+
+def _alias_support_query_terms(
+    *,
+    relation_terms: tuple[str, ...],
+    relation_variant_terms: tuple[str, ...],
+    lexical_terms: tuple[str, ...],
+    entity_surfaces: tuple[str, ...],
+) -> tuple[str, ...]:
+    entity_tokens = {
+        token for surface in entity_surfaces for token in _normalized_terms(surface)
+    }
+    alias_terms = {
+        "alias",
+        "call",
+        "called",
+        "calls",
+        "name",
+        "named",
+        "nickname",
+    }
+    topical_terms = tuple(
+        term
+        for term in lexical_terms
+        if term not in _QUERY_STOPWORDS
+        and term not in relation_terms
+        and term not in relation_variant_terms
+        and term not in entity_tokens
+    )
+    return tuple(
+        dict.fromkeys(
+            (
+                *(term for term in relation_terms if term in {"call", "nickname"}),
+                *(term for term in relation_variant_terms if term in alias_terms),
                 *topical_terms[:4],
             )
         )
@@ -1499,6 +1548,8 @@ def _compact_relation_query_role(intent: RetrievalIntent) -> str:
         return "employment_support"
     if "age_profile" in set(intent.evidence_need):
         return "age_support"
+    if "alias_profile" in set(intent.evidence_need):
+        return "alias_support"
     if "health_profile" in set(intent.evidence_need):
         return "health_support"
     if "pet_profile" in set(intent.evidence_need):

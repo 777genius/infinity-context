@@ -25,6 +25,8 @@ def typed_relation_category_support(
         )
     if category == "age_profile":
         return _has_age_profile_support(memory_terms, memory_text=memory_text)
+    if category == "alias_profile":
+        return _has_alias_profile_support(memory_terms, memory_text=memory_text)
     if category == "health_profile":
         return _has_health_profile_support(memory_terms, memory_text=memory_text)
     if category == "pet_profile":
@@ -212,6 +214,31 @@ def _has_age_profile_support(
     return bool(
         (age_surface and year_surface)
         or _AGE_PROFILE_SURFACE_RE.search(memory_text)
+    )
+
+
+_ALIAS_PROFILE_SURFACE_RE = re.compile(
+    r"\b(?:nickname|alias)\s+(?:is|was|for)\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|[\"'][^\"']+[\"'])\b"
+    r"|\b(?:call|calls|called)\s+"
+    r"(?:me|him|her|them|us|you|[A-Z][a-zA-Z0-9_-]+)\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|[\"'][^\"']+[\"'])\b"
+    r"|\b(?:go|goes|went)\s+by\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|[\"'][^\"']+[\"'])\b",
+)
+
+
+def _has_alias_profile_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
+    alias_surface = {"alias", "nickname"} & memory_terms
+    naming_surface = {"call", "called", "calls", "name", "named"} & memory_terms
+    return bool(
+        alias_surface
+        or (naming_surface and _ALIAS_PROFILE_SURFACE_RE.search(memory_text))
+        or _ALIAS_PROFILE_SURFACE_RE.search(memory_text)
     )
 
 
@@ -1039,6 +1066,7 @@ def _has_identity_profile_support(memory_terms: set[str]) -> bool:
 _TYPED_SUPPORT_CHECKS: dict[str, Callable[[set[str]], bool]] = {
     "activity": _has_activity_support,
     "age_profile": _has_age_profile_support,
+    "alias_profile": _has_alias_profile_support,
     "causal": _has_causal_support,
     "contrast": _has_contrast_support,
     "current_goal": _has_current_goal_support,

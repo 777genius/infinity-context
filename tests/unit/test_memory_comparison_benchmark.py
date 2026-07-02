@@ -4887,6 +4887,67 @@ def test_query_decomposition_expands_age_profile_queries() -> None:
     ]
 
 
+def test_query_decomposition_expands_alias_profile_queries() -> None:
+    nickname_case = _case(
+        case_id="alias-profile-nickname",
+        question="What is Alex's nickname?",
+        expected_terms=("Sunny",),
+        answer="Sunny",
+    )
+    call_name_case = _case(
+        case_id="alias-profile-call-name",
+        question="What does Alex call Maria?",
+        expected_terms=("Sunshine",),
+        answer="Sunshine",
+    )
+    communication_call_case = _case(
+        case_id="alias-profile-communication-guard",
+        question="When did Alex call Maria?",
+        expected_terms=("Tuesday",),
+        answer="Tuesday",
+    )
+    pet_name_case = _case(
+        case_id="alias-profile-pet-name-guard",
+        question="What did Alex name her dog?",
+        expected_terms=("Luna",),
+        answer="Luna",
+    )
+
+    nickname_queries, nickname_metadata = rerank_module.decomposed_search_queries(
+        nickname_case
+    )
+    call_name_queries, call_name_metadata = rerank_module.decomposed_search_queries(
+        call_name_case
+    )
+    _, communication_metadata = rerank_module.decomposed_search_queries(
+        communication_call_case
+    )
+    _, pet_name_metadata = rerank_module.decomposed_search_queries(pet_name_case)
+
+    assert nickname_queries[2] == "alex nickname call name"
+    assert nickname_metadata["query_profile"]["relation_terms"] == ("nickname",)
+    assert nickname_metadata["query_profile"]["relation_categories"] == (
+        "alias_profile",
+    )
+    assert nickname_metadata["query_profile"]["evidence_need"] == ("alias_profile",)
+
+    assert call_name_queries[2] == "alex maria call nickname name"
+    assert call_name_metadata["query_profile"]["relation_terms"] == (
+        "call",
+        "nickname",
+    )
+    assert call_name_metadata["query_profile"]["relation_categories"] == (
+        "alias_profile",
+    )
+
+    assert "alias_profile" not in communication_metadata["query_profile"][
+        "relation_categories"
+    ]
+    assert "alias_profile" not in pet_name_metadata["query_profile"][
+        "relation_categories"
+    ]
+
+
 def test_infinity_context_http_search_expands_temporal_action_queries() -> None:
     seen_payloads: list[dict[str, object]] = []
 
@@ -8408,6 +8469,67 @@ def test_benchmark_rerank_boosts_age_profile_evidence() -> None:
     assert age_diagnostics["score_signals"][
         "benchmark_typed_relation_support_roles"
     ] == ["age_support"]
+    assert (
+        topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        == 0
+    )
+
+
+def test_benchmark_rerank_boosts_alias_profile_evidence() -> None:
+    case = _case(
+        case_id="alias-profile-rerank",
+        question="What does Alex call Maria?",
+        expected_terms=("Sunshine",),
+        answer="Sunshine",
+        category=4,
+    )
+    topical_call = RetrievedMemory(
+        item_id="topical-call",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex called Maria about the invoice."
+        ),
+        source_refs=("D1:1",),
+    )
+    alias_profile = RetrievedMemory(
+        item_id="alias-profile",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: I call Maria Sunshine."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_call, alias_profile),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("alias_profile",)
+    assert reranked[0].item_id == "alias-profile"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    alias_diagnostics = diagnostics_by_id["alias-profile"]
+    topical_diagnostics = diagnostics_by_id["topical-call"]
+    assert alias_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["alias_profile"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert (
+        alias_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        > 0
+    )
+    assert alias_diagnostics["score_signals"][
+        "benchmark_typed_relation_support_roles"
+    ] == ["alias_support"]
     assert (
         topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
         == 0

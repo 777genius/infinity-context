@@ -264,6 +264,7 @@ RELATION_QUERY_VARIANTS = {
     ),
     "meet": ("met", "meeting", "friends", "family", "mentors", "gathering"),
     "mention": ("mentioned", "said", "talked", "told"),
+    "nickname": ("alias", "call", "called", "calls", "name", "named"),
     "mother": ("mom", "parent", "family", "father", "child", "children"),
     "move": ("moved", "from", "relocated", "came", "home", "country", "origin"),
     "offer": ("offered", "give", "gave"),

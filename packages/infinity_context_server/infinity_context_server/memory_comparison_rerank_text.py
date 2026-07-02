@@ -404,6 +404,13 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
     ):
         terms.append("age")
     if re.search(
+        r"\bnicknames?\b|\balias\b|"
+        r"\bwhat\s+(?:does|did)\b.+\bcall\b(?!.*\b(?:about|to|with)\b)",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        terms.append("nickname")
+    if re.search(
         r"\bwhat\s+pet\b|\b(?:dog|cat|pet)\b.+\bnamed?\b|"
         r"\bname\b.+\b(?:dog|cat|pet)\b",
         text,
