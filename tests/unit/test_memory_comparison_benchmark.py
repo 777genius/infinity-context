@@ -5180,6 +5180,25 @@ def test_query_decomposition_expands_date_profile_queries() -> None:
         answer="July 2",
         category=2,
     )
+    birthday_day_case = _case(
+        case_id="date-profile-birthday-day",
+        question="What day is Alex's birthday?",
+        expected_terms=("May 5",),
+        answer="May 5",
+    )
+    birthday_month_case = _case(
+        case_id="date-profile-birthday-month",
+        question="What month is Alex's birthday?",
+        expected_terms=("May",),
+        answer="May",
+        category=2,
+    )
+    anniversary_day_case = _case(
+        case_id="date-profile-anniversary-day",
+        question="Which day is Alex's anniversary?",
+        expected_terms=("July 2",),
+        answer="July 2",
+    )
     birthday_gift_case = _case(
         case_id="date-profile-gift-guard",
         question="What birthday gift did Alex keep?",
@@ -5202,6 +5221,15 @@ def test_query_decomposition_expands_date_profile_queries() -> None:
     )
     anniversary_queries, anniversary_metadata = rerank_module.decomposed_search_queries(
         anniversary_case
+    )
+    birthday_day_queries, birthday_day_metadata = (
+        rerank_module.decomposed_search_queries(birthday_day_case)
+    )
+    birthday_month_queries, birthday_month_metadata = (
+        rerank_module.decomposed_search_queries(birthday_month_case)
+    )
+    anniversary_day_queries, anniversary_day_metadata = (
+        rerank_module.decomposed_search_queries(anniversary_day_case)
     )
     _, birthday_gift_metadata = rerank_module.decomposed_search_queries(
         birthday_gift_case
@@ -5237,6 +5265,22 @@ def test_query_decomposition_expands_date_profile_queries() -> None:
         "relation_categories"
     ]
     assert "date_support" in anniversary_metadata["query_plan"]["selected_roles"]
+
+    assert birthday_day_queries[2] == "alex birthday year ago born age"
+    assert birthday_day_metadata["query_profile"]["relation_categories"] == (
+        "date_profile",
+    )
+    assert birthday_day_metadata["query_profile"]["evidence_need"] == ("date_profile",)
+    assert "date_support" in birthday_day_metadata["query_plan"]["selected_roles"]
+    assert birthday_month_queries[1] == "alex birthday year ago born month age"
+    assert "date_profile" in birthday_month_metadata["query_profile"][
+        "relation_categories"
+    ]
+    assert "date_support" in birthday_month_metadata["query_plan"]["selected_roles"]
+    assert anniversary_day_queries[2] == "alex anniversary year wed date month marry"
+    assert anniversary_day_metadata["query_profile"]["relation_categories"] == (
+        "date_profile",
+    )
 
     assert "date_profile" not in birthday_gift_metadata["query_profile"][
         "relation_categories"
@@ -10610,6 +10654,63 @@ def test_benchmark_rerank_boosts_date_profile_evidence() -> None:
         date_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
         > 0
     )
+    assert date_diagnostics["score_signals"][
+        "benchmark_typed_relation_support_roles"
+    ] == ["date_support"]
+    assert (
+        topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        == 0
+    )
+
+
+def test_benchmark_rerank_boosts_birthday_day_date_profile_evidence() -> None:
+    case = _case(
+        case_id="date-profile-birthday-day-rerank",
+        question="What day is Alex's birthday?",
+        expected_terms=("May 5",),
+        answer="May 5",
+        category=4,
+    )
+    topical_birthday = RetrievedMemory(
+        item_id="topical-birthday",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex kept a birthday gift from Maria."
+        ),
+        source_refs=("D1:1",),
+    )
+    date_profile = RetrievedMemory(
+        item_id="date-profile",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: My birthday is May 5."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_birthday, date_profile),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("date_profile",)
+    assert reranked[0].item_id == "date-profile"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    date_diagnostics = diagnostics_by_id["date-profile"]
+    topical_diagnostics = diagnostics_by_id["topical-birthday"]
+    assert date_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["date_profile"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
     assert date_diagnostics["score_signals"][
         "benchmark_typed_relation_support_roles"
     ] == ["date_support"]
