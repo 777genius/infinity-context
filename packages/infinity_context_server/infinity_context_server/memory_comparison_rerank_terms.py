@@ -350,6 +350,7 @@ RELATION_QUERY_VARIANTS = {
         "born",
         "hometown",
         "childhood",
+        "raised",
         "originally",
     ),
     "relocate": ("relocated", "from", "moved", "home", "country", "origin"),

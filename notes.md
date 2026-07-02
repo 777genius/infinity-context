@@ -26,6 +26,35 @@
 - `git push origin main` -> blocked because the non-interactive runtime has no
   GitHub username/credential prompt available.
 
+## 2026-07-02 Follow-up 25
+
+- Expanded location-origin support for "where was X raised" questions and
+  "raised in PLACE" evidence.
+- Guarded raised-location questions from picking up generic charity/fundraising
+  `raise` relation fanout, so location support queries stay focused on origin
+  evidence instead of awareness/fundraiser terms.
+- Added regressions proving raised-in-Toronto evidence receives
+  `location_transition` support while a Toronto fundraising distractor stays
+  untyped.
+
+## Verification
+
+- `uv run --extra dev pytest -q tests/unit/test_memory_comparison_benchmark.py::test_query_decomposition_expands_location_profile_queries tests/unit/test_memory_comparison_benchmark.py::test_benchmark_rerank_boosts_raised_origin_profile_evidence tests/unit/test_memory_comparison_benchmark.py::test_benchmark_rerank_boosts_origin_profile_evidence`
+  -> 3 passed, 1 warning.
+- `uv run --extra dev pytest -q tests/unit/test_memory_comparison*.py`
+  -> 516 passed, 1 warning.
+- `uv run --extra dev ruff check packages/infinity_context_server/infinity_context_server/memory_comparison_rerank_text.py packages/infinity_context_server/infinity_context_server/memory_comparison_rerank.py packages/infinity_context_server/infinity_context_server/memory_comparison_intent.py packages/infinity_context_server/infinity_context_server/memory_comparison_rerank_terms.py packages/infinity_context_server/infinity_context_server/memory_comparison_query_terms.py packages/infinity_context_server/infinity_context_server/memory_comparison_relation_support.py packages/infinity_context_server/infinity_context_server/memory_comparison_rerank_policies.py tests/unit/test_memory_comparison_benchmark.py`
+  -> passed.
+- `uv run --extra dev pytest -q tests/architecture/test_memory_boundaries.py`
+  -> 6 passed.
+- `git diff --check` -> passed.
+- `uv run --extra dev python -m infinity_context_server.eval memory-comparison-benchmark --dataset ./datasets/locomo10.json --memo-api-url http://127.0.0.1:7788 --mem0-url http://127.0.0.1:8888 --benchmark locomo --locomo-ingest-mode official-turns --case-set locomo-fast --report-mode compact --top-k 200 --top-k-cutoff 10 --top-k-cutoff 20 --top-k-cutoff 50 --top-k-cutoff 200 --allow-live --preflight-only`
+  -> blocked safely because `./datasets/locomo10.json` and memory auth token
+  are absent. Fast-readiness blockers were empty; no long/full LoCoMo run was
+  attempted.
+- `git push origin main` -> blocked because the non-interactive runtime has no
+  GitHub username/credential prompt available.
+
 ## 2026-07-02 Follow-up 24
 
 - Expanded typed skill-profile language support for bilingual wording in both

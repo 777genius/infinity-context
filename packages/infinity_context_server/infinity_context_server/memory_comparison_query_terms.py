@@ -1133,6 +1133,7 @@ def _location_support_query_terms(
         "grew",
         "childhood",
         "born",
+        "raised",
         "hometown",
         "originally",
         "relocated",

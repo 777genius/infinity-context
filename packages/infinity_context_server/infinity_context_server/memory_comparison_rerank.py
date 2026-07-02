@@ -1181,6 +1181,11 @@ def _filter_relation_terms_for_profile(
             normalized_question,
         ):
             continue
+        if term == "raise" and re.search(
+            r"\bwhere\b.+\braised\b|\braised\b.+\bwhere\b",
+            normalized_question,
+        ):
+            continue
         filtered.append(term)
     return tuple(filtered)
 

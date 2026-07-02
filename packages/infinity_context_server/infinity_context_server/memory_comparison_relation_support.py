@@ -1163,6 +1163,8 @@ _LOCATION_PROFILE_SURFACE_RE = re.compile(
     r"(?:[A-Z][a-zA-Z0-9_-]+|the\s+[a-zA-Z][a-zA-Z0-9_-]+)"
     r"|\b(?:from|born\s+in|grew\s+up\s+in)\s+"
     r"(?:[A-Z][a-zA-Z0-9_-]+|the\s+[a-zA-Z][a-zA-Z0-9_-]+)"
+    r"|\braised\s+(?:in|near|around)\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|the\s+[a-zA-Z][a-zA-Z0-9_-]+)"
     r"|\bhometown\s+(?:is|was|in)\s+"
     r"(?:[A-Z][a-zA-Z0-9_-]+|the\s+[a-zA-Z][a-zA-Z0-9_-]+)",
 )
@@ -1213,6 +1215,8 @@ def _has_location_transition_support(
         "hometown",
         "origin",
         "originally",
+        "rais",
+        "raise",
     } & memory_terms
     travel_surface = {"drive", "roadtrip", "travel", "trip"} & memory_terms
     travel_context = {

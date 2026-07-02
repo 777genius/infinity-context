@@ -1037,6 +1037,8 @@ _LOCATION_SUPPORT_TERMS = frozenset(
         "origin",
         "originally",
         "place",
+        "rais",
+        "raise",
         "relocated",
         "stay",
         "stayed",

@@ -529,6 +529,7 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
         terms.extend(("grow", "origin"))
     if re.search(
         r"\bwhere\b.+\bborn\b|\bhometown\b|"
+        r"\bwhere\b.+\braised\b|\braised\b.+\bwhere\b|"
         r"\bwhere\b.+\bchildhood\b|\bchildhood\b.+\bwhere\b",
         text,
         flags=re.IGNORECASE,

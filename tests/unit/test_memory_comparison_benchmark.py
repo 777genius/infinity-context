@@ -4260,6 +4260,12 @@ def test_query_decomposition_expands_location_profile_queries() -> None:
         expected_terms=("Toronto",),
         answer="Toronto",
     )
+    raised_case = _case(
+        case_id="location-profile-raised",
+        question="Where was Alex raised?",
+        expected_terms=("Toronto",),
+        answer="Toronto",
+    )
     hometown_case = _case(
         case_id="location-profile-hometown",
         question="What is Alex's hometown?",
@@ -4297,6 +4303,9 @@ def test_query_decomposition_expands_location_profile_queries() -> None:
         origin_case
     )
     born_queries, born_metadata = rerank_module.decomposed_search_queries(born_case)
+    raised_queries, raised_metadata = rerank_module.decomposed_search_queries(
+        raised_case
+    )
     hometown_queries, hometown_metadata = rerank_module.decomposed_search_queries(
         hometown_case
     )
@@ -4328,6 +4337,11 @@ def test_query_decomposition_expands_location_profile_queries() -> None:
     assert born_queries[1] == "alex origin home city country grew born"
     assert born_metadata["query_profile"]["relation_terms"] == ("origin",)
     assert born_metadata["query_profile"]["evidence_need"] == ("location_support",)
+
+    assert raised_queries[1] == "alex origin home city country grew born"
+    assert raised_queries[2] == "alex origin home city country grew born hometown childhood raise"
+    assert raised_metadata["query_profile"]["relation_terms"] == ("origin",)
+    assert raised_metadata["query_profile"]["evidence_need"] == ("location_support",)
 
     assert hometown_queries[1] == "alex origin home city country grew born"
     assert hometown_metadata["query_profile"]["relation_terms"] == ("origin",)
@@ -8555,6 +8569,63 @@ def test_benchmark_rerank_boosts_origin_profile_evidence() -> None:
     ] == []
     assert (
         born_diagnostics["score_signals"]["benchmark_location_support_boost"] > 0
+    )
+    assert (
+        topical_diagnostics["score_signals"]["benchmark_location_support_boost"]
+        == 0
+    )
+
+
+def test_benchmark_rerank_boosts_raised_origin_profile_evidence() -> None:
+    case = _case(
+        case_id="location-raised-origin-rerank",
+        question="Where was Alex raised?",
+        expected_terms=("Toronto",),
+        answer="Toronto",
+        category=4,
+    )
+    topical_origin = RetrievedMemory(
+        item_id="topical-origin",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex joined a fundraiser raising awareness in Toronto."
+        ),
+        source_refs=("D1:1",),
+    )
+    raised_profile = RetrievedMemory(
+        item_id="raised-profile",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: I was raised in Toronto."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_origin, raised_profile),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("location_support",)
+    assert reranked[0].item_id == "raised-profile"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    raised_diagnostics = diagnostics_by_id["raised-profile"]
+    topical_diagnostics = diagnostics_by_id["topical-origin"]
+    assert raised_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["location_transition"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert (
+        raised_diagnostics["score_signals"]["benchmark_location_support_boost"] > 0
     )
     assert (
         topical_diagnostics["score_signals"]["benchmark_location_support_boost"]
