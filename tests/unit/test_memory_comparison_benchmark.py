@@ -11052,6 +11052,12 @@ def test_query_decomposition_expands_diet_avoidance_queries() -> None:
         expected_terms=("seafood",),
         answer="seafood",
     )
+    cannot_eat_case = _case(
+        case_id="diet-profile-cannot-eat",
+        question="What can Alex not eat?",
+        expected_terms=("shellfish",),
+        answer="shellfish",
+    )
     book_case = _case(
         case_id="diet-profile-book-query-guard",
         question="What diet book did Alex read?",
@@ -11062,6 +11068,9 @@ def test_query_decomposition_expands_diet_avoidance_queries() -> None:
     avoid_queries, avoid_metadata = rerank_module.decomposed_search_queries(
         avoid_case
     )
+    cannot_eat_queries, cannot_eat_metadata = (
+        rerank_module.decomposed_search_queries(cannot_eat_case)
+    )
     _, book_metadata = rerank_module.decomposed_search_queries(book_case)
 
     assert avoid_queries[2] == "alex diet avoid dairy dietary eat egg"
@@ -11071,6 +11080,14 @@ def test_query_decomposition_expands_diet_avoidance_queries() -> None:
     )
     assert avoid_metadata["query_profile"]["evidence_need"] == ("diet_profile",)
     assert "seafood" in avoid_metadata["query_profile"]["relation_variant_terms"]
+    assert cannot_eat_queries[2] == "alex diet avoid dairy dietary eat egg"
+    assert cannot_eat_metadata["query_profile"]["relation_terms"] == ("diet",)
+    assert cannot_eat_metadata["query_profile"]["relation_categories"] == (
+        "diet_profile",
+    )
+    assert cannot_eat_metadata["query_profile"]["evidence_need"] == (
+        "diet_profile",
+    )
     assert "diet_profile" not in book_metadata["query_profile"][
         "relation_categories"
     ]
@@ -11188,6 +11205,63 @@ def test_benchmark_rerank_boosts_diet_avoidance_evidence() -> None:
     assert diet_diagnostics["score_signals"][
         "benchmark_typed_relation_support_roles"
     ] == ["diet_support"]
+
+
+def test_benchmark_rerank_boosts_cannot_eat_diet_evidence() -> None:
+    case = _case(
+        case_id="diet-profile-cannot-eat-rerank",
+        question="What can Alex not eat?",
+        expected_terms=("shellfish",),
+        answer="shellfish",
+        category=4,
+    )
+    topical_diet = RetrievedMemory(
+        item_id="topical-diet",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex reviewed shellfish restaurants with Maria."
+        ),
+        source_refs=("D1:1",),
+    )
+    diet_profile = RetrievedMemory(
+        item_id="diet-profile",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: I can not eat shellfish."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_diet, diet_profile),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("diet_profile",)
+    assert reranked[0].item_id == "diet-profile"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    diet_diagnostics = diagnostics_by_id["diet-profile"]
+    topical_diagnostics = diagnostics_by_id["topical-diet"]
+    assert diet_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["diet_profile"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert diet_diagnostics["score_signals"][
+        "benchmark_typed_relation_support_roles"
+    ] == ["diet_support"]
+    assert (
+        topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        == 0
+    )
 
 
 def test_benchmark_diet_profile_ignores_diet_book_wording() -> None:

@@ -703,7 +703,7 @@ _DIET_PROFILE_SURFACE_RE = re.compile(
     r"|\b(?:avoid|avoids|avoided)\s+(?:eating\s+)?"
     r"(?:gluten|dairy|meat|pork|seafood|shellfish|eggs?|soy|lactose|"
     r"peanuts?|tree\s+nuts?)\b"
-    r"|\b(?:can't|cannot|doesn't|don't|do\s+not|does\s+not)\s+eat\s+"
+    r"|\b(?:can't|cannot|can\s+not|doesn't|don't|do\s+not|does\s+not)\s+eat\s+"
     r"(?:gluten|dairy|meat|pork|seafood|shellfish|eggs?|soy|lactose|"
     r"peanuts?|tree\s+nuts?)\b"
     r"|\b(?:dietary\s+)?restriction\s+(?:is|was)\s+"
