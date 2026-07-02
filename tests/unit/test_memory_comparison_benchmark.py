@@ -3865,6 +3865,13 @@ def test_query_decomposition_expands_temporal_action_queries() -> None:
         answer="7 May 2023",
         category=2,
     )
+    generic_support_group_case = _case(
+        case_id="conv-26:qa:generic-support-group",
+        question="When did Caroline go to the support group?",
+        expected_terms=("7 May 2023",),
+        answer="7 May 2023",
+        category=2,
+    )
     move_case = _case(
         case_id="conv-26:qa:12",
         question="Where did Caroline move from 4 years ago?",
@@ -3958,6 +3965,9 @@ def test_query_decomposition_expands_temporal_action_queries() -> None:
     support_group_queries, support_group_metadata = (
         rerank_module.decomposed_search_queries(support_group_case)
     )
+    generic_support_group_queries, generic_support_group_metadata = (
+        rerank_module.decomposed_search_queries(generic_support_group_case)
+    )
     move_queries, move_metadata = rerank_module.decomposed_search_queries(move_case)
     race_queries, race_metadata = rerank_module.decomposed_search_queries(race_case)
     meeting_queries, meeting_metadata = rerank_module.decomposed_search_queries(
@@ -3999,6 +4009,12 @@ def test_query_decomposition_expands_temporal_action_queries() -> None:
     )
     assert "go" in support_group_metadata["query_profile"]["relation_terms"]
     assert "went" in support_group_metadata["query_profile"]["relation_variant_terms"]
+    assert generic_support_group_queries[1] == (
+        "caroline support group go went help friend"
+    )
+    assert not {"lgbtq", "inclusive", "inclusivity"}.intersection(
+        generic_support_group_metadata["query_profile"]["relation_variant_terms"]
+    )
     assert move_queries[1] == "caroline move moved home country 4 year ago"
     assert "move" in move_metadata["query_profile"]["relation_terms"]
     assert "4" in move_metadata["query_profile"]["lexical_terms"]

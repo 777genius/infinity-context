@@ -1307,6 +1307,11 @@ def _filter_relation_variant_terms_for_profile(
                 "mom",
             }
         )
+    if {"go", "support", "group"}.issubset(relation_term_set) and not re.search(
+        r"\b(?:inclusive|inclusivity|lgbtq|queer|transgender)\b",
+        normalized_question,
+    ):
+        blocked_terms.update({"inclusive", "inclusivity", "lgbtq"})
     if not blocked_terms:
         return tuple(relation_variant_terms)
     return tuple(term for term in relation_variant_terms if term not in blocked_terms)
@@ -1453,7 +1458,7 @@ def _relation_query_terms(
         priority_variant_order.extend(("kid", "make", "create", "thrilled", "process"))
         priority_surface_terms.add("thrilled")
     if {"go", "support", "group"}.issubset(relation_term_set):
-        priority_variant_order.extend(("went", "lgbtq", "inclusive"))
+        priority_variant_order.extend(("went",))
     if {"book", "read"}.issubset(relation_term_set):
         priority_variant_order.extend(("reading",))
         priority_surface_terms.add("reading")
