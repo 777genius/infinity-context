@@ -17,6 +17,7 @@ RELATION_QUERY_VARIANTS = {
         "weekend",
         "unplug",
     ),
+    "advise": ("advised", "recommend", "recommended", "suggest", "suggested"),
     "ask": ("asked", "request", "requested", "told"),
     "attend": (
         "attended",
@@ -243,6 +244,7 @@ RELATION_QUERY_VARIANTS = {
     "purchase": ("purchased", "buy", "bought", "got"),
     "receive": ("received", "got", "support", "help", "growing up"),
     "recommend": ("recommended", "suggested", "advised", "told"),
+    "request": ("requested", "ask", "asked", "message"),
     "register": (
         "registered",
         "registration",
@@ -303,6 +305,7 @@ RELATION_QUERY_VARIANTS = {
         "married",
     ),
     "tell": ("told", "said", "mentioned"),
+    "told": ("tell", "said", "mentioned"),
     "think": ("thought", "considered"),
     "visit": ("visited", "visiting", "trip", "studio", "place", "event"),
     "want": (

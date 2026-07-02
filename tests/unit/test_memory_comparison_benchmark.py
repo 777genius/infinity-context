@@ -5508,16 +5508,80 @@ def test_query_decomposition_reports_communication_relation_intent() -> None:
     )
     assert recommend_metadata["query_profile"]["relation_category_terms"][
         "communication"
-    ] == ("recommend", "suggest", "advis", "told")
+    ] == ("recommend", "suggest", "advise", "told")
     assert recommend_queries[1].endswith(
-        "actions: recommend, read, suggest, advis, told, book, recommended, "
+        "actions: recommend, read, suggest, advise, told, book, recommended, "
         "suggested"
     )
     assert recommend_queries[2] == (
-        "melanie becoming nicole recommend read suggest advis told book recommended "
+        "melanie becoming nicole recommend read suggest advise told book recommended "
         "suggested"
     )
     assert "caroline" not in " ".join(recommend_queries).casefold()
+
+
+def test_query_decomposition_reports_past_tense_communication_intent() -> None:
+    told_case = _case(
+        case_id="communication-told",
+        question="Who told Alex about the Project Atlas delay?",
+        expected_terms=("maria",),
+        answer="Maria",
+        category=1,
+    )
+    advised_case = _case(
+        case_id="communication-advised",
+        question="Who advised Melanie to read Becoming Nicole?",
+        expected_terms=("caroline",),
+        answer="Caroline",
+        category=1,
+    )
+    requested_case = _case(
+        case_id="communication-requested",
+        question="Who requested the Project Atlas invoice from Alex?",
+        expected_terms=("maria",),
+        answer="Maria",
+        category=1,
+    )
+
+    told_queries, told_metadata = rerank_module.decomposed_search_queries(told_case)
+    advised_queries, advised_metadata = rerank_module.decomposed_search_queries(
+        advised_case
+    )
+    requested_queries, requested_metadata = rerank_module.decomposed_search_queries(
+        requested_case
+    )
+
+    assert told_metadata["query_profile"]["relation_terms"] == ("told",)
+    assert told_metadata["query_profile"]["relation_categories"] == (
+        "communication",
+    )
+    assert told_metadata["query_profile"]["relation_category_terms"][
+        "communication"
+    ] == ("told", "mention")
+    assert told_queries[2] == "alex project atlas told tell mention delay"
+    assert "maria" not in " ".join(told_queries).casefold()
+
+    assert advised_metadata["query_profile"]["relation_terms"] == ("advise", "read")
+    assert "communication" in advised_metadata["query_profile"][
+        "relation_categories"
+    ]
+    assert advised_metadata["query_profile"]["relation_category_terms"][
+        "communication"
+    ] == ("advise", "recommend", "suggest")
+    assert advised_queries[2] == (
+        "melanie becoming nicole advise read recommend suggest book bookshelf advis recommended"
+    )
+    assert "caroline" not in " ".join(advised_queries).casefold()
+
+    assert requested_metadata["query_profile"]["relation_terms"] == ("request",)
+    assert requested_metadata["query_profile"]["relation_categories"] == (
+        "communication",
+    )
+    assert requested_metadata["query_profile"]["relation_category_terms"][
+        "communication"
+    ] == ("request",)
+    assert requested_queries[2] == "project atlas alex request ask message invoice asked"
+    assert "maria" not in " ".join(requested_queries).casefold()
 
 
 def test_query_decomposition_does_not_promote_plain_mention_lookup_to_communication() -> None:
@@ -6051,6 +6115,51 @@ def test_benchmark_rerank_boosts_directed_communication_without_topic_context() 
         ]
         > 0
     )
+
+
+def test_benchmark_rerank_boosts_recipient_role_communication_evidence() -> None:
+    case = _case(
+        case_id="communication-recipient-role-rerank",
+        question="Who did Alex ask?",
+        expected_terms=("sister",),
+        answer="sister",
+        category=1,
+    )
+    action_topic = RetrievedMemory(
+        item_id="action-topic",
+        rank=1,
+        score=0.04,
+        text="session_1 turn D1:1 date: 8:00 pm D1:1 Alex: I asked around yesterday.",
+        source_refs=("D1:1",),
+    )
+    recipient_turn = RetrievedMemory(
+        item_id="recipient-turn",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:4 date: 8:05 pm "
+            "D2:4 Alex: I asked my sister after dinner."
+        ),
+        source_refs=("D2:4",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (action_topic, recipient_turn),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("communication",)
+    assert reranked[0].item_id == "recipient-turn"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    assert diagnostics_by_id["recipient-turn"]["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["communication"]
+    assert diagnostics_by_id["action-topic"]["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
 
 
 def test_query_decomposition_reports_current_goal_instead_of_location_support() -> None:

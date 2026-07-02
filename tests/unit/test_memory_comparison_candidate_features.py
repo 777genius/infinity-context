@@ -385,6 +385,50 @@ def test_candidate_features_detect_directed_communication_surface() -> None:
     assert directed_message.answerability_score > topic_mention.answerability_score
 
 
+@pytest.mark.parametrize(
+    "text",
+    (
+        "D2:4 Alex: I told her yesterday.",
+        "D2:4 Alex: I asked my sister after dinner.",
+        "D2:4 Alex: I mentioned the delay to the team.",
+    ),
+)
+def test_candidate_features_detect_recipient_grounded_communication_surfaces(
+    text: str,
+) -> None:
+    features = build_candidate_evidence_features(
+        RetrievedMemory(
+            item_id="recipient-grounded-message",
+            rank=1,
+            text=text,
+            source_refs=("D2:4",),
+        ),
+        memory_terms={"alex", "tell", "told", "asked", "mention", "mentioned"},
+        query_terms=("alex", "tell"),
+        relation_terms=("tell",),
+        relation_variant_terms=("told", "mention", "mentioned", "said"),
+        relation_category_terms={
+            "communication": ("tell", "told", "mention", "mentioned", "said")
+        },
+        entities=("alex",),
+        entity_hits=("alex",),
+        speaker_hits=("alex",),
+        high_signal_relation_terms=set(),
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+
+    assert features.relation_category_hits == ("communication",)
+    assert "communication_evidence" in features.answerability_reason_codes
+
+
 def test_candidate_features_use_text_turn_refs_for_dedupe_when_source_refs_are_generic() -> None:
     memory = RetrievedMemory(
         item_id="fact-with-generic-provenance",

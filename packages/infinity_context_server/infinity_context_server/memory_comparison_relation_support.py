@@ -127,9 +127,23 @@ def _has_emotion_response_support(memory_terms: set[str]) -> bool:
     return bool(emotion_surface and response_context)
 
 
+_COMMUNICATION_RECIPIENT_RE = (
+    r"(?:[A-Z][a-zA-Z0-9_-]+|"
+    r"(?:my|his|her|their|our)\s+"
+    r"(?:brother|child|client|daughter|doctor|father|friend|manager|mother|"
+    r"parent|partner|sibling|sister|son|spouse|teacher|team|wife|husband)|"
+    r"the\s+(?:client|doctor|group|manager|teacher|team)|"
+    r"(?:her|him|me|them|us|you)"
+    r"(?=\s+(?:about|after|before|during|later|that|then|today|tomorrow|"
+    r"yesterday)|[.?!,;:]|$))"
+)
 _DIRECTED_COMMUNICATION_SURFACE_RE = re.compile(
-    r"\b(?:advised|asked|recommended|suggested|told)\s+"
-    r"(?:that\s+)?[A-Z][a-zA-Z0-9_-]+",
+    rf"\b(?:advised|asked|recommended|requested|suggested|told)\s+"
+    rf"(?:that\s+)?{_COMMUNICATION_RECIPIENT_RE}",
+)
+_INDIRECT_COMMUNICATION_RECIPIENT_RE = re.compile(
+    rf"\b(?:advised|mentioned|recommended|said|suggested)\b"
+    rf".{{0,80}}\b(?:to|with)\s+{_COMMUNICATION_RECIPIENT_RE}",
 )
 
 
@@ -176,7 +190,10 @@ def _has_communication_support(
         (communication_action and communication_context)
         or (
             communication_action
-            and _DIRECTED_COMMUNICATION_SURFACE_RE.search(memory_text)
+            and (
+                _DIRECTED_COMMUNICATION_SURFACE_RE.search(memory_text)
+                or _INDIRECT_COMMUNICATION_RECIPIENT_RE.search(memory_text)
+            )
         )
     )
 

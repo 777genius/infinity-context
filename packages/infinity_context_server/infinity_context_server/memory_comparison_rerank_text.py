@@ -120,6 +120,7 @@ QUERY_STOPWORDS = {
 QUERY_TOKEN_ALIASES = {
     "agency": ("agencies",),
     "amaz": ("amazing",),
+    "advis": ("advise",),
     "awarenes": ("awareness",),
     "carv": ("carve",),
     "camp": ("camping",),

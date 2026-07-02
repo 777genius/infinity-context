@@ -511,7 +511,10 @@ def _has_communication_intent(
     relation_terms: tuple[str, ...],
 ) -> bool:
     relation_set = set(relation_terms)
-    if {"ask", "recommend", "suggest", "tell"} & relation_set:
+    if (
+        {"advise", "ask", "recommend", "request", "suggest", "tell", "told"}
+        & relation_set
+    ):
         return True
     if "mention" not in relation_set:
         return False
@@ -936,22 +939,25 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
     "communication": {
         "terms": frozenset(
             {
+                "advise",
                 "ask",
                 "mention",
                 "recommend",
+                "request",
                 "suggest",
                 "tell",
+                "told",
             }
         ),
         "variants": frozenset(
             {
-                "advis",
                 "advise",
                 "advised",
                 "mention",
                 "mentioned",
                 "recommend",
                 "request",
+                "requested",
                 "said",
                 "suggest",
                 "suggested",

@@ -158,6 +158,7 @@ _HIGH_SIGNAL_RELATION_VARIANTS = {
 }
 _RELATION_QUERY_TERMS = {
     "activity",
+    "advise",
     "ask",
     "attend",
     "birthday",
@@ -213,6 +214,7 @@ _RELATION_QUERY_TERMS = {
     "receive",
     "recommend",
     "register",
+    "request",
     "read",
     "religious",
     "relationship",
@@ -226,6 +228,7 @@ _RELATION_QUERY_TERMS = {
     "status",
     "tell",
     "think",
+    "told",
     "visit",
     "want",
     "work",
@@ -799,7 +802,7 @@ def _communication_support_query_terms(
         for token in _normalized_terms(surface)
     }
     communication_surface_terms = {
-        "advis",
+        "advise",
         "ask",
         "asked",
         "mention",
@@ -820,7 +823,7 @@ def _communication_support_query_terms(
         allowed_communication_terms.update(("ask", "asked", "request"))
     if relation_term_set & {"recommend", "suggest"}:
         allowed_communication_terms.update(
-            ("advis", "recommend", "recommended", "suggest", "suggested", "told")
+            ("advise", "recommend", "recommended", "suggest", "suggested", "told")
         )
     if not allowed_communication_terms:
         allowed_communication_terms.update(communication_surface_terms)
@@ -1731,18 +1734,26 @@ def _relation_query_terms(
     if "research" in relation_term_set:
         priority_variant_order.extend(("researching",))
         priority_surface_terms.add("researching")
-    if {"ask", "tell", "mention", "recommend", "suggest"} & relation_term_set:
-        priority_variant_order.extend(
-            (
-                "told",
-                "asked",
-                "recommended",
-                "suggested",
-                "request",
-                "said",
+    if {
+        "advise",
+        "ask",
+        "mention",
+        "recommend",
+        "request",
+        "suggest",
+        "tell",
+        "told",
+    } & relation_term_set:
+        if relation_term_set & {"mention", "tell", "told"}:
+            priority_variant_order.extend(("told", "said", "mentioned"))
+        if relation_term_set & {"ask", "request"}:
+            priority_variant_order.extend(("asked", "request"))
+            priority_surface_terms.add("asked")
+        if relation_term_set & {"advise", "recommend", "suggest"}:
+            priority_variant_order.extend(
+                ("advised", "recommended", "suggested", "told")
             )
-        )
-        priority_surface_terms.update(("asked", "recommended", "suggested"))
+            priority_surface_terms.update(("advised", "recommended", "suggested"))
     if "visit" in relation_term_set:
         priority_variant_order.extend(("visited", "studio", "place", "trip", "event"))
         priority_surface_terms.add("visited")
