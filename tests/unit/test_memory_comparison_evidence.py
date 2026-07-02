@@ -324,8 +324,16 @@ def test_evidence_bundle_preserves_typed_temporal_feature_provenance() -> None:
     assert item["has_duration_surface"] is True
     assert "duration_temporal_evidence" in item["answerability_reason_codes"]
     assert "temporal_grounding" in item["eligibility_reason_codes"]
-    assert bundle["required_roles"] == ["primary", "temporal_support"]
-    assert bundle["satisfied_required_roles"] == ["primary", "temporal_support"]
+    assert bundle["required_roles"] == [
+        "primary",
+        "temporal_support",
+        "inference_support",
+    ]
+    assert bundle["satisfied_required_roles"] == [
+        "primary",
+        "temporal_support",
+        "inference_support",
+    ]
     assert bundle["missing_required_roles"] == []
     assert bundle["role_requirement_complete"] is True
 
@@ -647,8 +655,12 @@ def test_evidence_bundle_keeps_duration_temporal_role_missing_without_duration_e
         ),
     )
 
-    assert bundle["required_roles"] == ["primary", "temporal_support"]
-    assert bundle["satisfied_required_roles"] == ["primary"]
+    assert bundle["required_roles"] == [
+        "primary",
+        "temporal_support",
+        "inference_support",
+    ]
+    assert bundle["satisfied_required_roles"] == ["primary", "inference_support"]
     assert bundle["missing_required_roles"] == ["temporal_support"]
     assert bundle["role_requirement_complete"] is False
     assert bundle["bundle_complete"] is False

@@ -3004,14 +3004,18 @@ def test_query_decomposition_reports_typed_retrieval_intent() -> None:
     duration_intent = duration_metadata["retrieval_intent"]
     assert duration_intent["time_intent"]["kind"] == "duration"
     assert "temporal_support" in duration_intent["evidence_need"]
+    assert "inference_support" in duration_intent["evidence_need"]
     assert duration_intent["bundle_evidence_roles"] == [
         "primary",
         "temporal_support",
+        "inference_support",
     ]
     duration_categories = {
         facet["category"] for facet in duration_intent["relations"]["intents"]
     }
+    assert "status_profile" in duration_categories
     assert "temporal" in duration_categories
+    assert "inference_support" in duration_metadata["query_plan"]["selected_roles"]
     duration_temporal_candidate = next(
         item
         for item in duration_metadata["query_plan"]["candidates"]

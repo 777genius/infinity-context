@@ -357,7 +357,10 @@ def infer_bundle_evidence_roles(
         roles.append("event_support")
     if "causal_support" in evidence_need_set:
         roles.append("causal_support")
-    if "inference_support" in evidence_need_set and len(roles) == 1:
+    if (
+        "inference_support" in evidence_need_set
+        and "multi_hop" not in evidence_need_set
+    ):
         roles.append("inference_support")
     return tuple(dict.fromkeys(roles))
 
@@ -372,6 +375,7 @@ def merge_relation_evidence_needs(
         "emotion_response",
         "communication",
         "exchange",
+        "inference_support",
         "participation_event",
         "registration_event",
         "symbolic_meaning",
@@ -380,6 +384,10 @@ def merge_relation_evidence_needs(
         intent.evidence_need
         for intent in relation_intents
         if intent.evidence_need in promoted_needs
+        and (
+            intent.evidence_need != "inference_support"
+            or intent.category == "status_profile"
+        )
     )
     if not relation_needs:
         return evidence_need
