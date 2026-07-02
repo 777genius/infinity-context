@@ -119,6 +119,10 @@ class PlannedEvidenceItem:
             payload["relation_category_hits"] = list(
                 self.candidate.relation_category_hits
             )
+        if self.candidate.entity_hits:
+            payload["entity_hits"] = list(self.candidate.entity_hits)
+        if self.candidate.speaker_hits:
+            payload["speaker_hits"] = list(self.candidate.speaker_hits)
         if self.candidate.has_preference_evidence:
             payload["has_preference_evidence"] = True
         if self.candidate.has_visual_evidence:

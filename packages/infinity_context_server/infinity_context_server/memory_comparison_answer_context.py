@@ -566,6 +566,12 @@ def _with_answer_context_metadata(
     relation_category_hits = _string_tuple(bundle_item.get("relation_category_hits"))
     if relation_category_hits:
         metadata["answer_context_relation_category_hits"] = relation_category_hits
+    entity_hits = _string_tuple(bundle_item.get("entity_hits"))
+    if entity_hits:
+        metadata["answer_context_entity_hits"] = entity_hits
+    speaker_hits = _string_tuple(bundle_item.get("speaker_hits"))
+    if speaker_hits:
+        metadata["answer_context_speaker_hits"] = speaker_hits
     answerability_score = _metric_value(bundle_item, "answerability_score")
     if answerability_score > 0:
         metadata["answer_context_answerability_score"] = round(

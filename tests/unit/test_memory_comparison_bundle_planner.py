@@ -1224,6 +1224,7 @@ def test_evidence_bundle_planner_requires_grounded_typed_support_for_entity_quer
     selected_ids = [item.candidate.item_id for item in plan.items]
     assert selected_ids == ["primary", "grounded-event"]
     assert plan.items[1].role == "event_support"
+    assert plan.items[1].to_payload()["entity_hits"] == ["morgan"]
     diagnostics = plan.to_diagnostics()
     assert diagnostics["satisfied_required_roles"] == ["primary", "event_support"]
     assert diagnostics["bundle_quality"]["event_support_count"] == 1

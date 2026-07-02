@@ -219,6 +219,8 @@ def test_render_answer_prompt_labels_planned_evidence_context() -> None:
                     "answer_context_relation_category_hits": (
                         "location_transition",
                     ),
+                    "answer_context_entity_hits": ("caroline",),
+                    "answer_context_speaker_hits": ("caroline",),
                     "answer_context_bundle_confidence_score": 0.68,
                     "answer_context_bundle_confidence_band": "medium",
                     "answer_context_bundle_bridge_count": 1,
@@ -255,6 +257,8 @@ def test_render_answer_prompt_labels_planned_evidence_context() -> None:
     assert "locality=1" in prompt
     assert "query_roles=location_support" in prompt
     assert "relations=location_transition" in prompt
+    assert "entities=caroline" in prompt
+    assert "speakers=caroline" in prompt
     assert "bundle=medium:0.68" in prompt
     assert "bundle_proximity=1" in prompt
     assert (

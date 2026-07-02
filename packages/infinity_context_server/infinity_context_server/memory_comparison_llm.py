@@ -125,6 +125,12 @@ def _render_memory_evidence_line(memory: RetrievedMemory, *, index: int) -> str:
     )
     if relation_categories:
         labels.append(f"relations={','.join(relation_categories[:3])}")
+    entity_hits = _string_sequence(metadata.get("answer_context_entity_hits"))
+    if entity_hits:
+        labels.append(f"entities={','.join(entity_hits[:3])}")
+    speaker_hits = _string_sequence(metadata.get("answer_context_speaker_hits"))
+    if speaker_hits:
+        labels.append(f"speakers={','.join(speaker_hits[:3])}")
     confidence = _prompt_score(
         metadata.get("answer_context_bundle_confidence_score")
     )

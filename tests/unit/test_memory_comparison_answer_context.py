@@ -55,6 +55,8 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
                     "eligibility_reason_codes": ["query_support_terms"],
                     "query_roles": ["location_support"],
                     "relation_category_hits": ["location_transition"],
+                    "entity_hits": ["caroline"],
+                    "speaker_hits": ["caroline"],
                     "answerability_score": 0.91,
                     "source_locality_score": 1.0,
                 },
@@ -81,6 +83,12 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
     assert context.memories[0].metadata[
         "answer_context_relation_category_hits"
     ] == ("location_transition",)
+    assert context.memories[0].metadata["answer_context_entity_hits"] == (
+        "caroline",
+    )
+    assert context.memories[0].metadata["answer_context_speaker_hits"] == (
+        "caroline",
+    )
     assert context.memories[0].metadata["answer_context_answerability_score"] == 0.91
     assert context.memories[0].metadata["answer_context_source_locality_score"] == 1.0
     assert (
