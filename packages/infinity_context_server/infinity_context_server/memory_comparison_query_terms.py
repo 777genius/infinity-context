@@ -774,6 +774,8 @@ def _pet_support_query_terms(
     }
     if "bre" in lexical_term_set or "breed" in lexical_term_set:
         pet_terms.update({"bre", "breed", "labrador", "retriever"})
+    if "microchip" in lexical_term_set:
+        pet_terms.update({"microchip", "number"})
     topical_terms = tuple(
         term
         for term in lexical_terms

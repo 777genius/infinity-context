@@ -4794,11 +4794,23 @@ def test_query_decomposition_expands_pet_profile_queries() -> None:
         expected_terms=("golden retriever",),
         answer="golden retriever",
     )
+    microchip_case = _case(
+        case_id="pet-profile-microchip",
+        question="What is Alex's dog's microchip number?",
+        expected_terms=("MC-12345",),
+        answer="MC-12345",
+    )
     animal_preference_case = _case(
         case_id="pet-profile-animal-preference-guard",
         question="What animal does Alex like?",
         expected_terms=("dogs",),
         answer="dogs",
+    )
+    chip_case = _case(
+        case_id="pet-profile-chip-guard",
+        question="What chip did Alex use for salsa?",
+        expected_terms=("corn chip",),
+        answer="corn chip",
     )
     dog_visual_case = _case(
         case_id="pet-profile-dog-visual-guard",
@@ -4815,9 +4827,13 @@ def test_query_decomposition_expands_pet_profile_queries() -> None:
         cat_name_case
     )
     breed_queries, breed_metadata = rerank_module.decomposed_search_queries(breed_case)
+    microchip_queries, microchip_metadata = rerank_module.decomposed_search_queries(
+        microchip_case
+    )
     _, animal_preference_metadata = rerank_module.decomposed_search_queries(
         animal_preference_case
     )
+    _, chip_metadata = rerank_module.decomposed_search_queries(chip_case)
     _, dog_visual_metadata = rerank_module.decomposed_search_queries(dog_visual_case)
 
     assert pet_queries[2] == "alex pet dog cat animal name puppy"
@@ -4839,6 +4855,14 @@ def test_query_decomposition_expands_pet_profile_queries() -> None:
         "pet_profile",
     )
     assert breed_metadata["query_profile"]["evidence_need"] == ("pet_profile",)
+    assert microchip_queries[2] == "alex pet dog cat animal name microchip"
+    assert microchip_metadata["query_profile"]["relation_categories"] == (
+        "pet_profile",
+    )
+    assert microchip_metadata["query_profile"]["evidence_need"] == ("pet_profile",)
+    assert "microchip" in microchip_metadata["query_profile"][
+        "relation_variant_terms"
+    ]
 
     assert animal_preference_metadata["query_profile"]["relation_categories"] == (
         "preference",
@@ -4846,6 +4870,7 @@ def test_query_decomposition_expands_pet_profile_queries() -> None:
     assert "pet_profile" not in animal_preference_metadata["query_profile"][
         "relation_categories"
     ]
+    assert "pet_profile" not in chip_metadata["query_profile"]["relation_categories"]
     assert "pet_profile" not in dog_visual_metadata["query_profile"][
         "relation_categories"
     ]
@@ -10262,6 +10287,63 @@ def test_benchmark_rerank_boosts_pet_breed_profile_evidence() -> None:
         "relation_category_hits"
     ] == []
     assert breed_diagnostics["score_signals"][
+        "benchmark_typed_relation_support_roles"
+    ] == ["pet_support"]
+    assert (
+        topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        == 0
+    )
+
+
+def test_benchmark_rerank_boosts_pet_microchip_evidence() -> None:
+    case = _case(
+        case_id="pet-profile-microchip-rerank",
+        question="What is Alex's dog's microchip number?",
+        expected_terms=("MC-12345",),
+        answer="MC-12345",
+        category=4,
+    )
+    topical_chip = RetrievedMemory(
+        item_id="topical-chip",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex brought chips and salsa to the park with Maria."
+        ),
+        source_refs=("D1:1",),
+    )
+    pet_profile = RetrievedMemory(
+        item_id="pet-profile",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: My dog Luna's microchip number is MC-12345."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_chip, pet_profile),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("pet_profile",)
+    assert reranked[0].item_id == "pet-profile"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    pet_diagnostics = diagnostics_by_id["pet-profile"]
+    topical_diagnostics = diagnostics_by_id["topical-chip"]
+    assert pet_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["pet_profile"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert pet_diagnostics["score_signals"][
         "benchmark_typed_relation_support_roles"
     ] == ["pet_support"]
     assert (

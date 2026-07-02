@@ -1111,7 +1111,9 @@ def _has_pet_profile_intent(
         re.search(
             r"\bwhat\s+pet\b|\b(?:dog|cat|pet)\b.+\bnamed?\b|"
             r"\bname\b.+\b(?:dog|cat|pet)\b|"
-            r"\bbreed\b.+\b(?:dog|cat|pet)\b|\b(?:dog|cat|pet)\b.+\bbreed\b",
+            r"\bbreed\b.+\b(?:dog|cat|pet)\b|\b(?:dog|cat|pet)\b.+\bbreed\b|"
+            r"\b(?:dog|cat|pet|puppy|kitten)\b.+\bmicrochip\b|"
+            r"\bmicrochip\b.+\b(?:dog|cat|pet|puppy|kitten)\b",
             normalized_question,
         )
     )

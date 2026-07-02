@@ -412,6 +412,8 @@ RELATION_QUERY_VARIANTS = {
         "breed",
         "named",
         "name",
+        "microchip",
+        "number",
         "puppy",
         "kitten",
         "retriever",

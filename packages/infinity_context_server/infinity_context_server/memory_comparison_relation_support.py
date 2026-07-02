@@ -727,6 +727,10 @@ _PET_PROFILE_SURFACE_RE = re.compile(
     r"|\b(?:pet|dog|cat|puppy|kitten)\s+(?:is|was|named|called)\b"
     r"|\b(?:golden\s+retriever|labrador|poodle|beagle|bulldog|terrier|"
     r"siamese|tabby|persian)\s+(?:is|was|named|called)\b"
+    r"|\b(?:my|our|his|her|their)\s+(?:pet|dog|cat|puppy|kitten)\b"
+    r".{0,60}\bmicrochip(?:\s+number)?\s+(?:is|was)\s+[A-Z0-9-]{3,}\b"
+    r"|\b(?:pet|dog|cat|puppy|kitten)\b.{0,60}"
+    r"\bmicrochip(?:\s+number)?\s+(?:is|was)\s+[A-Z0-9-]{3,}\b"
     r"|\b(?:have|has|had)\s+(?:a\s+|an\s+|the\s+)?"
     r"(?:pet|dog|cat|puppy|kitten|golden\s+retriever|labrador|poodle|"
     r"beagle|bulldog|terrier|siamese|tabby|persian)\b",

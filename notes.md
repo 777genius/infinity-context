@@ -26,6 +26,32 @@
 - `git push origin main` -> blocked because the non-interactive runtime has no
   GitHub username/credential prompt available.
 
+## 2026-07-02 Follow-up 45
+
+- Expanded typed pet-profile support for pet microchip-number questions such
+  as "What is Alex's dog's microchip number?"
+- Added microchip/number to focused pet query planning only when the question
+  asks for a pet microchip, keeping ordinary pet-name and breed queries stable.
+- Added guards so topical chip wording does not receive typed pet evidence
+  boosts.
+
+## Verification
+
+- `uv run --extra dev pytest -q tests/unit/test_memory_comparison_benchmark.py::test_query_decomposition_expands_pet_profile_queries tests/unit/test_memory_comparison_benchmark.py::test_benchmark_rerank_boosts_pet_microchip_evidence tests/unit/test_memory_comparison_benchmark.py::test_benchmark_rerank_boosts_pet_profile_evidence tests/unit/test_memory_comparison_benchmark.py::test_benchmark_rerank_boosts_pet_breed_profile_evidence`
+  -> 4 passed, 1 warning.
+- `uv run --extra dev ruff check packages/infinity_context_server/infinity_context_server/memory_comparison_rerank_text.py packages/infinity_context_server/infinity_context_server/memory_comparison_intent.py packages/infinity_context_server/infinity_context_server/memory_comparison_relation_support.py packages/infinity_context_server/infinity_context_server/memory_comparison_query_terms.py packages/infinity_context_server/infinity_context_server/memory_comparison_rerank.py packages/infinity_context_server/infinity_context_server/memory_comparison_rerank_terms.py tests/unit/test_memory_comparison_benchmark.py`
+  -> passed.
+- `uv run --extra dev pytest -q tests/unit/test_memory_comparison*.py`
+  -> 541 passed, 1 warning.
+- `uv run --extra dev pytest -q tests/architecture/test_memory_boundaries.py`
+  -> 6 passed.
+- `uv run --extra dev python -m infinity_context_server.eval memory-comparison-benchmark --dataset ./datasets/locomo10.json --memo-api-url http://127.0.0.1:7788 --mem0-url http://127.0.0.1:8888 --benchmark locomo --locomo-ingest-mode official-turns --case-set locomo-fast --report-mode compact --top-k 200 --top-k-cutoff 10 --top-k-cutoff 20 --top-k-cutoff 50 --top-k-cutoff 200 --allow-live --preflight-only`
+  -> blocked safely because `./datasets/locomo10.json` and memory auth token
+  are absent. Fast-readiness blockers were empty; no long/full LoCoMo run was
+  attempted.
+- `git push origin main` -> still blocked because the non-interactive runtime
+  has no GitHub username/credential prompt available.
+
 ## 2026-07-02 Follow-up 44
 
 - Expanded typed vehicle-profile support for license-plate questions such as
