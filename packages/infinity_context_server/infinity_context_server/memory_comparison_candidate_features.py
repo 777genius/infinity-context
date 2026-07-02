@@ -429,7 +429,11 @@ def _relation_category_hits(
             memory_text=memory_text,
         )
         if typed_support is not None:
-            if typed_support:
+            if typed_support and _typed_category_has_query_grounding(
+                category=str(category),
+                memory_terms=memory_terms,
+                term_values=term_values,
+            ):
                 hits.append(str(category))
             continue
         grounding_terms = tuple(term for term in term_values if term not in query_term_set)
@@ -437,6 +441,17 @@ def _relation_category_hits(
         if any(term in memory_terms for term in terms_to_match):
             hits.append(str(category))
     return tuple(dict.fromkeys(hits))
+
+
+def _typed_category_has_query_grounding(
+    *,
+    category: str,
+    memory_terms: set[str],
+    term_values: Sequence[str],
+) -> bool:
+    if category != "status_profile":
+        return True
+    return any(term in memory_terms for term in term_values)
 
 
 def _answerability(
