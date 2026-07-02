@@ -141,6 +141,19 @@ def _render_memory_evidence_line(memory: RetrievedMemory, *, index: int) -> str:
         labels.append(f"bundle={confidence_band}:{confidence}")
     elif confidence is not None:
         labels.append(f"bundle={confidence}")
+    source_type_diversity = _positive_int(
+        metadata.get("answer_context_bundle_source_type_diversity")
+    )
+    retrieval_source_diversity = _positive_int(
+        metadata.get("answer_context_bundle_retrieval_source_diversity")
+    )
+    source_diversity_labels: list[str] = []
+    if source_type_diversity is not None:
+        source_diversity_labels.append(f"types:{source_type_diversity}")
+    if retrieval_source_diversity is not None:
+        source_diversity_labels.append(f"retrieval:{retrieval_source_diversity}")
+    if source_diversity_labels:
+        labels.append(f"bundle_sources={','.join(source_diversity_labels)}")
     proximity_count = _positive_int(
         metadata.get("answer_context_bundle_source_proximity_support_count")
     )
