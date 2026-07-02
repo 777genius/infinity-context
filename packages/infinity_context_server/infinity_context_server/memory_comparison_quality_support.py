@@ -495,18 +495,19 @@ def bundle_has_inference_support(
     *,
     require_grounding: bool = False,
 ) -> bool:
-    if _bundle_has_role_or_reason(
-        bundle,
-        role="inference_support",
-        reason="inference_support",
-        require_grounding=require_grounding,
-    ):
-        return True
     return any(
         bool(
             _passes_person_grounding(item, require_grounding=require_grounding)
             and (
-                "inference_support" in _str_tuple(item.get("planner_reason_codes"))
+                str(item.get("role") or "").strip() == "inference_support"
+                or "inference_support" in _str_tuple(item.get("planner_reason_codes"))
+            )
+            and (
+                _str_tuple(item.get("relation_category_hits"))
+                or "inference_relation_category_hits"
+                in _str_tuple(item.get("planner_reason_codes"))
+                or "inference_relation_hits"
+                in _str_tuple(item.get("planner_reason_codes"))
                 or (
                     "inference_entity_hits"
                     in _str_tuple(item.get("planner_reason_codes"))
