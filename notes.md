@@ -26,6 +26,33 @@
 - `git push origin main` -> blocked because the non-interactive runtime has no
   GitHub username/credential prompt available.
 
+## 2026-07-02 Follow-up 48
+
+- Tightened education-profile intent for major/degree questions so topical
+  wording such as "major issue" does not create an education evidence need.
+- Preserved major/degree terms in compact education query planning only for
+  academic-major or degree questions.
+- Added education-profile evidence surfaces for explicit major and degree
+  statements while keeping topical major/degree mentions from receiving typed
+  education boosts.
+
+## Verification
+
+- `uv run --extra dev pytest -q tests/unit/test_memory_comparison_benchmark.py::test_query_decomposition_expands_education_profile_queries tests/unit/test_memory_comparison_benchmark.py::test_benchmark_rerank_boosts_major_education_evidence tests/unit/test_memory_comparison_benchmark.py::test_benchmark_rerank_boosts_education_profile_evidence tests/unit/test_memory_comparison_benchmark.py::test_benchmark_rerank_boosts_named_school_education_evidence`
+  -> 4 passed, 1 warning.
+- `uv run --extra dev ruff check packages/infinity_context_server/infinity_context_server/memory_comparison_rerank_text.py packages/infinity_context_server/infinity_context_server/memory_comparison_intent.py packages/infinity_context_server/infinity_context_server/memory_comparison_relation_support.py packages/infinity_context_server/infinity_context_server/memory_comparison_query_terms.py packages/infinity_context_server/infinity_context_server/memory_comparison_rerank.py tests/unit/test_memory_comparison_benchmark.py`
+  -> passed.
+- `uv run --extra dev pytest -q tests/unit/test_memory_comparison*.py`
+  -> 544 passed, 1 warning.
+- `uv run --extra dev pytest -q tests/architecture/test_memory_boundaries.py`
+  -> 6 passed.
+- `uv run --extra dev python -m infinity_context_server.eval memory-comparison-benchmark --dataset ./datasets/locomo10.json --memo-api-url http://127.0.0.1:7788 --mem0-url http://127.0.0.1:8888 --benchmark locomo --locomo-ingest-mode official-turns --case-set locomo-fast --report-mode compact --top-k 200 --top-k-cutoff 10 --top-k-cutoff 20 --top-k-cutoff 50 --top-k-cutoff 200 --allow-live --preflight-only`
+  -> blocked safely because `./datasets/locomo10.json` and memory auth token
+  are absent. Fast-readiness blockers were empty; no long/full LoCoMo run was
+  attempted.
+- `git push origin main` -> still blocked because the non-interactive runtime
+  has no GitHub username/credential prompt available.
+
 ## 2026-07-02 Follow-up 47
 
 - Expanded typed employment-profile support for salary, wage, pay-rate, and

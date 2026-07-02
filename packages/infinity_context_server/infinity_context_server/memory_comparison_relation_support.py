@@ -206,7 +206,17 @@ _EDUCATION_PROFILE_SURFACE_RE = re.compile(
     r"(?:college|university|school))\b"
     r"|\b(?:attend|attends|attended|study|studies|studying)\s+"
     r"(?:at\s+)?(?:[A-Z][a-zA-Z0-9_-]+(?:\s+[A-Z][a-zA-Z0-9_-]+){0,3}|"
-    r"(?:college|university|school))\b",
+    r"(?:college|university|school))\b"
+    r"|\b(?:my|his|her|their|our)\s+(?:major|degree)\s+(?:is|was|:)\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|[a-zA-Z][a-zA-Z0-9_-]+)"
+    r"|\b(?:major|degree)\s+(?:is|was|:)\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|[a-zA-Z][a-zA-Z0-9_-]+)"
+    r"|\b(?:major|majors|majored|majoring)\s+in\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|[a-zA-Z][a-zA-Z0-9_-]+)"
+    r"|\b(?:have|has|had|earn|earned|got|receive|received)\s+"
+    r"(?:a\s+|an\s+|the\s+)?(?:[a-zA-Z][a-zA-Z0-9_-]+\s+){0,3}"
+    r"degree\s+in\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|[a-zA-Z][a-zA-Z0-9_-]+)",
     re.IGNORECASE,
 )
 
@@ -221,10 +231,7 @@ def _has_education_profile_support(
         "class",
         "college",
         "course",
-        "degree",
         "education",
-        "major",
-        "majoring",
         "school",
         "studies",
         "study",
@@ -236,8 +243,6 @@ def _has_education_profile_support(
         "attended",
         "go",
         "goes",
-        "major",
-        "majoring",
         "study",
         "studies",
         "studying",
@@ -249,9 +254,7 @@ def _has_education_profile_support(
         "class",
         "college",
         "course",
-        "degree",
         "education",
-        "major",
         "school",
         "university",
     } & memory_terms

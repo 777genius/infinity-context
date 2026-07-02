@@ -997,7 +997,10 @@ def _has_education_profile_intent(
         re.search(
             r"\b(?:what|which)\s+school\b|"
             r"\b(?:college|university)\b|"
-            r"\b(?:study|studies|studying|major|majoring|degree)\b|"
+            r"\b(?:study|studies|studying|majoring)\b|"
+            r"\bwhat\s+(?:is|was)\b.+\bmajor\b(?:\s+(?:in|at)\b|$)|"
+            r"\bwhat\s+degree\b|\bdegree\s+(?:does|did)\b.+\bhave\b|"
+            r"\b(?:major|degree)\s+in\b|"
             r"\bwhat\s+class\b",
             normalized_question,
         )

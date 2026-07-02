@@ -514,6 +514,8 @@ def _education_support_query_terms(
         "studying",
         "university",
     }
+    credential_terms = {"degree", "major", "majoring"}
+    credential_focus = bool(credential_terms & set(lexical_terms))
     relation_action_terms = {"attend", "education", "go", "school"}
     topical_terms = tuple(
         term
@@ -527,7 +529,17 @@ def _education_support_query_terms(
         dict.fromkeys(
             (
                 *(term for term in relation_terms if term in relation_action_terms),
-                *(term for term in relation_variant_terms if term in education_terms),
+                *(
+                    term
+                    for term in relation_variant_terms
+                    if credential_focus and term in credential_terms
+                ),
+                *(
+                    term
+                    for term in relation_variant_terms
+                    if term in education_terms
+                    and not (credential_focus and term in credential_terms)
+                ),
                 *topical_terms[:4],
                 *(
                     term

@@ -4433,6 +4433,24 @@ def test_query_decomposition_expands_education_profile_queries() -> None:
         expected_terms=("ceramics",),
         answer="ceramics",
     )
+    major_case = _case(
+        case_id="education-profile-major",
+        question="What is Alex's major?",
+        expected_terms=("biology",),
+        answer="biology",
+    )
+    degree_case = _case(
+        case_id="education-profile-degree",
+        question="What degree does Alex have?",
+        expected_terms=("psychology",),
+        answer="psychology",
+    )
+    major_issue_case = _case(
+        case_id="education-profile-major-issue-guard",
+        question="What major issue did Alex discuss?",
+        expected_terms=("budget",),
+        answer="budget",
+    )
     speech_school_case = _case(
         case_id="education-profile-speech-school-guard",
         question="When did Caroline give a speech at a school?",
@@ -4459,6 +4477,15 @@ def test_query_decomposition_expands_education_profile_queries() -> None:
     )
     class_queries, class_metadata = rerank_module.decomposed_search_queries(
         class_case
+    )
+    major_queries, major_metadata = rerank_module.decomposed_search_queries(
+        major_case
+    )
+    degree_queries, degree_metadata = rerank_module.decomposed_search_queries(
+        degree_case
+    )
+    major_issue_queries, major_issue_metadata = (
+        rerank_module.decomposed_search_queries(major_issue_case)
     )
     speech_queries, speech_metadata = rerank_module.decomposed_search_queries(
         speech_school_case
@@ -4501,6 +4528,28 @@ def test_query_decomposition_expands_education_profile_queries() -> None:
     assert class_metadata["query_profile"]["relation_categories"] == (
         "education_profile",
     )
+
+    assert major_queries[2] == "alex education major degree school college university"
+    assert major_metadata["query_profile"]["relation_terms"] == ("education",)
+    assert major_metadata["query_profile"]["relation_categories"] == (
+        "education_profile",
+    )
+    assert major_metadata["query_profile"]["evidence_need"] == (
+        "education_profile",
+    )
+
+    assert degree_queries[2] == "alex education major degree school college university"
+    assert degree_metadata["query_profile"]["relation_terms"] == ("education",)
+    assert degree_metadata["query_profile"]["relation_categories"] == (
+        "education_profile",
+    )
+
+    assert major_issue_queries[2] == (
+        "alex discus discuss discussion talk conversation major issue"
+    )
+    assert "education_profile" not in major_issue_metadata["query_profile"][
+        "relation_categories"
+    ]
 
     assert speech_queries[1] == "caroline give speech school event talk student"
     assert "education_profile" not in speech_metadata["query_profile"][
@@ -9127,6 +9176,63 @@ def test_benchmark_rerank_boosts_education_profile_evidence() -> None:
         > 0
     )
     assert study_diagnostics["score_signals"][
+        "benchmark_typed_relation_support_roles"
+    ] == ["education_support"]
+    assert (
+        topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        == 0
+    )
+
+
+def test_benchmark_rerank_boosts_major_education_evidence() -> None:
+    case = _case(
+        case_id="education-profile-major-rerank",
+        question="What is Alex's major?",
+        expected_terms=("biology",),
+        answer="biology",
+        category=4,
+    )
+    topical_major = RetrievedMemory(
+        item_id="topical-major",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex discussed a major issue with Maria."
+        ),
+        source_refs=("D1:1",),
+    )
+    major_profile = RetrievedMemory(
+        item_id="major-profile",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: My major is biology."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_major, major_profile),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("education_profile",)
+    assert reranked[0].item_id == "major-profile"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    major_diagnostics = diagnostics_by_id["major-profile"]
+    topical_diagnostics = diagnostics_by_id["topical-major"]
+    assert major_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["education_profile"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert major_diagnostics["score_signals"][
         "benchmark_typed_relation_support_roles"
     ] == ["education_support"]
     assert (

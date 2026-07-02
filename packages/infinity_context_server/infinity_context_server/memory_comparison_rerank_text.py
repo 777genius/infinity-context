@@ -384,7 +384,10 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
     if re.search(
         r"\b(?:what|which)\s+school\b|"
         r"\b(?:college|university)\b|"
-        r"\b(?:study|studies|studying|major|majoring|degree)\b",
+        r"\b(?:study|studies|studying|majoring)\b|"
+        r"\bwhat\s+(?:is|was)\b.+\bmajor\b(?:\s+(?:in|at)\b|[?.!]*\s*$)|"
+        r"\bwhat\s+degree\b|\bdegree\s+(?:does|did)\b.+\bhave\b|"
+        r"\b(?:major|degree)\s+in\b",
         text,
         flags=re.IGNORECASE,
     ):
