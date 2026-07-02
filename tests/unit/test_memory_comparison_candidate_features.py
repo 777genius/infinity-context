@@ -104,6 +104,12 @@ def test_candidate_features_capture_focused_direct_turn_and_provenance() -> None
     ("category", "relation_terms", "relation_variant_terms", "support_terms"),
     (
         (
+            "causal",
+            ("reason",),
+            ("because", "decision", "fit", "value"),
+            {"because", "support"},
+        ),
+        (
             "registration_event",
             ("register",),
             ("signed", "class", "course", "workshop"),

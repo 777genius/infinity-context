@@ -645,6 +645,7 @@ def _intent_answerability(
     category_set = set(relation_categories)
     category_hit_set = set(relation_category_hits)
     for category in (
+        "causal",
         "registration_event",
         "symbolic_meaning",
         "participation_event",

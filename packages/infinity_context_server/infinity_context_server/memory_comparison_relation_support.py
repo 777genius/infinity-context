@@ -194,6 +194,58 @@ def _has_exchange_support(memory_terms: set[str]) -> bool:
     return bool(len(exchange_actions) >= 2 or (exchange_actions and object_context))
 
 
+def _has_causal_support(memory_terms: set[str]) -> bool:
+    direct_cause = {"because", "cause", "caused"} & memory_terms
+    decision_surface = {"choose", "chose", "decide", "decision"} & memory_terms
+    reason_surface = {"reason", "fit", "value"} & memory_terms
+    realization_surface = {"realize", "realized", "understood"} & memory_terms
+    help_surface = {"help", "helped", "helps"} & memory_terms
+    response_surface = {
+        "amaz",
+        "amazing",
+        "awesome",
+        "feel",
+        "felt",
+        "lovely",
+        "reaction",
+        "response",
+        "think",
+        "thought",
+    } & memory_terms
+    causal_context = {
+        "accept",
+        "adopt",
+        "adoption",
+        "agency",
+        "balance",
+        "because",
+        "create",
+        "creating",
+        "family",
+        "fit",
+        "help",
+        "important",
+        "inclusivity",
+        "kid",
+        "kids",
+        "lgbtq",
+        "mom",
+        "present",
+        "refresh",
+        "refreshes",
+        "routine",
+        "support",
+    } & memory_terms
+    return bool(
+        direct_cause
+        or (decision_surface and causal_context)
+        or (reason_surface and causal_context)
+        or (realization_surface and causal_context)
+        or (help_surface and causal_context)
+        or (response_surface and causal_context)
+    )
+
+
 def _has_status_profile_support(memory_terms: set[str]) -> bool:
     explicit_status = {
         "breakup",
@@ -390,6 +442,7 @@ def _has_identity_profile_support(memory_terms: set[str]) -> bool:
 
 _TYPED_SUPPORT_CHECKS: dict[str, Callable[[set[str]], bool]] = {
     "activity": _has_activity_support,
+    "causal": _has_causal_support,
     "communication": _has_communication_support,
     "current_goal": _has_current_goal_support,
     "emotion_response": _has_emotion_response_support,

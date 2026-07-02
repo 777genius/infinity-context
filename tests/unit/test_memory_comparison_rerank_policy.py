@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from infinity_context_server.memory_comparison_rerank_policy import (
     BenchmarkRerankFeatures,
     score_benchmark_rerank_candidate,
@@ -103,7 +104,17 @@ def test_rerank_policy_reports_relation_category_coverage_boost() -> None:
     ]
 
 
-def test_rerank_policy_caps_missing_status_profile_evidence() -> None:
+@pytest.mark.parametrize(
+    ("category", "reason"),
+    (
+        ("status_profile", "missing_status_profile_evidence"),
+        ("causal", "missing_causal_evidence"),
+    ),
+)
+def test_rerank_policy_caps_missing_typed_relation_evidence(
+    category: str,
+    reason: str,
+) -> None:
     score = score_benchmark_rerank_candidate(
         BenchmarkRerankFeatures(
             overlap_terms=("caroline", "relationship", "status"),
@@ -122,21 +133,19 @@ def test_rerank_policy_caps_missing_status_profile_evidence() -> None:
             has_visual_evidence=False,
             focused_turn_boost=0.08,
             has_multi_hop_markers=False,
-            relation_categories=("status_profile",),
+            relation_categories=(category,),
             relation_category_hits=(),
             relation_category_coverage_ratio=0.0,
             direct_speaker_turn=True,
             source_locality_score=1.0,
             answerability_score=0.5,
-            answerability_reason_codes=("missing_status_profile_evidence",),
+            answerability_reason_codes=(reason,),
         )
     )
 
     signals = score.signals["score_signals"]
     assert score.boost <= 0.4
-    assert "missing_status_profile_evidence_cap" in signals[
-        "benchmark_provenance_safety_reason_codes"
-    ]
+    assert f"{reason}_cap" in signals["benchmark_provenance_safety_reason_codes"]
 
 
 def test_rerank_policy_guards_writing_career_from_generic_density_boost() -> None:

@@ -346,6 +346,7 @@ def _provenance_safety_cap(
         caps.append((0.26, "low_answerability_cap"))
     answerability_reasons = set(features.answerability_reason_codes)
     for reason in (
+        "missing_causal_evidence",
         "missing_registration_event_evidence",
         "missing_symbolic_meaning_evidence",
         "missing_participation_event_evidence",
