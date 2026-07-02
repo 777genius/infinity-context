@@ -424,6 +424,13 @@ def _has_role_specific_grounding(
         )
     if _float_signal(score_signals, "benchmark_typed_relation_support_boost") > 0:
         return bool(features.relation_category_hits and features.relation_hits)
+    if (
+        any(float(value) > 0 for value in features.shape_boosts.values())
+        and features.direct_speaker_turn
+        and features.source_locality_score >= 0.65
+        and not features.broad_summary
+    ):
+        return True
     return bool(_has_contrast_grounding(score_signals))
 
 

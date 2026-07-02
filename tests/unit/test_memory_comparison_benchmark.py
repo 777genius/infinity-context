@@ -3704,13 +3704,15 @@ def test_query_decomposition_expands_locomo_topic_relations() -> None:
     assert not {"bone", "dinosaur", "nature", "stoked"}.intersection(
         kids_metadata["query_profile"]["relation_variant_terms"]
     )
-    assert adoption_queries[2] == (
-        "caroline adoption support help lgbtq folks inclusivity"
-    )
+    assert adoption_queries[2] == "caroline adoption support help folks individual agency"
     assert "adoption" in adoption_metadata["query_profile"]["relation_terms"]
     assert adoption_metadata["query_profile"]["evidence_need"] == ("single_fact",)
     assert adoption_metadata["query_profile"]["bundle_evidence_roles"] == ("primary",)
-    assert "lgbtq" in adoption_metadata["query_profile"]["relation_variant_terms"]
+    assert "individual" in adoption_metadata["query_profile"]["relation_terms"]
+    assert "people" in adoption_metadata["query_profile"]["relation_variant_terms"]
+    assert not {"inclusive", "inclusivity", "lgbtq"}.intersection(
+        adoption_metadata["query_profile"]["relation_variant_terms"]
+    )
     assert adoption_choice_queries[2] == (
         "caroline adoption chose reason cause fit value"
     )
@@ -3743,19 +3745,13 @@ def test_query_decomposition_expands_locomo_topic_relations() -> None:
         "relation_variant_terms"
     ]
     assert adoption_decision_queries[2] == (
-        "melanie caroline think reaction response opinion feel family"
+        "melanie caroline think reaction response opinion feel decision"
     )
     assert "decision" in adoption_decision_metadata["query_profile"]["relation_terms"]
     assert "reaction" in adoption_decision_metadata["query_profile"][
         "relation_variant_terms"
     ]
-    assert "lovely" in adoption_decision_metadata["query_profile"][
-        "relation_variant_terms"
-    ]
-    assert "luck" in adoption_decision_metadata["query_profile"][
-        "relation_variant_terms"
-    ]
-    assert not {"amazing", "awesome", "mom"}.intersection(
+    assert not {"amazing", "awesome", "family", "lovely", "luck", "mom"}.intersection(
         adoption_decision_metadata["query_profile"]["relation_variant_terms"]
     )
     assert song_queries[2] == "melanie enjoy song fan piece composer instrumental"
@@ -3795,13 +3791,18 @@ def test_query_decomposition_expands_locomo_topic_relations() -> None:
     assert not {"faith", "grandma", "love", "root", "roots", "strength"}.intersection(
         necklace_metadata["query_profile"]["relation_variant_terms"]
     )
-    assert summer_plan_queries[2] == "caroline plan summer dream family loving home"
+    assert summer_plan_queries[2] == "caroline plan summer future upcoming season goal"
     assert "summer" in summer_plan_metadata["query_profile"]["relation_terms"]
-    assert "dream" in summer_plan_metadata["query_profile"]["relation_variant_terms"]
-    assert "family" in summer_plan_metadata["query_profile"]["relation_variant_terms"]
-    assert "lov" in summer_plan_metadata["query_profile"]["relation_variant_terms"]
     assert "future" in summer_plan_metadata["query_profile"]["relation_variant_terms"]
-    assert not {"adoption", "agencies", "researching"}.intersection(
+    assert not {
+        "adoption",
+        "agencies",
+        "dream",
+        "family",
+        "home",
+        "lov",
+        "researching",
+    }.intersection(
         summer_plan_metadata["query_profile"]["relation_variant_terms"]
     )
     assert self_care_queries[2] == (
@@ -6814,6 +6815,8 @@ def test_benchmark_rerank_prefers_focused_evidence_shapes(
     assert signals[signal_key] > 0
     if signal_key == "benchmark_activity_coverage_shape_boost":
         assert signals["benchmark_relation_category_coverage_boost"] > 0
+    elif signal_key == "benchmark_adoption_reaction_boost":
+        assert "causal" in signals["benchmark_relation_category_hits"]
     else:
         assert signals["benchmark_focused_turn_boost"] > 0
 
@@ -7236,7 +7239,7 @@ def test_infinity_context_http_search_reranks_topic_relation_overlap() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         payload = json.loads(request.content)
         seen_payloads.append(payload)
-        if "lgbtq" in payload["query"]:
+        if "individual" in payload["query"] and "support" in payload["query"]:
             items = [
                 {
                     "item_id": "agency-support",
@@ -7288,14 +7291,17 @@ def test_infinity_context_http_search_reranks_topic_relation_overlap() -> None:
         "What type of individuals does the adoption agency Caroline "
         "is considering support?\n"
         "Search focus: entities: caroline; speakers: caroline:; "
-        "actions: adoption, support, help, lgbtq, folks, inclusivity, inclusive, individual",
-        "caroline adoption support help lgbtq folks inclusivity",
+        "actions: adoption, support, help, folks, individual, agency, people, adopt",
+        "caroline adoption support help folks individual agency",
     ]
     assert result.memories[0].item_id == "agency-support"
     query_profile = result.metadata["query_decomposition"]["query_profile"]
     assert "individual" in query_profile["relation_terms"]
     assert "adoption" in query_profile["relation_terms"]
-    assert "lgbtq" in query_profile["relation_variant_terms"]
+    assert "people" in query_profile["relation_variant_terms"]
+    assert not {"inclusive", "inclusivity", "lgbtq"}.intersection(
+        query_profile["relation_variant_terms"]
+    )
     diagnostics = result.memories[0].metadata["diagnostics"]
     assert diagnostics["benchmark_query_entities"] == []
     assert diagnostics["score_signals"]["benchmark_relation_boost"] > 0
@@ -7426,17 +7432,15 @@ def test_infinity_context_http_search_expands_adoption_decision_reactions() -> N
         "What does Melanie think about Caroline's decision to adopt?",
         "What does Melanie think about Caroline's decision to adopt?\n"
         "Search focus: entities: melanie, caroline; speakers: melanie:, caroline:; "
-        "actions: think, reaction, response, opinion, feel, family, lovely, luck",
-        "melanie caroline think reaction response opinion feel family",
+        "actions: think, reaction, response, opinion, feel, decision, adopt, thought",
+        "melanie caroline think reaction response opinion feel decision",
     ]
     assert result.memories[0].item_id == "adoption-decision-reaction"
     query_profile = result.metadata["query_decomposition"]["query_profile"]
     assert "think" in query_profile["relation_terms"]
     assert "decision" in query_profile["relation_terms"]
     assert "reaction" in query_profile["relation_variant_terms"]
-    assert "lovely" in query_profile["relation_variant_terms"]
-    assert "luck" in query_profile["relation_variant_terms"]
-    assert not {"amazing", "awesome", "mom"}.intersection(
+    assert not {"amazing", "awesome", "family", "lovely", "luck", "mom"}.intersection(
         query_profile["relation_variant_terms"]
     )
     diagnostics = result.memories[0].metadata["diagnostics"]

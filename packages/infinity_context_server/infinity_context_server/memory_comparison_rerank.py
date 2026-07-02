@@ -1307,6 +1307,58 @@ def _filter_relation_variant_terms_for_profile(
                 "mom",
             }
         )
+    if {"think", "decision", "adopt"}.issubset(relation_term_set):
+        blocked_terms.update(
+            {
+                "agencies",
+                "agency",
+                "creating",
+                "creat",
+                "children",
+                "family",
+                "kid",
+                "kids",
+                "lovely",
+                "luck",
+                "mom",
+                "process",
+                "support",
+            }
+        )
+    if {"individual", "adoption", "support"}.issubset(
+        relation_term_set
+    ) and not re.search(
+        r"\b(?:inclusive|inclusivity|lgbtq|queer|transgender)\b",
+        normalized_question,
+    ):
+        blocked_terms.update(
+            {
+                "children",
+                "family",
+                "inclusive",
+                "inclusivity",
+                "kid",
+                "kids",
+                "lgbtq",
+                "process",
+            }
+        )
+    if {"plan", "summer"}.issubset(relation_term_set) and not re.search(
+        r"\b(?:adopt|adoption|child|children|family|home|kid|kids)\b",
+        normalized_question,
+    ):
+        blocked_terms.update(
+            {
+                "children",
+                "dream",
+                "family",
+                "home",
+                "kid",
+                "kids",
+                "loving",
+                "lov",
+            }
+        )
     if {"go", "support", "group"}.issubset(relation_term_set) and not re.search(
         r"\b(?:inclusive|inclusivity|lgbtq|queer|transgender)\b",
         normalized_question,

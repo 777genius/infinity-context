@@ -21,7 +21,16 @@ def focused_evidence_shape_boosts(
         and "activity" in category_hit_set
         and ("activity" in relation_set or "hike" in relation_set)
     )
-    if focused_turn_boost <= 0 and not activity_category_evidence:
+    adoption_reaction_evidence = (
+        direct_speaker_turn
+        and {"think", "decision", "adopt"}.issubset(relation_set)
+        and bool({"causal", "support_goal"} & category_hit_set)
+    )
+    if (
+        focused_turn_boost <= 0
+        and not activity_category_evidence
+        and not adoption_reaction_evidence
+    ):
         return boosts
     if {"kid", "like"}.issubset(relation_set):
         kids_nature = {"kid", "nature", "love"} <= memory_terms
