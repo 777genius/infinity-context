@@ -4757,6 +4757,18 @@ def test_query_decomposition_expands_skill_profile_queries() -> None:
         expected_terms=("Spanish",),
         answer="Spanish",
     )
+    knowledge_case = _case(
+        case_id="skill-profile-language-know",
+        question="What language does Alex know?",
+        expected_terms=("Spanish",),
+        answer="Spanish",
+    )
+    fluent_case = _case(
+        case_id="skill-profile-language-fluent",
+        question="What language is Alex fluent in?",
+        expected_terms=("Spanish",),
+        answer="Spanish",
+    )
     instrument_case = _case(
         case_id="skill-profile-instrument",
         question="What instrument does Alex play?",
@@ -4785,6 +4797,12 @@ def test_query_decomposition_expands_skill_profile_queries() -> None:
     language_queries, language_metadata = rerank_module.decomposed_search_queries(
         language_case
     )
+    knowledge_queries, knowledge_metadata = rerank_module.decomposed_search_queries(
+        knowledge_case
+    )
+    fluent_queries, fluent_metadata = rerank_module.decomposed_search_queries(
+        fluent_case
+    )
     instrument_queries, instrument_metadata = rerank_module.decomposed_search_queries(
         instrument_case
     )
@@ -4796,12 +4814,21 @@ def test_query_decomposition_expands_skill_profile_queries() -> None:
         song_preference_case
     )
 
-    assert language_queries[2] == "alex skill language speak spoken instrument play"
+    assert language_queries[2] == "alex skill language speak spoken know fluent"
     assert language_metadata["query_profile"]["relation_terms"] == ("skill",)
     assert language_metadata["query_profile"]["relation_categories"] == (
         "skill_profile",
     )
     assert language_metadata["query_profile"]["evidence_need"] == ("skill_profile",)
+
+    assert knowledge_queries[2] == "alex skill language speak spoken know fluent"
+    assert knowledge_metadata["query_profile"]["relation_categories"] == (
+        "skill_profile",
+    )
+    assert fluent_queries[2] == "alex skill language speak spoken know fluent"
+    assert fluent_metadata["query_profile"]["relation_categories"] == (
+        "skill_profile",
+    )
 
     assert instrument_queries[2] == "alex skill language speak spoken instrument play"
     assert instrument_metadata["query_profile"]["relation_categories"] == (
@@ -9170,6 +9197,63 @@ def test_benchmark_rerank_boosts_skill_profile_evidence() -> None:
         > 0
     )
     assert skill_diagnostics["score_signals"][
+        "benchmark_typed_relation_support_roles"
+    ] == ["skill_support"]
+    assert (
+        topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        == 0
+    )
+
+
+def test_benchmark_rerank_boosts_fluent_language_skill_evidence() -> None:
+    case = _case(
+        case_id="skill-profile-fluent-rerank",
+        question="What language does Alex know?",
+        expected_terms=("Spanish",),
+        answer="Spanish",
+        category=4,
+    )
+    topical_language = RetrievedMemory(
+        item_id="topical-language",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex talked about Spanish food with Maria."
+        ),
+        source_refs=("D1:1",),
+    )
+    fluent_language = RetrievedMemory(
+        item_id="fluent-language",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: I'm fluent in Spanish."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_language, fluent_language),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("skill_profile",)
+    assert reranked[0].item_id == "fluent-language"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    fluent_diagnostics = diagnostics_by_id["fluent-language"]
+    topical_diagnostics = diagnostics_by_id["topical-language"]
+    assert fluent_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["skill_profile"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert fluent_diagnostics["score_signals"][
         "benchmark_typed_relation_support_roles"
     ] == ["skill_support"]
     assert (

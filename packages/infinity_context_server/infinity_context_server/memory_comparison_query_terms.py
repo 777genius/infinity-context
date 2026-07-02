@@ -750,19 +750,28 @@ def _skill_support_query_terms(
         token for surface in entity_surfaces for token in _normalized_terms(surface)
     }
     skill_terms = {
-        "drums",
-        "guitar",
-        "instrument",
         "language",
-        "piano",
-        "play",
-        "plays",
         "skill",
         "speak",
         "speaks",
         "spoken",
-        "violin",
     }
+    lexical_term_set = set(lexical_terms)
+    if {"language", "speak", "know", "fluent"} & lexical_term_set:
+        skill_terms.update({"fluent", "know"})
+    if {
+        "drum",
+        "drums",
+        "guitar",
+        "instrument",
+        "piano",
+        "play",
+        "plays",
+        "violin",
+    } & lexical_term_set:
+        skill_terms.update(
+            {"drums", "guitar", "instrument", "piano", "play", "plays", "violin"}
+        )
     topical_terms = tuple(
         term
         for term in lexical_terms

@@ -657,6 +657,12 @@ _SKILL_PROFILE_SURFACE_RE = re.compile(
     r"\b(?:speak|speaks|speaking|spoken)\s+"
     r"(?:[A-Z][a-zA-Z0-9_-]+|"
     r"(?:english|spanish|french|german|mandarin|japanese|arabic|hindi))\b"
+    r"|\b(?:know|knows|knew|known)\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|"
+    r"(?:english|spanish|french|german|mandarin|japanese|arabic|hindi))\b"
+    r"|\bfluent\s+(?:in\s+)?"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|"
+    r"(?:english|spanish|french|german|mandarin|japanese|arabic|hindi))\b"
     r"|\b(?:play|plays|playing)\s+"
     r"(?:guitar|piano|violin|drums?|cello|flute|saxophone)\b",
 )
@@ -668,10 +674,14 @@ def _has_skill_profile_support(
     memory_text: str = "",
 ) -> bool:
     language_action = {"speak", "speaks", "spoken", "speaking"} & memory_terms
+    language_ability = {"fluent", "know", "known"} & memory_terms
     language_context = {
+        "arabic",
         "english",
         "french",
         "german",
+        "hindi",
+        "japanese",
         "language",
         "mandarin",
         "spanish",
@@ -686,6 +696,7 @@ def _has_skill_profile_support(
     } & memory_terms
     return bool(
         (language_action and language_context)
+        or (language_ability and language_context)
         or (play_action and instrument_context)
         or _SKILL_PROFILE_SURFACE_RE.search(memory_text)
     )
