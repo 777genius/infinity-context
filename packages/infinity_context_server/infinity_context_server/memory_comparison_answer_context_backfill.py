@@ -201,24 +201,71 @@ def _missing_role_match_score(features: Mapping[str, object], role: str) -> floa
                 if _has_temporal_features(features, role_key=role_key)
                 else 0.0
             )
+        if role_key in _ROLE_KEYS_REQUIRING_EVIDENCE:
+            return _role_specific_match_score(
+                features,
+                role_key=role_key,
+                categories=categories,
+                has_relation=has_relation,
+                has_person=has_person,
+                query_role_score=0.92,
+            )
         return 0.92
+    role_score = _role_specific_match_score(
+        features,
+        role_key=role_key,
+        categories=categories,
+        has_relation=has_relation,
+        has_person=has_person,
+        query_role_score=0.0,
+    )
+    if role_score > 0:
+        return role_score
+    return 0.0
+
+
+def _role_specific_match_score(
+    features: Mapping[str, object],
+    *,
+    role_key: str,
+    categories: set[str],
+    has_relation: bool,
+    has_person: bool,
+    query_role_score: float,
+) -> float:
     if role_key in categories:
-        return 0.9
+        return max(0.9, query_role_score)
     profile_category = _PROFILE_CATEGORY_BY_ROLE_KEY.get(role_key)
     if profile_category and profile_category in categories:
-        return 0.9
+        return max(0.9, query_role_score)
     if role_key in {"contrast"}:
-        return 0.88 if _has_contrast_features(features) else 0.0
+        return (
+            max(0.88, query_role_score)
+            if _has_contrast_features(features)
+            else 0.0
+        )
     if role_key in _TEMPORAL_ROLE_KEYS:
-        return 0.86 if _has_temporal_features(features, role_key=role_key) else 0.0
+        return (
+            max(0.86, query_role_score)
+            if _has_temporal_features(features, role_key=role_key)
+            else 0.0
+        )
     if role_key == "preference":
-        return 0.88 if features.get("has_preference_evidence") is True else 0.0
+        return (
+            max(0.88, query_role_score)
+            if features.get("has_preference_evidence") is True
+            else 0.0
+        )
     if role_key == "favorite":
-        return 0.9 if "favorite_preference" in categories else 0.0
+        return max(0.9, query_role_score) if "favorite_preference" in categories else 0.0
     if role_key == "visual":
-        return 0.88 if features.get("has_visual_evidence") is True else 0.0
+        return (
+            max(0.88, query_role_score)
+            if features.get("has_visual_evidence") is True
+            else 0.0
+        )
     if role_key == "location":
-        return 0.9 if "location_transition" in categories else 0.0
+        return max(0.9, query_role_score) if "location_transition" in categories else 0.0
     if role_key == "event":
         event_categories = {
             "activity",
@@ -226,12 +273,20 @@ def _missing_role_match_score(features: Mapping[str, object], role: str) -> floa
             "participation_event",
             "registration_event",
         }
-        return 0.85 if categories.intersection(event_categories) else 0.0
+        return (
+            max(0.85, query_role_score)
+            if categories.intersection(event_categories)
+            else 0.0
+        )
     if role_key == "inference":
-        return 0.78 if has_relation and has_person else 0.0
+        return max(0.78, query_role_score) if has_relation and has_person else 0.0
     if role_key == "bridge":
-        return 0.9 if features.get("bridge_query_hit") is True else 0.0
-    return 0.86 if role_key in categories else 0.0
+        return (
+            max(0.9, query_role_score)
+            if features.get("bridge_query_hit") is True
+            else 0.0
+        )
+    return max(0.86, query_role_score) if role_key in categories else 0.0
 
 
 _TEMPORAL_ROLE_KEYS = frozenset(
@@ -263,6 +318,24 @@ _PROFILE_CATEGORY_BY_ROLE_KEY = {
     "support_goal": "support_goal",
     "vehicle": "vehicle_profile",
 }
+_ROLE_KEYS_REQUIRING_EVIDENCE = frozenset(
+    {
+        "bridge",
+        "causal",
+        "communication",
+        "contrast",
+        "emotion_response",
+        "event",
+        "exchange",
+        "favorite",
+        "inference",
+        "location",
+        "preference",
+        "symbolic_meaning",
+        "visual",
+        *_PROFILE_CATEGORY_BY_ROLE_KEY,
+    }
+)
 
 
 def _has_temporal_features(

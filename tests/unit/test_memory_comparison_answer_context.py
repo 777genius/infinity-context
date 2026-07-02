@@ -828,6 +828,75 @@ def test_answer_context_backfill_matches_current_goal_categories() -> None:
     assert context.backfilled_retrieval_item_count == 1
 
 
+def test_answer_context_backfill_requires_typed_role_evidence_over_query_role() -> None:
+    memories = (
+        RetrievedMemory(text="primary", rank=1, item_id="primary"),
+        RetrievedMemory(
+            text="D2:4 Alex: I like green paint in that mural.",
+            rank=2,
+            item_id="generic-preference",
+            source_refs=("D2:4",),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "answerability_score": 0.95,
+                        "source_locality_score": 1.0,
+                        "query_roles": ["favorite_support"],
+                        "relation_category_hits": ["preference"],
+                        "has_preference_evidence": True,
+                        "entity_hits": ["alex"],
+                        "speaker_hits": ["alex"],
+                    }
+                }
+            },
+        ),
+        RetrievedMemory(
+            text="D2:5 Alex: My favorite color is green.",
+            rank=3,
+            item_id="favorite-preference",
+            source_refs=("D2:5",),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "answerability_score": 0.82,
+                        "source_locality_score": 0.9,
+                        "query_roles": ["favorite_support"],
+                        "relation_category_hits": [
+                            "favorite_preference",
+                            "preference",
+                        ],
+                        "has_preference_evidence": True,
+                        "entity_hits": ["alex"],
+                        "speaker_hits": ["alex"],
+                    }
+                }
+            },
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "role_requirement_complete": False,
+            "missing_required_roles": ["favorite_support"],
+            "items": [{"id": "primary", "retrieval_order": 1, "role": "primary"}],
+        },
+        cutoff=3,
+    )
+
+    assert [memory.item_id for memory in context.memories] == [
+        "primary",
+        "favorite-preference",
+        "generic-preference",
+    ]
+    assert context.memories[1].metadata[
+        "answer_context_backfill_missing_role_hits"
+    ] == ("favorite_support",)
+    assert "answer_context_backfill_missing_role_hits" not in context.memories[
+        2
+    ].metadata
+
+
 def test_answer_context_backfill_prefers_unmeasured_grounded_role_evidence() -> None:
     memories = (
         RetrievedMemory(text="primary", rank=1, item_id="primary"),

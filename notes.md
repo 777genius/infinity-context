@@ -61,3 +61,19 @@
   -> 496 passed, 1 warning.
 - `uv run --extra dev ruff check packages/infinity_context_server/infinity_context_server/memory_comparison_rerank.py packages/infinity_context_server/infinity_context_server/memory_comparison_quality_diagnostics.py tests/unit/test_memory_comparison_benchmark.py tests/unit/test_memory_comparison_quality_diagnostics.py`
   -> passed.
+
+## 2026-07-02 Follow-up 3
+
+- Tightened answer-context backfill role matching: typed query roles such as
+  `favorite_support` no longer count as missing-role support unless the
+  candidate also has the matching evidence category/content signal.
+- Added a regression test where generic preference evidence retrieved by a
+  `favorite_support` query loses to explicit favorite evidence and is not marked
+  as satisfying the missing favorite role.
+
+## Verification
+
+- `uv run --extra dev pytest -q tests/unit/test_memory_comparison*.py`
+  -> 497 passed, 1 warning.
+- `uv run --extra dev ruff check packages/infinity_context_server/infinity_context_server/memory_comparison_answer_context_backfill.py tests/unit/test_memory_comparison_answer_context.py`
+  -> passed.
