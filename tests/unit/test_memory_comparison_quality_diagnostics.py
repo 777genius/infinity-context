@@ -99,6 +99,8 @@ def test_quality_diagnostics_reports_intents_policies_bundle_gaps_and_leakage() 
                             primary_count=1,
                             supporting_count=1,
                             bridge_count=1,
+                            preference_support_count=1,
+                            visual_support_count=1,
                             contrast_count=1,
                             source_proximity_support_count=1,
                             source_ref_item_count=2,
@@ -223,6 +225,12 @@ def test_quality_diagnostics_reports_intents_policies_bundle_gaps_and_leakage() 
     assert bundle_quality["avg_bridge_count"] == 0.5
     assert bundle_quality["total_bridge_count"] == 1
     assert bundle_quality["bridge_bundle_count"] == 1
+    assert bundle_quality["avg_preference_support_count"] == 0.5
+    assert bundle_quality["total_preference_support_count"] == 1
+    assert bundle_quality["preference_support_bundle_count"] == 1
+    assert bundle_quality["avg_visual_support_count"] == 0.5
+    assert bundle_quality["total_visual_support_count"] == 1
+    assert bundle_quality["visual_support_bundle_count"] == 1
     assert bundle_quality["avg_contrast_count"] == 0.5
     assert bundle_quality["total_contrast_count"] == 1
     assert bundle_quality["contrast_bundle_count"] == 1
@@ -1087,6 +1095,204 @@ def test_fast_gate_metrics_reports_missing_causal_support_gap() -> None:
     assert "missing_required_causal_support" in breakdown["samples"][0]["reasons"]
 
 
+def test_fast_gate_metrics_reports_missing_preference_support_gap() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="missing-preference",
+                group="single-hop",
+                retrieval=_retrieval_payload(
+                    evidence_need=("preference",),
+                    bundle_evidence_roles=("primary", "preference_support"),
+                    relation_categories=("preference",),
+                    policy_score=0.0,
+                ),
+                retrieval_quality={
+                    "expected_term_recall": 0.5,
+                    "evidence_term_recall": 0.0,
+                    "missing_evidence_terms": ["D4:1"],
+                },
+                evidence_bundle={
+                    "bundle_complete": False,
+                    "item_count": 1,
+                    "primary_evidence_count": 1,
+                    "supporting_evidence_count": 0,
+                    "query_support_term_recall": 0.5,
+                    "covered_evidence_terms": [],
+                    "missing_required_roles": ["preference_support"],
+                    "items": [
+                        {
+                            "role": "primary",
+                            "retrieval_order": 1,
+                            "covered_evidence_terms": [],
+                            "focused_evidence_score": 1.0,
+                            "planner_reason_codes": ["primary_signal"],
+                        }
+                    ],
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    breakdown = gate["bundle_gap_breakdown"]
+
+    assert breakdown["reason_counts"]["missing_preference_support"] == 1
+    assert breakdown["reason_counts"]["missing_required_preference_support"] == 1
+    assert breakdown["evidence_need_gap_reason_counts"] == {
+        "missing_preference_support": 1,
+        "missing_required_preference_support": 1,
+    }
+    assert "missing_preference_support" in breakdown["samples"][0]["reasons"]
+    assert "missing_required_preference_support" in breakdown["samples"][0][
+        "reasons"
+    ]
+
+
+def test_fast_gate_metrics_accepts_preference_support_evidence() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="has-preference",
+                group="single-hop",
+                retrieval=_retrieval_payload(
+                    evidence_need=("preference",),
+                    bundle_evidence_roles=("primary", "preference_support"),
+                    relation_categories=("preference",),
+                    policy_score=0.0,
+                ),
+                evidence_bundle={
+                    "bundle_complete": False,
+                    "item_count": 1,
+                    "primary_evidence_count": 1,
+                    "supporting_evidence_count": 0,
+                    "query_support_term_recall": 0.5,
+                    "covered_evidence_terms": [],
+                    "items": [
+                        {
+                            "role": "preference_support",
+                            "retrieval_order": 1,
+                            "focused_evidence_score": 1.0,
+                            "has_preference_evidence": True,
+                            "relation_category_hits": ["preference"],
+                            "planner_reason_codes": [
+                                "preference_support",
+                                "preference_evidence",
+                            ],
+                        }
+                    ],
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    breakdown = gate["bundle_gap_breakdown"]
+
+    assert "missing_preference_support" not in breakdown["reason_counts"]
+    assert "missing_required_preference_support" not in breakdown["reason_counts"]
+    assert "missing_preference_support" not in breakdown[
+        "evidence_need_gap_reason_counts"
+    ]
+
+
+def test_fast_gate_metrics_reports_missing_visual_support_gap() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="missing-visual",
+                group="single-hop",
+                retrieval=_retrieval_payload(
+                    evidence_need=("visual_evidence",),
+                    bundle_evidence_roles=("primary", "visual_support"),
+                    relation_categories=("visual",),
+                    policy_score=0.0,
+                ),
+                retrieval_quality={
+                    "expected_term_recall": 0.5,
+                    "evidence_term_recall": 0.0,
+                    "missing_evidence_terms": ["D5:2"],
+                },
+                evidence_bundle={
+                    "bundle_complete": False,
+                    "item_count": 1,
+                    "primary_evidence_count": 1,
+                    "supporting_evidence_count": 0,
+                    "query_support_term_recall": 0.5,
+                    "covered_evidence_terms": [],
+                    "missing_required_roles": ["visual_support"],
+                    "items": [
+                        {
+                            "role": "primary",
+                            "retrieval_order": 1,
+                            "covered_evidence_terms": [],
+                            "focused_evidence_score": 1.0,
+                            "planner_reason_codes": ["primary_signal"],
+                        }
+                    ],
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    breakdown = gate["bundle_gap_breakdown"]
+
+    assert breakdown["reason_counts"]["missing_visual_support"] == 1
+    assert breakdown["reason_counts"]["missing_required_visual_support"] == 1
+    assert breakdown["evidence_need_gap_reason_counts"] == {
+        "missing_visual_support": 1,
+        "missing_required_visual_support": 1,
+    }
+    assert "missing_visual_support" in breakdown["samples"][0]["reasons"]
+    assert "missing_required_visual_support" in breakdown["samples"][0]["reasons"]
+
+
+def test_fast_gate_metrics_accepts_visual_support_evidence() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="has-visual",
+                group="single-hop",
+                retrieval=_retrieval_payload(
+                    evidence_need=("visual_evidence",),
+                    bundle_evidence_roles=("primary", "visual_support"),
+                    relation_categories=("visual",),
+                    policy_score=0.0,
+                ),
+                evidence_bundle={
+                    "bundle_complete": False,
+                    "item_count": 1,
+                    "primary_evidence_count": 1,
+                    "supporting_evidence_count": 0,
+                    "query_support_term_recall": 0.5,
+                    "covered_evidence_terms": [],
+                    "items": [
+                        {
+                            "role": "visual_support",
+                            "retrieval_order": 1,
+                            "focused_evidence_score": 1.0,
+                            "has_visual_evidence": True,
+                            "relation_category_hits": ["visual"],
+                            "planner_reason_codes": [
+                                "visual_support",
+                                "visual_grounding",
+                            ],
+                        }
+                    ],
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    breakdown = gate["bundle_gap_breakdown"]
+
+    assert "missing_visual_support" not in breakdown["reason_counts"]
+    assert "missing_required_visual_support" not in breakdown["reason_counts"]
+    assert "missing_visual_support" not in breakdown["evidence_need_gap_reason_counts"]
+
+
 def test_fast_gate_metrics_reports_missing_required_bundle_roles() -> None:
     gate = fast_gate_metrics(
         (
@@ -1189,6 +1395,54 @@ def test_query_plan_integrity_maps_location_required_role_to_query_family() -> N
     }
     assert table["samples"][0]["missing_evidence_role_query_families"] == (
         "location_support",
+    )
+
+
+def test_query_plan_integrity_maps_preference_and_visual_support_roles() -> None:
+    base_only_plan = {
+        "schema_version": "query_plan.v2",
+        "selected_query_count": 1,
+        "dropped_query_count": 0,
+        "selected_roles": ["original_question"],
+        "dropped_roles": [],
+        "recommended_role_families": ["base_query"],
+        "selected_role_families": ["base_query"],
+        "missing_recommended_role_families": [],
+        "selected_role_family_counts": {"base_query": 1},
+        "fanout_integrity": {"bounded": True},
+    }
+    preference_item = _item(
+        case_id="has-preference-query-family",
+        group="single-hop",
+        retrieval=_retrieval_payload(
+            evidence_need=("preference",),
+            bundle_evidence_roles=("primary", "preference_support"),
+            relation_categories=("preference",),
+            policy_score=0.0,
+            query_plan=base_only_plan,
+        ),
+    )
+    visual_item = _item(
+        case_id="missing-visual-query-family",
+        group="single-hop",
+        retrieval=_retrieval_payload(
+            evidence_need=("visual_evidence",),
+            bundle_evidence_roles=("primary", "visual_support"),
+            relation_categories=("visual",),
+            policy_score=0.0,
+            query_plan=base_only_plan,
+        ),
+    )
+
+    diagnostics = quality_diagnostics((preference_item, visual_item))
+    table = diagnostics["query_plan_integrity_table"]
+
+    assert table["missing_evidence_role_query_family_counts"] == {
+        "visual_support": 1
+    }
+    assert table["samples"][0]["case_id"] == "missing-visual-query-family"
+    assert table["samples"][0]["missing_evidence_role_query_families"] == (
+        "visual_support",
     )
 
 
@@ -1773,6 +2027,8 @@ def _bundle_quality(
     bridge_count: int = 0,
     causal_support_count: int = 0,
     inference_support_count: int = 0,
+    preference_support_count: int = 0,
+    visual_support_count: int = 0,
     contrast_count: int = 0,
     low_answerability_count: int = 0,
     broad_summary_count: int = 0,
@@ -1794,6 +2050,8 @@ def _bundle_quality(
         "bridge_count": bridge_count,
         "causal_support_count": causal_support_count,
         "inference_support_count": inference_support_count,
+        "preference_support_count": preference_support_count,
+        "visual_support_count": visual_support_count,
         "contrast_count": contrast_count,
         "low_answerability_count": low_answerability_count,
         "broad_summary_count": broad_summary_count,
