@@ -368,6 +368,13 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
     if re.search(r"\bgo\s+to\b", text, flags=re.IGNORECASE):
         terms.append("go")
     if re.search(
+        r"\bwhat\s+(?:name|nickname|alias)\b.+\bgo(?:es|ing)?\s+by\b|"
+        r"\bwhat\s+(?:does|did)\b.+\bgo\s+by\b",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        terms.append("nickname")
+    if re.search(
         r"\b(?:what|which)\s+school\b|"
         r"\b(?:college|university)\b|"
         r"\b(?:study|studies|studying|major|majoring|degree)\b",
@@ -458,7 +465,9 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
         terms.append("age")
     if re.search(
         r"\bnicknames?\b|\balias\b|"
-        r"\bwhat\s+(?:does|did)\b.+\bcall\b(?!.*\b(?:about|to|with)\b)",
+        r"\bwhat\s+(?:does|did)\b.+\bcall\b(?!.*\b(?:about|to|with)\b)|"
+        r"\bwhat\s+(?:name|nickname|alias)\b.+\bgo(?:es|ing)?\s+by\b|"
+        r"\bwhat\s+(?:does|did)\b.+\bgo\s+by\b",
         text,
         flags=re.IGNORECASE,
     ):

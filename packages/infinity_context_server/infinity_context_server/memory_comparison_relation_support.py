@@ -353,15 +353,24 @@ def _has_age_profile_support(
     )
 
 
+_ALIAS_GO_BY_SURFACE_PATTERN = (
+    r"\b(?:go|goes|went)\s+by\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|[\"'][^\"']+[\"'])\b"
+)
+_ALIAS_GO_BY_SURFACE_RE = re.compile(_ALIAS_GO_BY_SURFACE_PATTERN)
+
 _ALIAS_PROFILE_SURFACE_RE = re.compile(
     r"\b(?:nickname|alias)\s+(?:is|was|for)\s+"
     r"(?:[A-Z][a-zA-Z0-9_-]+|[\"'][^\"']+[\"'])\b"
     r"|\b(?:call|calls|called)\s+"
     r"(?:me|him|her|them|us|you|[A-Z][a-zA-Z0-9_-]+)\s+"
     r"(?:[A-Z][a-zA-Z0-9_-]+|[\"'][^\"']+[\"'])\b"
-    r"|\b(?:go|goes|went)\s+by\s+"
-    r"(?:[A-Z][a-zA-Z0-9_-]+|[\"'][^\"']+[\"'])\b",
+    rf"|{_ALIAS_GO_BY_SURFACE_PATTERN}",
 )
+
+
+def has_alias_go_by_surface(memory_text: str) -> bool:
+    return bool(_ALIAS_GO_BY_SURFACE_RE.search(memory_text))
 
 
 def _has_alias_profile_support(

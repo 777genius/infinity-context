@@ -650,6 +650,7 @@ def _alias_support_query_terms(
             (
                 *(term for term in relation_terms if term in {"call", "nickname"}),
                 *(term for term in relation_variant_terms if term in alias_terms),
+                "go by",
                 *topical_terms[:4],
             )
         )
