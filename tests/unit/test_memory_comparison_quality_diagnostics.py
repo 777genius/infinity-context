@@ -997,6 +997,83 @@ def test_fast_gate_metrics_reports_bundle_support_summaries() -> None:
     }
 
 
+def test_fast_gate_metrics_reports_candidate_fusion_summary() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="fusion-1",
+                retrieval={
+                    "metadata": {
+                        "multi_query_merge": {
+                            "raw_result_count": 6,
+                            "unique_result_count": 4,
+                            "duplicate_result_count": 2,
+                            "multi_query_hit_count": 2,
+                            "bridge_query_hit_count": 1,
+                            "lower_score_evidence_selection_count": 1,
+                            "source_type_evidence_selection_count": 1,
+                            "focused_query_evidence_selection_count": 0,
+                            "query_role_counts": {
+                                "original_question": 4,
+                                "location_support": 2,
+                            },
+                            "max_query_match_count": 3,
+                            "max_source_diversity_count": 2,
+                            "max_rrf_score": 0.047,
+                        }
+                    },
+                    "results": [],
+                },
+            ),
+            _item(
+                case_id="fusion-2",
+                retrieval={
+                    "metadata": {
+                        "multi_query_merge": {
+                            "raw_result_count": 3,
+                            "unique_result_count": 2,
+                            "duplicate_result_count": 1,
+                            "multi_query_hit_count": 1,
+                            "lower_score_evidence_selection_count": 1,
+                            "source_type_evidence_selection_count": 0,
+                            "focused_query_evidence_selection_count": 1,
+                            "query_role_counts": {
+                                "original_question": 2,
+                                "contrast_support": 1,
+                            },
+                            "max_query_match_count": 2,
+                            "max_source_diversity_count": 3,
+                            "max_rrf_score": 0.061,
+                        }
+                    },
+                    "results": [],
+                },
+            ),
+        ),
+        expected_case_count=2,
+    )
+
+    assert gate["candidate_fusion"] == {
+        "evaluation_count": 2,
+        "raw_result_count": 9,
+        "unique_result_count": 6,
+        "duplicate_result_count": 3,
+        "multi_query_hit_count": 3,
+        "bridge_query_hit_count": 1,
+        "lower_score_evidence_selection_count": 2,
+        "source_type_evidence_selection_count": 1,
+        "focused_query_evidence_selection_count": 1,
+        "query_role_counts": {
+            "contrast_support": 1,
+            "location_support": 2,
+            "original_question": 6,
+        },
+        "max_query_match_count": 3,
+        "max_source_diversity_count": 3,
+        "max_rrf_score": 0.061,
+    }
+
+
 def test_fast_gate_metrics_reports_missing_contrast_evidence_gap() -> None:
     gate = fast_gate_metrics(
         (
