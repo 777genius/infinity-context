@@ -1306,8 +1306,9 @@ def _has_pet_profile_question(normalized_question: str) -> bool:
 def _has_skill_profile_question(normalized_question: str) -> bool:
     return bool(
         re.search(
-            r"\blanguages?\b.+\b(?:speak|know|fluent)\b|"
-            r"\b(?:speak|know)\b.+\blanguages?\b|\bfluent\b.+\blanguages?\b|"
+            r"\blanguages?\b.+\b(?:speak|know|fluent|bilingual)\b|"
+            r"\b(?:speak|know)\b.+\blanguages?\b|"
+            r"\b(?:fluent|bilingual)\b.+\blanguages?\b|"
             r"\binstrument\b.+\bplay\b|\bplay\b.+\binstrument\b|"
             r"\bplay\s+(?:guitar|piano|violin|drums?)\b",
             normalized_question,

@@ -477,6 +477,7 @@ RELATION_QUERY_VARIANTS = {
         "speak",
         "speaks",
         "spoken",
+        "bilingual",
         "know",
         "fluent",
         "instrument",

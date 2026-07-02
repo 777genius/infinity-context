@@ -663,6 +663,9 @@ _SKILL_PROFILE_SURFACE_RE = re.compile(
     r"|\bfluent\s+(?:in\s+)?"
     r"(?:[A-Z][a-zA-Z0-9_-]+|"
     r"(?:english|spanish|french|german|mandarin|japanese|arabic|hindi))\b"
+    r"|\bbilingual\s+(?:in\s+)?"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|"
+    r"(?:english|spanish|french|german|mandarin|japanese|arabic|hindi))\b"
     r"|\b(?:play|plays|playing)\s+"
     r"(?:guitar|piano|violin|drums?|cello|flute|saxophone)\b",
 )
@@ -674,7 +677,7 @@ def _has_skill_profile_support(
     memory_text: str = "",
 ) -> bool:
     language_action = {"speak", "speaks", "spoken", "speaking"} & memory_terms
-    language_ability = {"fluent", "know", "known"} & memory_terms
+    language_ability = {"bilingual", "fluent", "know", "known"} & memory_terms
     language_context = {
         "arabic",
         "english",

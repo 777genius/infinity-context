@@ -749,16 +749,19 @@ def _skill_support_query_terms(
     entity_tokens = {
         token for surface in entity_surfaces for token in _normalized_terms(surface)
     }
-    skill_terms = {
-        "language",
-        "skill",
-        "speak",
-        "speaks",
-        "spoken",
-    }
     lexical_term_set = set(lexical_terms)
-    if {"language", "speak", "know", "fluent"} & lexical_term_set:
-        skill_terms.update({"fluent", "know"})
+    skill_terms = ["language", "speak", "spoken"]
+    if {"language", "speak", "know", "fluent", "bilingual"} & lexical_term_set:
+        ability_order = {
+            "bilingual": ("bilingual", "fluent", "know"),
+            "fluent": ("fluent", "know", "bilingual"),
+            "know": ("know", "fluent", "bilingual"),
+        }
+        lexical_ability = next(
+            (term for term in ("bilingual", "fluent", "know") if term in lexical_term_set),
+            "",
+        )
+        skill_terms.extend(ability_order.get(lexical_ability, ("know", "fluent")))
     if {
         "drum",
         "drums",
@@ -769,9 +772,8 @@ def _skill_support_query_terms(
         "plays",
         "violin",
     } & lexical_term_set:
-        skill_terms.update(
-            {"drums", "guitar", "instrument", "piano", "play", "plays", "violin"}
-        )
+        skill_terms.extend(("instrument", "play", "plays", "guitar", "piano", "violin", "drums"))
+    skill_term_set = set(skill_terms)
     topical_terms = tuple(
         term
         for term in lexical_terms
@@ -784,7 +786,7 @@ def _skill_support_query_terms(
         dict.fromkeys(
             (
                 *(term for term in relation_terms if term == "skill"),
-                *(term for term in relation_variant_terms if term in skill_terms),
+                *(term for term in skill_terms if term in relation_variant_terms),
                 *topical_terms[:4],
                 *(
                     term
@@ -792,7 +794,7 @@ def _skill_support_query_terms(
                         relation_terms,
                         relation_variant_terms,
                     )
-                    if term not in skill_terms and term not in _QUERY_STOPWORDS
+                    if term not in skill_term_set and term not in _QUERY_STOPWORDS
                 ),
             )
         )

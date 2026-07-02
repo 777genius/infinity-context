@@ -1110,8 +1110,9 @@ def _has_skill_profile_intent(
     normalized_question = re.sub(r"[^0-9a-z]+", " ", question.casefold()).strip()
     return bool(
         re.search(
-            r"\blanguages?\b.+\b(?:speak|know|fluent)\b|"
-            r"\b(?:speak|know)\b.+\blanguages?\b|\bfluent\b.+\blanguages?\b|"
+            r"\blanguages?\b.+\b(?:speak|know|fluent|bilingual)\b|"
+            r"\b(?:speak|know)\b.+\blanguages?\b|"
+            r"\b(?:fluent|bilingual)\b.+\blanguages?\b|"
             r"\binstrument\b.+\bplay\b|\bplay\b.+\binstrument\b|"
             r"\bplay\s+(?:guitar|piano|violin|drums?)\b",
             normalized_question,
@@ -1794,6 +1795,7 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "drums",
                 "guitar",
                 "instrument",
+                "bilingual",
                 "fluent",
                 "know",
                 "language",

@@ -4769,6 +4769,12 @@ def test_query_decomposition_expands_skill_profile_queries() -> None:
         expected_terms=("Spanish",),
         answer="Spanish",
     )
+    bilingual_case = _case(
+        case_id="skill-profile-language-bilingual",
+        question="What language is Alex bilingual in?",
+        expected_terms=("Spanish",),
+        answer="Spanish",
+    )
     instrument_case = _case(
         case_id="skill-profile-instrument",
         question="What instrument does Alex play?",
@@ -4803,6 +4809,9 @@ def test_query_decomposition_expands_skill_profile_queries() -> None:
     fluent_queries, fluent_metadata = rerank_module.decomposed_search_queries(
         fluent_case
     )
+    bilingual_queries, bilingual_metadata = rerank_module.decomposed_search_queries(
+        bilingual_case
+    )
     instrument_queries, instrument_metadata = rerank_module.decomposed_search_queries(
         instrument_case
     )
@@ -4825,8 +4834,12 @@ def test_query_decomposition_expands_skill_profile_queries() -> None:
     assert knowledge_metadata["query_profile"]["relation_categories"] == (
         "skill_profile",
     )
-    assert fluent_queries[2] == "alex skill language speak spoken know fluent"
+    assert fluent_queries[2] == "alex skill language speak spoken fluent know"
     assert fluent_metadata["query_profile"]["relation_categories"] == (
+        "skill_profile",
+    )
+    assert bilingual_queries[2] == "alex skill language speak spoken bilingual fluent"
+    assert bilingual_metadata["query_profile"]["relation_categories"] == (
         "skill_profile",
     )
 
@@ -9254,6 +9267,63 @@ def test_benchmark_rerank_boosts_fluent_language_skill_evidence() -> None:
         "relation_category_hits"
     ] == []
     assert fluent_diagnostics["score_signals"][
+        "benchmark_typed_relation_support_roles"
+    ] == ["skill_support"]
+    assert (
+        topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        == 0
+    )
+
+
+def test_benchmark_rerank_boosts_bilingual_language_skill_evidence() -> None:
+    case = _case(
+        case_id="skill-profile-bilingual-rerank",
+        question="What language is Alex bilingual in?",
+        expected_terms=("Spanish",),
+        answer="Spanish",
+        category=4,
+    )
+    topical_language = RetrievedMemory(
+        item_id="topical-language",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex bought a Spanish cookbook for Maria."
+        ),
+        source_refs=("D1:1",),
+    )
+    bilingual_language = RetrievedMemory(
+        item_id="bilingual-language",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: I'm bilingual in Spanish and English."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_language, bilingual_language),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("skill_profile",)
+    assert reranked[0].item_id == "bilingual-language"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    bilingual_diagnostics = diagnostics_by_id["bilingual-language"]
+    topical_diagnostics = diagnostics_by_id["topical-language"]
+    assert bilingual_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["skill_profile"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert bilingual_diagnostics["score_signals"][
         "benchmark_typed_relation_support_roles"
     ] == ["skill_support"]
     assert (
