@@ -5264,6 +5264,9 @@ def test_query_decomposition_expands_date_profile_queries() -> None:
     assert "date_profile" in anniversary_metadata["query_profile"][
         "relation_categories"
     ]
+    assert "marry" in anniversary_metadata["query_profile"][
+        "relation_category_terms"
+    ]["date_profile"]
     assert "date_support" in anniversary_metadata["query_plan"]["selected_roles"]
 
     assert birthday_day_queries[2] == "alex birthday year ago born age"
@@ -10711,6 +10714,66 @@ def test_benchmark_rerank_boosts_birthday_day_date_profile_evidence() -> None:
     assert topical_diagnostics["benchmark_candidate_features"][
         "relation_category_hits"
     ] == []
+    assert date_diagnostics["score_signals"][
+        "benchmark_typed_relation_support_roles"
+    ] == ["date_support"]
+    assert (
+        topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        == 0
+    )
+
+
+def test_benchmark_rerank_boosts_married_anniversary_date_evidence() -> None:
+    case = _case(
+        case_id="date-profile-married-anniversary-rerank",
+        question="When is Alex's anniversary?",
+        expected_terms=("July 2",),
+        answer="July 2",
+        category=4,
+    )
+    topical_wedding = RetrievedMemory(
+        item_id="topical-wedding",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex attended a wedding in July."
+        ),
+        source_refs=("D1:1",),
+    )
+    date_profile = RetrievedMemory(
+        item_id="date-profile",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: We got married on July 2."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_wedding, date_profile),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == (
+        "temporal_support",
+        "date_profile",
+    )
+    assert reranked[0].item_id == "date-profile"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    date_diagnostics = diagnostics_by_id["date-profile"]
+    topical_diagnostics = diagnostics_by_id["topical-wedding"]
+    assert date_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["date_profile", "temporal"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["temporal"]
     assert date_diagnostics["score_signals"][
         "benchmark_typed_relation_support_roles"
     ] == ["date_support"]

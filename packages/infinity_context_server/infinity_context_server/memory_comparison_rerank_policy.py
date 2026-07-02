@@ -133,6 +133,7 @@ def score_benchmark_rerank_candidate(
     policy_boosts = _rounded_boosts(features.policy_boosts)
     shape_boosts = _rounded_boosts(features.shape_boosts)
     boost_cap = _boost_cap(
+        features=features,
         focused_turn_boost=features.focused_turn_boost,
         focused_relation_density_boost=focused_relation_density_boost,
         relation_coverage_boost=relation_coverage_boost,
@@ -224,6 +225,7 @@ def _focused_relation_density_boost(features: BenchmarkRerankFeatures) -> float:
 
 def _boost_cap(
     *,
+    features: BenchmarkRerankFeatures,
     focused_turn_boost: float,
     focused_relation_density_boost: float,
     relation_coverage_boost: float,
@@ -271,6 +273,18 @@ def _boost_cap(
         return 0.62
     if any(policy_boosts.get(key, 0.0) > 0 for key in medium_confidence_policy_keys):
         return 0.62
+    if (
+        typed_relation_support_boost > 0
+        and features.direct_speaker_turn
+        and features.relation_category_coverage_ratio >= 1.0
+        and features.relation_hits
+        and not features.broad_summary
+        and (
+            features.source_locality_score >= 0.65
+            or _has_unmeasured_source_ref_locality(features)
+        )
+    ):
+        return 0.6
     if focused_relation_density_boost > 0 and strong_relation_evidence:
         return 0.6
     if relation_coverage_boost >= 0.09 and strong_relation_evidence:

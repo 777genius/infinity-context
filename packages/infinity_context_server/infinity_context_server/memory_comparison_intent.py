@@ -1795,7 +1795,11 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "birthday",
                 "born",
                 "date",
+                "married",
+                "marry",
                 "month",
+                "wed",
+                "wedding",
                 "year",
             }
         ),
