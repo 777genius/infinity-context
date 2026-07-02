@@ -361,6 +361,39 @@ def test_quality_diagnostics_reports_intents_policies_bundle_gaps_and_leakage() 
     assert diagnostics["query_leakage_report"]["query_overlap_case_count"] == 1
 
 
+def test_quality_diagnostics_false_positive_counts_typed_intent_leakage() -> None:
+    diagnostics = quality_diagnostics(
+        (
+            _item(
+                case_id="intent-leak",
+                score=0.0,
+                retrieval=_retrieval_payload(
+                    evidence_need=("single_fact",),
+                    risk_flags=("wide_relation_expansion",),
+                    retrieval_intent_overlap_count=2,
+                    policy_score=0.0,
+                ),
+                evidence_bundle={"bundle_complete": True, "items": []},
+                retrieval_quality={"expected_term_recall": 1.0},
+            ),
+        )
+    )
+
+    assert diagnostics["false_positive_categories"]["query_leakage_risk"] == 1
+    assert diagnostics["query_leakage_report"]["clean"] is False
+    assert diagnostics["query_leakage_report"][
+        "retrieval_intent_overlap_case_count"
+    ] == 1
+    risk_stats = diagnostics["risk_flag_table"]["flag_stats"][
+        "wide_relation_expansion"
+    ]
+    assert risk_stats["query_overlap_count"] == 0
+    assert risk_stats["profile_overlap_count"] == 0
+    assert risk_stats["retrieval_intent_overlap_count"] == 2
+    assert risk_stats["query_leakage_count"] == 2
+    assert risk_stats["samples"][0]["query_overlap_count"] == 2
+
+
 def test_quality_diagnostics_per_intent_merges_profile_and_typed_intent() -> None:
     retrieval = _retrieval_payload(
         evidence_need=("single_fact",),
@@ -2037,6 +2070,8 @@ def _retrieval_payload(
     entities: tuple[str, ...] = (),
     risk_flags: tuple[str, ...] = (),
     query_overlap_count: int = 0,
+    query_profile_overlap_count: int = 0,
+    retrieval_intent_overlap_count: int = 0,
     query_plan: dict[str, object] | None = None,
     candidate_features: dict[str, object] | None = None,
     score_signals: dict[str, object] | None = None,
@@ -2078,6 +2113,18 @@ def _retrieval_payload(
                 "expected_answer_query_overlap_count": query_overlap_count,
                 "expected_answer_query_overlap_terms": ["answer"]
                 if query_overlap_count
+                else [],
+                "expected_answer_query_profile_overlap_count": (
+                    query_profile_overlap_count
+                ),
+                "expected_answer_query_profile_overlap_terms": ["profile-answer"]
+                if query_profile_overlap_count
+                else [],
+                "expected_answer_retrieval_intent_overlap_count": (
+                    retrieval_intent_overlap_count
+                ),
+                "expected_answer_retrieval_intent_overlap_terms": ["intent-answer"]
+                if retrieval_intent_overlap_count
                 else [],
                 "retrieval_intent_risk_flags": list(risk_flags),
             },

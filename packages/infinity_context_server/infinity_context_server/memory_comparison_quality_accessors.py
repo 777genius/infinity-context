@@ -148,9 +148,17 @@ def query_plan(item: Mapping[str, object]) -> Mapping[str, object]:
 def query_overlap_count(item: Mapping[str, object]) -> int:
     integrity = query_integrity(item)
     return (
-        positive_int(integrity.get("expected_answer_query_overlap_count"))
-        or positive_int(integrity.get("expected_answer_query_profile_overlap_count"))
-        or 0
+        (positive_int(integrity.get("expected_answer_query_overlap_count")) or 0)
+        + (
+            positive_int(integrity.get("expected_answer_query_profile_overlap_count"))
+            or 0
+        )
+        + (
+            positive_int(
+                integrity.get("expected_answer_retrieval_intent_overlap_count")
+            )
+            or 0
+        )
     )
 
 

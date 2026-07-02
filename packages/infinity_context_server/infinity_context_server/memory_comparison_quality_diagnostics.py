@@ -408,6 +408,7 @@ def _risk_flag_stats(items: Sequence[Mapping[str, object]]) -> dict[str, object]
     passed = sum(1 for item in scored if _judgment_score(item) >= 1.0)
     query_overlap_count = 0
     profile_overlap_count = 0
+    intent_overlap_count = 0
     for item in items:
         integrity = _query_integrity(item)
         query_overlap_count += (
@@ -419,6 +420,15 @@ def _risk_flag_stats(items: Sequence[Mapping[str, object]]) -> dict[str, object]
             )
             or 0
         )
+        intent_overlap_count += (
+            _positive_int(
+                integrity.get("expected_answer_retrieval_intent_overlap_count")
+            )
+            or 0
+        )
+    query_leakage_count = (
+        query_overlap_count + profile_overlap_count + intent_overlap_count
+    )
     return {
         "case_count": len(items),
         "scored": len(scored),
@@ -431,6 +441,8 @@ def _risk_flag_stats(items: Sequence[Mapping[str, object]]) -> dict[str, object]
         ),
         "query_overlap_count": query_overlap_count,
         "profile_overlap_count": profile_overlap_count,
+        "retrieval_intent_overlap_count": intent_overlap_count,
+        "query_leakage_count": query_leakage_count,
         "avg_expected_term_recall": _avg(_expected_recall(item) for item in scored),
         "avg_evidence_term_recall": _avg(
             _evidence_recall(item)
