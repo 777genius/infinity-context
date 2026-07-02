@@ -266,6 +266,11 @@ def _bundle_support_counts(metadata: Mapping[str, object]) -> tuple[str, ...]:
     event = _positive_int(metadata.get("answer_context_bundle_event_support_count"))
     if event is not None:
         counts.append(f"event:{event}")
+    exchange = _positive_int(
+        metadata.get("answer_context_bundle_exchange_support_count")
+    )
+    if exchange is not None:
+        counts.append(f"exchange:{exchange}")
     inference = _positive_int(
         metadata.get("answer_context_bundle_inference_support_count")
     )

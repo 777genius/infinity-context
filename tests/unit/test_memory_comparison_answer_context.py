@@ -30,6 +30,7 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
                         "causal_support_count": 1,
                         "communication_support_count": 9,
                         "event_support_count": 8,
+                        "exchange_support_count": 10,
                         "inference_support_count": 2,
                         "location_support_count": 5,
                         "emotion_response_support_count": 6,
@@ -95,6 +96,7 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
     assert context.bundle_causal_support_count == 1
     assert context.bundle_communication_support_count == 9
     assert context.bundle_event_support_count == 8
+    assert context.bundle_exchange_support_count == 10
     assert context.bundle_inference_support_count == 2
     assert context.bundle_location_support_count == 5
     assert context.bundle_emotion_response_support_count == 6
@@ -122,6 +124,10 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
     assert (
         context.memories[0].metadata["answer_context_bundle_event_support_count"]
         == 8
+    )
+    assert (
+        context.memories[0].metadata["answer_context_bundle_exchange_support_count"]
+        == 10
     )
     assert (
         context.memories[0].metadata[
@@ -188,6 +194,7 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
         "bundle_causal_support_count": 1,
         "bundle_communication_support_count": 9,
         "bundle_event_support_count": 8,
+        "bundle_exchange_support_count": 10,
         "bundle_inference_support_count": 2,
         "bundle_location_support_count": 5,
         "bundle_emotion_response_support_count": 6,

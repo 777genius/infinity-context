@@ -21,6 +21,9 @@ from infinity_context_server.memory_comparison_quality_support import (
     bundle_has_event_support as _bundle_has_event_support,
 )
 from infinity_context_server.memory_comparison_quality_support import (
+    bundle_has_exchange_support as _bundle_has_exchange_support,
+)
+from infinity_context_server.memory_comparison_quality_support import (
     bundle_has_inference_support as _bundle_has_inference_support,
 )
 from infinity_context_server.memory_comparison_quality_support import (
@@ -60,6 +63,9 @@ from infinity_context_server.memory_comparison_quality_support import (
     needs_event_support as _needs_event_support,
 )
 from infinity_context_server.memory_comparison_quality_support import (
+    needs_exchange_support as _needs_exchange_support,
+)
+from infinity_context_server.memory_comparison_quality_support import (
     needs_inference_support as _needs_inference_support,
 )
 from infinity_context_server.memory_comparison_quality_support import (
@@ -92,6 +98,7 @@ _EVIDENCE_NEED_GAP_REASONS = frozenset(
         "missing_causal_support",
         "missing_communication_support",
         "missing_event_support",
+        "missing_exchange_support",
         "missing_contrast",
         "missing_emotion_response_support",
         "missing_inference_support",
@@ -104,6 +111,7 @@ _EVIDENCE_NEED_GAP_REASONS = frozenset(
         "missing_required_communication_support",
         "missing_required_contrast",
         "missing_required_event_support",
+        "missing_required_exchange_support",
         "missing_required_emotion_response_support",
         "missing_required_inference_support",
         "missing_required_location_support",
@@ -729,6 +737,8 @@ def _bundle_incomplete_reasons(item: Mapping[str, object]) -> tuple[str, ...]:
         reasons.append("missing_communication_support")
     if _needs_event_support(item) and not _bundle_has_event_support(bundle):
         reasons.append("missing_event_support")
+    if _needs_exchange_support(item) and not _bundle_has_exchange_support(bundle):
+        reasons.append("missing_exchange_support")
     if _needs_inference_support(item) and not _bundle_has_inference_support(bundle):
         reasons.append("missing_inference_support")
     if _needs_location_support(item) and not _bundle_has_location_support(bundle):
@@ -782,6 +792,7 @@ def _bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, ob
     causal_support_counts: list[int] = []
     communication_support_counts: list[int] = []
     event_support_counts: list[int] = []
+    exchange_support_counts: list[int] = []
     inference_support_counts: list[int] = []
     location_support_counts: list[int] = []
     emotion_response_support_counts: list[int] = []
@@ -814,6 +825,9 @@ def _bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, ob
         )
         event_support_counts.append(
             _positive_int(quality.get("event_support_count")) or 0
+        )
+        exchange_support_counts.append(
+            _positive_int(quality.get("exchange_support_count")) or 0
         )
         inference_support_counts.append(
             _positive_int(quality.get("inference_support_count")) or 0
@@ -882,6 +896,11 @@ def _bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, ob
         "total_event_support_count": sum(event_support_counts),
         "event_support_bundle_count": sum(
             1 for count in event_support_counts if count > 0
+        ),
+        "avg_exchange_support_count": _avg(exchange_support_counts),
+        "total_exchange_support_count": sum(exchange_support_counts),
+        "exchange_support_bundle_count": sum(
+            1 for count in exchange_support_counts if count > 0
         ),
         "avg_inference_support_count": _avg(inference_support_counts),
         "total_inference_support_count": sum(inference_support_counts),
@@ -955,6 +974,9 @@ def _bundle_support_counts(bundle_quality: Mapping[str, object]) -> dict[str, in
             or 0
         ),
         "event": _positive_int(bundle_quality.get("total_event_support_count")) or 0,
+        "exchange": (
+            _positive_int(bundle_quality.get("total_exchange_support_count")) or 0
+        ),
         "inference": (
             _positive_int(bundle_quality.get("total_inference_support_count")) or 0
         ),
@@ -1000,6 +1022,9 @@ def _bundle_support_bundle_counts(
             or 0
         ),
         "event": _positive_int(bundle_quality.get("event_support_bundle_count")) or 0,
+        "exchange": (
+            _positive_int(bundle_quality.get("exchange_support_bundle_count")) or 0
+        ),
         "inference": (
             _positive_int(bundle_quality.get("inference_support_bundle_count")) or 0
         ),
@@ -1063,6 +1088,9 @@ def _bundle_quality_sample(
         ),
         "event_support_count": (
             _positive_int(quality.get("event_support_count")) or 0
+        ),
+        "exchange_support_count": (
+            _positive_int(quality.get("exchange_support_count")) or 0
         ),
         "inference_support_count": (
             _positive_int(quality.get("inference_support_count")) or 0
@@ -1664,6 +1692,7 @@ def _evidence_role_query_families(role: str) -> tuple[str, ...]:
         "causal_support": ("multi_hop", "relation_compact", "expanded_focus"),
         "communication_support": ("relation_compact", "expanded_focus"),
         "event_support": ("relation_compact", "expanded_focus"),
+        "exchange_support": ("relation_compact", "expanded_focus"),
         "emotion_response_support": ("relation_compact", "expanded_focus"),
         "symbolic_meaning_support": ("relation_compact", "expanded_focus"),
         "inference_support": ("relation_compact", "expanded_focus", "base_query"),

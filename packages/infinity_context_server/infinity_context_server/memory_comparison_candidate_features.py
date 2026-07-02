@@ -438,6 +438,10 @@ def _relation_category_hits(
             if _has_communication_support(memory_terms):
                 hits.append(str(category))
             continue
+        if category == "exchange":
+            if _has_exchange_support(memory_terms):
+                hits.append(str(category))
+            continue
         grounding_terms = tuple(term for term in term_values if term not in query_term_set)
         terms_to_match = grounding_terms or term_values
         if any(term in memory_terms for term in terms_to_match):
@@ -586,6 +590,40 @@ def _has_communication_support(memory_terms: set[str]) -> bool:
         "response",
     } & memory_terms
     return bool(communication_action and communication_context)
+
+
+def _has_exchange_support(memory_terms: set[str]) -> bool:
+    exchange_actions = {
+        "bought",
+        "bring",
+        "brought",
+        "buy",
+        "gave",
+        "gift",
+        "got",
+        "offer",
+        "offered",
+        "purchas",
+        "purchase",
+        "purchased",
+        "receiv",
+        "receive",
+        "received",
+    } & memory_terms
+    object_context = {
+        "book",
+        "card",
+        "gift",
+        "item",
+        "items",
+        "necklace",
+        "object",
+        "photo",
+        "picture",
+        "ticket",
+        "tickets",
+    } & memory_terms
+    return bool(len(exchange_actions) >= 2 or (exchange_actions and object_context))
 
 
 def _answerability(
@@ -805,6 +843,7 @@ def _intent_answerability(
         "participation_event",
         "emotion_response",
         "communication",
+        "exchange",
     ):
         if category not in category_set:
             continue

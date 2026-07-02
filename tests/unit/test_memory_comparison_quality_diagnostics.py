@@ -880,6 +880,7 @@ def test_fast_gate_metrics_reports_bundle_support_summaries() -> None:
                             bridge_count=1,
                             causal_support_count=1,
                             event_support_count=1,
+                            exchange_support_count=1,
                             inference_support_count=1,
                             location_support_count=1,
                             emotion_response_support_count=1,
@@ -911,6 +912,7 @@ def test_fast_gate_metrics_reports_bundle_support_summaries() -> None:
         "contrast": 1,
         "emotion_response": 1,
         "event": 1,
+        "exchange": 1,
         "inference": 1,
         "location": 1,
         "preference": 1,
@@ -925,6 +927,7 @@ def test_fast_gate_metrics_reports_bundle_support_summaries() -> None:
         "contrast": 1,
         "emotion_response": 1,
         "event": 1,
+        "exchange": 1,
         "inference": 1,
         "location": 1,
         "preference": 1,
@@ -1566,6 +1569,94 @@ def test_fast_gate_metrics_accepts_event_support_evidence() -> None:
     assert "missing_event_support" not in breakdown["reason_counts"]
     assert "missing_required_event_support" not in breakdown["reason_counts"]
     assert "missing_event_support" not in breakdown["evidence_need_gap_reason_counts"]
+
+
+def test_fast_gate_metrics_reports_missing_exchange_support_gap() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="missing-exchange",
+                group="single-hop",
+                retrieval=_retrieval_payload(
+                    evidence_need=("exchange",),
+                    bundle_evidence_roles=("primary", "exchange_support"),
+                    relation_categories=("exchange",),
+                    policy_score=0.0,
+                ),
+                evidence_bundle={
+                    "bundle_complete": False,
+                    "item_count": 1,
+                    "primary_evidence_count": 1,
+                    "supporting_evidence_count": 0,
+                    "query_support_term_recall": 0.5,
+                    "covered_evidence_terms": [],
+                    "missing_required_roles": ["exchange_support"],
+                    "items": [
+                        {
+                            "role": "primary",
+                            "retrieval_order": 1,
+                            "focused_evidence_score": 1.0,
+                            "planner_reason_codes": ["primary_signal"],
+                        }
+                    ],
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    breakdown = gate["bundle_gap_breakdown"]
+
+    assert breakdown["reason_counts"]["missing_exchange_support"] == 1
+    assert breakdown["reason_counts"]["missing_required_exchange_support"] == 1
+    assert breakdown["evidence_need_gap_reason_counts"] == {
+        "missing_exchange_support": 1,
+        "missing_required_exchange_support": 1,
+    }
+
+
+def test_fast_gate_metrics_accepts_exchange_support_evidence() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="has-exchange",
+                group="single-hop",
+                retrieval=_retrieval_payload(
+                    evidence_need=("exchange",),
+                    bundle_evidence_roles=("primary", "exchange_support"),
+                    relation_categories=("exchange",),
+                    policy_score=0.0,
+                ),
+                evidence_bundle={
+                    "bundle_complete": False,
+                    "item_count": 1,
+                    "primary_evidence_count": 1,
+                    "supporting_evidence_count": 0,
+                    "query_support_term_recall": 0.5,
+                    "covered_evidence_terms": [],
+                    "items": [
+                        {
+                            "role": "exchange_support",
+                            "retrieval_order": 1,
+                            "focused_evidence_score": 1.0,
+                            "relation_category_hits": ["exchange"],
+                            "planner_reason_codes": [
+                                "exchange_support",
+                                "exchange_relation_category_hits",
+                            ],
+                        }
+                    ],
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    breakdown = gate["bundle_gap_breakdown"]
+
+    assert "missing_exchange_support" not in breakdown["reason_counts"]
+    assert "missing_required_exchange_support" not in breakdown["reason_counts"]
+    assert "missing_exchange_support" not in breakdown["evidence_need_gap_reason_counts"]
 
 
 def test_fast_gate_metrics_reports_missing_communication_support_gap() -> None:
@@ -2668,6 +2759,7 @@ def _bundle_quality(
     bridge_count: int = 0,
     causal_support_count: int = 0,
     event_support_count: int = 0,
+    exchange_support_count: int = 0,
     inference_support_count: int = 0,
     location_support_count: int = 0,
     emotion_response_support_count: int = 0,
@@ -2696,6 +2788,7 @@ def _bundle_quality(
         "bridge_count": bridge_count,
         "causal_support_count": causal_support_count,
         "event_support_count": event_support_count,
+        "exchange_support_count": exchange_support_count,
         "inference_support_count": inference_support_count,
         "location_support_count": location_support_count,
         "emotion_response_support_count": emotion_response_support_count,

@@ -211,6 +211,10 @@ def infer_relation_intents(
             relation_terms=relation_terms,
         ):
             continue
+        if category == "exchange" and not _has_exchange_intent(
+            relation_terms=relation_terms,
+        ):
+            continue
         terms = tuple(term for term in relation_terms if term in config["terms"])
         variants = tuple(
             term for term in relation_variant_terms if term in config["variants"]
@@ -342,6 +346,8 @@ def infer_bundle_evidence_roles(
         roles.append("symbolic_meaning_support")
     if "communication" in evidence_need_set:
         roles.append("communication_support")
+    if "exchange" in evidence_need_set:
+        roles.append("exchange_support")
     if {"registration_event", "participation_event"} & evidence_need_set:
         roles.append("event_support")
     if "causal_support" in evidence_need_set:
@@ -360,6 +366,7 @@ def merge_relation_evidence_needs(
     promoted_needs = {
         "emotion_response",
         "communication",
+        "exchange",
         "participation_event",
         "registration_event",
         "symbolic_meaning",
@@ -371,7 +378,8 @@ def merge_relation_evidence_needs(
     )
     if not relation_needs:
         return evidence_need
-    return tuple(dict.fromkeys((*evidence_need, *relation_needs)))
+    base_needs = tuple(need for need in evidence_need if need != "single_fact")
+    return tuple(dict.fromkeys((*base_needs, *relation_needs)))
 
 
 def _has_contrast_intent(
@@ -463,6 +471,24 @@ def _has_inference_support_intent(
     return bool(
         re.search(r"\b(?:would|likely|might|could)\b", normalized)
         and relation_set
+    )
+
+
+def _has_exchange_intent(*, relation_terms: tuple[str, ...]) -> bool:
+    relation_set = set(relation_terms)
+    exchange_terms = {
+        "bought",
+        "bring",
+        "brought",
+        "gift",
+        "purchas",
+        "purchase",
+        "receive",
+    }
+    if not exchange_terms & relation_set:
+        return False
+    return not (
+        "receive" in relation_set and {"support", "grow", "counsel"} & relation_set
     )
 
 
@@ -816,7 +842,7 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
             }
         ),
         "markers": frozenset(),
-        "evidence_need": "single_fact",
+        "evidence_need": "exchange",
     },
     "symbolic_meaning": {
         "terms": frozenset({"necklace", "symbolize"}),

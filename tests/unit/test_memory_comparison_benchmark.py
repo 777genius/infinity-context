@@ -3127,6 +3127,7 @@ def test_query_decomposition_expands_open_domain_inference_queries() -> None:
     assert "counsel" in counseling_metadata["query_profile"]["relation_terms"]
     assert "receive" in counseling_metadata["query_profile"]["relation_terms"]
     assert "grow" in counseling_metadata["query_profile"]["relation_terms"]
+    assert "exchange" not in counseling_metadata["query_profile"]["relation_categories"]
     assert "mental" in counseling_metadata["query_profile"]["relation_variant_terms"]
     assert personality_queries[2] == (
         "melanie caroline personality trait care real concern thank"
@@ -4955,10 +4956,14 @@ def test_query_decomposition_reports_exchange_relation_intent() -> None:
         "purchas",
         "got",
     )
-    assert query_profile["evidence_need"] == ("single_fact",)
-    assert query_profile["bundle_evidence_roles"] == ("primary", "bridge")
+    assert query_profile["evidence_need"] == ("exchange",)
+    assert query_profile["bundle_evidence_roles"] == (
+        "primary",
+        "bridge",
+        "exchange_support",
+    )
     assert exchange_intent["category"] == "exchange"
-    assert exchange_intent["evidence_need"] == "single_fact"
+    assert exchange_intent["evidence_need"] == "exchange"
     assert exchange_intent["reason_codes"] == [
         "category:exchange",
         "relation_terms",
@@ -5006,6 +5011,9 @@ def test_benchmark_rerank_boosts_focused_exchange_evidence() -> None:
     assert diagnostics["benchmark_candidate_features"][
         "relation_category_hits"
     ] == ["exchange"]
+    assert "exchange_evidence" in diagnostics["benchmark_candidate_features"][
+        "answerability_reason_codes"
+    ]
     assert diagnostics["score_signals"]["benchmark_relation_boost"] > 0
     assert (
         diagnostics["score_signals"]["benchmark_relation_category_coverage_boost"]

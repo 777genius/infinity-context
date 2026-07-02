@@ -1180,6 +1180,64 @@ def test_evidence_bundle_planner_selects_required_communication_support() -> Non
     ]
 
 
+def test_evidence_bundle_planner_selects_required_exchange_support() -> None:
+    primary = _candidate(
+        item_id="primary",
+        covered_evidence_terms=("D1:1",),
+        primary_signal=True,
+        source_refs=("D1:1",),
+        direct_speaker_turn=True,
+        answerability_score=0.9,
+        source_locality_score=1.0,
+    )
+    generic_support = _candidate(
+        item_id="generic-support",
+        dedupe_key="refs:D1:2",
+        query_support_terms=("melanie", "bought"),
+        relation_hits=("bought",),
+        source_refs=("D1:2",),
+        source_locality_score=0.9,
+        answerability_score=0.8,
+        bundle_strength_score=9.0,
+    )
+    exchange_support = _candidate(
+        item_id="exchange-support",
+        dedupe_key="refs:D2:3",
+        query_support_terms=("melanie", "bought", "got"),
+        relation_hits=("bought", "got"),
+        relation_category_hits=("exchange",),
+        source_refs=("D2:3",),
+        source_locality_score=0.9,
+        answerability_score=0.8,
+        bundle_strength_score=2.0,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, generic_support, exchange_support),
+        case_group="single",
+        required_roles=("primary", "exchange_support"),
+    )
+
+    assert [item.candidate.item_id for item in plan.items] == [
+        "primary",
+        "exchange-support",
+    ]
+    support_item = plan.items[1]
+    assert support_item.role == "exchange_support"
+    assert "exchange_support" in support_item.reason_codes
+    assert "exchange_relation_category_hits" in support_item.reason_codes
+    diagnostics = plan.to_diagnostics()
+    assert diagnostics["role_counts"] == {"primary": 1, "exchange_support": 1}
+    assert diagnostics["satisfied_required_roles"] == [
+        "primary",
+        "exchange_support",
+    ]
+    assert diagnostics["bundle_quality"]["exchange_support_count"] == 1
+    assert "has_exchange_support_evidence" in diagnostics["bundle_quality"][
+        "reason_codes"
+    ]
+
+
 def test_evidence_bundle_planner_selects_required_causal_support() -> None:
     primary = _candidate(
         item_id="primary",

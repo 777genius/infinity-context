@@ -127,6 +127,24 @@ def needs_event_support(item: Mapping[str, object]) -> bool:
     )
 
 
+def needs_exchange_support(item: Mapping[str, object]) -> bool:
+    query_profile, intent = _query_profile_and_intent(item)
+    evidence_need = (
+        _str_tuple(query_profile.get("evidence_need"))
+        or _str_tuple(intent.get("evidence_need"))
+    )
+    roles = (
+        _str_tuple(query_profile.get("bundle_evidence_roles"))
+        or _str_tuple(intent.get("bundle_evidence_roles"))
+    )
+    relation_categories = _str_tuple(query_profile.get("relation_categories"))
+    return bool(
+        "exchange" in evidence_need
+        or "exchange_support" in roles
+        or "exchange" in relation_categories
+    )
+
+
 def needs_communication_support(item: Mapping[str, object]) -> bool:
     query_profile, intent = _query_profile_and_intent(item)
     evidence_need = (
@@ -323,6 +341,21 @@ def bundle_has_communication_support(bundle: Mapping[str, object]) -> bool:
                 or "communication_direct_speaker_turn"
                 in _str_tuple(item.get("planner_reason_codes"))
             )
+        )
+        for item in _bundle_items(bundle)
+    )
+
+
+def bundle_has_exchange_support(bundle: Mapping[str, object]) -> bool:
+    if "exchange_support" in bundle_roles(bundle):
+        return True
+    if bundle_has_planner_reason(bundle, "exchange_support"):
+        return True
+    return any(
+        bool(
+            "exchange" in _str_tuple(item.get("relation_category_hits"))
+            or "exchange_relation_category_hits"
+            in _str_tuple(item.get("planner_reason_codes"))
         )
         for item in _bundle_items(bundle)
     )
