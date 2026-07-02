@@ -190,6 +190,7 @@ def evidence_bundle(
                 has_preference_evidence=_bool_value(
                     features.get("has_preference_evidence")
                 ),
+                has_visual_evidence=_bool_value(features.get("has_visual_evidence")),
                 query_roles=_string_sequence(features.get("query_roles")),
                 bridge_query_hit=_bool_value(features.get("bridge_query_hit")),
                 eligibility_reason_codes=eligibility_reason_codes,
@@ -310,6 +311,7 @@ def _feature_backed_bundle_candidate_reasons(
         or _bool_value(features.get("negation_surface"))
         or _bool_value(features.get("stale_surface"))
     )
+    visual_grounded = _bool_value(features.get("has_visual_evidence"))
     reasons: list[str] = ["answerability_feature", "source_locality_feature"]
     if _bool_value(features.get("direct_speaker_turn")) and (
         entity_grounded or relation_grounded
@@ -321,6 +323,8 @@ def _feature_backed_bundle_candidate_reasons(
         reasons.append("temporal_grounding")
     if contrast_grounded and (entity_grounded or relation_grounded):
         reasons.append("contrast_grounding")
+    if visual_grounded and (entity_grounded or relation_grounded):
+        reasons.append("visual_grounding")
     if (
         _bool_value(features.get("bridge_query_hit"))
         and relation_grounded

@@ -206,6 +206,78 @@ def test_evidence_bundle_requires_preference_support_for_preference_queries() ->
     assert "preference_support" in support_item["planner_reason_codes"]
 
 
+def test_evidence_bundle_requires_visual_support_for_visual_queries() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-visual:qa:1",
+        question="What painting did Melanie show?",
+        expected_terms=("lake sunrise",),
+        memory_scope_external_ref="locomo-conv-visual",
+        thread_external_ref="locomo-conv-visual",
+        metadata={"category": 4},
+    )
+
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text="D1:1 Melanie mentioned the lake sunrise.",
+                rank=1,
+                item_id="primary",
+                source_refs=("D1:1",),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.95,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "relation_hits": ["paint"],
+                            "speaker_hits": ["melanie"],
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+            RetrievedMemory(
+                text=(
+                    "D2:3 Melanie: Look at my painting. "
+                    "The image shows a watercolor lake sunrise."
+                ),
+                rank=2,
+                item_id="visual-support",
+                source_refs=("D2:3",),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.74,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "has_visual_evidence": True,
+                            "relation_categories": ["visual"],
+                            "relation_category_hits": ["visual"],
+                            "relation_hits": ["paint", "image"],
+                            "speaker_hits": ["melanie"],
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+        ),
+    )
+
+    roles_by_id = {item["id"]: item["role"] for item in bundle["items"]}
+    support_item = next(item for item in bundle["items"] if item["id"] == "visual-support")
+
+    assert bundle["required_roles"] == ["primary", "visual_support"]
+    assert bundle["satisfied_required_roles"] == ["primary", "visual_support"]
+    assert bundle["role_requirement_complete"] is True
+    assert roles_by_id["primary"] == "primary"
+    assert roles_by_id["visual-support"] == "visual_support"
+    assert support_item["has_visual_evidence"] is True
+    assert bundle["bundle_planner"]["bundle_quality"]["visual_support_count"] == 1
+    assert "visual_support" in support_item["planner_reason_codes"]
+
+
 def test_evidence_bundle_preserves_typed_temporal_feature_provenance() -> None:
     case = PublicBenchmarkCase(
         benchmark="locomo",

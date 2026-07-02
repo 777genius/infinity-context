@@ -55,6 +55,7 @@ class EvidenceBundleCandidate:
     entity_hits: tuple[str, ...] = ()
     speaker_hits: tuple[str, ...] = ()
     has_preference_evidence: bool = False
+    has_visual_evidence: bool = False
     query_roles: tuple[str, ...] = ()
     bridge_query_hit: bool = False
     eligibility_reason_codes: tuple[str, ...] = ()
@@ -119,6 +120,8 @@ class PlannedEvidenceItem:
             )
         if self.candidate.has_preference_evidence:
             payload["has_preference_evidence"] = True
+        if self.candidate.has_visual_evidence:
+            payload["has_visual_evidence"] = True
         if self.candidate.bridge_query_hit:
             payload["bridge_query_hit"] = True
         if self.candidate.eligibility_reason_codes:
@@ -489,6 +492,11 @@ def _role_for_candidate(
     ):
         return "preference_support"
     if (
+        "visual_support" in set(required_roles)
+        and _candidate_has_visual_support(candidate)
+    ):
+        return "visual_support"
+    if (
         "causal_support" in set(required_roles)
         and _candidate_has_causal_support(candidate)
     ):
@@ -567,6 +575,10 @@ def _satisfied_required_roles(
             satisfied.add(role)
         if role == "preference_support" and any(
             _candidate_has_preference_support(item.candidate) for item in selected
+        ):
+            satisfied.add(role)
+        if role == "visual_support" and any(
+            _candidate_has_visual_support(item.candidate) for item in selected
         ):
             satisfied.add(role)
         if role == "inference_support" and any(
@@ -706,6 +718,8 @@ def _item_can_satisfy_required_role(
         return _candidate_has_location_support(item.candidate)
     if role == "preference_support":
         return _candidate_has_preference_support(item.candidate)
+    if role == "visual_support":
+        return _candidate_has_visual_support(item.candidate)
     if role == "inference_support":
         return _candidate_has_inference_support(item.candidate)
     if role == "causal_support":
@@ -765,6 +779,7 @@ def _replacement_role_order(item: PlannedEvidenceItem) -> float:
         "inference_support": 2,
         "preference_support": 2,
         "temporal_support": 2,
+        "visual_support": 2,
         "contrast": 3,
         "bridge": 4,
         "location_support": 4,
@@ -841,6 +856,19 @@ def _candidate_has_preference_support(candidate: EvidenceBundleCandidate) -> boo
     return bool(
         candidate.has_preference_evidence
         or "preference" in set(candidate.relation_category_hits)
+    )
+
+
+def _candidate_has_visual_support(candidate: EvidenceBundleCandidate) -> bool:
+    if candidate.broad_summary or candidate.conflict_or_stale:
+        return False
+    if candidate.source_locality_score < 0.45:
+        return False
+    if candidate.answerability_score and candidate.answerability_score < 0.55:
+        return False
+    return bool(
+        candidate.has_visual_evidence
+        or "visual" in set(candidate.relation_category_hits)
     )
 
 
@@ -1018,6 +1046,12 @@ def _reason_codes(
             reasons.append("preference_evidence")
         if candidate.relation_category_hits:
             reasons.append("preference_relation_category_hits")
+    if role == "visual_support":
+        reasons.append("visual_support")
+        if candidate.has_visual_evidence:
+            reasons.append("visual_evidence")
+        if candidate.relation_category_hits:
+            reasons.append("visual_relation_category_hits")
     if candidate.focused_evidence_score > 0:
         reasons.append("focused_turn")
     if candidate.answerability_score >= 0.8:
@@ -1074,6 +1108,7 @@ def _role_order(item: PlannedEvidenceItem) -> float:
         "location_support": 3,
         "preference_support": 3,
         "temporal_support": 3,
+        "visual_support": 3,
         "causal_support": 4,
         "inference_support": 4,
         "entity_disambiguation": 5,
@@ -1163,6 +1198,7 @@ def _bundle_quality_diagnostics(
             "inference_support_count": 0,
             "location_support_count": 0,
             "preference_support_count": 0,
+            "visual_support_count": 0,
             "location_relation_category_hit_count": 0,
             "source_proximity_support_count": 0,
             "source_proximity_window": _SOURCE_PROXIMITY_WINDOW,
@@ -1205,6 +1241,7 @@ def _bundle_quality_diagnostics(
     preference_support_count = sum(
         1 for item in items if item.role == "preference_support"
     )
+    visual_support_count = sum(1 for item in items if item.role == "visual_support")
     location_relation_category_hit_count = sum(
         1
         for item in items
@@ -1243,6 +1280,7 @@ def _bundle_quality_diagnostics(
         "inference_support": min(0.08, 0.08 * inference_support_count),
         "location_support": min(0.08, 0.08 * location_support_count),
         "preference_support": min(0.08, 0.08 * preference_support_count),
+        "visual_support": min(0.08, 0.08 * visual_support_count),
         "source_proximity": (
             min(0.06, 0.03 * source_proximity_support_count)
             if not missing_roles
@@ -1285,6 +1323,7 @@ def _bundle_quality_diagnostics(
             inference_support_count=inference_support_count,
             location_support_count=location_support_count,
             preference_support_count=preference_support_count,
+            visual_support_count=visual_support_count,
             location_relation_category_hit_count=location_relation_category_hit_count,
             source_proximity_support_count=source_proximity_support_count,
             missing_required_roles=missing_roles,
@@ -1313,6 +1352,7 @@ def _bundle_quality_diagnostics(
         "inference_support_count": inference_support_count,
         "location_support_count": location_support_count,
         "preference_support_count": preference_support_count,
+        "visual_support_count": visual_support_count,
         "location_relation_category_hit_count": (
             location_relation_category_hit_count
         ),
@@ -1394,6 +1434,7 @@ def _bundle_quality_reason_codes(
     inference_support_count: int,
     location_support_count: int,
     preference_support_count: int,
+    visual_support_count: int,
     location_relation_category_hit_count: int,
     source_proximity_support_count: int,
     missing_required_roles: Sequence[str],
@@ -1436,6 +1477,8 @@ def _bundle_quality_reason_codes(
         reasons.append("has_location_support_evidence")
     if preference_support_count:
         reasons.append("has_preference_support_evidence")
+    if visual_support_count:
+        reasons.append("has_visual_support_evidence")
     if location_relation_category_hit_count:
         reasons.append("has_location_relation_category_evidence")
     if source_proximity_support_count:
