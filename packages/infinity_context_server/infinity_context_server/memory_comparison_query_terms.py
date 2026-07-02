@@ -688,6 +688,7 @@ def _health_support_query_terms(
         "allergic",
         "allergy",
         "appointment",
+        "blood",
         "clinic",
         "condition",
         "dental",
@@ -702,7 +703,13 @@ def _health_support_query_terms(
         "take",
         "taking",
         "therapist",
+        "type",
     }
+    blood_type_terms = {
+        "blood",
+        "type",
+    }
+    blood_type_focus = blood_type_terms <= set(lexical_terms)
     topical_terms = tuple(
         term
         for term in lexical_terms
@@ -715,8 +722,22 @@ def _health_support_query_terms(
         dict.fromkeys(
             (
                 *(term for term in relation_terms if term == "health"),
-                *(term for term in relation_variant_terms if term in health_terms),
-                *topical_terms[:4],
+                *(
+                    term
+                    for term in relation_variant_terms
+                    if blood_type_focus and term in blood_type_terms
+                ),
+                *(
+                    term
+                    for term in relation_variant_terms
+                    if term in health_terms
+                    and not (blood_type_focus and term in blood_type_terms)
+                ),
+                *(
+                    term
+                    for term in topical_terms[:4]
+                    if term not in blood_type_terms
+                ),
                 *(
                     term
                     for term in _relation_query_terms(

@@ -1036,6 +1036,7 @@ def _has_health_profile_intent(
         re.search(
             r"\b(?:doctor|physician|therapist|medication|medicine|prescription|allerg"
             r"(?:y|ic)|health\s+issue|condition|dentist|dental)\b"
+            r"|\bblood\s+type\b"
             r"|\bprimary\s+care\s+(?:doctor|physician|provider)\b"
             r"|\b(?:medical|doctor(?:'s)?|dentist(?:'s)?|therapy|clinic)\s+"
             r"appointment\b",
@@ -1672,6 +1673,7 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "allergic",
                 "allergy",
                 "appointment",
+                "blood",
                 "clinic",
                 "condition",
                 "dental",
@@ -1685,6 +1687,7 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "take",
                 "taking",
                 "therapist",
+                "type",
             }
         ),
         "markers": frozenset(),

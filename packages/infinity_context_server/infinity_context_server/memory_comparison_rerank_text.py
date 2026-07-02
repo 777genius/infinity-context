@@ -410,6 +410,7 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
     if re.search(
         r"\b(?:doctor|physician|therapist|medication|medicine|prescription|allerg"
         r"(?:y|ic)|health\s+issue|condition|dentist|dental)\b"
+        r"|\bblood\s+type\b"
         r"|\bprimary\s+care\s+(?:doctor|physician|provider)\b"
         r"|\b(?:medical|doctor(?:'s)?|dentist(?:'s)?|therapy|clinic)\s+"
         r"appointment\b",

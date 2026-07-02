@@ -4624,11 +4624,23 @@ def test_query_decomposition_expands_health_profile_queries() -> None:
         expected_terms=("asthma",),
         answer="asthma",
     )
+    blood_type_case = _case(
+        case_id="health-profile-blood-type",
+        question="What is Alex's blood type?",
+        expected_terms=("O negative",),
+        answer="O negative",
+    )
     dentist_case = _case(
         case_id="health-profile-dentist-appointment",
         question="When is Alex's dentist appointment?",
         expected_terms=("Friday",),
         answer="Friday",
+    )
+    blood_drive_case = _case(
+        case_id="health-profile-blood-type-guard",
+        question="What type of blood drive did Alex attend?",
+        expected_terms=("community",),
+        answer="community",
     )
     class_case = _case(
         case_id="health-profile-class-guard",
@@ -4658,10 +4670,14 @@ def test_query_decomposition_expands_health_profile_queries() -> None:
     condition_queries, condition_metadata = rerank_module.decomposed_search_queries(
         condition_case
     )
+    blood_type_queries, blood_type_metadata = rerank_module.decomposed_search_queries(
+        blood_type_case
+    )
     dentist_queries, dentist_metadata = rerank_module.decomposed_search_queries(
         dentist_case
     )
     _, class_metadata = rerank_module.decomposed_search_queries(class_case)
+    _, blood_drive_metadata = rerank_module.decomposed_search_queries(blood_drive_case)
     take_to_class_queries, take_to_class_metadata = rerank_module.decomposed_search_queries(
         take_to_class_case
     )
@@ -4710,6 +4726,16 @@ def test_query_decomposition_expands_health_profile_queries() -> None:
         "health_profile",
     )
 
+    assert blood_type_queries[2] == "alex health blood type doctor physician therapist"
+    assert blood_type_metadata["query_profile"]["relation_categories"] == (
+        "health_profile",
+    )
+    assert blood_type_metadata["query_profile"]["evidence_need"] == (
+        "health_profile",
+    )
+    assert "blood" in blood_type_metadata["query_profile"]["relation_variant_terms"]
+    assert "type" in blood_type_metadata["query_profile"]["relation_variant_terms"]
+
     assert "health_profile" in dentist_metadata["query_profile"][
         "relation_categories"
     ]
@@ -4722,6 +4748,9 @@ def test_query_decomposition_expands_health_profile_queries() -> None:
     assert "dentist appointment" in dentist_queries[0].lower()
 
     assert "health_profile" not in class_metadata["query_profile"][
+        "relation_categories"
+    ]
+    assert "health_profile" not in blood_drive_metadata["query_profile"][
         "relation_categories"
     ]
     assert take_to_class_metadata["query_profile"]["relation_terms"] == ("action",)
@@ -9271,6 +9300,63 @@ def test_benchmark_rerank_boosts_primary_care_physician_evidence() -> None:
     }
     health_diagnostics = diagnostics_by_id["health-profile"]
     topical_diagnostics = diagnostics_by_id["topical-physician"]
+    assert health_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["health_profile"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert health_diagnostics["score_signals"][
+        "benchmark_typed_relation_support_roles"
+    ] == ["health_support"]
+    assert (
+        topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        == 0
+    )
+
+
+def test_benchmark_rerank_boosts_blood_type_health_evidence() -> None:
+    case = _case(
+        case_id="health-profile-blood-type-rerank",
+        question="What is Alex's blood type?",
+        expected_terms=("O negative",),
+        answer="O negative",
+        category=4,
+    )
+    topical_blood = RetrievedMemory(
+        item_id="topical-blood",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex organized a blood drive and picked the outreach type."
+        ),
+        source_refs=("D1:1",),
+    )
+    health_profile = RetrievedMemory(
+        item_id="health-profile",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: My blood type is O negative."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_blood, health_profile),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("health_profile",)
+    assert reranked[0].item_id == "health-profile"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    health_diagnostics = diagnostics_by_id["health-profile"]
+    topical_diagnostics = diagnostics_by_id["topical-blood"]
     assert health_diagnostics["benchmark_candidate_features"][
         "relation_category_hits"
     ] == ["health_profile"]

@@ -283,6 +283,8 @@ RELATION_QUERY_VARIANTS = {
         "appointment",
         "take",
         "taking",
+        "blood",
+        "type",
     ),
     "hobby": (
         "hobbies",
