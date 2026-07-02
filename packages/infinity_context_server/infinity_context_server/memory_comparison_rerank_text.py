@@ -425,6 +425,7 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
         r"\b(?:dietary\s+(?:restriction|restrictions)|"
         r"vegetarian|vegan|gluten[-\s]?free|dairy[-\s]?free)\b|"
         r"\b(?:avoid|avoids|can't|cannot|doesn't|don't)\s+eat\b|"
+        r"\bavoid(?:s|ed)?\s+eating\b|"
         r"\bwhat\s+food\b.+\b(?:avoid|eat)\b",
         text,
         flags=re.IGNORECASE,

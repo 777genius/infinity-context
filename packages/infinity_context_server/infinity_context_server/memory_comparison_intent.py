@@ -1086,6 +1086,7 @@ def _has_diet_profile_intent(
             r"\b(?:dietary\s+(?:restriction|restrictions)|"
             r"vegetarian|vegan|gluten\s?free|dairy\s?free)\b|"
             r"\b(?:avoid|avoids|can t|cannot|doesn t|don t)\s+eat\b|"
+            r"\bavoid(?:s|ed)?\s+eating\b|"
             r"\bwhat\s+food\b.+\b(?:avoid|eat)\b",
             normalized_question,
         )
@@ -1732,11 +1733,16 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "dairy",
                 "dietary",
                 "eat",
+                "egg",
+                "eggs",
                 "food",
                 "gluten",
+                "lactose",
                 "meat",
                 "pork",
                 "restriction",
+                "seafood",
+                "soy",
                 "vegan",
                 "vegetarian",
             }

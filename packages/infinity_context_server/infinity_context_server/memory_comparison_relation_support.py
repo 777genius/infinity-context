@@ -614,9 +614,12 @@ _DIET_PROFILE_SURFACE_RE = re.compile(
     r"(?:a\s+)?(?:vegetarian|vegan)\b"
     r"|\b(?:vegetarian|vegan)\s+(?:diet|now|since|because)\b"
     r"|\b(?:gluten|dairy)[-\s]?free\b"
-    r"|\b(?:avoid|avoids|avoided|can't|cannot|doesn't|don't|do\s+not|"
-    r"does\s+not)\s+eat\s+"
-    r"(?:gluten|dairy|meat|pork|shellfish|peanuts?|tree\s+nuts?)\b"
+    r"|\b(?:avoid|avoids|avoided)\s+(?:eating\s+)?"
+    r"(?:gluten|dairy|meat|pork|seafood|shellfish|eggs?|soy|lactose|"
+    r"peanuts?|tree\s+nuts?)\b"
+    r"|\b(?:can't|cannot|doesn't|don't|do\s+not|does\s+not)\s+eat\s+"
+    r"(?:gluten|dairy|meat|pork|seafood|shellfish|eggs?|soy|lactose|"
+    r"peanuts?|tree\s+nuts?)\b"
     r"|\b(?:dietary\s+)?restriction\s+(?:is|was)\s+"
     r"(?:vegetarian|vegan|gluten|dairy|pork|shellfish|peanuts?)\b",
     re.IGNORECASE,
@@ -631,12 +634,17 @@ def _has_diet_profile_support(
     diet_identity = {"vegetarian", "vegan"} & memory_terms
     restriction_context = {
         "dairy",
+        "egg",
+        "eggs",
         "gluten",
+        "lactose",
         "meat",
         "peanut",
         "peanuts",
         "pork",
+        "seafood",
         "shellfish",
+        "soy",
     } & memory_terms
     restriction_action = {
         "avoid",
