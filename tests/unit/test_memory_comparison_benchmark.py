@@ -3458,11 +3458,12 @@ def test_query_decomposition_expands_open_domain_inference_queries() -> None:
     assert "thank" in personality_metadata["query_profile"]["relation_variant_terms"]
     assert "care" in personality_metadata["query_profile"]["relation_variant_terms"]
     assert "drive" in personality_metadata["query_profile"]["relation_variant_terms"]
-    assert roadtrip_queries[2] == "melanie roadtrip accident son family safe trip"
+    assert roadtrip_queries[2] == "melanie roadtrip trip road weekend past soon"
     assert "roadtrip" in roadtrip_metadata["query_profile"]["relation_terms"]
     assert "travel" in roadtrip_metadata["query_profile"]["relation_variant_terms"]
-    assert "accident" in roadtrip_metadata["query_profile"]["relation_variant_terms"]
-    assert "son" in roadtrip_metadata["query_profile"]["relation_variant_terms"]
+    assert not {"accident", "son", "family", "safe"}.intersection(
+        roadtrip_metadata["query_profile"]["relation_variant_terms"]
+    )
 
 
 def test_query_decomposition_expands_profile_attribute_queries() -> None:
@@ -4761,7 +4762,7 @@ def test_infinity_context_http_search_expands_roadtrip_queries() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         payload = json.loads(request.content)
         seen_payloads.append(payload)
-        if payload["query"] == "melanie roadtrip accident son family safe trip":
+        if payload["query"] == "melanie roadtrip trip road weekend past soon":
             items = [
                 {
                     "item_id": "roadtrip-evidence",
@@ -4808,17 +4809,20 @@ def test_infinity_context_http_search_expands_roadtrip_queries() -> None:
         "Would Melanie go on another roadtrip soon?",
         "Would Melanie go on another roadtrip soon?\n"
         "Search focus: entities: melanie; speakers: melanie:; "
-        "actions: roadtrip, accident, son, family, safe, trip, road, weekend",
-        "melanie roadtrip accident son family safe trip",
+        "actions: roadtrip, trip, road, weekend, past, soon, another, travel",
+        "melanie roadtrip trip road weekend past soon",
     ]
     assert result.memories[0].item_id == "roadtrip-evidence"
     query_profile = result.metadata["query_decomposition"]["query_profile"]
     assert "roadtrip" in query_profile["relation_terms"]
     assert "travel" in query_profile["relation_variant_terms"]
-    assert "accident" in query_profile["relation_variant_terms"]
+    assert not {"accident", "son", "family", "safe"}.intersection(
+        query_profile["relation_variant_terms"]
+    )
     diagnostics = result.memories[0].metadata["diagnostics"]
     assert diagnostics["score_signals"]["benchmark_relation_boost"] > 0
-    assert diagnostics["score_signals"]["benchmark_strong_relation_evidence"] is True
+    assert diagnostics["score_signals"]["benchmark_roadtrip_incident_boost"] > 0
+    assert diagnostics["score_signals"]["benchmark_strong_relation_evidence"] is False
 
 
 def test_infinity_context_http_search_expands_counterfactual_support_queries() -> None:

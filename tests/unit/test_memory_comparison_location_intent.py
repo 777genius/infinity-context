@@ -127,9 +127,9 @@ def test_roadtrip_inference_query_is_not_location_support() -> None:
     assert diagnostics["query_plan"]["selected_roles"] == [
         "original_question",
         "expanded_focus",
-        "compact_relation",
+        "inference_support",
     ]
-    assert queries[2] == "melanie roadtrip accident son family safe trip"
+    assert queries[2] == "melanie roadtrip trip road weekend past soon"
 
 
 def test_future_home_move_goal_query_is_not_location_support() -> None:
@@ -146,7 +146,7 @@ def test_future_home_move_goal_query_is_not_location_support() -> None:
     assert diagnostics["query_plan"]["selected_roles"] == [
         "original_question",
         "expanded_focus",
-        "compact_relation",
+        "inference_support",
     ]
     assert queries[2] == "caroline want move hop hope plan goal"
 

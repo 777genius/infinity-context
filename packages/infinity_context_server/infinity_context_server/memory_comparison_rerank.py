@@ -1755,10 +1755,6 @@ def _relation_query_terms(
     if "roadtrip" in relation_term_set:
         priority_variant_order.extend(
             (
-                "accident",
-                "son",
-                "family",
-                "safe",
                 "trip",
                 "road",
                 "weekend",

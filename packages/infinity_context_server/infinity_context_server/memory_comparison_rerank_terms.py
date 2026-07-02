@@ -532,10 +532,6 @@ RELATION_QUERY_VARIANTS.update(
             "drive",
             "soon",
             "another",
-            "accident",
-            "son",
-            "family",
-            "safe",
         ),
         "school": ("speech", "event", "students", "talk", "presentation"),
         "self-care": (
