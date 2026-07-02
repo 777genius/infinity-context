@@ -273,6 +273,56 @@ def test_query_planner_preserves_location_support_family() -> None:
     assert diagnostics["missing_recommended_role_families"] == []
 
 
+def test_query_planner_prefers_specific_recommended_role_under_type_cap() -> None:
+    plan = QueryPlannerV2(max_queries=3, max_queries_per_type=1).plan(
+        (
+            _candidate(
+                "original_question",
+                "Where did Caroline move from?",
+                priority=0,
+                query_type="semantic",
+            ),
+            _candidate(
+                "expanded_focus",
+                "Where did Caroline move from?\nSearch focus: entities: caroline",
+                priority=10,
+                query_type="semantic",
+            ),
+            _candidate(
+                "compact_relation",
+                "caroline move moved home country relocated came",
+                priority=30,
+            ),
+            _candidate(
+                "location_support",
+                "caroline move moved home country relocated came origin from city",
+                priority=37,
+            ),
+        ),
+        fallback_query="Where did Caroline move from?",
+        recommended_role_families=(
+            "base_query",
+            "relation_compact",
+            "location_support",
+        ),
+    )
+
+    diagnostics = plan.to_diagnostics()
+
+    assert diagnostics["selected_roles"] == [
+        "original_question",
+        "location_support",
+    ]
+    assert diagnostics["dropped_roles"] == [
+        "expanded_focus",
+        "compact_relation",
+    ]
+    assert diagnostics["selected_type_counts"] == {"semantic": 1, "lexical": 1}
+    assert diagnostics["missing_recommended_role_families"] == [
+        "relation_compact"
+    ]
+
+
 def test_query_planner_maps_relation_support_roles_to_compact_family() -> None:
     plan = QueryPlannerV2(max_queries=3).plan(
         (

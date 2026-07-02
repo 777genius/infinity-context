@@ -222,6 +222,15 @@ class QueryPlannerV2:
                 type_counts=type_counts,
                 enforce_type_limit=enforce_type_limit,
             ):
+                replaced = _replace_weaker_type_slot(
+                    selected,
+                    selected_ids=selected_ids,
+                    candidate=candidate,
+                    family=family,
+                )
+                if replaced:
+                    selected_ids.add(id(candidate))
+                    continue
                 delayed_type_limit.append(candidate)
                 continue
             selected.append(candidate)
@@ -293,6 +302,51 @@ def _role_family_selection_priority(family: str) -> int:
         "multi_hop": 4,
         "expanded_focus": 5,
     }.get(family, 5)
+
+
+def _replace_weaker_type_slot(
+    selected: list[QueryPlanCandidate],
+    *,
+    selected_ids: set[int],
+    candidate: QueryPlanCandidate,
+    family: str,
+) -> bool:
+    replacement_priority = _role_family_replacement_priority(family)
+    replacement_index = next(
+        (
+            index
+            for index, selected_candidate in enumerate(selected)
+            if selected_candidate.query_type == candidate.query_type
+            and _candidate_replacement_priority(selected_candidate)
+            > replacement_priority
+        ),
+        None,
+    )
+    if replacement_index is None:
+        return False
+    replaced = selected[replacement_index]
+    selected[replacement_index] = candidate
+    selected_ids.discard(id(replaced))
+    return True
+
+
+def _candidate_replacement_priority(candidate: QueryPlanCandidate) -> int:
+    return min(
+        (_role_family_replacement_priority(family) for family in _role_families(candidate.role)),
+        default=5,
+    )
+
+
+def _role_family_replacement_priority(family: str) -> int:
+    if family == "base_query":
+        return 0
+    if family == "location_support":
+        return 1
+    if family == "relation_compact":
+        return 2
+    if family == "expanded_focus":
+        return 3
+    return 4
 
 
 def _selected_has_role_family(
