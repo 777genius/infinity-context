@@ -388,6 +388,7 @@ class EvidenceBundlePlanner:
                     item,
                     covered_terms=covered_terms,
                     covered_support_terms=covered_support_terms,
+                    selected=selected,
                 )
             )
             item = remaining.pop(0)
@@ -1276,6 +1277,7 @@ def _planned_coverage_sort_key(
     *,
     covered_terms: set[str],
     covered_support_terms: set[str],
+    selected: Sequence[PlannedEvidenceItem] = (),
 ) -> tuple[float, ...]:
     required_gain = len(item.candidate.required_terms.difference(covered_terms))
     support_gain = len(
@@ -1285,8 +1287,48 @@ def _planned_coverage_sort_key(
         _role_order(item),
         -float(required_gain),
         -float(support_gain),
+        *_source_proximity_selection_sort_key(item, selected),
         *_candidate_sort_key(item.candidate),
     )
+
+
+def _source_proximity_selection_sort_key(
+    item: PlannedEvidenceItem,
+    selected: Sequence[PlannedEvidenceItem],
+) -> tuple[float, float]:
+    if item.role == "primary":
+        return (1.0, float("inf"))
+    primary_turn_refs = tuple(
+        turn_ref
+        for selected_item in selected
+        if selected_item.role == "primary"
+        for turn_ref in _candidate_turn_refs(selected_item.candidate)
+    )
+    if not primary_turn_refs:
+        return (1.0, float("inf"))
+    closest_distance = _closest_turn_ref_distance(
+        item.candidate,
+        primary_turn_refs=primary_turn_refs,
+    )
+    if closest_distance is None or closest_distance > _SOURCE_PROXIMITY_WINDOW:
+        return (1.0, float("inf"))
+    return (0.0, float(closest_distance))
+
+
+def _closest_turn_ref_distance(
+    candidate: EvidenceBundleCandidate,
+    *,
+    primary_turn_refs: Sequence[tuple[int, int]],
+) -> int | None:
+    distances = [
+        abs(primary_turn - candidate_turn)
+        for primary_dialogue, primary_turn in primary_turn_refs
+        for candidate_dialogue, candidate_turn in _candidate_turn_refs(candidate)
+        if primary_dialogue == candidate_dialogue
+    ]
+    if not distances:
+        return None
+    return min(distances)
 
 
 def _max_item_drop_counts(

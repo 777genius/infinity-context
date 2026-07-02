@@ -1539,6 +1539,49 @@ def test_evidence_bundle_planner_scores_source_proximity_support() -> None:
     assert "has_source_proximity_support" in quality["reason_codes"]
 
 
+def test_evidence_bundle_planner_prefers_nearby_support_after_primary() -> None:
+    primary = _candidate(
+        item_id="primary",
+        retrieval_order=1,
+        dedupe_key="refs:D4:10",
+        covered_evidence_terms=("plan",),
+        primary_signal=True,
+        source_refs=("D4:10",),
+        focused_evidence_score=1.0,
+        direct_speaker_turn=True,
+        answerability_score=0.9,
+    )
+    far_support = _candidate(
+        item_id="far-support",
+        retrieval_order=2,
+        dedupe_key="refs:D4:28",
+        query_support_terms=("origin", "country"),
+        source_refs=("D4:28",),
+        answerability_score=0.82,
+    )
+    near_support = _candidate(
+        item_id="near-support",
+        retrieval_order=3,
+        dedupe_key="refs:D4:12",
+        query_support_terms=("origin", "country"),
+        source_refs=("D4:12",),
+        answerability_score=0.82,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, far_support, near_support),
+        case_group="single",
+    )
+
+    assert [item.candidate.item_id for item in plan.items] == [
+        "primary",
+        "near-support",
+    ]
+    quality = plan.to_diagnostics()["bundle_quality"]
+    assert quality["source_proximity_support_count"] == 1
+    assert quality["component_scores"]["source_proximity"] == 0.03
+
+
 def _candidate(
     *,
     item_id: str,
