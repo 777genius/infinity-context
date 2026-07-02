@@ -478,6 +478,8 @@ def test_evidence_bundle_planner_requires_matching_temporal_evidence_type() -> N
         time_intent_kind="duration",
         has_duration_surface=True,
         query_support_terms=("4", "years"),
+        source_locality_score=0.9,
+        answerability_score=0.8,
     )
 
     incomplete = EvidenceBundlePlanner().plan(
@@ -497,6 +499,50 @@ def test_evidence_bundle_planner_requires_matching_temporal_evidence_type() -> N
     assert incomplete.role_requirement_complete is False
     assert complete.satisfied_required_roles == ("primary", "temporal_support")
     assert complete.missing_required_roles == ()
+
+
+def test_evidence_bundle_planner_rejects_weak_temporal_role_completion() -> None:
+    primary = _candidate(
+        item_id="primary",
+        covered_expected_terms=("current friends",),
+        primary_signal=True,
+    )
+    broad_duration = _candidate(
+        item_id="broad-duration-summary",
+        dedupe_key="refs:D2:1|D2:2|D2:3",
+        time_intent_kind="duration",
+        has_duration_surface=True,
+        query_support_terms=("4", "years"),
+        broad_summary=True,
+        source_locality_score=0.9,
+        answerability_score=0.86,
+    )
+    grounded_duration = _candidate(
+        item_id="grounded-duration-turn",
+        dedupe_key="refs:D2:2",
+        time_intent_kind="duration",
+        has_duration_surface=True,
+        query_support_terms=("4", "years"),
+        direct_speaker_turn=True,
+        source_locality_score=1.0,
+        answerability_score=0.9,
+    )
+
+    weak = EvidenceBundlePlanner().plan(
+        (primary, broad_duration),
+        case_group="temporal",
+        required_roles=("primary", "temporal_support"),
+    )
+    grounded = EvidenceBundlePlanner().plan(
+        (primary, broad_duration, grounded_duration),
+        case_group="temporal",
+        required_roles=("primary", "temporal_support"),
+    )
+
+    assert weak.satisfied_required_roles == ("primary",)
+    assert weak.missing_required_roles == ("temporal_support",)
+    assert grounded.satisfied_required_roles == ("primary", "temporal_support")
+    assert grounded.missing_required_roles == ()
 
 
 def test_evidence_bundle_planner_repairs_missing_required_role_selection() -> None:

@@ -745,6 +745,57 @@ def test_evidence_bundle_keeps_duration_temporal_role_missing_without_duration_e
     ]
 
 
+def test_evidence_bundle_keeps_duration_temporal_role_missing_for_broad_summary() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:duration-broad-summary",
+        question="How long has Caroline had her current group of friends for?",
+        expected_terms=("4 years",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={"category": 2},
+    )
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text=(
+                    "Conversation summary: D1:1 D1:2 D1:3 Caroline has had "
+                    "her current group of friends for 4 years."
+                ),
+                rank=1,
+                item_id="broad-duration-summary",
+                source_refs=("D1:1", "D1:2", "D1:3"),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.9,
+                            "source_locality_score": 0.9,
+                            "entity_hits": ["caroline"],
+                            "speaker_hits": ["caroline"],
+                            "relation_hits": ["current", "friend"],
+                            "has_duration_surface": True,
+                            "time_intent_kind": "duration",
+                            "source_type": "generated_summary",
+                        }
+                    }
+                },
+            ),
+        ),
+    )
+
+    assert bundle["satisfied_required_roles"] == ["primary"]
+    assert bundle["missing_required_roles"] == [
+        "temporal_support",
+        "inference_support",
+    ]
+    assert bundle["role_requirement_complete"] is False
+    assert bundle["bundle_complete"] is False
+    quality = bundle["bundle_planner"]["bundle_quality"]
+    assert quality["broad_summary_count"] == 1
+    assert "risk:broad_summary" in quality["reason_codes"]
+
+
 def test_evidence_bundle_rejects_ungrounded_query_role_candidate() -> None:
     case = PublicBenchmarkCase(
         benchmark="locomo",

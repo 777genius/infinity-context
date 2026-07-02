@@ -864,6 +864,8 @@ def _replacement_role_order(item: PlannedEvidenceItem) -> float:
 
 
 def _candidate_has_temporal_support(candidate: EvidenceBundleCandidate) -> bool:
+    if not _candidate_has_temporal_grounding(candidate):
+        return False
     time_kind = str(candidate.time_intent_kind or "").strip()
     if time_kind == "duration":
         return candidate.has_duration_surface
@@ -885,6 +887,27 @@ def _candidate_has_temporal_support(candidate: EvidenceBundleCandidate) -> bool:
         or candidate.has_explicit_time_surface
         or candidate.has_temporal_sequence_surface
         or candidate.currentness_surface
+    )
+
+
+def _candidate_has_temporal_grounding(candidate: EvidenceBundleCandidate) -> bool:
+    if candidate.broad_summary or candidate.conflict_or_stale:
+        return False
+    if candidate.source_locality_score < 0.45 and candidate.focused_evidence_score <= 0:
+        return False
+    if candidate.answerability_score and candidate.answerability_score < 0.55:
+        return False
+    if candidate.query_has_entities and not (
+        candidate.entity_hits or candidate.speaker_hits
+    ):
+        return False
+    return bool(
+        candidate.entity_hits
+        or candidate.speaker_hits
+        or candidate.relation_hits
+        or candidate.query_support_terms
+        or candidate.direct_speaker_turn
+        or candidate.focused_evidence_score > 0
     )
 
 

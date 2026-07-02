@@ -171,6 +171,8 @@ def bundle_has_temporal_support(bundle: Mapping[str, object]) -> bool:
 
 
 def _bundle_item_has_temporal_support(item: Mapping[str, object]) -> bool:
+    if not _passes_support_quality(item):
+        return False
     time_kind = str(item.get("time_intent_kind") or "").strip()
     reasons = _str_tuple(item.get("planner_reason_codes"))
     has_temporal = bool(
@@ -538,7 +540,13 @@ def _passes_person_grounding(
 
 
 def _passes_support_quality(item: Mapping[str, object]) -> bool:
-    if item.get("broad_summary") is True or item.get("conflict_or_stale") is True:
+    reasons = set(_str_tuple(item.get("planner_reason_codes")))
+    if (
+        item.get("broad_summary") is True
+        or item.get("conflict_or_stale") is True
+        or "broad_summary" in reasons
+        or "conflict_or_stale" in reasons
+    ):
         return False
     source_locality_score = _float_value(item.get("source_locality_score"))
     if source_locality_score is not None and source_locality_score < 0.45:
