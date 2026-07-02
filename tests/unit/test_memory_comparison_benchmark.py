@@ -2991,8 +2991,8 @@ def test_infinity_context_http_search_decomposes_temporal_session_queries() -> N
         "What did Morgan do after Friday?",
         "What did Morgan do after Friday?\n"
         "Search focus: entities: morgan; speakers: morgan:; "
-        "temporal: after, friday, session, date, time, last, today, yesterday",
-        "morgan after friday session date time last today",
+        "temporal: after, friday, session, date, time",
+        "morgan after friday session date time",
     ]
     assert result.memories[0].item_id == "session-evidence"
     query_profile = result.metadata["query_decomposition"]["query_profile"]
@@ -3051,8 +3051,13 @@ def test_infinity_context_http_search_boosts_relative_temporal_text() -> None:
     assert [payload["query"] for payload in seen_payloads] == [
         "When did Morgan visit the studio?",
         "morgan visit visited studio place trip event",
-        "morgan when session date time last today yesterday",
+        "morgan when session date time",
     ]
+    query_diagnostics = query_integrity_diagnostics(
+        case,
+        result,
+    )
+    assert query_diagnostics["expected_answer_query_overlap_terms"] == []
     assert result.memories[0].item_id == "relative-temporal-evidence"
     diagnostics = result.memories[0].metadata["diagnostics"]
     assert "participation_event" in diagnostics["benchmark_candidate_features"][
@@ -3441,7 +3446,7 @@ def test_query_decomposition_expands_open_domain_inference_queries() -> None:
         roadtrip_case
     )
 
-    assert writing_queries[2] == "caroline write career looking books book support"
+    assert writing_queries[2] == "caroline write career looking work jobs job"
     assert "write" in writing_metadata["query_profile"]["relation_terms"]
     assert "career" in writing_metadata["query_profile"]["relation_terms"]
     assert "writing" in writing_metadata["query_profile"]["relation_variant_terms"]
@@ -4188,7 +4193,7 @@ def test_infinity_context_http_search_expands_temporal_action_queries() -> None:
     assert [payload["query"] for payload in seen_payloads] == [
         "When did Melanie sign up for a pottery class?",
         "melanie sign signed signup class pottery registered",
-        "melanie when session date time last today yesterday",
+        "melanie when session date time",
     ]
     assert result.memories[0].item_id == "pottery-date"
     query_profile = result.metadata["query_decomposition"]["query_profile"]
@@ -4315,7 +4320,7 @@ def test_infinity_context_http_search_expands_current_friend_duration_queries() 
     assert [payload["query"] for payload in seen_payloads] == [
         "How long has Caroline had her current group of friends for?",
         "caroline current group friend known year been",
-        "caroline how long session date time last today yesterday",
+        "caroline how long session date time",
     ]
     assert result.memories[0].item_id == "known-friends-duration"
     query_profile = result.metadata["query_decomposition"]["query_profile"]
@@ -4389,7 +4394,7 @@ def test_infinity_context_http_search_expands_contrast_support_queries() -> None
         "How is Caroline's current career path different from before?\n"
         "Search focus: entities: caroline; speakers: caroline:; "
         "actions: current, career, path, different, known, year, been, exist; "
-        "temporal: before, session, date, time, last, today, yesterday, tomorrow",
+        "temporal: before, session, date, time",
         "caroline current career path different known year",
         contrast_query,
     ]
@@ -4821,7 +4826,7 @@ def test_infinity_context_http_search_expands_realize_after_race_queries() -> No
     assert [payload["query"] for payload in seen_payloads] == [
         "What did Melanie realize after the charity race?",
         "melanie realize lesson reflection thought event journey",
-        "melanie after session date time last today yesterday",
+        "melanie after session date time",
     ]
     assert result.memories[0].item_id == "self-care-realization"
     query_profile = result.metadata["query_decomposition"]["query_profile"]
@@ -5554,7 +5559,7 @@ def test_query_decomposition_reports_registration_event_intent() -> None:
     assert register_queries == (
         "When did Melanie register for a class?",
         "melanie registered signed signup class registration",
-        "melanie when session date time last today yesterday",
+        "melanie when session date time",
     )
     register_profile = register_metadata["query_profile"]
     assert register_profile["relation_terms"] == ("register",)
@@ -5569,7 +5574,6 @@ def test_query_decomposition_reports_registration_event_intent() -> None:
         "class",
         "course",
         "lesson",
-        "workshop",
     )
     assert register_metadata["retrieval_intent"]["relations"]["intents"][0][
         "evidence_need"
@@ -5591,7 +5595,20 @@ def test_query_decomposition_reports_registration_event_intent() -> None:
     assert "registration_event" in enroll_profile["evidence_need"]
     assert "event_support" in enroll_profile["bundle_evidence_roles"]
     assert "register" in enroll_profile["relation_variant_terms"]
-    assert "workshop" in enroll_profile["relation_variant_terms"]
+    assert "workshop" not in enroll_profile["relation_variant_terms"]
+    enroll_query_diagnostics = query_integrity_diagnostics(
+        enroll_case,
+        BackendSearchResult(
+            query=enroll_case.question,
+            memories=(),
+            metadata={"query_decomposition": enroll_metadata},
+        ),
+    )
+    assert enroll_query_diagnostics["expected_answer_query_overlap_terms"] == []
+    assert (
+        enroll_query_diagnostics["expected_answer_retrieval_intent_overlap_terms"]
+        == []
+    )
 
 
 def test_benchmark_rerank_boosts_registration_event_evidence() -> None:
@@ -5673,7 +5690,7 @@ def test_query_decomposition_reports_participation_event_intent() -> None:
     assert visit_queries == (
         "When did Morgan visit the studio?",
         "morgan visit visited studio place trip event",
-        "morgan when session date time last today yesterday",
+        "morgan when session date time",
     )
     visit_profile = visit_metadata["query_profile"]
     assert visit_profile["relation_terms"] == ("visit",)
@@ -6409,9 +6426,18 @@ def test_benchmark_rerank_prefers_focused_writing_affinity_turn() -> None:
         "writing-affinity",
         "generic-career",
     ]
+    query_diagnostics = query_integrity_diagnostics(
+        case,
+        BackendSearchResult(
+            query=case.question,
+            memories=(),
+            metadata={"query_decomposition": metadata},
+        ),
+    )
+    assert query_diagnostics["expected_answer_query_overlap_terms"] == []
     signals = reranked[0].metadata["diagnostics"]["score_signals"]
     assert signals["benchmark_writing_affinity_boost"] > 0
-    assert signals["benchmark_focused_turn_boost"] > 0
+    assert "support_goal_evidence" in signals["benchmark_answerability_reason_codes"]
 
 
 def test_benchmark_rerank_prefers_support_motivation_turn() -> None:
@@ -7000,7 +7026,7 @@ def test_infinity_context_http_search_expands_person_alias_and_duration() -> Non
     assert [payload["query"] for payload in seen_payloads] == [
         "How long have Mel and her husband been married?",
         "mel melanie wed year already bride dress married",
-        "mel melanie how long session date time last today yesterday",
+        "mel melanie how long session date time",
     ]
     assert result.memories[0].item_id == "melanie-married"
     query_profile = result.metadata["query_decomposition"]["query_profile"]

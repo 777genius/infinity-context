@@ -94,7 +94,6 @@ RELATION_QUERY_VARIANTS = {
         "class",
         "course",
         "lesson",
-        "workshop",
     ),
     "excite": ("excited", "looking forward", "enthusiastic", "thrilled"),
     "feel": (
@@ -252,7 +251,6 @@ RELATION_QUERY_VARIANTS = {
         "class",
         "course",
         "lesson",
-        "workshop",
     ),
     "read": ("reading", "books", "book", "bookshelf"),
     "religious": (
@@ -562,8 +560,6 @@ RELATION_QUERY_VARIANTS.update(
         "write": (
             "writing",
             "author",
-            "book",
-            "read",
             "draft",
             "story",
             "jobs",

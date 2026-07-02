@@ -906,7 +906,6 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "registration",
                 "signed",
                 "signup",
-                "workshop",
             }
         ),
         "markers": frozenset(),

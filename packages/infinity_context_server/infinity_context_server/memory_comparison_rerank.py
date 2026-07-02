@@ -1632,19 +1632,16 @@ def _relation_query_terms(
         priority_variant_order.extend(
             (
                 "looking",
-                "books",
-                "book",
-                "support",
-                "similar",
-                "issue",
+                "work",
+                "working",
                 "jobs",
                 "job",
                 "option",
-                "draft",
-                "story",
+                "path",
+                "support",
             )
         )
-        priority_surface_terms.update(("looking", "books"))
+        priority_surface_terms.add("looking")
     if {"enjoy", "song"}.issubset(relation_term_set):
         priority_variant_order.extend(
             ("fan", "piece", "composer", "instrumental", "orchestra", "like")
@@ -1780,7 +1777,6 @@ def _relation_query_terms(
                 "enrolled",
                 "course",
                 "lesson",
-                "workshop",
             )
         )
         priority_surface_terms.update(("signed", "registered", "enrolled"))
@@ -2090,7 +2086,6 @@ def _temporal_search_terms(
                 "session",
                 "date",
                 "time",
-                *_RELATIVE_TEMPORAL_QUERY_SURFACES,
             )
         )
     )

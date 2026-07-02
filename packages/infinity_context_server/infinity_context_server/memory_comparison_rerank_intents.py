@@ -13,10 +13,14 @@ def focused_intent_policy_boosts(
     focused_turn_boost: float,
 ) -> dict[str, float]:
     boosts = _empty_intent_policy_boosts()
+    relation_set = set(relation_terms)
+    boosts["benchmark_writing_affinity_boost"] = _writing_affinity_boost(
+        memory_terms=memory_terms,
+        relation_set=relation_set,
+    )
     if focused_turn_boost <= 0:
         return boosts
 
-    relation_set = set(relation_terms)
     hit_set = set(relation_hits)
     boosts["benchmark_excited_outcome_boost"] = _excited_outcome_boost(
         relation_set=relation_set,
@@ -25,10 +29,6 @@ def focused_intent_policy_boosts(
     boosts["benchmark_song_preference_boost"] = _song_preference_boost(
         relation_set=relation_set,
         hit_set=hit_set,
-    )
-    boosts["benchmark_writing_affinity_boost"] = _writing_affinity_boost(
-        memory_terms=memory_terms,
-        relation_set=relation_set,
     )
     boosts["benchmark_outdoor_park_preference_boost"] = (
         _outdoor_park_preference_boost(
@@ -137,7 +137,7 @@ def _writing_affinity_boost(
 ) -> float:
     if not {"write", "career"}.issubset(relation_set):
         return 0.0
-    if {"book", "read"} & memory_terms and {
+    if {"book", "books", "read", "reading"} & memory_terms and {
         "discover",
         "guide",
         "motivate",

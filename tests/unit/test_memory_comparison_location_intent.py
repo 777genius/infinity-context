@@ -100,7 +100,7 @@ def test_location_temporal_decomposition_preserves_time_and_location_support() -
         "Where did Caroline move from 4 years ago?",
         "caroline move moved home country 4 year ago",
         "caroline move moved home country relocated came origin from city",
-        "caroline ago year session date time last today",
+        "caroline ago year session date time",
     )
     assert diagnostics["query_plan"]["selected_roles"] == [
         "original_question",
