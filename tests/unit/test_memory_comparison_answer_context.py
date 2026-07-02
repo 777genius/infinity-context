@@ -891,6 +891,76 @@ def test_answer_context_backfill_requires_content_time_for_temporal_role_hit() -
     )
 
 
+def test_answer_context_backfill_requires_visual_and_time_for_visual_temporal_role() -> None:
+    memories = (
+        RetrievedMemory(text="primary", rank=1, item_id="primary"),
+        RetrievedMemory(
+            text="D1:1 Alex sent Maria a photo from the appointment.",
+            rank=2,
+            item_id="visual-only",
+            source_refs=("D1:1",),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "answerability_score": 0.9,
+                        "source_locality_score": 0.9,
+                        "entity_hits": ["alex"],
+                        "speaker_hits": ["alex"],
+                        "relation_hits": ["photo"],
+                        "query_roles": ["visual_temporal_support"],
+                        "has_visual_evidence": True,
+                        "time_intent_kind": "explicit_time",
+                    }
+                }
+            },
+        ),
+        RetrievedMemory(
+            text="D2:3 Alex: I sent Maria the photo on Friday afternoon.",
+            rank=3,
+            item_id="visual-time",
+            source_refs=("D2:3",),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "answerability_score": 0.82,
+                        "source_locality_score": 0.9,
+                        "entity_hits": ["alex"],
+                        "speaker_hits": ["alex"],
+                        "relation_hits": ["photo"],
+                        "query_roles": ["visual_temporal_support"],
+                        "has_visual_evidence": True,
+                        "has_explicit_time_content_surface": True,
+                        "time_intent_kind": "explicit_time",
+                    }
+                }
+            },
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "role_requirement_complete": False,
+            "missing_required_roles": ["visual_temporal_support"],
+            "items": [{"id": "primary", "retrieval_order": 1, "role": "primary"}],
+        },
+        cutoff=3,
+    )
+
+    assert [memory.item_id for memory in context.memories] == [
+        "primary",
+        "visual-time",
+        "visual-only",
+    ]
+    assert context.memories[1].metadata[
+        "answer_context_backfill_missing_role_hits"
+    ] == ("visual_temporal_support",)
+    assert (
+        "answer_context_backfill_missing_role_hits"
+        not in context.memories[2].metadata
+    )
+
+
 def test_answer_context_falls_back_for_empty_bundle() -> None:
     memories = (
         RetrievedMemory(text="first", rank=1, item_id="first"),

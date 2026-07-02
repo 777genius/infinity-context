@@ -236,6 +236,7 @@ _TEMPORAL_ROLE_KEYS = frozenset(
         "explicit_temporal",
         "relative_temporal",
         "temporal_sequence",
+        "visual_temporal",
     }
 )
 
@@ -246,6 +247,22 @@ def _has_temporal_features(
     role_key: str,
 ) -> bool:
     time_kind = str(features.get("time_intent_kind") or "").strip()
+    if role_key == "visual_temporal":
+        return bool(
+            features.get("has_visual_evidence") is True
+            and any(
+                features.get(key) is True
+                for key in (
+                    "has_temporal_surface",
+                    "has_sequence_surface",
+                    "has_duration_surface",
+                    "has_relative_time_surface",
+                    "has_explicit_time_content_surface",
+                    "has_temporal_sequence_surface",
+                    "currentness_surface",
+                )
+            )
+        )
     if role_key == "duration_temporal" or time_kind == "duration":
         return features.get("has_duration_surface") is True
     if role_key == "explicit_temporal" or time_kind == "explicit_time":
