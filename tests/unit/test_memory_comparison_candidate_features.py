@@ -110,6 +110,12 @@ def test_candidate_features_capture_focused_direct_turn_and_provenance() -> None
             {"because", "support"},
         ),
         (
+            "contrast",
+            ("different",),
+            ("before", "current", "now", "previous"),
+            {"before", "now"},
+        ),
+        (
             "registration_event",
             ("register",),
             ("signed", "class", "course", "workshop"),

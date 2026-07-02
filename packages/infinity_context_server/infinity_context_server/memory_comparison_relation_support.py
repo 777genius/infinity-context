@@ -368,6 +368,45 @@ def _has_preference_support(memory_terms: set[str]) -> bool:
     )
 
 
+def _has_contrast_support(memory_terms: set[str]) -> bool:
+    current_surface = {
+        "current",
+        "currently",
+        "now",
+        "ongoing",
+        "present",
+        "still",
+        "today",
+    } & memory_terms
+    stale_surface = {
+        "before",
+        "changed",
+        "earlier",
+        "former",
+        "formerly",
+        "past",
+        "previous",
+        "previously",
+        "used",
+    } & memory_terms
+    contrast_surface = {
+        "alternative",
+        "but",
+        "compare",
+        "different",
+        "difference",
+        "however",
+        "instead",
+        "rather",
+        "whereas",
+    } & memory_terms
+    return bool(
+        (current_surface and stale_surface)
+        or (contrast_surface and current_surface and stale_surface)
+        or (contrast_surface and {"before", "earlier", "previous", "used"} & memory_terms)
+    )
+
+
 def _has_activity_support(memory_terms: set[str]) -> bool:
     concrete_activity = {
         "camp",
@@ -533,6 +572,7 @@ _TYPED_SUPPORT_CHECKS: dict[str, Callable[[set[str]], bool]] = {
     "activity": _has_activity_support,
     "causal": _has_causal_support,
     "communication": _has_communication_support,
+    "contrast": _has_contrast_support,
     "current_goal": _has_current_goal_support,
     "emotion_response": _has_emotion_response_support,
     "exchange": _has_exchange_support,

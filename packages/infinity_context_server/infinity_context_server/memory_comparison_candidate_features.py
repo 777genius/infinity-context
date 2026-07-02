@@ -647,6 +647,7 @@ def _intent_answerability(
         reasons.append("visual_evidence" if has_visual_evidence else "missing_visual_evidence")
     for category in (
         "causal",
+        "contrast",
         "registration_event",
         "symbolic_meaning",
         "participation_event",
