@@ -366,6 +366,38 @@ def test_answer_context_matches_source_turn_dedupe_key_without_retrieval_order()
     assert context.to_diagnostics()["source_ref_item_count"] == 1
 
 
+def test_answer_context_matches_partial_multi_turn_source_identity() -> None:
+    memories = (
+        RetrievedMemory(text="noise", rank=1),
+        RetrievedMemory(
+            text="D2:8 Caroline: I wrote the note after the meeting.",
+            rank=2,
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "items": [
+                {
+                    "role": "primary",
+                    "source_ref_dedupe_key": "source_turn_refs:D2:8|D2:9",
+                }
+            ]
+        },
+        cutoff=2,
+    )
+
+    assert [memory.text for memory in context.memories] == [
+        "D2:8 Caroline: I wrote the note after the meeting."
+    ]
+    assert context.memories[0].source_refs == (
+        "source_turn_refs:D2:8",
+        "source_turn_refs:D2:9",
+    )
+    assert context.memories[0].metadata["answer_context_retrieval_order"] == 2
+
+
 def test_answer_context_backfill_carries_text_turn_source_identity() -> None:
     memories = (
         RetrievedMemory(text="primary", rank=1, item_id="primary"),

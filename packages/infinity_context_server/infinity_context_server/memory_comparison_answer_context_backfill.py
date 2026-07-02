@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping, Sequence
 
 from infinity_context_server.memory_comparison_candidate_risks import (
@@ -13,11 +12,16 @@ from infinity_context_server.memory_comparison_candidate_risks import (
     memory_has_conflict_or_stale,
 )
 from infinity_context_server.memory_comparison_models import RetrievedMemory
+from infinity_context_server.memory_comparison_source_identity import (
+    source_identity_refs_from_dedupe_key as _source_identity_refs_from_dedupe_key,
+)
+from infinity_context_server.memory_comparison_source_identity import (
+    source_identity_refs_from_text as _source_identity_refs_from_text,
+)
 
 _INCOMPLETE_BUNDLE_BACKFILL_MIN_ITEMS = 6
 _INCOMPLETE_BUNDLE_BACKFILL_MAX_ITEMS = 12
 _INCOMPLETE_BUNDLE_BACKFILL_ITEMS_PER_MISSING_ROLE = 2
-_TURN_REF_RE = re.compile(r"\bD\d+:\d+\b")
 
 
 def backfill_incomplete_bundle_context(
@@ -311,26 +315,6 @@ def _memory_source_refs(memory: RetrievedMemory) -> tuple[str, ...]:
             )
         )
     )
-
-
-def _source_identity_refs_from_dedupe_key(value: object) -> tuple[str, ...]:
-    key = str(value or "").strip()
-    if key.startswith(("source_refs:", "source_turn_refs:", "refs:")):
-        return (key,)
-    return ()
-
-
-def _source_identity_refs_from_text(
-    text: str,
-    *,
-    source_refs: Sequence[str],
-) -> tuple[str, ...]:
-    if source_refs:
-        return ()
-    turn_refs = tuple(dict.fromkeys(_TURN_REF_RE.findall(text or "")))
-    if not 0 < len(turn_refs) <= 3:
-        return ()
-    return ("source_turn_refs:" + "|".join(sorted(turn_refs)),)
 
 
 def _metric_value(item: Mapping[str, object], key: str) -> float:

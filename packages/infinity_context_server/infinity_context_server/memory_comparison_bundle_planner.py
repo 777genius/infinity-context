@@ -7,6 +7,10 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
+from infinity_context_server.memory_comparison_source_identity import (
+    source_identity_refs_from_dedupe_key as _source_identity_refs_from_dedupe_key,
+)
+
 BundleRole = str
 _TURN_REF_RE = re.compile(r"\bD\d+:\d+\b")
 _TURN_REF_PARTS_RE = re.compile(r"\bD(?P<dialogue>\d+):(?P<turn>\d+)\b")
@@ -1667,13 +1671,6 @@ def _source_identity_refs(candidate: EvidenceBundleCandidate) -> tuple[str, ...]
             )
         )
     )
-
-
-def _source_identity_refs_from_dedupe_key(value: object) -> tuple[str, ...]:
-    key = str(value or "").strip()
-    if key.startswith(("source_refs:", "source_turn_refs:", "refs:")):
-        return (key,)
-    return ()
 
 
 def _candidate_turn_refs(candidate: EvidenceBundleCandidate) -> tuple[tuple[int, int], ...]:

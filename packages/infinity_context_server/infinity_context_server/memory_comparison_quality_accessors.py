@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
-import re
 from collections import Counter
 from collections.abc import Mapping, Sequence
 
 from infinity_context_server.memory_comparison_candidate_risks import (
     payload_candidate_features,
 )
-
-_TURN_REF_RE = re.compile(r"\bD\d+:\d+\b")
+from infinity_context_server.memory_comparison_source_identity import (
+    source_identity_refs_from_dedupe_key as _source_identity_refs_from_dedupe_key,
+)
+from infinity_context_server.memory_comparison_source_identity import (
+    source_identity_refs_from_text as _source_identity_refs_from_text,
+)
 
 
 def retrieval_results(
@@ -227,26 +230,6 @@ def str_tuple(value: object) -> tuple[str, ...]:
         stripped = value.strip()
         return (stripped,) if stripped else ()
     return tuple(str(item) for item in sequence(value) if str(item).strip())
-
-
-def _source_identity_refs_from_dedupe_key(value: object) -> tuple[str, ...]:
-    key = str(value or "").strip()
-    if key.startswith(("source_refs:", "source_turn_refs:", "refs:")):
-        return (key,)
-    return ()
-
-
-def _source_identity_refs_from_text(
-    text: str,
-    *,
-    source_refs: Sequence[str],
-) -> tuple[str, ...]:
-    if source_refs:
-        return ()
-    turn_refs = tuple(dict.fromkeys(_TURN_REF_RE.findall(text or "")))
-    if not 0 < len(turn_refs) <= 3:
-        return ()
-    return ("source_turn_refs:" + "|".join(sorted(turn_refs)),)
 
 
 def count_mapping(value: object) -> dict[str, int]:

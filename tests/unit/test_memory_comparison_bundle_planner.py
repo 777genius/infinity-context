@@ -1961,6 +1961,37 @@ def test_evidence_bundle_planner_uses_dedupe_turn_refs_for_proximity() -> None:
     )
 
 
+def test_evidence_bundle_quality_counts_multi_ref_source_identity() -> None:
+    primary = _candidate(
+        item_id="primary",
+        retrieval_order=1,
+        dedupe_key="source_turn_refs:D4:10|D4:11",
+        covered_evidence_terms=("plan",),
+        primary_signal=True,
+        focused_evidence_score=1.0,
+        direct_speaker_turn=True,
+        answerability_score=0.9,
+    )
+    support = _candidate(
+        item_id="support",
+        retrieval_order=2,
+        dedupe_key="refs:D4:12|chunk-8",
+        query_support_terms=("origin", "country"),
+        answerability_score=0.82,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, support),
+        case_group="single",
+    )
+
+    quality = plan.to_diagnostics()["bundle_quality"]
+    assert quality["source_ref_item_count"] == 0
+    assert quality["source_identity_item_count"] == 2
+    assert quality["source_identity_ref_count"] == 4
+    assert quality["source_proximity_support_count"] == 1
+
+
 def _candidate(
     *,
     item_id: str,
