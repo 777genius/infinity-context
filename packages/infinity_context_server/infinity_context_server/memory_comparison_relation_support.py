@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 
 
 def typed_relation_category_support(
     category: str,
     memory_terms: set[str],
+    *,
+    memory_text: str = "",
 ) -> bool | None:
     """Return typed support status for known categories, or None if generic."""
 
+    if category == "location_transition":
+        return _has_location_transition_support(memory_terms, memory_text=memory_text)
     check = _TYPED_SUPPORT_CHECKS.get(category)
     if check is None:
         return None
@@ -277,7 +282,18 @@ def _has_status_profile_support(memory_terms: set[str]) -> bool:
     return bool(explicit_status or direct_relation)
 
 
-def _has_location_transition_support(memory_terms: set[str]) -> bool:
+_LOCATION_TRANSITION_SURFACE_RE = re.compile(
+    r"\b(?:move|moved|moving|relocate|relocated|relocating)\s+"
+    r"(?:back\s+)?(?:from|to|into|out\s+of)\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|the\s+[a-zA-Z][a-zA-Z0-9_-]+)",
+)
+
+
+def _has_location_transition_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
     movement_action = {
         "move",
         "moved",
@@ -304,7 +320,11 @@ def _has_location_transition_support(memory_terms: set[str]) -> bool:
         "place",
         "road",
     } & memory_terms
-    return bool((movement_action and origin_context) or (travel_surface and travel_context))
+    return bool(
+        (movement_action and origin_context)
+        or (movement_action and _LOCATION_TRANSITION_SURFACE_RE.search(memory_text))
+        or (travel_surface and travel_context)
+    )
 
 
 def _has_preference_support(memory_terms: set[str]) -> bool:
@@ -575,7 +595,6 @@ _TYPED_SUPPORT_CHECKS: dict[str, Callable[[set[str]], bool]] = {
     "emotion_response": _has_emotion_response_support,
     "exchange": _has_exchange_support,
     "identity_profile": _has_identity_profile_support,
-    "location_transition": _has_location_transition_support,
     "participation_event": _has_participation_event_support,
     "preference": _has_preference_support,
     "registration_event": _has_registration_event_support,

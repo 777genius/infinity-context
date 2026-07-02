@@ -224,15 +224,16 @@ def build_candidate_evidence_features(
             if term in memory_terms
         )
     )
+    text = memory.text or ""
     relation_category_hits = _relation_category_hits(
         memory_terms,
         relation_category_terms or {},
         query_terms=query_terms,
+        memory_text=text,
     )
     high_signal_hit_count = sum(
         1 for term in relation_hits if term in high_signal_relation_terms
     )
-    text = memory.text or ""
     contrast_features = _contrast_features(text)
     temporal_features = _temporal_evidence_features(text)
     source_refs = tuple(str(ref) for ref in memory.source_refs if str(ref).strip())
@@ -416,12 +417,17 @@ def _relation_category_hits(
     relation_category_terms: Mapping[str, Sequence[str]],
     *,
     query_terms: Sequence[str],
+    memory_text: str = "",
 ) -> tuple[str, ...]:
     hits: list[str] = []
     query_term_set = set(query_terms)
     for category, terms in relation_category_terms.items():
         term_values = tuple(str(term) for term in terms if str(term).strip())
-        typed_support = typed_relation_category_support(str(category), memory_terms)
+        typed_support = typed_relation_category_support(
+            str(category),
+            memory_terms,
+            memory_text=memory_text,
+        )
         if typed_support is not None:
             if typed_support:
                 hits.append(str(category))

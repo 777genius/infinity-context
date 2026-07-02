@@ -6122,6 +6122,64 @@ def test_benchmark_rerank_boosts_current_goal_over_origin_history() -> None:
     ]
 
 
+def test_benchmark_rerank_boosts_location_destination_evidence() -> None:
+    case = _case(
+        case_id="location-destination-rerank",
+        question="Where did Morgan move?",
+        expected_terms=("Denver",),
+        answer="Denver",
+        category=4,
+    )
+    generic_move = RetrievedMemory(
+        item_id="generic-move",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Morgan: I moved the design review meeting to Tuesday."
+        ),
+        source_refs=("D1:1",),
+    )
+    destination_move = RetrievedMemory(
+        item_id="destination-move",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:4 date: 10:15 am "
+            "D2:4 Morgan: I moved to Denver for the new studio role."
+        ),
+        source_refs=("D2:4",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (generic_move, destination_move),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("location_support",)
+    assert reranked[0].item_id == "destination-move"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    destination_diagnostics = diagnostics_by_id["destination-move"]
+    generic_diagnostics = diagnostics_by_id["generic-move"]
+    assert destination_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["location_transition"]
+    assert generic_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert (
+        destination_diagnostics["score_signals"]["benchmark_location_support_boost"]
+        > 0
+    )
+    assert (
+        generic_diagnostics["score_signals"]["benchmark_location_support_boost"]
+        == 0
+    )
+
+
 def test_benchmark_rerank_prefers_focused_turn_over_broad_session() -> None:
     case = _case(
         case_id="conv-26:qa:43",

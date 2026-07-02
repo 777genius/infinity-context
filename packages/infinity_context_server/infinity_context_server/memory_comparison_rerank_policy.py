@@ -354,25 +354,26 @@ def _provenance_safety_cap(
     ):
         caps.append((0.26, "low_answerability_cap"))
     answerability_reasons = set(features.answerability_reason_codes)
-    for reason in (
-        "missing_causal_evidence",
-        "missing_contrast_evidence",
-        "missing_registration_event_evidence",
-        "missing_symbolic_meaning_evidence",
-        "missing_participation_event_evidence",
-        "missing_emotion_response_evidence",
-        "missing_communication_evidence",
-        "missing_exchange_evidence",
-        "missing_preference_evidence",
-        "missing_status_profile_evidence",
-        "missing_activity_evidence",
-        "missing_current_goal_evidence",
-        "missing_location_transition_evidence",
-        "missing_support_goal_evidence",
-        "missing_identity_profile_evidence",
-    ):
+    missing_evidence_caps = {
+        "missing_causal_evidence": 0.4,
+        "missing_contrast_evidence": 0.4,
+        "missing_registration_event_evidence": 0.4,
+        "missing_symbolic_meaning_evidence": 0.4,
+        "missing_participation_event_evidence": 0.4,
+        "missing_emotion_response_evidence": 0.4,
+        "missing_communication_evidence": 0.4,
+        "missing_exchange_evidence": 0.4,
+        "missing_preference_evidence": 0.4,
+        "missing_status_profile_evidence": 0.4,
+        "missing_activity_evidence": 0.4,
+        "missing_current_goal_evidence": 0.4,
+        "missing_location_transition_evidence": 0.3,
+        "missing_support_goal_evidence": 0.4,
+        "missing_identity_profile_evidence": 0.4,
+    }
+    for reason, cap in missing_evidence_caps.items():
         if reason in answerability_reasons:
-            caps.append((0.4, f"{reason}_cap"))
+            caps.append((cap, f"{reason}_cap"))
     if features.conflict_or_stale and not _has_contrast_grounding(score_signals):
         caps.append((0.22, "unsupported_stale_evidence_cap"))
     if not caps:

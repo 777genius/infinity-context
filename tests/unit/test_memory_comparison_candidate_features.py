@@ -246,6 +246,81 @@ def test_candidate_features_require_typed_relation_evidence_for_answerability(
     assert grounded.answerability_score > weak.answerability_score
 
 
+def test_candidate_features_detect_location_transition_destination_surface() -> None:
+    generic_move = build_candidate_evidence_features(
+        RetrievedMemory(
+            item_id="generic-move",
+            rank=1,
+            text="D1:1 Morgan: I moved the design review meeting to Tuesday.",
+            source_refs=("D1:1",),
+        ),
+        memory_terms={"morgan", "mov", "move", "moved", "design", "review", "meeting"},
+        query_terms=("morgan", "move"),
+        relation_terms=("move",),
+        relation_variant_terms=("moved", "home", "country", "origin"),
+        relation_category_terms={
+            "location_transition": ("move", "moved", "home", "country", "origin")
+        },
+        entities=("morgan",),
+        entity_hits=("morgan",),
+        speaker_hits=("morgan",),
+        high_signal_relation_terms=set(),
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+    destination_move = build_candidate_evidence_features(
+        RetrievedMemory(
+            item_id="destination-move",
+            rank=2,
+            text="D2:4 Morgan: I moved to Denver for the new studio role.",
+            source_refs=("D2:4",),
+        ),
+        memory_terms={
+            "morgan",
+            "mov",
+            "move",
+            "moved",
+            "denver",
+            "new",
+            "studio",
+            "role",
+        },
+        query_terms=("morgan", "move"),
+        relation_terms=("move",),
+        relation_variant_terms=("moved", "home", "country", "origin"),
+        relation_category_terms={
+            "location_transition": ("move", "moved", "home", "country", "origin")
+        },
+        entities=("morgan",),
+        entity_hits=("morgan",),
+        speaker_hits=("morgan",),
+        high_signal_relation_terms=set(),
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+
+    assert generic_move.relation_category_hits == ()
+    assert destination_move.relation_category_hits == ("location_transition",)
+    assert "location_transition_evidence" in (
+        destination_move.answerability_reason_codes
+    )
+    assert destination_move.answerability_score > generic_move.answerability_score
+
+
 def test_candidate_features_use_text_turn_refs_for_dedupe_when_source_refs_are_generic() -> None:
     memory = RetrievedMemory(
         item_id="fact-with-generic-provenance",

@@ -927,6 +927,8 @@ _LOCATION_SUPPORT_TERMS = frozenset(
         "drive",
         "from",
         "home",
+        "move",
+        "moved",
         "origin",
         "relocated",
         "travel",
