@@ -945,7 +945,11 @@ def _typed_relation_support_grounded(
     features: RerankPolicyFeatures,
     support_roles: Sequence[str],
 ) -> bool:
-    if not (features.relation_hits or features.high_signal_relation_hit_count > 0):
+    if not (
+        features.relation_hits
+        or features.high_signal_relation_hit_count > 0
+        or _typed_profile_category_grounded(features, support_roles)
+    ):
         return False
     if "communication_support" in set(support_roles) and features.query_has_entities:
         return bool(features.speaker_hits)
@@ -954,6 +958,29 @@ def _typed_relation_support_grounded(
         or features.speaker_hits
         or not features.query_has_entities
     )
+
+
+def _typed_profile_category_grounded(
+    features: RerankPolicyFeatures,
+    support_roles: Sequence[str],
+) -> bool:
+    category_hits = set(features.relation_category_hits)
+    if not category_hits:
+        return False
+    for role in support_roles:
+        if category_hits.intersection(_TYPED_PROFILE_SUPPORT_CATEGORIES.get(role, ())):
+            return True
+    return False
+
+
+_TYPED_PROFILE_SUPPORT_CATEGORIES = {
+    role: frozenset(
+        category
+        for category in categories
+        if category.endswith("_profile") or category == "favorite_preference"
+    )
+    for role, categories in _TYPED_RELATION_SUPPORT_ROLE_CATEGORIES.items()
+}
 
 
 _LOCATION_SUPPORT_TERMS = frozenset(

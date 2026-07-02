@@ -148,3 +148,21 @@
   -> passed.
 - `git push origin main` -> still blocked because the non-interactive runtime
   has no GitHub username/credential prompt available.
+
+## 2026-07-02 Follow-up 8
+
+- Relaxed typed profile rerank grounding for category detectors: health/date/
+  status/education/employment/favorite-style profile hits can now receive typed
+  relation support when provenance and entity/speaker grounding are present,
+  even if no separate relation token hit was extracted.
+- Kept non-profile categories such as causal/support-goal on the stricter
+  relation-surface path to avoid promoting broad conversational reactions.
+
+## Verification
+
+- `uv run --extra dev pytest -q tests/unit/test_memory_comparison*.py`
+  -> 500 passed, 1 warning.
+- `uv run --extra dev ruff check packages/infinity_context_server/infinity_context_server/memory_comparison_rerank_policies.py tests/unit/test_memory_comparison_rerank_policy.py`
+  -> passed.
+- `git push origin main` -> still blocked because the non-interactive runtime
+  has no GitHub username/credential prompt available.

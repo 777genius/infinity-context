@@ -793,6 +793,57 @@ def test_rerank_policy_accepts_unmeasured_source_ref_typed_relation_support() ->
     )
 
 
+def test_rerank_policy_accepts_category_grounded_typed_profile_support() -> None:
+    score = score_benchmark_rerank_candidate(
+        _features(
+            overlap_terms=("alex", "medicine", "zyrtec"),
+            entity_hits=("alex",),
+            relation_hits=(),
+            relation_terms=("health",),
+            relation_categories=("health_profile",),
+            relation_category_hits=("health_profile",),
+            relation_category_coverage_ratio=1.0,
+            source_locality_score=1.0,
+            evidence_need=("health_profile",),
+            query_roles=("health_support",),
+        )
+    )
+
+    signals = score.signals["score_signals"]
+    policy = score.signals["policy_contributions"]
+    assert signals["benchmark_typed_relation_support_boost"] == 0.045
+    assert signals["benchmark_typed_relation_query_role_boost"] == 0.02
+    assert signals["benchmark_typed_relation_support_roles"] == ["health_support"]
+    assert signals["benchmark_typed_relation_support_category_hits"] == [
+        "health_profile"
+    ]
+    assert "typed_relation_support" in policy["reason_codes_by_policy"][
+        "TypedRelationSupportPolicy"
+    ]
+
+
+def test_rerank_policy_rejects_ungrounded_typed_profile_category_hit() -> None:
+    score = score_benchmark_rerank_candidate(
+        _features(
+            overlap_terms=("medicine", "zyrtec"),
+            relation_hits=(),
+            relation_terms=("health",),
+            relation_categories=("health_profile",),
+            relation_category_hits=("health_profile",),
+            relation_category_coverage_ratio=1.0,
+            source_locality_score=1.0,
+            evidence_need=("health_profile",),
+            query_roles=("health_support",),
+        )
+    )
+
+    signals = score.signals["score_signals"]
+    policy = score.signals["policy_contributions"]
+    assert signals["benchmark_typed_relation_support_boost"] == 0.0
+    assert signals["benchmark_typed_relation_query_role_boost"] == 0.0
+    assert "TypedRelationSupportPolicy" not in policy["reason_codes_by_policy"]
+
+
 def test_rerank_policy_rejects_typed_support_role_without_category_hit() -> None:
     score = score_benchmark_rerank_candidate(
         _features(
