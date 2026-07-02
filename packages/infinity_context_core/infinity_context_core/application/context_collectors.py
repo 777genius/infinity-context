@@ -236,6 +236,7 @@ _MULTI_EVIDENCE_PROTECTED_HEAD_REASONS = frozenset(
         "destress_activity_bridge",
         "family_activity_bridge",
         "grand_opening_support_bridge",
+        "game_detail_bridge",
         "game_win_count_bridge",
         "inspiration_source_bridge",
         "item_purchase_bridge",

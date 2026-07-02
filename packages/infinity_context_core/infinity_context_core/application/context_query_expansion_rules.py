@@ -20,6 +20,9 @@ from infinity_context_core.application.context_query_expansion_rule_catalog_part
 from infinity_context_core.application.context_query_expansion_rule_terms import (
     MAX_QUERY_EXPANSIONS as MAX_QUERY_EXPANSIONS,
 )
+from infinity_context_core.application.context_query_game_expansions import (
+    GAME_EXPANSION_RULES,
+)
 from infinity_context_core.application.context_query_pet_activity_expansions import (
     PET_ACTIVITY_EXPANSION_RULES,
 )
@@ -36,6 +39,7 @@ EXPANSION_RULES: tuple[tuple[frozenset[str], str, str], ...] = (
     *EXPANSION_RULES_PART_3,
     *EXPANSION_RULES_PART_4,
     *EXPANSION_RULES_PART_5,
+    *GAME_EXPANSION_RULES,
     *PET_ACTIVITY_EXPANSION_RULES,
     *PREFERENCE_EXPANSION_RULES,
     *VEHICLE_EXPANSION_RULES,

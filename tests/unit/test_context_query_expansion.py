@@ -4090,6 +4090,55 @@ def test_best_query_relevance_uses_pet_memory_bridge() -> None:
     assert relevance.distinctive_term_hits >= 6
 
 
+def test_query_expansion_bridges_game_detail_queries() -> None:
+    convention = build_query_expansion_plan(
+        "What game did Nate play at the game convention?"
+    )
+    nonstop = build_query_expansion_plan(
+        'What is the type of game "Xenoblade Chronicles" that Nate is playing?'
+    )
+    party = build_query_expansion_plan("Who did Nate plan to invite to his gaming party?")
+    tournament = build_query_expansion_plan(
+        "What games were played at the gaming tournament organized by John?"
+    )
+    basketball = build_query_expansion_plan("When was John in Seattle for a game?")
+
+    assert "game games gaming video game" in _expansion_query(
+        convention,
+        "game_detail_bridge",
+    )
+    assert "Xenoblade Chronicles Cyberpunk Valorant" in _expansion_query(
+        nonstop,
+        "game_detail_bridge",
+    )
+    assert "party room setup lighting equipment" in _expansion_query(
+        party,
+        "game_detail_bridge",
+    )
+    assert "purpose fundraiser charity friends invited" in _expansion_query(
+        tournament,
+        "game_detail_bridge",
+    )
+    assert "game_detail_bridge" not in {item.reason for item in basketball.expansions}
+
+
+def test_best_query_relevance_uses_game_detail_bridge() -> None:
+    plan = build_query_expansion_plan(
+        "What game did John play in an intense tournament at the gaming convention?"
+    )
+
+    _, reason, relevance = best_query_relevance(
+        plan,
+        text=(
+            "John played Valorant at the online gaming tournament and "
+            "met teammates at the convention."
+        ),
+    )
+
+    assert reason == "game_detail_bridge"
+    assert relevance.distinctive_term_hits >= 6
+
+
 def test_query_expansion_bridges_career_month_setbacks() -> None:
     plan = build_query_expansion_plan(
         "Was September a good month career-wise for Dana and Morgan?"
