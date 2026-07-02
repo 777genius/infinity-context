@@ -1647,10 +1647,7 @@ def _relation_query_terms(
             (
                 "camping",
                 "trip",
-                "campfire",
-                "marshmallow",
                 "story",
-                "meteor",
                 "sky",
                 "summer",
                 "enjoy",

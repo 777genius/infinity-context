@@ -5185,7 +5185,7 @@ def test_infinity_context_http_search_expands_preference_queries() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         payload = json.loads(request.content)
         seen_payloads.append(payload)
-        if "marshmallow" in payload["query"]:
+        if payload["query"] == "melanie interest park camping trip story sky":
             items = [
                 {
                     "item_id": "outdoor-evidence",
@@ -5237,8 +5237,8 @@ def test_infinity_context_http_search_expands_preference_queries() -> None:
         "Would Melanie be more interested in going to a national park "
         "or a theme park?\n"
         "Search focus: entities: melanie; speakers: melanie:; "
-        "actions: interest, park, camping, trip, campfire, marshmallow, story, meteor",
-        "melanie interest park camping trip campfire marshmallow",
+        "actions: interest, park, camping, trip, story, sky, summer, enjoy",
+        "melanie interest park camping trip story sky",
     ]
     assert result.memories[0].item_id == "outdoor-evidence"
     query_profile = result.metadata["query_decomposition"]["query_profile"]
@@ -5247,8 +5247,9 @@ def test_infinity_context_http_search_expands_preference_queries() -> None:
     assert "interest" in query_profile["relation_terms"]
     assert "park" in query_profile["relation_terms"]
     assert "camping" in query_profile["relation_variant_terms"]
-    assert "marshmallow" in query_profile["relation_variant_terms"]
-    assert "meteor" in query_profile["relation_variant_terms"]
+    assert not {"campfire", "marshmallow", "meteor"}.intersection(
+        query_profile["relation_variant_terms"]
+    )
     assert "outdoor" in query_profile["relation_variant_terms"]
     diagnostics = result.memories[0].metadata["diagnostics"]
     assert diagnostics["score_signals"]["benchmark_speaker_boost"] > 0
