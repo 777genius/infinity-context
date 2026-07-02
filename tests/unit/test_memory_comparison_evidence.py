@@ -388,6 +388,45 @@ def test_evidence_bundle_uses_source_refs_preserved_by_candidate_fusion() -> Non
     assert bundle["items"][0]["source_refs"] == ["chunk-ref", "D2:8"]
 
 
+def test_evidence_bundle_uses_text_turn_refs_for_source_proximity() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:text-turn-proximity",
+        question="What did Morgan move after talking to Eli?",
+        expected_terms=("blue notebook",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={"category": 4},
+    )
+
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text="D2:3 Morgan: I moved the blue notebook after the call.",
+                rank=1,
+                item_id="primary-text-turn",
+            ),
+            RetrievedMemory(
+                text="D2:5 Morgan: I talked to Eli about the notebook.",
+                rank=2,
+                item_id="support-text-turn",
+            ),
+        ),
+    )
+
+    quality = bundle["bundle_planner"]["bundle_quality"]
+
+    assert [item["id"] for item in bundle["items"]] == [
+        "primary-text-turn",
+        "support-text-turn",
+    ]
+    assert quality["source_ref_item_count"] == 0
+    assert quality["source_proximity_support_count"] == 1
+    assert quality["source_proximity_closest_distance"] == 2
+    assert quality["source_proximity_distance_counts"] == {"2": 1}
+
+
 def test_evidence_bundle_dedupes_mirrored_items_by_canonical_source_ref() -> None:
     case = PublicBenchmarkCase(
         benchmark="locomo",

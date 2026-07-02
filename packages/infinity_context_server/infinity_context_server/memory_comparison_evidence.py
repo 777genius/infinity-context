@@ -402,6 +402,9 @@ def _bundle_dedupe_key(memory: RetrievedMemory) -> str:
     if memory.source_refs:
         refs = tuple(sorted(dict.fromkeys(str(ref) for ref in memory.source_refs if ref)))
         return f"refs:{'|'.join(refs)}"
+    turn_refs = tuple(dict.fromkeys(_TURN_REF_RE.findall(memory.text or "")))
+    if 0 < len(turn_refs) <= 3:
+        return "source_turn_refs:" + "|".join(sorted(turn_refs))
     return f"text:{_normalize_text(memory.text)[:240]}"
 
 
