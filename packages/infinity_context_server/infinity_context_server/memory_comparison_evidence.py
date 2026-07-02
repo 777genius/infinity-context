@@ -9,6 +9,13 @@ from infinity_context_server.memory_comparison_bundle_planner import (
     EvidenceBundleCandidate,
     EvidenceBundlePlanner,
 )
+from infinity_context_server.memory_comparison_candidate_risks import (
+    candidate_features as _candidate_feature_diagnostics,
+)
+from infinity_context_server.memory_comparison_candidate_risks import (
+    memory_has_broad_summary,
+    memory_has_conflict_or_stale,
+)
 from infinity_context_server.memory_comparison_intent import infer_bundle_evidence_roles
 from infinity_context_server.memory_comparison_models import RetrievedMemory
 from infinity_context_server.memory_comparison_rerank import (
@@ -143,7 +150,7 @@ def evidence_bundle(
                 source_types=_string_sequence(features.get("source_types")),
                 retrieval_sources=_string_sequence(features.get("retrieval_sources")),
                 direct_speaker_turn=_bool_value(features.get("direct_speaker_turn")),
-                broad_summary=_bool_value(features.get("broad_summary")),
+                broad_summary=memory_has_broad_summary(memory, features),
                 time_intent_kind=str(features.get("time_intent_kind") or ""),
                 has_temporal_surface=(
                     _bool_value(features.get("has_temporal_surface"))
@@ -166,7 +173,7 @@ def evidence_bundle(
                 has_temporal_sequence_surface=_bool_value(
                     features.get("has_temporal_sequence_surface")
                 ),
-                conflict_or_stale=_bool_value(features.get("conflict_or_stale")),
+                conflict_or_stale=memory_has_conflict_or_stale(memory, features),
                 negation_surface=_bool_value(features.get("negation_surface")),
                 currentness_surface=_bool_value(features.get("currentness_surface")),
                 stale_surface=_bool_value(features.get("stale_surface")),
@@ -426,14 +433,6 @@ def _focused_evidence_score(memory: RetrievedMemory) -> int:
 
 def _memory_evidence_surface(memory: RetrievedMemory) -> str:
     return " ".join((memory.text, *memory.source_refs))
-
-
-def _candidate_feature_diagnostics(memory: RetrievedMemory) -> Mapping[str, object]:
-    diagnostics = memory.metadata.get("diagnostics")
-    if not isinstance(diagnostics, Mapping):
-        return {}
-    features = diagnostics.get("benchmark_candidate_features")
-    return features if isinstance(features, Mapping) else {}
 
 
 def _source_type(memory: RetrievedMemory, features: Mapping[str, object]) -> str:

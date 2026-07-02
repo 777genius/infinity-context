@@ -7,6 +7,10 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
+from infinity_context_server.memory_comparison_candidate_risks import (
+    memory_has_broad_summary,
+    memory_has_conflict_or_stale,
+)
 from infinity_context_server.memory_comparison_models import RetrievedMemory
 from infinity_context_server.memory_comparison_relation_support import (
     typed_relation_category_support,
@@ -16,11 +20,6 @@ _TURN_REF_RE = re.compile(r"\bD\d+:\d+\b")
 _TURN_REF_PARTS_RE = re.compile(r"\bD(?P<dialogue>\d+):(?P<turn>\d+)\b")
 _DIRECT_TURN_SPEAKER_RE = re.compile(
     r"\bD\d+:\d+\s+[A-Z][a-zA-Z0-9_-]{1,40}\s*:"
-)
-_BROAD_SUMMARY_SURFACE_RE = re.compile(
-    r"\b(?:conversation summary|memory summary|observations|related turns|"
-    r"events date|summari[sz]ed turns|summary of)\b|\bsummary\s*:",
-    re.IGNORECASE,
 )
 _NEGATION_SURFACE_RE = re.compile(
     r"\b(?:no longer|not|never|without|didn't|doesn't|don't|hadn't|wasn't|"
@@ -241,7 +240,7 @@ def build_candidate_evidence_features(
     source_turn_refs = _source_turn_refs(source_refs)
     turn_refs = tuple(dict.fromkeys((*text_turn_refs, *source_turn_refs)))
     source_turn_span = _source_turn_span(turn_refs)
-    broad_summary = bool(_BROAD_SUMMARY_SURFACE_RE.search(text))
+    broad_summary = memory_has_broad_summary(memory)
     direct_speaker_turn = bool(_DIRECT_TURN_SPEAKER_RE.search(text)) and not broad_summary
     source_locality_score, source_locality_reasons = _source_locality(
         source_ref_count=len(source_refs),
@@ -262,7 +261,7 @@ def build_candidate_evidence_features(
         tuple(dict.fromkeys((*relation_terms, *relation_variant_terms)))
     )
     relation_categories = tuple((relation_category_terms or {}).keys())
-    conflict_or_stale = _conflict_or_stale(memory)
+    conflict_or_stale = memory_has_conflict_or_stale(memory)
     query_roles = _query_roles(memory)
     answerability_score, answerability_reasons = _answerability(
         entity_count=len(tuple(dict.fromkeys(entities))),
@@ -892,27 +891,10 @@ def _parse_turn_ref(ref: str) -> tuple[int, int] | None:
     return int(match.group("dialogue")), int(match.group("turn"))
 
 
-def _conflict_or_stale(memory: RetrievedMemory) -> bool:
-    diagnostics = _mapping(memory.metadata.get("diagnostics"))
-    stale_reason = diagnostics.get("stale_reason") or memory.metadata.get("stale_reason")
-    conflict_count = diagnostics.get("conflict_count") or memory.metadata.get(
-        "conflict_count"
-    )
-    return bool(stale_reason) or bool(_positive_int(conflict_count))
-
-
 def _ratio(numerator: int, denominator: int) -> float:
     if denominator <= 0:
         return 0.0
     return round(numerator / denominator, 6)
-
-
-def _positive_int(value: object) -> int | None:
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, int) and value > 0:
-        return value
-    return None
 
 
 def _mapping(value: object) -> Mapping[str, object]:

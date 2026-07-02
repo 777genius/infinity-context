@@ -618,6 +618,82 @@ def test_evidence_bundle_required_roles_respect_metadata_evidence_need() -> None
     assert bundle["bundle_complete"] is False
 
 
+def test_evidence_bundle_flags_summary_and_stale_risks_without_feature_flags() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:summary-risk",
+        question="What notebook did Morgan change to?",
+        expected_terms=("green notebook",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={"category": 4},
+    )
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text="D1:5 Morgan: I changed to the green notebook.",
+                rank=1,
+                item_id="direct-current",
+                source_refs=("D1:5",),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.95,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "entity_hits": ["morgan"],
+                            "speaker_hits": ["morgan"],
+                            "relation_hits": ["change", "notebook"],
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+            RetrievedMemory(
+                text=(
+                    "Conversation summary: D1:1 Morgan used the blue notebook. "
+                    "D1:5 Morgan changed to the green notebook."
+                ),
+                rank=2,
+                item_id="generated-summary",
+                source_refs=("D1:1", "D1:5"),
+                metadata={
+                    "diagnostics": {
+                        "stale_reason": "older_preference_summary",
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.93,
+                            "source_locality_score": 0.9,
+                            "entity_hits": ["morgan"],
+                            "speaker_hits": ["morgan"],
+                            "relation_hits": ["change", "notebook"],
+                            "relation_category_hits": ["contrast"],
+                            "contrast_surface": True,
+                            "source_type": "generated_summary",
+                        },
+                    }
+                },
+            ),
+        ),
+    )
+
+    quality = bundle["bundle_planner"]["bundle_quality"]
+    summary_item = next(
+        item for item in bundle["items"] if item["id"] == "generated-summary"
+    )
+
+    assert {item["id"]: item["role"] for item in bundle["items"]}[
+        "direct-current"
+    ] == "primary"
+    assert summary_item["role"] == "contrast"
+    assert "broad_summary" in summary_item["planner_reason_codes"]
+    assert "conflict_or_stale" in summary_item["planner_reason_codes"]
+    assert quality["broad_summary_count"] == 1
+    assert quality["conflict_or_stale_count"] == 1
+    assert "risk:broad_summary" in quality["reason_codes"]
+    assert "risk:conflict_or_stale" in quality["reason_codes"]
+
+
 def test_evidence_bundle_keeps_duration_temporal_role_missing_without_duration_evidence() -> None:
     case = PublicBenchmarkCase(
         benchmark="locomo",
