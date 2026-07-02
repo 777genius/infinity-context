@@ -12,6 +12,9 @@ from infinity_context_server.memory_comparison_source_identity import (
     source_identity_refs_from_dedupe_key as _source_identity_refs_from_dedupe_key,
 )
 from infinity_context_server.memory_comparison_source_identity import (
+    source_identity_refs_from_source_refs as _source_identity_refs_from_source_refs,
+)
+from infinity_context_server.memory_comparison_source_identity import (
     source_identity_refs_from_text as _source_identity_refs_from_text,
 )
 
@@ -39,6 +42,7 @@ def source_refs_from_memory(memory: Mapping[str, object]) -> tuple[str, ...]:
             (
                 *direct_refs,
                 *fusion_source_refs(memory),
+                *_source_identity_refs_from_source_refs(direct_refs),
                 *_source_identity_refs_from_dedupe_key(
                     candidate_features(memory).get("source_ref_dedupe_key")
                 ),
@@ -62,10 +66,12 @@ def fusion_source_refs(memory: Mapping[str, object]) -> tuple[str, ...]:
 
 
 def source_refs_from_bundle_item(item: Mapping[str, object]) -> tuple[str, ...]:
+    source_refs = str_tuple(item.get("source_refs"))
     return tuple(
         dict.fromkeys(
             (
-                *str_tuple(item.get("source_refs")),
+                *source_refs,
+                *_source_identity_refs_from_source_refs(source_refs),
                 *_source_identity_refs_from_dedupe_key(item.get("source_ref_dedupe_key")),
                 *_source_identity_refs_from_dedupe_key(item.get("dedupe_key")),
             )

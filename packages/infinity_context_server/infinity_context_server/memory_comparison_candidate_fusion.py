@@ -477,7 +477,10 @@ def _source_identity_refs(memory: RetrievedMemory) -> tuple[str, ...]:
                     features.get("source_ref_dedupe_key")
                 ),
                 *source_identity_refs_from_dedupe_key(fusion.get("dedupe_key")),
-                *source_identity_refs_from_source_refs(direct_refs),
+                *source_identity_refs_from_source_refs(
+                    direct_refs,
+                    include_exact_turn_refs=True,
+                ),
                 *source_identity_refs_from_text(memory.text, source_refs=direct_refs),
             )
         )

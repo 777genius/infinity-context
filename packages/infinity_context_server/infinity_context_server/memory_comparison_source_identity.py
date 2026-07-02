@@ -40,11 +40,16 @@ def source_identity_refs_from_text(
 
 def source_identity_refs_from_source_refs(
     source_refs: Sequence[str],
+    *,
+    include_exact_turn_refs: bool = False,
 ) -> tuple[str, ...]:
     refs = tuple(str(ref).strip() for ref in source_refs if str(ref).strip())
     turn_refs = tuple(
         dict.fromkeys(
-            ref for source_ref in refs for ref in _TURN_REF_RE.findall(source_ref)
+            ref
+            for source_ref in refs
+            if include_exact_turn_refs or _TURN_REF_RE.fullmatch(source_ref) is None
+            for ref in _TURN_REF_RE.findall(source_ref)
         )
     )
     if not 0 < len(turn_refs) <= 3:

@@ -1961,6 +1961,42 @@ def test_evidence_bundle_planner_uses_dedupe_turn_refs_for_proximity() -> None:
     )
 
 
+def test_evidence_bundle_quality_normalizes_canonical_source_refs() -> None:
+    primary = _candidate(
+        item_id="primary",
+        retrieval_order=1,
+        dedupe_key="primary",
+        covered_evidence_terms=("plan",),
+        primary_signal=True,
+        focused_evidence_score=1.0,
+        direct_speaker_turn=True,
+        source_refs=("locomo:conv-19:session_4:D4:10:chunk",),
+        answerability_score=0.9,
+    )
+    near_support = _candidate(
+        item_id="near-support",
+        retrieval_order=2,
+        dedupe_key="support",
+        query_support_terms=("origin", "country"),
+        source_refs=("locomo:conv-19:session_4:D4:12:turn",),
+        answerability_score=0.82,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, near_support),
+        case_group="single",
+    )
+
+    quality = plan.to_diagnostics()["bundle_quality"]
+    assert quality["source_ref_item_count"] == 2
+    assert quality["source_identity_item_count"] == 2
+    assert quality["source_identity_ref_count"] == 4
+    assert "has_source_refs" in quality["reason_codes"]
+    assert quality["source_proximity_support_count"] == 1
+    assert quality["source_proximity_closest_distance"] == 2
+    assert quality["source_proximity_distance_counts"] == {"2": 1}
+
+
 def test_evidence_bundle_quality_counts_multi_ref_source_identity() -> None:
     primary = _candidate(
         item_id="primary",

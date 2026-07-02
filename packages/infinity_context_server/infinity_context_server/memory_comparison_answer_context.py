@@ -21,6 +21,9 @@ from infinity_context_server.memory_comparison_source_identity import (
     source_identity_refs_from_dedupe_key as _source_identity_refs_from_dedupe_key,
 )
 from infinity_context_server.memory_comparison_source_identity import (
+    source_identity_refs_from_source_refs as _source_identity_refs_from_source_refs,
+)
+from infinity_context_server.memory_comparison_source_identity import (
     source_identity_refs_from_text as _source_identity_refs_from_text,
 )
 
@@ -600,10 +603,10 @@ def _memory_for_bundle_item(
             if memory.item_id == item_id:
                 return memory
 
-    source_refs = set(_source_identity_refs_from_bundle_item(item))
+    source_refs = set(_source_match_refs_from_bundle_item(item))
     if source_refs:
         for memory in memories:
-            if source_refs.intersection(_source_identity_refs_from_memory(memory)):
+            if source_refs.intersection(_source_match_refs_from_memory(memory)):
                 return memory
 
     rank = _positive_int(item.get("rank"))
@@ -871,6 +874,7 @@ def _source_identity_refs_from_memory(memory: RetrievedMemory) -> tuple[str, ...
         dict.fromkeys(
             (
                 *source_refs,
+                *_source_identity_refs_from_source_refs(source_refs),
                 *_source_identity_refs_from_dedupe_key(
                     features.get("source_ref_dedupe_key")
                 ),
@@ -881,13 +885,65 @@ def _source_identity_refs_from_memory(memory: RetrievedMemory) -> tuple[str, ...
     )
 
 
-def _source_identity_refs_from_bundle_item(
-    item: Mapping[str, object],
-) -> tuple[str, ...]:
+def _source_match_refs_from_memory(memory: RetrievedMemory) -> tuple[str, ...]:
+    diagnostics = _mapping(memory.metadata.get("diagnostics"))
+    fusion = _mapping(diagnostics.get("benchmark_candidate_fusion"))
+    features = _candidate_features(memory)
+    source_refs = tuple(
+        dict.fromkeys(
+            (
+                *(str(ref).strip() for ref in memory.source_refs if str(ref).strip()),
+                *_string_tuple(fusion.get("source_refs")),
+            )
+        )
+    )
     return tuple(
         dict.fromkeys(
             (
-                *_string_tuple(item.get("source_refs")),
+                *_source_identity_refs_from_memory(memory),
+                *_source_identity_refs_from_source_refs(
+                    source_refs,
+                    include_exact_turn_refs=True,
+                ),
+                *_source_identity_refs_from_dedupe_key(
+                    features.get("source_ref_dedupe_key")
+                ),
+                *_source_identity_refs_from_dedupe_key(fusion.get("dedupe_key")),
+            )
+        )
+    )
+
+
+def _source_identity_refs_from_bundle_item(
+    item: Mapping[str, object],
+) -> tuple[str, ...]:
+    source_refs = _string_tuple(item.get("source_refs"))
+    return tuple(
+        dict.fromkeys(
+            (
+                *source_refs,
+                *_source_identity_refs_from_source_refs(source_refs),
+                *_source_identity_refs_from_dedupe_key(
+                    item.get("source_ref_dedupe_key")
+                ),
+                *_source_identity_refs_from_dedupe_key(item.get("dedupe_key")),
+            )
+        )
+    )
+
+
+def _source_match_refs_from_bundle_item(
+    item: Mapping[str, object],
+) -> tuple[str, ...]:
+    source_refs = _string_tuple(item.get("source_refs"))
+    return tuple(
+        dict.fromkeys(
+            (
+                *_source_identity_refs_from_bundle_item(item),
+                *_source_identity_refs_from_source_refs(
+                    source_refs,
+                    include_exact_turn_refs=True,
+                ),
                 *_source_identity_refs_from_dedupe_key(
                     item.get("source_ref_dedupe_key")
                 ),

@@ -10,6 +10,9 @@ from dataclasses import dataclass
 from infinity_context_server.memory_comparison_source_identity import (
     source_identity_refs_from_dedupe_key as _source_identity_refs_from_dedupe_key,
 )
+from infinity_context_server.memory_comparison_source_identity import (
+    source_identity_refs_from_source_refs as _source_identity_refs_from_source_refs,
+)
 
 BundleRole = str
 _TURN_REF_RE = re.compile(r"\bD\d+:\d+\b")
@@ -1667,6 +1670,7 @@ def _source_identity_refs(candidate: EvidenceBundleCandidate) -> tuple[str, ...]
         dict.fromkeys(
             (
                 *candidate.source_refs,
+                *_source_identity_refs_from_source_refs(candidate.source_refs),
                 *_source_identity_refs_from_dedupe_key(candidate.dedupe_key),
             )
         )

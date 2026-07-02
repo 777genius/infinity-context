@@ -366,6 +366,39 @@ def test_answer_context_matches_source_turn_dedupe_key_without_retrieval_order()
     assert context.to_diagnostics()["source_ref_item_count"] == 1
 
 
+def test_answer_context_matches_canonical_source_ref_to_source_turn_key() -> None:
+    memories = (
+        RetrievedMemory(text="noise", rank=1),
+        RetrievedMemory(
+            text="Caroline found the support group helpful.",
+            rank=2,
+            source_refs=("locomo:conv-19:session_4:D4:2:chunk",),
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "items": [
+                {
+                    "role": "primary",
+                    "source_ref_dedupe_key": "source_turn_refs:D4:2",
+                }
+            ]
+        },
+        cutoff=2,
+    )
+
+    assert [memory.text for memory in context.memories] == [
+        "Caroline found the support group helpful."
+    ]
+    assert context.memories[0].source_refs == (
+        "locomo:conv-19:session_4:D4:2:chunk",
+        "source_turn_refs:D4:2",
+    )
+    assert context.memories[0].metadata["answer_context_retrieval_order"] == 2
+
+
 def test_answer_context_matches_partial_multi_turn_source_identity() -> None:
     memories = (
         RetrievedMemory(text="noise", rank=1),
