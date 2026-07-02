@@ -11,7 +11,7 @@ def needs_temporal_support(item: Mapping[str, object]) -> bool:
         _str_tuple(query_profile.get("evidence_need"))
         or _str_tuple(intent.get("evidence_need"))
     )
-    relation_categories = _str_tuple(query_profile.get("relation_categories"))
+    relation_categories = _relation_categories(query_profile, intent)
     return bool(
         {"temporal_support", "temporal_sequence"}.intersection(evidence_need)
         or "temporal" in relation_categories
@@ -24,7 +24,7 @@ def needs_contrast_evidence(item: Mapping[str, object]) -> bool:
         _str_tuple(query_profile.get("evidence_need"))
         or _str_tuple(intent.get("evidence_need"))
     )
-    relation_categories = _str_tuple(query_profile.get("relation_categories"))
+    relation_categories = _relation_categories(query_profile, intent)
     return bool("contrast" in evidence_need or "contrast" in relation_categories)
 
 
@@ -82,7 +82,7 @@ def needs_preference_support(item: Mapping[str, object]) -> bool:
         _str_tuple(query_profile.get("bundle_evidence_roles"))
         or _str_tuple(intent.get("bundle_evidence_roles"))
     )
-    relation_categories = _str_tuple(query_profile.get("relation_categories"))
+    relation_categories = _relation_categories(query_profile, intent)
     return bool(
         "preference" in evidence_need
         or "preference_support" in roles
@@ -118,7 +118,7 @@ def needs_event_support(item: Mapping[str, object]) -> bool:
         _str_tuple(query_profile.get("bundle_evidence_roles"))
         or _str_tuple(intent.get("bundle_evidence_roles"))
     )
-    relation_categories = _str_tuple(query_profile.get("relation_categories"))
+    relation_categories = _relation_categories(query_profile, intent)
     event_categories = {"participation_event", "registration_event"}
     return bool(
         event_categories & set(evidence_need)
@@ -137,7 +137,7 @@ def needs_exchange_support(item: Mapping[str, object]) -> bool:
         _str_tuple(query_profile.get("bundle_evidence_roles"))
         or _str_tuple(intent.get("bundle_evidence_roles"))
     )
-    relation_categories = _str_tuple(query_profile.get("relation_categories"))
+    relation_categories = _relation_categories(query_profile, intent)
     return bool(
         "exchange" in evidence_need
         or "exchange_support" in roles
@@ -155,7 +155,7 @@ def needs_communication_support(item: Mapping[str, object]) -> bool:
         _str_tuple(query_profile.get("bundle_evidence_roles"))
         or _str_tuple(intent.get("bundle_evidence_roles"))
     )
-    relation_categories = _str_tuple(query_profile.get("relation_categories"))
+    relation_categories = _relation_categories(query_profile, intent)
     return bool(
         "communication" in evidence_need
         or "communication_support" in roles
@@ -173,7 +173,7 @@ def needs_symbolic_meaning_support(item: Mapping[str, object]) -> bool:
         _str_tuple(query_profile.get("bundle_evidence_roles"))
         or _str_tuple(intent.get("bundle_evidence_roles"))
     )
-    relation_categories = _str_tuple(query_profile.get("relation_categories"))
+    relation_categories = _relation_categories(query_profile, intent)
     return bool(
         "symbolic_meaning" in evidence_need
         or "symbolic_meaning_support" in roles
@@ -191,7 +191,7 @@ def needs_visual_support(item: Mapping[str, object]) -> bool:
         _str_tuple(query_profile.get("bundle_evidence_roles"))
         or _str_tuple(intent.get("bundle_evidence_roles"))
     )
-    relation_categories = _str_tuple(query_profile.get("relation_categories"))
+    relation_categories = _relation_categories(query_profile, intent)
     visual_terms = _str_tuple(query_profile.get("visual_terms"))
     return bool(
         "visual_evidence" in evidence_need
@@ -490,7 +490,7 @@ def _relation_categories(
     categories = _str_tuple(query_profile.get("relation_categories"))
     if categories:
         return categories
-    relation_items = _sequence(_mapping(_mapping(intent.get("relations")).get("intents")))
+    relation_items = _sequence(_mapping(intent.get("relations")).get("intents"))
     return tuple(
         str(relation.get("category") or "").strip()
         for relation in relation_items

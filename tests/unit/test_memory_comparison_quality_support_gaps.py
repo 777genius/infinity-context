@@ -223,6 +223,57 @@ def test_fast_gate_metrics_accepts_duration_temporal_evidence() -> None:
     ]
 
 
+def test_fast_gate_metrics_reads_support_need_from_retrieval_intent_relation() -> None:
+    cases = (
+        ("temporal", "missing_temporal_support"),
+        ("contrast", "missing_contrast"),
+        ("preference", "missing_preference_support"),
+    )
+
+    for relation_category, missing_reason in cases:
+        retrieval = _retrieval_payload(
+            evidence_need=(),
+            relation_categories=(),
+            policy_score=0.0,
+        )
+        query_decomposition = retrieval["metadata"]["query_decomposition"]
+        query_decomposition["retrieval_intent"]["relations"] = {
+            "intents": [{"category": relation_category}]
+        }
+
+        gate = fast_gate_metrics(
+            (
+                _item(
+                    case_id=f"intent-relation-{relation_category}",
+                    group="single-hop",
+                    retrieval=retrieval,
+                    evidence_bundle={
+                        "bundle_complete": False,
+                        "item_count": 1,
+                        "primary_evidence_count": 1,
+                        "supporting_evidence_count": 0,
+                        "query_support_term_recall": 0.5,
+                        "covered_evidence_terms": [],
+                        "items": [
+                            {
+                                "role": "primary",
+                                "retrieval_order": 1,
+                                "focused_evidence_score": 1.0,
+                            }
+                        ],
+                    },
+                ),
+            ),
+            expected_case_count=1,
+        )
+
+        breakdown = gate["bundle_gap_breakdown"]
+
+        assert breakdown["reason_counts"][missing_reason] == 1
+        assert breakdown["evidence_need_gap_reason_counts"] == {missing_reason: 1}
+        assert missing_reason in breakdown["samples"][0]["reasons"]
+
+
 def test_fast_gate_metrics_reports_missing_location_support_gap() -> None:
     gate = fast_gate_metrics(
         (
