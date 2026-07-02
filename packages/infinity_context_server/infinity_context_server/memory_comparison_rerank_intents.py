@@ -331,13 +331,16 @@ def _participation_event_boost(
     memory_terms: set[str],
     relation_set: set[str],
 ) -> float:
-    if not {"attend", "join", "participate", "visit"} & relation_set:
+    if not {"attend", "join", "meet", "participate", "visit"} & relation_set:
         return 0.0
     participation_action = {
         "attend",
         "attended",
         "join",
         "joined",
+        "meet",
+        "meeting",
+        "met",
         "participate",
         "participated",
         "visit",

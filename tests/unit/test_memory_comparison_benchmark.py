@@ -7459,9 +7459,9 @@ def test_benchmark_rerank_boosts_travel_destination_evidence() -> None:
     assert evidence_diagnostics["benchmark_candidate_features"][
         "relation_category_hits"
     ] == ["participation_event"]
-    assert topic_diagnostics["benchmark_candidate_features"][
-        "relation_category_hits"
-    ] == []
+    assert "participation_event" not in topic_diagnostics[
+        "benchmark_candidate_features"
+    ]["relation_category_hits"]
     assert (
         evidence_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
         > 0
@@ -7470,6 +7470,81 @@ def test_benchmark_rerank_boosts_travel_destination_evidence() -> None:
         topic_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
         == 0
     )
+
+
+def test_benchmark_rerank_boosts_meetup_event_evidence() -> None:
+    case = _case(
+        case_id="participation-meetup-rerank",
+        question="When did Morgan meet Riley?",
+        expected_terms=("yesterday",),
+        answer="yesterday",
+        category=2,
+    )
+    topical_meeting = RetrievedMemory(
+        item_id="topical-meeting",
+        rank=1,
+        score=0.05,
+        text=(
+            "session_2 turn D2:1 date: 10:00 am "
+            "D2:1 Morgan: I reviewed meeting notes Riley sent."
+        ),
+        source_refs=("D2:1",),
+    )
+    meetup_evidence = RetrievedMemory(
+        item_id="meetup-evidence",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_5 turn D5:2 date: 8:00 pm "
+            "D5:2 Morgan: I met Riley yesterday to review the design."
+        ),
+        source_refs=("D5:2",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_meeting, meetup_evidence),
+    )
+
+    assert metadata["applied"] is True
+    assert "participation_event" in metadata["query_profile"]["relation_categories"]
+    assert [memory.item_id for memory in reranked] == [
+        "meetup-evidence",
+        "topical-meeting",
+    ]
+    evidence_diagnostics = reranked[0].metadata["diagnostics"]
+    topic_diagnostics = reranked[1].metadata["diagnostics"]
+    assert evidence_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["participation_event"]
+    assert "participation_event" not in topic_diagnostics[
+        "benchmark_candidate_features"
+    ]["relation_category_hits"]
+    assert (
+        evidence_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        > 0
+    )
+    assert (
+        topic_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        == 0
+    )
+
+
+def test_benchmark_meet_participation_ignores_meet_expectations_wording() -> None:
+    case = _case(
+        case_id="participation-meet-expectations-guard",
+        question="What expectation did Morgan meet?",
+        expected_terms=("deadline",),
+        answer="deadline",
+        category=4,
+    )
+
+    intent = rerank_module.query_retrieval_intent(case)
+
+    assert "participation_event" not in intent.to_query_profile()[
+        "relation_categories"
+    ]
+    assert "participation_event" not in intent.evidence_need
 
 
 def test_benchmark_travel_participation_ignores_travel_book_wording() -> None:

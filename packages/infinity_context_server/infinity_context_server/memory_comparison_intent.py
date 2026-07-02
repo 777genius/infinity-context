@@ -621,11 +621,35 @@ def _has_participation_event_intent(
     relation_terms: tuple[str, ...],
 ) -> bool:
     relation_set = set(relation_terms)
-    if not {"attend", "join", "participate", "travel", "visit"} & relation_set:
+    if not {
+        "attend",
+        "join",
+        "meet",
+        "participate",
+        "travel",
+        "visit",
+    } & relation_set:
         return False
+    normalized_question = re.sub(r"[^0-9a-z]+", " ", question.casefold()).strip()
+    if "meet" in relation_set:
+        if re.search(
+            r"\bmeet(?:ing)?\s+(?:agenda|notes|minutes|summary)\b|"
+            r"\bmeet\s+"
+            r"(?:expectation|expectations|goal|goals|requirement|requirements)\b",
+            normalized_question,
+        ):
+            return False
+        return bool(
+            re.search(
+                r"\b(?:who|when|where)\b.+\bmeet\b|"
+                r"\bmeet\s+up\b|\bmet\s+(?:with|up)\b|"
+                r"\bmeeting\s+with\b|\bmeet(?:ing)?\b.+\b(?:friend|family|mentor|"
+                r"colleague|coworker|team|group)\b",
+                normalized_question,
+            )
+        )
     if "travel" not in relation_set:
         return True
-    normalized_question = re.sub(r"[^0-9a-z]+", " ", question.casefold()).strip()
     if re.search(
         r"\btravel\s+(?:book|guide|story|documentary|show)\b",
         normalized_question,
@@ -1583,7 +1607,9 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
         "evidence_need": "registration_event",
     },
     "participation_event": {
-        "terms": frozenset({"attend", "join", "participate", "travel", "visit"}),
+        "terms": frozenset(
+            {"attend", "join", "meet", "participate", "travel", "visit"}
+        ),
         "variants": frozenset(
             {
                 "attended",
@@ -1595,6 +1621,7 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "group",
                 "joined",
                 "meeting",
+                "met",
                 "participated",
                 "place",
                 "studio",

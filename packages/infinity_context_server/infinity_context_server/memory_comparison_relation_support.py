@@ -97,6 +97,12 @@ _PARTICIPATION_DESTINATION_SURFACE_RE = re.compile(
     r"\b(?:visit|visited|travel|traveled|travelled|go|went)\s+"
     r"(?:to\s+)?(?:[A-Z][a-zA-Z0-9_-]+|"
     r"(?:the\s+)?(?:beach|city|conference|country|gallery|museum|park|studio))\b"
+    r"|\b(?:meet|met)\s+(?:up\s+)?(?:with\s+)?"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|"
+    r"(?:friends?|family|mentors?|colleagues?|coworkers?|team|group))\b"
+    r"|\bmeeting\s+with\s+"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|"
+    r"(?:friends?|family|mentors?|colleagues?|coworkers?|team|group))\b"
     r"|\b(?:trip|vacation)\s+(?:to|in)\s+"
     r"(?:[A-Z][a-zA-Z0-9_-]+|"
     r"(?:the\s+)?(?:beach|city|country|mountains|park))\b",
@@ -113,6 +119,9 @@ def _has_participation_event_support(
         "attended",
         "join",
         "joined",
+        "meet",
+        "meeting",
+        "met",
         "participate",
         "participated",
         "travel",
