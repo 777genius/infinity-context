@@ -36,13 +36,14 @@ def candidate_features(memory: Mapping[str, object]) -> Mapping[str, object]:
 
 def source_refs_from_memory(memory: Mapping[str, object]) -> tuple[str, ...]:
     direct_refs = direct_source_refs_from_memory(memory)
+    fused_refs = fusion_source_refs(memory)
     fusion = mapping(memory_diagnostics(memory).get("benchmark_candidate_fusion"))
+    source_refs = tuple(dict.fromkeys((*direct_refs, *fused_refs)))
     return tuple(
         dict.fromkeys(
             (
-                *direct_refs,
-                *fusion_source_refs(memory),
-                *_source_identity_refs_from_source_refs(direct_refs),
+                *source_refs,
+                *_source_identity_refs_from_source_refs(source_refs),
                 *_source_identity_refs_from_dedupe_key(
                     candidate_features(memory).get("source_ref_dedupe_key")
                 ),
