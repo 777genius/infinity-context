@@ -4713,6 +4713,12 @@ def test_query_decomposition_expands_pet_profile_queries() -> None:
         expected_terms=("Milo",),
         answer="Milo",
     )
+    breed_case = _case(
+        case_id="pet-profile-dog-breed",
+        question="What breed is Alex's dog?",
+        expected_terms=("golden retriever",),
+        answer="golden retriever",
+    )
     animal_preference_case = _case(
         case_id="pet-profile-animal-preference-guard",
         question="What animal does Alex like?",
@@ -4733,6 +4739,7 @@ def test_query_decomposition_expands_pet_profile_queries() -> None:
     cat_name_queries, cat_name_metadata = rerank_module.decomposed_search_queries(
         cat_name_case
     )
+    breed_queries, breed_metadata = rerank_module.decomposed_search_queries(breed_case)
     _, animal_preference_metadata = rerank_module.decomposed_search_queries(
         animal_preference_case
     )
@@ -4752,6 +4759,11 @@ def test_query_decomposition_expands_pet_profile_queries() -> None:
     assert cat_name_metadata["query_profile"]["relation_categories"] == (
         "pet_profile",
     )
+    assert breed_queries[2] == "alex pet dog cat animal breed name"
+    assert breed_metadata["query_profile"]["relation_categories"] == (
+        "pet_profile",
+    )
+    assert breed_metadata["query_profile"]["evidence_need"] == ("pet_profile",)
 
     assert animal_preference_metadata["query_profile"]["relation_categories"] == (
         "preference",
@@ -9277,6 +9289,63 @@ def test_benchmark_rerank_boosts_pet_profile_evidence() -> None:
         > 0
     )
     assert pet_diagnostics["score_signals"][
+        "benchmark_typed_relation_support_roles"
+    ] == ["pet_support"]
+    assert (
+        topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        == 0
+    )
+
+
+def test_benchmark_rerank_boosts_pet_breed_profile_evidence() -> None:
+    case = _case(
+        case_id="pet-profile-breed-rerank",
+        question="What breed is Alex's dog?",
+        expected_terms=("golden retriever",),
+        answer="golden retriever",
+        category=4,
+    )
+    topical_dog = RetrievedMemory(
+        item_id="topical-dog",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex saw a golden retriever at the park with Maria."
+        ),
+        source_refs=("D1:1",),
+    )
+    pet_breed = RetrievedMemory(
+        item_id="pet-breed",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: My golden retriever is named Luna."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_dog, pet_breed),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("pet_profile",)
+    assert reranked[0].item_id == "pet-breed"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    breed_diagnostics = diagnostics_by_id["pet-breed"]
+    topical_diagnostics = diagnostics_by_id["topical-dog"]
+    assert breed_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["pet_profile"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert breed_diagnostics["score_signals"][
         "benchmark_typed_relation_support_roles"
     ] == ["pet_support"]
     assert (

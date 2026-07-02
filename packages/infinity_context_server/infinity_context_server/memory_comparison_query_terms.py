@@ -702,6 +702,7 @@ def _pet_support_query_terms(
     entity_tokens = {
         token for surface in entity_surfaces for token in _normalized_terms(surface)
     }
+    lexical_term_set = set(lexical_terms)
     pet_terms = {
         "animal",
         "cat",
@@ -712,6 +713,8 @@ def _pet_support_query_terms(
         "pet",
         "puppy",
     }
+    if "bre" in lexical_term_set or "breed" in lexical_term_set:
+        pet_terms.update({"bre", "breed", "labrador", "retriever"})
     topical_terms = tuple(
         term
         for term in lexical_terms

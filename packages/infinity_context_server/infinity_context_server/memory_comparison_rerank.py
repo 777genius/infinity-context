@@ -1302,7 +1302,8 @@ def _has_pet_profile_question(normalized_question: str) -> bool:
     return bool(
         re.search(
             r"\bwhat\s+pet\b|\b(?:dog|cat|pet)\b.+\bnamed?\b|"
-            r"\bname\b.+\b(?:dog|cat|pet)\b",
+            r"\bname\b.+\b(?:dog|cat|pet)\b|"
+            r"\bbreed\b.+\b(?:dog|cat|pet)\b|\b(?:dog|cat|pet)\b.+\bbreed\b",
             normalized_question,
         )
     )

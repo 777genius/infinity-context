@@ -649,9 +649,16 @@ def _has_diet_profile_support(
 
 _PET_PROFILE_SURFACE_RE = re.compile(
     r"\b(?:my|our|his|her|their)\s+(?:pet|dog|cat|puppy|kitten)\b"
+    r"|\b(?:my|our|his|her|their)\s+"
+    r"(?:golden\s+retriever|labrador|poodle|beagle|bulldog|terrier|"
+    r"siamese|tabby|persian)\b"
     r"|\b(?:pet|dog|cat|puppy|kitten)\s+(?:is|was|named|called)\b"
+    r"|\b(?:golden\s+retriever|labrador|poodle|beagle|bulldog|terrier|"
+    r"siamese|tabby|persian)\s+(?:is|was|named|called)\b"
     r"|\b(?:have|has|had)\s+(?:a\s+|an\s+|the\s+)?"
-    r"(?:pet|dog|cat|puppy|kitten)\b",
+    r"(?:pet|dog|cat|puppy|kitten|golden\s+retriever|labrador|poodle|"
+    r"beagle|bulldog|terrier|siamese|tabby|persian)\b",
+    re.IGNORECASE,
 )
 
 
@@ -660,7 +667,22 @@ def _has_pet_profile_support(
     *,
     memory_text: str = "",
 ) -> bool:
-    pet_surface = {"cat", "dog", "kitten", "pet", "puppy"} & memory_terms
+    pet_surface = {
+        "beagle",
+        "bulldog",
+        "cat",
+        "dog",
+        "kitten",
+        "labrador",
+        "persian",
+        "pet",
+        "poodle",
+        "puppy",
+        "retriever",
+        "siamese",
+        "tabby",
+        "terrier",
+    } & memory_terms
     name_surface = {"call", "called", "name", "named"} & memory_terms
     ownership_surface = {"have", "has", "had", "my", "our"} & memory_terms
     return bool(

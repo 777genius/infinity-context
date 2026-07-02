@@ -1094,7 +1094,8 @@ def _has_pet_profile_intent(
     return bool(
         re.search(
             r"\bwhat\s+pet\b|\b(?:dog|cat|pet)\b.+\bnamed?\b|"
-            r"\bname\b.+\b(?:dog|cat|pet)\b",
+            r"\bname\b.+\b(?:dog|cat|pet)\b|"
+            r"\bbreed\b.+\b(?:dog|cat|pet)\b|\b(?:dog|cat|pet)\b.+\bbreed\b",
             normalized_question,
         )
     )
@@ -1776,13 +1777,16 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
         "variants": frozenset(
             {
                 "animal",
+                "breed",
                 "cat",
                 "dog",
                 "kitten",
+                "labrador",
                 "name",
                 "named",
                 "pet",
                 "puppy",
+                "retriever",
             }
         ),
         "markers": frozenset(),

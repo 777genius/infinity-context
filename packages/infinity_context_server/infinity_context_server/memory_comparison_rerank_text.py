@@ -170,6 +170,7 @@ QUERY_TOKEN_ALIASES = {
     "grow": ("growing", "childhood"),
 }
 QUERY_RENDER_SURFACES = {
+    "bre": "breed",
     "carv": "carving",
     "dres": "dress",
     "decompres": "decompress",
@@ -457,7 +458,8 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
         terms.append("nickname")
     if re.search(
         r"\bwhat\s+pet\b|\b(?:dog|cat|pet)\b.+\bnamed?\b|"
-        r"\bname\b.+\b(?:dog|cat|pet)\b",
+        r"\bname\b.+\b(?:dog|cat|pet)\b|"
+        r"\bbreed\b.+\b(?:dog|cat|pet)\b|\b(?:dog|cat|pet)\b.+\bbreed\b",
         text,
         flags=re.IGNORECASE,
     ):
