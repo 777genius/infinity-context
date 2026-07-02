@@ -479,6 +479,69 @@ def test_evidence_bundle_planner_repairs_missing_required_role_selection() -> No
     assert diagnostics["role_requirement_complete"] is True
 
 
+def test_evidence_bundle_planner_repair_prefers_nearby_required_support() -> None:
+    primary = _candidate(
+        item_id="primary",
+        retrieval_order=1,
+        dedupe_key="refs:D4:10",
+        covered_expected_terms=("move",),
+        primary_signal=True,
+        source_refs=("D4:10",),
+        focused_evidence_score=1.0,
+        direct_speaker_turn=True,
+        answerability_score=0.9,
+    )
+    optional_support = _candidate(
+        item_id="optional-location-support",
+        retrieval_order=2,
+        query_support_terms=("optional", "location"),
+        relation_category_hits=("location_transition",),
+        source_refs=("D4:9",),
+        source_locality_score=0.9,
+        answerability_score=0.9,
+        bundle_strength_score=1.0,
+    )
+    far_temporal = _candidate(
+        item_id="far-temporal",
+        retrieval_order=3,
+        dedupe_key="refs:D4:30",
+        time_intent_kind="duration",
+        has_duration_surface=True,
+        query_support_terms=("years",),
+        source_refs=("D4:30",),
+        source_locality_score=0.9,
+        answerability_score=0.82,
+    )
+    near_temporal = _candidate(
+        item_id="near-temporal",
+        retrieval_order=4,
+        dedupe_key="refs:D4:12",
+        time_intent_kind="duration",
+        has_duration_surface=True,
+        query_support_terms=("years",),
+        source_refs=("D4:12",),
+        source_locality_score=0.9,
+        answerability_score=0.82,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, optional_support, far_temporal, near_temporal),
+        case_group="single",
+        required_roles=("primary", "temporal_support"),
+    )
+
+    selected_ids = [item.candidate.item_id for item in plan.items]
+    quality = plan.to_diagnostics()["bundle_quality"]
+
+    assert selected_ids == ["primary", "near-temporal"]
+    assert "far-temporal" not in selected_ids
+    assert "optional-location-support" not in selected_ids
+    assert plan.satisfied_required_roles == ("primary", "temporal_support")
+    assert plan.repaired_required_roles == ("temporal_support",)
+    assert quality["source_proximity_support_count"] == 1
+    assert quality["source_proximity_closest_distance"] == 2
+
+
 def test_evidence_bundle_planner_prefers_more_answerable_primary() -> None:
     weaker = _candidate(
         item_id="weak-primary",

@@ -721,7 +721,10 @@ def _best_required_role_candidate(
     ]
     if not candidates:
         return None
-    return sorted(candidates, key=_required_role_candidate_sort_key)[0]
+    return sorted(
+        candidates,
+        key=lambda item: _required_role_candidate_sort_key(item, selected),
+    )[0]
 
 
 def _replaceable_item_index(
@@ -789,8 +792,10 @@ def _item_can_satisfy_required_role(
 
 def _required_role_candidate_sort_key(
     item: PlannedEvidenceItem,
+    selected: Sequence[PlannedEvidenceItem] = (),
 ) -> tuple[float, ...]:
     return (
+        *_source_proximity_selection_sort_key(item, selected),
         *_candidate_sort_key(item.candidate),
         _role_order(item),
     )
