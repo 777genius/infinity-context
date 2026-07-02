@@ -668,12 +668,38 @@ def decomposed_search_queries(
                 ),
             )
         )
+    evidence_need_set = set(intent.evidence_need)
+    count_query_terms = (
+        _count_support_query_terms(
+            relation_terms=relation_terms,
+            relation_variant_terms=relation_variant_terms,
+            lexical_terms=lexical_terms,
+            entity_surfaces=entity_surfaces,
+        )
+        if "count_support" in evidence_need_set
+        else ()
+    )
+    if count_query_terms and (entity_surfaces or len(count_query_terms) >= 4):
+        query_candidates.append(
+            QueryPlanCandidate(
+                role="count_support",
+                query=" ".join(
+                    (*entity_surfaces, *_render_query_terms(count_query_terms[:10]))
+                ),
+                priority=38,
+                query_type="lexical",
+                reason_codes=(
+                    "count_support",
+                    "quantity_aggregation",
+                    "question_only",
+                ),
+            )
+        )
     temporal_query_terms = (
         _temporal_search_terms(temporal_terms, temporal_surface_terms)
         if is_temporal_query
         else ()
     )
-    evidence_need_set = set(intent.evidence_need)
     if temporal_query_terms:
         temporal_role = _temporal_query_role(intent.time_intent.kind)
         query_candidates.append(
@@ -810,6 +836,8 @@ def decomposed_search_queries(
         )
 
     extra_query_slots = 0
+    if any(candidate.role == "count_support" for candidate in query_candidates):
+        extra_query_slots += 1
     if any(candidate.role == "contrast_support" for candidate in query_candidates):
         extra_query_slots += 1
     has_location_support_query = any(
@@ -841,6 +869,9 @@ def decomposed_search_queries(
         3
         if (
             (has_location_support_query and temporal_query_terms)
+            or ("count_support" in evidence_need_set and visual_terms)
+            or ("count_support" in evidence_need_set and has_multi_hop_bridge_query)
+            or ("count_support" in evidence_need_set and temporal_query_terms)
             or needs_causal_temporal_bridge
             or needs_temporal_multi_hop_bridge
             or (
@@ -963,6 +994,29 @@ def _causal_bridge_query_terms(
     return tuple(dict.fromkeys(bridge_terms))
 
 
+def _count_support_query_terms(
+    *,
+    relation_terms: tuple[str, ...],
+    relation_variant_terms: tuple[str, ...],
+    lexical_terms: tuple[str, ...],
+    entity_surfaces: tuple[str, ...],
+) -> tuple[str, ...]:
+    entity_tokens = {
+        token for surface in entity_surfaces for token in _normalized_terms(surface)
+    }
+    count_terms: list[str] = []
+    count_terms.extend(_relation_query_terms(relation_terms, relation_variant_terms)[:6])
+    count_terms.extend(
+        term
+        for term in lexical_terms
+        if term not in _QUERY_STOPWORDS
+        and term not in entity_tokens
+        and term not in count_terms
+    )
+    count_terms.extend(("count", "number", "total", "times"))
+    return tuple(dict.fromkeys(count_terms))
+
+
 def _recommended_query_role_families(intent: RetrievalIntent) -> tuple[str, ...]:
     families: list[str] = ["base_query"]
     if intent.relation_terms or intent.relation_variant_terms:
@@ -975,6 +1029,8 @@ def _recommended_query_role_families(intent: RetrievalIntent) -> tuple[str, ...]
         families.append("contrast_support")
     if "location_support" in intent.evidence_need:
         families.append("location_support")
+    if "count_support" in intent.evidence_need:
+        families.append("count_support")
     if "causal_support" in intent.evidence_need:
         families.append("multi_hop")
     if "multi_hop" in intent.evidence_need or intent.multi_hop_markers:
@@ -1218,7 +1274,12 @@ def _query_retrieval_intent(case: PublicBenchmarkCase) -> RetrievalIntent:
     visual_terms = tuple(term for term in lexical_terms if term in _VISUAL_QUERY_TERMS)
     category = _optional_int(case.metadata.get("category"))
     marker_candidates = ["why"]
-    if category == 1 or _non_temporal_process_how_marker(question):
+    is_count_question = bool(
+        re.search(r"\b(?:how\s+many|number\s+of|count\s+of)\b", question, re.IGNORECASE)
+    )
+    if (category == 1 and not is_count_question) or _non_temporal_process_how_marker(
+        question
+    ):
         marker_candidates.append("how")
     multi_hop_markers = tuple(
         marker

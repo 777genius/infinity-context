@@ -6702,6 +6702,101 @@ def test_query_decomposition_keeps_contrast_temporal_and_location_support() -> N
     assert temporal_metadata["query_plan"]["dropped_type_limit_roles"] == []
 
 
+def test_query_decomposition_adds_count_support_without_causal_drift() -> None:
+    children_case = _case(
+        case_id="count-children-support",
+        question="How many children does Melanie have?",
+        expected_terms=("two",),
+        answer="two",
+        category=1,
+    )
+    repeat_case = _case(
+        case_id="count-temporal-support",
+        question="How many times has Melanie gone to the beach in 2023?",
+        expected_terms=("twice",),
+        answer="twice",
+        category=1,
+    )
+
+    children_queries, children_metadata = rerank_module.decomposed_search_queries(
+        children_case
+    )
+    repeat_queries, repeat_metadata = rerank_module.decomposed_search_queries(
+        repeat_case
+    )
+
+    assert children_queries == (
+        "How many children does Melanie have?",
+        "How many children does Melanie have?\n"
+        "Search focus: entities: melanie; speakers: melanie:; actions: children, "
+        "son, daughter, parent, child, kid, family",
+        "melanie children son daughter parent child kid",
+        "melanie children son daughter parent child kid count number total times",
+    )
+    assert children_metadata["query_profile"]["evidence_need"] == ("count_support",)
+    assert children_metadata["query_profile"]["multi_hop_markers"] == ()
+    assert "causal_support" not in children_metadata["query_profile"]["evidence_need"]
+    assert children_metadata["query_plan"]["selected_roles"] == [
+        "original_question",
+        "expanded_focus",
+        "compact_relation",
+        "count_support",
+    ]
+    assert repeat_queries == (
+        "How many times has Melanie gone to the beach in 2023?",
+        "How many times has Melanie gone to the beach in 2023?\n"
+        "Search focus: entities: melanie; speakers: melanie:; temporal: "
+        "time, session, date",
+        "melanie gone beach 2023 count number total times",
+        "melanie time session date",
+    )
+    assert repeat_metadata["query_profile"]["evidence_need"] == (
+        "count_support",
+        "temporal_support",
+    )
+    assert repeat_metadata["query_plan"]["selected_roles"] == [
+        "original_question",
+        "expanded_focus",
+        "count_support",
+        "temporal_support",
+    ]
+    assert repeat_metadata["query_plan"]["missing_recommended_role_families"] == []
+    assert repeat_metadata["query_plan"]["dropped_type_limit_roles"] == []
+
+
+def test_query_decomposition_keeps_count_visual_support_queries() -> None:
+    visual_count_case = _case(
+        case_id="count-visual-support",
+        question="How many car shows has Dave attended?",
+        expected_terms=("three",),
+        answer="three",
+        category=1,
+    )
+
+    queries, metadata = rerank_module.decomposed_search_queries(visual_count_case)
+
+    assert queries == (
+        "How many car shows has Dave attended?",
+        "dave show image shows",
+        "dave vehicle car drive owns truck suv",
+        "dave attend vehicle attended event conference class car show count number",
+    )
+    assert metadata["query_profile"]["evidence_need"] == (
+        "count_support",
+        "visual_evidence",
+        "vehicle_profile",
+        "participation_event",
+    )
+    assert metadata["query_plan"]["selected_roles"] == [
+        "original_question",
+        "visual_support",
+        "vehicle_support",
+        "count_support",
+    ]
+    assert metadata["query_plan"]["missing_recommended_role_families"] == []
+    assert metadata["query_plan"]["dropped_type_limit_roles"] == []
+
+
 def test_infinity_context_http_search_expands_roadtrip_queries() -> None:
     seen_payloads: list[dict[str, object]] = []
 

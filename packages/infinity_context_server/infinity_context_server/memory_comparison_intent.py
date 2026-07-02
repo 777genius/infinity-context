@@ -360,12 +360,15 @@ def infer_evidence_need(
 ) -> tuple[str, ...]:
     needs: list[str] = []
     relation_set = set(relation_terms)
+    count_intent = _has_count_intent(question)
     direct_emotion_response = _has_direct_emotion_response_intent(
         question=question,
         relation_terms=relation_terms,
     )
     if multi_hop_markers and not direct_emotion_response:
         needs.append("multi_hop")
+    if count_intent:
+        needs.append("count_support")
     if time_intent.is_temporal:
         needs.append(
             "temporal_sequence"
@@ -397,7 +400,7 @@ def infer_evidence_need(
     if direct_emotion_response:
         causal_relation_terms = set()
         causal_marker_terms = set()
-    if causal_relation_terms or causal_marker_terms:
+    if not count_intent and (causal_relation_terms or causal_marker_terms):
         needs.append("causal_support")
     if _has_location_transition_intent(
         question=question,
@@ -425,6 +428,8 @@ def infer_bundle_evidence_roles(
         roles.append("temporal_support")
     if "contrast" in evidence_need_set:
         roles.append("contrast")
+    if "count_support" in evidence_need_set:
+        roles.append("count_support")
     if "location_support" in evidence_need_set:
         roles.append("location_support")
     if "preference" in evidence_need_set:
@@ -551,6 +556,17 @@ def _has_contrast_intent(
         {"between", "compare", "different", "difference", "former", "previous"}
         & relation_set
         or {"compare", "between", "before", "after"} & set(multi_hop_markers)
+    )
+
+
+def _has_count_intent(question: str) -> bool:
+    normalized = " ".join(str(question or "").casefold().split())
+    return bool(
+        normalized
+        and re.search(
+            r"\b(?:how\s+many|number\s+of|count\s+of|total\s+(?:number|count))\b",
+            normalized,
+        )
     )
 
 
