@@ -779,6 +779,10 @@ def _bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, ob
     source_identity_ref_counts: list[int] = []
     contrast_counts: list[int] = []
     selected_source_locality_scores: list[float] = []
+    measured_selected_source_locality_scores: list[float] = []
+    unmeasured_selected_source_locality_counts: list[int] = []
+    measured_answerability_scores: list[float] = []
+    unmeasured_answerability_counts: list[int] = []
     band_counts: Counter[str] = Counter()
     reason_counts: Counter[str] = Counter()
     weak_samples: list[dict[str, object]] = []
@@ -847,6 +851,33 @@ def _bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, ob
         if "average_selected_source_locality_score" in planner:
             selected_source_locality_scores.append(
                 _metric_value(planner, "average_selected_source_locality_score")
+            )
+        if "average_measured_selected_source_locality_score" in planner:
+            measured_source_locality = _metric_value(
+                planner,
+                "average_measured_selected_source_locality_score",
+            )
+            if measured_source_locality > 0:
+                measured_selected_source_locality_scores.append(
+                    measured_source_locality
+                )
+        if "unmeasured_selected_source_locality_count" in planner:
+            unmeasured_selected_source_locality_counts.append(
+                _positive_int(
+                    planner.get("unmeasured_selected_source_locality_count")
+                )
+                or 0
+            )
+        if "average_measured_answerability_score" in quality:
+            measured_answerability = _metric_value(
+                quality,
+                "average_measured_answerability_score",
+            )
+            if measured_answerability > 0:
+                measured_answerability_scores.append(measured_answerability)
+        if "unmeasured_answerability_count" in quality:
+            unmeasured_answerability_counts.append(
+                _positive_int(quality.get("unmeasured_answerability_count")) or 0
             )
         band = str(quality.get("confidence_band") or "unknown").strip() or "unknown"
         band_counts[band] += 1
@@ -958,6 +989,14 @@ def _bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, ob
         "total_contrast_count": sum(contrast_counts),
         "contrast_bundle_count": sum(1 for count in contrast_counts if count > 0),
         "avg_selected_source_locality_score": _avg(selected_source_locality_scores),
+        "avg_measured_selected_source_locality_score": _avg(
+            measured_selected_source_locality_scores
+        ),
+        "total_unmeasured_selected_source_locality_count": sum(
+            unmeasured_selected_source_locality_counts
+        ),
+        "avg_measured_answerability_score": _avg(measured_answerability_scores),
+        "total_unmeasured_answerability_count": sum(unmeasured_answerability_counts),
         "weak_bundle_count": weak_count,
         "medium_or_high_bundle_count": medium_or_high_count,
         "confidence_band_counts": dict(sorted(band_counts.items())),
@@ -1244,10 +1283,24 @@ def _evidence_feature_table(items: Sequence[Mapping[str, object]]) -> dict[str, 
     low_answerability_count = sum(
         1 for score in answerability_scores if _is_measured_low_answerability(score)
     )
+    measured_answerability_scores = [
+        score for score in answerability_scores if score > 0
+    ]
+    measured_source_locality_scores = [
+        score for score in source_locality_scores if score > 0
+    ]
     return {
         "candidate_count": len(answerability_scores),
         "avg_answerability_score": _avg(answerability_scores),
+        "avg_measured_answerability_score": _avg(measured_answerability_scores),
+        "unmeasured_answerability_count": sum(
+            1 for score in answerability_scores if score <= 0
+        ),
         "avg_source_locality_score": _avg(source_locality_scores),
+        "avg_measured_source_locality_score": _avg(measured_source_locality_scores),
+        "unmeasured_source_locality_count": sum(
+            1 for score in source_locality_scores if score <= 0
+        ),
         "low_answerability_count": low_answerability_count,
         "surface_counts": dict(sorted(surface_counts.items())),
         "source_type_counts": dict(sorted(source_type_counts.items())),

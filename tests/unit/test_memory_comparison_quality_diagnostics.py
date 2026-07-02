@@ -972,7 +972,10 @@ def test_quality_diagnostics_treats_zero_answerability_as_unmeasured() -> None:
                 retrieval=_retrieval_payload(
                     evidence_need=("single_fact",),
                     policy_score=0.2,
-                    candidate_features={"answerability_score": 0.0},
+                    candidate_features={
+                        "answerability_score": 0.0,
+                        "source_locality_score": 0.0,
+                    },
                 ),
             ),
             _item(
@@ -980,7 +983,10 @@ def test_quality_diagnostics_treats_zero_answerability_as_unmeasured() -> None:
                 retrieval=_retrieval_payload(
                     evidence_need=("single_fact",),
                     policy_score=0.0,
-                    candidate_features={"answerability_score": 0.42},
+                    candidate_features={
+                        "answerability_score": 0.42,
+                        "source_locality_score": 0.84,
+                    },
                 ),
             ),
         )
@@ -990,6 +996,10 @@ def test_quality_diagnostics_treats_zero_answerability_as_unmeasured() -> None:
     lift_table = diagnostics["rerank_lift_table"]
     assert feature_table["candidate_count"] == 2
     assert feature_table["low_answerability_count"] == 1
+    assert feature_table["unmeasured_answerability_count"] == 1
+    assert feature_table["avg_measured_answerability_score"] == 0.42
+    assert feature_table["unmeasured_source_locality_count"] == 1
+    assert feature_table["avg_measured_source_locality_score"] == 0.84
     assert lift_table["boosted_candidate_count"] == 1
     assert lift_table["low_answerability_lift_count"] == 0
 
@@ -1010,6 +1020,52 @@ def test_quality_diagnostics_reports_empty_bundle_quality_table() -> None:
     assert table["weak_bundle_count"] == 0
     assert table["confidence_band_counts"] == {}
     assert table["weak_samples"] == []
+
+
+def test_quality_diagnostics_reports_measured_bundle_score_averages() -> None:
+    diagnostics = quality_diagnostics(
+        (
+            _item(
+                case_id="unmeasured-static",
+                evidence_bundle={
+                    "bundle_planner": {
+                        "average_selected_source_locality_score": 0.0,
+                        "average_measured_selected_source_locality_score": 0.0,
+                        "unmeasured_selected_source_locality_count": 1,
+                        "bundle_quality": _bundle_quality(
+                            confidence_score=0.34,
+                            confidence_band="low",
+                            average_measured_answerability_score=0.0,
+                            unmeasured_answerability_count=1,
+                        ),
+                    }
+                },
+            ),
+            _item(
+                case_id="measured-static",
+                evidence_bundle={
+                    "bundle_planner": {
+                        "average_selected_source_locality_score": 0.84,
+                        "average_measured_selected_source_locality_score": 0.84,
+                        "unmeasured_selected_source_locality_count": 0,
+                        "bundle_quality": _bundle_quality(
+                            confidence_score=0.76,
+                            confidence_band="high",
+                            average_measured_answerability_score=0.72,
+                            unmeasured_answerability_count=0,
+                        ),
+                    }
+                },
+            ),
+        )
+    )
+
+    table = diagnostics["bundle_quality_table"]
+    assert table["avg_selected_source_locality_score"] == 0.42
+    assert table["avg_measured_selected_source_locality_score"] == 0.84
+    assert table["total_unmeasured_selected_source_locality_count"] == 1
+    assert table["avg_measured_answerability_score"] == 0.72
+    assert table["total_unmeasured_answerability_count"] == 1
 
 
 def test_fast_gate_metrics_passes_when_locomo_fast_thresholds_are_met() -> None:
@@ -2456,6 +2512,8 @@ def _bundle_quality(
     contrast_count: int = 0,
     location_relation_category_hit_count: int = 0,
     low_answerability_count: int = 0,
+    average_measured_answerability_score: float = 0.0,
+    unmeasured_answerability_count: int = 0,
     broad_summary_count: int = 0,
     conflict_or_stale_count: int = 0,
     source_proximity_support_count: int = 0,
@@ -2489,6 +2547,8 @@ def _bundle_quality(
         "contrast_count": contrast_count,
         "location_relation_category_hit_count": location_relation_category_hit_count,
         "low_answerability_count": low_answerability_count,
+        "average_measured_answerability_score": average_measured_answerability_score,
+        "unmeasured_answerability_count": unmeasured_answerability_count,
         "broad_summary_count": broad_summary_count,
         "conflict_or_stale_count": conflict_or_stale_count,
         "source_proximity_support_count": source_proximity_support_count,

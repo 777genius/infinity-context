@@ -248,6 +248,15 @@ class EvidenceBundlePlan:
                 else 0.0,
                 6,
             ),
+            "average_measured_selected_answerability_score": round(
+                _avg_positive_scores(
+                    tuple(item.candidate.answerability_score for item in self.items)
+                ),
+                6,
+            ),
+            "unmeasured_selected_answerability_count": sum(
+                1 for item in self.items if item.candidate.answerability_score <= 0
+            ),
             "average_selected_source_locality_score": round(
                 (
                     sum(item.candidate.source_locality_score for item in self.items)
@@ -256,6 +265,15 @@ class EvidenceBundlePlan:
                 if self.items
                 else 0.0,
                 6,
+            ),
+            "average_measured_selected_source_locality_score": round(
+                _avg_positive_scores(
+                    tuple(item.candidate.source_locality_score for item in self.items)
+                ),
+                6,
+            ),
+            "unmeasured_selected_source_locality_count": sum(
+                1 for item in self.items if item.candidate.source_locality_score <= 0
             ),
             "selected_dedupe_keys": [
                 item.candidate.dedupe_key for item in self.items
@@ -1116,6 +1134,13 @@ def _is_measured_low_answerability(score: float) -> bool:
     return 0 < score < 0.55
 
 
+def _avg_positive_scores(scores: Sequence[float]) -> float:
+    measured = [score for score in scores if score > 0]
+    if not measured:
+        return 0.0
+    return sum(measured) / len(measured)
+
+
 def _selection_has_bridge_support(selected: Sequence[PlannedEvidenceItem]) -> bool:
     if len(selected) < 2:
         return False
@@ -1452,6 +1477,12 @@ def _bundle_quality_diagnostics(
             "source_type_diversity": 0,
             "retrieval_source_diversity": 0,
             "low_answerability_count": 0,
+            "measured_answerability_count": 0,
+            "unmeasured_answerability_count": 0,
+            "average_measured_answerability_score": 0.0,
+            "measured_source_locality_count": 0,
+            "unmeasured_source_locality_count": 0,
+            "average_measured_source_locality_score": 0.0,
             "bridge_count": 0,
             "bridge_query_hit_count": 0,
             "causal_support_count": 0,
@@ -1499,9 +1530,24 @@ def _bundle_quality_diagnostics(
     }
     answerability_scores = [item.candidate.answerability_score for item in items]
     avg_answerability = sum(answerability_scores) / len(answerability_scores)
+    measured_answerability_scores = [
+        score for score in answerability_scores if score > 0
+    ]
+    avg_measured_answerability = _avg_positive_scores(answerability_scores)
     max_answerability = max(answerability_scores)
     low_answerability_count = sum(
         _is_measured_low_answerability(score) for score in answerability_scores
+    )
+    unmeasured_answerability_count = sum(
+        1 for score in answerability_scores if score <= 0
+    )
+    source_locality_scores = [item.candidate.source_locality_score for item in items]
+    measured_source_locality_scores = [
+        score for score in source_locality_scores if score > 0
+    ]
+    avg_measured_source_locality = _avg_positive_scores(source_locality_scores)
+    unmeasured_source_locality_count = sum(
+        1 for score in source_locality_scores if score <= 0
     )
     bridge_count = sum(1 for item in items if item.role == "bridge")
     bridge_query_hit_count = sum(1 for item in items if item.candidate.bridge_query_hit)
@@ -1646,8 +1692,20 @@ def _bundle_quality_diagnostics(
         "source_type_diversity": len(source_types),
         "retrieval_source_diversity": len(retrieval_sources),
         "average_answerability_score": round(avg_answerability, 6),
+        "average_measured_answerability_score": round(
+            avg_measured_answerability,
+            6,
+        ),
         "max_answerability_score": round(max_answerability, 6),
         "low_answerability_count": low_answerability_count,
+        "measured_answerability_count": len(measured_answerability_scores),
+        "unmeasured_answerability_count": unmeasured_answerability_count,
+        "average_measured_source_locality_score": round(
+            avg_measured_source_locality,
+            6,
+        ),
+        "measured_source_locality_count": len(measured_source_locality_scores),
+        "unmeasured_source_locality_count": unmeasured_source_locality_count,
         "bridge_count": bridge_count,
         "bridge_query_hit_count": bridge_query_hit_count,
         "causal_support_count": causal_support_count,

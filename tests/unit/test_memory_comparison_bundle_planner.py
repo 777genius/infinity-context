@@ -2069,8 +2069,19 @@ def test_evidence_bundle_quality_does_not_penalize_unmeasured_answerability() ->
 
     quality = plan.to_diagnostics()["bundle_quality"]
     assert quality["low_answerability_count"] == 0
+    assert quality["unmeasured_answerability_count"] == 1
+    assert quality["measured_answerability_count"] == 0
+    assert quality["average_measured_answerability_score"] == 0.0
+    assert quality["unmeasured_source_locality_count"] == 1
+    assert quality["measured_source_locality_count"] == 0
+    assert quality["average_measured_source_locality_score"] == 0.0
     assert quality["risk_penalty"] == 0.0
     assert "risk:low_answerability" not in quality["reason_codes"]
+    diagnostics = plan.to_diagnostics()
+    assert diagnostics["unmeasured_selected_answerability_count"] == 1
+    assert diagnostics["average_measured_selected_answerability_score"] == 0.0
+    assert diagnostics["unmeasured_selected_source_locality_count"] == 1
+    assert diagnostics["average_measured_selected_source_locality_score"] == 0.0
 
 
 def test_evidence_bundle_planner_scores_source_proximity_support() -> None:
