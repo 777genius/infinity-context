@@ -292,6 +292,11 @@ def infer_relation_intents(
             time_intent=time_intent,
         ):
             continue
+        if category == "support_goal" and not _has_support_goal_intent(
+            question=question,
+            relation_terms=relation_terms,
+        ):
+            continue
         if category == "commitment_profile" and not _has_commitment_profile_intent(
             question=question,
             relation_terms=relation_terms,
@@ -634,6 +639,52 @@ def _has_current_goal_intent(
         and (
             _has_future_home_move_goal_intent(normalized)
             or re.search(r"\b(?:current\s+goal|future|soon)\b", normalized)
+        )
+    )
+
+
+def _has_support_goal_intent(
+    *,
+    question: str,
+    relation_terms: tuple[str, ...],
+) -> bool:
+    relation_set = set(relation_terms)
+    if not {
+        "adopt",
+        "adoption",
+        "agency",
+        "career",
+        "counsel",
+        "field",
+        "grow",
+        "help",
+        "path",
+        "pursue",
+        "receive",
+        "support",
+        "work",
+        "write",
+    } & relation_set:
+        return False
+    normalized_question = " ".join(str(question or "").casefold().split())
+    return bool(
+        normalized_question
+        and (
+            re.search(
+                r"\b(?:support|supported|growing\s+up|"
+                r"adoption\s+agency|agency\b.+\bsupport|support\b.+\bagency)\b",
+                normalized_question,
+            )
+            or re.search(
+                r"\bhelp(?:ed|ing)?\s+(?:children|kids|people|others|students|"
+                r"community|individuals|folks)\b",
+                normalized_question,
+            )
+            or re.search(
+                r"\b(?:career|field|path|profession|work|job|write|writing|"
+                r"counsel(?:ing|or)?|pursue)\b",
+                normalized_question,
+            )
         )
     )
 
@@ -1689,7 +1740,7 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
             }
         ),
         "markers": frozenset(),
-        "evidence_need": "inference_support",
+        "evidence_need": "support_goal",
     },
     "education_profile": {
         "terms": frozenset({"class", "education", "go"}),

@@ -1074,6 +1074,8 @@ def _compact_relation_query_role(intent: RetrievalIntent) -> str:
         return "status_support"
     if "vehicle_profile" in evidence_needs:
         return "vehicle_support"
+    if "causal_support" in evidence_needs:
+        return "causal_support"
     if "support_goal" in evidence_needs:
         return "support_goal_support"
     if "favorite_preference" in evidence_needs:

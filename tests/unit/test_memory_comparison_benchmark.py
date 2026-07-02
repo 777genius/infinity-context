@@ -3907,8 +3907,16 @@ def test_query_decomposition_expands_locomo_topic_relations() -> None:
     )
     assert adoption_queries[2] == "caroline adoption support help folks individual agency"
     assert "adoption" in adoption_metadata["query_profile"]["relation_terms"]
-    assert adoption_metadata["query_profile"]["evidence_need"] == ("single_fact",)
-    assert adoption_metadata["query_profile"]["bundle_evidence_roles"] == ("primary",)
+    assert adoption_metadata["query_profile"]["evidence_need"] == ("support_goal",)
+    assert adoption_metadata["query_profile"]["bundle_evidence_roles"] == (
+        "primary",
+        "support_goal_support",
+    )
+    assert adoption_metadata["query_plan"]["selected_roles"] == [
+        "original_question",
+        "expanded_focus",
+        "support_goal_support",
+    ]
     assert "individual" in adoption_metadata["query_profile"]["relation_terms"]
     assert "people" in adoption_metadata["query_profile"]["relation_variant_terms"]
     assert not {"inclusive", "inclusivity", "lgbtq"}.intersection(
