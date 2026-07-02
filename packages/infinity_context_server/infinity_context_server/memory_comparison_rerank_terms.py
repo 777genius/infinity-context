@@ -49,6 +49,7 @@ RELATION_QUERY_VARIANTS = {
     "bought": ("buy", "purchased", "got"),
     "bring": ("brought", "take", "took"),
     "brought": ("bring", "brought", "took"),
+    "call": ("called", "conversation", "talked"),
     "camp": (
         "camped",
         "camping",
@@ -157,6 +158,8 @@ RELATION_QUERY_VARIANTS = {
     "fiancee": ("fiance", "engaged", "partner", "wedding"),
     "manager": ("boss", "work", "team", "colleague"),
     "mentor": ("mentors", "support", "guide", "advisor"),
+    "message": ("messaged", "send", "sent", "text"),
+    "messag": ("message", "messaged", "send", "sent", "text"),
     "neighbor": ("neighbour", "nearby", "home", "building"),
     "identity": (
         "pride",
@@ -266,6 +269,8 @@ RELATION_QUERY_VARIANTS = {
     "request": ("requested", "ask", "asked", "message"),
     "say": ("said", "tell", "told", "mention", "mentioned"),
     "said": ("say", "tell", "told", "mention", "mentioned"),
+    "send": ("sent", "message", "messaged", "text"),
+    "sent": ("send", "message", "messaged", "text"),
     "register": (
         "registered",
         "registration",
@@ -337,6 +342,7 @@ RELATION_QUERY_VARIANTS = {
         "engaged",
     ),
     "teammate": ("team", "colleague", "coworker", "work"),
+    "text": ("texted", "message", "messaged", "sent"),
     "tell": ("told", "said", "mentioned"),
     "told": ("tell", "said", "mentioned"),
     "think": ("thought", "considered"),

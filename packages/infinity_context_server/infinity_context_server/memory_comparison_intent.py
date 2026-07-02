@@ -567,6 +567,22 @@ def _has_communication_intent(
                 normalized_question,
             )
         )
+    if {"call", "message", "messag", "send", "sent", "text"} & relation_set:
+        if "call" in relation_set and {"miss", "missed"} & relation_set:
+            return False
+        if re.search(r"\bwhat\s+did\b.+\bcall\b(?!.*\b(?:about|to|with)\b)", normalized_question):
+            return False
+        return bool(
+            re.search(
+                r"\b(?:who|whom|when)\b.+\b(?:call|message|send|sent|text)\b",
+                normalized_question,
+            )
+            or re.search(
+                r"\b(?:call|message|messag|send|sent|text)(?:ed|ing)?\b"
+                r".+\b(?:about|to|with)\b",
+                normalized_question,
+            )
+        )
     if {"say", "said"} & relation_set:
         if {"personality", "trait"} & relation_set:
             return False
@@ -1042,9 +1058,12 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
             {
                 "advise",
                 "ask",
+                "call",
                 "chat",
                 "discus",
                 "discuss",
+                "message",
+                "messag",
                 "mention",
                 "recommend",
                 "request",
@@ -1053,6 +1072,7 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "suggest",
                 "talk",
                 "tell",
+                "text",
                 "told",
             }
         ),
@@ -1060,6 +1080,7 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
             {
                 "advise",
                 "advised",
+                "called",
                 "chatted",
                 "conversation",
                 "discus",
@@ -1068,14 +1089,19 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "discussion",
                 "mention",
                 "mentioned",
+                "messag",
+                "messaged",
                 "recommend",
                 "request",
                 "requested",
                 "say",
                 "said",
+                "send",
+                "sent",
                 "suggest",
                 "suggested",
                 "talked",
+                "texted",
                 "told",
             }
         ),

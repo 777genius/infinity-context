@@ -5990,8 +5990,75 @@ def test_query_decomposition_reports_conversation_communication_intent() -> None
         "chat",
         "conversation",
     )
-    assert chat_queries[2] == "alex maria chat chatt talk conversation message"
+    assert chat_queries[2] == "alex maria chat chatt talk conversation"
     assert "delay" not in json.dumps(chat_metadata["retrieval_intent"])
+
+
+def test_query_decomposition_reports_channel_communication_intent() -> None:
+    message_case = _case(
+        case_id="communication-message",
+        question="Who did Alex message about Project Atlas?",
+        expected_terms=("maria",),
+        answer="Maria",
+        category=1,
+    )
+    send_case = _case(
+        case_id="communication-send",
+        question="What message did Alex send to Maria?",
+        expected_terms=("postponed",),
+        answer="postponed",
+        category=1,
+    )
+    call_case = _case(
+        case_id="communication-call",
+        question="When did Alex call Maria?",
+        expected_terms=("yesterday",),
+        answer="yesterday",
+        category=2,
+    )
+
+    message_queries, message_metadata = rerank_module.decomposed_search_queries(
+        message_case
+    )
+    send_queries, send_metadata = rerank_module.decomposed_search_queries(send_case)
+    call_queries, call_metadata = rerank_module.decomposed_search_queries(call_case)
+
+    message_profile = message_metadata["query_profile"]
+    assert message_profile["relation_terms"] == ("message",)
+    assert message_profile["relation_categories"] == ("communication",)
+    assert message_profile["relation_category_terms"]["communication"] == (
+        "message",
+        "messag",
+        "send",
+        "sent",
+    )
+    assert message_queries[2] == "alex project atlas message messag send sent text"
+    assert "maria" not in json.dumps(message_metadata["retrieval_intent"]).casefold()
+
+    send_profile = send_metadata["query_profile"]
+    assert send_profile["relation_terms"] == ("message",)
+    assert send_profile["relation_categories"] == ("communication",)
+    assert send_profile["relation_category_terms"]["communication"] == (
+        "message",
+        "messag",
+        "send",
+        "sent",
+    )
+    assert send_queries[2] == "alex maria message messag send sent text"
+    assert "postponed" not in json.dumps(send_metadata["retrieval_intent"])
+
+    call_profile = call_metadata["query_profile"]
+    assert call_profile["relation_terms"] == ("call",)
+    assert call_profile["relation_categories"] == ("communication", "temporal")
+    assert call_profile["relation_category_terms"]["communication"] == (
+        "call",
+        "conversation",
+    )
+    assert call_queries == (
+        "When did Alex call Maria?",
+        "alex maria call",
+        "alex maria when session date time",
+    )
 
 
 def test_query_decomposition_does_not_promote_non_speaker_say_to_communication() -> None:
@@ -6057,6 +6124,32 @@ def test_query_decomposition_does_not_promote_causal_talking_clause_to_communica
     assert "communication" not in profile["evidence_need"]
     assert "communication_support" not in profile["bundle_evidence_roles"]
     assert "causal_support" in profile["bundle_evidence_roles"]
+
+
+def test_query_decomposition_does_not_promote_generic_call_to_communication() -> None:
+    missed_case = _case(
+        case_id="communication-missed-call",
+        question="What call did Alex miss?",
+        expected_terms=("planning"),
+        answer="planning",
+        category=1,
+    )
+    nickname_case = _case(
+        case_id="communication-called-name",
+        question="What did Alex call Maria?",
+        expected_terms=("nickname"),
+        answer="nickname",
+        category=1,
+    )
+
+    _, missed_metadata = rerank_module.decomposed_search_queries(missed_case)
+    _, nickname_metadata = rerank_module.decomposed_search_queries(nickname_case)
+
+    for metadata in (missed_metadata, nickname_metadata):
+        profile = metadata["query_profile"]
+        assert "communication" not in profile["relation_categories"]
+        assert "communication" not in profile["evidence_need"]
+        assert "communication_support" not in profile["bundle_evidence_roles"]
 
 
 def test_query_decomposition_reports_registration_event_intent() -> None:
@@ -6548,6 +6641,54 @@ def test_benchmark_rerank_boosts_discussion_communication_evidence() -> None:
             "session_2 turn D2:3 date: 9:10 pm "
             "D2:3 Alex: I discussed the Project Atlas delay with Maria; "
             "it was postponed after the invoice call."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topic_turn, communication_turn),
+    )
+
+    assert metadata["applied"] is True
+    assert reranked[0].item_id == "communication-turn"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    assert diagnostics_by_id["communication-turn"]["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["communication"]
+    assert diagnostics_by_id["topic-turn"]["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+
+
+def test_benchmark_rerank_boosts_message_communication_evidence() -> None:
+    case = _case(
+        case_id="communication-message-rerank",
+        question="Who did Alex message about Project Atlas?",
+        expected_terms=("maria",),
+        answer="Maria",
+        category=1,
+    )
+    topic_turn = RetrievedMemory(
+        item_id="topic-turn",
+        rank=1,
+        score=0.15,
+        text=(
+            "session_2 turn D2:1 date: 9:00 pm "
+            "D2:1 Alex: I reviewed Project Atlas during standup."
+        ),
+        source_refs=("D2:1",),
+    )
+    communication_turn = RetrievedMemory(
+        item_id="communication-turn",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 9:10 pm "
+            "D2:3 Alex: I messaged Maria about the Project Atlas delay "
+            "after the invoice call."
         ),
         source_refs=("D2:3",),
     )
