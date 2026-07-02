@@ -25,6 +25,29 @@ _TEMPORAL_BUNDLE_ROLES = frozenset(
         "visual_temporal_support",
     }
 )
+_TYPED_RELATION_SUPPORT_CATEGORIES = {
+    "activity_support": frozenset({"activity_profile"}),
+    "age_support": frozenset({"age_profile"}),
+    "alias_support": frozenset({"alias_profile"}),
+    "commitment_support": frozenset({"commitment_profile"}),
+    "contact_support": frozenset({"contact_profile"}),
+    "current_goal_support": frozenset({"current_goal"}),
+    "date_support": frozenset({"date_profile"}),
+    "diet_support": frozenset({"diet_profile"}),
+    "education_support": frozenset({"education_profile"}),
+    "employment_support": frozenset({"employment_profile"}),
+    "health_support": frozenset({"health_profile"}),
+    "identity_support": frozenset({"identity_profile"}),
+    "pet_support": frozenset({"pet_profile"}),
+    "skill_support": frozenset({"skill_profile"}),
+    "status_support": frozenset({"status_profile"}),
+    "support_goal_support": frozenset({"support_goal"}),
+    "vehicle_support": frozenset({"vehicle_profile"}),
+}
+
+
+def typed_relation_support_roles() -> tuple[str, ...]:
+    return tuple(sorted(_TYPED_RELATION_SUPPORT_CATEGORIES))
 
 
 def needs_temporal_support(item: Mapping[str, object]) -> bool:
@@ -153,6 +176,17 @@ def needs_symbolic_meaning_support(item: Mapping[str, object]) -> bool:
         or "symbolic_meaning_support" in roles
         or "symbolic_meaning" in relation_categories
     )
+
+
+def needs_typed_relation_support_roles(item: Mapping[str, object]) -> tuple[str, ...]:
+    query_profile, intent = _query_profile_and_intent(item)
+    evidence_need = _merged_query_values(query_profile, intent, "evidence_need")
+    roles = _merged_query_values(query_profile, intent, "bundle_evidence_roles")
+    needed: list[str] = []
+    for role, categories in sorted(_TYPED_RELATION_SUPPORT_CATEGORIES.items()):
+        if role in roles or categories.intersection(evidence_need):
+            needed.append(role)
+    return tuple(dict.fromkeys(needed))
 
 
 def needs_visual_support(item: Mapping[str, object]) -> bool:
@@ -466,6 +500,25 @@ def bundle_has_inference_support(
                     in _str_tuple(item.get("planner_reason_codes"))
                 )
             )
+        )
+        for item in _bundle_items(bundle)
+    )
+
+
+def bundle_has_typed_relation_support(
+    bundle: Mapping[str, object],
+    role: str,
+    *,
+    require_grounding: bool = False,
+) -> bool:
+    categories = _TYPED_RELATION_SUPPORT_CATEGORIES.get(role)
+    if not categories:
+        return False
+    return any(
+        bool(
+            _passes_support_quality(item)
+            and _passes_person_grounding(item, require_grounding=require_grounding)
+            and categories.intersection(_str_tuple(item.get("relation_category_hits")))
         )
         for item in _bundle_items(bundle)
     )

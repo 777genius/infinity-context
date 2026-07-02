@@ -72,6 +72,9 @@ from infinity_context_server.memory_comparison_quality_support import (
     bundle_has_temporal_support as _bundle_has_temporal_support,
 )
 from infinity_context_server.memory_comparison_quality_support import (
+    bundle_has_typed_relation_support as _bundle_has_typed_relation_support,
+)
+from infinity_context_server.memory_comparison_quality_support import (
     bundle_has_visual_support as _bundle_has_visual_support,
 )
 from infinity_context_server.memory_comparison_quality_support import (
@@ -111,7 +114,13 @@ from infinity_context_server.memory_comparison_quality_support import (
     needs_temporal_support as _needs_temporal_support,
 )
 from infinity_context_server.memory_comparison_quality_support import (
+    needs_typed_relation_support_roles as _needs_typed_relation_support_roles,
+)
+from infinity_context_server.memory_comparison_quality_support import (
     needs_visual_support as _needs_visual_support,
+)
+from infinity_context_server.memory_comparison_quality_support import (
+    typed_relation_support_roles as _typed_relation_support_roles,
 )
 
 _BRIDGE_GAP_REASONS = frozenset(
@@ -150,6 +159,15 @@ _EVIDENCE_NEED_GAP_REASONS = frozenset(
         "missing_required_temporal_support",
         "missing_required_visual_support",
         "missing_temporal_support",
+        "missing_typed_relation_support",
+        *(
+            f"missing_{role}"
+            for role in _typed_relation_support_roles()
+        ),
+        *(
+            f"missing_required_{role}"
+            for role in _typed_relation_support_roles()
+        ),
     }
 )
 
@@ -316,6 +334,14 @@ def _bundle_incomplete_reasons(item: Mapping[str, object]) -> tuple[str, ...]:
         reasons.append("missing_visual_support")
     if _needs_temporal_support(item) and not _bundle_has_temporal_support(bundle):
         reasons.append("missing_temporal_support")
+    for role in _needs_typed_relation_support_roles(item):
+        if not _bundle_has_typed_relation_support(
+            bundle,
+            role,
+            require_grounding=require_grounding,
+        ):
+            reasons.append("missing_typed_relation_support")
+            reasons.append(f"missing_{role}")
     for role in _str_tuple(bundle.get("missing_required_roles")):
         reasons.append(f"missing_required_{role}")
     reasons.extend(_multi_hop_bundle_gap_reasons(item, bundle))
