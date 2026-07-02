@@ -917,13 +917,29 @@ def test_evidence_bundle_planner_selects_required_preference_support() -> None:
         query_support_terms=("melanie", "like"),
         bundle_strength_score=9.0,
     )
+    direct_speaker_distractor = _candidate(
+        item_id="direct-speaker-distractor",
+        dedupe_key="refs:D2:2",
+        query_support_terms=("like", "animal"),
+        relation_hits=("like", "animal"),
+        relation_category_hits=("preference",),
+        has_preference_evidence=True,
+        query_has_entities=True,
+        direct_speaker_turn=True,
+        source_refs=("D2:2",),
+        source_locality_score=0.95,
+        answerability_score=0.88,
+        bundle_strength_score=10.0,
+    )
     preference_support = _candidate(
         item_id="preference-support",
         dedupe_key="refs:D2:3",
         query_support_terms=("melanie", "like", "animal"),
         relation_hits=("like", "animal"),
         relation_category_hits=("preference",),
+        entity_hits=("melanie",),
         has_preference_evidence=True,
+        query_has_entities=True,
         source_refs=("D2:3",),
         source_locality_score=0.9,
         answerability_score=0.74,
@@ -931,7 +947,7 @@ def test_evidence_bundle_planner_selects_required_preference_support() -> None:
     )
 
     plan = EvidenceBundlePlanner(max_items=2).plan(
-        (primary, generic_support, preference_support),
+        (primary, generic_support, direct_speaker_distractor, preference_support),
         case_group="single",
         required_roles=("primary", "preference_support"),
     )
@@ -972,13 +988,29 @@ def test_evidence_bundle_planner_selects_required_visual_support() -> None:
         query_support_terms=("melanie", "painting"),
         bundle_strength_score=9.0,
     )
+    direct_speaker_distractor = _candidate(
+        item_id="direct-speaker-distractor",
+        dedupe_key="refs:D2:2",
+        query_support_terms=("painting", "image"),
+        relation_hits=("paint", "image"),
+        relation_category_hits=("visual",),
+        has_visual_evidence=True,
+        query_has_entities=True,
+        direct_speaker_turn=True,
+        source_refs=("D2:2",),
+        source_locality_score=0.95,
+        answerability_score=0.88,
+        bundle_strength_score=10.0,
+    )
     visual_support = _candidate(
         item_id="visual-support",
         dedupe_key="refs:D2:3",
         query_support_terms=("melanie", "painting", "image"),
         relation_hits=("paint", "image"),
         relation_category_hits=("visual",),
+        entity_hits=("melanie",),
         has_visual_evidence=True,
+        query_has_entities=True,
         source_refs=("D2:3",),
         source_locality_score=0.9,
         answerability_score=0.74,
@@ -986,7 +1018,7 @@ def test_evidence_bundle_planner_selects_required_visual_support() -> None:
     )
 
     plan = EvidenceBundlePlanner(max_items=2).plan(
-        (primary, generic_support, visual_support),
+        (primary, generic_support, direct_speaker_distractor, visual_support),
         case_group="single",
         required_roles=("primary", "visual_support"),
     )
