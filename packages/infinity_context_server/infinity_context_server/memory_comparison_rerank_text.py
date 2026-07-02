@@ -361,7 +361,7 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
     ):
         terms.append("live")
     if re.search(
-        r"\b(?:where|city|place)\b.+\bfrom\b",
+        r"\b(?:where|city|country|place)\b.+\b(?:from|originally)\b",
         text,
         flags=re.IGNORECASE,
     ) and not re.search(
@@ -376,6 +376,13 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
         flags=re.IGNORECASE,
     ):
         terms.extend(("grow", "origin"))
+    if re.search(
+        r"\bwhere\b.+\bborn\b|\bhometown\b|"
+        r"\bwhere\b.+\bchildhood\b|\bchildhood\b.+\bwhere\b",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        terms.append("origin")
     if re.search(r"\bwhere\b.+\bstay\b", text, flags=re.IGNORECASE):
         terms.append("stay")
     return tuple(terms)

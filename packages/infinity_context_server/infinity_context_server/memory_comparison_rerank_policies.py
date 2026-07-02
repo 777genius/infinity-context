@@ -922,12 +922,14 @@ def _typed_relation_support_grounded(
 
 _LOCATION_SUPPORT_TERMS = frozenset(
     {
+        "born",
         "city",
         "country",
         "drive",
         "from",
         "grew",
         "home",
+        "hometown",
         "hotel",
         "live",
         "lived",
@@ -935,6 +937,7 @@ _LOCATION_SUPPORT_TERMS = frozenset(
         "move",
         "moved",
         "origin",
+        "originally",
         "place",
         "relocated",
         "stay",

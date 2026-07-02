@@ -441,7 +441,8 @@ def _has_location_transition_intent(
     return bool(
         re.search(
             r"\b(?:where|which\s+(?:city|country|place)|from|origin|"
-            r"home\s+country|relocat(?:e|ed|ion))\b",
+            r"home\s+country|hometown|born|childhood|originally|"
+            r"relocat(?:e|ed|ion))\b",
             normalized,
         )
         or re.search(
@@ -1142,8 +1143,10 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "from",
                 "grew",
                 "home",
+                "hometown",
                 "hotel",
                 "origin",
+                "originally",
                 "place",
                 "relocated",
                 "stayed",
