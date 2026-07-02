@@ -80,6 +80,27 @@
 - `git push origin main` -> still blocked because the non-interactive runtime
   has no GitHub username/credential prompt available.
 
+## 2026-07-02 Follow-up 18
+
+- Allowed answerability boosts for grounded typed category evidence even when
+  the category detector is the main evidence signal and relation-token hits are
+  sparse. This helps typed profile/action evidence rank by direct answerability
+  instead of relying only on lexical density.
+- Preserved the stricter communication grounding rule: communication
+  answerability still requires speaker grounding when the query names a speaker,
+  so recipient-side turns do not outrank the actual speaker turn.
+
+## Verification
+
+- `uv run --extra dev pytest -q tests/unit/test_memory_comparison_rerank_policy.py -k "answerability"`
+  -> 4 passed, 36 deselected.
+- `uv run --extra dev pytest -q tests/unit/test_memory_comparison_benchmark.py::test_benchmark_rerank_boosts_speaker_grounded_communication_evidence`
+  -> 1 passed, 1 warning.
+- `uv run --extra dev pytest -q tests/unit/test_memory_comparison*.py`
+  -> 510 passed, 1 warning.
+- `uv run --extra dev ruff check packages/infinity_context_server/infinity_context_server/memory_comparison_rerank_policies.py tests/unit/test_memory_comparison_rerank_policy.py`
+  -> passed.
+
 ## 2026-07-02 Follow-up 4
 
 - Tightened incomplete-bundle answer-context backfill further: when required

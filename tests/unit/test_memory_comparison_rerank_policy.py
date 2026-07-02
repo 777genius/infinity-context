@@ -327,6 +327,39 @@ def test_rerank_policy_reports_bounded_answerability_boost() -> None:
     ]
 
 
+def test_rerank_policy_allows_answerability_for_grounded_typed_category() -> None:
+    score = score_benchmark_rerank_candidate(
+        _features(
+            overlap_terms=("alex", "notebook", "class"),
+            entity_hits=("alex",),
+            speaker_hits=("alex",),
+            relation_hits=(),
+            relation_terms=("action",),
+            relation_categories=("action_event",),
+            relation_category_hits=("action_event",),
+            relation_category_coverage_ratio=1.0,
+            query_has_entities=True,
+            evidence_need=("action_support",),
+            query_roles=("action_support",),
+            answerability_score=0.9,
+            answerability_reason_codes=(
+                "entity_satisfied",
+                "intent_satisfied",
+                "direct_provenance",
+                "high_answerability",
+            ),
+        )
+    )
+
+    signals = score.signals["score_signals"]
+    policy = score.signals["policy_contributions"]
+    assert signals["benchmark_answerability_boost"] == 0.1
+    assert signals["benchmark_answerability_boost_eligible"] is True
+    assert "high_answerability" in policy["reason_codes_by_policy"][
+        "AnswerabilityPolicy"
+    ]
+
+
 def test_rerank_policy_reports_contrast_and_currentness_support() -> None:
     score = score_benchmark_rerank_candidate(
         BenchmarkRerankFeatures(

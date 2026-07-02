@@ -842,7 +842,26 @@ def _answerability_boost(score: float) -> float:
 def _answerability_boost_eligible(features: RerankPolicyFeatures) -> bool:
     if not features.relation_terms:
         return True
+    if _typed_category_answerability_grounded(features):
+        return True
     return len(features.relation_hits) >= 2 or features.high_signal_relation_hit_count > 0
+
+
+def _typed_category_answerability_grounded(features: RerankPolicyFeatures) -> bool:
+    category_hits = set(features.relation_category_hits)
+    if not category_hits:
+        return False
+    if "communication" in category_hits and features.query_has_entities:
+        if features.speaker_hits:
+            return True
+        category_hits.discard("communication")
+    if not category_hits:
+        return False
+    return bool(
+        features.entity_hits
+        or features.speaker_hits
+        or not features.query_has_entities
+    )
 
 
 def _contrast_boost_eligible(features: RerankPolicyFeatures) -> bool:
