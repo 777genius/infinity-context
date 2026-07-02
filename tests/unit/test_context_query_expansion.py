@@ -3912,6 +3912,46 @@ def test_best_query_relevance_uses_vehicle_issue_bridge() -> None:
     assert relevance.distinctive_term_hits >= 6
 
 
+def test_query_expansion_bridges_vehicle_interest_queries() -> None:
+    drive = build_query_expansion_plan("What kind of car does Evan drive?")
+    liked = build_query_expansion_plan("Which types of cars does Dave like the most?")
+    engines = build_query_expansion_plan("Can Dave work with engines?")
+    preference = build_query_expansion_plan(
+        "Would Dave prefer working on a Dodge Charger or a Subaru Forester?"
+    )
+    accident = build_query_expansion_plan("When did Maria get in a car accident?")
+
+    assert "car cars vehicle vehicles auto automobile drive" in _expansion_query(
+        drive,
+        "vehicle_interest_bridge",
+    )
+    assert "classic muscle restoration restore" in _expansion_query(
+        liked,
+        "vehicle_interest_bridge",
+    )
+    assert "engines engineering modification modifications" in _expansion_query(
+        engines,
+        "vehicle_interest_bridge",
+    )
+    assert "Prius Subaru Forester Dodge Charger" in _expansion_query(
+        preference,
+        "vehicle_interest_bridge",
+    )
+    assert "vehicle_interest_bridge" not in {item.reason for item in accident.expansions}
+
+
+def test_best_query_relevance_uses_vehicle_interest_bridge() -> None:
+    plan = build_query_expansion_plan("Which types of cars does Dave like the most?")
+
+    _, reason, relevance = best_query_relevance(
+        plan,
+        text="Dave likes classic muscle cars and works on vehicle restoration projects.",
+    )
+
+    assert reason == "vehicle_interest_bridge"
+    assert relevance.distinctive_term_hits >= 6
+
+
 def test_query_expansion_bridges_favorite_preference_queries() -> None:
     book = build_query_expansion_plan("What was Melanie's favorite book from childhood?")
     dessert = build_query_expansion_plan("What are Nate's favorite desserts?")

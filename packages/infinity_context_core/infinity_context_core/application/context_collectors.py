@@ -321,6 +321,7 @@ _PROTECTED_EXPANSION_HEAD_REASONS = frozenset(
         "shoe_usage_bridge",
         "study_time_management_bridge",
         "trip_destination_bridge",
+        "vehicle_interest_bridge",
         "vehicle_issue_bridge",
     }
 )
