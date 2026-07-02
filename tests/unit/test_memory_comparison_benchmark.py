@@ -1021,6 +1021,98 @@ def test_query_integrity_checks_selected_query_plan_text(
     assert gate["sample_overlap_case_ids"] == ["conv-1:qa:query-plan-leak"]
 
 
+def test_query_integrity_checks_query_expansion_typed_intent(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "unused.json"
+    dataset.write_text("[]", encoding="utf-8")
+    case = _case(
+        case_id="conv-1:qa:query-expansion-intent-leak",
+        question="What did Caroline mention?",
+        expected_terms=("love", "faith"),
+        answer="love and faith",
+    )
+
+    class _QueryExpansionIntentLeakBackend(_StaticBackend):
+        def search(
+            self,
+            case: PublicBenchmarkCase,
+            *,
+            run_id: str,
+            top_k: int,
+        ) -> BackendSearchResult:
+            self.search_calls[case.case_id] += 1
+            return BackendSearchResult(
+                query=case.question,
+                memories=self.memories_by_case.get(case.case_id, ())[:top_k],
+                metadata={
+                    "query_expansion": {
+                        "retrieval_intent": {
+                            "schema_version": "retrieval_intent.v1",
+                            "evidence_need": ["single_fact"],
+                            "bundle_evidence_roles": ["primary"],
+                            "risk_flags": ["wide_relation_expansion"],
+                            "relations": {
+                                "terms": ["mention"],
+                                "variant_terms": ["love", "faith"],
+                                "intents": [
+                                    {
+                                        "category": "symbolic_meaning",
+                                        "terms": ["mention"],
+                                        "variant_terms": ["love", "faith"],
+                                    }
+                                ],
+                            },
+                        },
+                    },
+                    "run_id": run_id,
+                },
+            )
+
+    backend = _QueryExpansionIntentLeakBackend(
+        "memo-stack",
+        {
+            case.case_id: (
+                RetrievedMemory(
+                    text="Caroline mentioned love and faith.",
+                    rank=1,
+                ),
+            )
+        },
+    )
+
+    result = run_memory_comparison_benchmark(
+        dataset_path=dataset,
+        backends=(backend,),
+        cases_override=(case,),
+        top_k=1,
+        top_k_cutoffs=(1,),
+        run_id="query-integrity-expansion-intent-unit",
+    )
+
+    integrity = result["evaluations"][0]["retrieval"]["metadata"]["query_integrity"]
+    assert integrity["expected_answer_query_overlap_count"] == 0
+    assert integrity["expected_answer_retrieval_intent_overlap_count"] == 2
+    assert integrity["expected_answer_retrieval_intent_overlap_terms"] == [
+        "faith",
+        "love",
+    ]
+    assert integrity["retrieval_intent_schema_versions"] == ["retrieval_intent.v1"]
+    assert integrity["retrieval_intent_evidence_need"] == ["single_fact"]
+    assert integrity["retrieval_intent_bundle_evidence_roles"] == ["primary"]
+    assert integrity["retrieval_intent_risk_flags"] == ["wide_relation_expansion"]
+    assert integrity["retrieval_intent_relation_categories"] == [
+        "symbolic_meaning"
+    ]
+    gate = result["backend_metrics"]["memo-stack"]["query_integrity_gate"]
+    assert gate["query_integrity_clean"] is False
+    assert gate["retrieval_intent_query_integrity_clean"] is False
+    assert gate["retrieval_intent_overlap_token_total"] == 2
+    assert gate["sample_retrieval_intent_overlap_case_ids"] == [
+        "conv-1:qa:query-expansion-intent-leak"
+    ]
+
+
 def test_query_integrity_ignores_structural_bundle_roles_for_profile_leakage(
     tmp_path: Path,
 ) -> None:

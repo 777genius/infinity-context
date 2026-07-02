@@ -146,11 +146,8 @@ def _query_profile_integrity_token_set(
     query_decomposition: Mapping[str, object],
 ) -> set[str]:
     tokens: set[str] = set()
-    benchmark_rerank = _mapping(metadata.get("benchmark_rerank"))
-    for profile in (
-        _mapping(query_decomposition.get("query_profile")),
-        _mapping(benchmark_rerank.get("query_profile")),
-    ):
+    for payload in _diagnostic_query_payloads(metadata, query_decomposition):
+        profile = _mapping(payload.get("query_profile"))
         for key in _QUERY_PROFILE_INTEGRITY_KEYS:
             for value in _str_tuple(profile.get(key)):
                 tokens.update(_diagnostic_token_set(value))
@@ -162,12 +159,8 @@ def _retrieval_intent_integrity_token_set(
     query_decomposition: Mapping[str, object],
 ) -> set[str]:
     tokens: set[str] = set()
-    benchmark_rerank = _mapping(metadata.get("benchmark_rerank"))
-    for intent in (
-        _mapping(query_decomposition.get("retrieval_intent")),
-        _mapping(benchmark_rerank.get("retrieval_intent")),
-    ):
-        _collect_intent_tokens(tokens, intent)
+    for payload in _diagnostic_query_payloads(metadata, query_decomposition):
+        _collect_intent_tokens(tokens, _mapping(payload.get("retrieval_intent")))
     return tokens
 
 
@@ -202,10 +195,9 @@ def _retrieval_intent_diagnostics(
     metadata: Mapping[str, object],
     query_decomposition: Mapping[str, object],
 ) -> dict[str, object]:
-    benchmark_rerank = _mapping(metadata.get("benchmark_rerank"))
-    intents = (
-        _mapping(query_decomposition.get("retrieval_intent")),
-        _mapping(benchmark_rerank.get("retrieval_intent")),
+    intents = tuple(
+        _mapping(payload.get("retrieval_intent"))
+        for payload in _diagnostic_query_payloads(metadata, query_decomposition)
     )
     schema_versions = tuple(
         dict.fromkeys(
@@ -245,6 +237,17 @@ def _retrieval_intent_diagnostics(
         "retrieval_intent_risk_flags": list(risk_flags),
         "retrieval_intent_relation_categories": list(relation_categories),
     }
+
+
+def _diagnostic_query_payloads(
+    metadata: Mapping[str, object],
+    query_decomposition: Mapping[str, object],
+) -> tuple[Mapping[str, object], ...]:
+    return (
+        query_decomposition,
+        _mapping(metadata.get("query_expansion")),
+        _mapping(metadata.get("benchmark_rerank")),
+    )
 
 
 def _relation_categories(intent: Mapping[str, object]) -> tuple[str, ...]:
