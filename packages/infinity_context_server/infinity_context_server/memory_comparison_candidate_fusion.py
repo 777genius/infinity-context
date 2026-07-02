@@ -22,6 +22,11 @@ class CandidateFusionConfig:
 
 DEFAULT_CANDIDATE_FUSION_CONFIG = CandidateFusionConfig()
 _TURN_REF_RE = re.compile(r"\bD\d+:\d+\b")
+_BROAD_SUMMARY_SURFACE_RE = re.compile(
+    r"\b(?:conversation summary|memory summary|observations|related turns|"
+    r"events date|summari[sz]ed turns|summary of)\b|\bsummary\s*:",
+    re.IGNORECASE,
+)
 _EVIDENCE_SELECTION_SCORE_BAND = 0.025
 _FOCUSED_QUERY_ROLE_SCORES = {
     "compact_relation": 0.04,
@@ -303,6 +308,8 @@ def _evidence_quality_score(memory: RetrievedMemory) -> float:
         score += 0.02
     elif len(memory.text or "") > 1200:
         score -= 0.03
+    if _BROAD_SUMMARY_SURFACE_RE.search(memory.text or ""):
+        score -= 0.14
     return score
 
 

@@ -216,6 +216,46 @@ def test_candidate_fusion_selects_local_evidence_within_score_band() -> None:
     assert fusion["selected_evidence_source_type"] == "raw_turn"
 
 
+def test_candidate_fusion_penalizes_generated_summary_evidence() -> None:
+    generated_summary = RetrievedMemory(
+        item_id="career-support",
+        rank=1,
+        score=0.82,
+        text=(
+            "Conversation summary: D4:6 Morgan discussed counseling, "
+            "friends, support, and career goals."
+        ),
+        source_refs=("D4:6",),
+        metadata={
+            "item_type": "raw_turn",
+            "diagnostics": {"retrieval_sources": ["semantic_chunks"]},
+        },
+    )
+    localized_chunk = RetrievedMemory(
+        item_id="career-support",
+        rank=2,
+        score=0.81,
+        text="D4:6 Morgan: My friends supported my counseling career goal.",
+        source_refs=("D4:6",),
+        metadata={
+            "item_type": "chunk",
+            "diagnostics": {"retrieval_sources": ["keyword_chunks"]},
+        },
+    )
+
+    fused, diagnostics = fuse_query_results(
+        (("semantic", (generated_summary,)), ("keyword", (localized_chunk,)))
+    )
+
+    assert len(fused) == 1
+    assert diagnostics["duplicate_result_count"] == 1
+    assert diagnostics["lower_score_evidence_selection_count"] == 1
+    assert fused[0].text == localized_chunk.text
+    fusion = fused[0].metadata["diagnostics"]["benchmark_candidate_fusion"]
+    assert fusion["selected_evidence_source_type"] == "chunk"
+    assert fusion["selected_evidence_quality_score"] > 0
+
+
 def test_candidate_fusion_prefers_focused_query_evidence_within_score_band() -> None:
     generic_hit = RetrievedMemory(
         item_id="move-evidence",
