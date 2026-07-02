@@ -106,6 +106,48 @@ def test_existing_focused_turn_blocks_duplicate_continuation_hydration() -> None
     assert requests == {}
 
 
+def test_existing_multi_ref_exact_turn_body_blocks_duplicate_hydration() -> None:
+    multi_ref_item = ContextItem(
+        item_id="multi_ref_visual_context",
+        item_type="chunk",
+        text=(
+            "D2:8 Riley: Are they yours at the festival? "
+            "D2:9 Morgan: Yes, they're the ones performing at the festival."
+        ),
+        score=0.9,
+        source_refs=(
+            SourceRef(
+                source_type="locomo_turn",
+                source_id="locomo:conv-fixture:session_2:D2:8:turn",
+            ),
+            SourceRef(
+                source_type="locomo_turn",
+                source_id="locomo:conv-fixture:session_2:D2:9:turn",
+            ),
+        ),
+        diagnostics={
+            "retrieval_source": "keyword_source_sibling_chunks",
+            "retrieval_sources": ["keyword_source_sibling_chunks"],
+            "score_signals": {
+                "query_expansion_reason": "activity_competition_evidence_bridge",
+                "source_sibling_answer_evidence": 1,
+            },
+        },
+    )
+
+    requests = _source_sibling_answer_continuation_hydration_requests(
+        (multi_ref_item,),
+        existing_source_ids=frozenset(
+            {
+                "locomo:conv-fixture:session_2:D2:8:turn",
+                "locomo:conv-fixture:session_2:D2:9:turn",
+            }
+        ),
+    )
+
+    assert requests == {}
+
+
 def test_activity_duration_question_requests_next_answer_turn_hydration() -> None:
     question_turn = _answer_support_item(
         "duration_question",

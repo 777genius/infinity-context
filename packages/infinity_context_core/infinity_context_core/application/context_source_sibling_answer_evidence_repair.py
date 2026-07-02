@@ -1436,18 +1436,21 @@ def _source_sibling_answer_continuation_hydration_requests(
     )
     for item in items:
         answer_evidence = _score_signal_truthy(item, "source_sibling_answer_evidence")
-        reason = _source_sibling_answer_continuation_reason(
-            item,
-            answer_evidence=answer_evidence,
-        )
-        previous_reason = _source_sibling_answer_previous_context_reason(
-            item,
-            answer_evidence=answer_evidence,
-        )
-        if not reason and not previous_reason:
-            continue
         for ref in item.source_refs:
             source_ref_id = str(ref.source_id or "")
+            if not source_ref_id:
+                continue
+            ref_item = _focused_continuation_item(item, source_id=source_ref_id)
+            reason = _source_sibling_answer_continuation_reason(
+                ref_item,
+                answer_evidence=answer_evidence,
+            )
+            previous_reason = _source_sibling_answer_previous_context_reason(
+                ref_item,
+                answer_evidence=answer_evidence,
+            )
+            if not reason and not previous_reason:
+                continue
             if previous_reason:
                 previous_source_id = _previous_dialogue_turn_source_id(source_ref_id)
                 if previous_source_id and previous_source_id not in existing:
@@ -1465,6 +1468,15 @@ def _source_sibling_answer_continuation_hydration_requests(
     return requests
 
 
+def _focused_continuation_item(item: ContextItem, *, source_id: str) -> ContextItem:
+    if not source_id.casefold().endswith(":turn"):
+        return item
+    focused_text = _focused_exact_source_repair_text(text=item.text, source_id=source_id)
+    if focused_text == item.text:
+        return item
+    return replace(item, text=focused_text)
+
+
 def _focused_existing_continuation_source_ids(
     items: tuple[ContextItem, ...],
     *,
@@ -1474,14 +1486,13 @@ def _focused_existing_continuation_source_ids(
         return set()
     existing: set[str] = set()
     for item in items:
-        if len(item.source_refs) != 1:
-            continue
-        source_id = str(item.source_refs[0].source_id or "")
-        if source_id not in source_ids:
-            continue
-        marker = _source_ref_dialogue_marker(item.source_refs[0])
-        if marker and _dialogue_turn_marker_text_match(text=item.text, marker=marker):
-            existing.add(source_id)
+        for ref in item.source_refs:
+            source_id = str(ref.source_id or "")
+            if source_id not in source_ids:
+                continue
+            marker = _source_ref_dialogue_marker(ref)
+            if marker and _dialogue_turn_marker_text_match(text=item.text, marker=marker):
+                existing.add(source_id)
     return existing
 
 
