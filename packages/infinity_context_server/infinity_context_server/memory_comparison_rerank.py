@@ -1572,7 +1572,6 @@ def _relation_query_terms(
         priority_variant_order.extend(
             (
                 "church",
-                "conservatives",
                 "think",
                 "journey",
                 "chang",
@@ -1581,7 +1580,6 @@ def _relation_query_terms(
                 "growth",
             )
         )
-        priority_surface_terms.add("conservatives")
     if {"career", "path", "pursue"}.issubset(relation_term_set):
         priority_variant_order.extend(("work", "working", "think", "figur", "option"))
         priority_surface_terms.add("working")

@@ -3560,12 +3560,15 @@ def test_query_decomposition_expands_profile_attribute_queries() -> None:
         political_metadata["query_profile"]["relation_variant_terms"]
     )
     assert religious_queries[2] == (
-        "caroline religious church conservatives think journey changing"
+        "caroline religious church think journey changing acceptance"
     )
     assert "religious" in religious_metadata["query_profile"]["relation_terms"]
     assert "journey" in religious_metadata["query_profile"]["relation_variant_terms"]
     assert "chang" in religious_metadata["query_profile"]["relation_variant_terms"]
     assert "acceptance" in religious_metadata["query_profile"]["relation_variant_terms"]
+    assert "conservative" not in religious_metadata["query_profile"][
+        "relation_variant_terms"
+    ]
 
 
 def test_query_decomposition_expands_locomo_topic_relations() -> None:
