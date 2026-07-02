@@ -979,6 +979,8 @@ def _candidate_has_communication_support(candidate: EvidenceBundleCandidate) -> 
         return False
     if candidate.answerability_score and candidate.answerability_score < 0.55:
         return False
+    if candidate.query_has_entities and not candidate.speaker_hits:
+        return False
     if not (candidate.speaker_hits or candidate.direct_speaker_turn):
         return False
     return "communication" in set(candidate.relation_category_hits)
@@ -1001,11 +1003,7 @@ def _candidate_has_typed_relation_grounding(
         return False
     if not candidate.query_has_entities:
         return True
-    return bool(
-        candidate.entity_hits
-        or candidate.speaker_hits
-        or candidate.direct_speaker_turn
-    )
+    return bool(candidate.entity_hits or candidate.speaker_hits)
 
 
 def _candidate_has_inference_support(candidate: EvidenceBundleCandidate) -> bool:

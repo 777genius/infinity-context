@@ -1201,6 +1201,19 @@ def test_evidence_bundle_planner_requires_grounded_typed_support_for_entity_quer
         answerability_score=0.86,
         bundle_strength_score=9.0,
     )
+    direct_speaker_distractor = _candidate(
+        item_id="direct-speaker-distractor",
+        dedupe_key="refs:D2:4",
+        query_support_terms=("visited", "studio"),
+        relation_hits=("visited", "studio"),
+        relation_category_hits=("participation_event",),
+        query_has_entities=True,
+        direct_speaker_turn=True,
+        source_refs=("D2:4",),
+        source_locality_score=0.95,
+        answerability_score=0.88,
+        bundle_strength_score=10.0,
+    )
     grounded_event = _candidate(
         item_id="grounded-event",
         dedupe_key="refs:D2:3",
@@ -1216,7 +1229,7 @@ def test_evidence_bundle_planner_requires_grounded_typed_support_for_entity_quer
     )
 
     plan = EvidenceBundlePlanner(max_items=2).plan(
-        (primary, ungrounded_event, grounded_event),
+        (primary, ungrounded_event, direct_speaker_distractor, grounded_event),
         case_group="single",
         required_roles=("primary", "event_support"),
     )
@@ -1245,6 +1258,8 @@ def test_evidence_bundle_planner_selects_required_communication_support() -> Non
         dedupe_key="refs:D1:2",
         query_support_terms=("alex", "delay"),
         relation_category_hits=("communication",),
+        query_has_entities=True,
+        direct_speaker_turn=True,
         source_refs=("D1:2",),
         source_locality_score=0.9,
         answerability_score=0.8,
@@ -1258,6 +1273,7 @@ def test_evidence_bundle_planner_selects_required_communication_support() -> Non
         relation_category_hits=("communication",),
         speaker_hits=("alex",),
         direct_speaker_turn=True,
+        query_has_entities=True,
         source_refs=("D2:3",),
         source_locality_score=0.9,
         answerability_score=0.8,
