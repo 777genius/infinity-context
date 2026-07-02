@@ -312,6 +312,7 @@ _TEMPORAL_ROLE_KEYS = frozenset(
     }
 )
 _PROFILE_CATEGORY_BY_ROLE_KEY = {
+    "action": "action_event",
     "activity": "activity_profile",
     "age": "age_profile",
     "alias": "alias_profile",

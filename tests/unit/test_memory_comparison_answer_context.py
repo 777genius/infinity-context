@@ -1187,6 +1187,68 @@ def test_answer_context_backfill_requires_visual_and_time_for_visual_temporal_ro
     assert context.backfilled_retrieval_item_count == 1
 
 
+def test_answer_context_backfill_requires_action_category_for_action_role() -> None:
+    memories = (
+        RetrievedMemory(text="primary", rank=1, item_id="primary"),
+        RetrievedMemory(
+            text="D1:1 Alex mentioned class supplies.",
+            rank=2,
+            item_id="query-role-only",
+            source_refs=("D1:1",),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "answerability_score": 0.95,
+                        "source_locality_score": 0.9,
+                        "entity_hits": ["alex"],
+                        "speaker_hits": ["alex"],
+                        "relation_hits": ["class"],
+                        "query_roles": ["action_support"],
+                    }
+                }
+            },
+        ),
+        RetrievedMemory(
+            text="D2:3 Alex: I took the notebook to class.",
+            rank=3,
+            item_id="action-evidence",
+            source_refs=("D2:3",),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "answerability_score": 0.82,
+                        "source_locality_score": 0.9,
+                        "entity_hits": ["alex"],
+                        "speaker_hits": ["alex"],
+                        "relation_hits": ["take", "class"],
+                        "query_roles": ["action_support"],
+                        "relation_category_hits": ["action_event"],
+                    }
+                }
+            },
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "role_requirement_complete": False,
+            "missing_required_roles": ["action_support"],
+            "items": [{"id": "primary", "retrieval_order": 1, "role": "primary"}],
+        },
+        cutoff=3,
+    )
+
+    assert [memory.item_id for memory in context.memories] == [
+        "primary",
+        "action-evidence",
+    ]
+    assert context.memories[1].metadata[
+        "answer_context_backfill_missing_role_hits"
+    ] == ("action_support",)
+    assert context.backfilled_retrieval_item_count == 1
+
+
 def test_answer_context_falls_back_for_empty_bundle() -> None:
     memories = (
         RetrievedMemory(text="first", rank=1, item_id="first"),

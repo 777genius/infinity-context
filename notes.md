@@ -77,6 +77,8 @@
   -> 497 passed, 1 warning.
 - `uv run --extra dev ruff check packages/infinity_context_server/infinity_context_server/memory_comparison_answer_context_backfill.py tests/unit/test_memory_comparison_answer_context.py`
   -> passed.
+- `git push origin main` -> still blocked because the non-interactive runtime
+  has no GitHub username/credential prompt available.
 
 ## 2026-07-02 Follow-up 4
 
@@ -113,6 +115,24 @@
   -> passed.
 - `git push origin main` -> still blocked because the non-interactive runtime
   has no GitHub username/credential prompt available.
+
+## 2026-07-02 Follow-up 17
+
+- Tightened answer-context backfill for the new typed `action_support` role.
+  Retrieval backfill now requires matching `action_event` evidence before an
+  action-support candidate can repair a missing bundle role; merely arriving
+  from an `action_support` query role is not enough.
+- Added a regression where a stronger query-role-only action candidate is
+  excluded and explicit action evidence is backfilled.
+
+## Verification
+
+- `uv run --extra dev pytest -q tests/unit/test_memory_comparison_answer_context.py -k "action_role or backfill_requires"`
+  -> 4 passed, 18 deselected.
+- `uv run --extra dev pytest -q tests/unit/test_memory_comparison*.py`
+  -> 509 passed, 1 warning.
+- `uv run --extra dev ruff check packages/infinity_context_server/infinity_context_server/memory_comparison_answer_context_backfill.py tests/unit/test_memory_comparison_answer_context.py`
+  -> passed.
 
 ## 2026-07-02 Follow-up 6
 
