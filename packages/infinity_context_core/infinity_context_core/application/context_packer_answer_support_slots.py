@@ -75,11 +75,14 @@ from infinity_context_core.application.context_packer_answer_support_patterns im
     _INVENTORY_SHELTER_FOOD_DROPOFF_SLOT_RE,
     _INVENTORY_SHELTER_SERVICE_ACTIVITY_SLOT_RE,
     _INVENTORY_SHELTER_SLOT_RE,
+    _INVENTORY_STATE_CALIFORNIA_SLOT_RE,
     _INVENTORY_STATE_EAST_COAST_SLOT_RE,
     _INVENTORY_STATE_FLORIDA_SLOT_RE,
+    _INVENTORY_STATE_NEW_YORK_SLOT_RE,
     _INVENTORY_STATE_OREGON_SLOT_RE,
     _INVENTORY_STATE_PACIFIC_NORTHWEST_SLOT_RE,
     _INVENTORY_STATE_PLACE_SLOT_RE,
+    _INVENTORY_STATE_TEXAS_SLOT_RE,
     _INVENTORY_SUPPORT_GROUP_SLOT_RE,
     _INVENTORY_VETERANS_HOSPITAL_SLOT_RE,
     _INVENTORY_VETERANS_MARCH_SLOT_RE,
@@ -621,7 +624,12 @@ def _inventory_answer_slot(item: ContextItem, *, query_reason: str) -> str:
         return _community_participation_inventory_slot_for_text(item.text)
     if query_reason == "item_purchase_bridge":
         return _item_purchase_inventory_slot_for_text(item.text)
-    if normalized_reason in {"place-area-inventory-bridge", "trip-destination-bridge"}:
+    if normalized_reason == "place-area-inventory-bridge":
+        return _place_area_inventory_slot_for_text(
+            item.text,
+            concrete_named_states=True,
+        )
+    if normalized_reason == "trip-destination-bridge":
         return _place_area_inventory_slot_for_text(item.text)
     if normalized_reason == "game-win-count-bridge":
         return _game_win_count_inventory_slot_for_text(item.text)
@@ -691,11 +699,22 @@ def _travel_country_inventory_slot_for_text(text: str) -> str:
         return "country"
     return ""
 
-def _place_area_inventory_slot_for_text(text: str) -> str:
-    if _INVENTORY_STATE_FLORIDA_SLOT_RE.search(text):
-        return "state_florida"
-    if _INVENTORY_STATE_OREGON_SLOT_RE.search(text):
-        return "state_oregon"
+def _place_area_inventory_slot_for_text(
+    text: str,
+    *,
+    concrete_named_states: bool = False,
+) -> str:
+    if concrete_named_states:
+        if _INVENTORY_STATE_CALIFORNIA_SLOT_RE.search(text):
+            return "state_california"
+        if _INVENTORY_STATE_FLORIDA_SLOT_RE.search(text):
+            return "state_florida"
+        if _INVENTORY_STATE_NEW_YORK_SLOT_RE.search(text):
+            return "state_new_york"
+        if _INVENTORY_STATE_OREGON_SLOT_RE.search(text):
+            return "state_oregon"
+        if _INVENTORY_STATE_TEXAS_SLOT_RE.search(text):
+            return "state_texas"
     if _INVENTORY_STATE_EAST_COAST_SLOT_RE.search(text):
         return "state_east_coast"
     if _INVENTORY_STATE_PACIFIC_NORTHWEST_SLOT_RE.search(text):
@@ -802,10 +821,16 @@ def _inventory_answer_slot_for_text(text: str) -> str:
         return "music_live_event"
     if _INVENTORY_MUSIC_EVENT_SLOT_RE.search(text):
         return "music_event"
+    if _INVENTORY_STATE_CALIFORNIA_SLOT_RE.search(text):
+        return "state_california"
     if _INVENTORY_STATE_FLORIDA_SLOT_RE.search(text):
         return "state_florida"
+    if _INVENTORY_STATE_NEW_YORK_SLOT_RE.search(text):
+        return "state_new_york"
     if _INVENTORY_STATE_OREGON_SLOT_RE.search(text):
         return "state_oregon"
+    if _INVENTORY_STATE_TEXAS_SLOT_RE.search(text):
+        return "state_texas"
     if _INVENTORY_STATE_EAST_COAST_SLOT_RE.search(text):
         return "state_east_coast"
     if _INVENTORY_STATE_PACIFIC_NORTHWEST_SLOT_RE.search(text):
@@ -1110,12 +1135,15 @@ def _inventory_list_answer_object_rank(text: str) -> int:
         "outdoor_picnic",
         "outdoor_visual_group",
         "outdoor_waterfall",
+        "state_california",
         "shelter_service_activity",
         "volunteer_helped_person",
         "state_florida",
+        "state_new_york",
         "state_oregon",
         "state_east_coast",
         "state_pacific_northwest",
+        "state_texas",
         "community_activist_group",
         "community_art_show",
         "community_mentorship_program",

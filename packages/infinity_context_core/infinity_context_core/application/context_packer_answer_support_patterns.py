@@ -834,8 +834,11 @@ _INVENTORY_STATE_PLACE_SLOT_RE = re.compile(
     r"pacific\s+northwest|northwest|coast|state|states|areas?)\b",
     re.IGNORECASE,
 )
+_INVENTORY_STATE_CALIFORNIA_SLOT_RE = re.compile(r"\bcalifornia\b", re.IGNORECASE)
 _INVENTORY_STATE_FLORIDA_SLOT_RE = re.compile(r"\bflorida\b", re.IGNORECASE)
+_INVENTORY_STATE_NEW_YORK_SLOT_RE = re.compile(r"\bnew\s+york\b", re.IGNORECASE)
 _INVENTORY_STATE_OREGON_SLOT_RE = re.compile(r"\boregon\b", re.IGNORECASE)
+_INVENTORY_STATE_TEXAS_SLOT_RE = re.compile(r"\btexas\b", re.IGNORECASE)
 _INVENTORY_STATE_EAST_COAST_SLOT_RE = re.compile(r"\beast\s+coast\b", re.IGNORECASE)
 _INVENTORY_STATE_PACIFIC_NORTHWEST_SLOT_RE = re.compile(
     r"\b(?:pacific\s+northwest|northwest)\b",
