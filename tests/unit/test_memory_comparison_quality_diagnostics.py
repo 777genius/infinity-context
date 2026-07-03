@@ -113,6 +113,8 @@ def test_quality_diagnostics_reports_intents_policies_bundle_gaps_and_leakage() 
                             location_relation_category_hit_count=1,
                             source_proximity_support_count=1,
                             source_ref_item_count=2,
+                            source_identity_support_item_count=2,
+                            source_identity_support_ref_count=2,
                             source_type_diversity=2,
                             retrieval_source_diversity=2,
                         )
@@ -256,6 +258,11 @@ def test_quality_diagnostics_reports_intents_policies_bundle_gaps_and_leakage() 
     assert bundle_quality["avg_source_proximity_support_count"] == 0.5
     assert bundle_quality["total_source_proximity_support_count"] == 1
     assert bundle_quality["source_proximity_bundle_count"] == 1
+    assert bundle_quality["avg_source_identity_support_item_count"] == 1.0
+    assert bundle_quality["total_source_identity_support_item_count"] == 2
+    assert bundle_quality["source_identity_support_bundle_count"] == 1
+    assert bundle_quality["avg_source_identity_support_ref_count"] == 1.0
+    assert bundle_quality["total_source_identity_support_ref_count"] == 2
     assert bundle_quality["avg_selected_source_locality_score"] == 0.625
     assert bundle_quality["weak_bundle_count"] == 1
     assert bundle_quality["medium_or_high_bundle_count"] == 1
@@ -3283,6 +3290,8 @@ def _bundle_quality(
     source_ref_item_count: int = 0,
     source_identity_item_count: int = 0,
     source_identity_ref_count: int = 0,
+    source_identity_support_item_count: int = 0,
+    source_identity_support_ref_count: int = 0,
     source_type_diversity: int = 0,
     retrieval_source_diversity: int = 0,
     bridge_count: int = 0,
@@ -3318,6 +3327,8 @@ def _bundle_quality(
         "source_ref_item_count": source_ref_item_count,
         "source_identity_item_count": source_identity_item_count,
         "source_identity_ref_count": source_identity_ref_count,
+        "source_identity_support_item_count": source_identity_support_item_count,
+        "source_identity_support_ref_count": source_identity_support_ref_count,
         "source_type_diversity": source_type_diversity,
         "retrieval_source_diversity": retrieval_source_diversity,
         "bridge_count": bridge_count,
