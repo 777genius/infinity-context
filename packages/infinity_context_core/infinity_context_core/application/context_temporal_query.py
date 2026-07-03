@@ -692,7 +692,7 @@ def temporal_query_boost_signal(
         )
     if (
         intent.requests_recent_event
-        and not temporal_hint_code
+        and not _is_future_temporal_hint(temporal_hint_code)
         and not is_review_only
         and not is_superseded
         and not state_markers.stale_only
@@ -705,7 +705,7 @@ def temporal_query_boost_signal(
         )
     if (
         intent.requests_earliest_event
-        and not temporal_hint_code
+        and not _is_future_temporal_hint(temporal_hint_code)
         and not is_review_only
         and not is_superseded
         and not state_markers.stale_only

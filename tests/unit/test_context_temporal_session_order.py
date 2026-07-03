@@ -35,6 +35,36 @@ def test_recent_event_query_prefers_later_locomo_session_evidence() -> None:
     )
 
 
+def test_recent_event_query_prefers_later_session_when_items_have_temporal_hints() -> None:
+    intent = build_temporal_query_intent("What was the latest conversation with Sam?")
+    older = _item(
+        "older",
+        text="D4:6 Sam: We talked about the Atlas prototype during last week's call.",
+        score=0.72,
+        source_id="locomo:conv-fixture:session_4:D4:6:turn",
+        event_temporal_hint_code="last_week",
+    )
+    newer = _item(
+        "newer",
+        text="D20:8 Sam: We talked about the Atlas prototype in yesterday's call.",
+        score=0.71,
+        source_id="locomo:conv-fixture:session_20:D20:8:turn",
+        event_temporal_hint_code="yesterday",
+    )
+
+    boosted = apply_temporal_query_intent_boosts((older, newer), intent=intent)
+    by_id = {item.item_id: item for item in boosted}
+
+    assert by_id["newer"].score > by_id["older"].score
+    assert by_id["newer"].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for recent event and item has session-order evidence"
+    )
+    assert (
+        by_id["newer"].diagnostics["score_signals"]["temporal_query_intent_boost"]
+        > by_id["older"].diagnostics["score_signals"]["temporal_query_intent_boost"]
+    )
+
+
 def test_earliest_event_query_prefers_earlier_locomo_session_evidence() -> None:
     intent = build_temporal_query_intent("What was the first conversation with Sam?")
     older = _item(
