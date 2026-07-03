@@ -875,6 +875,21 @@ def test_query_expansion_covers_choice_reason_without_speaker_identity_bias() ->
     assert "because cause helps support inclusivity spoke to me" in bridge
 
 
+def test_query_expansion_covers_preference_reason_questions() -> None:
+    reason = build_query_expansion_plan(
+        "What reason did Alex give for preferring tea over coffee?"
+    )
+    made = build_query_expansion_plan("What made Alex prefer tea over coffee?")
+
+    reason_bridge = _expansion_query(reason, "preference_reason_bridge")
+    made_bridge = _expansion_query(made, "preference_reason_bridge")
+
+    assert reason_bridge.startswith("Alex ")
+    assert made_bridge.startswith("Alex ")
+    assert "reason because cause preference prefer preferred" in reason_bridge
+    assert "chose chosen picked selected made decide decided" in made_bridge
+
+
 def test_best_query_relevance_uses_support_population_bridge() -> None:
     plan = build_query_expansion_plan(
         "What type of individuals does the adoption agency Caroline is considering support?"
@@ -3028,6 +3043,21 @@ def test_best_query_relevance_uses_motivation_reason_bridge_for_why_questions() 
 
     assert reason == "motivation_reason_bridge"
     assert relevance.distinctive_term_hits >= 8
+
+
+def test_best_query_relevance_uses_preference_reason_bridge() -> None:
+    plan = build_query_expansion_plan("What made Alex prefer tea over coffee?")
+
+    _, reason, relevance = best_query_relevance(
+        plan,
+        text=(
+            "D2:7 Alex: I preferred tea over coffee because the slower ritual "
+            "helped me feel calmer, so it fit my evening routine better."
+        ),
+    )
+
+    assert reason == "preference_reason_bridge"
+    assert relevance.distinctive_term_hits >= 6
 
 
 def test_query_expansion_covers_counseling_services_and_safe_place_goals() -> None:

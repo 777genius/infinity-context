@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from infinity_context_server.memory_comparison_rerank import decomposed_search_queries
+from infinity_context_server.memory_comparison_rerank_text import is_preference_query
 from infinity_context_server.public_benchmark_models import PublicBenchmarkCase
 
 
@@ -117,3 +118,55 @@ def test_what_made_question_gets_causal_support_without_action_drift() -> None:
     )
     assert "cause" not in action_metadata["query_profile"]["relation_terms"]
     assert "causal_support" not in action_metadata["query_profile"]["evidence_need"]
+
+
+def test_what_made_preference_question_gets_preference_and_causal_support() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="what-made-preference-reason-support",
+        question="What made Alex prefer tea over coffee?",
+        expected_terms=("calmer",),
+        metadata={"category": 4},
+    )
+
+    queries, metadata = decomposed_search_queries(case)
+    profile = metadata["query_profile"]
+
+    assert profile["relation_terms"] == ("prefer", "cause")
+    assert profile["relation_categories"] == ("preference", "causal")
+    assert profile["evidence_need"] == ("preference", "causal_support")
+    assert "preference_support" in profile["bundle_evidence_roles"]
+    assert "causal_support" in metadata["query_plan"]["selected_roles"]
+    assert any(
+        "alex prefer cause reason because caus" in query
+        for query in queries
+    )
+
+
+def test_preferring_reason_question_keeps_preference_support() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="preferring-reason-support",
+        question="What reason did Alex give for preferring tea over coffee?",
+        expected_terms=("calmer",),
+        metadata={"category": 4},
+    )
+
+    queries, metadata = decomposed_search_queries(case)
+    profile = metadata["query_profile"]
+
+    assert "prefer" in profile["relation_terms"]
+    assert "preference" in profile["relation_categories"]
+    assert "causal" in profile["relation_categories"]
+    assert "preference" in profile["evidence_need"]
+    assert "causal_support" in profile["evidence_need"]
+    assert "preference_support" in profile["bundle_evidence_roles"]
+    assert any(
+        "alex reason give prefer motivation because cause" in query
+        for query in queries
+    )
+
+
+def test_prefer_relation_counts_as_preference_query() -> None:
+    assert is_preference_query({"relation_terms": ("prefer",)})
+    assert is_preference_query({"relation_terms": ("preference",)})

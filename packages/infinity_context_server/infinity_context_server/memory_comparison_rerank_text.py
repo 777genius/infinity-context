@@ -157,6 +157,7 @@ QUERY_TOKEN_ALIASES = {
     "participat": ("participate",),
     "politic": ("political",),
     "proces": ("process",),
+    "preferr": ("prefer", "preferred"),
     "prioritiz": ("prioritize",),
     "pursu": ("pursue",),
     "rais": ("raise",),
@@ -337,6 +338,8 @@ def is_preference_query(profile: Mapping[str, object]) -> bool:
         "interest",
         "like",
         "love",
+        "prefer",
+        "preference",
         "prioritize",
     }
     relation_terms = set(string_sequence(profile.get("relation_terms")))
@@ -393,7 +396,7 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
         terms.append("cause")
     if re.search(
         r"\bwhat\s+(?:made|caused|led|prompted|inspired)\b.+\b(?:to|do|leav(?:e|ing)?|"
-        r"choose|decide|change|start|stop|pursue|move)\b",
+        r"choose|decide|change|start|stop|pursue|move|prefer)\b",
         text,
         flags=re.IGNORECASE,
     ):

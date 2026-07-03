@@ -205,6 +205,7 @@ _RELATION_QUERY_TERMS = {
     "plan",
     "political",
     "prefer",
+    "preference",
     "previous",
     "prompt",
     "prompted",

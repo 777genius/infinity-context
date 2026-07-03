@@ -7,7 +7,37 @@ _FAVORITE_PREFERENCE_EXPANSION = (
     "chosen best top go-to one of favorites mentioned said described"
 )
 
+_PREFERENCE_REASON_EXPANSION = (
+    "reason because cause preference prefer preferred chose chosen picked selected "
+    "made decide decided liked enjoyed wanted mattered value fit better over instead"
+)
+
 PREFERENCE_EXPANSION_RULES: tuple[tuple[frozenset[str], str, str], ...] = (
+    (
+        frozenset({"reason", "prefer"}),
+        _PREFERENCE_REASON_EXPANSION,
+        "preference_reason_bridge",
+    ),
+    (
+        frozenset({"made", "prefer"}),
+        _PREFERENCE_REASON_EXPANSION,
+        "preference_reason_bridge",
+    ),
+    (
+        frozenset({"reason", "preference"}),
+        _PREFERENCE_REASON_EXPANSION,
+        "preference_reason_bridge",
+    ),
+    (
+        frozenset({"reason", "preferred"}),
+        _PREFERENCE_REASON_EXPANSION,
+        "preference_reason_bridge",
+    ),
+    (
+        frozenset({"reason", "preferr"}),
+        _PREFERENCE_REASON_EXPANSION,
+        "preference_reason_bridge",
+    ),
     (
         frozenset({"favorite", "book"}),
         (
