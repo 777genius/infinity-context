@@ -1330,6 +1330,68 @@ def test_rerank_policy_prefers_complete_event_support_over_generic_partial_overl
     ]
 
 
+def test_rerank_policy_boosts_support_goal_category_without_named_entity() -> None:
+    score = score_benchmark_rerank_candidate(
+        _features(
+            overlap_terms=("adoption", "agency", "support"),
+            relation_terms=("adoption", "agency", "support"),
+            relation_categories=("support_goal",),
+            relation_category_hits=("support_goal",),
+            evidence_need=("support_goal",),
+            query_roles=("support_goal_support",),
+            direct_speaker_turn=True,
+            source_ref_count=1,
+            turn_ref_count=1,
+            answerability_score=0.78,
+            answerability_reason_codes=(
+                "relation_satisfied",
+                "source_provenance",
+                "medium_answerability",
+            ),
+        )
+    )
+
+    signals = score.signals["score_signals"]
+    policy = score.signals["policy_contributions"]
+
+    assert signals["benchmark_typed_relation_support_boost"] == 0.045
+    assert signals["benchmark_typed_relation_query_role_boost"] == 0.02
+    assert signals["benchmark_typed_relation_support_hit_roles"] == [
+        "support_goal_support"
+    ]
+    assert "typed_relation_support" in policy["reason_codes_by_policy"][
+        "TypedRelationSupportPolicy"
+    ]
+    assert "typed_relation_query_role_support" in policy["reason_codes_by_policy"][
+        "TypedRelationSupportPolicy"
+    ]
+
+
+def test_rerank_policy_rejects_broad_support_goal_category_without_grounding() -> None:
+    score = score_benchmark_rerank_candidate(
+        _features(
+            overlap_terms=("adoption", "agency", "support"),
+            relation_terms=("adoption", "agency", "support"),
+            relation_categories=("support_goal",),
+            relation_category_hits=("support_goal",),
+            evidence_need=("support_goal",),
+            query_roles=("support_goal_support",),
+            broad_summary=True,
+            source_locality_score=0.35,
+            answerability_score=0.42,
+            answerability_reason_codes=(
+                "relation_partial",
+                "low_answerability",
+            ),
+        )
+    )
+
+    signals = score.signals["score_signals"]
+
+    assert signals["benchmark_typed_relation_support_boost"] == 0.0
+    assert signals["benchmark_typed_relation_query_role_boost"] == 0.0
+
+
 def _features(**overrides: object) -> BenchmarkRerankFeatures:
     values = {
         "overlap_terms": (),

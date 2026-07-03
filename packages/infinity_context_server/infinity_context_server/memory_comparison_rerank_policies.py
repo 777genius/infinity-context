@@ -1072,6 +1072,8 @@ def _typed_relation_support_grounded(
     features: RerankPolicyFeatures,
     support_roles: Sequence[str],
 ) -> bool:
+    if _support_goal_category_grounded(features, support_roles):
+        return True
     if not (
         features.relation_hits
         or features.high_signal_relation_hit_count > 0
@@ -1084,6 +1086,24 @@ def _typed_relation_support_grounded(
         features.entity_hits
         or features.speaker_hits
         or not features.query_has_entities
+    )
+
+
+def _support_goal_category_grounded(
+    features: RerankPolicyFeatures,
+    support_roles: Sequence[str],
+) -> bool:
+    if "support_goal_support" not in set(support_roles):
+        return False
+    if "support_goal" not in set(features.relation_category_hits):
+        return False
+    if features.broad_summary or features.conflict_or_stale:
+        return False
+    return bool(
+        features.direct_speaker_turn
+        or features.source_ref_count > 0
+        or features.turn_ref_count > 0
+        or features.source_locality_score >= 0.65
     )
 
 
