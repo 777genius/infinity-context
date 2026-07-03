@@ -1684,6 +1684,8 @@ def _answer_context_provenance_table(
     fallback_context_count = 0
     source_type_diversities: list[int] = []
     retrieval_source_diversities: list[int] = []
+    source_type_support_diversities: list[int] = []
+    retrieval_source_support_diversities: list[int] = []
     answerability_scores: list[float] = []
     measured_answerability_scores: list[float] = []
     unmeasured_answerability_count = 0
@@ -1795,6 +1797,16 @@ def _answer_context_provenance_table(
             )
             retrieval_source_diversities.append(
                 _positive_int(context.get("bundle_retrieval_source_diversity")) or 0
+            )
+            source_type_support_diversities.append(
+                _positive_int(context.get("bundle_source_type_support_diversity"))
+                or 0
+            )
+            retrieval_source_support_diversities.append(
+                _positive_int(
+                    context.get("bundle_retrieval_source_support_diversity")
+                )
+                or 0
             )
             answerability_score = _metric_value(context, "avg_answerability_score")
             answerability_scores.append(answerability_score)
@@ -2095,6 +2107,22 @@ def _answer_context_provenance_table(
         "max_bundle_retrieval_source_diversity": (
             max(retrieval_source_diversities)
             if retrieval_source_diversities
+            else 0
+        ),
+        "avg_bundle_source_type_support_diversity": _avg(
+            source_type_support_diversities
+        ),
+        "max_bundle_source_type_support_diversity": (
+            max(source_type_support_diversities)
+            if source_type_support_diversities
+            else 0
+        ),
+        "avg_bundle_retrieval_source_support_diversity": _avg(
+            retrieval_source_support_diversities
+        ),
+        "max_bundle_retrieval_source_support_diversity": (
+            max(retrieval_source_support_diversities)
+            if retrieval_source_support_diversities
             else 0
         ),
         "source_counts": dict(sorted(source_counts.items())),

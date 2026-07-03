@@ -894,6 +894,8 @@ def test_quality_diagnostics_reports_answer_context_provenance_table() -> None:
                             "source_ref_item_count": 2,
                             "source_refless_item_count": 0,
                             "source_ref_coverage_rate": 1.0,
+                            "bundle_source_type_support_diversity": 1,
+                            "bundle_retrieval_source_support_diversity": 2,
                             "avg_answerability_score": 0.4,
                             "avg_measured_answerability_score": 0.8,
                             "unmeasured_answerability_count": 1,
@@ -981,6 +983,10 @@ def test_quality_diagnostics_reports_answer_context_provenance_table() -> None:
     assert table["avg_context_source_locality_score"] == 0.175
     assert table["avg_measured_context_source_locality_score"] == 0.7
     assert table["total_unmeasured_context_source_locality_count"] == 1
+    assert table["avg_bundle_source_type_support_diversity"] == 0.5
+    assert table["max_bundle_source_type_support_diversity"] == 1
+    assert table["avg_bundle_retrieval_source_support_diversity"] == 1.0
+    assert table["max_bundle_retrieval_source_support_diversity"] == 2
     assert table["source_counts"] == {
         "evidence_bundle": 1,
         "retrieval_slice": 1,
@@ -2537,6 +2543,8 @@ def test_fast_gate_metrics_reports_answer_context_provenance() -> None:
                             "source_refless_item_count": 0,
                             "bundle_source_type_diversity": 2,
                             "bundle_retrieval_source_diversity": 3,
+                            "bundle_source_type_support_diversity": 1,
+                            "bundle_retrieval_source_support_diversity": 2,
                             "avg_answerability_score": 0.4,
                             "avg_measured_answerability_score": 0.8,
                             "unmeasured_answerability_count": 1,
@@ -2570,6 +2578,8 @@ def test_fast_gate_metrics_reports_answer_context_provenance() -> None:
                             "backfilled_source_proximity_closest_distance": 1,
                             "bundle_source_type_diversity": 1,
                             "bundle_retrieval_source_diversity": 1,
+                            "bundle_source_type_support_diversity": 0,
+                            "bundle_retrieval_source_support_diversity": 0,
                             "missing_required_roles": ["visual"],
                         }
                     }
@@ -2623,6 +2633,10 @@ def test_fast_gate_metrics_reports_answer_context_provenance() -> None:
     assert provenance["max_bundle_source_type_diversity"] == 2
     assert provenance["avg_bundle_retrieval_source_diversity"] == 2.0
     assert provenance["max_bundle_retrieval_source_diversity"] == 3
+    assert provenance["avg_bundle_source_type_support_diversity"] == 0.5
+    assert provenance["max_bundle_source_type_support_diversity"] == 1
+    assert provenance["avg_bundle_retrieval_source_support_diversity"] == 1.0
+    assert provenance["max_bundle_retrieval_source_support_diversity"] == 2
     assert provenance["missing_required_role_context_count"] == 1
     assert provenance["missing_required_role_total"] == 1
     assert provenance["missing_required_role_counts"] == {"visual": 1}
