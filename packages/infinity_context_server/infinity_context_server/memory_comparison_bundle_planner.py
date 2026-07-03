@@ -1008,6 +1008,7 @@ def _required_role_candidate_sort_key(
 ) -> tuple[float, ...]:
     return (
         *_source_overlap_selection_sort_key(item, selected),
+        *_explicit_relation_role_sort_key(item),
         *_source_proximity_selection_sort_key(item, selected),
         *_person_grounding_selection_sort_key(item, selected),
         *_candidate_sort_key(item.candidate),
@@ -1613,6 +1614,7 @@ def _planned_coverage_sort_key(
         *_source_overlap_selection_sort_key(item, selected),
         *_source_ref_compactness_selection_sort_key(item),
         float(_answer_evidence_sort_bucket(item.candidate)),
+        *_explicit_relation_role_sort_key(item),
         *_source_proximity_selection_sort_key(item, selected),
         *_person_grounding_selection_sort_key(item, selected),
         *_selection_precision_sort_key(item),
@@ -1745,6 +1747,27 @@ def _selection_precision_sort_key(item: PlannedEvidenceItem) -> tuple[float, ...
             else 0.0
         ),
     )
+
+
+def _explicit_relation_role_sort_key(item: PlannedEvidenceItem) -> tuple[float]:
+    return (
+        0.0 if _item_has_explicit_relation_or_role_grounding(item) else 1.0,
+    )
+
+
+def _item_has_explicit_relation_or_role_grounding(
+    item: PlannedEvidenceItem,
+) -> bool:
+    candidate = item.candidate
+    if candidate.relation_hits or candidate.relation_category_hits:
+        return True
+    if item.role == "temporal_support":
+        return _candidate_has_temporal_support(candidate)
+    if item.role == "contrast":
+        return _candidate_has_contrast_support(candidate)
+    if item.role in _PREDICATE_REQUIRED_ROLES:
+        return _item_can_satisfy_required_role(item, item.role)
+    return False
 
 
 def _closest_turn_ref_distance(
@@ -2004,7 +2027,10 @@ def _bundle_quality_diagnostics(
         for item in items
         if "location_transition" in set(item.candidate.relation_category_hits)
     )
-    source_proximity_distances = _source_proximity_distances(items)
+    source_proximity_distances = _source_proximity_distances(
+        items,
+        missing_required_roles=missing_roles,
+    )
     source_proximity_support_count = len(source_proximity_distances)
     source_chain_proximity_distances = _source_chain_proximity_distances(items)
     source_chain_proximity_support_count = len(source_chain_proximity_distances)
@@ -2228,7 +2254,11 @@ def _bundle_quality_diagnostics(
     }
 
 
-def _source_proximity_distances(items: Sequence[PlannedEvidenceItem]) -> tuple[int, ...]:
+def _source_proximity_distances(
+    items: Sequence[PlannedEvidenceItem],
+    *,
+    missing_required_roles: Sequence[str] = (),
+) -> tuple[int, ...]:
     primary_turn_refs = tuple(
         turn_ref
         for item in items
@@ -2241,6 +2271,11 @@ def _source_proximity_distances(items: Sequence[PlannedEvidenceItem]) -> tuple[i
     distances: list[int] = []
     for item in items:
         if item.role == "primary":
+            continue
+        lacks_explicit_grounding = not _item_has_explicit_relation_or_role_grounding(
+            item
+        )
+        if missing_required_roles and lacks_explicit_grounding:
             continue
         if not _candidate_has_source_proximity_diagnostic_support(item.candidate):
             continue

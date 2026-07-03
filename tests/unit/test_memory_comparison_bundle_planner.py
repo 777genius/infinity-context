@@ -2950,6 +2950,106 @@ def test_evidence_bundle_planner_prefers_nearby_support_after_primary() -> None:
     assert quality["component_scores"]["source_proximity"] == 0.03
 
 
+def test_evidence_bundle_planner_prefers_relation_over_nearby_entity() -> None:
+    primary = _candidate(
+        item_id="primary",
+        retrieval_order=1,
+        dedupe_key="refs:D4:10",
+        covered_evidence_terms=("community event",),
+        primary_signal=True,
+        source_refs=("D4:10",),
+        focused_evidence_score=1.0,
+        direct_speaker_turn=True,
+        answerability_score=0.9,
+    )
+    nearby_entity_only = _candidate(
+        item_id="nearby-entity-only",
+        retrieval_order=2,
+        dedupe_key="refs:D4:11",
+        query_roles=("event_support",),
+        query_support_terms=("morgan", "community", "event"),
+        entity_hits=("morgan",),
+        source_refs=("D4:11",),
+        source_locality_score=0.95,
+        answerability_score=0.7,
+        bundle_strength_score=10.0,
+    )
+    relation_support = _candidate(
+        item_id="relation-support",
+        retrieval_order=3,
+        dedupe_key="refs:D9:2",
+        query_roles=("event_support",),
+        query_support_terms=("morgan", "community", "event"),
+        relation_hits=("community", "activity"),
+        relation_category_hits=("activity",),
+        entity_hits=("morgan",),
+        source_refs=("D9:2",),
+        source_locality_score=0.9,
+        answerability_score=0.7,
+        bundle_strength_score=1.0,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, nearby_entity_only, relation_support),
+        case_group="single",
+        required_roles=("primary", "event_support"),
+    )
+
+    assert [item.candidate.item_id for item in plan.items] == [
+        "primary",
+        "relation-support",
+    ]
+    assert plan.satisfied_required_roles == ("primary",)
+    assert plan.missing_required_roles == ("event_support",)
+    quality = plan.to_diagnostics()["bundle_quality"]
+    assert quality["partial_required_role_support_counts"] == {"event_support": 1}
+    assert quality["source_proximity_support_count"] == 0
+
+
+def test_evidence_bundle_quality_ignores_nearby_entity_for_missing_role() -> None:
+    primary = _candidate(
+        item_id="primary",
+        retrieval_order=1,
+        dedupe_key="refs:D4:10",
+        covered_evidence_terms=("sister",),
+        primary_signal=True,
+        source_refs=("D4:10",),
+        focused_evidence_score=1.0,
+        direct_speaker_turn=True,
+        answerability_score=0.9,
+    )
+    nearby_entity_only = _candidate(
+        item_id="nearby-entity-only",
+        retrieval_order=2,
+        dedupe_key="refs:D4:11",
+        query_roles=("status_support",),
+        query_support_terms=("alex", "maria", "status"),
+        entity_hits=("alex", "maria"),
+        source_refs=("D4:11",),
+        source_locality_score=0.95,
+        answerability_score=0.9,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, nearby_entity_only),
+        case_group="single",
+        required_roles=("primary", "status_support"),
+    )
+
+    diagnostics = plan.to_diagnostics()
+    quality = diagnostics["bundle_quality"]
+
+    assert [item.candidate.item_id for item in plan.items] == [
+        "primary",
+        "nearby-entity-only",
+    ]
+    assert plan.missing_required_roles == ("status_support",)
+    assert quality["source_proximity_support_count"] == 0
+    assert "has_source_proximity_support" not in quality["reason_codes"]
+    assert quality["partial_required_role_support_count"] == 1
+    assert "partial_required_status_support" in quality["reason_codes"]
+
+
 def test_evidence_bundle_planner_uses_dedupe_turn_refs_for_proximity() -> None:
     primary = _candidate(
         item_id="primary",
