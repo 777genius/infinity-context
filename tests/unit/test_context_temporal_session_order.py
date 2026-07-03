@@ -65,6 +65,36 @@ def test_recent_event_query_prefers_later_session_when_items_have_temporal_hints
     )
 
 
+def test_recent_event_query_uses_structured_session_order_metadata() -> None:
+    intent = build_temporal_query_intent("What was the latest conversation with Sam?")
+    older = _item(
+        "older",
+        text="Sam: We talked about the Atlas prototype during the call.",
+        score=0.71,
+        source_id="locomo:conv-fixture:turn-older",
+        metadata={"session_index": 4},
+    )
+    newer = _item(
+        "newer",
+        text="Sam: We talked about the Atlas prototype in the latest call.",
+        score=0.7,
+        source_id="locomo:conv-fixture:turn-newer",
+        metadata={"session_key": "session_20"},
+    )
+
+    boosted = apply_temporal_query_intent_boosts((older, newer), intent=intent)
+    by_id = {item.item_id: item for item in boosted}
+
+    assert by_id["newer"].score > by_id["older"].score
+    assert by_id["newer"].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for recent event and item has session-order evidence"
+    )
+    assert (
+        by_id["newer"].diagnostics["score_signals"]["temporal_query_intent_boost"]
+        > by_id["older"].diagnostics["score_signals"]["temporal_query_intent_boost"]
+    )
+
+
 def test_earliest_event_query_prefers_earlier_locomo_session_evidence() -> None:
     intent = build_temporal_query_intent("What was the first conversation with Sam?")
     older = _item(
@@ -156,20 +186,24 @@ def _item(
     source_id: str,
     fact_status: str = "active",
     event_temporal_hint_code: str | None = None,
+    metadata: dict[str, object] | None = None,
 ) -> ContextItem:
     provenance = {"fact_status": fact_status, "source_id": source_id}
     if event_temporal_hint_code:
         provenance["event_temporal_hint_code"] = event_temporal_hint_code
+    diagnostics: dict[str, object] = {
+        "retrieval_source": "keyword_chunks",
+        "retrieval_sources": ["keyword_chunks"],
+        "score_signals": {"base_score": score},
+        "provenance": provenance,
+    }
+    if metadata:
+        diagnostics["metadata"] = metadata
     return ContextItem(
         item_id=item_id,
         item_type="chunk",
         text=text,
         score=score,
         source_refs=(SourceRef(source_type="locomo_turn", source_id=source_id),),
-        diagnostics={
-            "retrieval_source": "keyword_chunks",
-            "retrieval_sources": ["keyword_chunks"],
-            "score_signals": {"base_score": score},
-            "provenance": provenance,
-        },
+        diagnostics=diagnostics,
     )

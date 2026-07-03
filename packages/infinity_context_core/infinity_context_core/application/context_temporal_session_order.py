@@ -81,6 +81,19 @@ _QUERY_SESSION_WORD_ORDINAL_RE = re.compile(
     rf"\bsession\s+(?P<after>{_WORD_NUMBER_PATTERN})\b",
     re.IGNORECASE,
 )
+_SESSION_ORDER_METADATA_KEYS = frozenset(
+    {
+        "locomo_session_index",
+        "locomo_session_key",
+        "locomo_session_number",
+        "session_index",
+        "session_key",
+        "session_number",
+        "session_order",
+        "source_session_index",
+        "source_session_key",
+    }
+)
 
 
 def temporal_session_recency_boost(item: ContextItem) -> float:
@@ -104,7 +117,12 @@ def temporal_session_earliest_boost(item: ContextItem) -> float:
 def temporal_session_orders(item: ContextItem) -> tuple[int, ...]:
     """Return LoCoMo-style session/dialogue ordinals visible on an item."""
 
-    return _session_orders_from_values(_session_order_source_values(item))
+    orders: dict[int, None] = {}
+    for order in _session_orders_from_values(_session_order_source_values(item)):
+        orders.setdefault(order, None)
+    for order in _session_orders_from_metadata(item):
+        orders.setdefault(order, None)
+    return tuple(orders)
 
 
 def temporal_session_orders_from_query(query: str) -> tuple[int, ...]:
@@ -150,6 +168,33 @@ def _session_orders_from_query_values(values: tuple[str, ...]) -> tuple[int, ...
             if raw and (order := _word_number_value(raw)):
                 orders.setdefault(order, None)
     return tuple(orders)
+
+
+def _session_orders_from_metadata(item: ContextItem) -> tuple[int, ...]:
+    diagnostics = safe_diagnostic_mapping(item.diagnostics)
+    provenance = safe_diagnostic_mapping(diagnostics.get("provenance"))
+    metadata = safe_diagnostic_mapping(diagnostics.get("metadata"))
+    orders: dict[int, None] = {}
+    for mapping in (diagnostics, provenance, metadata):
+        for key in _SESSION_ORDER_METADATA_KEYS:
+            for order in _session_orders_from_metadata_value(mapping.get(key)):
+                orders.setdefault(order, None)
+    return tuple(orders)
+
+
+def _session_orders_from_metadata_value(value: object) -> tuple[int, ...]:
+    if isinstance(value, bool) or value is None:
+        return ()
+    if isinstance(value, int):
+        return (value,) if value > 0 else ()
+    if isinstance(value, float):
+        return (int(value),) if value.is_integer() and value > 0 else ()
+    text = str(value).strip()
+    if not text:
+        return ()
+    if re.fullmatch(r"\d{1,4}", text):
+        return (int(text),)
+    return _session_orders_from_values((text,))
 
 
 def _word_number_value(raw: str) -> int:
