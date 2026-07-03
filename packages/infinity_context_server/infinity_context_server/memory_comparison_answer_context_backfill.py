@@ -78,25 +78,17 @@ def backfill_incomplete_bundle_context(
         for memory in selected
         for ref in _memory_source_match_refs(memory)
     )
-    selected_local_source_match_refs = set(
+    selected_precise_source_match_refs = set(
         ref
         for memory in selected
-        for ref in _memory_source_match_refs(
-            memory,
-            include_compacted_fusion_refs=False,
-        )
+        for ref in _precise_memory_source_match_refs(memory)
     )
     for retrieval_order, memory in candidates:
         features = _candidate_features(memory)
         role_hits = _missing_role_hits(features, missing_roles)
         source_refs = set(_memory_source_refs(memory))
         source_match_refs = set(_memory_source_match_refs(memory))
-        local_source_match_refs = set(
-            _memory_source_match_refs(
-                memory,
-                include_compacted_fusion_refs=False,
-            )
-        )
+        precise_source_match_refs = set(_precise_memory_source_match_refs(memory))
         source_proximity_distance = _source_proximity_distance(
             memory,
             selected_turn_refs=selected_turn_refs,
@@ -113,8 +105,8 @@ def backfill_incomplete_bundle_context(
             and not (
                 source_proximate
                 and not bool(
-                    local_source_match_refs.intersection(
-                        selected_local_source_match_refs
+                    precise_source_match_refs.intersection(
+                        selected_precise_source_match_refs
                     )
                 )
             )
@@ -167,7 +159,7 @@ def backfill_incomplete_bundle_context(
         covered_roles.update(role_hits)
         covered_backfill_source_refs.update(source_refs)
         selected_source_match_refs.update(source_match_refs)
-        selected_local_source_match_refs.update(local_source_match_refs)
+        selected_precise_source_match_refs.update(precise_source_match_refs)
         selected_turn_refs = tuple(
             dict.fromkeys((*selected_turn_refs, *_memory_turn_refs(memory)))
         )
@@ -797,6 +789,35 @@ def _memory_source_match_refs(
             )
         )
     )
+
+
+def _precise_memory_source_match_refs(memory: RetrievedMemory) -> tuple[str, ...]:
+    if not _memory_has_precise_source_identity(memory):
+        return ()
+    return _memory_source_match_refs(memory, include_compacted_fusion_refs=False)
+
+
+def _memory_has_precise_source_identity(memory: RetrievedMemory) -> bool:
+    features = _candidate_features(memory)
+    if memory_has_broad_summary(memory, features):
+        return False
+    if _is_measured_low_answerability(features.get("answerability_score")):
+        return False
+    if _is_measured_weak_source_locality(features.get("source_locality_score")):
+        return False
+    source_refs = tuple(
+        str(ref).strip() for ref in memory.source_refs if str(ref).strip()
+    )
+    if not source_refs:
+        return False
+    turn_refs = tuple(
+        dict.fromkeys(
+            match.group(0)
+            for source_ref in source_refs
+            for match in _TURN_REF_PARTS_RE.finditer(source_ref)
+        )
+    )
+    return 0 < len(turn_refs) <= 2
 
 
 def _selected_turn_refs(memories: Sequence[RetrievedMemory]) -> tuple[tuple[int, int], ...]:

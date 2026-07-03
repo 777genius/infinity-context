@@ -351,6 +351,61 @@ def test_answer_context_backfill_keeps_precise_sibling_after_compacted_primary()
     )
 
 
+def test_answer_context_backfill_keeps_precise_support_inside_broad_primary_refs() -> None:
+    memories = (
+        RetrievedMemory(
+            text=(
+                "D2:9-D2:12 Caroline discussed agencies, applications, "
+                "appointments, and follow-up."
+            ),
+            rank=1,
+            item_id="broad-primary",
+            source_refs=("D2:9", "D2:10", "D2:11", "D2:12"),
+        ),
+        RetrievedMemory(
+            text="D2:10 Caroline: The agency confirmed my application status.",
+            rank=2,
+            item_id="status-turn",
+            source_refs=("D2:10",),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "query_roles": ["status_support"],
+                        "relation_category_hits": ["status_profile"],
+                        "entity_hits": ["caroline"],
+                        "answerability_score": 0.9,
+                        "source_locality_score": 0.9,
+                    },
+                },
+            },
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "role_requirement_complete": False,
+            "missing_required_roles": ["status_support"],
+            "items": [
+                {
+                    "id": "broad-primary",
+                    "retrieval_order": 1,
+                    "role": "primary",
+                    "source_refs": ["D2:9", "D2:10", "D2:11", "D2:12"],
+                }
+            ],
+        },
+        cutoff=2,
+    )
+
+    assert [memory.item_id for memory in context.memories] == [
+        "broad-primary",
+        "status-turn",
+    ]
+    assert context.backfilled_retrieval_item_count == 1
+    assert context.skipped_redundant_source_backfill_count == 0
+
+
 def test_answer_context_keeps_bundle_sibling_after_compacted_primary() -> None:
     memories = (
         RetrievedMemory(
