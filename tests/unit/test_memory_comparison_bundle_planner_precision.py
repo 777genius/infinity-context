@@ -92,6 +92,62 @@ def test_evidence_bundle_quality_does_not_reward_noisy_source_proximity() -> Non
     assert "risk:broad_summary" in quality["reason_codes"]
 
 
+def test_evidence_bundle_planner_prefers_compact_chained_sibling_support() -> None:
+    primary = _candidate(
+        item_id="primary",
+        retrieval_order=1,
+        dedupe_key="refs:D4:10",
+        covered_evidence_terms=("plan",),
+        primary_signal=True,
+        source_refs=("D4:10",),
+        focused_evidence_score=1.0,
+        direct_speaker_turn=True,
+        answerability_score=0.92,
+    )
+    first_sibling = _candidate(
+        item_id="first-sibling",
+        retrieval_order=2,
+        dedupe_key="refs:D4:12",
+        query_support_terms=("origin", "country"),
+        source_refs=("D4:12",),
+        focused_evidence_score=1.0,
+        direct_speaker_turn=True,
+        answerability_score=0.84,
+    )
+    broad_far_support = _candidate(
+        item_id="broad-far-support",
+        retrieval_order=3,
+        dedupe_key="refs:D4:25",
+        query_support_terms=("origin", "country", "move", "support"),
+        source_refs=("D4:25",),
+        broad_summary=True,
+        answerability_score=0.8,
+    )
+    chained_sibling = _candidate(
+        item_id="chained-sibling",
+        retrieval_order=4,
+        dedupe_key="refs:D4:15",
+        query_support_terms=("origin", "country"),
+        source_refs=("D4:15",),
+        focused_evidence_score=1.0,
+        direct_speaker_turn=True,
+        answerability_score=0.82,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=3).plan(
+        (primary, first_sibling, broad_far_support, chained_sibling),
+        case_group="single",
+    )
+
+    assert [item.candidate.item_id for item in plan.items] == [
+        "primary",
+        "first-sibling",
+        "chained-sibling",
+    ]
+    quality = plan.to_diagnostics()["bundle_quality"]
+    assert quality["broad_summary_count"] == 0
+
+
 def _candidate(
     *,
     item_id: str,

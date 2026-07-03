@@ -1489,17 +1489,16 @@ def _source_proximity_selection_sort_key(
 ) -> tuple[float, float]:
     if item.role == "primary":
         return (1.0, float("inf"))
-    primary_turn_refs = tuple(
+    selected_turn_refs = tuple(
         turn_ref
         for selected_item in selected
-        if selected_item.role == "primary"
         for turn_ref in _candidate_turn_refs(selected_item.candidate)
     )
-    if not primary_turn_refs:
+    if not selected_turn_refs:
         return (1.0, float("inf"))
     closest_distance = _closest_turn_ref_distance(
         item.candidate,
-        primary_turn_refs=primary_turn_refs,
+        comparison_turn_refs=selected_turn_refs,
     )
     if closest_distance is None or closest_distance > _SOURCE_PROXIMITY_WINDOW:
         return (1.0, float("inf"))
@@ -1509,13 +1508,13 @@ def _source_proximity_selection_sort_key(
 def _closest_turn_ref_distance(
     candidate: EvidenceBundleCandidate,
     *,
-    primary_turn_refs: Sequence[tuple[int, int]],
+    comparison_turn_refs: Sequence[tuple[int, int]],
 ) -> int | None:
     distances = [
-        abs(primary_turn - candidate_turn)
-        for primary_dialogue, primary_turn in primary_turn_refs
+        abs(comparison_turn - candidate_turn)
+        for comparison_dialogue, comparison_turn in comparison_turn_refs
         for candidate_dialogue, candidate_turn in _candidate_turn_refs(candidate)
-        if primary_dialogue == candidate_dialogue
+        if comparison_dialogue == candidate_dialogue
     ]
     if not distances:
         return None
@@ -1877,7 +1876,7 @@ def _source_proximity_distances(items: Sequence[PlannedEvidenceItem]) -> tuple[i
             continue
         closest_distance = _closest_turn_ref_distance(
             item.candidate,
-            primary_turn_refs=primary_turn_refs,
+            comparison_turn_refs=primary_turn_refs,
         )
         if closest_distance is None or closest_distance > _SOURCE_PROXIMITY_WINDOW:
             continue
