@@ -1382,10 +1382,33 @@ def _non_noisy_bundle_source_turn_refs(
 
 def _bundle_item_has_noise_risk(memory: RetrievedMemory) -> bool:
     features = _candidate_features(memory)
+    if _is_measured_low_answerability(features.get("answerability_score")):
+        return True
+    if _is_measured_weak_source_locality(features.get("source_locality_score")):
+        return True
     return memory_has_broad_summary(
         memory,
         features,
     ) or memory_has_conflict_or_stale(memory, features)
+
+
+def _is_measured_low_answerability(value: object) -> bool:
+    score = _float_value(value)
+    return 0 < score < 0.55
+
+
+def _is_measured_weak_source_locality(value: object) -> bool:
+    score = _float_value(value)
+    return 0 < score < 0.45
+
+
+def _float_value(value: object) -> float:
+    if isinstance(value, bool):
+        return 0.0
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _source_ref_stats(memories: Sequence[RetrievedMemory]) -> dict[str, object]:
