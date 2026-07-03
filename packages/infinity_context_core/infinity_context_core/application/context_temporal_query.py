@@ -20,6 +20,11 @@ from infinity_context_core.application.context_temporal_hints import temporal_hi
 from infinity_context_core.application.context_temporal_metadata import (
     temporal_hint_code_from_metadata,
 )
+from infinity_context_core.application.context_temporal_ranges import (
+    temporal_boundary_dates,
+    temporal_range_boost_signal,
+    temporal_range_codes,
+)
 from infinity_context_core.application.context_temporal_session_order import (
     temporal_session_earliest_boost,
     temporal_session_orders,
@@ -419,6 +424,9 @@ class TemporalQueryIntent:
     excludes_stale: bool
     session_ordinals: tuple[int, ...] = ()
     relative_time_hints: tuple[str, ...] = ()
+    temporal_range_hints: tuple[str, ...] = ()
+    after_date: str = ""
+    before_date: str = ""
     event_sequence_terms: tuple[str, ...] = ()
 
     @property
@@ -441,6 +449,9 @@ class TemporalQueryIntent:
                 self.excludes_stale,
                 self.session_ordinals,
                 self.relative_time_hints,
+                self.temporal_range_hints,
+                self.after_date,
+                self.before_date,
                 self.event_sequence_terms,
             )
         )
@@ -471,6 +482,12 @@ class TemporalQueryIntent:
             reasons.append("session_order_hint")
         if self.relative_time_hints:
             reasons.append("relative_time_hint")
+        if self.temporal_range_hints:
+            reasons.append("temporal_range_hint")
+        if self.after_date:
+            reasons.append("after_date")
+        if self.before_date:
+            reasons.append("before_date")
         return {
             "temporal_query_intent_status": "empty" if self.empty else "available",
             "temporal_query_prefers_current": self.prefers_current,
@@ -486,6 +503,9 @@ class TemporalQueryIntent:
             "temporal_query_include_superseded_review": (self.include_superseded_review),
             "temporal_query_session_ordinals": list(self.session_ordinals),
             "temporal_query_relative_time_hints": list(self.relative_time_hints),
+            "temporal_query_range_hints": list(self.temporal_range_hints),
+            "temporal_query_after_date": self.after_date,
+            "temporal_query_before_date": self.before_date,
             "temporal_query_event_sequence_terms": list(self.event_sequence_terms),
             "temporal_query_intent_reasons": reasons,
         }
@@ -507,6 +527,8 @@ def build_temporal_query_intent(query: str) -> TemporalQueryIntent:
     variants = frozenset((*variants, *state_transition_query_variants(query)))
     session_ordinals = temporal_session_orders_from_query(query)
     relative_time_hints = _query_temporal_hint_codes(query)
+    temporal_range_hints = temporal_range_codes(query)
+    after_date, before_date = temporal_boundary_dates(query)
     excludes_stale = bool(_EXCLUDE_STALE_RE.search(query))
     still_current_state = bool(_STILL_CURRENT_STATE_RE.search(query))
     no_longer_current_state = bool(_NO_LONGER_CURRENT_STATE_RE.search(query))
@@ -578,6 +600,9 @@ def build_temporal_query_intent(query: str) -> TemporalQueryIntent:
         excludes_stale=excludes_stale,
         session_ordinals=session_ordinals,
         relative_time_hints=relative_time_hints,
+        temporal_range_hints=temporal_range_hints,
+        after_date=after_date,
+        before_date=before_date,
         event_sequence_terms=event_sequence_terms,
     )
 
@@ -657,6 +682,18 @@ def temporal_query_boost_signal(
         temporal_hint_code=temporal_hint_code,
     ):
         return boundary_conflict
+    range_signal = temporal_range_boost_signal(
+        item,
+        range_codes=intent.temporal_range_hints,
+        after_date=intent.after_date,
+        before_date=intent.before_date,
+    )
+    if not range_signal.empty:
+        return TemporalQueryBoostSignal(
+            boost=range_signal.boost,
+            reason=range_signal.reason,
+            code=range_signal.code,
+        )
     if _temporal_hint_matches(intent=intent, temporal_hint_code=temporal_hint_code):
         return TemporalQueryBoostSignal(
             boost=0.032,

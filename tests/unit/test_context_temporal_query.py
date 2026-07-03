@@ -334,6 +334,22 @@ def test_temporal_query_intent_detects_relative_time_hints() -> None:
     assert last_week.diagnostics()["temporal_query_relative_time_hints"] == ["last_week"]
 
 
+def test_temporal_query_intent_detects_broad_range_hints_and_date_boundaries() -> None:
+    june = build_temporal_query_intent("What happened in June 2023?")
+    summer = build_temporal_query_intent("Where was Jolene during summer 2022?")
+    weekend = build_temporal_query_intent("What did Audrey do over the weekend?")
+    before_date = build_temporal_query_intent("What did Audrey do before 4th October, 2023?")
+    after_date = build_temporal_query_intent("What changed after 2023-10-04?")
+
+    assert june.temporal_range_hints == ("month_2023_06", "month_06")
+    assert summer.temporal_range_hints == ("season_2022_summer",)
+    assert weekend.temporal_range_hints == ("weekend",)
+    assert before_date.before_date == "2023-10-04"
+    assert after_date.after_date == "2023-10-04"
+    assert "temporal_range_hint" in june.diagnostics()["temporal_query_intent_reasons"]
+    assert "before_date" in before_date.diagnostics()["temporal_query_intent_reasons"]
+
+
 def test_temporal_query_boosts_active_replacement_for_change_query() -> None:
     intent = build_temporal_query_intent("What changed after the meeting?")
     active_replacement = _item(
@@ -752,6 +768,88 @@ def test_temporal_query_demotes_conflicting_event_temporal_hint() -> None:
     assert boosted[0].score > boosted[1].score
     assert boosted[1].diagnostics["score_signals"]["temporal_query_intent_boost"] == -0.026
     assert "temporal_query_intent_reason" not in boosted[2].diagnostics
+
+
+def test_temporal_query_range_evidence_beats_generic_temporal_mentions() -> None:
+    intent = build_temporal_query_intent("What happened in June 2023?")
+    specific = _item(
+        "specific",
+        score=0.7,
+        retrieval_source="canonical_anchors",
+        fact_status="active",
+        text="D4:2 In June 2023, Alex moved the Atlas launch review to Friday.",
+    )
+    generic = _item(
+        "generic",
+        score=0.72,
+        retrieval_source="canonical_anchors",
+        fact_status="active",
+        text="D5:2 Alex mentioned summer plans and a launch review.",
+    )
+
+    boosted = apply_temporal_query_intent_boosts((generic, specific), intent=intent)
+    by_id = {item.item_id: item for item in boosted}
+
+    assert by_id["specific"].score > by_id["generic"].score
+    assert by_id["specific"].diagnostics["temporal_query_intent_reason"] == (
+        "query temporal range matches item text"
+    )
+    assert "temporal_query_intent_reason" not in by_id["generic"].diagnostics
+
+
+def test_temporal_query_uses_metadata_date_for_season_range() -> None:
+    intent = build_temporal_query_intent("Where was Jolene during summer 2022?")
+    specific = _item(
+        "specific",
+        score=0.7,
+        retrieval_source="canonical_anchors",
+        fact_status="active",
+        event_valid_from="2022-07-15",
+        text="Jolene was in Portugal for the internship.",
+    )
+    generic = _item(
+        "generic",
+        score=0.72,
+        retrieval_source="canonical_anchors",
+        fact_status="active",
+        text="Jolene talked about summer travel in general.",
+    )
+
+    boosted = apply_temporal_query_intent_boosts((generic, specific), intent=intent)
+    by_id = {item.item_id: item for item in boosted}
+
+    assert by_id["specific"].score > by_id["generic"].score
+    assert by_id["specific"].diagnostics["temporal_query_intent_reason"] == (
+        "query temporal range contains item metadata date"
+    )
+
+
+def test_temporal_query_uses_before_date_boundary_evidence() -> None:
+    intent = build_temporal_query_intent(
+        "What did Audrey do over the weekend before 4th October, 2023?"
+    )
+    specific = _item(
+        "specific",
+        score=0.7,
+        retrieval_source="canonical_anchors",
+        fact_status="active",
+        text="Over the weekend before 4th October, 2023, Audrey visited the gallery.",
+    )
+    generic = _item(
+        "generic",
+        score=0.72,
+        retrieval_source="canonical_anchors",
+        fact_status="active",
+        text="Audrey talked about weekend plans near the gallery.",
+    )
+
+    boosted = apply_temporal_query_intent_boosts((generic, specific), intent=intent)
+    by_id = {item.item_id: item for item in boosted}
+
+    assert by_id["specific"].score > by_id["generic"].score
+    assert by_id["specific"].diagnostics["temporal_query_intent_reason"] == (
+        "query asks before date and item text matches boundary"
+    )
 
 
 def test_temporal_query_boosts_matching_after_event_direction() -> None:
@@ -1245,6 +1343,7 @@ def _item(
     review_only: bool = False,
     event_temporal_hint_code: str | None = None,
     temporal_hint_code: str | None = None,
+    event_valid_from: str | None = None,
     text: str | None = None,
 ) -> ContextItem:
     provenance = {"fact_status": fact_status}
@@ -1252,6 +1351,8 @@ def _item(
         provenance["event_temporal_hint_code"] = event_temporal_hint_code
     if temporal_hint_code:
         provenance["temporal_hint_code"] = temporal_hint_code
+    if event_valid_from:
+        provenance["event_valid_from"] = event_valid_from
     return ContextItem(
         item_id=item_id,
         item_type="fact",
