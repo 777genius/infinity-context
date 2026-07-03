@@ -9315,6 +9315,12 @@ def test_query_decomposition_expands_favorite_preference_queries() -> None:
         expected_terms=("Cafe Luna",),
         answer="Cafe Luna",
     )
+    favorite_movie_case = _case(
+        case_id="favorite-preference-movie",
+        question="What is Alex's favorite movie?",
+        expected_terms=("Casablanca",),
+        answer="Casablanca",
+    )
     go_to_restaurant_case = _case(
         case_id="favorite-preference-go-to-restaurant",
         question="What is Alex's go-to restaurant?",
@@ -9333,6 +9339,9 @@ def test_query_decomposition_expands_favorite_preference_queries() -> None:
     )
     restaurant_queries, restaurant_metadata = rerank_module.decomposed_search_queries(
         favourite_restaurant_case
+    )
+    movie_queries, movie_metadata = rerank_module.decomposed_search_queries(
+        favorite_movie_case
     )
     go_to_queries, go_to_metadata = rerank_module.decomposed_search_queries(
         go_to_restaurant_case
@@ -9358,6 +9367,17 @@ def test_query_decomposition_expands_favorite_preference_queries() -> None:
     assert restaurant_queries[2] == "alex favourite restaurant favorite prefer like love"
     assert restaurant_metadata["query_profile"]["relation_terms"] == ("favourite",)
     assert restaurant_metadata["query_profile"]["relation_categories"] == (
+        "favorite_preference",
+        "preference",
+    )
+
+    assert movie_queries[2] == "alex favorite movie favourite prefer like love"
+    assert movie_metadata["query_profile"]["relation_terms"] == ("favorite",)
+    assert movie_metadata["query_profile"]["relation_categories"] == (
+        "favorite_preference",
+        "preference",
+    )
+    assert movie_metadata["query_profile"]["evidence_need"] == (
         "favorite_preference",
         "preference",
     )
@@ -13908,6 +13928,68 @@ def test_benchmark_rerank_boosts_favorite_preference_evidence() -> None:
     )
     assert (
         topical_diagnostics["score_signals"]["benchmark_preference_evidence_boost"]
+        == 0
+    )
+
+
+def test_benchmark_rerank_boosts_favorite_movie_preference_evidence() -> None:
+    case = _case(
+        case_id="favorite-preference-movie-rerank",
+        question="What is Alex's favorite movie?",
+        expected_terms=("Casablanca",),
+        answer="Casablanca",
+        category=4,
+    )
+    topical_movie = RetrievedMemory(
+        item_id="topical-movie",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex discussed movie tickets with Maria."
+        ),
+        source_refs=("D1:1",),
+    )
+    favorite_movie = RetrievedMemory(
+        item_id="favorite-movie",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: My favorite movie is Casablanca."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_movie, favorite_movie),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == (
+        "favorite_preference",
+        "preference",
+    )
+    assert reranked[0].item_id == "favorite-movie"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    favorite_diagnostics = diagnostics_by_id["favorite-movie"]
+    topical_diagnostics = diagnostics_by_id["topical-movie"]
+    assert favorite_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["favorite_preference", "preference"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert favorite_diagnostics["score_signals"][
+        "benchmark_typed_relation_support_roles"
+    ] == ["favorite_support"]
+    assert (
+        topical_diagnostics["score_signals"][
+            "benchmark_typed_relation_support_boost"
+        ]
         == 0
     )
 

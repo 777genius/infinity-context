@@ -1123,7 +1123,7 @@ def _causal_bridge_query_terms(
         return ()
     bridge_terms: list[str] = []
     relation_query_terms = _relation_query_terms(relation_terms, relation_variant_terms)
-    if set(relation_terms) == {"cause"}:
+    if set(relation_terms) == {"cause"} and "made" not in set(lexical_terms):
         relation_query_terms = tuple(
             term for term in relation_query_terms if term not in {"prompt", "inspir"}
         )

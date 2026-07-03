@@ -793,6 +793,7 @@ def _has_location_transition_intent(
         "stay",
     } & relation_set:
         return False
+    normalized = " ".join(str(question or "").casefold().split())
     if "employment" in relation_set and not (
         relation_set
         & {
@@ -807,9 +808,14 @@ def _has_location_transition_intent(
             "trip",
             "visit",
         }
+    ) and not re.search(
+        r"\b(?:which\s+(?:city|country|place)|what\s+place)\b"
+        r".+\b(?:work|worked|working)\b|"
+        r"\b(?:work|worked|working)\b.+"
+        r"\b(?:which\s+(?:city|country|place)|what\s+place)\b",
+        normalized,
     ):
         return False
-    normalized = " ".join(str(question or "").casefold().split())
     if not normalized:
         return False
     if _has_future_home_move_goal_intent(normalized):
@@ -1712,6 +1718,8 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "favourite",
                 "food",
                 "go-to",
+                "movie",
+                "movies",
                 "music",
                 "prefer",
                 "preferred",

@@ -1653,9 +1653,9 @@ def _has_preference_support(memory_terms: set[str]) -> bool:
 
 _FAVORITE_PREFERENCE_SURFACE_RE = re.compile(
     r"\b(?:my|his|her|their|our|your)\s+go-to\s+"
-    r"(?:book|choice|color|food|music|place|restaurant|song|spot)\s+"
+    r"(?:book|choice|color|food|movie|music|place|restaurant|song|spot)\s+"
     r"(?:is|was)\b"
-    r"|\bgo-to\s+(?:book|choice|color|food|music|place|restaurant|song|spot)\b",
+    r"|\bgo-to\s+(?:book|choice|color|food|movie|music|place|restaurant|song|spot)\b",
     re.IGNORECASE,
 )
 
@@ -1671,6 +1671,8 @@ def _has_favorite_preference_support(
         "choice",
         "color",
         "food",
+        "movie",
+        "movies",
         "music",
         "restaurant",
         "song",
