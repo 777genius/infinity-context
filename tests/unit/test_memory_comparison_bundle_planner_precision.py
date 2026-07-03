@@ -142,6 +142,108 @@ def test_evidence_bundle_planner_does_not_select_noisy_source_proximity() -> Non
     assert quality["source_proximity_support_count"] == 0
 
 
+def test_evidence_bundle_planner_keeps_precise_support_above_broad_term_gain() -> None:
+    primary = _candidate(
+        item_id="primary",
+        retrieval_order=1,
+        dedupe_key="refs:D4:10",
+        covered_evidence_terms=("plan",),
+        primary_signal=True,
+        source_refs=("D4:10",),
+        focused_evidence_score=1.0,
+        direct_speaker_turn=True,
+        answerability_score=0.92,
+    )
+    broad_support = _candidate(
+        item_id="broad-support",
+        retrieval_order=2,
+        dedupe_key="refs:D8:30",
+        query_support_terms=("origin", "country", "move", "support"),
+        source_refs=("D8:30",),
+        broad_summary=True,
+        answerability_score=0.86,
+        source_locality_score=0.45,
+    )
+    precise_support = _candidate(
+        item_id="precise-support",
+        retrieval_order=3,
+        dedupe_key="refs:D9:4",
+        query_support_terms=("origin", "country"),
+        source_refs=("D9:4",),
+        focused_evidence_score=1.0,
+        direct_speaker_turn=True,
+        answerability_score=0.82,
+        source_locality_score=1.0,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, broad_support, precise_support),
+        case_group="single",
+    )
+
+    assert [item.candidate.item_id for item in plan.items] == [
+        "primary",
+        "precise-support",
+    ]
+    quality = plan.to_diagnostics()["bundle_quality"]
+    assert quality["broad_summary_count"] == 0
+    assert quality["average_measured_answerability_score"] == 0.87
+
+
+def test_evidence_bundle_planner_keeps_answerable_relation_support_near_top() -> None:
+    primary = _candidate(
+        item_id="primary",
+        retrieval_order=1,
+        dedupe_key="refs:D2:1",
+        covered_evidence_terms=("reason",),
+        primary_signal=True,
+        source_refs=("D2:1",),
+        direct_speaker_turn=True,
+        focused_evidence_score=1.0,
+        answerability_score=0.92,
+    )
+    lower_precision_causal = _candidate(
+        item_id="lower-precision-causal",
+        retrieval_order=2,
+        dedupe_key="refs:D2:8",
+        query_support_terms=("because", "reason", "support", "choice"),
+        source_refs=("D2:8",),
+        relation_hits=("because", "reason"),
+        relation_category_hits=("causal",),
+        entity_hits=("morgan",),
+        answerability_score=0.62,
+        source_locality_score=0.65,
+    )
+    answerable_causal = _candidate(
+        item_id="answerable-causal",
+        retrieval_order=3,
+        dedupe_key="refs:D2:9",
+        query_support_terms=("because", "reason"),
+        source_refs=("D2:9",),
+        relation_hits=("because", "reason"),
+        relation_category_hits=("causal",),
+        entity_hits=("morgan",),
+        direct_speaker_turn=True,
+        focused_evidence_score=1.0,
+        answerability_score=0.86,
+        source_locality_score=1.0,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, lower_precision_causal, answerable_causal),
+        case_group="single",
+        required_roles=("primary", "causal_support"),
+    )
+
+    assert [item.candidate.item_id for item in plan.items] == [
+        "primary",
+        "answerable-causal",
+    ]
+    diagnostics = plan.to_diagnostics()
+    assert diagnostics["satisfied_required_roles"] == ["primary", "causal_support"]
+    assert diagnostics["bundle_quality"]["causal_support_count"] == 1
+
+
 def test_evidence_bundle_planner_drops_noisy_partial_source_overlap() -> None:
     primary = _candidate(
         item_id="primary",
@@ -483,6 +585,9 @@ def _candidate(
     source_refs: tuple[str, ...] = (),
     source_type: str = "unknown",
     retrieval_sources: tuple[str, ...] = (),
+    relation_hits: tuple[str, ...] = (),
+    relation_category_hits: tuple[str, ...] = (),
+    entity_hits: tuple[str, ...] = (),
     direct_speaker_turn: bool = False,
     broad_summary: bool = False,
     conflict_or_stale: bool = False,
@@ -506,6 +611,9 @@ def _candidate(
         source_refs=source_refs,
         source_type=source_type,
         retrieval_sources=retrieval_sources,
+        relation_hits=relation_hits,
+        relation_category_hits=relation_category_hits,
+        entity_hits=entity_hits,
         direct_speaker_turn=direct_speaker_turn,
         broad_summary=broad_summary,
         conflict_or_stale=conflict_or_stale,

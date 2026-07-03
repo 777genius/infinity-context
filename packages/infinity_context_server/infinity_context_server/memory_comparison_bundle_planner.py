@@ -1552,6 +1552,7 @@ def _planned_coverage_sort_key(
         *_source_overlap_selection_sort_key(item, selected),
         *_source_ref_compactness_selection_sort_key(item),
         *_source_proximity_selection_sort_key(item, selected),
+        *_selection_precision_sort_key(item),
         -float(support_gain),
         *_candidate_sort_key(item.candidate),
     )
@@ -1615,6 +1616,21 @@ def _source_ref_compactness_selection_sort_key(
         1.0,
         float(_turn_ref_span(turn_refs)),
         float(len(turn_refs)),
+    )
+
+
+def _selection_precision_sort_key(item: PlannedEvidenceItem) -> tuple[float, ...]:
+    candidate = item.candidate
+    return (
+        1.0 if _candidate_has_noisy_source_overlap_risk(candidate) else 0.0,
+        1.0 if _candidate_has_diffuse_source_refs(candidate) else 0.0,
+        1.0 if _candidate_has_measured_answerability_below(candidate, 0.75) else 0.0,
+        -candidate.answerability_score if candidate.answerability_score > 0 else 0.0,
+        (
+            -candidate.source_locality_score
+            if candidate.source_locality_score > 0
+            else 0.0
+        ),
     )
 
 
@@ -2186,11 +2202,14 @@ def _candidate_has_noisy_source_overlap_risk(
 
 
 def _source_identity_refs(candidate: EvidenceBundleCandidate) -> tuple[str, ...]:
+    source_ref_identities = _source_identity_refs_from_source_refs(
+        candidate.source_refs
+    )
+    source_identity_values = source_ref_identities or candidate.source_refs
     return tuple(
         dict.fromkeys(
             (
-                *candidate.source_refs,
-                *_source_identity_refs_from_source_refs(candidate.source_refs),
+                *source_identity_values,
                 *_source_identity_refs_from_dedupe_key(candidate.dedupe_key),
             )
         )
