@@ -132,6 +132,22 @@ def test_recent_event_session_order_does_not_revive_stale_state() -> None:
     assert boosted[0].diagnostics["score_signals"]["temporal_query_intent_boost"] < 0
 
 
+def test_current_query_does_not_boost_unmarked_old_session_fact() -> None:
+    intent = build_temporal_query_intent("What is the current Atlas provider?")
+    unmarked_old_fact = _item(
+        "unmarked_old_fact",
+        text="D4:6 Sam: Atlas provider is LocalAI.",
+        score=0.7,
+        source_id="locomo:conv-fixture:session_4:D4:6:turn",
+        fact_status="",
+    )
+
+    boosted = apply_temporal_query_intent_boosts((unmarked_old_fact,), intent=intent)
+
+    assert boosted[0].score == unmarked_old_fact.score
+    assert "temporal_query_intent_reason" not in boosted[0].diagnostics
+
+
 def _item(
     item_id: str,
     *,

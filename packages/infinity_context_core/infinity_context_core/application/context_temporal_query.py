@@ -770,7 +770,12 @@ def temporal_query_boost_signal(
             reason="query prefers current active memory and item has stale state markers",
             code="current_stale_text_conflict",
         )
-    if intent.prefers_current and not is_review_only and not is_superseded:
+    if (
+        intent.prefers_current
+        and not is_review_only
+        and not is_superseded
+        and state_markers.has_active_state
+    ):
         return TemporalQueryBoostSignal(
             boost=0.018,
             reason="query prefers current active memory",

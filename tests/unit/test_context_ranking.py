@@ -8312,6 +8312,49 @@ def test_deterministic_rerank_boosts_current_state_text_for_current_query() -> N
     )
 
 
+def test_deterministic_rerank_prefers_current_correction_over_old_session_fact() -> None:
+    query = "What is the current Atlas provider?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    old_fact = _item(
+        "old_session_provider",
+        score=0.74,
+        retrieval_source="keyword_chunks",
+        text="D4:6 Sam: Atlas provider is LocalAI.",
+    )
+    current_correction = _item(
+        "current_provider_correction",
+        score=0.7,
+        retrieval_source="keyword_chunks",
+        text=(
+            "D20:8 Sam: Correction for Atlas: the provider changed from LocalAI "
+            "to OpenAI. OpenAI is the current active provider, and LocalAI is "
+            "no longer current."
+        ),
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (old_fact, current_correction),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert by_id["current_provider_correction"].score > by_id["old_session_provider"].score
+    assert (
+        "current_state_correction_evidence"
+        in by_id["current_provider_correction"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+    old_reasons = by_id["old_session_provider"].diagnostics.get("provenance", {}).get(
+        "deterministic_rerank_reasons",
+        [],
+    )
+    assert "temporal_query_current_active_match" not in old_reasons
+
+
 def test_deterministic_rerank_prefers_previous_state_for_no_longer_query() -> None:
     query = "Which Atlas provider is no longer valid?"
     plan = build_query_expansion_plan(query)

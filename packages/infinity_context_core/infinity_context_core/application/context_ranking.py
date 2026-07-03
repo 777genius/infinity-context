@@ -44,6 +44,7 @@ from infinity_context_core.application.context_domain_rerank_apply import (
 )
 from infinity_context_core.application.context_domain_rerank_signals import (
     commonality_who_else_anchor_override,
+    has_current_state_correction_evidence,
     has_multi_evidence_aggregation_candidate,
 )
 from infinity_context_core.application.context_inference_evidence import (
@@ -1731,6 +1732,11 @@ def _deterministic_rerank_signals(
             item=item,
         )
     )
+    current_state_correction_anchor_override = (
+        anchor_conflict
+        and temporal_query_intent.prefers_current
+        and has_current_state_correction_evidence(item.text)
+    )
     boost = 0.0
     penalty = 0.0
     reasons: list[str] = []
@@ -2077,6 +2083,8 @@ def _deterministic_rerank_signals(
         reasons.append("query_anchor_conflict_overridden_by_source_speaker")
     elif commonality_anchor_override:
         reasons.append("query_anchor_conflict_overridden_by_commonality_who_else")
+    elif current_state_correction_anchor_override:
+        reasons.append("query_anchor_conflict_overridden_by_current_state_correction")
     elif anchor_conflict and not _action_role_confirms_requested_relation(action_signal.reason):
         penalty += 0.07
         reasons.append("query_anchor_conflict")

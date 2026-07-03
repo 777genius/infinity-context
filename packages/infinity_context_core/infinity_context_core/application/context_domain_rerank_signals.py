@@ -1613,6 +1613,11 @@ def current_state_rerank_signal(
         return DomainRerankSignal()
     if not _is_current_state_candidate(query=query, query_reason=query_reason, item=item):
         return DomainRerankSignal()
+    if has_current_state_correction_evidence(item.text):
+        return DomainRerankSignal(
+            boost=0.045,
+            reason="current_state_correction_evidence",
+        )
     if _STALE_STATE_EXACT_RE.search(item.text) is not None:
         return DomainRerankSignal(
             penalty=0.055,
@@ -2120,6 +2125,13 @@ def _is_stale_state_candidate(*, query: str, query_reason: str, item: ContextIte
     if query_reason in _STALE_STATE_RERANK_REASONS:
         return True
     return _score_signal_reason(item) in _STALE_STATE_RERANK_REASONS
+
+
+def has_current_state_correction_evidence(text: str) -> bool:
+    has_current_state = _CURRENT_STATE_EXACT_RE.search(text) is not None
+    has_stale_context = _STALE_STATE_EXACT_RE.search(text) is not None
+    has_transition = _STATE_TRANSITION_PAIR_RE.search(text) is not None
+    return has_current_state and (has_stale_context or has_transition)
 
 
 def _is_age_birthday_candidate(*, query_reason: str, item: ContextItem) -> bool:
