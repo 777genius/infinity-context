@@ -3028,6 +3028,38 @@ def test_temporal_rerank_orders_latest_event_by_timestamp() -> None:
     ] > 0
 
 
+def test_temporal_rerank_orders_currently_by_timestamp() -> None:
+    case = _case(
+        case_id="conv-1:qa:currently-reading-rerank",
+        question="What book is Jon currently reading?",
+        expected_terms=("Lean Startup",),
+        answer="Lean Startup",
+        category=4,
+    )
+    older = RetrievedMemory(
+        item_id="older",
+        rank=1,
+        score=0.9,
+        text="Jon mentioned an older novel.",
+        metadata={"source_timestamp": 1683546960},
+    )
+    newer = RetrievedMemory(
+        item_id="newer",
+        rank=2,
+        score=0.86,
+        text="Jon is currently reading The Lean Startup.",
+        metadata={"source_timestamp": 1683554160},
+    )
+
+    reranked, metadata = rerank_module.temporal_rerank_memories(case, (older, newer))
+
+    assert [memory.item_id for memory in reranked] == ["newer", "older"]
+    assert metadata["timestamp_order_boosted_count"] == 1
+    assert reranked[0].metadata["diagnostics"]["score_signals"][
+        "benchmark_temporal_timestamp_order_boost"
+    ] > 0
+
+
 def test_temporal_rerank_reads_metadata_source_timestamp() -> None:
     case = _case(
         case_id="conv-1:qa:latest-conversation-metadata-rerank",
@@ -3150,6 +3182,36 @@ def test_temporal_rerank_orders_latest_event_by_session_index() -> None:
 
     assert [memory.item_id for memory in reranked] == ["newer", "older"]
     assert metadata["timestamped_memory_count"] == 0
+    assert metadata["session_order_boosted_count"] == 1
+    assert reranked[0].metadata["diagnostics"]["score_signals"][
+        "benchmark_temporal_session_order_boost"
+    ] > 0
+
+
+def test_temporal_rerank_orders_soon_by_session_index() -> None:
+    case = _case(
+        case_id="conv-1:qa:roadtrip-soon-session-rerank",
+        question="Would Melanie go on another roadtrip soon?",
+        expected_terms=("likely no",),
+        answer="likely no",
+        category=3,
+    )
+    older = RetrievedMemory(
+        item_id="older",
+        rank=1,
+        score=0.9,
+        text="session_4 date: Monday D4:1 Melanie discussed an older trip.",
+    )
+    newer = RetrievedMemory(
+        item_id="newer",
+        rank=2,
+        score=0.86,
+        text="session_18 date: Friday D18:4 Melanie discussed another roadtrip soon.",
+    )
+
+    reranked, metadata = rerank_module.temporal_rerank_memories(case, (older, newer))
+
+    assert [memory.item_id for memory in reranked] == ["newer", "older"]
     assert metadata["session_order_boosted_count"] == 1
     assert reranked[0].metadata["diagnostics"]["score_signals"][
         "benchmark_temporal_session_order_boost"

@@ -1358,7 +1358,7 @@ def _temporal_timestamp_order_boosts(
     profile: Mapping[str, object],
 ) -> dict[int, float]:
     matched_terms = set(_string_sequence(profile.get("matched_terms")))
-    if not {"earliest event", "latest event", "upcoming event"} & matched_terms:
+    if not _requests_temporal_order_boost(matched_terms):
         return {}
     earliest_requested = "earliest event" in matched_terms
     timestamped: list[tuple[int, int]] = []
@@ -1396,7 +1396,7 @@ def _temporal_session_order_boosts(
     timestamp_order_boosts: Mapping[int, float],
 ) -> dict[int, float]:
     matched_terms = set(_string_sequence(profile.get("matched_terms")))
-    if not {"earliest event", "latest event", "upcoming event"} & matched_terms:
+    if not _requests_temporal_order_boost(matched_terms):
         return {}
     earliest_requested = "earliest event" in matched_terms
     session_indexed: list[tuple[int, int]] = []
@@ -1427,6 +1427,21 @@ def _temporal_session_order_boosts(
         )
         for index, session in session_indexed
     }
+
+
+def _requests_temporal_order_boost(matched_terms: set[str]) -> bool:
+    return bool(
+        {
+            "currently",
+            "earliest event",
+            "latest event",
+            "recent",
+            "soon",
+            "upcoming",
+            "upcoming event",
+        }
+        & matched_terms
+    )
 
 
 def _memory_session_indices(memory: RetrievedMemory) -> tuple[int, ...]:
