@@ -3061,6 +3061,38 @@ def test_temporal_rerank_reads_metadata_source_timestamp() -> None:
     ] > 0
 
 
+def test_temporal_rerank_orders_earliest_event_by_timestamp() -> None:
+    case = _case(
+        case_id="conv-1:qa:first-conversation-rerank",
+        question="What was the first conversation with Morgan?",
+        expected_terms=("checklist",),
+        answer="checklist",
+        category=2,
+    )
+    newer = RetrievedMemory(
+        item_id="newer",
+        rank=1,
+        score=0.9,
+        text="Morgan discussed the studio launch.",
+        metadata={"source_timestamp": 1683554160},
+    )
+    older = RetrievedMemory(
+        item_id="older",
+        rank=2,
+        score=0.86,
+        text="Morgan discussed the checklist.",
+        metadata={"source_timestamp": 1683546960},
+    )
+
+    reranked, metadata = rerank_module.temporal_rerank_memories(case, (newer, older))
+
+    assert [memory.item_id for memory in reranked] == ["older", "newer"]
+    assert metadata["timestamp_order_boosted_count"] == 1
+    assert reranked[0].metadata["diagnostics"]["score_signals"][
+        "benchmark_temporal_timestamp_order_boost"
+    ] > 0
+
+
 def test_temporal_rerank_orders_latest_event_by_session_index() -> None:
     case = _case(
         case_id="conv-1:qa:latest-conversation-session-rerank",
@@ -3086,6 +3118,36 @@ def test_temporal_rerank_orders_latest_event_by_session_index() -> None:
 
     assert [memory.item_id for memory in reranked] == ["newer", "older"]
     assert metadata["timestamped_memory_count"] == 0
+    assert metadata["session_order_boosted_count"] == 1
+    assert reranked[0].metadata["diagnostics"]["score_signals"][
+        "benchmark_temporal_session_order_boost"
+    ] > 0
+
+
+def test_temporal_rerank_orders_earliest_event_by_session_index() -> None:
+    case = _case(
+        case_id="conv-1:qa:first-conversation-session-rerank",
+        question="What was the first conversation with Morgan?",
+        expected_terms=("checklist",),
+        answer="checklist",
+        category=2,
+    )
+    newer = RetrievedMemory(
+        item_id="newer",
+        rank=1,
+        score=0.9,
+        text="session_19 date: Friday D19:4 Morgan discussed the studio launch.",
+    )
+    older = RetrievedMemory(
+        item_id="older",
+        rank=2,
+        score=0.86,
+        text="session_2 date: Monday D2:1 Morgan discussed the checklist.",
+    )
+
+    reranked, metadata = rerank_module.temporal_rerank_memories(case, (newer, older))
+
+    assert [memory.item_id for memory in reranked] == ["older", "newer"]
     assert metadata["session_order_boosted_count"] == 1
     assert reranked[0].metadata["diagnostics"]["score_signals"][
         "benchmark_temporal_session_order_boost"
@@ -3328,6 +3390,12 @@ def test_query_decomposition_classifies_ordered_event_temporal_queries() -> None
         expected_terms=("invoice",),
         answer="invoice",
     )
+    first_case = _case(
+        case_id="conv-1:qa:first-conversation",
+        question="What was the first conversation with Alex?",
+        expected_terms=("invoice",),
+        answer="invoice",
+    )
     next_case = _case(
         case_id="conv-1:qa:next-meeting",
         question="When is the next meeting with Alex?",
@@ -3338,6 +3406,7 @@ def test_query_decomposition_classifies_ordered_event_temporal_queries() -> None
     latest_queries, latest_metadata = rerank_module.decomposed_search_queries(
         latest_case
     )
+    first_queries, first_metadata = rerank_module.decomposed_search_queries(first_case)
     next_queries, next_metadata = rerank_module.decomposed_search_queries(next_case)
 
     assert latest_metadata["query_profile"]["is_temporal_query"] is True
@@ -3347,6 +3416,14 @@ def test_query_decomposition_classifies_ordered_event_temporal_queries() -> None
         "selected_roles"
     ]
     assert latest_queries[-1] == "alex latest event session date time"
+
+    assert first_metadata["query_profile"]["is_temporal_query"] is True
+    assert first_metadata["query_profile"]["time_intent_kind"] == "relative_time"
+    assert "earliest event" in first_metadata["query_profile"]["temporal_terms"]
+    assert "relative_temporal_support" in first_metadata["query_plan"][
+        "selected_roles"
+    ]
+    assert first_queries[-1] == "alex earliest event session date time"
 
     assert next_metadata["query_profile"]["is_temporal_query"] is True
     assert next_metadata["query_profile"]["time_intent_kind"] == "relative_time"

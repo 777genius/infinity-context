@@ -174,6 +174,7 @@ _RELATIVE_TIME_TERMS = frozenset(
         "ago",
         "earlier",
         "earlier today",
+        "earliest event",
         "last night",
         "last quarter",
         "last week",

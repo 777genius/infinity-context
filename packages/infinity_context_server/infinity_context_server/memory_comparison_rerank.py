@@ -322,6 +322,7 @@ _TEMPORAL_QUERY_TERMS = (
     "tomorrow",
     "earlier today",
     "tonight",
+    "earliest event",
     "latest event",
     "upcoming event",
     "last night",
@@ -357,7 +358,8 @@ _TEMPORAL_QUERY_TERMS = (
     "time",
 )
 _ORDERED_EVENT_REQUEST_RE = re.compile(
-    r"\b(?P<order>latest|newest|recent|most\s+recent|last|previous|prior|"
+    r"\b(?P<order>first|earliest|oldest|latest|newest|recent|"
+    r"most\s+recent|last|previous|prior|"
     r"next|upcoming)\s+"
     r"(?:conversation|call|meeting|chat|dm|message|text|discussion|sync|"
     r"review|demo|interview|workshop|session)\b",
@@ -1329,8 +1331,9 @@ def _temporal_timestamp_order_boosts(
     profile: Mapping[str, object],
 ) -> dict[int, float]:
     matched_terms = set(_string_sequence(profile.get("matched_terms")))
-    if not {"latest event", "upcoming event"} & matched_terms:
+    if not {"earliest event", "latest event", "upcoming event"} & matched_terms:
         return {}
+    earliest_requested = "earliest event" in matched_terms
     timestamped: list[tuple[int, int]] = []
     for index, memory in enumerate(memories):
         timestamps = _memory_timestamp_values(memory)
@@ -1343,7 +1346,15 @@ def _temporal_timestamp_order_boosts(
         return {}
     denominator = len(ordered_timestamps) - 1
     return {
-        index: round(0.12 * (ordered_timestamps.index(timestamp) / denominator), 6)
+        index: round(
+            0.12
+            * (
+                1.0 - (ordered_timestamps.index(timestamp) / denominator)
+                if earliest_requested
+                else ordered_timestamps.index(timestamp) / denominator
+            ),
+            6,
+        )
         for index, timestamp in timestamped
     }
 
@@ -1355,8 +1366,9 @@ def _temporal_session_order_boosts(
     timestamp_order_boosts: Mapping[int, float],
 ) -> dict[int, float]:
     matched_terms = set(_string_sequence(profile.get("matched_terms")))
-    if not {"latest event", "upcoming event"} & matched_terms:
+    if not {"earliest event", "latest event", "upcoming event"} & matched_terms:
         return {}
+    earliest_requested = "earliest event" in matched_terms
     session_indexed: list[tuple[int, int]] = []
     for index, memory in enumerate(memories):
         if index in timestamp_order_boosts:
@@ -1371,7 +1383,15 @@ def _temporal_session_order_boosts(
         return {}
     denominator = len(ordered_sessions) - 1
     return {
-        index: round(0.1 * (ordered_sessions.index(session) / denominator), 6)
+        index: round(
+            0.1
+            * (
+                1.0 - (ordered_sessions.index(session) / denominator)
+                if earliest_requested
+                else ordered_sessions.index(session) / denominator
+            ),
+            6,
+        )
         for index, session in session_indexed
     }
 
@@ -1966,6 +1986,8 @@ def _ordered_event_temporal_term(query: str) -> str:
     order = match.group("order").casefold()
     if order in {"next", "upcoming"}:
         return "upcoming event"
+    if order in {"first", "earliest", "oldest"}:
+        return "earliest event"
     return "latest event"
 
 
