@@ -2165,6 +2165,96 @@ def test_answer_context_backfill_requires_action_category_for_action_role() -> N
     assert context.backfilled_retrieval_item_count == 1
 
 
+def test_answer_context_backfills_required_role_skipped_after_bundle_planning() -> None:
+    memories = (
+        RetrievedMemory(
+            text="D1:10 Alex: I chose the class because the schedule fit.",
+            rank=1,
+            item_id="primary",
+            source_refs=("D1:10",),
+        ),
+        RetrievedMemory(
+            text="Conversation summary: D1:10 Alex chose the class because it fit.",
+            rank=2,
+            item_id="noisy-causal",
+            source_refs=("D1:10",),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "answerability_score": 0.9,
+                        "source_locality_score": 0.9,
+                        "broad_summary": True,
+                        "entity_hits": ["alex"],
+                        "speaker_hits": ["alex"],
+                        "relation_hits": ["because", "choose"],
+                        "relation_category_hits": ["causal"],
+                        "query_roles": ["causal_support"],
+                    }
+                }
+            },
+        ),
+        RetrievedMemory(
+            text="D1:12 Alex: The evening schedule was the reason I signed up.",
+            rank=3,
+            item_id="precise-causal",
+            source_refs=("D1:12",),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "answerability_score": 0.86,
+                        "source_locality_score": 0.92,
+                        "entity_hits": ["alex"],
+                        "speaker_hits": ["alex"],
+                        "relation_hits": ["reason", "signed"],
+                        "relation_category_hits": ["causal"],
+                        "query_roles": ["causal_support"],
+                    }
+                }
+            },
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "role_requirement_complete": True,
+            "required_roles": ["primary", "causal_support"],
+            "missing_required_roles": [],
+            "items": [
+                {
+                    "id": "primary",
+                    "retrieval_order": 1,
+                    "role": "primary",
+                    "source_refs": ["D1:10"],
+                },
+                {
+                    "id": "noisy-causal",
+                    "retrieval_order": 2,
+                    "role": "causal_support",
+                    "source_refs": ["D1:10"],
+                    "query_roles": ["causal_support"],
+                },
+            ],
+        },
+        cutoff=3,
+    )
+
+    assert [memory.item_id for memory in context.memories] == [
+        "primary",
+        "precise-causal",
+    ]
+    assert context.role_requirement_complete is False
+    assert context.missing_required_roles == ("causal_support",)
+    assert context.backfilled_retrieval_item_count == 1
+    assert context.skipped_duplicate_source_bundle_item_count == 1
+    assert context.memories[0].metadata[
+        "answer_context_missing_required_roles"
+    ] == ("causal_support",)
+    assert context.memories[1].metadata[
+        "answer_context_backfill_missing_role_hits"
+    ] == ("causal_support",)
+
+
 def test_answer_context_falls_back_for_empty_bundle() -> None:
     memories = (
         RetrievedMemory(text="first", rank=1, item_id="first"),

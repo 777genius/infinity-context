@@ -223,8 +223,11 @@ def answer_context_from_evidence_bundle(
             fallback_reason="empty_bundle",
         )
     bundle_context = _bundle_context_metadata(evidence_bundle)
+    required_roles = _answer_context_required_roles(evidence_bundle)
 
     selected: list[RetrievedMemory] = []
+    selected_required_roles: set[str] = set()
+    skipped_required_roles: set[str] = set()
     selected_keys: set[tuple[str, object]] = set()
     selected_source_identity_keys: set[tuple[str, ...]] = set()
     selected_source_turn_refs: set[str] = set()
@@ -237,15 +240,21 @@ def answer_context_from_evidence_bundle(
     skipped_duplicate_source = 0
     skipped_noisy_overlap = 0
     for item in bundle_items:
+        item_required_roles = _bundle_item_required_roles(
+            item,
+            required_roles=required_roles,
+        )
         memory = _memory_for_bundle_item(item, memories)
         if memory is None:
             skipped += 1
+            skipped_required_roles.update(item_required_roles)
             continue
         retrieval_order = _positive_int(item.get("retrieval_order"))
         if retrieval_order is None:
             retrieval_order = _retrieval_order_for_memory(memory, memories)
         if retrieval_order is None or retrieval_order > bounded_cutoff:
             skipped += 1
+            skipped_required_roles.update(item_required_roles)
             continue
         key = _memory_key(memory, retrieval_order=retrieval_order)
         if key in selected_keys:
@@ -254,6 +263,7 @@ def answer_context_from_evidence_bundle(
         if source_identity_key and source_identity_key in selected_source_identity_keys:
             skipped += 1
             skipped_duplicate_source += 1
+            skipped_required_roles.update(item_required_roles)
             continue
         source_turn_refs = _bundle_source_turn_refs(memory, item)
         noisy_source_overlap = (
@@ -268,8 +278,10 @@ def answer_context_from_evidence_bundle(
         if noisy_source_overlap:
             skipped += 1
             skipped_noisy_overlap += 1
+            skipped_required_roles.update(item_required_roles)
             continue
         selected_keys.add(key)
+        selected_required_roles.update(item_required_roles)
         if source_identity_key:
             selected_source_identity_keys.add(source_identity_key)
         selected_source_turn_refs.update(source_turn_refs)
@@ -293,6 +305,21 @@ def answer_context_from_evidence_bundle(
         )
 
     bundle_selected_count = len(selected)
+    skipped_missing_roles = tuple(
+        role
+        for role in required_roles
+        if role in skipped_required_roles
+        and role not in selected_required_roles
+    )
+    if skipped_missing_roles:
+        bundle_context = _bundle_context_with_missing_roles(
+            bundle_context,
+            skipped_missing_roles,
+        )
+        selected = [
+            _with_bundle_context_metadata(memory, bundle_context)
+            for memory in selected
+        ]
     backfilled_count = 0
     backfilled_precise_source_overlap_count = 0
     skipped_redundant_risky_backfill_count = 0
@@ -1675,6 +1702,23 @@ def _with_backfill_skip_metadata(
     )
 
 
+def _with_bundle_context_metadata(
+    memory: RetrievedMemory,
+    bundle_context: Mapping[str, object],
+) -> RetrievedMemory:
+    metadata = dict(memory.metadata)
+    metadata.update(bundle_context)
+    return RetrievedMemory(
+        text=memory.text,
+        rank=memory.rank,
+        score=memory.score,
+        item_id=memory.item_id,
+        created_at=memory.created_at,
+        source_refs=memory.source_refs,
+        metadata=metadata,
+    )
+
+
 def _bundle_context_metadata(bundle: Mapping[str, object]) -> dict[str, object]:
     planner = _mapping(bundle.get("bundle_planner"))
     quality = _mapping(planner.get("bundle_quality"))
@@ -1893,6 +1937,72 @@ def _bundle_context_metadata(bundle: Mapping[str, object]) -> dict[str, object]:
     if risk_reasons:
         metadata["answer_context_bundle_risk_reason_codes"] = risk_reasons
     return metadata
+
+
+def _answer_context_required_roles(bundle: Mapping[str, object]) -> tuple[str, ...]:
+    planner = _mapping(bundle.get("bundle_planner"))
+    return tuple(
+        role
+        for role in dict.fromkeys(
+            _string_tuple(bundle.get("required_roles"))
+            + _string_tuple(planner.get("required_roles"))
+        )
+        if role not in {"primary", "supporting", "entity_disambiguation"}
+    )
+
+
+def _bundle_item_required_roles(
+    bundle_item: Mapping[str, object],
+    *,
+    required_roles: Sequence[str],
+) -> tuple[str, ...]:
+    if not required_roles:
+        return ()
+    role = str(bundle_item.get("role") or "").strip()
+    query_roles = set(_string_tuple(bundle_item.get("query_roles")))
+    required_role_set = set(required_roles)
+    roles: list[str] = []
+    if role in required_role_set:
+        roles.append(role)
+    roles.extend(
+        required_role
+        for required_role in required_roles
+        if required_role in query_roles
+    )
+    return tuple(dict.fromkeys(roles))
+
+
+def _bundle_context_with_missing_roles(
+    bundle_context: Mapping[str, object],
+    missing_roles: Sequence[str],
+) -> dict[str, object]:
+    adjusted = dict(bundle_context)
+    combined_missing_roles = tuple(
+        dict.fromkeys(
+            _string_tuple(adjusted.get("answer_context_missing_required_roles"))
+            + tuple(role for role in missing_roles if str(role).strip())
+        )
+    )
+    if not combined_missing_roles:
+        return adjusted
+    adjusted["answer_context_role_requirement_complete"] = False
+    adjusted["answer_context_missing_required_roles"] = combined_missing_roles
+    existing_risks = _string_tuple(
+        adjusted.get("answer_context_bundle_risk_reason_codes")
+    )
+    adjusted["answer_context_bundle_risk_reason_codes"] = tuple(
+        dict.fromkeys(
+            (
+                *existing_risks,
+                "risk:missing_required_role",
+                *(
+                    f"risk:missing_required_{role}"
+                    for role in combined_missing_roles
+                ),
+            )
+        )
+    )
+    return adjusted
 
 
 def _bundle_items(bundle: Mapping[str, object]) -> tuple[Mapping[str, object], ...]:
