@@ -456,7 +456,16 @@ class EvidenceBundlePlanner:
             for candidate in primary_candidates
             if not _candidate_has_contrast_support(candidate)
         )
-        candidates_to_rank = non_contrast_candidates or primary_candidates
+        current_primary_candidates = tuple(
+            candidate
+            for candidate in non_contrast_candidates
+            if not _candidate_has_obsolete_primary_surface(candidate)
+        )
+        candidates_to_rank = (
+            current_primary_candidates
+            or non_contrast_candidates
+            or primary_candidates
+        )
         return sorted(candidates_to_rank, key=_primary_sort_key)[0]
 
     def _planned_item(
@@ -1350,6 +1359,16 @@ def _primary_candidate_eligible(candidate: EvidenceBundleCandidate) -> bool:
         or candidate.relation_hits
         or candidate.entity_hits
         or candidate.speaker_hits
+    )
+
+
+def _candidate_has_obsolete_primary_surface(
+    candidate: EvidenceBundleCandidate,
+) -> bool:
+    return bool(
+        candidate.stale_surface
+        and not candidate.currentness_surface
+        and not candidate.contrast_surface
     )
 
 
