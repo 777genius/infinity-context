@@ -255,6 +255,54 @@ def test_query_role_effectiveness_accepts_compact_query_for_profile_required_rol
     assert table["required_roles_without_candidate_queries"] == []
 
 
+def test_query_plan_integrity_requires_answer_shape_query_families() -> None:
+    items = (
+        _query_plan_item(
+            "missing-list",
+            required_role="list_support",
+            selected_role_families=("base_query",),
+        ),
+        _query_plan_item(
+            "has-list",
+            required_role="list_support",
+            selected_role_families=("base_query", "list_support"),
+        ),
+        _query_plan_item(
+            "missing-value",
+            required_role="value_support",
+            selected_role_families=("base_query", "relation_compact"),
+        ),
+        _query_plan_item(
+            "has-value",
+            required_role="value_support",
+            selected_role_families=("base_query", "value_support"),
+        ),
+        _query_plan_item(
+            "missing-count",
+            required_role="count_support",
+            selected_role_families=("base_query",),
+        ),
+        _query_plan_item(
+            "has-count",
+            required_role="count_support",
+            selected_role_families=("base_query", "count_support"),
+        ),
+    )
+
+    table = quality_diagnostics(items)["query_plan_integrity_table"]
+
+    assert table["missing_evidence_role_query_family_counts"] == {
+        "count_support": 1,
+        "list_support": 1,
+        "value_support": 1,
+    }
+    assert [
+        sample["case_id"]
+        for sample in table["samples"]
+        if "missing_evidence_role_query_family" in sample["gap_reasons"]
+    ] == ["missing-list", "missing-value", "missing-count"]
+
+
 def _memory(
     item_id: str,
     *,
@@ -273,4 +321,34 @@ def _memory(
                 }
             }
         },
+    }
+
+
+def _query_plan_item(
+    case_id: str,
+    *,
+    required_role: str,
+    selected_role_families: tuple[str, ...],
+) -> dict[str, object]:
+    return {
+        "case_id": case_id,
+        "retrieval": {
+            "metadata": {
+                "query_decomposition": {
+                    "query_plan": {
+                        "schema_version": "query_plan.v2",
+                        "selected_query_count": len(selected_role_families),
+                        "dropped_query_count": 0,
+                        "selected_roles": list(selected_role_families),
+                        "selected_role_families": list(selected_role_families),
+                        "missing_recommended_role_families": [],
+                    },
+                    "query_profile": {
+                        "bundle_evidence_roles": ["primary", required_role],
+                    },
+                },
+            },
+            "results": [],
+        },
+        "evidence_bundle": {},
     }

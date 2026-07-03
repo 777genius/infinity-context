@@ -2644,6 +2644,9 @@ def _evidence_role_query_families(role: str) -> tuple[str, ...]:
         "primary": ("base_query", "expanded_focus", "relation_compact"),
         "supporting": ("base_query", "expanded_focus", "relation_compact"),
         "bridge": ("multi_hop", "relation_compact", "expanded_focus"),
+        "count_support": ("count_support", "expanded_focus"),
+        "list_support": ("list_support", "expanded_focus"),
+        "value_support": ("value_support", "expanded_focus"),
         "temporal_support": ("temporal_support", "expanded_focus"),
         "location_support": (
             "location_support",

@@ -331,6 +331,54 @@ def test_query_planner_type_limit_replacement_preserves_relation_support() -> No
     assert diagnostics["missing_recommended_role_families"] == []
 
 
+def test_query_planner_preserves_value_support_family() -> None:
+    plan = QueryPlannerV2(max_queries=3).plan(
+        (
+            _candidate(
+                "original_question",
+                "What was the deposit amount?",
+                priority=0,
+                query_type="semantic",
+            ),
+            _candidate(
+                "expanded_focus",
+                "What was the deposit amount?\nSearch focus: entities: mia",
+                priority=10,
+                query_type="semantic",
+            ),
+            _candidate(
+                "compact_relation",
+                "mia ceramics class deposit registration",
+                priority=30,
+            ),
+            _candidate(
+                "value_support",
+                "mia ceramics class deposit amount price dollar value",
+                priority=37,
+            ),
+        ),
+        fallback_query="What was the deposit amount?",
+        recommended_role_families=(
+            "base_query",
+            "value_support",
+        ),
+    )
+
+    diagnostics = plan.to_diagnostics()
+
+    assert diagnostics["selected_roles"] == [
+        "original_question",
+        "expanded_focus",
+        "value_support",
+    ]
+    assert diagnostics["selected_role_families"] == [
+        "base_query",
+        "expanded_focus",
+        "value_support",
+    ]
+    assert diagnostics["missing_recommended_role_families"] == []
+
+
 def test_query_planner_maps_relation_support_roles_to_compact_family() -> None:
     plan = QueryPlannerV2(max_queries=3).plan(
         (
