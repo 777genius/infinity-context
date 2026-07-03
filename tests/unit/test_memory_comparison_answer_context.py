@@ -297,6 +297,8 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
         "skipped_redundant_role_backfill_count": 0,
         "backfilled_broad_summary_count": 0,
         "backfilled_conflict_or_stale_count": 0,
+        "backfilled_low_answerability_count": 0,
+        "backfilled_weak_source_locality_count": 0,
         "backfilled_source_proximity_support_count": 0,
         "backfilled_chained_source_proximity_support_count": 0,
         "backfilled_source_proximity_closest_distance": None,
@@ -1930,6 +1932,8 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
                             "skipped_redundant_role_backfill_count": 1,
                             "backfilled_broad_summary_count": 0,
                             "backfilled_conflict_or_stale_count": 0,
+                            "backfilled_low_answerability_count": 1,
+                            "backfilled_weak_source_locality_count": 1,
                             "backfilled_source_proximity_support_count": 1,
                             "backfilled_chained_source_proximity_support_count": 1,
                             "backfilled_source_proximity_closest_distance": 2,
@@ -2007,6 +2011,10 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
     assert metrics["primary_avg_skipped_duplicate_source_bundle_item_count"] == 0.5
     assert metrics["primary_total_skipped_noisy_overlap_bundle_item_count"] == 1
     assert metrics["primary_avg_skipped_noisy_overlap_bundle_item_count"] == 0.5
+    assert metrics["primary_total_backfilled_low_answerability_count"] == 1
+    assert metrics["primary_avg_backfilled_low_answerability_count"] == 0.5
+    assert metrics["primary_total_backfilled_weak_source_locality_count"] == 1
+    assert metrics["primary_avg_backfilled_weak_source_locality_count"] == 0.5
     assert metrics["primary_total_backfilled_source_proximity_support_count"] == 1
     assert metrics["primary_avg_backfilled_source_proximity_support_count"] == 0.5
     assert (
@@ -2048,6 +2056,10 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
     assert primary["total_skipped_noisy_overlap_bundle_item_count"] == 1
     assert primary["total_backfilled_broad_summary_count"] == 0
     assert primary["total_backfilled_conflict_or_stale_count"] == 0
+    assert primary["total_backfilled_low_answerability_count"] == 1
+    assert primary["avg_backfilled_low_answerability_count"] == 0.5
+    assert primary["total_backfilled_weak_source_locality_count"] == 1
+    assert primary["avg_backfilled_weak_source_locality_count"] == 0.5
     assert primary["total_backfilled_source_proximity_support_count"] == 1
     assert primary["avg_backfilled_source_proximity_support_count"] == 0.5
     assert primary["total_backfilled_chained_source_proximity_support_count"] == 1

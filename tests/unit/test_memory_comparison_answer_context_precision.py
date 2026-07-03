@@ -183,3 +183,45 @@ def test_answer_context_backfill_rejects_stale_only_contrast_candidate() -> None
     assert context.memories[1].metadata["answer_context_backfill_missing_role_hits"] == (
         "contrast",
     )
+
+
+def test_answer_context_diagnostics_count_low_quality_backfill() -> None:
+    memories = (
+        RetrievedMemory(text="D6:1 Alex mentioned Maria.", rank=1, item_id="primary"),
+        RetrievedMemory(
+            text="D6:2 Maria might be Alex's sister.",
+            rank=2,
+            item_id="weak-status",
+            source_refs=("D6:2",),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "query_roles": ["status_support"],
+                        "relation_category_hits": ["status_profile"],
+                        "entity_hits": ["alex", "maria"],
+                        "answerability_score": 0.4,
+                        "source_locality_score": 0.3,
+                    }
+                }
+            },
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "role_requirement_complete": False,
+            "missing_required_roles": ["status_support"],
+            "items": [{"id": "primary", "retrieval_order": 1, "role": "primary"}],
+        },
+        cutoff=2,
+    )
+
+    diagnostics = context.to_diagnostics()
+
+    assert [memory.item_id for memory in context.memories] == [
+        "primary",
+        "weak-status",
+    ]
+    assert diagnostics["backfilled_low_answerability_count"] == 1
+    assert diagnostics["backfilled_weak_source_locality_count"] == 1

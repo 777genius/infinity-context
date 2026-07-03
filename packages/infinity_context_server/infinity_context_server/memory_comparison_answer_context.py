@@ -526,6 +526,24 @@ def answer_context_metrics(
             primary,
             "avg_skipped_noisy_overlap_bundle_item_count",
         ),
+        "primary_total_backfilled_low_answerability_count": (
+            _positive_int(primary.get("total_backfilled_low_answerability_count"))
+            or 0
+        ),
+        "primary_avg_backfilled_low_answerability_count": _metric_value(
+            primary,
+            "avg_backfilled_low_answerability_count",
+        ),
+        "primary_total_backfilled_weak_source_locality_count": (
+            _positive_int(
+                primary.get("total_backfilled_weak_source_locality_count")
+            )
+            or 0
+        ),
+        "primary_avg_backfilled_weak_source_locality_count": _metric_value(
+            primary,
+            "avg_backfilled_weak_source_locality_count",
+        ),
         "primary_total_backfilled_source_proximity_support_count": (
             _positive_int(
                 primary.get("total_backfilled_source_proximity_support_count")
@@ -629,6 +647,8 @@ def _answer_context_cutoff_metrics(
     skipped_redundant_role_backfill_counts: list[int] = []
     backfilled_broad_summary_counts: list[int] = []
     backfilled_conflict_or_stale_counts: list[int] = []
+    backfilled_low_answerability_counts: list[int] = []
+    backfilled_weak_source_locality_counts: list[int] = []
     backfilled_source_proximity_support_counts: list[int] = []
     backfilled_chained_source_proximity_support_counts: list[int] = []
     backfilled_source_proximity_closest_distances: list[int] = []
@@ -728,6 +748,12 @@ def _answer_context_cutoff_metrics(
         )
         backfilled_conflict_or_stale_counts.append(
             _positive_int(context.get("backfilled_conflict_or_stale_count")) or 0
+        )
+        backfilled_low_answerability_counts.append(
+            _positive_int(context.get("backfilled_low_answerability_count")) or 0
+        )
+        backfilled_weak_source_locality_counts.append(
+            _positive_int(context.get("backfilled_weak_source_locality_count")) or 0
         )
         backfilled_source_proximity_support_counts.append(
             _positive_int(
@@ -914,6 +940,18 @@ def _answer_context_cutoff_metrics(
         ),
         "total_backfilled_conflict_or_stale_count": sum(
             backfilled_conflict_or_stale_counts
+        ),
+        "total_backfilled_low_answerability_count": sum(
+            backfilled_low_answerability_counts
+        ),
+        "avg_backfilled_low_answerability_count": _avg(
+            backfilled_low_answerability_counts
+        ),
+        "total_backfilled_weak_source_locality_count": sum(
+            backfilled_weak_source_locality_counts
+        ),
+        "avg_backfilled_weak_source_locality_count": _avg(
+            backfilled_weak_source_locality_counts
         ),
         "total_backfilled_source_proximity_support_count": sum(
             backfilled_source_proximity_support_counts
@@ -1431,6 +1469,8 @@ def _backfill_risk_stats(memories: Sequence[RetrievedMemory]) -> dict[str, objec
     )
     broad_summary_count = 0
     conflict_or_stale_count = 0
+    low_answerability_count = 0
+    weak_source_locality_count = 0
     source_proximity_distances: list[int] = []
     chained_source_proximity_count = 0
     for memory in backfilled:
@@ -1439,6 +1479,10 @@ def _backfill_risk_stats(memories: Sequence[RetrievedMemory]) -> dict[str, objec
             broad_summary_count += 1
         if memory_has_conflict_or_stale(memory, features):
             conflict_or_stale_count += 1
+        if _is_measured_low_answerability(features.get("answerability_score")):
+            low_answerability_count += 1
+        if _is_measured_weak_source_locality(features.get("source_locality_score")):
+            weak_source_locality_count += 1
         source_proximity_distance = _positive_int(
             memory.metadata.get("answer_context_backfill_source_proximity_distance")
         )
@@ -1451,6 +1495,8 @@ def _backfill_risk_stats(memories: Sequence[RetrievedMemory]) -> dict[str, objec
     return {
         "backfilled_broad_summary_count": broad_summary_count,
         "backfilled_conflict_or_stale_count": conflict_or_stale_count,
+        "backfilled_low_answerability_count": low_answerability_count,
+        "backfilled_weak_source_locality_count": weak_source_locality_count,
         "backfilled_source_proximity_support_count": len(
             source_proximity_distances
         ),

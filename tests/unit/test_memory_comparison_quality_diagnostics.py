@@ -942,6 +942,10 @@ def test_quality_diagnostics_reports_answer_context_provenance_table() -> None:
     assert table["avg_skipped_redundant_role_backfill_count"] == 0.5
     assert table["backfilled_broad_summary_count"] == 1
     assert table["backfilled_conflict_or_stale_count"] == 0
+    assert table["backfilled_low_answerability_count"] == 0
+    assert table["avg_backfilled_low_answerability_count"] == 0.0
+    assert table["backfilled_weak_source_locality_count"] == 0
+    assert table["avg_backfilled_weak_source_locality_count"] == 0.0
     assert table["backfilled_source_proximity_support_count"] == 1
     assert table["avg_backfilled_source_proximity_support_count"] == 0.5
     assert table["backfilled_chained_source_proximity_support_count"] == 1
@@ -980,6 +984,8 @@ def test_quality_diagnostics_reports_answer_context_provenance_table() -> None:
             "skipped_redundant_role_backfill_count": 1,
             "backfilled_broad_summary_count": 1,
             "backfilled_conflict_or_stale_count": 0,
+            "backfilled_low_answerability_count": 0,
+            "backfilled_weak_source_locality_count": 0,
             "backfilled_source_proximity_support_count": 1,
             "backfilled_chained_source_proximity_support_count": 1,
             "backfilled_source_proximity_closest_distance": 2,
@@ -2576,6 +2582,10 @@ def test_fast_gate_metrics_reports_answer_context_provenance() -> None:
     assert provenance["avg_skipped_redundant_role_backfill_count"] == 0.5
     assert provenance["backfilled_broad_summary_count"] == 1
     assert provenance["backfilled_conflict_or_stale_count"] == 1
+    assert provenance["backfilled_low_answerability_count"] == 0
+    assert provenance["avg_backfilled_low_answerability_count"] == 0.0
+    assert provenance["backfilled_weak_source_locality_count"] == 0
+    assert provenance["avg_backfilled_weak_source_locality_count"] == 0.0
     assert provenance["backfilled_source_proximity_support_count"] == 1
     assert provenance["avg_backfilled_source_proximity_support_count"] == 0.5
     assert provenance["backfilled_chained_source_proximity_support_count"] == 1
@@ -2611,6 +2621,8 @@ def test_fast_gate_metrics_reports_answer_context_provenance() -> None:
             "skipped_redundant_role_backfill_count": 1,
             "backfilled_broad_summary_count": 1,
             "backfilled_conflict_or_stale_count": 1,
+            "backfilled_low_answerability_count": 0,
+            "backfilled_weak_source_locality_count": 0,
             "backfilled_source_proximity_support_count": 1,
             "backfilled_chained_source_proximity_support_count": 1,
             "backfilled_source_proximity_closest_distance": 1,
