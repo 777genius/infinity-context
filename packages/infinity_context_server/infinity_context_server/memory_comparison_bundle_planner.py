@@ -957,6 +957,7 @@ def _required_role_candidate_sort_key(
     return (
         *_source_overlap_selection_sort_key(item, selected),
         *_source_proximity_selection_sort_key(item, selected),
+        *_person_grounding_selection_sort_key(item, selected),
         *_candidate_sort_key(item.candidate),
         _role_order(item),
     )
@@ -1552,6 +1553,7 @@ def _planned_coverage_sort_key(
         *_source_overlap_selection_sort_key(item, selected),
         *_source_ref_compactness_selection_sort_key(item),
         *_source_proximity_selection_sort_key(item, selected),
+        *_person_grounding_selection_sort_key(item, selected),
         *_selection_precision_sort_key(item),
         -float(support_gain),
         *_candidate_sort_key(item.candidate),
@@ -1600,6 +1602,40 @@ def _source_proximity_selection_sort_key(
     if closest_distance is None or closest_distance > _SOURCE_PROXIMITY_WINDOW:
         return (1.0, float("inf"))
     return (0.0, float(closest_distance))
+
+
+def _person_grounding_selection_sort_key(
+    item: PlannedEvidenceItem,
+    selected: Sequence[PlannedEvidenceItem],
+) -> tuple[float, float]:
+    if item.role == "primary" or not selected:
+        return (0.0, 0.0)
+    selected_terms = {
+        term
+        for selected_item in selected
+        for term in _candidate_person_grounding_terms(selected_item.candidate)
+    }
+    if not selected_terms:
+        return (1.0, 0.0)
+    candidate_terms = set(_candidate_person_grounding_terms(item.candidate))
+    if not candidate_terms:
+        return (1.0, 0.0)
+    overlap_count = len(candidate_terms.intersection(selected_terms))
+    if overlap_count:
+        return (0.0, -float(overlap_count))
+    return (2.0, 0.0)
+
+
+def _candidate_person_grounding_terms(
+    candidate: EvidenceBundleCandidate,
+) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            term.strip().casefold()
+            for term in (*candidate.entity_hits, *candidate.speaker_hits)
+            if term.strip()
+        )
+    )
 
 
 def _source_ref_compactness_selection_sort_key(
