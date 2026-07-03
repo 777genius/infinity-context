@@ -392,7 +392,7 @@ def answer_context_from_evidence_bundle(
             or 0
         ),
         bundle_source_type_support_diversity=(
-            _positive_int(
+            _nonnegative_int(
                 bundle_context.get(
                     "answer_context_bundle_source_type_support_diversity"
                 )
@@ -400,7 +400,7 @@ def answer_context_from_evidence_bundle(
             or 0
         ),
         bundle_retrieval_source_support_diversity=(
-            _positive_int(
+            _nonnegative_int(
                 bundle_context.get(
                     "answer_context_bundle_retrieval_source_support_diversity"
                 )
@@ -1579,14 +1579,14 @@ def _bundle_context_metadata(bundle: Mapping[str, object]) -> dict[str, object]:
         metadata["answer_context_bundle_retrieval_source_diversity"] = (
             retrieval_source_diversity
         )
-    source_type_support_diversity = _positive_int(
+    source_type_support_diversity = _nonnegative_int(
         quality.get("source_type_support_diversity")
     )
     if source_type_support_diversity is not None:
         metadata["answer_context_bundle_source_type_support_diversity"] = (
             source_type_support_diversity
         )
-    retrieval_source_support_diversity = _positive_int(
+    retrieval_source_support_diversity = _nonnegative_int(
         quality.get("retrieval_source_support_diversity")
     )
     if retrieval_source_support_diversity is not None:
@@ -2066,6 +2066,16 @@ def _positive_int(value: object) -> int | None:
     except (TypeError, ValueError):
         return None
     return parsed if parsed > 0 else None
+
+
+def _nonnegative_int(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        parsed = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed >= 0 else None
 
 
 def _metric_value(item: Mapping[str, object], key: str) -> float:

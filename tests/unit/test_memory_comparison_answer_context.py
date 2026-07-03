@@ -434,6 +434,58 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
     }
 
 
+def test_answer_context_preserves_zero_support_source_diversity() -> None:
+    memories = (
+        RetrievedMemory(
+            text="D1:1 Caroline discussed a support group.",
+            rank=1,
+            item_id="primary",
+            source_refs=("D1:1",),
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "bundle_planner": {
+                "bundle_quality": {
+                    "source_type_diversity": 2,
+                    "retrieval_source_diversity": 2,
+                    "source_type_support_diversity": 0,
+                    "retrieval_source_support_diversity": 0,
+                }
+            },
+            "items": [
+                {
+                    "id": "primary",
+                    "retrieval_order": 1,
+                    "role": "primary",
+                    "source_refs": ["D1:1"],
+                }
+            ],
+        },
+        cutoff=1,
+    )
+
+    memory = context.memories[0]
+
+    assert (
+        memory.metadata["answer_context_bundle_source_type_support_diversity"]
+        == 0
+    )
+    assert (
+        memory.metadata[
+            "answer_context_bundle_retrieval_source_support_diversity"
+        ]
+        == 0
+    )
+    assert context.bundle_source_type_support_diversity == 0
+    assert context.bundle_retrieval_source_support_diversity == 0
+    diagnostics = context.to_diagnostics()
+    assert diagnostics["bundle_source_type_support_diversity"] == 0
+    assert diagnostics["bundle_retrieval_source_support_diversity"] == 0
+
+
 def test_answer_context_merges_role_completion_from_bundle_and_planner() -> None:
     memories = (
         RetrievedMemory(

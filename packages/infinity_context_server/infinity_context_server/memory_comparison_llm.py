@@ -158,22 +158,37 @@ def _render_memory_evidence_line(memory: RetrievedMemory, *, index: int) -> str:
     retrieval_source_diversity = _positive_int(
         metadata.get("answer_context_bundle_retrieval_source_diversity")
     )
-    source_type_support_diversity = _positive_int(
+    has_source_type_support_diversity = (
+        "answer_context_bundle_source_type_support_diversity" in metadata
+    )
+    has_retrieval_source_support_diversity = (
+        "answer_context_bundle_retrieval_source_support_diversity" in metadata
+    )
+    source_type_support_diversity = _nonnegative_int(
         metadata.get("answer_context_bundle_source_type_support_diversity")
     )
-    retrieval_source_support_diversity = _positive_int(
+    retrieval_source_support_diversity = _nonnegative_int(
         metadata.get("answer_context_bundle_retrieval_source_support_diversity")
     )
     source_diversity_labels: list[str] = []
-    if source_type_support_diversity is not None:
+    if (
+        source_type_support_diversity is not None
+        and source_type_support_diversity > 0
+    ):
         source_diversity_labels.append(f"types:{source_type_support_diversity}")
-    elif source_type_diversity is not None:
+    elif not has_source_type_support_diversity and source_type_diversity is not None:
         source_diversity_labels.append(f"types:{source_type_diversity}")
-    if retrieval_source_support_diversity is not None:
+    if (
+        retrieval_source_support_diversity is not None
+        and retrieval_source_support_diversity > 0
+    ):
         source_diversity_labels.append(
             f"retrieval:{retrieval_source_support_diversity}"
         )
-    elif retrieval_source_diversity is not None:
+    elif (
+        not has_retrieval_source_support_diversity
+        and retrieval_source_diversity is not None
+    ):
         source_diversity_labels.append(f"retrieval:{retrieval_source_diversity}")
     if source_diversity_labels:
         labels.append(f"bundle_sources={','.join(source_diversity_labels)}")
@@ -329,6 +344,16 @@ def _positive_int(value: object) -> int | None:
     except (TypeError, ValueError):
         return None
     return parsed if parsed > 0 else None
+
+
+def _nonnegative_int(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        parsed = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed >= 0 else None
 
 
 def _bundle_support_counts(metadata: Mapping[str, object]) -> tuple[str, ...]:

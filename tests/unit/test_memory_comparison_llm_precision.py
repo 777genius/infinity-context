@@ -42,3 +42,23 @@ def test_llm_memory_line_renders_answer_context_source_attribution() -> None:
     assert "bundle_chain_proximity=1" in line
     assert "bundle_chain_proximity_closest=2" in line
     assert "refs=D4:2" in line
+
+
+def test_llm_memory_line_suppresses_raw_source_diversity_when_support_is_zero() -> None:
+    line = _render_memory_evidence_line(
+        RetrievedMemory(
+            text="D4:2 Caroline found the support group helpful.",
+            rank=2,
+            source_refs=("D4:2",),
+            metadata={
+                "answer_context_bundle_source_type_diversity": 3,
+                "answer_context_bundle_retrieval_source_diversity": 4,
+                "answer_context_bundle_source_type_support_diversity": 0,
+                "answer_context_bundle_retrieval_source_support_diversity": 0,
+            },
+        ),
+        index=1,
+    )
+
+    assert "bundle_sources=" not in line
+    assert "bundle_sources=types:3,retrieval:4" not in line
