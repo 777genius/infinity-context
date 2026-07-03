@@ -7139,7 +7139,7 @@ def test_query_decomposition_adds_count_support_without_causal_drift() -> None:
         "How many times has Melanie gone to the beach in 2023?\n"
         "Search focus: entities: melanie; speakers: melanie:; temporal: "
         "time, session, date",
-        "melanie gone beach 2023 count number total times",
+        "melanie gone beach 2023 count number total times once twice three times",
         "melanie time session date",
     )
     assert repeat_metadata["query_profile"]["evidence_need"] == (

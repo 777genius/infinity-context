@@ -1052,6 +1052,8 @@ def _count_support_query_terms(
         and term not in count_terms
     )
     count_terms.extend(("count", "number", "total", "times"))
+    if "time" in lexical_terms:
+        count_terms.extend(("once", "twice", "three times", "repeated"))
     return tuple(dict.fromkeys(count_terms))
 
 
