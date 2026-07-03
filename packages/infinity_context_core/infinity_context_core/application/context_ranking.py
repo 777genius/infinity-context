@@ -66,6 +66,9 @@ from infinity_context_core.application.context_named_person_preference import (
 from infinity_context_core.application.context_object_mismatch import (
     object_kind_mismatch_signal,
 )
+from infinity_context_core.application.context_ordinal_sequence import (
+    ordinal_sequence_rerank_signal,
+)
 from infinity_context_core.application.context_person_kinship import (
     person_kinship_signal,
 )
@@ -1961,6 +1964,16 @@ def _deterministic_rerank_signals(
     if object_penalty > 0:
         penalty += object_penalty
         reasons.append(object_reason)
+    ordinal_sequence_signal = ordinal_sequence_rerank_signal(
+        query=query,
+        text=item.text,
+    )
+    if ordinal_sequence_signal.boost > 0:
+        boost += ordinal_sequence_signal.boost
+        reasons.append(ordinal_sequence_signal.reason)
+    if ordinal_sequence_signal.penalty > 0:
+        penalty += ordinal_sequence_signal.penalty
+        reasons.append(ordinal_sequence_signal.reason)
     relation_signal = relation_requirement_signal(query=query, text=item.text)
     if relation_signal.boost > 0:
         boost += relation_signal.boost
@@ -2158,7 +2171,17 @@ def _deterministic_rerank_signals(
         has_multi_evidence_aggregation_candidate=has_multi_evidence_aggregation_candidate,
     )
     boost += domain_adjustment.boost
-    penalty += domain_adjustment.penalty
+    ordinal_sequence_requirement_support = (
+        ordinal_sequence_signal.boost > 0
+        and ordinal_sequence_signal.reason == "ordinal_sequence_exact_evidence"
+    )
+    if (
+        ordinal_sequence_requirement_support
+        and "item_purchase_temporal_weak_evidence" in domain_adjustment.reasons
+    ):
+        reasons.append("item_purchase_weak_evidence_overridden_by_ordinal_sequence")
+    else:
+        penalty += domain_adjustment.penalty
     reasons.extend(domain_adjustment.reasons)
     rank_signals.update(domain_adjustment.rank_signals)
     slot_diverse_aggregation = aggregation_answer_slot_count(query=query, text=item.text) >= 2
@@ -2168,19 +2191,27 @@ def _deterministic_rerank_signals(
     )
     if requested_total > 0:
         if coverage_ratio <= 0 and (
-            event_detail_requirement_support or artifact_inventory_requirement_support
+            event_detail_requirement_support
+            or artifact_inventory_requirement_support
+            or ordinal_sequence_requirement_support
         ):
             if event_detail_requirement_support:
                 reasons.append("explicit_requirement_supported_by_event_detail")
             if artifact_inventory_requirement_support:
                 reasons.append("explicit_requirement_supported_by_artifact_inventory")
+            if ordinal_sequence_requirement_support:
+                reasons.append("explicit_requirement_supported_by_ordinal_sequence")
         elif coverage_ratio <= 0:
             penalty += 0.025
             reasons.append("explicit_requirement_missing")
         elif coverage_ratio < 0.5 and not slot_diverse_aggregation:
             penalty += 0.012
             reasons.append("explicit_requirement_partial")
-    if coverage.missing_answer_shapes and not slot_diverse_aggregation:
+    if (
+        coverage.missing_answer_shapes
+        and not slot_diverse_aggregation
+        and not ordinal_sequence_requirement_support
+    ):
         penalty += min(
             0.02,
             0.014 * len(coverage.missing_answer_shapes),
