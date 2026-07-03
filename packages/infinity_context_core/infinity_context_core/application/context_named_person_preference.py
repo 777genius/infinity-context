@@ -62,6 +62,25 @@ _PREFERENCE_CUE_RE = re.compile(
     r"fan\s+of|interested\s+in|into)\b",
     re.IGNORECASE,
 )
+_CURRENT_PREFERENCE_CUE_RE = re.compile(
+    r"\b(?:now|currently|today|these\s+days|still)\s+"
+    r"(?:likes?|like|loves?|love|enjoys?|enjoy|prefers?|prefer|wants?|want|"
+    r"is\s+(?:a\s+fan\s+of|interested\s+in|into))\b",
+    re.IGNORECASE,
+)
+_NEGATIVE_OR_OBSOLETE_PREFERENCE_CUE_RE = re.compile(
+    r"\b(?:dislikes?|hates?|avoids?|allergic\s+to)\b|"
+    r"\bno\s+longer\s+"
+    r"(?:likes?|like|loves?|love|enjoys?|enjoy|prefers?|prefer|wants?|want|"
+    r"(?:is\s+)?(?:a\s+fan\s+of|interested\s+in|into))\b|"
+    r"\b(?:doesn'?t|does\s+not|didn'?t|did\s+not|wouldn'?t|would\s+not|not)\s+"
+    r"(?:like|love|enjoy|prefer|want|care\s+for)\b|"
+    r"\bnot\s+(?:a\s+fan\s+of|interested\s+in|into)\b|"
+    r"\bused\s+to\s+"
+    r"(?:like|love|enjoy|prefer|want|be\s+(?:a\s+fan\s+of|interested\s+in|into))\b|"
+    r"\bstopped\s+(?:liking|loving|enjoying|preferring|wanting)\b",
+    re.IGNORECASE,
+)
 _QUERY_LABEL_STOP_WORDS = frozenset(
     {
         "how",
@@ -114,11 +133,28 @@ def named_person_preference_signal(
     preference_query = _named_preference_query(query)
     if preference_query is None:
         return NamedPersonPreferenceSignal()
+    text_mentions_person = _text_mentions_person(preference_query.person_label, text)
+    domain_matches = _domain_terms_match(preference_query.domain_terms, text)
+    cue_scope = _preference_cue_scope(preference_query.person_label, text)
+    text_has_current_preference = _CURRENT_PREFERENCE_CUE_RE.search(cue_scope) is not None
+    if text_has_current_preference and text_mentions_person and domain_matches:
+        return NamedPersonPreferenceSignal(
+            boost=0.022,
+            reason="named_person_preference_match",
+        )
+    text_has_negative_or_obsolete_preference = (
+        _NEGATIVE_OR_OBSOLETE_PREFERENCE_CUE_RE.search(cue_scope) is not None
+    )
+    if text_has_negative_or_obsolete_preference and text_mentions_person and domain_matches:
+        return NamedPersonPreferenceSignal(
+            penalty=0.024,
+            reason="named_person_preference_negative_or_obsolete",
+        )
     text_has_preference = _PREFERENCE_CUE_RE.search(text) is not None
     if (
         text_has_preference
-        and _text_mentions_person(preference_query.person_label, text)
-        and _domain_terms_match(preference_query.domain_terms, text)
+        and text_mentions_person
+        and domain_matches
     ):
         return NamedPersonPreferenceSignal(
             boost=0.022,
@@ -182,6 +218,25 @@ def _domain_terms_match(domain_terms: frozenset[str], text: str) -> bool:
         return True
     normalized = text.casefold()
     return any(term in normalized for term in domain_terms)
+
+
+def _preference_cue_scope(person: str, text: str) -> str:
+    segments: list[str] = []
+    dialogue_matches = list(_DIALOGUE_SPEAKER_RE.finditer(text))
+    for index, match in enumerate(dialogue_matches):
+        end = (
+            dialogue_matches[index + 1].start()
+            if index + 1 < len(dialogue_matches)
+            else len(text)
+        )
+        if person_labels_match(match.group("speaker"), person):
+            segments.append(text[match.start() : end])
+    for sentence in re.split(r"(?<=[.!?])\s+", text):
+        if _text_mentions_person(person, sentence):
+            segments.append(sentence)
+    if not segments:
+        return text
+    return "\n".join(dict.fromkeys(segments))
 
 
 def _text_mentions_person(person: str, text: str) -> bool:
