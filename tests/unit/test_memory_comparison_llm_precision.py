@@ -19,6 +19,8 @@ def test_llm_memory_line_renders_answer_context_source_attribution() -> None:
                     "raw_turns",
                     "semantic_chunks",
                 ),
+                "answer_context_bundle_source_chain_proximity_support_count": 1,
+                "answer_context_bundle_source_chain_proximity_closest_distance": 2,
             },
         ),
         index=1,
@@ -27,4 +29,6 @@ def test_llm_memory_line_renders_answer_context_source_attribution() -> None:
     assert "source_type=raw_turn" in line
     assert "source_types=raw_turn,chunk" in line
     assert "retrieval_sources=raw_turns,semantic_chunks" in line
+    assert "bundle_chain_proximity=1" in line
+    assert "bundle_chain_proximity_closest=2" in line
     assert "refs=D4:2" in line

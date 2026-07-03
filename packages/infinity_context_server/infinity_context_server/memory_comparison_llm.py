@@ -175,6 +175,16 @@ def _render_memory_evidence_line(memory: RetrievedMemory, *, index: int) -> str:
     )
     if proximity_closest is not None:
         labels.append(f"bundle_proximity_closest={proximity_closest}")
+    chain_proximity_count = _positive_int(
+        metadata.get("answer_context_bundle_source_chain_proximity_support_count")
+    )
+    if chain_proximity_count is not None:
+        labels.append(f"bundle_chain_proximity={chain_proximity_count}")
+    chain_proximity_closest = _positive_int(
+        metadata.get("answer_context_bundle_source_chain_proximity_closest_distance")
+    )
+    if chain_proximity_closest is not None:
+        labels.append(f"bundle_chain_proximity_closest={chain_proximity_closest}")
     support_counts = _bundle_support_counts(metadata)
     if support_counts:
         labels.append(f"bundle_support={','.join(support_counts)}")
