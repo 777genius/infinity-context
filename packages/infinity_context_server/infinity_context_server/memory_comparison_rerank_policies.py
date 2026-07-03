@@ -1034,13 +1034,16 @@ _LOCATION_SUPPORT_TERMS = frozenset(
         "camping",
         "campsite",
         "city",
+        "company",
         "country",
         "drive",
+        "employer",
         "from",
         "grew",
         "home",
         "hometown",
         "hotel",
+        "office",
         "based",
         "bas",
         "live",
@@ -1060,6 +1063,10 @@ _LOCATION_SUPPORT_TERMS = frozenset(
         "staying",
         "travel",
         "trip",
+        "work",
+        "worked",
+        "working",
+        "workplace",
     }
 )
 

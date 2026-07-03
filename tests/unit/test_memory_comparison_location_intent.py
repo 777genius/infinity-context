@@ -75,8 +75,8 @@ def test_location_transition_decomposition_adds_location_support_query() -> None
 
     assert queries == (
         "Where did Caroline relocate from?",
-        "caroline relocate relocated move moved home country",
-        "caroline relocate relocated move moved home country origin from city",
+        "caroline from origin home country city place",
+        "caroline from origin home country city place location destination near",
     )
     assert diagnostics["query_plan"]["selected_roles"] == [
         "original_question",
@@ -98,8 +98,8 @@ def test_location_temporal_decomposition_preserves_time_and_location_support() -
 
     assert queries == (
         "Where did Caroline move from 4 years ago?",
-        "caroline move moved home country 4 year ago",
-        "caroline move moved home country relocated came origin from city",
+        "caroline from origin home country 4 year ago",
+        "caroline from origin home country city place location destination near",
         "caroline ago year session date time",
     )
     assert diagnostics["query_plan"]["selected_roles"] == [
@@ -114,6 +114,152 @@ def test_location_temporal_decomposition_preserves_time_and_location_support() -
     }
 
 
+def test_workplace_location_query_gets_location_support_without_answer_leakage() -> None:
+    case = _case("Which city was Alex working in?")
+
+    intent = query_retrieval_intent(case)
+    queries, diagnostics = decomposed_search_queries(case)
+    profile = intent.to_query_profile()
+    facets = {facet.category: facet for facet in intent.relation_intents}
+
+    assert "location_transition" in profile["relation_categories"]
+    assert "location_support" in profile["evidence_need"]
+    assert facets["location_transition"].terms == ("employment",)
+    assert {"company", "office", "workplace", "working"} & set(
+        facets["location_transition"].variant_terms
+    )
+    assert diagnostics["query_plan"]["selected_roles"] == [
+        "original_question",
+        "compact_relation",
+        "location_support",
+    ]
+    assert any(
+        "alex work worked working workplace office company city place location" in query
+        for query in queries
+    )
+    assert intent.to_diagnostics()["uses_ground_truth"] is False
+    assert "Canada" not in str(intent.to_diagnostics())
+
+
+def test_workplace_location_rerank_boosts_place_evidence_over_generic_work() -> None:
+    case = _case("Which city was Alex working in?")
+    place_evidence = RetrievedMemory(
+        item_id="workplace-place",
+        rank=2,
+        score=0.5,
+        text="D2:8 Alex: I was working at a design studio in Chicago last summer.",
+        source_refs=("D2:8",),
+        metadata={"item_type": "raw_turn"},
+    )
+    generic_work = RetrievedMemory(
+        item_id="generic-work",
+        rank=1,
+        score=0.55,
+        text="D2:7 Alex: I was working on a report after dinner.",
+        source_refs=("D2:7",),
+        metadata={"item_type": "raw_turn"},
+    )
+
+    reranked, diagnostics = benchmark_rerank_memories(
+        case,
+        (generic_work, place_evidence),
+    )
+
+    assert reranked[0].item_id == "workplace-place"
+    assert diagnostics["retrieval_intent"]["uses_ground_truth"] is False
+    features = reranked[0].metadata["diagnostics"]["benchmark_candidate_features"]
+    signals = reranked[0].metadata["diagnostics"]["score_signals"]
+    assert features["relation_category_hits"] == ["location_transition"]
+    assert signals["benchmark_location_support_boost"] > 0
+
+
+def test_workplace_location_support_requires_place_evidence() -> None:
+    case = _case("Which city was Alex working in?")
+    place_evidence = RetrievedMemory(
+        item_id="workplace-place",
+        rank=2,
+        score=0.5,
+        text="D2:8 Alex: I was working at a design studio in Chicago last summer.",
+        source_refs=("D2:8",),
+        metadata={"item_type": "raw_turn"},
+    )
+    workplace_without_place = RetrievedMemory(
+        item_id="workplace-no-place",
+        rank=1,
+        score=0.55,
+        text="D2:7 Alex: I was working at a design studio on a new report.",
+        source_refs=("D2:7",),
+        metadata={"item_type": "raw_turn"},
+    )
+
+    reranked, _diagnostics = benchmark_rerank_memories(
+        case,
+        (workplace_without_place, place_evidence),
+    )
+
+    no_place_features = next(
+        memory
+        for memory in reranked
+        if memory.item_id == "workplace-no-place"
+    ).metadata["diagnostics"]["benchmark_candidate_features"]
+    no_place_signals = next(
+        memory
+        for memory in reranked
+        if memory.item_id == "workplace-no-place"
+    ).metadata["diagnostics"]["score_signals"]
+    assert reranked[0].item_id == "workplace-place"
+    assert no_place_features["relation_category_hits"] == []
+    assert no_place_signals["benchmark_location_support_boost"] == 0.0
+
+
+def test_workplace_location_support_ignores_non_place_work_field() -> None:
+    case = _case("Which city was Alex working in?")
+    place_evidence = RetrievedMemory(
+        item_id="workplace-place",
+        rank=2,
+        score=0.5,
+        text="D2:8 Alex: I was working at a design studio in Chicago last summer.",
+        source_refs=("D2:8",),
+        metadata={"item_type": "raw_turn"},
+    )
+    field_evidence = RetrievedMemory(
+        item_id="workplace-field",
+        rank=1,
+        score=0.55,
+        text="D2:7 Alex: I was working in marketing on a new report.",
+        source_refs=("D2:7",),
+        metadata={"item_type": "raw_turn"},
+    )
+
+    reranked, _diagnostics = benchmark_rerank_memories(
+        case,
+        (field_evidence, place_evidence),
+    )
+
+    field_features = next(
+        memory
+        for memory in reranked
+        if memory.item_id == "workplace-field"
+    ).metadata["diagnostics"]["benchmark_candidate_features"]
+    field_signals = next(
+        memory
+        for memory in reranked
+        if memory.item_id == "workplace-field"
+    ).metadata["diagnostics"]["score_signals"]
+    assert reranked[0].item_id == "workplace-place"
+    assert field_features["relation_category_hits"] == []
+    assert field_signals["benchmark_location_support_boost"] == 0.0
+
+
+def test_non_place_work_question_does_not_get_location_support() -> None:
+    case = _case("What field was Alex working in?")
+
+    intent = query_retrieval_intent(case)
+
+    assert "location_transition" not in intent.to_query_profile()["relation_categories"]
+    assert "location_support" not in intent.evidence_need
+
+
 def test_roadtrip_inference_query_is_not_location_support() -> None:
     case = _case("Would Melanie go on another roadtrip soon?")
 
@@ -126,10 +272,10 @@ def test_roadtrip_inference_query_is_not_location_support() -> None:
     ]
     assert diagnostics["query_plan"]["selected_roles"] == [
         "original_question",
-        "expanded_focus",
-        "inference_support",
+        "activity_support",
+        "relative_temporal_support",
     ]
-    assert queries[2] == "melanie roadtrip trip road weekend past soon"
+    assert queries[1] == "melanie roadtrip trip road weekend past soon"
 
 
 def test_future_home_move_goal_query_is_not_location_support() -> None:
@@ -145,10 +291,10 @@ def test_future_home_move_goal_query_is_not_location_support() -> None:
     assert "current_goal" in diagnostics["query_profile"]["relation_categories"]
     assert diagnostics["query_plan"]["selected_roles"] == [
         "original_question",
-        "expanded_focus",
         "current_goal_support",
+        "relative_temporal_support",
     ]
-    assert queries[2] == "caroline want move hop hope plan goal"
+    assert queries[1] == "caroline want move hop hope plan goal"
 
 
 def _case(question: str) -> PublicBenchmarkCase:

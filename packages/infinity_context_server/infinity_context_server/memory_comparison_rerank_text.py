@@ -461,7 +461,7 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
         r"\bwho\s+(?:is|was)\b.+\bemployer\b|"
         r"\bwhat\s+(?:is|was)\b.+\b(?:salary|wage|pay\s+rate|hourly\s+rate)\b|"
         r"\b(?:job|occupation|profession|workplace)\b|"
-        r"\bwhere\b.+\bwork\b|"
+        r"\b(?:where|which\s+(?:city|country|place))\b.+\bwork(?:ed|ing)?\b|"
         r"\bwhat\b.+\bdo\b.+\bfor\s+work\b|"
         r"\bwork\b.+\b(?:company|for)\b",
         text,

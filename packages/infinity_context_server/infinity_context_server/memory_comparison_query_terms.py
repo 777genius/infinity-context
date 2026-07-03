@@ -1376,6 +1376,18 @@ def _location_support_query_terms(
         )
     elif {"live", "based"} & relation_term_set:
         location_first_terms = ("live", "liv", "bas", "home", "city", "place")
+    elif "employment" in relation_term_set:
+        location_first_terms = (
+            "work",
+            "worked",
+            "working",
+            "workplace",
+            "office",
+            "company",
+            "city",
+            "place",
+            "location",
+        )
     elif {"origin", "from"} & relation_term_set:
         location_first_terms = ("origin", "home", "city", "country", "grew", "born")
         return tuple(

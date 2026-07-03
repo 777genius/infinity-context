@@ -1451,6 +1451,18 @@ _CAMPING_LOCATION_SURFACE_RE = re.compile(
     r"(?:campground|campsite|site|park|lake|trail|coast|coastline)\b",
     re.IGNORECASE,
 )
+_WORKPLACE_LOCATION_SURFACE_RE = re.compile(
+    r"\b(?:work|worked|working|works)\s+(?:in|near|around)\s+"
+    r"(?:a\s+|an\s+|the\s+)?(?:[A-Z][a-zA-Z0-9_-]+|"
+    r"downtown|midtown|uptown)"
+    r"|\b(?:work|worked|working|works)\s+at\s+"
+    r"(?:a\s+|an\s+|the\s+)?(?:[a-zA-Z][a-zA-Z0-9_-]+\s+){0,4}"
+    r"(?:in|near|around)\s+(?:a\s+|an\s+|the\s+)?"
+    r"(?:[A-Z][a-zA-Z0-9_-]+|downtown|midtown|uptown)"
+    r"|\b(?:office|workplace)\s+(?:is|was|in|at|near|around)\s+"
+    r"(?:a\s+|an\s+|the\s+)?(?:[A-Z][a-zA-Z0-9_-]+|"
+    r"downtown|midtown|uptown)",
+)
 
 
 def _has_location_transition_support(
@@ -1534,6 +1546,7 @@ def _has_location_transition_support(
         or (origin_profile_surface and origin_context)
         or _LOCATION_PROFILE_SURFACE_RE.search(memory_text)
         or _CAMPING_LOCATION_SURFACE_RE.search(memory_text)
+        or _WORKPLACE_LOCATION_SURFACE_RE.search(memory_text)
         or (travel_surface and travel_context)
     )
 
