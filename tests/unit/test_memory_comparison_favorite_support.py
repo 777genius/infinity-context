@@ -32,6 +32,48 @@ def test_query_decomposition_marks_favorite_as_typed_support_role() -> None:
     assert metadata["query_plan"]["selected_roles"][2] == "favorite_support"
 
 
+def test_query_decomposition_keeps_like_domain_in_preference_support() -> None:
+    case = _case(
+        case_id="like-animal-query-plan",
+        question="What animal does Melanie like?",
+        expected_terms=("cats",),
+        answer="cats",
+    )
+
+    queries, metadata = rerank_module.decomposed_search_queries(case)
+    query_profile = metadata["query_profile"]
+
+    assert queries[2] == "melanie like animal love"
+    assert query_profile["relation_categories"] == ("preference",)
+    assert query_profile["evidence_need"] == ("preference",)
+    assert query_profile["bundle_evidence_roles"] == (
+        "primary",
+        "preference_support",
+    )
+    assert metadata["query_plan"]["selected_roles"][2] == "preference_support"
+
+
+def test_query_decomposition_marks_avoid_as_negative_preference_support() -> None:
+    case = _case(
+        case_id="avoid-activity-query-plan",
+        question="What activity does Alex avoid?",
+        expected_terms=("running",),
+        answer="running",
+    )
+
+    queries, metadata = rerank_module.decomposed_search_queries(case)
+    query_profile = metadata["query_profile"]
+
+    assert queries[2] == "alex avoid activity dislike dislik hate hat prefer"
+    assert query_profile["relation_categories"] == (
+        "activity",
+        "preference",
+    )
+    assert query_profile["evidence_need"] == ("preference",)
+    assert "preference_support" in query_profile["bundle_evidence_roles"]
+    assert metadata["query_plan"]["selected_roles"][2] == "preference_support"
+
+
 def test_favorite_support_distinguishes_explicit_favorite_from_generic_preference() -> None:
     case = _case(
         case_id="favorite-color-rerank-typed-support",
@@ -89,6 +131,49 @@ def test_favorite_support_distinguishes_explicit_favorite_from_generic_preferenc
     assert diagnostics_by_id["explicit-favorite"]["score_signals"][
         "benchmark_typed_relation_support_roles"
     ] == ["favorite_support"]
+
+
+def test_negative_preference_support_prefers_avoid_evidence() -> None:
+    case = _case(
+        case_id="avoid-activity-rerank-preference-support",
+        question="What activity does Alex avoid?",
+        expected_terms=("running",),
+        answer="running",
+    )
+    activity_context = RetrievedMemory(
+        item_id="activity-context",
+        rank=1,
+        score=0.0,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex: Running is an activity at the park."
+        ),
+        source_refs=("D1:1",),
+    )
+    avoid_preference = RetrievedMemory(
+        item_id="avoid-preference",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_1 turn D1:2 date: 10:05 am "
+            "D1:2 Alex: I avoid running because it hurts my knee."
+        ),
+        source_refs=("D1:2",),
+    )
+
+    reranked, _metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (activity_context, avoid_preference),
+    )
+
+    assert reranked[0].item_id == "avoid-preference"
+    diagnostics = reranked[0].metadata["diagnostics"]
+    features = diagnostics["benchmark_candidate_features"]
+    signals = diagnostics["score_signals"]
+    assert features["has_preference_evidence"] is True
+    assert features["relation_category_hits"] == ["activity", "preference"]
+    assert signals["benchmark_preference_evidence_boost"] == 0.12
+    assert signals["benchmark_preference_evidence_grounded"] is True
 
 
 def _case(

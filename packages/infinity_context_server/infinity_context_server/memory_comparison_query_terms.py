@@ -197,7 +197,7 @@ def _support_query_terms(
             lexical_terms=lexical_terms,
             entity_surfaces=entity_surfaces,
         )
-    if preference_support and {"favorite", "favourite"} & set(relation_terms):
+    if preference_support:
         return _preference_support_query_terms(
             relation_terms=relation_terms,
             relation_variant_terms=relation_variant_terms,
@@ -968,8 +968,18 @@ def _preference_support_query_terms(
     preference_actions = {
         "enjoy",
         "enjoyed",
+        "avoid",
+        "avoided",
+        "avoids",
+        "dislik",
+        "dislike",
+        "disliked",
         "favorite",
         "favourite",
+        "hat",
+        "hate",
+        "hated",
+        "hates",
         "interest",
         "interested",
         "like",
@@ -979,14 +989,19 @@ def _preference_support_query_terms(
     }
     preference_domains = {
         "animal",
+        "activity",
         "book",
         "color",
         "coffee",
         "food",
         "music",
+        "movie",
+        "movies",
         "park",
         "restaurant",
         "song",
+        "sport",
+        "sports",
         "tea",
     }
     lexical_domain_terms = tuple(

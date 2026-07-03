@@ -56,7 +56,8 @@ _VISUAL_EVIDENCE_RE = re.compile(
     re.IGNORECASE,
 )
 _PREFERENCE_EVIDENCE_RE = re.compile(
-    r"\b(?:love|loved|like|liked|enjoy|enjoyed|favorite|favourite|go-to|"
+    r"\b(?:avoid|avoided|avoids|dislike|disliked|hate|hated|"
+    r"love|loved|like|liked|enjoy|enjoyed|favorite|favourite|go-to|"
     r"interested|prefer|preferred|"
     r"outdoors|camping|national park|self-care|relax|refresh|refreshes|"
     r"refreshing)\b",
@@ -328,8 +329,11 @@ def is_preference_query(profile: Mapping[str, object]) -> bool:
     preference_terms = {
         "destress",
         "enjoy",
+        "avoid",
+        "dislike",
         "favorite",
         "favourite",
+        "hate",
         "interest",
         "like",
         "love",

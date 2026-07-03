@@ -474,7 +474,18 @@ def infer_evidence_need(
         needs.append("visual_evidence")
     if {"favorite", "favourite"} & relation_set:
         needs.append("favorite_preference")
-    if {"favorite", "favourite", "interest", "prefer", "enjoy", "like", "love"} & relation_set:
+    if {
+        "avoid",
+        "dislike",
+        "favorite",
+        "favourite",
+        "hate",
+        "interest",
+        "prefer",
+        "enjoy",
+        "like",
+        "love",
+    } & relation_set:
         needs.append("preference")
     if _has_contrast_intent(
         relation_terms=relation_terms,
@@ -1649,9 +1660,12 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
     "preference": {
         "terms": frozenset(
             {
+                "avoid",
+                "dislike",
                 "enjoy",
                 "favorite",
                 "favourite",
+                "hate",
                 "interest",
                 "like",
                 "love",
@@ -1663,11 +1677,21 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
         ),
         "variants": frozenset(
             {
+                "avoid",
+                "avoided",
+                "avoids",
                 "balance",
+                "dislik",
+                "dislike",
+                "disliked",
                 "enjoyed",
                 "fan",
                 "favorite",
                 "favourite",
+                "hat",
+                "hate",
+                "hated",
+                "hates",
                 "interested",
                 "like",
                 "liked",

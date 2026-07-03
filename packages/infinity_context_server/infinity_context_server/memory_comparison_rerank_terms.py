@@ -211,6 +211,17 @@ RELATION_QUERY_VARIANTS = {
         "career",
     ),
     "enjoy": ("enjoyed", "like", "liked", "love", "fan", "interested"),
+    "avoid": (
+        "avoided",
+        "avoids",
+        "dislike",
+        "disliked",
+        "hate",
+        "hated",
+        "prefer",
+    ),
+    "dislike": ("disliked", "avoid", "avoids", "hate", "prefer"),
+    "hate": ("hated", "dislike", "avoid", "prefer"),
     "enroll": (
         "enrolled",
         "enrolling",
