@@ -1871,6 +1871,7 @@ def _has_identity_profile_support(memory_terms: set[str]) -> bool:
     personality_context = (
         {"care", "real", "help"} <= memory_terms
         or {"concern", "thoughtful"} <= memory_terms
+        or {"care", "real", "concern"} <= memory_terms
     )
     return bool(
         visual_identity

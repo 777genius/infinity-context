@@ -663,7 +663,10 @@ def decomposed_search_queries(
             skill_support=compact_relation_role == "skill_support",
             vehicle_support=compact_relation_role == "vehicle_support",
         )
-        if compact_relation_role == "causal_support":
+        if compact_relation_role == "causal_support" and _uses_generic_causal_compact_terms(
+            relation_terms=relation_terms,
+            multi_hop_markers=multi_hop_markers,
+        ):
             relation_query_terms = _causal_compact_query_terms(
                 lexical_terms=lexical_terms,
                 relation_terms=relation_terms,
@@ -1119,13 +1122,41 @@ def _causal_bridge_query_terms(
     if not enabled:
         return ()
     bridge_terms: list[str] = []
-    bridge_terms.extend(_relation_query_terms(relation_terms, relation_variant_terms)[:6])
+    relation_query_terms = _relation_query_terms(relation_terms, relation_variant_terms)
+    if set(relation_terms) == {"cause"}:
+        relation_query_terms = tuple(
+            term for term in relation_query_terms if term not in {"prompt", "inspir"}
+        )
+    bridge_terms.extend(relation_query_terms[:6])
     bridge_terms.extend(
         term
         for term in lexical_terms
         if term not in _QUERY_STOPWORDS and term not in bridge_terms
     )
     return tuple(dict.fromkeys(bridge_terms))
+
+
+def _uses_generic_causal_compact_terms(
+    *,
+    relation_terms: tuple[str, ...],
+    multi_hop_markers: tuple[str, ...],
+) -> bool:
+    relation_set = set(relation_terms)
+    if relation_set & {"realize", "help"}:
+        return False
+    return bool(
+        {"why"} & set(multi_hop_markers)
+        or relation_set
+        & {
+            "because",
+            "caus",
+            "cause",
+            "motivat",
+            "motivate",
+            "motivation",
+            "reason",
+        }
+    )
 
 
 def _count_support_query_terms(
@@ -1231,6 +1262,25 @@ def _causal_compact_query_terms(
     variant_set = set(relation_variant_terms)
     relation_set = set(relation_terms)
     lexical_set = set(lexical_terms)
+    if {"choose", "adoption", "agency"}.issubset(relation_set):
+        prioritized = (
+            "adoption",
+            "chose",
+            "reason",
+            "cause",
+            "fit",
+            "value",
+            "because",
+            "decision",
+        )
+        return tuple(
+            dict.fromkeys(
+                (
+                    *prioritized,
+                    *(term for term in fallback_terms if term not in set(prioritized)),
+                )
+            )
+        )
     prioritized_emotion_terms = tuple(
         term for term in emotion_cue_terms if term in lexical_set
     )
@@ -1681,6 +1731,8 @@ def _query_retrieval_intent(case: PublicBenchmarkCase) -> RetrievalIntent:
     normalized_question = re.sub(r"[^0-9a-z]+", " ", question.casefold()).strip()
     if "skill" not in relation_terms and _has_skill_profile_question(normalized_question):
         relation_terms = (*relation_terms, "skill")
+    if "diet" not in relation_terms and _has_diet_profile_question(normalized_question):
+        relation_terms = (*relation_terms, "diet")
     relation_variant_terms = tuple(
         dict.fromkeys(
             variant
@@ -1834,6 +1886,10 @@ def _filter_relation_terms_for_profile(
         if term == "diet" and not has_diet_profile_question:
             continue
         if term == "avoid" and has_diet_profile_question:
+            continue
+        if term in {"avoid", "dislike", "hate"} and _has_diet_profile_question(
+            normalized_question
+        ):
             continue
         if term in {"exercise", "hobby", "sport"} and not _has_activity_profile_question(
             normalized_question,

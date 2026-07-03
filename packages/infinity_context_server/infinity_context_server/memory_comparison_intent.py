@@ -297,7 +297,7 @@ def infer_relation_intents(
             relation_terms=relation_terms,
             multi_hop_markers=multi_hop_markers,
             time_intent=time_intent,
-        ):
+        ) and not _has_adoption_reaction_intent(relation_terms=relation_terms):
             continue
         if category == "location_transition" and not _has_location_transition_intent(
             question=question,
@@ -751,6 +751,10 @@ def _has_causal_support_intent(
     )
 
 
+def _has_adoption_reaction_intent(*, relation_terms: tuple[str, ...]) -> bool:
+    return {"think", "decision", "adopt"}.issubset(set(relation_terms))
+
+
 def _has_motivation_artifact_lookup(normalized_question: str) -> bool:
     return bool(
         normalized_question
@@ -788,6 +792,22 @@ def _has_location_transition_intent(
         "visit",
         "stay",
     } & relation_set:
+        return False
+    if "employment" in relation_set and not (
+        relation_set
+        & {
+            "based",
+            "live",
+            "move",
+            "origin",
+            "relocate",
+            "relocated",
+            "stay",
+            "travel",
+            "trip",
+            "visit",
+        }
+    ):
         return False
     normalized = " ".join(str(question or "").casefold().split())
     if not normalized:

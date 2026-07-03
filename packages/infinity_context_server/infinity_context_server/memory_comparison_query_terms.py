@@ -986,6 +986,7 @@ def _preference_support_query_terms(
         "liked",
         "love",
         "prefer",
+        "preferred",
     }
     preference_domains = {
         "animal",
@@ -1009,6 +1010,38 @@ def _preference_support_query_terms(
         for term in lexical_terms
         if term in preference_domains and term not in entity_tokens
     )
+    if {"kid", "like"}.issubset(relation_terms) or {
+        "interest",
+        "park",
+    }.issubset(relation_terms) or {"enjoy", "song"}.issubset(relation_terms):
+        return _relation_query_terms(relation_terms, relation_variant_terms)
+    preference_action_variants = tuple(
+        "preferr" if term == "preferred" else term
+        for term in relation_variant_terms
+        if term in preference_actions
+    )
+    if {"favorite", "favourite"} & set(relation_terms):
+        return tuple(
+            dict.fromkeys(
+                (
+                    *(term for term in relation_terms if term in preference_actions),
+                    *lexical_domain_terms,
+                    *preference_action_variants,
+                    *(term for term in relation_variant_terms if term in preference_domains),
+                )
+            )
+        )
+    if set(relation_terms) == {"prefer"}:
+        return tuple(
+            dict.fromkeys(
+                (
+                    *(term for term in relation_terms if term in preference_actions),
+                    *preference_action_variants,
+                    *(term for term in relation_variant_terms if term in preference_domains),
+                    *lexical_domain_terms,
+                )
+            )
+        )
     topical_terms = tuple(
         term
         for term in lexical_terms
@@ -1022,7 +1055,7 @@ def _preference_support_query_terms(
             (
                 *(term for term in relation_terms if term in preference_actions),
                 *lexical_domain_terms,
-                *(term for term in relation_variant_terms if term in preference_actions),
+                *preference_action_variants,
                 *(term for term in relation_variant_terms if term in preference_domains),
                 *topical_terms[:4],
             )
