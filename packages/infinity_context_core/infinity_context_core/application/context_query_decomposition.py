@@ -296,12 +296,22 @@ _SOURCE_TERMS = frozenset(
         "evidence",
         "file",
         "proof",
+        "provenance",
+        "quote",
+        "quoted",
+        "quotes",
+        "reference",
+        "references",
         "source",
         "sources",
         "доказательство",
         "источник",
         "источники",
+        "ссылка",
+        "ссылки",
         "файл",
+        "цитата",
+        "цитаты",
     }
 )
 _EMOTION_CAUSE_PROMPT_TERMS = frozenset(
@@ -1675,7 +1685,7 @@ def build_query_decomposition_plan(
             candidates,
             query=_compose_query(
                 identities,
-                "source citation evidence file artifact reference provenance",
+                "source citation evidence quote excerpt file artifact reference provenance",
             ),
             reason="decomposition_source_evidence",
         )

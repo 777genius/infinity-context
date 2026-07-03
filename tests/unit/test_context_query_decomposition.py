@@ -747,6 +747,31 @@ def test_query_expansion_plan_uses_relative_time_decomposition() -> None:
     assert "decomposition_relative_time" in retrieval_reasons
 
 
+def test_query_decomposition_treats_quote_and_provenance_as_source_evidence() -> None:
+    quote_plan = build_query_decomposition_plan(
+        "Show the quote supporting Project Atlas being blocked."
+    )
+    provenance_plan = build_query_decomposition_plan(
+        "What provenance supports the Project Atlas blocker?"
+    )
+
+    quote_source = next(
+        item
+        for item in quote_plan.decompositions
+        if item.reason == "decomposition_source_evidence"
+    )
+    provenance_source = next(
+        item
+        for item in provenance_plan.decompositions
+        if item.reason == "decomposition_source_evidence"
+    )
+
+    assert "project" in quote_source.query.casefold()
+    assert "atlas" in quote_source.query.casefold()
+    assert "source citation evidence quote excerpt" in quote_source.query
+    assert "reference provenance" in provenance_source.query
+
+
 def test_best_query_relevance_uses_decomposed_artifact_query() -> None:
     plan = build_query_expansion_plan(
         "What changed after the call with Alex about Atlas and what was written in the screenshot?"
@@ -773,6 +798,21 @@ def test_best_query_relevance_uses_event_sequence_decomposition() -> None:
     )
 
     assert reason == "decomposition_event_sequence"
+    assert relevance.distinctive_term_hits >= 5
+
+
+def test_best_query_relevance_uses_quote_source_evidence_decomposition() -> None:
+    plan = build_query_expansion_plan("Show the quote for Project Atlas source.")
+
+    _, reason, relevance = best_query_relevance(
+        plan,
+        text=(
+            "Project Atlas source quote citation evidence excerpt reference "
+            "provenance: Alex selected the provider."
+        ),
+    )
+
+    assert reason == "decomposition_source_evidence"
     assert relevance.distinctive_term_hits >= 5
 
 
