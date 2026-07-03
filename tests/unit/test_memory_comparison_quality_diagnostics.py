@@ -944,6 +944,7 @@ def test_quality_diagnostics_reports_answer_context_provenance_table() -> None:
     assert table["fallback_context_count"] == 1
     assert table["source_ref_context_count"] == 2
     assert table["source_refless_context_count"] == 1
+    assert table["mixed_source_context_count"] == 1
     assert table["memory_count"] == 5
     assert table["source_ref_count"] == 4
     assert table["source_ref_item_count"] == 3
@@ -1060,6 +1061,18 @@ def test_quality_diagnostics_reports_answer_context_provenance_table() -> None:
             "cutoff": "200",
             "source": "retrieval_slice",
             "memory_count": 3,
+            "source_refless_item_count": 2,
+            "fallback_reason": "empty_bundle",
+        }
+    ]
+    assert table["mixed_source_context_samples"] == [
+        {
+            "case_id": "fallback-context",
+            "cutoff": "200",
+            "source": "retrieval_slice",
+            "memory_count": 3,
+            "source_ref_count": 1,
+            "source_ref_item_count": 1,
             "source_refless_item_count": 2,
             "fallback_reason": "empty_bundle",
         }
@@ -2609,6 +2622,7 @@ def test_fast_gate_metrics_reports_answer_context_provenance() -> None:
     assert provenance["evidence_bundle_context_count"] == 2
     assert provenance["source_ref_context_count"] == 1
     assert provenance["source_refless_context_count"] == 1
+    assert provenance["mixed_source_context_count"] == 0
     assert provenance["source_ref_item_coverage_rate"] == 0.3333
     assert provenance["backfilled_context_count"] == 1
     assert provenance["duplicate_source_bundle_skip_context_count"] == 1
@@ -2723,6 +2737,7 @@ def test_fast_gate_metrics_reports_answer_context_provenance() -> None:
             "fallback_reason": "",
         }
     ]
+    assert provenance["mixed_source_context_samples"] == []
 
 
 def test_quality_diagnostics_reports_query_plan_integrity() -> None:

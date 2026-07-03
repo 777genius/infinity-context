@@ -1662,6 +1662,7 @@ def _answer_context_provenance_table(
     evidence_bundle_context_count = 0
     source_ref_context_count = 0
     source_refless_context_count = 0
+    mixed_source_context_count = 0
     memory_count = 0
     source_ref_count = 0
     source_ref_item_count = 0
@@ -1704,6 +1705,7 @@ def _answer_context_provenance_table(
     duplicate_source_bundle_skip_context_samples: list[dict[str, object]] = []
     noisy_overlap_bundle_skip_context_samples: list[dict[str, object]] = []
     backfill_skip_context_samples: list[dict[str, object]] = []
+    mixed_source_context_samples: list[dict[str, object]] = []
 
     for item in items:
         for cutoff, context in _answer_contexts(item):
@@ -1898,6 +1900,11 @@ def _answer_context_provenance_table(
             if context_source_refless_item_count > 0:
                 source_refless_context_count += 1
             if (
+                (context_source_ref_count > 0 or context_source_ref_item_count > 0)
+                and context_source_refless_item_count > 0
+            ):
+                mixed_source_context_count += 1
+            if (
                 context_skipped_duplicate_source_bundle_item_count > 0
                 and len(duplicate_source_bundle_skip_context_samples) < 10
             ):
@@ -2020,6 +2027,25 @@ def _answer_context_provenance_table(
                         "fallback_reason": fallback_reason,
                     }
                 )
+            if (
+                (context_source_ref_count > 0 or context_source_ref_item_count > 0)
+                and context_source_refless_item_count > 0
+                and len(mixed_source_context_samples) < 10
+            ):
+                mixed_source_context_samples.append(
+                    {
+                        "case_id": str(item.get("case_id") or ""),
+                        "cutoff": cutoff,
+                        "source": source,
+                        "memory_count": context_memory_count,
+                        "source_ref_count": context_source_ref_count,
+                        "source_ref_item_count": context_source_ref_item_count,
+                        "source_refless_item_count": (
+                            context_source_refless_item_count
+                        ),
+                        "fallback_reason": fallback_reason,
+                    }
+                )
 
     return {
         "schema_version": "answer_context_provenance.v1",
@@ -2028,6 +2054,7 @@ def _answer_context_provenance_table(
         "fallback_context_count": fallback_context_count,
         "source_ref_context_count": source_ref_context_count,
         "source_refless_context_count": source_refless_context_count,
+        "mixed_source_context_count": mixed_source_context_count,
         "memory_count": memory_count,
         "source_ref_count": source_ref_count,
         "source_ref_item_count": source_ref_item_count,
@@ -2180,6 +2207,7 @@ def _answer_context_provenance_table(
             noisy_overlap_bundle_skip_context_samples
         ),
         "source_refless_context_samples": source_refless_context_samples,
+        "mixed_source_context_samples": mixed_source_context_samples,
     }
 
 
