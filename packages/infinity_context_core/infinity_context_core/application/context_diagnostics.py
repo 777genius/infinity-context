@@ -99,6 +99,10 @@ _DETERMINISTIC_RERANK_SCORE_SIGNAL_KEYS = (
     "deterministic_rerank_strong_source_count",
     "deterministic_rerank_requirement_coverage",
     "deterministic_rerank_query_reason",
+    "source_quote_answer_support",
+    "source_quote_answer_boost",
+    "source_quote_answer_relevance",
+    "source_quote_answer_distinctive_hits",
 )
 _SOURCE_SIBLING_SCORE_SIGNAL_KEYS = (
     "exact_source_repair",

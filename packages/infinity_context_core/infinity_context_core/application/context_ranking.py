@@ -245,6 +245,7 @@ _DETERMINISTIC_RERANK_MAX_BOOST = 0.055
 _DETERMINISTIC_RERANK_MAX_PENALTY = 0.11
 _CANONICAL_ANCHOR_SUMMARY_RERANK_MAX_BOOST = 0.018
 _CITATION_EVIDENCE_RERANK_MAX_BOOST = 0.024
+_SOURCE_QUOTE_ANSWER_RERANK_MAX_BOOST = 0.01
 _ARTIFACT_INVENTORY_EVIDENCE_RERANK_MAX_BOOST = 0.028
 _DECOMPOSITION_COVERAGE_RERANK_MAX_BOOST = 0.022
 _LOCALIZED_EVIDENCE_RERANK_MAX_BOOST = 0.022
@@ -1803,6 +1804,14 @@ def _deterministic_rerank_signals(
     )
     coverage_ratio = coverage.ratio
     anchor_match = match_query_anchor_intent_to_text(query_anchor_intent, item.text)
+    source_quote_anchor_matched = (
+        "citation" in coverage.requested_evidence_features
+        and _source_quote_anchor_matches_query(
+            item=item,
+            plan=plan,
+            query_anchor_intent=query_anchor_intent,
+        )
+    )
     text_anchor_conflict = query_anchor_intent_text_conflicts(
         query_anchor_intent,
         item.text,
@@ -1845,6 +1854,9 @@ def _deterministic_rerank_signals(
     if anchor_match is not None:
         boost += min(0.018, max(0.0, anchor_match.score_boost) * 0.35)
         reasons.append("query_anchor_match")
+    elif source_quote_anchor_matched:
+        boost += 0.012
+        reasons.append("source_quote_query_anchor_match")
     if requested_total > 0 and coverage_ratio > 0:
         boost += 0.014 * coverage_ratio
         reasons.append("explicit_requirement_covered")
@@ -1874,7 +1886,7 @@ def _deterministic_rerank_signals(
         item=item,
         relevance=relevance,
         coverage_ratio=coverage_ratio,
-        anchor_matched=anchor_match is not None,
+        anchor_matched=anchor_match is not None or source_quote_anchor_matched,
         strong_source_count=strong_source_count,
     )
     if localized_evidence_boost > 0:
@@ -1896,7 +1908,7 @@ def _deterministic_rerank_signals(
             item=item,
             coverage=coverage,
             relevance=relevance,
-            anchor_matched=anchor_match is not None,
+            anchor_matched=anchor_match is not None or source_quote_anchor_matched,
             anchor_conflict=anchor_conflict,
             sources=sources,
             strong_source_count=strong_source_count,
@@ -1905,16 +1917,20 @@ def _deterministic_rerank_signals(
     if canonical_summary_boost > 0:
         boost += canonical_summary_boost
         reasons.append(canonical_summary_reason)
-    citation_evidence_boost, citation_evidence_reason = _citation_evidence_support_signal(
-        item=item,
-        coverage=coverage,
-        relevance=relevance,
-        anchor_matched=anchor_match is not None,
-        strong_source_count=strong_source_count,
+    citation_evidence_boost, citation_evidence_reason, citation_evidence_signals = (
+        _citation_evidence_support_signal(
+            item=item,
+            plan=plan,
+            coverage=coverage,
+            relevance=relevance,
+            anchor_matched=anchor_match is not None or source_quote_anchor_matched,
+            strong_source_count=strong_source_count,
+        )
     )
     if citation_evidence_boost > 0:
         boost += citation_evidence_boost
         reasons.append(citation_evidence_reason)
+        rank_signals.update(citation_evidence_signals)
     (
         artifact_inventory_boost,
         artifact_inventory_penalty,
@@ -1926,7 +1942,7 @@ def _deterministic_rerank_signals(
         query_reason=query_reason,
         relevance=relevance,
         coverage_ratio=coverage_ratio,
-        anchor_matched=anchor_match is not None,
+        anchor_matched=anchor_match is not None or source_quote_anchor_matched,
     )
     if artifact_inventory_boost > 0:
         boost += artifact_inventory_boost
@@ -2190,6 +2206,8 @@ def _deterministic_rerank_signals(
         reasons.append("query_anchor_conflict_overridden_by_commonality_who_else")
     elif current_state_correction_anchor_override:
         reasons.append("query_anchor_conflict_overridden_by_current_state_correction")
+    elif anchor_conflict and source_quote_anchor_matched:
+        reasons.append("query_anchor_conflict_overridden_by_source_quote")
     elif anchor_conflict and not _action_role_confirms_requested_relation(action_signal.reason):
         penalty += 0.07
         reasons.append("query_anchor_conflict")
@@ -2727,32 +2745,106 @@ def _source_ref_has_precise_location(ref: SourceRef) -> bool:
     return bool(_source_ref_location_features(ref))
 
 
+def _source_quote_anchor_matches_query(
+    *,
+    item: ContextItem,
+    plan: QueryExpansionPlan,
+    query_anchor_intent: QueryAnchorIntent,
+) -> bool:
+    if query_anchor_intent.empty:
+        return False
+    for ref in item.source_refs:
+        quote = (ref.quote_preview or "").strip()
+        if not quote:
+            continue
+        if match_query_anchor_intent_to_text(query_anchor_intent, quote) is None:
+            continue
+        _, _, relevance = best_query_relevance(plan, text=quote)
+        if _source_quote_relevance_supports_answer(relevance):
+            return True
+    return False
+
+
 def _citation_evidence_support_signal(
     *,
     item: ContextItem,
+    plan: QueryExpansionPlan,
     coverage: _RequirementCoverageSignals,
     relevance: QueryRelevance,
     anchor_matched: bool,
     strong_source_count: int,
-) -> tuple[float, str]:
+) -> tuple[float, str, dict[str, float]]:
     if "citation" not in coverage.requested_evidence_features:
-        return 0.0, ""
+        return 0.0, "", {}
     if (
         not is_query_relevance_sufficient(relevance)
         and coverage.ratio <= 0
         and not anchor_matched
         and strong_source_count <= 0
     ):
-        return 0.0, ""
+        return 0.0, "", {}
     quote_count = sum(1 for ref in item.source_refs if (ref.quote_preview or "").strip())
     localized_count = sum(1 for ref in item.source_refs if _source_ref_has_precise_location(ref))
     if quote_count <= 0 and localized_count <= 0:
-        return 0.0, ""
+        return 0.0, "", {}
     boost = 0.01
     boost += min(0.008, quote_count * 0.004)
     boost += min(0.006, localized_count * 0.003)
+    quote_answer_boost, quote_answer_signals = _source_quote_answer_support_signal(
+        item=item,
+        plan=plan,
+    )
+    boost += quote_answer_boost
     reason = "citation_quote_evidence" if quote_count > 0 else "citation_localized_evidence"
-    return round(min(_CITATION_EVIDENCE_RERANK_MAX_BOOST, boost), 4), reason
+    return (
+        round(min(_CITATION_EVIDENCE_RERANK_MAX_BOOST, boost), 4),
+        reason,
+        quote_answer_signals,
+    )
+
+
+def _source_quote_answer_support_signal(
+    *,
+    item: ContextItem,
+    plan: QueryExpansionPlan,
+) -> tuple[float, dict[str, float]]:
+    best_relevance: QueryRelevance | None = None
+    for ref in item.source_refs:
+        quote = (ref.quote_preview or "").strip()
+        if not quote:
+            continue
+        _, _, relevance = best_query_relevance(plan, text=quote)
+        if not _source_quote_relevance_supports_answer(relevance):
+            continue
+        if best_relevance is None or query_relevance_rank_key(
+            ("", "source_quote", relevance)
+        ) > query_relevance_rank_key(("", "source_quote", best_relevance)):
+            best_relevance = relevance
+    if best_relevance is None:
+        return 0.0, {}
+
+    boost = 0.003
+    boost += min(0.005, best_relevance.distinctive_term_hits * 0.002)
+    boost += min(0.002, best_relevance.phrase_bigram_hits * 0.002)
+    boost = round(min(_SOURCE_QUOTE_ANSWER_RERANK_MAX_BOOST, boost), 4)
+    return boost, {
+        "source_quote_answer_support": 1.0,
+        "source_quote_answer_boost": boost,
+        "source_quote_answer_relevance": round(best_relevance.score_boost, 4),
+        "source_quote_answer_distinctive_hits": float(
+            best_relevance.distinctive_term_hits
+        ),
+    }
+
+
+def _source_quote_relevance_supports_answer(relevance: QueryRelevance) -> bool:
+    if relevance.query_term_count <= 0:
+        return False
+    if relevance.distinctive_term_hits >= 2:
+        return True
+    return relevance.distinctive_term_hits >= 1 and (
+        relevance.phrase_bigram_hits > 0 or relevance.unique_term_hits >= 2
+    )
 
 
 def _artifact_inventory_evidence_support_signal(

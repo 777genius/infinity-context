@@ -10902,6 +10902,110 @@ def test_deterministic_rerank_prefers_quote_backed_source_citation() -> None:
     )
 
 
+def test_deterministic_rerank_prefers_answer_supported_by_source_quote() -> None:
+    query = "What did Alex decide about the Atlas launch path? Cite the source quote."
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    generic_same_topic = _item(
+        "atlas_launch_generic",
+        score=0.72,
+        retrieval_source="keyword_chunks",
+        text=(
+            "Alex and the Atlas launch path were discussed in a planning "
+            "decision summary."
+        ),
+    )
+    source_quote = ContextItem(
+        item_id="atlas_launch_source_quote",
+        item_type="chunk",
+        text="Meeting transcript source excerpt for Project Atlas.",
+        score=0.7,
+        source_refs=(
+            SourceRef(
+                source_type="document",
+                source_id="meeting-notes-2",
+                chunk_id="chunk-9",
+                char_start=180,
+                char_end=222,
+                quote_preview="Alex: I approved the Atlas launch path.",
+            ),
+        ),
+        diagnostics={
+            "retrieval_source": "keyword_chunks",
+            "retrieval_sources": ["keyword_chunks"],
+            "score_signals": {"base_score": 0.7},
+            "provenance": {"retrieval_sources": ["keyword_chunks"]},
+        },
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (generic_same_topic, source_quote),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert by_id["atlas_launch_source_quote"].score > by_id["atlas_launch_generic"].score
+    assert (
+        by_id["atlas_launch_source_quote"].diagnostics["score_signals"][
+            "source_quote_answer_support"
+        ]
+        == 1.0
+    )
+    assert (
+        "citation_quote_evidence"
+        in by_id["atlas_launch_source_quote"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+    assert (
+        "source_quote_answer_support"
+        not in by_id["atlas_launch_generic"].diagnostics["score_signals"]
+    )
+
+
+def test_deterministic_rerank_source_quote_support_requires_citation_request() -> None:
+    query = "What did Alex decide about the Atlas launch path?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    source_quote = ContextItem(
+        item_id="atlas_launch_source_quote",
+        item_type="chunk",
+        text="Meeting transcript source excerpt for Project Atlas.",
+        score=0.7,
+        source_refs=(
+            SourceRef(
+                source_type="document",
+                source_id="meeting-notes-2",
+                chunk_id="chunk-9",
+                char_start=180,
+                char_end=222,
+                quote_preview="Alex: I approved the Atlas launch path.",
+            ),
+        ),
+        diagnostics={
+            "retrieval_source": "keyword_chunks",
+            "retrieval_sources": ["keyword_chunks"],
+            "score_signals": {"base_score": 0.7},
+            "provenance": {"retrieval_sources": ["keyword_chunks"]},
+        },
+    )
+
+    (reranked,) = apply_deterministic_rerank_adjustments(
+        (source_quote,),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+
+    assert "source_quote_answer_support" not in reranked.diagnostics["score_signals"]
+    assert (
+        "citation_quote_evidence"
+        not in reranked.diagnostics["provenance"].get("deterministic_rerank_reasons", [])
+    )
+
+
 def test_deterministic_rerank_does_not_localize_plain_source_ref() -> None:
     query = "What did Alex say in the Project Atlas call?"
     plan = build_query_expansion_plan(query)
