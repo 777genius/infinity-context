@@ -6,6 +6,10 @@ import re
 from collections.abc import Iterable, Mapping
 
 from infinity_context_core.application.anchor_identity_normalization import canonical_token
+from infinity_context_core.application.context_answer_unit_shapes import (
+    covered_answer_unit_shapes,
+    requested_answer_unit_shapes,
+)
 from infinity_context_core.application.context_query_intent import QueryAnchorIntent
 from infinity_context_core.application.context_query_state_transition import (
     state_transition_query_variants,
@@ -1291,6 +1295,7 @@ def _requested_answer_shapes(query: str) -> tuple[str, ...]:
         shapes.append("state_update")
     if _SUMMARY_ANSWER_QUERY_RE.search(query):
         shapes.append("summary")
+    shapes.extend(requested_answer_unit_shapes(query))
     return _bounded_unique(shapes)
 
 
@@ -1372,6 +1377,7 @@ def _covered_answer_shapes(
             shapes.append("state_update")
         if _SUMMARY_ANSWER_TEXT_RE.search(text):
             shapes.append("summary")
+        shapes.extend(covered_answer_unit_shapes(text))
     return _bounded_unique(shapes)
 
 

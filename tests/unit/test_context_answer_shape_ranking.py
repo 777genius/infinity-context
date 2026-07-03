@@ -117,6 +117,98 @@ def test_context_requirement_boost_treats_who_are_group_queries_as_lists() -> No
     ] == ["list"]
 
 
+def test_context_requirement_boost_prefers_requested_duration_unit() -> None:
+    query = "How many years has Maya practiced piano?"
+    wrong_unit_count = _item(
+        "wrong_unit_count",
+        score=0.711,
+        text="Maya practiced piano for three recitals during the spring showcase.",
+    )
+    exact_duration = _item(
+        "exact_duration",
+        score=0.7,
+        text="Maya has practiced piano for three years.",
+    )
+
+    boosted = apply_context_requirement_boosts(
+        (wrong_unit_count, exact_duration),
+        query=query,
+        query_anchor_intent=build_query_anchor_intent(query),
+        max_boost=0.04,
+    )
+    by_id = {item.item_id: item for item in boosted}
+
+    assert by_id["exact_duration"].score > by_id["wrong_unit_count"].score
+    assert "duration_year" in by_id["exact_duration"].diagnostics["provenance"][
+        "context_requirement_matched_answer_shapes"
+    ]
+    assert by_id["exact_duration"].diagnostics["score_signals"][
+        "context_requirement_typed_answer_unit_boost"
+    ] > 0
+    assert (
+        "context_requirement_typed_answer_unit_boost"
+        not in by_id["wrong_unit_count"].diagnostics["score_signals"]
+    )
+
+
+def test_context_requirement_boost_prefers_age_unit_over_distance_number() -> None:
+    query = "How old is Alex?"
+    wrong_unit_number = _item(
+        "wrong_unit_number",
+        score=0.711,
+        text="Alex ran 32 miles during the charity race.",
+    )
+    exact_age = _item(
+        "exact_age",
+        score=0.7,
+        text="Alex is 32 years old.",
+    )
+
+    boosted = apply_context_requirement_boosts(
+        (wrong_unit_number, exact_age),
+        query=query,
+        query_anchor_intent=build_query_anchor_intent(query),
+        max_boost=0.04,
+    )
+    by_id = {item.item_id: item for item in boosted}
+
+    assert by_id["exact_age"].score > by_id["wrong_unit_number"].score
+    assert "age_year" in by_id["exact_age"].diagnostics["provenance"][
+        "context_requirement_matched_answer_shapes"
+    ]
+    assert "age_year" not in by_id["wrong_unit_number"].diagnostics.get(
+        "provenance",
+        {},
+    ).get("context_requirement_matched_answer_shapes", [])
+
+
+def test_context_requirement_boost_prefers_requested_quantity_unit() -> None:
+    query = "How many cups of flour did Gina use?"
+    wrong_unit_number = _item(
+        "wrong_unit_number",
+        score=0.711,
+        text="Gina baked for two hours before the guests arrived.",
+    )
+    exact_quantity = _item(
+        "exact_quantity",
+        score=0.7,
+        text="Gina used two cups of flour for the bread.",
+    )
+
+    boosted = apply_context_requirement_boosts(
+        (wrong_unit_number, exact_quantity),
+        query=query,
+        query_anchor_intent=build_query_anchor_intent(query),
+        max_boost=0.04,
+    )
+    by_id = {item.item_id: item for item in boosted}
+
+    assert by_id["exact_quantity"].score > by_id["wrong_unit_number"].score
+    assert "quantity_cup" in by_id["exact_quantity"].diagnostics["provenance"][
+        "context_requirement_matched_answer_shapes"
+    ]
+
+
 def test_context_requirement_coverage_keeps_who_is_summary_out_of_list_shape() -> None:
     query = "Who is Alex?"
 

@@ -15,6 +15,9 @@ from infinity_context_core.application.context_activity_companion import (
 from infinity_context_core.application.context_aggregation_answer_slots import (
     aggregation_answer_slot_count,
 )
+from infinity_context_core.application.context_answer_unit_shapes import (
+    is_typed_answer_unit_shape,
+)
 from infinity_context_core.application.context_conversation_counterparty import (
     conversation_counterparty_evidence_signal,
     conversation_recency_evidence_signal,
@@ -211,6 +214,7 @@ _CONTEXT_REQUIREMENT_MODALITY_BOOST = 0.022
 _CONTEXT_REQUIREMENT_FEATURE_BOOST = 0.014
 _CONTEXT_REQUIREMENT_ANSWER_SHAPE_BOOST = 0.012
 _CONTEXT_REQUIREMENT_EXACT_COUNT_CARDINALITY_BOOST = 0.008
+_CONTEXT_REQUIREMENT_TYPED_ANSWER_UNIT_BOOST = 0.018
 _GENERIC_BOOSTABLE_ANSWER_SHAPES = frozenset((
     "causal",
     "choice",
@@ -1546,6 +1550,9 @@ def _with_context_requirement_boost(
     score_boosted_answer_shapes = tuple(
         shape for shape in matched_answer_shapes if shape in _GENERIC_BOOSTABLE_ANSWER_SHAPES
     )
+    typed_unit_answer_shapes = tuple(
+        shape for shape in matched_answer_shapes if is_typed_answer_unit_shape(shape)
+    )
     exact_count_cardinality_boost = (
         _CONTEXT_REQUIREMENT_EXACT_COUNT_CARDINALITY_BOOST
         if "count" in score_boosted_answer_shapes
@@ -1558,6 +1565,7 @@ def _with_context_requirement_boost(
         + len(matched_features) * _CONTEXT_REQUIREMENT_FEATURE_BOOST
         + len(score_boosted_answer_shapes) * _CONTEXT_REQUIREMENT_ANSWER_SHAPE_BOOST
         + exact_count_cardinality_boost
+        + len(typed_unit_answer_shapes) * _CONTEXT_REQUIREMENT_TYPED_ANSWER_UNIT_BOOST
     )
     boost = min(max_boost, round(raw_boost, 4))
     if boost <= 0:
@@ -1571,6 +1579,7 @@ def _with_context_requirement_boost(
         "context_requirement_matched_modality_count": len(matched_modalities),
         "context_requirement_matched_feature_count": len(matched_features),
         "context_requirement_matched_answer_shape_count": len(score_boosted_answer_shapes),
+        "context_requirement_matched_typed_answer_unit_count": len(typed_unit_answer_shapes),
         **(
             {
                 "context_requirement_exact_count_cardinality_boost": (
@@ -1578,6 +1587,16 @@ def _with_context_requirement_boost(
                 )
             }
             if exact_count_cardinality_boost > 0
+            else {}
+        ),
+        **(
+            {
+                "context_requirement_typed_answer_unit_boost": (
+                    len(typed_unit_answer_shapes)
+                    * _CONTEXT_REQUIREMENT_TYPED_ANSWER_UNIT_BOOST
+                )
+            }
+            if typed_unit_answer_shapes
             else {}
         ),
     }
