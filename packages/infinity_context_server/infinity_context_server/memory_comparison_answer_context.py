@@ -52,6 +52,8 @@ class AnswerContext:
     bundle_source_identity_support_ref_count: int = 0
     bundle_source_type_diversity: int = 0
     bundle_retrieval_source_diversity: int = 0
+    bundle_source_type_support_diversity: int = 0
+    bundle_retrieval_source_support_diversity: int = 0
     bundle_source_proximity_support_count: int = 0
     bundle_source_proximity_closest_distance: int | None = None
     bundle_source_proximity_distance_counts: Mapping[str, int] = field(
@@ -129,6 +131,12 @@ class AnswerContext:
             "bundle_source_type_diversity": self.bundle_source_type_diversity,
             "bundle_retrieval_source_diversity": (
                 self.bundle_retrieval_source_diversity
+            ),
+            "bundle_source_type_support_diversity": (
+                self.bundle_source_type_support_diversity
+            ),
+            "bundle_retrieval_source_support_diversity": (
+                self.bundle_retrieval_source_support_diversity
             ),
             "bundle_source_proximity_support_count": (
                 self.bundle_source_proximity_support_count
@@ -379,6 +387,22 @@ def answer_context_from_evidence_bundle(
             _positive_int(
                 bundle_context.get(
                     "answer_context_bundle_retrieval_source_diversity"
+                )
+            )
+            or 0
+        ),
+        bundle_source_type_support_diversity=(
+            _positive_int(
+                bundle_context.get(
+                    "answer_context_bundle_source_type_support_diversity"
+                )
+            )
+            or 0
+        ),
+        bundle_retrieval_source_support_diversity=(
+            _positive_int(
+                bundle_context.get(
+                    "answer_context_bundle_retrieval_source_support_diversity"
                 )
             )
             or 0
@@ -716,6 +740,24 @@ def answer_context_metrics(
         "primary_max_bundle_retrieval_source_diversity": (
             _positive_int(primary.get("max_bundle_retrieval_source_diversity")) or 0
         ),
+        "primary_avg_bundle_source_type_support_diversity": _metric_value(
+            primary,
+            "avg_bundle_source_type_support_diversity",
+        ),
+        "primary_max_bundle_source_type_support_diversity": (
+            _positive_int(primary.get("max_bundle_source_type_support_diversity"))
+            or 0
+        ),
+        "primary_avg_bundle_retrieval_source_support_diversity": _metric_value(
+            primary,
+            "avg_bundle_retrieval_source_support_diversity",
+        ),
+        "primary_max_bundle_retrieval_source_support_diversity": (
+            _positive_int(
+                primary.get("max_bundle_retrieval_source_support_diversity")
+            )
+            or 0
+        ),
         "primary_avg_bundle_source_ref_support_item_count": _metric_value(
             primary,
             "avg_bundle_source_ref_support_item_count",
@@ -822,6 +864,8 @@ def _answer_context_cutoff_metrics(
     bundle_source_identity_support_ref_counts: list[int] = []
     bundle_source_type_diversities: list[int] = []
     bundle_retrieval_source_diversities: list[int] = []
+    bundle_source_type_support_diversities: list[int] = []
+    bundle_retrieval_source_support_diversities: list[int] = []
     bundle_source_proximity_support_counts: list[int] = []
     bundle_source_proximity_closest_distances: list[int] = []
     bundle_source_proximity_distance_counts: Counter[str] = Counter()
@@ -1005,6 +1049,13 @@ def _answer_context_cutoff_metrics(
         )
         bundle_retrieval_source_diversities.append(
             _positive_int(context.get("bundle_retrieval_source_diversity")) or 0
+        )
+        bundle_source_type_support_diversities.append(
+            _positive_int(context.get("bundle_source_type_support_diversity")) or 0
+        )
+        bundle_retrieval_source_support_diversities.append(
+            _positive_int(context.get("bundle_retrieval_source_support_diversity"))
+            or 0
         )
         bundle_source_proximity_support_counts.append(
             _positive_int(context.get("bundle_source_proximity_support_count")) or 0
@@ -1237,6 +1288,22 @@ def _answer_context_cutoff_metrics(
         "max_bundle_retrieval_source_diversity": (
             max(bundle_retrieval_source_diversities)
             if bundle_retrieval_source_diversities
+            else 0
+        ),
+        "avg_bundle_source_type_support_diversity": _avg(
+            bundle_source_type_support_diversities
+        ),
+        "max_bundle_source_type_support_diversity": (
+            max(bundle_source_type_support_diversities)
+            if bundle_source_type_support_diversities
+            else 0
+        ),
+        "avg_bundle_retrieval_source_support_diversity": _avg(
+            bundle_retrieval_source_support_diversities
+        ),
+        "max_bundle_retrieval_source_support_diversity": (
+            max(bundle_retrieval_source_support_diversities)
+            if bundle_retrieval_source_support_diversities
             else 0
         ),
         "avg_bundle_source_proximity_support_count": _avg(
@@ -1511,6 +1578,20 @@ def _bundle_context_metadata(bundle: Mapping[str, object]) -> dict[str, object]:
     if retrieval_source_diversity is not None:
         metadata["answer_context_bundle_retrieval_source_diversity"] = (
             retrieval_source_diversity
+        )
+    source_type_support_diversity = _positive_int(
+        quality.get("source_type_support_diversity")
+    )
+    if source_type_support_diversity is not None:
+        metadata["answer_context_bundle_source_type_support_diversity"] = (
+            source_type_support_diversity
+        )
+    retrieval_source_support_diversity = _positive_int(
+        quality.get("retrieval_source_support_diversity")
+    )
+    if retrieval_source_support_diversity is not None:
+        metadata["answer_context_bundle_retrieval_source_support_diversity"] = (
+            retrieval_source_support_diversity
         )
     source_proximity_support_count = _positive_int(
         quality.get("source_proximity_support_count")

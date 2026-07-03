@@ -19,6 +19,8 @@ def test_llm_memory_line_renders_answer_context_source_attribution() -> None:
                     "raw_turns",
                     "semantic_chunks",
                 ),
+                "answer_context_bundle_source_type_support_diversity": 1,
+                "answer_context_bundle_retrieval_source_support_diversity": 2,
                 "answer_context_bundle_source_ref_support_item_count": 1,
                 "answer_context_bundle_source_identity_support_item_count": 2,
                 "answer_context_bundle_source_chain_proximity_support_count": 1,
@@ -31,6 +33,7 @@ def test_llm_memory_line_renders_answer_context_source_attribution() -> None:
     assert "source_type=raw_turn" in line
     assert "source_types=raw_turn,chunk" in line
     assert "retrieval_sources=raw_turns,semantic_chunks" in line
+    assert "bundle_support_sources=types:1,retrieval:2" in line
     assert "bundle_source_ref_support=1" in line
     assert "bundle_source_identity_support=2" in line
     assert "bundle_chain_proximity=1" in line
