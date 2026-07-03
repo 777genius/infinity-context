@@ -80,12 +80,16 @@ def query_role_effectiveness_table(
     bridge_query_hit_candidate_counts: Counter[str] = Counter()
     bridge_query_hit_selected_counts: Counter[str] = Counter()
     selected_bundle_role_counts: dict[str, Counter[str]] = defaultdict(Counter)
+    required_evidence_role_counts: Counter[str] = Counter()
+    missing_required_evidence_role_counts: Counter[str] = Counter()
+    missing_required_role_candidate_query_counts: Counter[str] = Counter()
     candidate_answerability_scores: dict[str, list[float]] = defaultdict(list)
     selected_answerability_scores: dict[str, list[float]] = defaultdict(list)
     candidate_source_locality_scores: dict[str, list[float]] = defaultdict(list)
     selected_source_locality_scores: dict[str, list[float]] = defaultdict(list)
 
     for item in items:
+        item_candidate_role_families: set[str] = set()
         for memory in _sequence(_mapping(item.get("retrieval")).get("results")):
             if not isinstance(memory, Mapping):
                 continue
@@ -104,6 +108,7 @@ def query_role_effectiveness_table(
             source_locality_score = _metric_value(features, "source_locality_score")
             for query_role in query_roles:
                 query_role_family = _query_role_family(query_role)
+                item_candidate_role_families.add(query_role_family)
                 candidate_role_counts[query_role] += 1
                 candidate_role_family_counts[query_role_family] += 1
                 candidate_answerability_scores[query_role].append(answerability_score)
@@ -121,6 +126,19 @@ def query_role_effectiveness_table(
                     typed_relation_lifted_hit_role_counts[hit_role] += 1
 
         bundle = _mapping(item.get("evidence_bundle"))
+        required_roles = _required_evidence_roles(item)
+        missing_required_roles = _str_tuple(bundle.get("missing_required_roles"))
+        for role in required_roles:
+            required_evidence_role_counts[role] += 1
+            required_family = _required_evidence_role_query_family(role)
+            if (
+                required_family
+                and required_family not in item_candidate_role_families
+            ):
+                missing_required_role_candidate_query_counts[role] += 1
+        for role in missing_required_roles:
+            missing_required_evidence_role_counts[role] += 1
+
         for bundle_item in _bundle_items(bundle):
             query_roles = _str_tuple(bundle_item.get("query_roles"))
             if not query_roles:
@@ -205,6 +223,25 @@ def query_role_effectiveness_table(
         "bridge_query_hit_selected_counts": dict(
             sorted(bridge_query_hit_selected_counts.items())
         ),
+        "required_evidence_role_counts": dict(
+            sorted(required_evidence_role_counts.items())
+        ),
+        "missing_required_evidence_role_counts": dict(
+            sorted(missing_required_evidence_role_counts.items())
+        ),
+        "missing_required_role_candidate_query_counts": dict(
+            sorted(missing_required_role_candidate_query_counts.items())
+        ),
+        "required_roles_without_candidate_queries": [
+            role
+            for role in sorted(required_evidence_role_counts)
+            if missing_required_role_candidate_query_counts[role] > 0
+        ],
+        "missing_required_evidence_roles": [
+            role
+            for role in sorted(missing_required_evidence_role_counts)
+            if missing_required_evidence_role_counts[role] > 0
+        ],
         "roles_without_selected_items": [
             query_role for query_role in query_roles if not selected_item_role_counts[query_role]
         ],
@@ -257,6 +294,57 @@ def _query_role_family(query_role: str) -> str:
     if role == "contrast_support":
         return "contrast_support"
     return role or "unknown"
+
+
+def _required_evidence_roles(item: Mapping[str, object]) -> tuple[str, ...]:
+    bundle = _mapping(item.get("evidence_bundle"))
+    roles: list[str] = [*_str_tuple(bundle.get("required_roles"))]
+    metadata = _mapping(_mapping(item.get("retrieval")).get("metadata"))
+    for key in ("query_decomposition", "query_expansion", "benchmark_rerank"):
+        payload = _mapping(metadata.get(key))
+        profile = _mapping(payload.get("query_profile"))
+        intent = _mapping(payload.get("retrieval_intent"))
+        roles.extend(_str_tuple(profile.get("bundle_evidence_roles")))
+        roles.extend(_str_tuple(intent.get("bundle_evidence_roles")))
+    return tuple(dict.fromkeys(role for role in roles if role.strip()))
+
+
+def _required_evidence_role_query_family(role: str) -> str:
+    normalized = str(role or "").strip()
+    if not normalized or normalized == "primary":
+        return ""
+    if normalized in {"bridge", "multi_hop_bridge", "multi_hop_support"}:
+        return "multi_hop"
+    if normalized in {"location", "location_support"}:
+        return "location_support"
+    if normalized in {"contrast", "contrast_support"}:
+        return "contrast_support"
+    if normalized in {"visual", "visual_support"}:
+        return "visual_support"
+    if normalized == "count_support":
+        return "count_support"
+    if (
+        normalized == "temporal_support"
+        or normalized == "visual_temporal_support"
+        or normalized.endswith("_temporal_support")
+        or normalized == "temporal_sequence_support"
+    ):
+        return "temporal_support"
+    if normalized == "compact_relation" or normalized in _PROFILE_SUPPORT_ROLES:
+        return "relation_compact"
+    if normalized in {
+        "causal_support",
+        "communication_support",
+        "emotion_response_support",
+        "event_support",
+        "exchange_support",
+        "favorite_support",
+        "inference_support",
+        "preference_support",
+        "symbolic_meaning_support",
+    }:
+        return "relation_compact"
+    return _query_role_family(normalized)
 
 
 def _query_role_stat_payload(

@@ -673,6 +673,15 @@ def _query_role_gap_breakdown(
     bridge_hit_selected_counts = _count_mapping(
         query_role_effectiveness.get("bridge_query_hit_selected_counts")
     )
+    required_evidence_role_counts = _count_mapping(
+        query_role_effectiveness.get("required_evidence_role_counts")
+    )
+    missing_required_evidence_role_counts = _count_mapping(
+        query_role_effectiveness.get("missing_required_evidence_role_counts")
+    )
+    missing_required_role_candidate_query_counts = _count_mapping(
+        query_role_effectiveness.get("missing_required_role_candidate_query_counts")
+    )
     candidate_roles = sorted(
         role for role, count in candidate_role_counts.items() if count > 0
     )
@@ -804,6 +813,25 @@ def _query_role_gap_breakdown(
         "selected_item_role_family_counts": selected_item_role_family_counts,
         "bridge_query_hit_candidate_counts": bridge_hit_candidate_counts,
         "bridge_query_hit_selected_counts": bridge_hit_selected_counts,
+        "required_evidence_role_counts": required_evidence_role_counts,
+        "missing_required_evidence_role_counts": missing_required_evidence_role_counts,
+        "missing_required_role_candidate_query_counts": (
+            missing_required_role_candidate_query_counts
+        ),
+        "required_roles_without_candidate_queries": [
+            role
+            for role in _str_tuple(
+                query_role_effectiveness.get("required_roles_without_candidate_queries")
+            )
+            if missing_required_role_candidate_query_counts.get(role, 0) > 0
+        ],
+        "missing_required_evidence_roles": [
+            role
+            for role in _str_tuple(
+                query_role_effectiveness.get("missing_required_evidence_roles")
+            )
+            if missing_required_evidence_role_counts.get(role, 0) > 0
+        ],
         "roles_without_selected_items": [
             role
             for role in _str_tuple(

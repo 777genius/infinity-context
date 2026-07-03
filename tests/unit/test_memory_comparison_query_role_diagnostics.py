@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from infinity_context_server.memory_comparison_quality_diagnostics import (
+    fast_gate_metrics,
     quality_diagnostics,
 )
 
@@ -155,6 +156,103 @@ def test_query_role_effectiveness_distinguishes_unmeasured_source_locality() -> 
     assert stats["avg_selected_source_locality_score"] == 0.4
     assert stats["avg_measured_selected_source_locality_score"] == 0.8
     assert stats["selected_unmeasured_source_locality_count"] == 1
+
+
+def test_query_role_effectiveness_reports_required_role_candidate_query_gaps() -> None:
+    item = {
+        "case_id": "required-role-gap",
+        "retrieval": {
+            "results": [
+                _memory("location", query_roles=("location_support",)),
+                _memory("profile", query_roles=("compact_relation",)),
+            ],
+        },
+        "evidence_bundle": {
+            "required_roles": [
+                "primary",
+                "location_support",
+                "temporal_support",
+            ],
+            "missing_required_roles": ["temporal_support"],
+            "items": [
+                {
+                    "id": "location",
+                    "role": "location_support",
+                    "query_roles": ["location_support"],
+                }
+            ],
+        },
+    }
+
+    diagnostics = quality_diagnostics((item,))
+    table = diagnostics["query_role_effectiveness_table"]
+
+    assert table["required_evidence_role_counts"] == {
+        "location_support": 1,
+        "primary": 1,
+        "temporal_support": 1,
+    }
+    assert table["missing_required_role_candidate_query_counts"] == {
+        "temporal_support": 1
+    }
+    assert table["required_roles_without_candidate_queries"] == [
+        "temporal_support"
+    ]
+    assert table["missing_required_evidence_role_counts"] == {
+        "temporal_support": 1
+    }
+    assert table["missing_required_evidence_roles"] == ["temporal_support"]
+
+    breakdown = fast_gate_metrics((item,), expected_case_count=1)[
+        "query_role_gap_breakdown"
+    ]
+    assert breakdown["required_evidence_role_counts"] == {
+        "location_support": 1,
+        "primary": 1,
+        "temporal_support": 1,
+    }
+    assert breakdown["missing_required_role_candidate_query_counts"] == {
+        "temporal_support": 1
+    }
+    assert breakdown["required_roles_without_candidate_queries"] == [
+        "temporal_support"
+    ]
+    assert breakdown["missing_required_evidence_roles"] == ["temporal_support"]
+
+
+def test_query_role_effectiveness_accepts_compact_query_for_profile_required_role() -> None:
+    diagnostics = quality_diagnostics(
+        (
+            {
+                "case_id": "profile-required-role-covered",
+                "retrieval": {
+                    "results": [
+                        _memory("profile", query_roles=("compact_relation",)),
+                    ],
+                },
+                "evidence_bundle": {
+                    "required_roles": ["primary", "health_support"],
+                    "missing_required_roles": [],
+                    "items": [
+                        {
+                            "id": "profile",
+                            "role": "health_support",
+                            "query_roles": ["compact_relation"],
+                        }
+                    ],
+                },
+            },
+        )
+    )
+
+    table = diagnostics["query_role_effectiveness_table"]
+
+    assert table["required_evidence_role_counts"] == {
+        "health_support": 1,
+        "primary": 1,
+    }
+    assert table["missing_required_role_candidate_query_counts"] == {}
+    assert table["required_roles_without_candidate_queries"] == []
 
 
 def _memory(
