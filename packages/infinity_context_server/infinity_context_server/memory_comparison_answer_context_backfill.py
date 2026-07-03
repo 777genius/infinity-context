@@ -28,6 +28,8 @@ _INCOMPLETE_BUNDLE_BACKFILL_MIN_ITEMS = 6
 _INCOMPLETE_BUNDLE_BACKFILL_MAX_ITEMS = 12
 _INCOMPLETE_BUNDLE_BACKFILL_ITEMS_PER_MISSING_ROLE = 2
 _SOURCE_PROXIMITY_WINDOW = 3
+_COMPACT_SOURCE_REF_MAX_TURNS = 2
+_COMPACT_SOURCE_REF_MAX_SPAN = _SOURCE_PROXIMITY_WINDOW
 _TURN_REF_PARTS_RE = re.compile(r"\bD(?P<dialogue>\d+):(?P<turn>\d+)\b")
 
 
@@ -251,6 +253,7 @@ def _backfill_candidate_sort_key(
         memory,
         selected_turn_refs=selected_turn_refs,
     )
+    diffuse_source_refs = 1.0 if _memory_has_diffuse_source_refs(memory) else 0.0
     quality_penalty = 0.0
     if memory_has_broad_summary(memory, features):
         quality_penalty += 0.6
@@ -259,6 +262,7 @@ def _backfill_candidate_sort_key(
     return (
         missing_role_score,
         -quality_penalty,
+        -diffuse_source_refs,
         *source_proximity,
         _backfill_answerability_sort_score(answerability),
         _backfill_locality_sort_score(locality),
@@ -306,9 +310,32 @@ def _memory_has_source_proximity_support(
         return False
     if _is_measured_low_answerability(features.get("answerability_score")):
         return False
-    if _is_measured_weak_source_locality(features.get("source_locality_score")):
+    return not _is_measured_weak_source_locality(features.get("source_locality_score"))
+
+
+def _memory_has_diffuse_source_refs(memory: RetrievedMemory) -> bool:
+    turn_refs = _direct_memory_turn_refs(memory)
+    if len(turn_refs) > _COMPACT_SOURCE_REF_MAX_TURNS:
+        return True
+    if not turn_refs:
         return False
-    return True
+    dialogue_count = len({dialogue for dialogue, _turn in turn_refs})
+    return dialogue_count > 1 or _turn_ref_span(turn_refs) > _COMPACT_SOURCE_REF_MAX_SPAN
+
+
+def _turn_ref_span(turn_refs: Sequence[tuple[int, int]]) -> int:
+    if not turn_refs:
+        return 0
+    spans: list[int] = []
+    for dialogue in {dialogue for dialogue, _turn in turn_refs}:
+        turns = [
+            turn
+            for candidate_dialogue, turn in turn_refs
+            if candidate_dialogue == dialogue
+        ]
+        if turns:
+            spans.append(max(turns) - min(turns))
+    return max(spans, default=0)
 
 
 def _missing_role_support_score(
@@ -862,6 +889,19 @@ def _source_proximity_distance(
 def _memory_turn_refs(memory: RetrievedMemory) -> tuple[tuple[int, int], ...]:
     refs: list[tuple[int, int]] = []
     for value in (*_memory_source_refs(memory), memory.text):
+        for match in _TURN_REF_PARTS_RE.finditer(str(value)):
+            refs.append(
+                (
+                    int(match.group("dialogue")),
+                    int(match.group("turn")),
+                )
+            )
+    return tuple(dict.fromkeys(refs))
+
+
+def _direct_memory_turn_refs(memory: RetrievedMemory) -> tuple[tuple[int, int], ...]:
+    refs: list[tuple[int, int]] = []
+    for value in memory.source_refs:
         for match in _TURN_REF_PARTS_RE.finditer(str(value)):
             refs.append(
                 (
