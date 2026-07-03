@@ -15693,7 +15693,14 @@ def test_benchmark_rerank_prefers_focused_evidence_shapes(
     if signal_key == "benchmark_activity_coverage_shape_boost":
         assert signals["benchmark_relation_category_coverage_boost"] > 0
     elif signal_key == "benchmark_adoption_reaction_boost":
-        assert "causal" in signals["benchmark_relation_category_hits"]
+        assert (
+            reranked[0].metadata["diagnostics"]["benchmark_candidate_features"][
+                "direct_speaker_turn"
+            ]
+            is True
+        )
+        decoy_signals = reranked[1].metadata["diagnostics"]["score_signals"]
+        assert decoy_signals["benchmark_adoption_reaction_boost"] == 0.0
     else:
         assert signals["benchmark_focused_turn_boost"] > 0
 

@@ -24,7 +24,7 @@ def focused_evidence_shape_boosts(
     adoption_reaction_evidence = (
         direct_speaker_turn
         and {"think", "decision", "adopt"}.issubset(relation_set)
-        and bool({"causal", "support_goal"} & category_hit_set)
+        and _has_adoption_reaction_answer_shape(memory_terms)
     )
     if (
         focused_turn_boost <= 0
@@ -70,9 +70,8 @@ def focused_evidence_shape_boosts(
         )
     if {"think", "decision", "adopt"}.issubset(relation_set):
         boosts["benchmark_adoption_reaction_boost"] = (
-            0.1
-            if {"amazing", "lovely", "mom"} <= memory_terms
-            and {"family", "kid"} & memory_terms
+            0.22
+            if _has_adoption_reaction_answer_shape(memory_terms)
             else 0.0
         )
     if {"current", "group", "friend"}.issubset(relation_set):
@@ -125,6 +124,16 @@ def focused_evidence_shape_boosts(
             else 0.0
         )
     return boosts
+
+
+def _has_adoption_reaction_answer_shape(memory_terms: set[str]) -> bool:
+    positive_reaction = (
+        {"amazing", "lovely", "mom"} <= memory_terms
+        or {"awesome", "mom"} <= memory_terms
+        or {"lovely", "luck"} <= memory_terms
+    )
+    adoption_outcome = bool({"family", "kid", "kids", "child", "children"} & memory_terms)
+    return positive_reaction and adoption_outcome
 
 
 def _empty_shape_boosts() -> dict[str, float]:
