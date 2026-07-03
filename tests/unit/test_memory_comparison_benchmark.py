@@ -3733,6 +3733,49 @@ def test_query_decomposition_classifies_since_sequence_queries() -> None:
     assert duration_queries[-1] == "andrew how long since november session date time"
 
 
+def test_query_decomposition_classifies_holiday_temporal_surfaces() -> None:
+    holiday_case = _case(
+        case_id="conv-1:qa:us-holiday-car-accident",
+        question="Around which US holiday did Maria get into a car accident?",
+        expected_terms=("Independence Day",),
+        answer="Independence Day",
+        category=3,
+    )
+    thanksgiving_case = _case(
+        case_id="conv-1:qa:during-thanksgiving",
+        question="Which movie does Tim mention they enjoy watching during Thanksgiving?",
+        expected_terms=("Home Alone",),
+        answer="Home Alone",
+        category=4,
+    )
+
+    holiday_queries, holiday_metadata = rerank_module.decomposed_search_queries(
+        holiday_case
+    )
+    thanksgiving_queries, thanksgiving_metadata = rerank_module.decomposed_search_queries(
+        thanksgiving_case
+    )
+
+    assert holiday_metadata["query_profile"]["is_temporal_query"] is True
+    assert holiday_metadata["query_profile"]["time_intent_kind"] == "explicit_time"
+    assert "holiday" in holiday_metadata["query_profile"]["temporal_surface_terms"]
+    assert "explicit_temporal_support" in holiday_metadata["query_plan"][
+        "selected_roles"
+    ]
+    assert holiday_queries[-1] == "around us maria holiday session date time"
+
+    assert thanksgiving_metadata["query_profile"]["is_temporal_query"] is True
+    assert thanksgiving_metadata["query_profile"]["time_intent_kind"] == "explicit_time"
+    assert "thanksgiving" in thanksgiving_metadata["query_profile"][
+        "temporal_surface_terms"
+    ]
+    assert "during" not in thanksgiving_metadata["query_profile"]["temporal_terms"]
+    assert "explicit_temporal_support" in thanksgiving_metadata["query_plan"][
+        "selected_roles"
+    ]
+    assert thanksgiving_queries[-1] == "tim thanksgiving session date time"
+
+
 def test_query_decomposition_classifies_after_how_many_as_duration() -> None:
     case = _case(
         case_id="conv-1:qa:after-how-many-weeks",
