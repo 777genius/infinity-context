@@ -317,14 +317,22 @@ _TEMPORAL_QUERY_TERMS = (
     "yesterday",
     "today",
     "tomorrow",
+    "earlier today",
+    "last night",
+    "last weekend",
     "last week",
     "last month",
+    "last quarter",
     "last year",
+    "next weekend",
     "next week",
     "next month",
+    "next quarter",
     "next year",
+    "this weekend",
     "this week",
     "this month",
+    "this quarter",
     "this year",
     "earlier",
     "later",
@@ -354,6 +362,7 @@ _TEMPORAL_SURFACE_TERMS = (
     "november",
     "december",
     "weekend",
+    "quarter",
     "week",
     "month",
     "year",
@@ -1794,6 +1803,7 @@ def _temporal_query_profile(case: PublicBenchmarkCase) -> dict[str, object]:
         temporal_query,
     ):
         matched_terms = tuple(term for term in matched_terms if term != "during")
+    matched_terms = _without_overlapped_relative_temporal_terms(matched_terms)
     surface_terms = tuple(term for term in _TEMPORAL_SURFACE_TERMS if term in query)
     is_temporal = category == 2 or bool(matched_terms) or bool(surface_terms)
     reasons: list[str] = []
@@ -1807,6 +1817,20 @@ def _temporal_query_profile(case: PublicBenchmarkCase) -> dict[str, object]:
         "matched_terms": list(matched_terms),
         "surface_terms": list(surface_terms),
     }
+
+
+def _without_overlapped_relative_temporal_terms(
+    matched_terms: tuple[str, ...],
+) -> tuple[str, ...]:
+    term_set = set(matched_terms)
+    blocked: set[str] = set()
+    if "last weekend" in term_set:
+        blocked.add("last week")
+    if "next weekend" in term_set:
+        blocked.add("next week")
+    if "this weekend" in term_set:
+        blocked.add("this week")
+    return tuple(term for term in matched_terms if term not in blocked)
 
 
 def _query_entities(text: str) -> tuple[str, ...]:

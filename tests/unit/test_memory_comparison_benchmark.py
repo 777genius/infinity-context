@@ -3081,6 +3081,12 @@ def test_query_decomposition_classifies_month_year_relative_temporal_terms() -> 
         expected_terms=("studio",),
         answer="studio",
     )
+    last_weekend_case = _case(
+        case_id="conv-1:qa:last-weekend",
+        question="What did Morgan do last weekend?",
+        expected_terms=("studio",),
+        answer="studio",
+    )
     next_year_case = _case(
         case_id="conv-1:qa:next-year",
         question="What is Morgan planning next year?",
@@ -3091,21 +3097,31 @@ def test_query_decomposition_classifies_month_year_relative_temporal_terms() -> 
     this_month_queries, this_month_metadata = rerank_module.decomposed_search_queries(
         this_month_case
     )
+    last_weekend_queries, last_weekend_metadata = (
+        rerank_module.decomposed_search_queries(last_weekend_case)
+    )
     next_year_queries, next_year_metadata = rerank_module.decomposed_search_queries(
         next_year_case
     )
 
     assert this_month_metadata["query_profile"]["time_intent_kind"] == "relative_time"
+    assert last_weekend_metadata["query_profile"]["time_intent_kind"] == "relative_time"
     assert next_year_metadata["query_profile"]["time_intent_kind"] == "relative_time"
     assert "this month" in this_month_metadata["query_profile"]["temporal_terms"]
+    assert "last weekend" in last_weekend_metadata["query_profile"]["temporal_terms"]
+    assert "last week" not in last_weekend_metadata["query_profile"]["temporal_terms"]
     assert "next year" in next_year_metadata["query_profile"]["temporal_terms"]
     assert "relative_temporal_support" in this_month_metadata["query_plan"][
+        "selected_roles"
+    ]
+    assert "relative_temporal_support" in last_weekend_metadata["query_plan"][
         "selected_roles"
     ]
     assert "relative_temporal_support" in next_year_metadata["query_plan"][
         "selected_roles"
     ]
     assert this_month_queries[-1] == "morgan this month month session date time"
+    assert "last weekend" in last_weekend_queries[-1]
     assert next_year_queries[-1] == "morgan next year year session date time"
 
 

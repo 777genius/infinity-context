@@ -71,6 +71,9 @@ _DURATION_EVIDENCE_RE = re.compile(
 )
 _RELATIVE_TIME_EVIDENCE_RE = re.compile(
     r"\b(?:today|yesterday|tomorrow|ago|recently|recent|lately|"
+    r"earlier\s+today|"
+    r"(?:last|next|this|previous)\s+"
+    r"(?:night|week|weekend|month|quarter|year)|"
     r"last|next|previously|previous|earlier|later|back then|these days)\b",
     re.IGNORECASE,
 )

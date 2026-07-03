@@ -37,6 +37,7 @@ _COMPACT_TEMPORAL_RELATION_TERMS = frozenset(
         "ago",
         "day",
         "month",
+        "quarter",
         "today",
         "tomorrow",
         "week",
