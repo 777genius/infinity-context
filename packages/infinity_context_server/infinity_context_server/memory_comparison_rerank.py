@@ -1995,6 +1995,9 @@ def _temporal_query_profile(case: PublicBenchmarkCase) -> dict[str, object]:
         matched_terms = tuple(
             dict.fromkeys((*matched_terms, *explicit_date_anchor_terms))
         )
+    current_state_terms = _current_state_temporal_terms(query)
+    if current_state_terms:
+        matched_terms = tuple(dict.fromkeys((*matched_terms, *current_state_terms)))
     ordered_event_term = _ordered_event_temporal_term(query)
     if ordered_event_term:
         matched_terms = tuple(dict.fromkeys((*matched_terms, ordered_event_term)))
@@ -2143,6 +2146,14 @@ def _explicit_date_anchor_temporal_terms(query: str) -> tuple[str, ...]:
     for match in re.finditer(rf"\b(?:{month_pattern})\s+((?:19|20)\d{{2}})\b", query):
         terms.append(match.group(1))
     return tuple(dict.fromkeys(terms))
+
+
+def _current_state_temporal_terms(query: str) -> tuple[str, ...]:
+    if not re.search(r"\bcurrently\b", query):
+        return ()
+    if _PERIOD_ANCHOR_TERMS_RE.search(query):
+        return ()
+    return ("currently",)
 
 
 def _without_overlapped_relative_temporal_terms(

@@ -240,6 +240,7 @@ _RELATIVE_TIME_TERMS = (
             "this year",
             "today",
             "tonight",
+            "currently",
             "tomorrow afternoon",
             "tomorrow evening",
             "tomorrow morning",

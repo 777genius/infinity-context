@@ -3627,6 +3627,59 @@ def test_query_decomposition_preserves_month_year_anchors() -> None:
     assert duration_queries[-1] == "tim how long 2023 december session date time"
 
 
+def test_query_decomposition_classifies_currently_recency_queries() -> None:
+    currently_case = _case(
+        case_id="conv-1:qa:currently-reading",
+        question="What book is Jon currently reading?",
+        expected_terms=("Lean Startup",),
+        answer="The Lean Startup",
+        category=4,
+    )
+    explicit_currently_case = _case(
+        case_id="conv-1:qa:currently-august-2023",
+        question="What is John currently doing as a volunteer in August 2023?",
+        expected_terms=("mentoring",),
+        answer="mentoring",
+        category=4,
+    )
+    current_adjective_case = _case(
+        case_id="conv-1:qa:current-work",
+        question="How does Andrew feel about his current work?",
+        expected_terms=("stressful",),
+        answer="stressful",
+        category=1,
+    )
+
+    currently_queries, currently_metadata = rerank_module.decomposed_search_queries(
+        currently_case
+    )
+    _, explicit_currently_metadata = rerank_module.decomposed_search_queries(
+        explicit_currently_case
+    )
+    _, current_adjective_metadata = rerank_module.decomposed_search_queries(
+        current_adjective_case
+    )
+
+    assert currently_metadata["query_profile"]["time_intent_kind"] == "relative_time"
+    assert "currently" in currently_metadata["query_profile"]["temporal_terms"]
+    assert "relative_temporal_support" in currently_metadata["query_plan"][
+        "selected_roles"
+    ]
+    assert currently_queries[-1] == "jon currently session date time"
+
+    assert explicit_currently_metadata["query_profile"]["time_intent_kind"] == (
+        "explicit_time"
+    )
+    assert "currently" not in explicit_currently_metadata["query_profile"][
+        "temporal_terms"
+    ]
+
+    assert current_adjective_metadata["query_profile"]["time_intent_kind"] == "none"
+    assert "relative_temporal_support" not in current_adjective_metadata["query_plan"][
+        "selected_roles"
+    ]
+
+
 def test_query_decomposition_classifies_relative_weekday_phrases() -> None:
     case = _case(
         case_id="conv-1:qa:last-friday-date",
