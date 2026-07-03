@@ -26,6 +26,15 @@ _SOURCE_SESSION_TURN_RE = re.compile(
     r"(?:^|:)session_(?P<session>\d+):D\d+:(?P<turn>\d+):turn$",
     re.IGNORECASE,
 )
+_TEXT_SESSION_TURN_RE = re.compile(
+    r"\bsession_(?P<session>\d+)\s+(?:turn\s+)?(?P<turn_ref>D\d+:\d+)\b",
+    re.IGNORECASE,
+)
+_TEXT_SESSION_DATE_TURN_RE = re.compile(
+    r"\bsession_(?P<session>\d+)\s+date:\s*[^.\n]{0,80}?\s"
+    r"(?P<turn_ref>D\d+:\d+)\b",
+    re.IGNORECASE,
+)
 _DIRECT_TURN_SPEAKER_RE = re.compile(
     r"\bD\d+:\d+\s+[A-Z][a-zA-Z0-9_-]{1,40}\s*:"
 )
@@ -277,9 +286,14 @@ def build_candidate_evidence_features(
     temporal_features = _temporal_evidence_features(text)
     source_refs = tuple(str(ref) for ref in memory.source_refs if str(ref).strip())
     text_turn_refs = tuple(dict.fromkeys(_TURN_REF_RE.findall(text)))
+    text_session_turn_refs = _text_session_turn_refs(text)
     source_turn_refs = _source_turn_refs(source_refs)
     turn_refs = tuple(dict.fromkeys((*text_turn_refs, *source_turn_refs)))
-    source_turn_span = _source_turn_span(turn_refs, source_refs=source_refs)
+    source_turn_span = _source_turn_span(
+        turn_refs,
+        source_refs=source_refs,
+        text_session_turn_refs=text_session_turn_refs,
+    )
     broad_summary = memory_has_broad_summary(memory)
     direct_speaker_turn = bool(_DIRECT_TURN_SPEAKER_RE.search(text)) and not broad_summary
     source_locality_score, source_locality_reasons = _source_locality(
@@ -393,6 +407,7 @@ def build_candidate_evidence_features(
         source_ref_dedupe_key=_source_ref_dedupe_key(
             source_refs,
             text_turn_refs=text_turn_refs,
+            text_session_turn_refs=text_session_turn_refs,
         ),
         conflict_or_stale=conflict_or_stale,
         negation_surface=contrast_features["negation_surface"],
@@ -939,8 +954,18 @@ def _source_ref_dedupe_key(
     source_refs: Sequence[str],
     *,
     text_turn_refs: Sequence[str] = (),
+    text_session_turn_refs: Sequence[str] = (),
 ) -> str:
     source_turn_refs = _source_turn_refs(source_refs)
+    source_session_turn_refs = _source_session_turn_refs(source_refs)
+    if _has_multiple_sessions(source_session_turn_refs) and len(source_session_turn_refs) <= 3:
+        return "source_session_turn_refs:" + "|".join(sorted(source_session_turn_refs))
+    if (
+        not source_turn_refs
+        and _has_multiple_sessions(text_session_turn_refs)
+        and len(text_session_turn_refs) <= 3
+    ):
+        return "source_session_turn_refs:" + "|".join(sorted(text_session_turn_refs))
     turn_refs = source_turn_refs or tuple(
         dict.fromkeys(ref for ref in text_turn_refs if _TURN_REF_RE.fullmatch(str(ref)))
     )
@@ -959,12 +984,37 @@ def _source_turn_refs(source_refs: Sequence[str]) -> tuple[str, ...]:
     )
 
 
+def _source_session_turn_refs(source_refs: Sequence[str]) -> tuple[str, ...]:
+    refs: list[str] = []
+    for source_ref in source_refs:
+        match = _SOURCE_SESSION_TURN_RE.search(str(source_ref))
+        if match is None:
+            continue
+        if turn_match := _TURN_REF_RE.search(str(source_ref)):
+            refs.append(f"session_{match.group('session')}:{turn_match.group(0)}")
+    return tuple(dict.fromkeys(refs))
+
+
+def _text_session_turn_refs(text: str) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            f"session_{match.group('session')}:{match.group('turn_ref')}"
+            for pattern in (_TEXT_SESSION_TURN_RE, _TEXT_SESSION_DATE_TURN_RE)
+            for match in pattern.finditer(text)
+        )
+    )
+
+
 def _source_turn_span(
     turn_refs: Sequence[str],
     *,
     source_refs: Sequence[str] = (),
+    text_session_turn_refs: Sequence[str] = (),
 ) -> int:
-    if _cross_session_exact_turn_refs(source_refs):
+    if _cross_session_exact_turn_refs(
+        source_refs,
+        text_session_turn_refs=text_session_turn_refs,
+    ):
         return 0
     parsed = tuple(_parse_turn_ref(ref) for ref in turn_refs)
     parsed = tuple(ref for ref in parsed if ref is not None)
@@ -979,11 +1029,27 @@ def _source_turn_span(
     return max(turns) - min(turns) + 1
 
 
-def _cross_session_exact_turn_refs(source_refs: Sequence[str]) -> bool:
+def _cross_session_exact_turn_refs(
+    source_refs: Sequence[str],
+    *,
+    text_session_turn_refs: Sequence[str] = (),
+) -> bool:
+    return _has_multiple_sessions(
+        (*_source_session_turn_refs(source_refs), *text_session_turn_refs)
+    )
+
+
+def _has_multiple_sessions(session_turn_refs: Sequence[str]) -> bool:
     sessions = {
-        int(match.group("session"))
-        for source_ref in source_refs
-        if (match := _SOURCE_SESSION_TURN_RE.search(str(source_ref)))
+        match.group("session")
+        for session_turn_ref in session_turn_refs
+        if (
+            match := re.search(
+                r"\bsession_(?P<session>\d+):D\d+:\d+\b",
+                str(session_turn_ref),
+                re.IGNORECASE,
+            )
+        )
     }
     return len(sessions) > 1
 
