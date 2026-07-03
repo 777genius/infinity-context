@@ -494,6 +494,9 @@ class EvidenceBundlePlanner:
             source_ref_overlap_full = bool(source_ref_keys) and set(
                 source_ref_keys
             ).issubset(selected_source_ref_keys)
+            source_ref_overlap_any = bool(
+                set(source_ref_keys).intersection(selected_source_ref_keys)
+            )
             source_type_diversity_full = any(
                 source_type_counts[source_type] >= self._max_items_per_source_type
                 for source_type in source_type_keys
@@ -515,6 +518,10 @@ class EvidenceBundlePlanner:
                 source_ref_overlap_full
                 and not adds_required_terms
                 and not adds_query_support_terms
+            ) or (
+                source_ref_overlap_any
+                and _candidate_has_noisy_source_overlap_risk(item.candidate)
+                and not adds_required_terms
             ):
                 dropped_diversity_count += 1
                 if source_type_diversity_full and not diversity_exempt:
@@ -524,6 +531,13 @@ class EvidenceBundlePlanner:
                 if source_ref_overlap_full:
                     dropped_source_ref_overlap_count += 1
                     dropped_source_ref_overlap_keys.extend(source_ref_keys)
+                elif source_ref_overlap_any:
+                    dropped_source_ref_overlap_count += 1
+                    dropped_source_ref_overlap_keys.extend(
+                        key
+                        for key in source_ref_keys
+                        if key in selected_source_ref_keys
+                    )
                 continue
             selected.append(item)
             source_type_counts.update(source_type_keys)
@@ -1963,6 +1977,23 @@ def _candidate_has_source_proximity_diagnostic_support(
     if _is_measured_low_answerability(candidate.answerability_score):
         return False
     return True
+
+
+def _candidate_has_noisy_source_overlap_risk(
+    candidate: EvidenceBundleCandidate,
+) -> bool:
+    if (
+        candidate.conflict_or_stale
+        or candidate.contrast_surface
+        or candidate.currentness_surface
+        or candidate.stale_surface
+    ):
+        return False
+    return bool(
+        candidate.broad_summary
+        or _candidate_has_measured_weak_source_locality(candidate)
+        or _is_measured_low_answerability(candidate.answerability_score)
+    )
 
 
 def _source_identity_refs(candidate: EvidenceBundleCandidate) -> tuple[str, ...]:

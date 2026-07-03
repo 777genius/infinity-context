@@ -138,6 +138,56 @@ def test_evidence_bundle_planner_does_not_select_noisy_source_proximity() -> Non
     assert quality["source_proximity_support_count"] == 0
 
 
+def test_evidence_bundle_planner_drops_noisy_partial_source_overlap() -> None:
+    primary = _candidate(
+        item_id="primary",
+        retrieval_order=1,
+        dedupe_key="refs:D4:2",
+        covered_evidence_terms=("support",),
+        primary_signal=True,
+        source_refs=("D4:2",),
+        focused_evidence_score=1.0,
+        direct_speaker_turn=True,
+        answerability_score=0.92,
+    )
+    noisy_overlap = _candidate(
+        item_id="noisy-overlap",
+        retrieval_order=2,
+        dedupe_key="refs:D4:2,D4:3",
+        query_support_terms=("meeting", "nearby"),
+        source_refs=("D4:2", "D4:3"),
+        focused_evidence_score=1.0,
+        direct_speaker_turn=True,
+        answerability_score=0.95,
+        source_locality_score=0.3,
+    )
+    clean_far_support = _candidate(
+        item_id="clean-far-support",
+        retrieval_order=3,
+        dedupe_key="refs:D4:20",
+        query_support_terms=("meeting", "nearby"),
+        source_refs=("D4:20",),
+        answerability_score=0.75,
+        source_locality_score=0.8,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, noisy_overlap, clean_far_support),
+        case_group="single",
+    )
+
+    assert [item.candidate.item_id for item in plan.items] == [
+        "primary",
+        "clean-far-support",
+    ]
+    diagnostics = plan.to_diagnostics()
+    assert diagnostics["dropped_source_ref_overlap_count"] == 1
+    assert diagnostics["dropped_source_ref_overlap_keys_sample"] == ["D4:2"]
+    quality = diagnostics["bundle_quality"]
+    assert quality["source_proximity_support_count"] == 0
+    assert quality["source_proximity_closest_distance"] is None
+
+
 def test_evidence_bundle_planner_prefers_compact_chained_sibling_support() -> None:
     primary = _candidate(
         item_id="primary",
