@@ -1566,12 +1566,78 @@ def test_answer_context_backfill_prefers_unmeasured_grounded_role_evidence() -> 
     assert [memory.item_id for memory in context.memories] == [
         "primary",
         "unmeasured-grounded",
-        "measured-weak",
     ]
     assert "answer_context_answerability_score" not in context.memories[1].metadata
     assert "answer_context_source_locality_score" not in context.memories[1].metadata
-    assert context.memories[2].metadata["answer_context_answerability_score"] == 0.4
-    assert context.memories[2].metadata["answer_context_source_locality_score"] == 0.3
+    assert context.skipped_redundant_role_backfill_count == 1
+
+
+def test_answer_context_backfill_does_not_prefer_low_quality_sibling() -> None:
+    memories = (
+        RetrievedMemory(
+            text="D6:1 Alex mentioned Maria.",
+            rank=1,
+            item_id="primary",
+            source_refs=("D6:1",),
+        ),
+        RetrievedMemory(
+            text="D8:9 Maria is Alex's sister.",
+            rank=2,
+            item_id="clean-status",
+            source_refs=("D8:9",),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "query_roles": ["status_support"],
+                        "relation_category_hits": ["status_profile"],
+                        "entity_hits": ["alex", "maria"],
+                        "answerability_score": 0.84,
+                        "source_locality_score": 0.9,
+                    }
+                }
+            },
+        ),
+        RetrievedMemory(
+            text="D6:2 Maria might be Alex's sister.",
+            rank=3,
+            item_id="weak-near-status",
+            source_refs=("D6:2",),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "query_roles": ["status_support"],
+                        "relation_category_hits": ["status_profile"],
+                        "entity_hits": ["alex", "maria"],
+                        "answerability_score": 0.4,
+                        "source_locality_score": 0.3,
+                    }
+                }
+            },
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "role_requirement_complete": False,
+            "missing_required_roles": ["status_support"],
+            "items": [{"id": "primary", "retrieval_order": 1, "role": "primary"}],
+        },
+        cutoff=3,
+    )
+
+    assert [memory.item_id for memory in context.memories] == [
+        "primary",
+        "clean-status",
+    ]
+    assert "source_proximity_support" not in context.memories[1].metadata[
+        "answer_context_reason_codes"
+    ]
+    assert context.skipped_redundant_role_backfill_count == 1
+    diagnostics = context.to_diagnostics()
+    assert diagnostics["backfilled_low_answerability_count"] == 0
+    assert diagnostics["backfilled_weak_source_locality_count"] == 0
+    assert diagnostics["backfilled_source_proximity_support_count"] == 0
 
 
 def test_answer_context_backfill_prefers_source_proximate_role_evidence() -> None:

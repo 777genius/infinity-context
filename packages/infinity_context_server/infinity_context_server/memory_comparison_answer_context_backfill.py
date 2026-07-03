@@ -90,6 +90,7 @@ def backfill_incomplete_bundle_context(
         source_proximate = (
             source_proximity_distance is not None
             and source_proximity_distance <= _SOURCE_PROXIMITY_WINDOW
+            and _memory_has_source_proximity_support(memory, features)
         )
         selected_source_duplicate = (
             bool(role_hits)
@@ -259,6 +260,9 @@ def _source_proximity_sort_key(
     *,
     selected_turn_refs: Sequence[tuple[int, int]],
 ) -> tuple[float, float]:
+    features = _candidate_features(memory)
+    if not _memory_has_source_proximity_support(memory, features):
+        return (0.0, 0.0)
     closest_distance = _source_proximity_distance(
         memory,
         selected_turn_refs=selected_turn_refs,
@@ -266,6 +270,21 @@ def _source_proximity_sort_key(
     if closest_distance is None or closest_distance > _SOURCE_PROXIMITY_WINDOW:
         return (0.0, 0.0)
     return (1.0, float(_SOURCE_PROXIMITY_WINDOW + 1 - closest_distance))
+
+
+def _memory_has_source_proximity_support(
+    memory: RetrievedMemory,
+    features: Mapping[str, object],
+) -> bool:
+    if memory_has_broad_summary(memory, features):
+        return False
+    if memory_has_conflict_or_stale(memory, features):
+        return False
+    if _is_measured_low_answerability(features.get("answerability_score")):
+        return False
+    if _is_measured_weak_source_locality(features.get("source_locality_score")):
+        return False
+    return True
 
 
 def _missing_role_support_score(
@@ -595,6 +614,7 @@ def _with_retrieval_backfill_metadata(
     if (
         source_proximity_distance is not None
         and source_proximity_distance <= _SOURCE_PROXIMITY_WINDOW
+        and _memory_has_source_proximity_support(memory, features)
     ):
         reason_codes.append("source_proximity_support")
         metadata["answer_context_backfill_source_proximity_distance"] = (
@@ -773,6 +793,25 @@ def _memory_turn_refs(memory: RetrievedMemory) -> tuple[tuple[int, int], ...]:
 
 def _metric_value(item: Mapping[str, object], key: str) -> float:
     value = item.get(key)
+    if isinstance(value, bool):
+        return 0.0
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _is_measured_low_answerability(value: object) -> bool:
+    score = _metric_scalar(value)
+    return 0 < score < 0.55
+
+
+def _is_measured_weak_source_locality(value: object) -> bool:
+    score = _metric_scalar(value)
+    return 0 < score < 0.45
+
+
+def _metric_scalar(value: object) -> float:
     if isinstance(value, bool):
         return 0.0
     try:
