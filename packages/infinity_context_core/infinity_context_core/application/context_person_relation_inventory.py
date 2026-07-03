@@ -31,6 +31,7 @@ class _PersonRelationQuery:
     anchor_label: str
     kind: PersonRelationKind
     target_label: str | None = None
+    relation_role: str | None = None
 
 
 _LABEL_RE = (
@@ -138,6 +139,52 @@ _GENERIC_CUE_RE = re.compile(
     r"dentist|therapist|counsellor|counselor|partner)\b",
     re.IGNORECASE,
 )
+_WORK_PEER_CUE_RE = re.compile(
+    r"\b(?:work(?:s|ed|ing)?\s+(?:with|alongside)|collaborat(?:e|es|ed|ing)|"
+    r"partner(?:s|ed|ing)?|coworker|co-worker|colleague|teammate|team\s+member)\b",
+    re.IGNORECASE,
+)
+_WORK_AUTHORITY_CUE_RE = re.compile(
+    r"\b(?:manager|mentor|boss|reports?\s+to|supervisor)\b",
+    re.IGNORECASE,
+)
+_FRIEND_ROLE_CUE_RE = re.compile(
+    r"\b(?:friend|friends|bestie|buddy|pal|hangs?\s+out|spent\s+time|met)\b",
+    re.IGNORECASE,
+)
+_FAMILY_ROLE_CUE_RE = re.compile(
+    r"\b(?:family|relative|mother|father|mom|dad|parent|sister|brother|"
+    r"sibling|daughter|son|child|kid|cousin|aunt|uncle|grandma|grandmother|"
+    r"grandpa|grandfather)\b",
+    re.IGNORECASE,
+)
+_SPOUSE_ROLE_CUE_RE = re.compile(
+    r"\b(?:spouse|husband|wife|partner|life\s+partner)\b",
+    re.IGNORECASE,
+)
+_ROOMMATE_ROLE_CUE_RE = re.compile(r"\broommates?\b", re.IGNORECASE)
+_NEIGHBOR_ROLE_CUE_RE = re.compile(r"\bneighbou?rs?\b", re.IGNORECASE)
+_MEDICAL_ROLE_CUE_RE = re.compile(
+    r"\b(?:doctor|dentist|therapist|counsellor|counselor)\b",
+    re.IGNORECASE,
+)
+_COACH_ROLE_CUE_RE = re.compile(r"\b(?:coach(?:es)?|trainer)\b", re.IGNORECASE)
+_EDUCATION_ROLE_CUE_RE = re.compile(
+    r"\b(?:teacher|tutor|classmate|schoolmate)\b",
+    re.IGNORECASE,
+)
+_ANY_PERSON_RELATION_ROLE_CUE_RE = re.compile(
+    r"\b(?:work(?:s|ed|ing)?\s+(?:with|alongside)|collaborat(?:e|es|ed|ing)|"
+    r"partner(?:s|ed|ing)?|coworker|co-worker|colleague|teammate|team\s+member|"
+    r"manager|mentor|boss|reports?\s+to|supervisor|"
+    r"friend|friends|bestie|buddy|pal|hangs?\s+out|spent\s+time|met|"
+    r"family|relative|mother|father|mom|dad|parent|sister|brother|sibling|"
+    r"daughter|son|child|kid|cousin|aunt|uncle|grandma|grandmother|"
+    r"grandpa|grandfather|spouse|husband|wife|partner|life\s+partner|"
+    r"roommates?|neighbou?rs?|doctor|dentist|therapist|counsellor|counselor|"
+    r"coach(?:es)?|trainer|teacher|tutor|classmate|schoolmate)\b",
+    re.IGNORECASE,
+)
 _QUERY_LABEL_STOP_WORDS = frozenset({"who", "what", "which", "where", "when", "the"})
 
 
@@ -164,6 +211,11 @@ def person_relation_inventory_signal(
             penalty=0.04,
             reason="person_relation_inventory_target_mismatch",
         )
+    if _text_mentions_anchor_wrong_relation_role(relation_query, text):
+        return PersonRelationInventorySignal(
+            penalty=0.04,
+            reason="person_relation_inventory_role_mismatch",
+        )
     if _text_mentions_anchor(relation_query.anchor_label, text):
         return PersonRelationInventorySignal(
             penalty=0.018,
@@ -179,15 +231,18 @@ def _person_relation_query(query: str) -> _PersonRelationQuery | None:
             _clean_label(work_target_match.group("anchor")),
             PersonRelationKind.WORK,
             target=_clean_label(work_target_match.group("target")),
+            role="work_peer",
         )
     for pattern in (_TARGET_POSSESSIVE_RELATION_QUERY_RE, _TARGET_OF_RELATION_QUERY_RE):
         match = pattern.search(query)
         if match is None:
             continue
+        relation = match.group("relation")
         relation_query = _query_for_anchor(
             _clean_label(match.group("anchor")),
-            _kind_for_relation(match.group("relation")),
+            _kind_for_relation(relation),
             target=_clean_label(match.group("target")),
+            role=_role_for_relation(relation),
         )
         if relation_query is not None:
             return relation_query
@@ -216,8 +271,13 @@ def _person_relation_query(query: str) -> _PersonRelationQuery | None:
         match = pattern.search(query)
         if match is None:
             continue
-        kind = _kind_for_relation(match.group("relation"))
-        relation_query = _query_for_anchor(_clean_label(match.group("anchor")), kind)
+        relation = match.group("relation")
+        kind = _kind_for_relation(relation)
+        relation_query = _query_for_anchor(
+            _clean_label(match.group("anchor")),
+            kind,
+            role=_role_for_relation(relation),
+        )
         if relation_query is not None:
             return relation_query
     generic_match = _GENERIC_RELATION_QUERY_RE.search(query)
@@ -234,6 +294,7 @@ def _query_for_anchor(
     kind: PersonRelationKind,
     *,
     target: str | None = None,
+    role: str | None = None,
 ) -> _PersonRelationQuery | None:
     if not anchor or _normalized_label(anchor) in _QUERY_LABEL_STOP_WORDS:
         return None
@@ -247,6 +308,7 @@ def _query_for_anchor(
         anchor_label=anchor,
         kind=kind,
         target_label=cleaned_target or None,
+        relation_role=role,
     )
 
 
@@ -288,6 +350,55 @@ def _kind_for_relation(relation: str) -> PersonRelationKind:
     return PersonRelationKind.GENERIC
 
 
+def _role_for_relation(relation: str) -> str | None:
+    normalized = relation.casefold().replace("-", " ")
+    if any(token in normalized for token in ("coworker", "co worker", "colleague")):
+        return "work_peer"
+    if any(
+        token in normalized
+        for token in ("teammate", "team member", "team members")
+    ):
+        return "work_peer"
+    if any(
+        token in normalized
+        for token in ("manager", "mentor", "boss", "supervisor")
+    ):
+        return "work_authority"
+    if "friend" in normalized:
+        return "friend"
+    if any(token in normalized for token in ("spouse", "husband", "wife", "partner")):
+        return "spouse"
+    if any(
+        token in normalized
+        for token in (
+            "family",
+            "relative",
+            "sibling",
+            "parent",
+            "children",
+            "kid",
+        )
+    ):
+        return "family"
+    if "roommate" in normalized:
+        return "roommate"
+    if "neighbor" in normalized or "neighbour" in normalized:
+        return "neighbor"
+    if any(
+        token in normalized
+        for token in ("doctor", "dentist", "therapist", "counsellor", "counselor")
+    ):
+        return "medical"
+    if "coach" in normalized or "trainer" in normalized:
+        return "coach"
+    if any(
+        token in normalized
+        for token in ("teacher", "tutor", "classmate", "schoolmate")
+    ):
+        return "education"
+    return None
+
+
 def _text_satisfies_relation_query(
     relation_query: _PersonRelationQuery,
     text: str,
@@ -297,7 +408,7 @@ def _text_satisfies_relation_query(
         sentence = sentence_match.group(0)
         if not _text_mentions_anchor(relation_query.anchor_label, sentence):
             continue
-        if not _relation_cue(relation_query.kind).search(sentence):
+        if not _required_relation_cue(relation_query).search(sentence):
             continue
         if relation_query.target_label is not None:
             return _text_mentions_anchor(relation_query.target_label, sentence)
@@ -320,12 +431,71 @@ def _text_mentions_anchor_relation_without_target(
         sentence = sentence_match.group(0)
         if not _text_mentions_anchor(relation_query.anchor_label, sentence):
             continue
-        if not _relation_cue(relation_query.kind).search(sentence):
+        if not _required_relation_cue(relation_query).search(sentence):
             continue
         if _text_mentions_anchor(relation_query.target_label, sentence):
             continue
         return True
     return False
+
+
+def _text_mentions_anchor_wrong_relation_role(
+    relation_query: _PersonRelationQuery,
+    text: str,
+) -> bool:
+    if relation_query.relation_role is None:
+        return False
+    normalized_text = _HONORIFIC_PERIOD_RE.sub(r"\1", text)
+    required_relation_cue = _required_relation_cue(relation_query)
+    for sentence_match in _SENTENCE_RE.finditer(normalized_text):
+        sentence = sentence_match.group(0)
+        if not _text_mentions_anchor(relation_query.anchor_label, sentence):
+            continue
+        if relation_query.target_label is not None and not _text_mentions_anchor(
+            relation_query.target_label,
+            sentence,
+        ):
+            continue
+        if not _ANY_PERSON_RELATION_ROLE_CUE_RE.search(sentence):
+            continue
+        if required_relation_cue.search(sentence):
+            continue
+        if relation_query.target_label is not None or _has_distinct_named_person(
+            sentence,
+            relation_query.anchor_label,
+        ):
+            return True
+    return False
+
+
+def _required_relation_cue(relation_query: _PersonRelationQuery) -> re.Pattern[str]:
+    if relation_query.relation_role is None:
+        return _relation_cue(relation_query.kind)
+    return _role_relation_cue(relation_query.relation_role)
+
+
+def _role_relation_cue(role: str) -> re.Pattern[str]:
+    if role == "work_peer":
+        return _WORK_PEER_CUE_RE
+    if role == "work_authority":
+        return _WORK_AUTHORITY_CUE_RE
+    if role == "friend":
+        return _FRIEND_ROLE_CUE_RE
+    if role == "family":
+        return _FAMILY_ROLE_CUE_RE
+    if role == "spouse":
+        return _SPOUSE_ROLE_CUE_RE
+    if role == "roommate":
+        return _ROOMMATE_ROLE_CUE_RE
+    if role == "neighbor":
+        return _NEIGHBOR_ROLE_CUE_RE
+    if role == "medical":
+        return _MEDICAL_ROLE_CUE_RE
+    if role == "coach":
+        return _COACH_ROLE_CUE_RE
+    if role == "education":
+        return _EDUCATION_ROLE_CUE_RE
+    return _GENERIC_CUE_RE
 
 
 def _relation_cue(kind: PersonRelationKind) -> re.Pattern[str]:

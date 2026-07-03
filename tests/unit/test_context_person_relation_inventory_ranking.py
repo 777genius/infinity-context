@@ -187,6 +187,26 @@ def test_person_relation_inventory_signal_requires_specific_relation_target() ->
     assert wrong_target.reason == "person_relation_inventory_target_mismatch"
 
 
+def test_person_relation_inventory_signal_penalizes_same_target_wrong_role() -> None:
+    signal = person_relation_inventory_signal(
+        query="Is Maria Alice's boss?",
+        text="D4:8 Alice: Maria is my friend from the clinic.",
+    )
+
+    assert signal.penalty > 0
+    assert signal.reason == "person_relation_inventory_role_mismatch"
+
+
+def test_person_relation_inventory_signal_penalizes_same_anchor_wrong_role() -> None:
+    signal = person_relation_inventory_signal(
+        query="Who is Alice's boss?",
+        text="D4:8 Alice: Maria is my colleague on the mobile team.",
+    )
+
+    assert signal.penalty > 0
+    assert signal.reason == "person_relation_inventory_role_mismatch"
+
+
 def test_person_relation_inventory_signal_matches_specific_target_alias() -> None:
     signal = person_relation_inventory_signal(
         query="Is Maria Lee Alice's doctor?",
@@ -285,6 +305,73 @@ def test_deterministic_rerank_prefers_specific_relation_target_evidence() -> Non
     assert (
         "person_relation_inventory_target_mismatch"
         in by_id["wrong_target"]
+        .diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+
+
+def test_deterministic_rerank_prefers_specific_role_over_same_entity_decoy() -> None:
+    query = "Is Maria Alice's boss?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    exact_role = _item(
+        "exact_role",
+        score=0.7,
+        text="D4:8 Alice: Maria is my boss at the clinic.",
+    )
+    wrong_role = _item(
+        "wrong_role",
+        score=0.74,
+        text="D4:9 Alice: Maria is my friend from the clinic.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (wrong_role, exact_role),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert by_id["exact_role"].score > by_id["wrong_role"].score
+    assert (
+        "person_relation_inventory_match"
+        in by_id["exact_role"]
+        .diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+    assert (
+        "person_relation_inventory_role_mismatch"
+        in by_id["wrong_role"]
+        .diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+
+
+def test_deterministic_rerank_prefers_requested_role_over_same_anchor_decoy() -> None:
+    query = "Who is Alice's boss?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    exact_role = _item(
+        "exact_role",
+        score=0.7,
+        text="D4:8 Alice: Maria is my boss at the clinic.",
+    )
+    wrong_role = _item(
+        "wrong_role",
+        score=0.74,
+        text="D4:9 Alice: Maria is my colleague on the mobile team.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (wrong_role, exact_role),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert by_id["exact_role"].score > by_id["wrong_role"].score
+    assert (
+        "person_relation_inventory_role_mismatch"
+        in by_id["wrong_role"]
         .diagnostics["provenance"]["deterministic_rerank_reasons"]
     )
 
