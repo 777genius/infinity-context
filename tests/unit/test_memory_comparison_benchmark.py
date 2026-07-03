@@ -4081,6 +4081,100 @@ def test_query_decomposition_classifies_guarded_again_repeated_events() -> None:
     assert "communication_support" in thanks_metadata["query_plan"]["selected_roles"]
 
 
+def test_query_decomposition_selects_support_goal_for_direct_support_questions() -> None:
+    direct_help_case = _case(
+        case_id="conv-1:qa:direct-help",
+        question="Who helped Caroline prepare for the interview?",
+        expected_terms=("mentor",),
+        answer="mentor",
+        category=4,
+    )
+    contextual_support_case = _case(
+        case_id="conv-1:qa:support-after-breakup",
+        question="How did Alex get support after the breakup?",
+        expected_terms=("friends",),
+        answer="friends",
+        category=4,
+    )
+    generic_support_case = _case(
+        case_id="get-support-query",
+        question="How did Morgan get support?",
+        expected_terms=("support",),
+        answer="support",
+        category=1,
+    )
+    causal_choice_case = _case(
+        case_id="conv-1:qa:adoption-agency-choice",
+        question="Why did Caroline choose the adoption agency?",
+        expected_terms=("inclusive",),
+        answer="inclusive",
+        category=4,
+    )
+
+    direct_help_queries, direct_help_metadata = rerank_module.decomposed_search_queries(
+        direct_help_case
+    )
+    contextual_support_queries, contextual_support_metadata = (
+        rerank_module.decomposed_search_queries(contextual_support_case)
+    )
+    _, generic_support_metadata = rerank_module.decomposed_search_queries(
+        generic_support_case
+    )
+    _, causal_choice_metadata = rerank_module.decomposed_search_queries(
+        causal_choice_case
+    )
+
+    assert direct_help_metadata["query_profile"]["evidence_need"] == (
+        "support_goal",
+    )
+    assert direct_help_metadata["query_profile"]["bundle_evidence_roles"] == (
+        "primary",
+        "support_goal_support",
+    )
+    assert direct_help_metadata["query_plan"]["selected_roles"] == [
+        "original_question",
+        "expanded_focus",
+        "support_goal_support",
+    ]
+    assert direct_help_queries[2] == "caroline help assist support"
+
+    assert contextual_support_metadata["query_profile"]["evidence_need"] == (
+        "multi_hop",
+        "temporal_sequence",
+        "support_goal",
+    )
+    assert "support_goal_support" in contextual_support_metadata["query_profile"][
+        "bundle_evidence_roles"
+    ]
+    assert contextual_support_metadata["query_plan"]["selected_roles"] == [
+        "original_question",
+        "support_goal_support",
+        "temporal_sequence_support",
+        "multi_hop_bridge",
+    ]
+    assert contextual_support_queries[1].startswith("alex get support")
+
+    assert "support_goal" in generic_support_metadata["query_profile"][
+        "relation_categories"
+    ]
+    assert "support_goal" not in generic_support_metadata["query_profile"][
+        "evidence_need"
+    ]
+    assert "support_goal_support" not in generic_support_metadata["query_profile"][
+        "bundle_evidence_roles"
+    ]
+
+    assert "support_goal" not in causal_choice_metadata["query_profile"][
+        "evidence_need"
+    ]
+    assert causal_choice_metadata["query_plan"]["selected_roles"] == [
+        "original_question",
+        "expanded_focus",
+        "causal_support",
+        "multi_hop_bridge",
+    ]
+
+
 def test_query_decomposition_classifies_holiday_temporal_surfaces() -> None:
     holiday_case = _case(
         case_id="conv-1:qa:us-holiday-car-accident",

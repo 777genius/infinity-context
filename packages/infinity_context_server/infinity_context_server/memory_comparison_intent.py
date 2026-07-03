@@ -407,6 +407,7 @@ def infer_relation_intents(
                 evidence_need=str(config["evidence_need"]),
                 reason_codes=_relation_facet_reason_codes(
                     category=category,
+                    question=question,
                     terms=terms,
                     variants=variants,
                     marker_hit=marker_hit,
@@ -645,10 +646,11 @@ def merge_relation_evidence_needs(
                 continue
             if relation_need == "activity_support" and "preference" in evidence_need:
                 continue
-            if relation_need == "support_goal" and {
-                "causal_support",
-                "multi_hop",
-            } & set(evidence_need):
+            if (
+                relation_need == "support_goal"
+                and {"causal_support", "multi_hop"} & set(evidence_need)
+                and not _is_direct_support_relation_intent(intent)
+            ):
                 continue
             relation_needs.append(relation_need)
     if not relation_needs:
@@ -873,6 +875,8 @@ def _has_support_goal_intent(
         normalized_question,
     ):
         return False
+    if _has_direct_support_role_question(normalized_question):
+        return True
     return bool(
         normalized_question
         and (
@@ -891,6 +895,29 @@ def _has_support_goal_intent(
                 r"counsel(?:ing|or)?|pursue)\b",
                 normalized_question,
             )
+        )
+    )
+
+
+def _is_direct_support_relation_intent(intent: RetrievalRelationIntent) -> bool:
+    return "direct_support_question" in set(intent.reason_codes)
+
+
+def _has_direct_support_role_question(normalized_question: str) -> bool:
+    support_action = r"(?:help(?:ed|ing)?|assist(?:ed|ing)?|support(?:s|ed|ing)?)"
+    return bool(
+        re.search(
+            rf"\b(?:who|whom)\b.+\b{support_action}\b",
+            normalized_question,
+        )
+        or re.search(
+            r"\bhow\b.+\b(?:get|got|receive|received|find|found)\b.+\bsupport\b"
+            r".+\b(?:after|through|when|with|from)\b",
+            normalized_question,
+        )
+        or re.search(
+            rf"\b{support_action}\b.+\b(?:after|through|when|with)\b",
+            normalized_question,
         )
     )
 
@@ -2529,6 +2556,7 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
 def _relation_facet_reason_codes(
     *,
     category: str,
+    question: str,
     terms: tuple[str, ...],
     variants: tuple[str, ...],
     marker_hit: bool,
@@ -2540,6 +2568,10 @@ def _relation_facet_reason_codes(
         reasons.append("relation_variants")
     if marker_hit:
         reasons.append("question_marker")
+    if category == "support_goal" and _has_direct_support_role_question(
+        " ".join(str(question or "").casefold().split())
+    ):
+        reasons.append("direct_support_question")
     return tuple(reasons)
 
 
