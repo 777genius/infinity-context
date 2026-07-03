@@ -1477,8 +1477,8 @@ def _planned_coverage_sort_key(
     return (
         _role_order(item),
         -float(required_gain),
-        -float(support_gain),
         *_source_proximity_selection_sort_key(item, selected),
+        -float(support_gain),
         *_candidate_sort_key(item.candidate),
     )
 
