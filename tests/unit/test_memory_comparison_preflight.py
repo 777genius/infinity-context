@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 from infinity_context_server import eval as eval_module
 from infinity_context_server.memory_comparison_preflight import (
@@ -150,6 +152,106 @@ def test_memory_comparison_preflight_cli_prints_sanitized_json(
     assert "secret-mem0-token" not in captured.err
 
 
+def test_memory_comparison_preflight_probes_service_specific_contracts(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "locomo-mini.json"
+    dataset.write_text('[{"sample_id":"unit"}]', encoding="utf-8")
+    requests: list[tuple[str, str]] = []
+    _install_fake_httpx(
+        monkeypatch,
+        requests=requests,
+        responses={
+            ("http://memo.example", "/v1/health"): _FakeResponse(200, {"ok": True}),
+            ("http://mem0.example", "/openapi.json"): _FakeResponse(
+                200,
+                {"paths": {"/memories": {}, "/search": {}, "/other": {}}},
+            ),
+        },
+    )
+
+    result = run_memory_comparison_preflight(
+        _config(
+            dataset_path=dataset,
+            env={"MEM0_API_KEY": "secret-mem0"},
+            probe_services=True,
+        )
+    )
+
+    assert result["ok"] is True
+    assert _check(result, "memo_api_reachable")["reason"] is None
+    assert _check(result, "mem0_api_reachable")["reason"] is None
+    assert result["ready_for_locomo_fast"] is True
+    assert requests == [
+        ("http://memo.example", "/v1/health"),
+        ("http://mem0.example", "/openapi.json"),
+    ]
+
+
+def test_memory_comparison_preflight_rejects_wrong_mem0_service_contract(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "locomo-mini.json"
+    dataset.write_text('[{"sample_id":"unit"}]', encoding="utf-8")
+    _install_fake_httpx(
+        monkeypatch,
+        responses={
+            ("http://memo.example", "/v1/health"): _FakeResponse(200, {"ok": True}),
+            ("http://mem0.example", "/openapi.json"): _FakeResponse(
+                200,
+                {"paths": {"/v1/context": {}, "/v1/facts": {}}},
+            ),
+        },
+    )
+
+    result = run_memory_comparison_preflight(
+        _config(
+            dataset_path=dataset,
+            env={"MEM0_API_KEY": "secret-mem0"},
+            probe_services=True,
+        )
+    )
+
+    mem0_check = _check(result, "mem0_api_reachable")
+    assert result["ok"] is False
+    assert result["ready_for_locomo_fast"] is False
+    assert result["failed_checks"] == ["mem0_api_reachable"]
+    assert mem0_check["details"]["required_paths"] == ["/memories", "/search"]
+    assert mem0_check["details"]["matched_paths"] == []
+
+
+def test_memory_comparison_preflight_rejects_wrong_memo_service_health(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "locomo-mini.json"
+    dataset.write_text('[{"sample_id":"unit"}]', encoding="utf-8")
+    _install_fake_httpx(
+        monkeypatch,
+        responses={
+            ("http://memo.example", "/v1/health"): _FakeResponse(404, {"detail": "nope"}),
+            ("http://mem0.example", "/openapi.json"): _FakeResponse(
+                200,
+                {"paths": {"/memories": {}, "/search": {}}},
+            ),
+        },
+    )
+
+    result = run_memory_comparison_preflight(
+        _config(
+            dataset_path=dataset,
+            env={"MEM0_API_KEY": "secret-mem0"},
+            probe_services=True,
+        )
+    )
+
+    assert result["ok"] is False
+    assert result["failed_checks"] == ["memo_api_reachable"]
+    assert _check(result, "memo_api_reachable")["details"]["path"] == "/v1/health"
+
+
 def _config(
     *,
     dataset_path: Path,
@@ -165,6 +267,7 @@ def _config(
     answerer_model: str | None = None,
     judge_model: str | None = None,
     auth_token_configured: bool = True,
+    probe_services: bool = False,
     env: dict[str, str] | None = None,
 ) -> MemoryComparisonPreflightConfig:
     return MemoryComparisonPreflightConfig(
@@ -185,5 +288,49 @@ def _config(
         openai_api_key_env="MEMORY_OPENAI_API_KEY",
         mem0_api_key_env="MEM0_API_KEY",
         auth_token_configured=auth_token_configured,
+        probe_services=probe_services,
         env=env or {},
     )
+
+
+def _check(result: dict[str, object], name: str) -> dict[str, object]:
+    checks = result["checks"]
+    assert isinstance(checks, list)
+    for check in checks:
+        assert isinstance(check, dict)
+        if check["name"] == name:
+            return check
+    raise AssertionError(f"missing check: {name}")
+
+
+class _FakeResponse:
+    def __init__(self, status_code: int, payload: object) -> None:
+        self.status_code = status_code
+        self._payload = payload
+
+    def json(self) -> object:
+        return self._payload
+
+
+def _install_fake_httpx(
+    monkeypatch,
+    *,
+    responses: dict[tuple[str, str], _FakeResponse],
+    requests: list[tuple[str, str]] | None = None,
+) -> None:
+    class FakeClient:
+        def __init__(self, *, base_url: str, **_: object) -> None:
+            self._base_url = base_url
+
+        def __enter__(self) -> FakeClient:
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+        def get(self, path: str) -> _FakeResponse:
+            if requests is not None:
+                requests.append((self._base_url, path))
+            return responses[(self._base_url, path)]
+
+    monkeypatch.setitem(sys.modules, "httpx", SimpleNamespace(Client=FakeClient))

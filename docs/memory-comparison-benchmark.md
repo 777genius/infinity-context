@@ -95,7 +95,12 @@ python -m infinity_context_server.eval memory-comparison-benchmark \
 ```
 
 Add `--preflight-probe-services` when Docker services are expected to be up.
-The preflight prints only boolean secret readiness, never token values. Treat
+The probe verifies the memo-stack API health endpoint at `--memo-api-url` and
+the mem0 OSS OpenAPI contract for `/memories` and `/search` at `--mem0-url`, so
+swapped ports fail before ingest or search state is touched. The LoCoMo dataset
+is not vendored in this repository; stage it at the path passed to `--dataset`
+or update that flag before treating preflight output as service readiness. The
+preflight prints only boolean secret readiness, never token values. Treat
 `ready_for_locomo_fast=false` as a blocker for long LoCoMo runs.
 
 ```sh

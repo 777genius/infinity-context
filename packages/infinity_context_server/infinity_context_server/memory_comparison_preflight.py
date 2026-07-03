@@ -325,12 +325,12 @@ def _service_probe_checks(
     config: MemoryComparisonPreflightConfig,
 ) -> tuple[MemoryComparisonPreflightCheck, ...]:
     return (
-        _probe_service(
+        _probe_memo_api(
             "memo_api_reachable",
             config.memo_api_url,
             timeout_seconds=config.probe_timeout_seconds,
         ),
-        _probe_service(
+        _probe_mem0_api(
             "mem0_api_reachable",
             config.mem0_url,
             timeout_seconds=config.probe_timeout_seconds,
@@ -338,12 +338,13 @@ def _service_probe_checks(
     )
 
 
-def _probe_service(
+def _probe_memo_api(
     name: str,
     base_url: str,
     *,
     timeout_seconds: float,
 ) -> MemoryComparisonPreflightCheck:
+    path = "/v1/health"
     try:
         import httpx
 
@@ -352,21 +353,66 @@ def _probe_service(
             timeout=max(0.1, timeout_seconds),
             follow_redirects=False,
         ) as client:
-            response = client.get("/")
+            response = client.get(path)
     except Exception as exc:
         return MemoryComparisonPreflightCheck(
             name=name,
             passed=False,
             severity="service-probe",
-            reason="service did not respond to unauthenticated root probe",
-            details={"error_type": type(exc).__name__},
+            reason="memo API did not respond to unauthenticated health probe",
+            details={"path": path, "error_type": type(exc).__name__},
         )
+    passed = response.status_code < 400
     return MemoryComparisonPreflightCheck(
         name=name,
-        passed=response.status_code < 500,
+        passed=passed,
         severity="service-probe",
-        reason="service returned HTTP 5xx to unauthenticated root probe",
-        details={"status_code": response.status_code},
+        reason=None if passed else "memo API health endpoint did not return HTTP 2xx/3xx",
+        details={"path": path, "status_code": response.status_code},
+    )
+
+
+def _probe_mem0_api(
+    name: str,
+    base_url: str,
+    *,
+    timeout_seconds: float,
+) -> MemoryComparisonPreflightCheck:
+    path = "/openapi.json"
+    required_paths = frozenset({"/memories", "/search"})
+    try:
+        import httpx
+
+        with httpx.Client(
+            base_url=str(base_url).rstrip("/"),
+            timeout=max(0.1, timeout_seconds),
+            follow_redirects=False,
+        ) as client:
+            response = client.get(path)
+            payload = response.json() if response.status_code < 400 else {}
+    except Exception as exc:
+        return MemoryComparisonPreflightCheck(
+            name=name,
+            passed=False,
+            severity="service-probe",
+            reason="mem0 API did not expose an unauthenticated OpenAPI contract",
+            details={"path": path, "error_type": type(exc).__name__},
+        )
+
+    available_paths = _openapi_paths(payload)
+    matched_paths = required_paths.intersection(available_paths)
+    passed = response.status_code < 400 and required_paths.issubset(available_paths)
+    return MemoryComparisonPreflightCheck(
+        name=name,
+        passed=passed,
+        severity="service-probe",
+        reason=None if passed else "mem0 API contract is missing required OSS benchmark endpoints",
+        details={
+            "path": path,
+            "status_code": response.status_code,
+            "required_paths": sorted(required_paths),
+            "matched_paths": sorted(matched_paths),
+        },
     )
 
 
@@ -453,3 +499,12 @@ def _top_level_count(payload: object) -> int:
                 return len(value)
         return len(payload)
     return 0
+
+
+def _openapi_paths(payload: object) -> frozenset[str]:
+    if not isinstance(payload, Mapping):
+        return frozenset()
+    paths = payload.get("paths")
+    if not isinstance(paths, Mapping):
+        return frozenset()
+    return frozenset(str(path) for path in paths)
