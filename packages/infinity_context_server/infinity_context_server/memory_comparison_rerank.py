@@ -367,9 +367,10 @@ _ORDERED_EVENT_REQUEST_RE = re.compile(
 )
 _PERIOD_ANCHOR_TERMS_RE = re.compile(
     r"\b(?:january|february|march|april|may|june|july|august|september|"
-    r"october|november|december|\d{4})\b",
+    r"october|november|december|spring|summer|fall|autumn|winter|\d{4})\b",
     re.IGNORECASE,
 )
+_SEASON_TERMS = frozenset({"spring", "summer", "fall", "autumn", "winter"})
 _TEMPORAL_SURFACE_TERMS = (
     "monday",
     "tuesday",
@@ -2011,11 +2012,28 @@ def _ordered_event_temporal_term(query: str) -> str:
 def _period_modifier_temporal_terms(query: str) -> tuple[str, ...]:
     terms: list[str] = []
     for match in re.finditer(r"\b(early|late)\s+([a-z]+|\d{4})\b", query):
-        if _PERIOD_ANCHOR_TERMS_RE.fullmatch(match.group(2)):
+        anchor = match.group(2)
+        if _PERIOD_ANCHOR_TERMS_RE.fullmatch(anchor):
             terms.append(match.group(1))
+            if anchor in _SEASON_TERMS:
+                terms.append(anchor)
     for match in re.finditer(r"\b(first|second)\s+half\s+of\s+([a-z]+|\d{4})\b", query):
-        if _PERIOD_ANCHOR_TERMS_RE.fullmatch(match.group(2)):
+        anchor = match.group(2)
+        if _PERIOD_ANCHOR_TERMS_RE.fullmatch(anchor):
             terms.append(f"{match.group(1)} half")
+            if anchor in _SEASON_TERMS:
+                terms.append(anchor)
+    for match in re.finditer(
+        r"\b(?:towards?|near|around)?\s*(?:the\s+)?"
+        r"(start|beginning|end)\s+of\s+(?:the\s+)?([a-z]+|\d{4})\b",
+        query,
+    ):
+        anchor = match.group(2)
+        if _PERIOD_ANCHOR_TERMS_RE.fullmatch(anchor):
+            boundary = "start" if match.group(1) == "beginning" else match.group(1)
+            terms.append(boundary)
+            if anchor in _SEASON_TERMS:
+                terms.append(anchor)
     return tuple(dict.fromkeys(terms))
 
 

@@ -3540,6 +3540,25 @@ def test_query_decomposition_preserves_anchored_period_modifiers() -> None:
     )
 
 
+def test_query_decomposition_preserves_anchored_season_boundary() -> None:
+    case = _case(
+        case_id="conv-1:qa:end-of-summer",
+        question="What significant event happened in Sam's life towards the end of summer 2023?",
+        expected_terms=("fell in love",),
+        answer="He fell in love with a Canadian woman",
+        category=2,
+    )
+
+    queries, metadata = rerank_module.decomposed_search_queries(case)
+
+    assert metadata["query_profile"]["is_temporal_query"] is True
+    assert metadata["query_profile"]["time_intent_kind"] == "relative_time"
+    assert "end" in metadata["query_profile"]["temporal_terms"]
+    assert "summer" in metadata["query_profile"]["temporal_terms"]
+    assert "relative_temporal_support" in metadata["query_plan"]["selected_roles"]
+    assert queries[-1] == "sam end summer session date time"
+
+
 def test_query_decomposition_classifies_after_how_many_as_duration() -> None:
     case = _case(
         case_id="conv-1:qa:after-how-many-weeks",
