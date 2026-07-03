@@ -881,6 +881,14 @@ def answer_context_metrics(
         "primary_bundle_source_chain_proximity_distance_counts": _int_mapping(
             primary.get("bundle_source_chain_proximity_distance_counts")
         ),
+        "primary_avg_bundle_diffuse_source_ref_count": _metric_value(
+            primary,
+            "avg_bundle_diffuse_source_ref_count",
+        ),
+        "primary_total_bundle_diffuse_source_ref_count": (
+            _positive_int(primary.get("total_bundle_diffuse_source_ref_count"))
+            or 0
+        ),
         "by_cutoff": by_cutoff,
     }
 
@@ -934,6 +942,7 @@ def _answer_context_cutoff_metrics(
     bundle_source_chain_proximity_support_counts: list[int] = []
     bundle_source_chain_proximity_closest_distances: list[int] = []
     bundle_source_chain_proximity_distance_counts: Counter[str] = Counter()
+    bundle_diffuse_source_ref_counts: list[int] = []
     bundle_causal_support_counts: list[int] = []
     bundle_communication_support_counts: list[int] = []
     bundle_event_support_counts: list[int] = []
@@ -1167,6 +1176,9 @@ def _answer_context_cutoff_metrics(
             _int_mapping(
                 context.get("bundle_source_chain_proximity_distance_counts")
             )
+        )
+        bundle_diffuse_source_ref_counts.append(
+            _positive_int(context.get("bundle_diffuse_source_ref_count")) or 0
         )
         bundle_causal_support_counts.append(
             _positive_int(context.get("bundle_causal_support_count")) or 0
@@ -1437,6 +1449,12 @@ def _answer_context_cutoff_metrics(
         ),
         "bundle_source_chain_proximity_distance_counts": dict(
             sorted(bundle_source_chain_proximity_distance_counts.items())
+        ),
+        "avg_bundle_diffuse_source_ref_count": _avg(
+            bundle_diffuse_source_ref_counts
+        ),
+        "total_bundle_diffuse_source_ref_count": sum(
+            bundle_diffuse_source_ref_counts
         ),
         "avg_bundle_causal_support_count": _avg(bundle_causal_support_counts),
         "total_bundle_causal_support_count": sum(bundle_causal_support_counts),

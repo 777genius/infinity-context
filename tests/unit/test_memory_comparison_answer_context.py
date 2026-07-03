@@ -2202,6 +2202,7 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
                             "bundle_source_chain_proximity_distance_counts": {
                                 "3": 1,
                             },
+                            "bundle_diffuse_source_ref_count": 1,
                             "bundle_causal_support_count": 1,
                             "bundle_event_support_count": 8,
                             "bundle_inference_support_count": 2,
@@ -2351,6 +2352,8 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
     assert metrics["primary_bundle_source_chain_proximity_distance_counts"] == {
         "3": 1,
     }
+    assert metrics["primary_avg_bundle_diffuse_source_ref_count"] == 0.5
+    assert metrics["primary_total_bundle_diffuse_source_ref_count"] == 1
     assert primary["evidence_bundle_context_count"] == 1
     assert primary["fallback_context_count"] == 1
     assert primary["avg_backfilled_retrieval_item_count"] == 0.5
@@ -2413,6 +2416,8 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
     assert primary["avg_bundle_source_chain_proximity_closest_distance"] == 3.0
     assert primary["min_bundle_source_chain_proximity_closest_distance"] == 3
     assert primary["bundle_source_chain_proximity_distance_counts"] == {"3": 1}
+    assert primary["avg_bundle_diffuse_source_ref_count"] == 0.5
+    assert primary["total_bundle_diffuse_source_ref_count"] == 1
     assert primary["avg_bundle_causal_support_count"] == 0.5
     assert primary["total_bundle_causal_support_count"] == 1
     assert primary["avg_bundle_event_support_count"] == 4.0
