@@ -1489,6 +1489,8 @@ def _source_proximity_selection_sort_key(
 ) -> tuple[float, float]:
     if item.role == "primary":
         return (1.0, float("inf"))
+    if not _candidate_has_source_proximity_diagnostic_support(item.candidate):
+        return (1.0, float("inf"))
     selected_turn_refs = tuple(
         turn_ref
         for selected_item in selected
