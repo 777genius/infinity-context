@@ -318,6 +318,7 @@ _TEMPORAL_QUERY_TERMS = (
     "afterwards",
     "since",
     "ago",
+    "soon",
     "yesterday",
     "today",
     "tomorrow",

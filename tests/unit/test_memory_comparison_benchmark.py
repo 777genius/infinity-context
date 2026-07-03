@@ -4710,7 +4710,13 @@ def test_query_decomposition_expands_open_domain_inference_queries() -> None:
     assert "thank" in personality_metadata["query_profile"]["relation_variant_terms"]
     assert "care" in personality_metadata["query_profile"]["relation_variant_terms"]
     assert "drive" in personality_metadata["query_profile"]["relation_variant_terms"]
-    assert roadtrip_queries[2] == "melanie roadtrip trip road weekend past soon"
+    assert roadtrip_queries[1] == "melanie roadtrip trip road weekend past soon"
+    assert roadtrip_queries[2] == "melanie soon session date time"
+    assert roadtrip_metadata["query_profile"]["time_intent_kind"] == "relative_time"
+    assert "soon" in roadtrip_metadata["query_profile"]["temporal_terms"]
+    assert "relative_temporal_support" in roadtrip_metadata["query_plan"][
+        "selected_roles"
+    ]
     assert "roadtrip" in roadtrip_metadata["query_profile"]["relation_terms"]
     assert "travel" in roadtrip_metadata["query_profile"]["relation_variant_terms"]
     assert not {"accident", "son", "family", "safe"}.intersection(
@@ -8036,10 +8042,8 @@ def test_infinity_context_http_search_expands_roadtrip_queries() -> None:
 
     assert [payload["query"] for payload in seen_payloads] == [
         "Would Melanie go on another roadtrip soon?",
-        "Would Melanie go on another roadtrip soon?\n"
-        "Search focus: entities: melanie; speakers: melanie:; "
-        "actions: roadtrip, trip, road, weekend, past, soon, another, travel",
         "melanie roadtrip trip road weekend past soon",
+        "melanie soon session date time",
     ]
     assert result.memories[0].item_id == "roadtrip-evidence"
     query_profile = result.metadata["query_decomposition"]["query_profile"]
@@ -10704,32 +10708,35 @@ def test_query_decomposition_reports_current_goal_instead_of_location_support() 
 
     assert queries == (
         "Would Caroline want to move back to her home country soon?",
-        "Would Caroline want to move back to her home country soon?\n"
-        "Search focus: entities: caroline; speakers: caroline:; "
-        "actions: want, move, hop, hope, plan, goal, future, soon",
         "caroline want move hop hope plan goal",
+        "caroline soon session date time",
     )
+    assert query_profile["time_intent_kind"] == "relative_time"
+    assert "soon" in query_profile["temporal_terms"]
     assert query_profile["relation_categories"] == (
         "preference",
         "current_goal",
+        "temporal",
     )
     assert "location_support" not in query_profile["evidence_need"]
     assert "location_transition" not in query_profile["relation_categories"]
     assert "current_goal" in query_profile["evidence_need"]
+    assert "temporal_support" in query_profile["evidence_need"]
     assert query_profile["bundle_evidence_roles"] == (
         "primary",
+        "temporal_support",
         "current_goal_support",
         "inference_support",
     )
     assert metadata["query_plan"]["selected_roles"] == [
         "original_question",
-        "expanded_focus",
         "current_goal_support",
+        "relative_temporal_support",
     ]
     assert metadata["query_plan"]["selected_role_families"] == [
         "base_query",
-        "expanded_focus",
         "relation_compact",
+        "temporal_support",
     ]
     assert query_profile["relation_category_terms"]["current_goal"] == (
         "want",
@@ -10801,13 +10808,13 @@ def test_benchmark_rerank_boosts_current_goal_over_origin_history() -> None:
     future_plan_diagnostics = diagnostics_by_id["future-plan"]
     assert goal_diagnostics["benchmark_candidate_features"][
         "relation_category_hits"
-    ] == ["current_goal"]
+    ] == ["current_goal", "temporal"]
     assert future_plan_diagnostics["benchmark_candidate_features"][
         "relation_category_hits"
     ] == ["current_goal"]
     assert origin_diagnostics["benchmark_candidate_features"][
         "relation_category_hits"
-    ] == []
+    ] == ["temporal"]
     assert "missing_current_goal_evidence" in origin_diagnostics[
         "benchmark_candidate_features"
     ]["answerability_reason_codes"]

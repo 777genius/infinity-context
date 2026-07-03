@@ -229,6 +229,7 @@ _RELATIVE_TIME_TERMS = (
             "recent",
             "second half",
             "since",
+            "soon",
             "start",
             "this month",
             "this afternoon",
