@@ -9,6 +9,7 @@ from dataclasses import replace
 from infinity_context_core.application.context_answer_unit_shapes import (
     requested_answer_unit_shapes as _requested_answer_unit_shapes,
 )
+
 from infinity_context_server.memory_comparison_candidate_features import (
     build_candidate_evidence_features,
 )
@@ -1813,6 +1814,7 @@ def _filter_relation_terms_for_profile(
 ) -> tuple[str, ...]:
     normalized_question = re.sub(r"[^0-9a-z]+", " ", question.casefold()).strip()
     relation_set = set(relation_terms)
+    has_diet_profile_question = _has_diet_profile_question(normalized_question)
     filtered: list[str] = []
     for term in relation_terms:
         if term == "work" and _has_employment_profile_question(normalized_question):
@@ -1829,7 +1831,9 @@ def _filter_relation_terms_for_profile(
             _has_commitment_profile_question(normalized_question)
         ):
             continue
-        if term == "diet" and not _has_diet_profile_question(normalized_question):
+        if term == "diet" and not has_diet_profile_question:
+            continue
+        if term == "avoid" and has_diet_profile_question:
             continue
         if term in {"exercise", "hobby", "sport"} and not _has_activity_profile_question(
             normalized_question,
