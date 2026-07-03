@@ -3093,6 +3093,38 @@ def test_temporal_rerank_orders_earliest_event_by_timestamp() -> None:
     ] > 0
 
 
+def test_temporal_rerank_orders_earliest_event_by_min_source_timestamp() -> None:
+    case = _case(
+        case_id="conv-1:qa:first-conversation-multi-ref-rerank",
+        question="What was the first conversation with Morgan?",
+        expected_terms=("checklist",),
+        answer="checklist",
+        category=2,
+    )
+    middle = RetrievedMemory(
+        item_id="middle",
+        rank=1,
+        score=0.9,
+        text="Morgan discussed the interim planning note.",
+        metadata={"source_ref_time_start_ms": [1683550560000]},
+    )
+    spanning = RetrievedMemory(
+        item_id="spanning",
+        rank=2,
+        score=0.86,
+        text="Morgan discussed the checklist and later the studio launch.",
+        metadata={"source_ref_time_start_ms": [1683546960000, 1683554160000]},
+    )
+
+    reranked, metadata = rerank_module.temporal_rerank_memories(case, (middle, spanning))
+
+    assert [memory.item_id for memory in reranked] == ["spanning", "middle"]
+    assert metadata["timestamp_order_boosted_count"] == 1
+    assert reranked[0].metadata["diagnostics"]["score_signals"][
+        "benchmark_temporal_timestamp_order_boost"
+    ] > 0
+
+
 def test_temporal_rerank_orders_latest_event_by_session_index() -> None:
     case = _case(
         case_id="conv-1:qa:latest-conversation-session-rerank",
@@ -3148,6 +3180,39 @@ def test_temporal_rerank_orders_earliest_event_by_session_index() -> None:
     reranked, metadata = rerank_module.temporal_rerank_memories(case, (newer, older))
 
     assert [memory.item_id for memory in reranked] == ["older", "newer"]
+    assert metadata["session_order_boosted_count"] == 1
+    assert reranked[0].metadata["diagnostics"]["score_signals"][
+        "benchmark_temporal_session_order_boost"
+    ] > 0
+
+
+def test_temporal_rerank_orders_earliest_event_by_min_session_index() -> None:
+    case = _case(
+        case_id="conv-1:qa:first-conversation-multi-session-rerank",
+        question="What was the first conversation with Morgan?",
+        expected_terms=("checklist",),
+        answer="checklist",
+        category=2,
+    )
+    middle = RetrievedMemory(
+        item_id="middle",
+        rank=1,
+        score=0.9,
+        text="session_10 date: Wednesday D10:3 Morgan discussed an interim note.",
+    )
+    spanning = RetrievedMemory(
+        item_id="spanning",
+        rank=2,
+        score=0.86,
+        text=(
+            "session_2 date: Monday D2:1 Morgan discussed the checklist. "
+            "session_19 date: Friday D19:4 Morgan discussed the studio launch."
+        ),
+    )
+
+    reranked, metadata = rerank_module.temporal_rerank_memories(case, (middle, spanning))
+
+    assert [memory.item_id for memory in reranked] == ["spanning", "middle"]
     assert metadata["session_order_boosted_count"] == 1
     assert reranked[0].metadata["diagnostics"]["score_signals"][
         "benchmark_temporal_session_order_boost"

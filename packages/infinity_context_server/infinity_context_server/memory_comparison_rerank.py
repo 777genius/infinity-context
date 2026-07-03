@@ -1343,7 +1343,10 @@ def _temporal_timestamp_order_boosts(
     for index, memory in enumerate(memories):
         timestamps = _memory_timestamp_values(memory)
         if timestamps:
-            timestamped.append((index, max(timestamps)))
+            representative_timestamp = (
+                min(timestamps) if earliest_requested else max(timestamps)
+            )
+            timestamped.append((index, representative_timestamp))
     if len(timestamped) <= 1:
         return {}
     ordered_timestamps = sorted({timestamp for _, timestamp in timestamped})
@@ -1380,7 +1383,10 @@ def _temporal_session_order_boosts(
             continue
         session_indices = _memory_session_indices(memory)
         if session_indices:
-            session_indexed.append((index, max(session_indices)))
+            representative_session = (
+                min(session_indices) if earliest_requested else max(session_indices)
+            )
+            session_indexed.append((index, representative_session))
     if len(session_indexed) <= 1:
         return {}
     ordered_sessions = sorted({session for _, session in session_indexed})
