@@ -108,6 +108,44 @@ def test_deterministic_rerank_matches_full_name_speaker_alias() -> None:
     )
 
 
+def test_deterministic_rerank_prefers_exact_full_name_over_wrong_full_name() -> None:
+    query = "According to Melanie Chen, what traits does Caroline White have?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    exact_speaker_turn = _item(
+        "melanie_chen_trait",
+        score=0.7,
+        text="D16:18 Melanie Chen: Caroline is thoughtful and patient.",
+    )
+    wrong_speaker_turn = _item(
+        "melanie_smith_trait",
+        score=0.73,
+        text="D16:19 Melanie Smith: Caroline is organized and direct.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (wrong_speaker_turn, exact_speaker_turn),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert by_id["melanie_chen_trait"].score > by_id["melanie_smith_trait"].score
+    assert (
+        "speaker_attribution_match"
+        in by_id["melanie_chen_trait"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+    assert (
+        "speaker_attribution_other_speaker"
+        in by_id["melanie_smith_trait"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+
+
 def _item(item_id: str, *, score: float, text: str) -> ContextItem:
     return ContextItem(
         item_id=item_id,

@@ -42,6 +42,15 @@ def test_person_relation_inventory_signal_matches_full_name_anchor_alias() -> No
     assert signal.reason == "person_relation_inventory_match"
 
 
+def test_person_relation_inventory_signal_ignores_different_full_name_anchor() -> None:
+    signal = person_relation_inventory_signal(
+        query="Who is Alice Chen's boss?",
+        text="D4:8 Alice Smith: Maria is my boss at the clinic.",
+    )
+
+    assert signal == (0.0, 0.0, "")
+
+
 def test_person_relation_inventory_signal_matches_named_person_boss() -> None:
     signal = person_relation_inventory_signal(
         query="Who is Alice Chen's boss?",

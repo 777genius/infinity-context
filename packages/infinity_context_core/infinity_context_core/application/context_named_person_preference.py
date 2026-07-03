@@ -185,9 +185,8 @@ def _domain_terms_match(domain_terms: frozenset[str], text: str) -> bool:
 
 
 def _text_mentions_person(person: str, text: str) -> bool:
-    person_aliases = person_alias_keys(person)
     return any(
-        person_aliases.intersection(person_alias_keys(match.group("speaker")))
+        person_labels_match(match.group("speaker"), person)
         for match in _DIALOGUE_SPEAKER_RE.finditer(text)
     ) or any(
         person_labels_match(match.group(0), person)

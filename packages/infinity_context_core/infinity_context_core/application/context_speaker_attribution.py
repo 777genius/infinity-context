@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import re
 
-from infinity_context_core.application.context_person_aliases import person_alias_keys
+from infinity_context_core.application.context_person_aliases import (
+    person_alias_keys,
+    person_labels_match,
+)
 
 _SPEAKER_LABEL_RE = (
     r"[A-ZА-ЯЁ][A-Za-zА-Яа-яЁё._-]{1,39}"
@@ -111,15 +114,15 @@ def speaker_attribution_signal(*, query: str, text: str) -> tuple[float, float, 
     speakers = _dialogue_speaker_labels(text)
     if not speakers:
         return 0.0, 0.0, ""
-    attributed_speaker_aliases = person_alias_keys(attributed_speaker)
-    attributed_subject_aliases = person_alias_keys(attributed_subject)
-    if attributed_speaker_aliases.intersection(speakers):
+    if any(person_labels_match(attributed_speaker, speaker) for speaker in speakers):
         return (
             _SPEAKER_ATTRIBUTION_MATCH_BOOST,
             0.0,
             "speaker_attribution_match",
         )
-    if attributed_subject_aliases and attributed_subject_aliases.intersection(speakers):
+    if attributed_subject and any(
+        person_labels_match(attributed_subject, speaker) for speaker in speakers
+    ):
         return (
             0.0,
             _SPEAKER_ATTRIBUTION_SUBJECT_SELF_REPORT_PENALTY,
@@ -139,11 +142,9 @@ def _attributed_speaker_and_subject(
         return "", ""
     speaker = _clean_query_person_label(match.group("speaker"), prefer_last=True)
     subject = _clean_query_person_label(match.group("subject"), prefer_last=False)
-    speaker_aliases = person_alias_keys(speaker)
-    subject_aliases = person_alias_keys(subject)
     if (
-        not speaker_aliases
-        or speaker_aliases.intersection(subject_aliases)
+        not person_alias_keys(speaker)
+        or person_labels_match(speaker, subject)
         or speaker.casefold() in _ATTRIBUTION_QUERY_LABEL_STOP_WORDS
     ):
         return "", ""
@@ -173,16 +174,14 @@ def _attributed_speaker_from_query(query: str) -> str:
 
 
 def _attributed_subject_from_query(query: str, *, speaker: str) -> str:
-    speaker_aliases = person_alias_keys(speaker)
     for match in _QUERY_PERSON_LABEL_RE.finditer(query):
         label = match.group("label").strip()
         label = _clean_query_person_label(label, prefer_last=False)
-        label_aliases = person_alias_keys(label)
-        if not label_aliases:
+        if not person_alias_keys(label):
             continue
         if label.casefold() in _ATTRIBUTION_QUERY_LABEL_STOP_WORDS:
             continue
-        if label_aliases.intersection(speaker_aliases):
+        if person_labels_match(label, speaker):
             continue
         return label
     return ""
@@ -197,14 +196,13 @@ def _clean_query_person_label(label: str, *, prefer_last: bool) -> str:
     )
     if not tokens:
         return ""
-    if not prefer_last:
+    if not prefer_last or len(tokens) > 1:
         return " ".join(tokens)
     return tokens[-1]
 
 
 def _dialogue_speaker_labels(text: str) -> frozenset[str]:
     return frozenset(
-        alias
+        match.group("speaker")
         for match in _DIALOGUE_SPEAKER_RE.finditer(text)
-        for alias in person_alias_keys(match.group("speaker"))
     )

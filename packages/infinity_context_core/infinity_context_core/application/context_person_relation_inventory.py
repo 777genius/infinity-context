@@ -227,11 +227,10 @@ def _relation_cue(kind: PersonRelationKind) -> re.Pattern[str]:
 
 
 def _text_mentions_anchor(anchor: str, text: str) -> bool:
-    anchor_aliases = person_alias_keys(anchor)
-    if not anchor_aliases:
+    if not person_alias_keys(anchor):
         return False
     if any(
-        anchor_aliases.intersection(person_alias_keys(match.group("speaker")))
+        person_labels_match(match.group("speaker"), anchor)
         for match in _DIALOGUE_SPEAKER_RE.finditer(text)
     ):
         return True

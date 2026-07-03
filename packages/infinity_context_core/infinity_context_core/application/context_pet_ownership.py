@@ -175,9 +175,8 @@ def _text_mentions_pet_decoy(
 
 
 def _text_mentions_label(label: str, text: str) -> bool:
-    label_aliases = person_alias_keys(label)
     return any(
-        label_aliases.intersection(person_alias_keys(match.group("speaker")))
+        person_labels_match(match.group("speaker"), label)
         for match in _DIALOGUE_SPEAKER_RE.finditer(text)
     ) or any(
         person_labels_match(match.group(0), label)

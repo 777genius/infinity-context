@@ -32,7 +32,17 @@ def person_alias_keys(
 def person_labels_match(left: str, right: str) -> bool:
     """Return true when labels match exactly or by explicit given-name alias."""
 
+    left_tokens = _person_label_tokens(left)
+    right_tokens = _person_label_tokens(right)
+    if len(left_tokens) > 1 and len(right_tokens) > 1:
+        return _normalized_label(" ".join(left_tokens)) == _normalized_label(
+            " ".join(right_tokens)
+        )
     return bool(person_alias_keys(left).intersection(person_alias_keys(right)))
+
+
+def _person_label_tokens(label: str) -> tuple[str, ...]:
+    return tuple(_PERSON_LABEL_TOKEN_RE.findall(label or ""))
 
 
 def _normalized_label(value: str) -> str:
