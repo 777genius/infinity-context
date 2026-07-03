@@ -470,7 +470,7 @@ def infer_evidence_need(
         needs.append("multi_hop")
     if count_intent:
         needs.append("count_support")
-    if "quantity_dollar" in answer_unit_set:
+    if "quantity_dollar" in answer_unit_set and "employment" not in relation_set:
         needs.append("value_support")
     if time_intent.is_temporal:
         needs.append(
