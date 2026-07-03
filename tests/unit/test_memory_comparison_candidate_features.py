@@ -1019,6 +1019,56 @@ def test_candidate_features_use_source_ref_turns_for_locality_and_dedupe() -> No
     assert diagnostics["source_turn_span"] == 2
 
 
+def test_candidate_features_do_not_treat_split_direct_refs_as_perfect_locality() -> None:
+    memory = RetrievedMemory(
+        item_id="split-direct-source-refs",
+        rank=1,
+        text=(
+            "D2:8 Caroline: The adoption agency felt inclusive. "
+            "D9:31 Caroline: My hiking club meets every Sunday."
+        ),
+        source_refs=(
+            "locomo:conv-26:session_2:D2:8:turn",
+            "locomo:conv-26:session_2:D9:31:turn",
+        ),
+        metadata={"item_type": "chunk"},
+    )
+
+    features = build_candidate_evidence_features(
+        memory,
+        memory_terms={
+            "caroline",
+            "adoption",
+            "agency",
+            "inclusive",
+            "hiking",
+            "club",
+            "sunday",
+        },
+        query_terms=("caroline", "adoption", "agency"),
+        relation_terms=("adoption", "agency"),
+        relation_variant_terms=("inclusive",),
+        entities=("caroline",),
+        entity_hits=("caroline",),
+        speaker_hits=("caroline",),
+        high_signal_relation_terms={"inclusive"},
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+
+    assert features.turn_ref_count == 2
+    assert features.source_turn_span == 0
+    assert features.source_locality_score == 0.65
+    assert features.source_locality_reason_codes == ("multi_turn_refs",)
+
+
 def test_candidate_features_keep_single_session_source_refs_dedupe_qualified() -> None:
     first_session = _features_for_session_source_ref(
         "locomo:conv-26:session_1:D1:8:turn"

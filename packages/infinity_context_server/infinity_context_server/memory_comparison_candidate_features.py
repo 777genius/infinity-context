@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from infinity_context_core.application.context_answer_unit_shapes import (
     covered_answer_unit_shapes,
 )
+
 from infinity_context_server.memory_comparison_candidate_risks import (
     memory_has_broad_summary,
     memory_has_conflict_or_stale,
@@ -711,7 +712,11 @@ def _source_locality(
     broad_summary: bool,
 ) -> tuple[float, tuple[str, ...]]:
     reasons: list[str] = []
-    if direct_speaker_turn and 0 < turn_ref_count <= 2:
+    direct_localized_turn = direct_speaker_turn and (
+        turn_ref_count == 1
+        or (1 < turn_ref_count <= 2 and 0 < source_turn_span <= 3)
+    )
+    if direct_localized_turn:
         score = 1.0
         reasons.append("direct_localized_turn")
     elif not broad_summary and 1 < turn_ref_count <= 3 and 0 < source_turn_span <= 3:
