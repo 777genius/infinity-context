@@ -1956,6 +1956,9 @@ def _temporal_query_profile(case: PublicBenchmarkCase) -> dict[str, object]:
     period_modifier_terms = _period_modifier_temporal_terms(query)
     if period_modifier_terms:
         matched_terms = tuple(dict.fromkeys((*matched_terms, *period_modifier_terms)))
+    duration_amount_terms = _duration_amount_temporal_terms(query)
+    if duration_amount_terms:
+        matched_terms = tuple(dict.fromkeys((*matched_terms, *duration_amount_terms)))
     ordered_event_term = _ordered_event_temporal_term(query)
     if ordered_event_term:
         matched_terms = tuple(dict.fromkeys((*matched_terms, ordered_event_term)))
@@ -2008,6 +2011,17 @@ def _period_modifier_temporal_terms(query: str) -> tuple[str, ...]:
         if _PERIOD_ANCHOR_TERMS_RE.fullmatch(match.group(2)):
             terms.append(f"{match.group(1)} half")
     return tuple(dict.fromkeys(terms))
+
+
+def _duration_amount_temporal_terms(query: str) -> tuple[str, ...]:
+    match = re.search(
+        r"\bhow\s+many\s+"
+        r"(day|days|week|weeks|month|months|year|years|hour|hours)\b",
+        query,
+    )
+    if match is None:
+        return ()
+    return ("duration", match.group(1))
 
 
 def _without_overlapped_relative_temporal_terms(
