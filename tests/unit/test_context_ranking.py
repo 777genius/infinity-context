@@ -5933,6 +5933,34 @@ def test_context_requirement_boost_counts_enumerated_list_for_count_query() -> N
     ] == ["count"]
 
 
+def test_context_requirement_boost_counts_approximate_total_visit_answers() -> None:
+    generic = _item(
+        "generic_visit_note",
+        score=0.7,
+        retrieval_source="keyword_chunks",
+        text="Morgan talked about visits to the clinic and follow-up care.",
+    )
+    approximate_count = _item(
+        "approximate_visit_count",
+        score=0.7,
+        retrieval_source="keyword_chunks",
+        text="Morgan made several visits to the clinic for follow-up care.",
+    )
+    query = "What was the total for Morgan's clinic visits?"
+
+    boosted = apply_context_requirement_boosts(
+        (generic, approximate_count),
+        query=query,
+        query_anchor_intent=build_query_anchor_intent(query),
+        max_boost=0.04,
+    )
+
+    assert boosted[1].score > boosted[0].score
+    assert boosted[1].diagnostics["provenance"][
+        "context_requirement_matched_answer_shapes"
+    ] == ["count"]
+
+
 def test_context_requirement_boost_prefers_causal_answer_shape_match() -> None:
     generic = _item(
         "generic_store_note",

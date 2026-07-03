@@ -2449,6 +2449,25 @@ def test_requirement_guard_keeps_count_answer_shape_evidence() -> None:
     assert diagnostics["requirement_guard_items_dropped"] == 0
 
 
+def test_requirement_guard_keeps_approximate_total_count_shape_evidence() -> None:
+    item = _item(
+        "approximate_visit_count",
+        "Morgan made several visits to the clinic for follow-up care.",
+        deterministic_reasons=("explicit_requirement_covered",),
+    )
+    query = "What was the total for Morgan's clinic visits?"
+
+    guarded_items, diagnostics = _apply_explicit_requirement_guard(
+        query=query,
+        query_anchor_intent=build_query_anchor_intent(query),
+        items=(item,),
+    )
+
+    assert guarded_items == (item,)
+    assert diagnostics["requirement_guard_status"] == "satisfied"
+    assert diagnostics["requirement_guard_items_dropped"] == 0
+
+
 def _item(
     item_id: str,
     text: str,

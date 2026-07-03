@@ -181,8 +181,13 @@ _EXPLICIT_TIME_RANGE_QUERY_RE = re.compile(
     re.IGNORECASE,
 )
 _COUNT_ANSWER_QUERY_RE = re.compile(
-    r"\b(how\s+many|number\s+of|count|сколько)\b",
-    re.IGNORECASE,
+    r"\b(how\s+many|number\s+of|count|сколько)\b|"
+    r"\b(?:total|totaled|totalled|amount)\b(?=.{0,64}\b("
+    r"times?|events?|visits?|mentions?|items?|people|persons|games?|"
+    r"trips?|hikes?|meetings?|calls?|messages?|letters?|pets?|children|"
+    r"episodes?|occurrences?"
+    r")\b)",
+    re.IGNORECASE | re.DOTALL,
 )
 _LIST_ANSWER_QUERY_RE = re.compile(
     r"\b(what|which|какие|какой|что)\b"
@@ -525,6 +530,7 @@ _COUNT_ANSWER_TEXT_RE = re.compile(
     r"\b("
     r"first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|"
     r"once|twice|one|two|three|four|five|six|seven|eight|nine|ten|"
+    r"couple|several|multiple|"
     r"один|одна|одно|одного|одной|два|две|двух|три|трех|трёх|"
     r"четыре|четырех|четырёх|пять|пяти|шесть|шести|семь|семи|"
     r"восемь|восьми|девять|девяти|десять|десяти|"
