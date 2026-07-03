@@ -1508,6 +1508,9 @@ def _memory_for_bundle_item(
     source_refs = set(_source_match_refs_from_bundle_item(item))
     if source_refs:
         for memory in memories:
+            if source_refs.intersection(_precise_source_match_refs_from_memory(memory)):
+                return memory
+        for memory in memories:
             if source_refs.intersection(_source_match_refs_from_memory(memory)):
                 return memory
 
@@ -2150,15 +2153,24 @@ def _source_identity_refs_from_memory(
     )
 
 
-def _source_match_refs_from_memory(memory: RetrievedMemory) -> tuple[str, ...]:
+def _source_match_refs_from_memory(
+    memory: RetrievedMemory,
+    *,
+    include_compacted_fusion_refs: bool = True,
+) -> tuple[str, ...]:
     diagnostics = _mapping(memory.metadata.get("diagnostics"))
     fusion = _mapping(diagnostics.get("benchmark_candidate_fusion"))
     features = _candidate_features(memory)
+    fusion_source_refs = (
+        _string_tuple(fusion.get("source_refs"))
+        if include_compacted_fusion_refs
+        else ()
+    )
     source_refs = tuple(
         dict.fromkeys(
             (
                 *(str(ref).strip() for ref in memory.source_refs if str(ref).strip()),
-                *_string_tuple(fusion.get("source_refs")),
+                *fusion_source_refs,
             )
         )
     )
@@ -2167,7 +2179,7 @@ def _source_match_refs_from_memory(memory: RetrievedMemory) -> tuple[str, ...]:
             (
                 *_source_identity_refs_from_memory(
                     memory,
-                    include_compacted_fusion_refs=True,
+                    include_compacted_fusion_refs=include_compacted_fusion_refs,
                 ),
                 *_source_identity_refs_from_source_refs(
                     source_refs,
@@ -2179,6 +2191,13 @@ def _source_match_refs_from_memory(memory: RetrievedMemory) -> tuple[str, ...]:
                 *_source_identity_refs_from_dedupe_key(fusion.get("dedupe_key")),
             )
         )
+    )
+
+
+def _precise_source_match_refs_from_memory(memory: RetrievedMemory) -> tuple[str, ...]:
+    return _source_match_refs_from_memory(
+        memory,
+        include_compacted_fusion_refs=False,
     )
 
 
