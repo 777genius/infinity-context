@@ -3281,6 +3281,48 @@ def test_temporal_rerank_orders_soon_by_session_index() -> None:
     ] > 0
 
 
+def test_temporal_rerank_orders_repeated_event_again_by_session_index() -> None:
+    case = _case(
+        case_id="conv-1:qa:run-for-office-again-session-rerank",
+        question="Why did John decide to run for office again?",
+        expected_terms=("impact",),
+        answer="impact",
+        category=4,
+    )
+    earlier_run = RetrievedMemory(
+        item_id="earlier-run",
+        rank=1,
+        score=0.9,
+        text=(
+            "session_3 date: Monday D3:8 John: "
+            "I ran for office to learn about local issues."
+        ),
+    )
+    repeated_run = RetrievedMemory(
+        item_id="repeated-run",
+        rank=2,
+        score=0.86,
+        text=(
+            "session_7 date: Friday D7:2 John: "
+            "I'm running for office again because I can have more impact."
+        ),
+    )
+
+    reranked, metadata = rerank_module.temporal_rerank_memories(
+        case,
+        (earlier_run, repeated_run),
+    )
+
+    assert [memory.item_id for memory in reranked] == [
+        "repeated-run",
+        "earlier-run",
+    ]
+    assert metadata["session_order_boosted_count"] == 1
+    assert reranked[0].metadata["diagnostics"]["score_signals"][
+        "benchmark_temporal_session_order_boost"
+    ] > 0
+
+
 def test_temporal_rerank_orders_earliest_event_by_session_index() -> None:
     case = _case(
         case_id="conv-1:qa:first-conversation-session-rerank",
