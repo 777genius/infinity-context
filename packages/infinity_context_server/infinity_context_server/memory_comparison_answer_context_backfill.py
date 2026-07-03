@@ -696,15 +696,27 @@ def _memory_key(
     return ("retrieval_order", retrieval_order)
 
 
-def _memory_source_refs(memory: RetrievedMemory) -> tuple[str, ...]:
+def _memory_source_refs(
+    memory: RetrievedMemory,
+    *,
+    include_compacted_fusion_refs: bool = False,
+) -> tuple[str, ...]:
     diagnostics = _mapping(memory.metadata.get("diagnostics"))
     fusion = _mapping(diagnostics.get("benchmark_candidate_fusion"))
     features = _candidate_features(memory)
+    compacted_fusion_refs = (
+        diagnostics.get("benchmark_compacted_selected_source_refs") is True
+    )
+    fusion_source_refs = (
+        _string_tuple(fusion.get("source_refs"))
+        if include_compacted_fusion_refs or not compacted_fusion_refs
+        else ()
+    )
     source_refs = tuple(
         dict.fromkeys(
             (
                 *(str(ref).strip() for ref in memory.source_refs if str(ref).strip()),
-                *_string_tuple(fusion.get("source_refs")),
+                *fusion_source_refs,
             )
         )
     )
@@ -738,7 +750,7 @@ def _memory_source_match_refs(memory: RetrievedMemory) -> tuple[str, ...]:
     return tuple(
         dict.fromkeys(
             (
-                *_memory_source_refs(memory),
+                *_memory_source_refs(memory, include_compacted_fusion_refs=True),
                 *_source_identity_refs_from_source_refs(
                     source_refs,
                     include_exact_turn_refs=True,
