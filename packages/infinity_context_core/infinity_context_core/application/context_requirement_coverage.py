@@ -197,6 +197,10 @@ _LIST_ANSWER_QUERY_RE = re.compile(
     r"ways|symbols?|attributes?|things?|people|persons|stakeholders?|contacts?|"
     r"owners?|participants?|collaborators?|люди|участники|контакты|"
     r"стейкхолдеры|ответственные"
+    r")\b)|"
+    r"\bwho\s+(?:are|were)\b(?=.{0,96}\b("
+    r"people|persons|stakeholders?|contacts?|owners?|participants?|"
+    r"collaborators?|members?|teammates?|friends?|children|kids"
     r")\b)",
     re.IGNORECASE | re.DOTALL,
 )
