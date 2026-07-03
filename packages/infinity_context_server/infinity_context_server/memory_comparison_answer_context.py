@@ -646,6 +646,25 @@ def answer_context_metrics(
         "primary_max_bundle_retrieval_source_diversity": (
             _positive_int(primary.get("max_bundle_retrieval_source_diversity")) or 0
         ),
+        "primary_avg_bundle_source_proximity_support_count": _metric_value(
+            primary,
+            "avg_bundle_source_proximity_support_count",
+        ),
+        "primary_total_bundle_source_proximity_support_count": (
+            _positive_int(
+                primary.get("total_bundle_source_proximity_support_count")
+            )
+            or 0
+        ),
+        "primary_avg_bundle_source_proximity_closest_distance": _metric_value(
+            primary,
+            "avg_bundle_source_proximity_closest_distance",
+        ),
+        "primary_min_bundle_source_proximity_closest_distance": (
+            _positive_int(
+                primary.get("min_bundle_source_proximity_closest_distance")
+            )
+        ),
         "primary_avg_bundle_source_chain_proximity_support_count": _metric_value(
             primary,
             "avg_bundle_source_chain_proximity_support_count",

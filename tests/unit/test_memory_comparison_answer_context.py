@@ -2072,6 +2072,16 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
     assert metrics["primary_max_bundle_source_type_diversity"] == 2
     assert metrics["primary_avg_bundle_retrieval_source_diversity"] == 1.5
     assert metrics["primary_max_bundle_retrieval_source_diversity"] == 3
+    assert metrics["primary_avg_bundle_source_proximity_support_count"] == 0.5
+    assert (
+        metrics["primary_total_bundle_source_proximity_support_count"]
+        == 1
+    )
+    assert (
+        metrics["primary_avg_bundle_source_proximity_closest_distance"]
+        == 2.0
+    )
+    assert metrics["primary_min_bundle_source_proximity_closest_distance"] == 2
     assert (
         metrics["primary_avg_bundle_source_chain_proximity_support_count"]
         == 0.5
