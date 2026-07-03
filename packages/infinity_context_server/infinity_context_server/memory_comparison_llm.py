@@ -158,32 +158,25 @@ def _render_memory_evidence_line(memory: RetrievedMemory, *, index: int) -> str:
     retrieval_source_diversity = _positive_int(
         metadata.get("answer_context_bundle_retrieval_source_diversity")
     )
-    source_diversity_labels: list[str] = []
-    if source_type_diversity is not None:
-        source_diversity_labels.append(f"types:{source_type_diversity}")
-    if retrieval_source_diversity is not None:
-        source_diversity_labels.append(f"retrieval:{retrieval_source_diversity}")
-    if source_diversity_labels:
-        labels.append(f"bundle_sources={','.join(source_diversity_labels)}")
     source_type_support_diversity = _positive_int(
         metadata.get("answer_context_bundle_source_type_support_diversity")
     )
     retrieval_source_support_diversity = _positive_int(
         metadata.get("answer_context_bundle_retrieval_source_support_diversity")
     )
-    source_support_diversity_labels: list[str] = []
+    source_diversity_labels: list[str] = []
     if source_type_support_diversity is not None:
-        source_support_diversity_labels.append(
-            f"types:{source_type_support_diversity}"
-        )
+        source_diversity_labels.append(f"types:{source_type_support_diversity}")
+    elif source_type_diversity is not None:
+        source_diversity_labels.append(f"types:{source_type_diversity}")
     if retrieval_source_support_diversity is not None:
-        source_support_diversity_labels.append(
+        source_diversity_labels.append(
             f"retrieval:{retrieval_source_support_diversity}"
         )
-    if source_support_diversity_labels:
-        labels.append(
-            f"bundle_support_sources={','.join(source_support_diversity_labels)}"
-        )
+    elif retrieval_source_diversity is not None:
+        source_diversity_labels.append(f"retrieval:{retrieval_source_diversity}")
+    if source_diversity_labels:
+        labels.append(f"bundle_sources={','.join(source_diversity_labels)}")
     source_ref_support = _positive_int(
         metadata.get("answer_context_bundle_source_ref_support_item_count")
     )
