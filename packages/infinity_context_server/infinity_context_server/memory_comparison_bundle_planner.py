@@ -1118,20 +1118,7 @@ def _candidate_has_contrast_grounding(candidate: EvidenceBundleCandidate) -> boo
 def _candidate_has_location_support(candidate: EvidenceBundleCandidate) -> bool:
     if not _candidate_has_typed_relation_grounding(candidate):
         return False
-    if "location_transition" in set(candidate.relation_category_hits):
-        return True
-    location_terms = {
-        "city",
-        "country",
-        "drive",
-        "from",
-        "home",
-        "origin",
-        "relocated",
-        "travel",
-        "trip",
-    }
-    return bool(location_terms.intersection(candidate.relation_hits))
+    return "location_transition" in set(candidate.relation_category_hits)
 
 
 def _candidate_has_preference_support(candidate: EvidenceBundleCandidate) -> bool:

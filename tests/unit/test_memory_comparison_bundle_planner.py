@@ -781,6 +781,47 @@ def test_evidence_bundle_planner_rejects_broad_location_support_role() -> None:
     ]
 
 
+def test_evidence_bundle_planner_requires_explicit_location_role_hit() -> None:
+    primary = _candidate(
+        item_id="primary",
+        covered_expected_terms=("Canada",),
+        primary_signal=True,
+        source_refs=("D1:4",),
+        answerability_score=0.9,
+        source_locality_score=1.0,
+    )
+    generic_location_terms = _candidate(
+        item_id="generic-location-terms",
+        dedupe_key="refs:D1:5",
+        query_support_terms=("caroline", "from", "country"),
+        relation_hits=("from", "country"),
+        entity_hits=("caroline",),
+        query_has_entities=True,
+        source_refs=("D1:5",),
+        answerability_score=0.82,
+        source_locality_score=0.9,
+    )
+
+    plan = EvidenceBundlePlanner().plan(
+        (primary, generic_location_terms),
+        case_group="single",
+        required_roles=("primary", "location_support"),
+    )
+
+    diagnostics = plan.to_diagnostics()
+
+    assert {item.candidate.item_id: item.role for item in plan.items} == {
+        "primary": "primary",
+        "generic-location-terms": "entity_disambiguation",
+    }
+    assert plan.satisfied_required_roles == ("primary",)
+    assert plan.missing_required_roles == ("location_support",)
+    assert diagnostics["bundle_quality"]["location_support_count"] == 0
+    assert "has_location_support_evidence" not in diagnostics["bundle_quality"][
+        "reason_codes"
+    ]
+
+
 def test_evidence_bundle_planner_accepts_unmeasured_location_locality() -> None:
     primary = _candidate(
         item_id="primary",
