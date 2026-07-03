@@ -1100,6 +1100,45 @@ def test_candidate_features_keep_cross_session_source_refs_dedupe_qualified() ->
     )
 
 
+def test_candidate_features_keep_cross_session_chunk_refs_dedupe_qualified() -> None:
+    memory = RetrievedMemory(
+        item_id="same-dialogue-chunk-cross-session-summary",
+        rank=1,
+        text="Caroline had repeated conversations about adoption support.",
+        source_refs=(
+            "locomo:conv-26:session_1:D1:8:chunk",
+            "locomo:conv-26:session_11:D1:9:fact",
+        ),
+        metadata={"item_type": "fact"},
+    )
+
+    features = build_candidate_evidence_features(
+        memory,
+        memory_terms={"caroline", "conversation", "adoption", "support"},
+        query_terms=("caroline", "adoption", "support"),
+        relation_terms=("adoption", "support"),
+        relation_variant_terms=("agency",),
+        entities=("caroline",),
+        entity_hits=("caroline",),
+        speaker_hits=(),
+        high_signal_relation_terms={"support"},
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=True,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=False,
+    )
+
+    assert features.source_turn_span == 0
+    assert features.source_ref_dedupe_key == (
+        "source_session_turn_refs:session_11:D1:9|session_1:D1:8"
+    )
+
+
 def test_candidate_features_read_retrieval_sources_from_candidate_fusion() -> None:
     memory = RetrievedMemory(
         item_id="fusion-only-provenance",

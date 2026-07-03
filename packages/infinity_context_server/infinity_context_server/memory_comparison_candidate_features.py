@@ -23,7 +23,7 @@ from infinity_context_server.memory_comparison_relation_support import (
 _TURN_REF_RE = re.compile(r"\bD\d+:\d+\b")
 _TURN_REF_PARTS_RE = re.compile(r"\bD(?P<dialogue>\d+):(?P<turn>\d+)\b")
 _SOURCE_SESSION_TURN_RE = re.compile(
-    r"(?:^|:)session_(?P<session>\d+):D\d+:(?P<turn>\d+):turn$",
+    r"(?:^|:)session_(?P<session>\d+):D\d+:\d+:(?:turn|chunk|fact)$",
     re.IGNORECASE,
 )
 _TEXT_SESSION_TURN_RE = re.compile(
