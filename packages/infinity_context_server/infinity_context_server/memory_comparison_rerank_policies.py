@@ -16,6 +16,7 @@ class RerankPolicyFeatures(Protocol):
     relation_categories: tuple[str, ...]
     relation_category_hits: tuple[str, ...]
     relation_category_coverage_ratio: float
+    covered_answer_unit_shapes: tuple[str, ...]
     query_has_entities: bool
     high_signal_relation_hit_count: int
     is_temporal_query: bool
@@ -535,6 +536,46 @@ class LocationIntentPolicy:
             reason_codes=(
                 *_reason_codes(("location_support", evidence_boost)),
                 *_reason_codes(("location_query_role_support", role_boost)),
+            ),
+        )
+
+
+class ValueAnswerShapePolicy:
+    name = "ValueAnswerShapePolicy"
+
+    def score(self, features: RerankPolicyFeatures) -> RerankPolicyContribution:
+        value_needed = "value_support" in set(features.evidence_need)
+        value_shape_hit = "quantity_dollar" in set(features.covered_answer_unit_shapes)
+        grounded = bool(
+            features.entity_hits
+            or features.speaker_hits
+            or len(features.overlap_terms) >= 2
+            or not features.query_has_entities
+        )
+        precise_provenance = _has_precise_or_unmeasured_source_provenance(features)
+        evidence_boost = (
+            0.09
+            if value_needed and value_shape_hit and grounded and precise_provenance
+            else 0.0
+        )
+        role_boost = (
+            0.035
+            if evidence_boost > 0 and "value_support" in set(features.query_roles)
+            else 0.0
+        )
+        return RerankPolicyContribution(
+            policy=self.name,
+            score=evidence_boost + role_boost,
+            signals={
+                "benchmark_value_answer_shape_boost": round(evidence_boost, 6),
+                "benchmark_value_query_role_boost": round(role_boost, 6),
+                "benchmark_value_answer_shape_hit": value_shape_hit,
+                "benchmark_value_answer_grounded": grounded,
+                "benchmark_value_precise_provenance": precise_provenance,
+            },
+            reason_codes=(
+                *_reason_codes(("value_answer_shape", evidence_boost)),
+                *_reason_codes(("value_query_role_support", role_boost)),
             ),
         )
 
@@ -1131,4 +1172,5 @@ _DEFAULT_POLICIES: tuple[RerankPolicy, ...] = (
     ContrastIntentPolicy(),
     TypedRelationSupportPolicy(),
     LocationIntentPolicy(),
+    ValueAnswerShapePolicy(),
 )

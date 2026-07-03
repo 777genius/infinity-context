@@ -6,6 +6,9 @@ import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
+from infinity_context_core.application.context_answer_unit_shapes import (
+    requested_answer_unit_shapes,
+)
 from infinity_context_core.application.context_conversation_counterparty import (
     requests_conversation_recency,
     requests_conversation_topic,
@@ -1476,6 +1479,7 @@ def build_query_decomposition_plan(
     raw_tokens = frozenset(_raw_query_tokens(query))
     identities = _identity_terms(query, anchor_intent)
     salient_terms = _salient_terms(query, identities=identities)
+    requested_answer_units = frozenset(requested_answer_unit_shapes(query))
     requests_relocation_context = _requests_relocation_context(
         query=normalized_query,
         variants=variants,
@@ -1667,6 +1671,18 @@ def build_query_decomposition_plan(
                 ),
             ),
             reason="decomposition_temporal_answer",
+        )
+    if "quantity_dollar" in requested_answer_units:
+        _append_candidate(
+            candidates,
+            query=_compose_query(
+                (*identities, *salient_terms),
+                (
+                    "amount cost price value dollars usd paid spent charged "
+                    "fee deposit budget salary rent payment total exact number"
+                ),
+            ),
+            reason="decomposition_value_answer",
         )
     if variants.intersection(_ARTIFACT_TERMS):
         _append_candidate(

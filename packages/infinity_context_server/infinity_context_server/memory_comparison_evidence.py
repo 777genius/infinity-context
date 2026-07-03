@@ -214,6 +214,9 @@ def evidence_bundle(
                 relation_category_hits=_string_sequence(
                     features.get("relation_category_hits")
                 ),
+                covered_answer_unit_shapes=_string_sequence(
+                    features.get("covered_answer_unit_shapes")
+                ),
                 entity_hits=_string_sequence(features.get("entity_hits")),
                 speaker_hits=_string_sequence(features.get("speaker_hits")),
                 query_has_entities=_bool_value(features.get("query_has_entities")),
@@ -308,6 +311,7 @@ def _primary_signal(
     relation_grounded = bool(
         _string_sequence(features.get("relation_hits"))
         or _string_sequence(features.get("relation_category_hits"))
+        or _string_sequence(features.get("covered_answer_unit_shapes"))
     )
     entity_grounded = bool(
         _string_sequence(features.get("entity_hits"))
@@ -360,6 +364,9 @@ def _feature_backed_bundle_candidate_reasons(
         or _bool_value(features.get("stale_surface"))
     )
     visual_grounded = _bool_value(features.get("has_visual_evidence"))
+    answer_unit_grounded = bool(
+        _string_sequence(features.get("covered_answer_unit_shapes"))
+    )
     reasons: list[str] = [
         _answerability_feature_reason(answerability_score),
         _source_locality_feature_reason(source_locality_score),
@@ -376,6 +383,8 @@ def _feature_backed_bundle_candidate_reasons(
         reasons.append("contrast_grounding")
     if visual_grounded and (entity_grounded or relation_grounded):
         reasons.append("visual_grounding")
+    if answer_unit_grounded and (entity_grounded or relation_grounded):
+        reasons.append("answer_unit_grounding")
     if (
         _bool_value(features.get("bridge_query_hit"))
         and relation_grounded

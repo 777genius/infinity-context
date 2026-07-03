@@ -1871,6 +1871,20 @@ def _deterministic_rerank_signals(
         answer_shape_boost = 0.018 * (
             len(boostable_covered_answer_shapes) / len(boostable_requested_answer_shapes)
         )
+    typed_requested_answer_shapes = frozenset(
+        shape
+        for shape in coverage.requested_answer_shapes
+        if is_typed_answer_unit_shape(shape)
+    )
+    typed_covered_answer_shapes = frozenset(
+        shape
+        for shape in coverage.covered_answer_shapes
+        if is_typed_answer_unit_shape(shape)
+    )
+    if typed_requested_answer_shapes and typed_covered_answer_shapes:
+        answer_shape_boost += 0.024 * (
+            len(typed_covered_answer_shapes) / len(typed_requested_answer_shapes)
+        )
     if "speaker" in coverage.covered_answer_shapes:
         boost += 0.018
         reasons.append("speaker_answer_shape_covered")

@@ -8265,6 +8265,46 @@ def test_deterministic_rerank_prefers_temporal_answer_shape_match() -> None:
     )
 
 
+def test_deterministic_rerank_prefers_value_answer_unit_shape() -> None:
+    query = "What was the deposit amount for Mia's ceramics class?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    generic = _item(
+        "generic_deposit",
+        score=0.72,
+        retrieval_source="keyword_chunks",
+        text="Mia paid the deposit for her ceramics class before registration closed.",
+    )
+    value_evidence = _item(
+        "deposit_amount",
+        score=0.7,
+        retrieval_source="keyword_chunks",
+        text="Mia's ceramics class deposit was $45.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (generic, value_evidence),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert by_id["deposit_amount"].score > by_id["generic_deposit"].score
+    assert (
+        "explicit_answer_shape_covered"
+        in by_id["deposit_amount"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+    assert (
+        "explicit_answer_shape_missing"
+        in by_id["generic_deposit"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+
+
 def test_deterministic_rerank_prefers_current_active_memory_over_superseded() -> None:
     query = "Which Atlas provider is still valid?"
     plan = build_query_expansion_plan(query)

@@ -30,7 +30,18 @@ _DISTANCE_QUERY_RE = re.compile(
     re.IGNORECASE,
 )
 _QUANTITY_QUERY_RE = re.compile(
-    r"\bhow\s+(?:many|much)\b|\bwhat\b.{0,48}\b(?:amount|quantity|total|cost|price)\b",
+    r"\bhow\s+(?:many|much)\b|\bwhat\b.{0,64}\b"
+    r"(?:amount|quantity|total|cost|price|value|fee|deposit|budget|"
+    r"salary|rent|payment)\b",
+    re.IGNORECASE | re.DOTALL,
+)
+_MONEY_VALUE_QUERY_RE = re.compile(
+    r"\bhow\s+much\b.{0,80}\b(?:cost|costs|paid|pay|spent|spend|"
+    r"charge|charged|fee|deposit|rent|salary|budget|payment)\b|"
+    r"\bwhat\b.{0,80}\b(?:amount|cost|price|value|fee|deposit|budget|"
+    r"salary|rent|payment)\b|"
+    r"\b(?:amount|cost|price|value|fee|deposit|budget|salary|rent|payment)\b"
+    r".{0,40}\b(?:dollar|dollars|usd|\$)\b",
     re.IGNORECASE | re.DOTALL,
 )
 
@@ -77,7 +88,10 @@ def requested_answer_unit_shapes(query: str) -> tuple[str, ...]:
     if _DISTANCE_QUERY_RE.search(query):
         shapes.extend(f"distance_{unit}" for unit in _unit_matches(query, _DISTANCE_UNITS))
     if _QUANTITY_QUERY_RE.search(query):
-        shapes.extend(f"quantity_{unit}" for unit in _unit_matches(query, _QUANTITY_UNITS))
+        quantity_units = _unit_matches(query, _QUANTITY_UNITS)
+        if not quantity_units and _MONEY_VALUE_QUERY_RE.search(query):
+            quantity_units = ("dollar",)
+        shapes.extend(f"quantity_{unit}" for unit in quantity_units)
     return _bounded_unique(shapes)
 
 

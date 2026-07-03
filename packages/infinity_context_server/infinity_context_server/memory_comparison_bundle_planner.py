@@ -61,6 +61,7 @@ _PREDICATE_REQUIRED_ROLES = frozenset(
         "preference_support",
         "symbolic_meaning_support",
         "temporal_support",
+        "value_support",
         "visual_support",
         *_TYPED_RELATION_SUPPORT_CATEGORIES,
     }
@@ -115,6 +116,7 @@ class EvidenceBundleCandidate:
     relation_hits: tuple[str, ...] = ()
     relation_categories: tuple[str, ...] = ()
     relation_category_hits: tuple[str, ...] = ()
+    covered_answer_unit_shapes: tuple[str, ...] = ()
     entity_hits: tuple[str, ...] = ()
     speaker_hits: tuple[str, ...] = ()
     query_has_entities: bool = False
@@ -162,6 +164,9 @@ class PlannedEvidenceItem:
             ),
             "has_temporal_sequence_surface": (
                 self.candidate.has_temporal_sequence_surface
+            ),
+            "covered_answer_unit_shapes": list(
+                self.candidate.covered_answer_unit_shapes
             ),
             "source_locality_score": round(self.candidate.source_locality_score, 6),
             "negation_surface": self.candidate.negation_surface,
@@ -716,6 +721,11 @@ def _role_for_candidate(
     ):
         return "causal_support"
     if (
+        "value_support" in set(required_roles)
+        and _candidate_has_value_support(candidate)
+    ):
+        return "value_support"
+    if (
         "inference_support" in set(required_roles)
         and _candidate_has_inference_support(candidate)
     ):
@@ -788,6 +798,10 @@ def _satisfied_required_roles(
             satisfied.add(role)
         if role == "location_support" and any(
             _candidate_has_location_support(item.candidate) for item in selected
+        ):
+            satisfied.add(role)
+        if role == "value_support" and any(
+            _candidate_has_value_support(item.candidate) for item in selected
         ):
             satisfied.add(role)
         if role == "preference_support" and any(
@@ -963,6 +977,8 @@ def _item_can_satisfy_required_role(
         return item.role == "bridge"
     if role == "location_support":
         return _candidate_has_location_support(item.candidate)
+    if role == "value_support":
+        return _candidate_has_value_support(item.candidate)
     if role == "preference_support":
         return _candidate_has_preference_support(item.candidate)
     if role == "visual_support":
@@ -1047,6 +1063,7 @@ def _replacement_role_order(item: PlannedEvidenceItem) -> float:
         "symbolic_meaning_support": 2,
         "preference_support": 2,
         "temporal_support": 2,
+        "value_support": 2,
         "visual_support": 2,
         "contrast": 3,
         "bridge": 4,
@@ -1138,6 +1155,12 @@ def _candidate_has_location_support(candidate: EvidenceBundleCandidate) -> bool:
     if not _candidate_has_typed_relation_grounding(candidate):
         return False
     return "location_transition" in set(candidate.relation_category_hits)
+
+
+def _candidate_has_value_support(candidate: EvidenceBundleCandidate) -> bool:
+    if not _candidate_has_typed_relation_grounding(candidate):
+        return False
+    return "quantity_dollar" in set(candidate.covered_answer_unit_shapes)
 
 
 def _candidate_has_preference_support(candidate: EvidenceBundleCandidate) -> bool:

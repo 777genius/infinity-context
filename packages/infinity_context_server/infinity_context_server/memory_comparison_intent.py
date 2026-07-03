@@ -76,6 +76,7 @@ class RetrievalIntent:
     risk_flags: tuple[str, ...]
     bundle_evidence_roles: tuple[str, ...] = ()
     relation_intents: tuple[RetrievalRelationIntent, ...] = ()
+    answer_unit_shapes: tuple[str, ...] = ()
 
     @property
     def entity_names(self) -> tuple[str, ...]:
@@ -124,6 +125,7 @@ class RetrievalIntent:
             "multi_hop_markers": self.multi_hop_markers,
             "evidence_need": self.evidence_need,
             "bundle_evidence_roles": self.bundle_evidence_roles,
+            "answer_unit_shapes": self.answer_unit_shapes,
             "risk_flags": self.risk_flags,
         }
 
@@ -144,6 +146,7 @@ class RetrievalIntent:
             "multi_hop_markers": list(self.multi_hop_markers),
             "evidence_need": list(self.evidence_need),
             "bundle_evidence_roles": list(self.bundle_evidence_roles),
+            "answer_unit_shapes": list(self.answer_unit_shapes),
             "risk_flags": list(self.risk_flags),
             "uses_ground_truth": False,
         }
@@ -453,9 +456,11 @@ def infer_evidence_need(
     visual_terms: tuple[str, ...],
     multi_hop_markers: tuple[str, ...],
     benchmark_category: int | None = None,
+    answer_unit_shapes: tuple[str, ...] = (),
 ) -> tuple[str, ...]:
     needs: list[str] = []
     relation_set = set(relation_terms)
+    answer_unit_set = set(answer_unit_shapes)
     count_intent = _has_count_intent(question) and benchmark_category != 3
     direct_emotion_response = _has_direct_emotion_response_intent(
         question=question,
@@ -465,6 +470,8 @@ def infer_evidence_need(
         needs.append("multi_hop")
     if count_intent:
         needs.append("count_support")
+    if "quantity_dollar" in answer_unit_set:
+        needs.append("value_support")
     if time_intent.is_temporal:
         needs.append(
             "temporal_sequence"
@@ -535,6 +542,8 @@ def infer_bundle_evidence_roles(
         roles.append("contrast")
     if "count_support" in evidence_need_set:
         roles.append("count_support")
+    if "value_support" in evidence_need_set:
+        roles.append("value_support")
     if "location_support" in evidence_need_set:
         roles.append("location_support")
     if "preference" in evidence_need_set:

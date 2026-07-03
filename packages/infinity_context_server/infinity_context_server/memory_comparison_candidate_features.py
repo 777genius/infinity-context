@@ -7,6 +7,9 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
+from infinity_context_core.application.context_answer_unit_shapes import (
+    covered_answer_unit_shapes,
+)
 from infinity_context_server.memory_comparison_candidate_risks import (
     memory_has_broad_summary,
     memory_has_conflict_or_stale,
@@ -141,6 +144,7 @@ class CandidateEvidenceFeatures:
     relation_categories: tuple[str, ...]
     relation_category_hits: tuple[str, ...]
     relation_category_coverage_ratio: float
+    covered_answer_unit_shapes: tuple[str, ...]
     entity_hits: tuple[str, ...]
     speaker_hits: tuple[str, ...]
     relation_coverage_ratio: float
@@ -225,6 +229,7 @@ class CandidateEvidenceFeatures:
                 self.relation_category_coverage_ratio,
                 6,
             ),
+            "covered_answer_unit_shapes": list(self.covered_answer_unit_shapes),
             "high_signal_relation_hit_count": self.high_signal_relation_hit_count,
             "overlap_terms": list(self.overlap_terms),
             "relation_hits": list(self.relation_hits),
@@ -289,6 +294,7 @@ def build_candidate_evidence_features(
     )
     contrast_features = _contrast_features(text)
     temporal_features = _temporal_evidence_features(text)
+    answer_unit_shapes = covered_answer_unit_shapes(text)
     source_refs = tuple(str(ref) for ref in memory.source_refs if str(ref).strip())
     text_turn_refs = tuple(dict.fromkeys(_TURN_REF_RE.findall(text)))
     text_session_turn_refs = _text_session_turn_refs(text)
@@ -371,6 +377,7 @@ def build_candidate_evidence_features(
             len(relation_category_hits),
             len(relation_category_terms or {}),
         ),
+        covered_answer_unit_shapes=answer_unit_shapes,
         entity_hits=tuple(entity_hits),
         speaker_hits=tuple(speaker_hits),
         relation_coverage_ratio=_ratio(
