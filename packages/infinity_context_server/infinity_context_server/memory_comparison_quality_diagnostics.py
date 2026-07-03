@@ -1679,6 +1679,7 @@ def _answer_context_provenance_table(
     skipped_redundant_role_backfill_count = 0
     backfilled_broad_summary_count = 0
     backfilled_conflict_or_stale_count = 0
+    backfilled_precise_source_overlap_count = 0
     backfilled_low_answerability_count = 0
     backfilled_weak_source_locality_count = 0
     backfilled_source_proximity_support_count = 0
@@ -1768,6 +1769,12 @@ def _answer_context_provenance_table(
             )
             context_backfilled_conflict_or_stale_count = (
                 _positive_int(context.get("backfilled_conflict_or_stale_count")) or 0
+            )
+            context_backfilled_precise_source_overlap_count = (
+                _positive_int(
+                    context.get("backfilled_precise_source_overlap_count")
+                )
+                or 0
             )
             context_backfilled_low_answerability_count = (
                 _positive_int(context.get("backfilled_low_answerability_count")) or 0
@@ -1869,6 +1876,9 @@ def _answer_context_provenance_table(
             backfilled_broad_summary_count += context_backfilled_broad_summary_count
             backfilled_conflict_or_stale_count += (
                 context_backfilled_conflict_or_stale_count
+            )
+            backfilled_precise_source_overlap_count += (
+                context_backfilled_precise_source_overlap_count
             )
             backfilled_low_answerability_count += (
                 context_backfilled_low_answerability_count
@@ -1994,6 +2004,9 @@ def _answer_context_provenance_table(
                         "backfilled_conflict_or_stale_count": (
                             context_backfilled_conflict_or_stale_count
                         ),
+                        "backfilled_precise_source_overlap_count": (
+                            context_backfilled_precise_source_overlap_count
+                        ),
                         "backfilled_low_answerability_count": (
                             context_backfilled_low_answerability_count
                         ),
@@ -2105,6 +2118,13 @@ def _answer_context_provenance_table(
         ),
         "backfilled_broad_summary_count": backfilled_broad_summary_count,
         "backfilled_conflict_or_stale_count": backfilled_conflict_or_stale_count,
+        "backfilled_precise_source_overlap_count": (
+            backfilled_precise_source_overlap_count
+        ),
+        "avg_backfilled_precise_source_overlap_count": _ratio(
+            backfilled_precise_source_overlap_count,
+            context_count,
+        ),
         "backfilled_low_answerability_count": backfilled_low_answerability_count,
         "avg_backfilled_low_answerability_count": _ratio(
             backfilled_low_answerability_count,

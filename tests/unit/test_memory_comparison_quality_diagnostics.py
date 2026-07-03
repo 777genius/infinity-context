@@ -903,6 +903,7 @@ def test_quality_diagnostics_reports_answer_context_provenance_table() -> None:
                             "avg_measured_source_locality_score": 0.7,
                             "unmeasured_source_locality_count": 1,
                             "backfilled_retrieval_item_count": 1,
+                            "backfilled_precise_source_overlap_count": 1,
                             "skipped_duplicate_source_bundle_item_count": 1,
                             "skipped_noisy_overlap_bundle_item_count": 1,
                             "skipped_redundant_risky_backfill_count": 1,
@@ -966,6 +967,8 @@ def test_quality_diagnostics_reports_answer_context_provenance_table() -> None:
     assert table["avg_skipped_redundant_role_backfill_count"] == 0.5
     assert table["backfilled_broad_summary_count"] == 1
     assert table["backfilled_conflict_or_stale_count"] == 0
+    assert table["backfilled_precise_source_overlap_count"] == 1
+    assert table["avg_backfilled_precise_source_overlap_count"] == 0.5
     assert table["backfilled_low_answerability_count"] == 0
     assert table["avg_backfilled_low_answerability_count"] == 0.0
     assert table["backfilled_weak_source_locality_count"] == 0
@@ -1012,6 +1015,7 @@ def test_quality_diagnostics_reports_answer_context_provenance_table() -> None:
             "skipped_redundant_role_backfill_count": 1,
             "backfilled_broad_summary_count": 1,
             "backfilled_conflict_or_stale_count": 0,
+            "backfilled_precise_source_overlap_count": 1,
             "backfilled_low_answerability_count": 0,
             "backfilled_weak_source_locality_count": 0,
             "backfilled_source_proximity_support_count": 1,
@@ -2641,6 +2645,8 @@ def test_fast_gate_metrics_reports_answer_context_provenance() -> None:
     assert provenance["avg_skipped_redundant_role_backfill_count"] == 0.5
     assert provenance["backfilled_broad_summary_count"] == 1
     assert provenance["backfilled_conflict_or_stale_count"] == 1
+    assert provenance["backfilled_precise_source_overlap_count"] == 0
+    assert provenance["avg_backfilled_precise_source_overlap_count"] == 0.0
     assert provenance["backfilled_low_answerability_count"] == 0
     assert provenance["avg_backfilled_low_answerability_count"] == 0.0
     assert provenance["backfilled_weak_source_locality_count"] == 0
@@ -2684,6 +2690,7 @@ def test_fast_gate_metrics_reports_answer_context_provenance() -> None:
             "skipped_redundant_role_backfill_count": 1,
             "backfilled_broad_summary_count": 1,
             "backfilled_conflict_or_stale_count": 1,
+            "backfilled_precise_source_overlap_count": 0,
             "backfilled_low_answerability_count": 0,
             "backfilled_weak_source_locality_count": 0,
             "backfilled_source_proximity_support_count": 1,
