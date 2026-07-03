@@ -74,6 +74,45 @@ def test_evidence_bundle_planner_promotes_answerable_direct_turn_to_primary() ->
     assert "direct_speaker_turn" in plan.primary_selection_reason_codes
 
 
+def test_evidence_bundle_planner_prefers_answer_evidence_over_topic_primary() -> None:
+    topic_only_turn = _candidate(
+        item_id="topic-only-turn",
+        retrieval_order=1,
+        primary_signal=True,
+        query_support_terms=("caroline", "adoption"),
+        direct_speaker_turn=True,
+        query_has_entities=True,
+        answerability_score=0.9,
+        source_locality_score=0.95,
+        bundle_strength_score=10.0,
+    )
+    answer_evidence = _candidate(
+        item_id="answer-evidence",
+        retrieval_order=2,
+        primary_signal=True,
+        query_support_terms=("caroline", "agency"),
+        relation_hits=("chose", "agency"),
+        entity_hits=("caroline",),
+        direct_speaker_turn=True,
+        query_has_entities=True,
+        answerability_score=0.82,
+        source_locality_score=0.9,
+        bundle_strength_score=2.0,
+    )
+
+    plan = EvidenceBundlePlanner().plan(
+        (topic_only_turn, answer_evidence),
+        case_group="single",
+    )
+
+    assert [item.candidate.item_id for item in plan.items] == [
+        "answer-evidence",
+        "topic-only-turn",
+    ]
+    assert plan.items[0].role == "primary"
+    assert "answer_evidence" in plan.primary_selection_reason_codes
+
+
 def test_evidence_bundle_planner_promotes_unmeasured_direct_turn_to_primary() -> None:
     broad = _candidate(
         item_id="broad-summary",
@@ -199,6 +238,54 @@ def test_evidence_bundle_planner_dedupes_and_caps_source_type_diversity() -> Non
     assert plan.dropped_diversity_count == 1
     assert plan.source_type_counts["chunk"] == 2
     assert plan.source_type_counts["raw_turn"] == 2
+
+
+def test_evidence_bundle_planner_keeps_answer_support_before_repeated_mentions() -> None:
+    primary = _candidate(
+        item_id="primary",
+        covered_expected_terms=("agency",),
+        primary_signal=True,
+        source_refs=("D1:1",),
+        entity_hits=("caroline",),
+        query_has_entities=True,
+        answerability_score=0.9,
+        source_locality_score=1.0,
+    )
+    repeated_mention = _candidate(
+        item_id="repeated-mention",
+        dedupe_key="refs:D1:2",
+        query_support_terms=("caroline", "adoption", "agency"),
+        entity_hits=("caroline",),
+        query_has_entities=True,
+        source_refs=("D1:2",),
+        answerability_score=0.9,
+        source_locality_score=0.95,
+        bundle_strength_score=10.0,
+    )
+    answer_support = _candidate(
+        item_id="answer-support",
+        dedupe_key="refs:D1:3",
+        query_support_terms=("caroline", "agency"),
+        relation_hits=("chose", "agency"),
+        entity_hits=("caroline",),
+        query_has_entities=True,
+        source_refs=("D1:3",),
+        answerability_score=0.8,
+        source_locality_score=0.9,
+        bundle_strength_score=1.0,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, repeated_mention, answer_support),
+        case_group="single",
+    )
+
+    assert [item.candidate.item_id for item in plan.items] == [
+        "primary",
+        "answer-support",
+    ]
+    assert "repeated-mention" not in [item.candidate.item_id for item in plan.items]
+    assert "answer_evidence" in plan.items[1].reason_codes
 
 
 def test_evidence_bundle_planner_drops_redundant_source_ref_overlap() -> None:

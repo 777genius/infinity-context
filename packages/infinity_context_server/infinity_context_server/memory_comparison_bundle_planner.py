@@ -1390,6 +1390,8 @@ def _reason_codes(
         reasons.append("evidence_terms")
     if candidate.query_support_terms:
         reasons.append("query_support")
+    if _candidate_has_answer_evidence(candidate):
+        reasons.append("answer_evidence")
     if candidate.bridge_query_hit:
         reasons.append("bridge_query_hit")
     if role == "bridge":
@@ -1552,6 +1554,7 @@ def _planned_coverage_sort_key(
         -float(required_gain),
         *_source_overlap_selection_sort_key(item, selected),
         *_source_ref_compactness_selection_sort_key(item),
+        float(_answer_evidence_sort_bucket(item.candidate)),
         *_source_proximity_selection_sort_key(item, selected),
         *_person_grounding_selection_sort_key(item, selected),
         *_selection_precision_sort_key(item),
@@ -1658,6 +1661,7 @@ def _source_ref_compactness_selection_sort_key(
 def _selection_precision_sort_key(item: PlannedEvidenceItem) -> tuple[float, ...]:
     candidate = item.candidate
     return (
+        float(_answer_evidence_sort_bucket(candidate)),
         1.0 if _candidate_has_noisy_source_overlap_risk(candidate) else 0.0,
         1.0 if _candidate_has_diffuse_source_refs(candidate) else 0.0,
         1.0 if _candidate_has_measured_answerability_below(candidate, 0.75) else 0.0,
@@ -2414,6 +2418,8 @@ def _primary_sort_key(candidate: EvidenceBundleCandidate) -> tuple[float, ...]:
         0.0 if candidate.direct_speaker_turn else 1.0,
         0.0 if not candidate.broad_summary else 1.0,
         -candidate.focused_evidence_score,
+        0.0 if candidate.required_terms else 1.0,
+        float(_answer_evidence_sort_bucket(candidate)),
         -candidate.answerability_score,
         -candidate.source_locality_score,
         -candidate.bundle_strength_score,
@@ -2426,6 +2432,7 @@ def _primary_sort_key(candidate: EvidenceBundleCandidate) -> tuple[float, ...]:
 def _candidate_sort_key(candidate: EvidenceBundleCandidate) -> tuple[float, ...]:
     return (
         0.0 if candidate.primary_signal else 1.0,
+        float(_answer_evidence_sort_bucket(candidate)),
         0.0 if candidate.direct_speaker_turn else 1.0,
         0.0 if not candidate.broad_summary else 1.0,
         -candidate.focused_evidence_score,
@@ -2436,3 +2443,60 @@ def _candidate_sort_key(candidate: EvidenceBundleCandidate) -> tuple[float, ...]
         float(candidate.retrieval_order),
         float(candidate.rank),
     )
+
+
+def _answer_evidence_sort_bucket(candidate: EvidenceBundleCandidate) -> int:
+    if _candidate_has_answer_evidence(candidate):
+        return 0
+    if _candidate_has_direct_or_focused_grounding(candidate):
+        return 1
+    if _candidate_has_relation_grounding(candidate) or _candidate_has_person_grounding(
+        candidate
+    ):
+        return 2
+    if candidate.query_support_terms:
+        return 3
+    return 4
+
+
+def _candidate_has_answer_evidence(candidate: EvidenceBundleCandidate) -> bool:
+    if candidate.broad_summary or candidate.conflict_or_stale:
+        return False
+    if _candidate_has_measured_source_locality_below(candidate, 0.65):
+        return False
+    if _candidate_has_measured_answerability_below(candidate, 0.75):
+        return False
+    if not _candidate_has_relation_grounding(candidate):
+        return False
+    if candidate.query_has_entities and not _candidate_has_person_grounding(candidate):
+        return False
+    return bool(
+        candidate.direct_speaker_turn
+        or candidate.focused_evidence_score > 0
+        or candidate.answerability_score >= 0.75
+    )
+
+
+def _candidate_has_direct_or_focused_grounding(
+    candidate: EvidenceBundleCandidate,
+) -> bool:
+    if candidate.broad_summary or candidate.conflict_or_stale:
+        return False
+    if not (candidate.direct_speaker_turn or candidate.focused_evidence_score > 0):
+        return False
+    if candidate.query_has_entities and not _candidate_has_person_grounding(candidate):
+        return False
+    return bool(
+        candidate.query_support_terms
+        or _candidate_has_relation_grounding(candidate)
+        or _candidate_has_person_grounding(candidate)
+        or candidate.source_refs
+    )
+
+
+def _candidate_has_relation_grounding(candidate: EvidenceBundleCandidate) -> bool:
+    return bool(candidate.relation_hits or candidate.relation_category_hits)
+
+
+def _candidate_has_person_grounding(candidate: EvidenceBundleCandidate) -> bool:
+    return bool(candidate.entity_hits or candidate.speaker_hits)
