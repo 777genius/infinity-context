@@ -41,6 +41,7 @@ def test_temporal_query_intent_detects_current_and_stale_exclusion() -> None:
 
 def test_temporal_query_intent_detects_latest_event_queries() -> None:
     english_latest = build_temporal_query_intent("What was the latest conversation with Alex?")
+    english_first = build_temporal_query_intent("What was the first conversation with Alex?")
     english_recent = build_temporal_query_intent("What happened in the recent sync?")
     english_last_call = build_temporal_query_intent("What happened in the last call?")
     english_previous_session = build_temporal_query_intent(
@@ -55,6 +56,9 @@ def test_temporal_query_intent_detects_latest_event_queries() -> None:
     russian_fresh_chat = build_temporal_query_intent("Что было в свежем чате по Атласу?")
 
     assert english_latest.prefers_current is True
+    assert english_first.requests_earliest_event is True
+    assert english_first.prefers_current is False
+    assert english_first.requests_recent_event is False
     assert english_recent.prefers_current is True
     assert english_last_call.prefers_current is True
     assert english_previous_session.prefers_current is True

@@ -22,6 +22,15 @@ def temporal_session_recency_boost(item: ContextItem) -> float:
     return round(min(0.026, 0.006 + min(session_order, 40) * 0.0008), 4)
 
 
+def temporal_session_earliest_boost(item: ContextItem) -> float:
+    """Return a bounded boost favoring earlier LoCoMo-style session/dialogue ordinals."""
+
+    session_order = min(temporal_session_orders(item), default=0)
+    if session_order <= 0:
+        return 0.0
+    return round(max(0.006, 0.026 - min(session_order - 1, 40) * 0.0008), 4)
+
+
 def temporal_session_orders(item: ContextItem) -> tuple[int, ...]:
     """Return LoCoMo-style session/dialogue ordinals visible on an item."""
 
