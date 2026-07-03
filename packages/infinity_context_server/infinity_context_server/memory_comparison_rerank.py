@@ -1179,11 +1179,15 @@ def temporal_rerank_memories(
             "timestamped_memory_count": _timestamped_memory_count(memories),
             "reranked_memory_count": 0,
         }
+    timestamp_order_boosts = _temporal_timestamp_order_boosts(memories, profile)
     reranked = [
-        _with_temporal_rerank_boost(memory)
+        _with_temporal_rerank_boost(
+            memory,
+            timestamp_order_boost=timestamp_order_boosts.get(index, 0.0),
+        )
         if _memory_timestamp_values(memory)
         else memory
-        for memory in memories
+        for index, memory in enumerate(memories)
     ]
     reranked.sort(key=lambda memory: (-memory.score, memory.rank))
     timestamped_count = _timestamped_memory_count(memories)
@@ -1193,6 +1197,9 @@ def temporal_rerank_memories(
         "timestamped_memory_count": timestamped_count,
         "reranked_memory_count": len(reranked),
         "boost": 0.3 if timestamped_count > 0 else 0.0,
+        "timestamp_order_boosted_count": sum(
+            1 for boost in timestamp_order_boosts.values() if boost > 0
+        ),
     }
 
 
@@ -1266,7 +1273,11 @@ def _positive_float(value: object) -> float:
     return parsed if parsed > 0 else 0.0
 
 
-def _with_temporal_rerank_boost(memory: RetrievedMemory) -> RetrievedMemory:
+def _with_temporal_rerank_boost(
+    memory: RetrievedMemory,
+    *,
+    timestamp_order_boost: float = 0.0,
+) -> RetrievedMemory:
     diagnostics = (
         dict(memory.metadata.get("diagnostics"))
         if isinstance(memory.metadata.get("diagnostics"), Mapping)
@@ -1278,13 +1289,42 @@ def _with_temporal_rerank_boost(memory: RetrievedMemory) -> RetrievedMemory:
         else {}
     )
     score_signals["benchmark_temporal_source_ref_boost"] = 0.3
+    if timestamp_order_boost > 0:
+        score_signals["benchmark_temporal_timestamp_order_boost"] = round(
+            timestamp_order_boost,
+            6,
+        )
     diagnostics["score_signals"] = score_signals
     diagnostics["temporal_rerank_boosted"] = True
     return replace(
         memory,
-        score=round(memory.score + 0.3, 6),
+        score=round(memory.score + 0.3 + timestamp_order_boost, 6),
         metadata={**dict(memory.metadata), "diagnostics": diagnostics},
     )
+
+
+def _temporal_timestamp_order_boosts(
+    memories: Sequence[RetrievedMemory],
+    profile: Mapping[str, object],
+) -> dict[int, float]:
+    matched_terms = set(_string_sequence(profile.get("matched_terms")))
+    if not {"latest event", "upcoming event"} & matched_terms:
+        return {}
+    timestamped: list[tuple[int, int]] = []
+    for index, memory in enumerate(memories):
+        timestamps = _memory_timestamp_values(memory)
+        if timestamps:
+            timestamped.append((index, max(timestamps)))
+    if len(timestamped) <= 1:
+        return {}
+    ordered_timestamps = sorted({timestamp for _, timestamp in timestamped})
+    if len(ordered_timestamps) <= 1:
+        return {}
+    denominator = len(ordered_timestamps) - 1
+    return {
+        index: round(0.12 * (ordered_timestamps.index(timestamp) / denominator), 6)
+        for index, timestamp in timestamped
+    }
 
 
 def query_retrieval_intent(case: PublicBenchmarkCase) -> RetrievalIntent:
