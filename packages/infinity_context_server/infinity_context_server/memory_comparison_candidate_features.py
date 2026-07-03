@@ -22,6 +22,10 @@ from infinity_context_server.memory_comparison_relation_support import (
 
 _TURN_REF_RE = re.compile(r"\bD\d+:\d+\b")
 _TURN_REF_PARTS_RE = re.compile(r"\bD(?P<dialogue>\d+):(?P<turn>\d+)\b")
+_SOURCE_SESSION_TURN_RE = re.compile(
+    r"(?:^|:)session_(?P<session>\d+):D\d+:(?P<turn>\d+):turn$",
+    re.IGNORECASE,
+)
 _DIRECT_TURN_SPEAKER_RE = re.compile(
     r"\bD\d+:\d+\s+[A-Z][a-zA-Z0-9_-]{1,40}\s*:"
 )
@@ -275,7 +279,7 @@ def build_candidate_evidence_features(
     text_turn_refs = tuple(dict.fromkeys(_TURN_REF_RE.findall(text)))
     source_turn_refs = _source_turn_refs(source_refs)
     turn_refs = tuple(dict.fromkeys((*text_turn_refs, *source_turn_refs)))
-    source_turn_span = _source_turn_span(turn_refs)
+    source_turn_span = _source_turn_span(turn_refs, source_refs=source_refs)
     broad_summary = memory_has_broad_summary(memory)
     direct_speaker_turn = bool(_DIRECT_TURN_SPEAKER_RE.search(text)) and not broad_summary
     source_locality_score, source_locality_reasons = _source_locality(
@@ -955,7 +959,13 @@ def _source_turn_refs(source_refs: Sequence[str]) -> tuple[str, ...]:
     )
 
 
-def _source_turn_span(turn_refs: Sequence[str]) -> int:
+def _source_turn_span(
+    turn_refs: Sequence[str],
+    *,
+    source_refs: Sequence[str] = (),
+) -> int:
+    if _cross_session_exact_turn_refs(source_refs):
+        return 0
     parsed = tuple(_parse_turn_ref(ref) for ref in turn_refs)
     parsed = tuple(ref for ref in parsed if ref is not None)
     if len(parsed) <= 1:
@@ -967,6 +977,15 @@ def _source_turn_span(turn_refs: Sequence[str]) -> int:
         return 0
     turns = tuple(turn for values in by_dialogue.values() for turn in values)
     return max(turns) - min(turns) + 1
+
+
+def _cross_session_exact_turn_refs(source_refs: Sequence[str]) -> bool:
+    sessions = {
+        int(match.group("session"))
+        for source_ref in source_refs
+        if (match := _SOURCE_SESSION_TURN_RE.search(str(source_ref)))
+    }
+    return len(sessions) > 1
 
 
 def _parse_turn_ref(ref: str) -> tuple[int, int] | None:
