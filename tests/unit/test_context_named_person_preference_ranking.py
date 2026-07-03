@@ -62,6 +62,28 @@ def test_named_person_preference_signal_penalizes_obsolete_preference() -> None:
     assert signal.reason == "named_person_preference_negative_or_obsolete"
 
 
+def test_named_person_preference_signal_matches_corrected_current_preference() -> None:
+    signal = named_person_preference_signal(
+        query="What food does Alice like?",
+        text="D3:4 Alice: I used to like Thai food, but I prefer ramen now.",
+    )
+
+    assert signal.boost > 0
+    assert signal.penalty == 0
+    assert signal.reason == "named_person_preference_match"
+
+
+def test_named_person_preference_signal_matches_avoid_then_prefer_correction() -> None:
+    signal = named_person_preference_signal(
+        query="What food does Alice like?",
+        text="D3:4 Alice: For food, I avoid sushi these days and prefer ramen instead.",
+    )
+
+    assert signal.boost > 0
+    assert signal.penalty == 0
+    assert signal.reason == "named_person_preference_match"
+
+
 def test_named_person_preference_signal_ignores_other_person_negative_cue() -> None:
     signal = named_person_preference_signal(
         query="What food does Alice like?",
@@ -142,6 +164,44 @@ def test_deterministic_rerank_prefers_current_preference_over_obsolete_evidence(
     assert (
         "named_person_preference_negative_or_obsolete"
         in by_id["obsolete_preference"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+
+
+def test_deterministic_rerank_prefers_corrected_preference_over_stale_preference() -> None:
+    query = "What food does Alice like?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    stale_preference = _item(
+        "stale_preference",
+        score=0.72,
+        text="D3:4 Alice: I used to like Thai food.",
+    )
+    corrected_preference = _item(
+        "corrected_preference",
+        score=0.7,
+        text="D3:5 Alice: I used to like Thai food, but I prefer ramen now.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (stale_preference, corrected_preference),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert by_id["corrected_preference"].score > by_id["stale_preference"].score
+    assert (
+        "named_person_preference_match"
+        in by_id["corrected_preference"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+    assert (
+        "named_person_preference_negative_or_obsolete"
+        in by_id["stale_preference"].diagnostics["provenance"][
             "deterministic_rerank_reasons"
         ]
     )

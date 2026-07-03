@@ -81,6 +81,15 @@ _NEGATIVE_OR_OBSOLETE_PREFERENCE_CUE_RE = re.compile(
     r"\bstopped\s+(?:liking|loving|enjoying|preferring|wanting)\b",
     re.IGNORECASE,
 )
+_CURRENT_OR_POSITIVE_PREFERENCE_CUE_RE = re.compile(
+    r"\b(?:favorite|favourite|likes?|like|loves?|love|enjoys?|enjoy|"
+    r"prefers?|prefer|preferred|wants?|want|fan\s+of|interested\s+in|into)\b",
+    re.IGNORECASE,
+)
+_PREFERENCE_CLAUSE_SPLIT_RE = re.compile(
+    r"\b(?:but|actually|instead|rather\s+than|and)\b|[;,]",
+    re.IGNORECASE,
+)
 _QUERY_LABEL_STOP_WORDS = frozenset(
     {
         "how",
@@ -136,7 +145,10 @@ def named_person_preference_signal(
     text_mentions_person = _text_mentions_person(preference_query.person_label, text)
     domain_matches = _domain_terms_match(preference_query.domain_terms, text)
     cue_scope = _preference_cue_scope(preference_query.person_label, text)
-    text_has_current_preference = _CURRENT_PREFERENCE_CUE_RE.search(cue_scope) is not None
+    text_has_current_preference = (
+        _CURRENT_PREFERENCE_CUE_RE.search(cue_scope) is not None
+        or _has_corrected_current_preference(cue_scope)
+    )
     if text_has_current_preference and text_mentions_person and domain_matches:
         return NamedPersonPreferenceSignal(
             boost=0.022,
@@ -237,6 +249,18 @@ def _preference_cue_scope(person: str, text: str) -> str:
     if not segments:
         return text
     return "\n".join(dict.fromkeys(segments))
+
+
+def _has_corrected_current_preference(text: str) -> bool:
+    for sentence in re.split(r"(?<=[.!?])\s+", text):
+        if _NEGATIVE_OR_OBSOLETE_PREFERENCE_CUE_RE.search(sentence) is None:
+            continue
+        for clause in _PREFERENCE_CLAUSE_SPLIT_RE.split(sentence):
+            if _NEGATIVE_OR_OBSOLETE_PREFERENCE_CUE_RE.search(clause):
+                continue
+            if _CURRENT_OR_POSITIVE_PREFERENCE_CUE_RE.search(clause):
+                return True
+    return False
 
 
 def _text_mentions_person(person: str, text: str) -> bool:
