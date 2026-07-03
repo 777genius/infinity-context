@@ -12909,6 +12909,63 @@ def test_benchmark_rerank_boosts_commitment_profile_evidence() -> None:
     )
 
 
+def test_benchmark_rerank_boosts_remember_object_commitment_evidence() -> None:
+    case = _case(
+        case_id="commitment-profile-remember-object",
+        question="What did Alex need to remember?",
+        expected_terms=("badge",),
+        answer="badge",
+        category=4,
+    )
+    topical_memory = RetrievedMemory(
+        item_id="topical-remembered-story",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex remembered a badge story from childhood."
+        ),
+        source_refs=("D1:1",),
+    )
+    commitment_profile = RetrievedMemory(
+        item_id="commitment-remember-badge",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: I need to remember my badge tomorrow."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical_memory, commitment_profile),
+    )
+
+    assert metadata["applied"] is True
+    assert metadata["query_profile"]["evidence_need"] == ("commitment_profile",)
+    assert reranked[0].item_id == "commitment-remember-badge"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    commitment_diagnostics = diagnostics_by_id["commitment-remember-badge"]
+    topical_diagnostics = diagnostics_by_id["topical-remembered-story"]
+    assert commitment_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["commitment_profile"]
+    assert topical_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert commitment_diagnostics["score_signals"][
+        "benchmark_typed_relation_support_hit_roles"
+    ] == ["commitment_support"]
+    assert (
+        topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        == 0
+    )
+
+
 def test_benchmark_commitment_profile_ignores_remembered_story_wording() -> None:
     case = _case(
         case_id="commitment-profile-remembered-story-guard",

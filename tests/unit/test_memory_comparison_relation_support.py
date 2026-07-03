@@ -83,3 +83,22 @@ def test_preference_support_accepts_book_author_evidence() -> None:
         )
         is False
     )
+
+
+def test_commitment_profile_support_accepts_remember_object_evidence() -> None:
+    assert (
+        typed_relation_category_support(
+            "commitment_profile",
+            {"alex", "need", "remember", "badge"},
+            memory_text="D1:3 Alex: I need to remember my badge tomorrow.",
+        )
+        is True
+    )
+    assert (
+        typed_relation_category_support(
+            "commitment_profile",
+            {"alex", "remembered", "badge", "story"},
+            memory_text="D1:4 Alex remembered a badge story from childhood.",
+        )
+        is False
+    )

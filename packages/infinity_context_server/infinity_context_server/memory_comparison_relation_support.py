@@ -655,6 +655,9 @@ _COMMITMENT_PROFILE_SURFACE_RE = re.compile(
     r"monday|tuesday|wednesday|thursday|friday|saturday|sunday|"
     r"today|tomorrow|next\s+week)\b"
     r"|\b(?:need|needs|needed)\s+to\s+remember\s+to\b"
+    r"|\b(?:need|needs|needed)\s+to\s+remember\s+"
+    r"(?:my|our|his|her|their|the|a|an)?\s*"
+    r"[a-zA-Z][a-zA-Z0-9_-]+\b"
     r"|\bremember\s+to\s+(?:bring|send|call|finish|complete|take)\b"
     r"|\b(?:promise|promised)\s+to\s+"
     r"(?:bring|send|call|finish|complete|take|help)\b",
