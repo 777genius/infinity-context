@@ -162,6 +162,83 @@ def test_locomo_failure_analysis_uses_question_preview_for_shapes_and_patterns()
     ]
 
 
+def test_locomo_failure_analysis_groups_root_cause_tags_from_diagnostics() -> None:
+    report = {
+        "failures": [
+            {
+                "case_id": "locomo:conv-1:qa:1",
+                "capability": "locomo_category_2",
+                "reason": "expected_terms_missing",
+                "question_preview": "Why did Maria leave early?",
+                "diagnostic_reason_codes": [
+                    "judge_score_below_threshold",
+                    "partial_expected_term_support",
+                    "missing_evidence_refs",
+                    "bundle_incomplete",
+                    "missing_required_roles",
+                    "weak_evidence_bundle",
+                ],
+                "diagnostics": {
+                    "missing_evidence_terms": ["D1:2", "D1:3"],
+                    "bundle": {
+                        "missing_required_roles": ["bridge"],
+                        "reason_codes": ["risk:low_answerability"],
+                    },
+                },
+            },
+            {
+                "case_id": "locomo:conv-2:qa:4",
+                "capability": "locomo_category_3",
+                "reason": "expected_terms_missing",
+                "diagnostic_reason_codes": [
+                    "judge_score_below_threshold",
+                    "no_expected_term_support",
+                    "missing_evidence_refs",
+                ],
+                "diagnostics": {"missing_evidence_terms": ["D4:5"]},
+            },
+        ]
+    }
+
+    summary = _summary(_failures(report), top=10)
+
+    assert summary["primary_root_cause_count"] == {
+        "retrieval:partial_expected_term_support": 1,
+        "retrieval:no_expected_term_support": 1,
+    }
+    assert summary["root_cause_tag_count"]["evidence:missing_refs"] == 2
+    assert summary["root_cause_tag_count"]["bundle:missing_role:bridge"] == 1
+    assert summary["root_cause_tag_count"]["bundle:risk:low_answerability"] == 1
+    assert summary["top_missing_evidence_refs"] == {"D1:2": 1, "D1:3": 1, "D4:5": 1}
+    assert summary["root_cause_examples"]["retrieval:partial_expected_term_support"] == [
+        {
+            "case_id": "locomo:conv-1:qa:1",
+            "capability": "locomo_category_2",
+            "reason": "expected_terms_missing",
+            "root_cause_tags": [
+                "retrieval:partial_expected_term_support",
+                "evidence:missing_refs",
+                "bundle:missing_role:bridge",
+                "bundle:incomplete",
+                "bundle:weak",
+                "bundle:risk:low_answerability",
+                "judgment:score_below_threshold",
+            ],
+            "question": "Why did Maria leave early?",
+            "diagnostic_reason_codes": [
+                "judge_score_below_threshold",
+                "partial_expected_term_support",
+                "missing_evidence_refs",
+                "bundle_incomplete",
+                "missing_required_roles",
+                "weak_evidence_bundle",
+            ],
+            "missing_required_roles": ["bridge"],
+            "missing_evidence_ref_count": 2,
+        }
+    ]
+
+
 def test_locomo_failure_analysis_limit_makes_small_canary_args(tmp_path) -> None:
     report = {
         "failures": [

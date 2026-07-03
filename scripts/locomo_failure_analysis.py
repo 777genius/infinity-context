@@ -107,14 +107,25 @@ def _summary(failures: Sequence[Mapping[str, object]], *, top: int) -> dict[str,
     failure_patterns: Counter[tuple[str, str]] = Counter()
     query_patterns: Counter[str] = Counter()
     query_pattern_examples: dict[str, list[dict[str, str]]] = defaultdict(list)
+    primary_root_causes: Counter[str] = Counter()
+    root_cause_tags: Counter[str] = Counter()
+    root_cause_examples: dict[str, list[dict[str, object]]] = defaultdict(list)
     for failure in failures:
         capability = str(failure.get("capability") or failure.get("category") or "unknown")
         reason = str(failure.get("reason") or "unknown")
         answer_shape = _answer_shape(failure)
+        root_tags = _root_cause_tags(failure)
+        primary_root_cause = root_tags[0]
         capabilities[capability] += 1
         reasons[reason] += 1
         capability_reasons[capability][reason] += 1
         answer_shapes[answer_shape] += 1
+        primary_root_causes[primary_root_cause] += 1
+        root_cause_tags.update(root_tags)
+        if len(root_cause_examples[primary_root_cause]) < 5:
+            root_cause_examples[primary_root_cause].append(
+                _root_cause_example(failure, root_tags)
+            )
         patterns = _query_patterns(failure)
         query_patterns.update(patterns)
         question = _question_text(failure)
@@ -126,8 +137,10 @@ def _summary(failures: Sequence[Mapping[str, object]], *, top: int) -> dict[str,
                 )
         failure_patterns[(capability, reason)] += 1
         missing_terms.update(_strings(failure.get("missing_terms")))
-        missing_evidence_refs.update(_strings(failure.get("missing_evidence_refs")))
-        missing_evidence_ref_previews.update(_strings(failure.get("missing_evidence_ref_previews")))
+        missing_evidence_refs.update(_missing_evidence_refs(failure))
+        missing_evidence_ref_previews.update(
+            _strings(failure.get("missing_evidence_ref_previews"))
+        )
 
     return {
         "failure_count": len(failures),
@@ -138,6 +151,12 @@ def _summary(failures: Sequence[Mapping[str, object]], *, top: int) -> dict[str,
         "failure_pattern_count": {
             f"{capability}:{reason}": count
             for (capability, reason), count in failure_patterns.most_common(top)
+        },
+        "primary_root_cause_count": dict(primary_root_causes.most_common(top)),
+        "root_cause_tag_count": dict(root_cause_tags.most_common(top)),
+        "root_cause_examples": {
+            root_cause: examples
+            for root_cause, examples in sorted(root_cause_examples.items())
         },
         "query_pattern_count": dict(query_patterns.most_common(top)),
         "query_pattern_examples": {
@@ -157,9 +176,89 @@ def _summary(failures: Sequence[Mapping[str, object]], *, top: int) -> dict[str,
 
 
 def _strings(value: object) -> tuple[str, ...]:
-    if not isinstance(value, list):
+    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
         return ()
     return tuple(str(item) for item in value if isinstance(item, str) and item)
+
+
+def _mapping(value: object) -> Mapping[str, object]:
+    return value if isinstance(value, Mapping) else {}
+
+
+def _missing_evidence_refs(failure: Mapping[str, object]) -> tuple[str, ...]:
+    direct = _strings(failure.get("missing_evidence_refs"))
+    if direct:
+        return direct
+    diagnostics = _mapping(failure.get("diagnostics"))
+    return _strings(diagnostics.get("missing_evidence_terms"))
+
+
+def _diagnostic_reason_codes(failure: Mapping[str, object]) -> tuple[str, ...]:
+    return _strings(failure.get("diagnostic_reason_codes"))
+
+
+def _root_cause_tags(failure: Mapping[str, object]) -> tuple[str, ...]:
+    reason_codes = set(_diagnostic_reason_codes(failure))
+    diagnostics = _mapping(failure.get("diagnostics"))
+    bundle = _mapping(diagnostics.get("bundle"))
+    tags: list[str] = []
+    if "no_retrieved_items" in reason_codes:
+        tags.append("retrieval:no_retrieved_items")
+    if "no_expected_term_support" in reason_codes:
+        tags.append("retrieval:no_expected_term_support")
+    elif "partial_expected_term_support" in reason_codes:
+        tags.append("retrieval:partial_expected_term_support")
+    if "missing_evidence_refs" in reason_codes:
+        tags.append("evidence:missing_refs")
+    elif "partial_evidence_ref_support" in reason_codes:
+        tags.append("evidence:partial_refs")
+    for role in _strings(bundle.get("missing_required_roles")):
+        tags.append(f"bundle:missing_role:{_normalize_tag_value(role)}")
+    if "bundle_incomplete" in reason_codes:
+        tags.append("bundle:incomplete")
+    if "weak_evidence_bundle" in reason_codes:
+        tags.append("bundle:weak")
+    for reason in _strings(bundle.get("reason_codes")):
+        if reason.startswith("risk:"):
+            tags.append(f"bundle:{_normalize_tag_value(reason)}")
+    if "judge_score_below_threshold" in reason_codes:
+        tags.append("judgment:score_below_threshold")
+    if not tags:
+        tags.append(f"reason:{_normalize_tag_value(_reason_key(failure))}")
+    return tuple(dict.fromkeys(tags))
+
+
+def _root_cause_example(
+    failure: Mapping[str, object],
+    root_tags: Sequence[str],
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "case_id": str(failure.get("case_id") or ""),
+        "capability": str(
+            failure.get("capability") or failure.get("category") or "unknown"
+        ),
+        "reason": str(failure.get("reason") or "unknown"),
+        "root_cause_tags": list(root_tags),
+    }
+    question = _question_text(failure)
+    if question:
+        payload["question"] = question
+    diagnostic_reason_codes = _diagnostic_reason_codes(failure)
+    if diagnostic_reason_codes:
+        payload["diagnostic_reason_codes"] = list(diagnostic_reason_codes)
+    bundle = _mapping(_mapping(failure.get("diagnostics")).get("bundle"))
+    missing_roles = _strings(bundle.get("missing_required_roles"))
+    if missing_roles:
+        payload["missing_required_roles"] = list(missing_roles)
+    missing_evidence_refs = _missing_evidence_refs(failure)
+    if missing_evidence_refs:
+        payload["missing_evidence_ref_count"] = len(missing_evidence_refs)
+    return payload
+
+
+def _normalize_tag_value(value: object) -> str:
+    normalized = str(value or "unknown").strip().lower().replace(" ", "_")
+    return normalized or "unknown"
 
 
 def _filter_failures(
