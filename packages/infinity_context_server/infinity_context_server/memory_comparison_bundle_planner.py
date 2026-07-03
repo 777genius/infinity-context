@@ -1873,6 +1873,8 @@ def _source_proximity_distances(items: Sequence[PlannedEvidenceItem]) -> tuple[i
     for item in items:
         if item.role == "primary":
             continue
+        if not _candidate_has_source_proximity_diagnostic_support(item.candidate):
+            continue
         closest_distance = _closest_turn_ref_distance(
             item.candidate,
             primary_turn_refs=primary_turn_refs,
@@ -1881,6 +1883,18 @@ def _source_proximity_distances(items: Sequence[PlannedEvidenceItem]) -> tuple[i
             continue
         distances.append(closest_distance)
     return tuple(distances)
+
+
+def _candidate_has_source_proximity_diagnostic_support(
+    candidate: EvidenceBundleCandidate,
+) -> bool:
+    if candidate.broad_summary or candidate.conflict_or_stale:
+        return False
+    if _candidate_has_measured_weak_source_locality(candidate):
+        return False
+    if _is_measured_low_answerability(candidate.answerability_score):
+        return False
+    return True
 
 
 def _source_identity_refs(candidate: EvidenceBundleCandidate) -> tuple[str, ...]:
