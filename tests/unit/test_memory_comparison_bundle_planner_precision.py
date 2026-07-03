@@ -146,6 +146,11 @@ def test_evidence_bundle_planner_prefers_compact_chained_sibling_support() -> No
     ]
     quality = plan.to_diagnostics()["bundle_quality"]
     assert quality["broad_summary_count"] == 0
+    assert quality["source_proximity_support_count"] == 1
+    assert quality["source_chain_proximity_support_count"] == 1
+    assert quality["source_chain_proximity_closest_distance"] == 3
+    assert quality["source_chain_proximity_distance_counts"] == {"3": 1}
+    assert "has_source_chain_proximity_support" in quality["reason_codes"]
 
 
 def _candidate(

@@ -1597,8 +1597,11 @@ def _bundle_quality_diagnostics(
             "typed_relation_support_counts": {},
             "location_relation_category_hit_count": 0,
             "source_proximity_support_count": 0,
+            "source_chain_proximity_support_count": 0,
             "source_proximity_closest_distance": None,
+            "source_chain_proximity_closest_distance": None,
             "source_proximity_distance_counts": {},
+            "source_chain_proximity_distance_counts": {},
             "source_proximity_window": _SOURCE_PROXIMITY_WINDOW,
             "missing_required_role_count": len(missing_roles),
             "missing_required_roles": list(missing_roles),
@@ -1686,6 +1689,8 @@ def _bundle_quality_diagnostics(
     )
     source_proximity_distances = _source_proximity_distances(items)
     source_proximity_support_count = len(source_proximity_distances)
+    source_chain_proximity_distances = _source_chain_proximity_distances(items)
+    source_chain_proximity_support_count = len(source_chain_proximity_distances)
     contrast_count = sum(
         1 for item in items if _candidate_has_contrast_support(item.candidate)
     )
@@ -1784,6 +1789,9 @@ def _bundle_quality_diagnostics(
             typed_relation_support_counts=typed_relation_support_counts,
             location_relation_category_hit_count=location_relation_category_hit_count,
             source_proximity_support_count=source_proximity_support_count,
+            source_chain_proximity_support_count=(
+                source_chain_proximity_support_count
+            ),
             missing_required_roles=missing_roles,
             contrast_count=contrast_count,
             contrast_surface_count=contrast_surface_count,
@@ -1839,12 +1847,27 @@ def _bundle_quality_diagnostics(
             location_relation_category_hit_count
         ),
         "source_proximity_support_count": source_proximity_support_count,
+        "source_chain_proximity_support_count": (
+            source_chain_proximity_support_count
+        ),
         "source_proximity_closest_distance": (
             min(source_proximity_distances) if source_proximity_distances else None
+        ),
+        "source_chain_proximity_closest_distance": (
+            min(source_chain_proximity_distances)
+            if source_chain_proximity_distances
+            else None
         ),
         "source_proximity_distance_counts": dict(
             sorted(
                 Counter(str(distance) for distance in source_proximity_distances).items()
+            )
+        ),
+        "source_chain_proximity_distance_counts": dict(
+            sorted(
+                Counter(
+                    str(distance) for distance in source_chain_proximity_distances
+                ).items()
             )
         ),
         "source_proximity_window": _SOURCE_PROXIMITY_WINDOW,
@@ -1881,6 +1904,45 @@ def _source_proximity_distances(items: Sequence[PlannedEvidenceItem]) -> tuple[i
         if closest_distance is None or closest_distance > _SOURCE_PROXIMITY_WINDOW:
             continue
         distances.append(closest_distance)
+    return tuple(distances)
+
+
+def _source_chain_proximity_distances(
+    items: Sequence[PlannedEvidenceItem],
+) -> tuple[int, ...]:
+    primary_turn_refs = tuple(
+        turn_ref
+        for item in items
+        if item.role == "primary"
+        for turn_ref in _candidate_turn_refs(item.candidate)
+    )
+    previously_selected_turn_refs: list[tuple[int, int]] = []
+    distances: list[int] = []
+    for item in items:
+        item_turn_refs = _candidate_turn_refs(item.candidate)
+        if item.role == "primary":
+            previously_selected_turn_refs.extend(item_turn_refs)
+            continue
+        if not _candidate_has_source_proximity_diagnostic_support(item.candidate):
+            previously_selected_turn_refs.extend(item_turn_refs)
+            continue
+        primary_distance = _closest_turn_ref_distance(
+            item.candidate,
+            comparison_turn_refs=primary_turn_refs,
+        )
+        if (
+            primary_distance is not None
+            and primary_distance <= _SOURCE_PROXIMITY_WINDOW
+        ):
+            previously_selected_turn_refs.extend(item_turn_refs)
+            continue
+        closest_distance = _closest_turn_ref_distance(
+            item.candidate,
+            comparison_turn_refs=previously_selected_turn_refs,
+        )
+        if closest_distance is not None and closest_distance <= _SOURCE_PROXIMITY_WINDOW:
+            distances.append(closest_distance)
+        previously_selected_turn_refs.extend(item_turn_refs)
     return tuple(distances)
 
 
@@ -1958,6 +2020,7 @@ def _bundle_quality_reason_codes(
     typed_relation_support_counts: Mapping[str, int],
     location_relation_category_hit_count: int,
     source_proximity_support_count: int,
+    source_chain_proximity_support_count: int,
     missing_required_roles: Sequence[str],
     contrast_count: int,
     contrast_surface_count: int,
@@ -2025,6 +2088,8 @@ def _bundle_quality_reason_codes(
         reasons.append("has_location_relation_category_evidence")
     if source_proximity_support_count:
         reasons.append("has_source_proximity_support")
+    if source_chain_proximity_support_count:
+        reasons.append("has_source_chain_proximity_support")
     if missing_required_roles:
         reasons.append("risk:missing_required_role")
         reasons.extend(f"risk:missing_required_{role}" for role in missing_required_roles)
