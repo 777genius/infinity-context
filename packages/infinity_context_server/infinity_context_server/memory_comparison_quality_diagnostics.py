@@ -124,6 +124,9 @@ from infinity_context_server.memory_comparison_quality_fusion import (
 from infinity_context_server.memory_comparison_quality_query_roles import (
     query_role_effectiveness_table as _query_role_effectiveness_table,
 )
+from infinity_context_server.memory_comparison_quality_rerank_gaps import (
+    rerank_signal_gap_breakdown as _rerank_signal_gap_breakdown,
+)
 
 _PROFILE_SUPPORT_ROLES = frozenset(
     {
@@ -219,6 +222,7 @@ def quality_diagnostics(items: Sequence[Mapping[str, object]]) -> dict[str, obje
         "query_plan_integrity_table": _query_plan_integrity_table(items),
         "risk_flag_table": _risk_flag_table(items),
         "rerank_lift_table": _rerank_lift_table(items),
+        "rerank_signal_gap_breakdown": _rerank_signal_gap_breakdown(items),
         "false_positive_categories": _false_positive_categories(items),
         "query_leakage_report": _query_leakage_report(items),
     }
@@ -245,6 +249,7 @@ def fast_gate_metrics(
     answer_context_provenance = _answer_context_provenance_table(items)
     answerability_gap_breakdown = _answerability_gap_breakdown(items)
     candidate_fusion = _candidate_fusion_table(items)
+    rerank_signal_gaps = _rerank_signal_gap_breakdown(items)
     query_role_gap_breakdown = _query_role_gap_breakdown(query_role_effectiveness)
     query_plan_gap_breakdown = _query_plan_gap_breakdown(query_plan_integrity)
     bundle_quality_count = _positive_int(bundle_quality.get("bundle_count")) or 0
@@ -332,6 +337,7 @@ def fast_gate_metrics(
         "source_ref_provenance": source_ref_provenance,
         "answer_context_provenance": answer_context_provenance,
         "candidate_fusion": candidate_fusion,
+        "rerank_signal_gap_breakdown": rerank_signal_gaps,
         "risk_flag_table": risk_flag_table,
         "gates": gates,
     }

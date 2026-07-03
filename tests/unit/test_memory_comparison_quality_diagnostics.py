@@ -1290,6 +1290,202 @@ def test_quality_diagnostics_reports_rerank_lifts_without_memory_text() -> None:
     assert "memory" not in lift_table["samples"][0]
 
 
+def test_quality_diagnostics_reports_rerank_signal_selection_gaps() -> None:
+    retrieval = _retrieval_payload(
+        evidence_need=("single_fact",),
+        policy_score=0.0,
+    )
+    retrieval["results"] = [
+        _rerank_candidate_payload(
+            item_id="selected-strong",
+            rank=1,
+            score=0.93,
+            policy_score=0.11,
+            score_signals={"benchmark_answerability_boost": 0.04},
+            candidate_features={
+                "answerability_score": 0.91,
+                "source_locality_score": 0.86,
+                "query_roles": ["primary"],
+                "relation_category_hits": ["preference"],
+            },
+        ),
+        _rerank_candidate_payload(
+            item_id="selected-weak",
+            rank=2,
+            score=0.82,
+            policy_score=0.0,
+            score_signals={"benchmark_rank_penalty": -0.03},
+            candidate_features={
+                "answerability_score": 0.72,
+                "source_locality_score": 0.64,
+                "query_roles": ["supporting"],
+            },
+        ),
+        _rerank_candidate_payload(
+            item_id="unselected-positive",
+            rank=3,
+            score=0.79,
+            policy_score=0.2,
+            boosted=True,
+            score_signals={
+                "benchmark_answerability_boost": 0.08,
+                "benchmark_effective_boost_cap": 0.18,
+                "benchmark_rank_penalty": -0.02,
+            },
+            candidate_features={
+                "answerability_score": 0.88,
+                "source_locality_score": 0.81,
+                "source_type": "raw_turn",
+                "query_roles": ["bridge"],
+                "relation_category_hits": ["preference"],
+            },
+        ),
+    ]
+    diagnostics = quality_diagnostics(
+        (
+            _item(
+                case_id="rerank-gaps",
+                evidence_bundle={
+                    "items": [
+                        {
+                            "id": "selected-strong",
+                            "role": "primary",
+                            "retrieval_order": 1,
+                            "answerability_score": 0.91,
+                            "source_locality_score": 0.86,
+                            "query_roles": ["primary"],
+                            "planner_reason_codes": ["primary_signal"],
+                        },
+                        {
+                            "id": "selected-weak",
+                            "role": "supporting",
+                            "retrieval_order": 2,
+                            "answerability_score": 0.72,
+                            "source_locality_score": 0.64,
+                            "query_roles": ["supporting"],
+                            "planner_reason_codes": ["support_signal"],
+                        },
+                    ]
+                },
+                retrieval=retrieval,
+            ),
+        )
+    )
+
+    gaps = diagnostics["rerank_signal_gap_breakdown"]
+
+    assert gaps["schema_version"] == "rerank_signal_gaps.v1"
+    assert gaps["candidate_count"] == 3
+    assert gaps["selected_item_count"] == 2
+    assert gaps["positive_rerank_candidate_count"] == 2
+    assert gaps["positive_unselected_candidate_count"] == 1
+    assert gaps["positive_unselected_case_count"] == 1
+    assert gaps["selected_with_positive_rerank_count"] == 1
+    assert gaps["selected_without_positive_rerank_count"] == 1
+    assert gaps["selected_without_positive_rerank_case_count"] == 1
+    assert gaps["positive_unselected_signal_counts"] == {
+        "benchmark_answerability_boost": 1,
+        "benchmark_effective_boost_cap": 1,
+    }
+    assert gaps["positive_unselected_cap_signal_counts"] == {
+        "benchmark_effective_boost_cap": 1
+    }
+    assert gaps["positive_unselected_penalty_signal_counts"] == {
+        "benchmark_rank_penalty": 1
+    }
+    assert gaps["selected_without_positive_reason_counts"] == {
+        "no_positive_rerank_signal": 1
+    }
+    assert gaps["selected_without_positive_penalty_signal_counts"] == {
+        "benchmark_rank_penalty": 1
+    }
+    assert gaps["positive_unselected_samples"] == [
+        {
+            "case_id": "rerank-gaps",
+            "group": "multi-hop",
+            "item_id": "unselected-positive",
+            "rank": 3,
+            "score": 0.79,
+            "benchmark_rerank_boosted": True,
+            "positive_policy_score": 0.2,
+            "policy_reasons": {"FocusedTurnPolicy": ["focused_turn"]},
+            "top_signals": {
+                "benchmark_answerability_boost": 0.08,
+                "benchmark_effective_boost_cap": 0.18,
+            },
+            "answerability_score": 0.88,
+            "source_locality_score": 0.81,
+            "source_type": "raw_turn",
+            "query_roles": ("bridge",),
+            "relation_category_hits": ("preference",),
+            "cap_signals": {"benchmark_effective_boost_cap": 0.18},
+            "penalty_signals": {"benchmark_rank_penalty": -0.02},
+            "selected_item_ids": ["selected-strong", "selected-weak"],
+        }
+    ]
+    assert gaps["selected_without_positive_samples"] == [
+        {
+            "case_id": "rerank-gaps",
+            "group": "multi-hop",
+            "item_id": "selected-weak",
+            "reason": "no_positive_rerank_signal",
+            "matched_retrieval_candidate": True,
+            "role": "supporting",
+            "retrieval_order": 2,
+            "positive_policy_score": 0.0,
+            "top_signals": {},
+            "answerability_score": 0.72,
+            "source_locality_score": 0.64,
+            "source_type": "unknown",
+            "query_roles": ("supporting",),
+            "planner_reason_codes": ("support_signal",),
+            "penalty_signals": {"benchmark_rank_penalty": -0.03},
+        }
+    ]
+
+
+def test_fast_gate_metrics_includes_rerank_signal_gap_breakdown() -> None:
+    retrieval = _retrieval_payload(
+        evidence_need=("single_fact",),
+        policy_score=0.0,
+    )
+    retrieval["results"] = [
+        _rerank_candidate_payload(
+            item_id="unselected-positive",
+            rank=1,
+            policy_score=0.12,
+            score_signals={"benchmark_effective_boost_cap": 0.16},
+        )
+    ]
+
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="fast-gate-rerank-gap",
+                evidence_bundle={
+                    "bundle_complete": True,
+                    "evidence_term_count": 1,
+                    "covered_evidence_terms": ["D1:1"],
+                    "items": [
+                        {
+                            "id": "selected-weak",
+                            "retrieval_order": 1,
+                            "covered_evidence_terms": ["D1:1"],
+                            "focused_evidence_score": 1.0,
+                        }
+                    ],
+                },
+                retrieval=retrieval,
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    gaps = gate["rerank_signal_gap_breakdown"]
+    assert gaps["positive_unselected_candidate_count"] == 1
+    assert gaps["selected_without_positive_rerank_count"] == 1
+
+
 def test_quality_diagnostics_treats_zero_answerability_as_unmeasured() -> None:
     diagnostics = quality_diagnostics(
         (
@@ -3373,6 +3569,43 @@ def _retrieval_payload(
                 }
             }
         ],
+    }
+
+
+def _rerank_candidate_payload(
+    *,
+    item_id: str,
+    rank: int,
+    score: float = 0.5,
+    policy_score: float,
+    boosted: bool | None = None,
+    score_signals: dict[str, object] | None = None,
+    candidate_features: dict[str, object] | None = None,
+) -> dict[str, object]:
+    return {
+        "id": item_id,
+        "rank": rank,
+        "score": score,
+        "metadata": {
+            "diagnostics": {
+                "benchmark_rerank_boosted": bool(policy_score)
+                if boosted is None
+                else boosted,
+                "score_signals": score_signals or {},
+                "benchmark_candidate_features": candidate_features or {},
+                "benchmark_rerank_policy": {
+                    "contributions": [
+                        {
+                            "policy": "FocusedTurnPolicy",
+                            "score": policy_score,
+                            "reason_codes": ["focused_turn"]
+                            if policy_score
+                            else [],
+                        }
+                    ]
+                },
+            }
+        },
     }
 
 
