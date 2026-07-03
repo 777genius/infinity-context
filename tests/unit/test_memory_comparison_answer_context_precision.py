@@ -185,6 +185,44 @@ def test_answer_context_backfill_rejects_stale_only_contrast_candidate() -> None
     )
 
 
+def test_answer_context_keeps_compacted_fusion_source_refs_local() -> None:
+    memories = (
+        RetrievedMemory(
+            text="D2:9 Caroline: I found an adoption agency that can help.",
+            rank=1,
+            item_id="local-agency-turn",
+            source_refs=("D2:9",),
+            metadata={
+                "diagnostics": {
+                    "benchmark_compacted_selected_source_refs": True,
+                    "benchmark_candidate_fusion": {
+                        "source_refs": ["D2:9", "D2:8", "D2:10", "D2:11"],
+                    },
+                },
+            },
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "items": [
+                {
+                    "id": "local-agency-turn",
+                    "retrieval_order": 1,
+                    "role": "primary",
+                    "source_refs": ["D2:9"],
+                },
+            ]
+        },
+        cutoff=1,
+    )
+
+    assert context.memories[0].source_refs == ("D2:9",)
+    diagnostics = context.to_diagnostics()
+    assert diagnostics["source_ref_count"] == 1
+
+
 def test_answer_context_diagnostics_count_low_quality_backfill() -> None:
     memories = (
         RetrievedMemory(text="D6:1 Alex mentioned Maria.", rank=1, item_id="primary"),
