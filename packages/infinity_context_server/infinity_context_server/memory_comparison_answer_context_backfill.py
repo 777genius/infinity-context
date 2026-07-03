@@ -555,12 +555,14 @@ def _has_temporal_features(
 
 
 def _has_contrast_features(features: Mapping[str, object]) -> bool:
-    return any(
-        features.get(key) is True
-        for key in (
-            "contrast_surface",
-            "negation_surface",
-            "stale_surface",
+    return bool(
+        features.get("contrast_surface") is True
+        or (
+            features.get("currentness_surface") is True
+            and (
+                features.get("negation_surface") is True
+                or features.get("stale_surface") is True
+            )
         )
     )
 

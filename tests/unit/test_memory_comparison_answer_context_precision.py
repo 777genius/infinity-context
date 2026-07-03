@@ -113,3 +113,73 @@ def test_answer_context_keeps_unmeasured_overlapping_bundle_item() -> None:
         "unmeasured-overlap",
     ]
     assert context.skipped_noisy_overlap_bundle_item_count == 0
+
+
+def test_answer_context_backfill_rejects_stale_only_contrast_candidate() -> None:
+    memories = (
+        RetrievedMemory(
+            text="D5:1 Morgan now prefers team projects.",
+            rank=1,
+            item_id="primary-turn",
+            source_refs=("D5:1",),
+        ),
+        RetrievedMemory(
+            text="D5:2 Morgan used to prefer solo projects.",
+            rank=2,
+            item_id="stale-only",
+            source_refs=("D5:2",),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "query_roles": ["contrast"],
+                        "stale_surface": True,
+                        "answerability_score": 0.9,
+                        "source_locality_score": 0.9,
+                    }
+                }
+            },
+        ),
+        RetrievedMemory(
+            text="D5:3 Morgan used to prefer solo work, but now prefers teams.",
+            rank=3,
+            item_id="current-contrast",
+            source_refs=("D5:3",),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "query_roles": ["contrast"],
+                        "currentness_surface": True,
+                        "stale_surface": True,
+                        "answerability_score": 0.88,
+                        "source_locality_score": 0.9,
+                    }
+                }
+            },
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "role_requirement_complete": False,
+            "missing_required_roles": ["contrast"],
+            "items": [
+                {
+                    "id": "primary-turn",
+                    "retrieval_order": 1,
+                    "role": "primary",
+                    "source_refs": ["D5:1"],
+                }
+            ],
+        },
+        cutoff=3,
+    )
+
+    assert [memory.item_id for memory in context.memories] == [
+        "primary-turn",
+        "current-contrast",
+    ]
+    assert context.backfilled_retrieval_item_count == 1
+    assert context.memories[1].metadata["answer_context_backfill_missing_role_hits"] == (
+        "contrast",
+    )
