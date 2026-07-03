@@ -77,6 +77,7 @@ def backfill_incomplete_bundle_context(
     skipped_redundant_role_count = 0
     covered_roles = set(_selected_role_hits(selected, missing_roles))
     covered_backfill_source_refs: set[str] = set()
+    selected_direct_turn_refs = set(_selected_direct_turn_refs(selected))
     selected_source_match_refs = set(
         ref
         for memory in selected
@@ -93,6 +94,7 @@ def backfill_incomplete_bundle_context(
         source_refs = set(_memory_source_refs(memory))
         source_match_refs = set(_memory_source_match_refs(memory))
         precise_source_match_refs = set(_precise_memory_source_match_refs(memory))
+        direct_turn_refs = set(_direct_memory_turn_refs(memory))
         source_proximity_distance = _source_proximity_distance(
             memory,
             selected_turn_refs=selected_turn_refs,
@@ -120,6 +122,22 @@ def backfill_incomplete_bundle_context(
             and not memory_has_broad_summary(memory, features)
         )
         if selected_source_duplicate:
+            skipped_redundant_source_count += 1
+            continue
+        risky_selected_source_duplicate = (
+            bool(role_hits)
+            and (
+                memory_has_broad_summary(memory, features)
+                or memory_has_conflict_or_stale(memory, features)
+            )
+            and _risky_candidate_repeats_selected_source(
+                direct_turn_refs=direct_turn_refs,
+                selected_direct_turn_refs=selected_direct_turn_refs,
+                source_match_refs=source_match_refs,
+                selected_source_match_refs=selected_source_match_refs,
+            )
+        )
+        if risky_selected_source_duplicate:
             skipped_redundant_source_count += 1
             continue
         source_redundant = (
@@ -171,6 +189,7 @@ def backfill_incomplete_bundle_context(
         selected_turn_refs = tuple(
             dict.fromkeys((*selected_turn_refs, *_memory_turn_refs(memory)))
         )
+        selected_direct_turn_refs.update(direct_turn_refs)
         backfilled_count += 1
         if precise_source_overlap:
             precise_source_overlap_count += 1
@@ -321,6 +340,20 @@ def _memory_has_diffuse_source_refs(memory: RetrievedMemory) -> bool:
         return False
     dialogue_count = len({dialogue for dialogue, _turn in turn_refs})
     return dialogue_count > 1 or _turn_ref_span(turn_refs) > _COMPACT_SOURCE_REF_MAX_SPAN
+
+
+def _risky_candidate_repeats_selected_source(
+    *,
+    direct_turn_refs: set[tuple[int, int]],
+    selected_direct_turn_refs: set[tuple[int, int]],
+    source_match_refs: set[str],
+    selected_source_match_refs: set[str],
+) -> bool:
+    if direct_turn_refs:
+        return direct_turn_refs.issubset(selected_direct_turn_refs)
+    return bool(source_match_refs) and source_match_refs.issubset(
+        selected_source_match_refs
+    )
 
 
 def _turn_ref_span(turn_refs: Sequence[tuple[int, int]]) -> int:
@@ -866,6 +899,18 @@ def _selected_turn_refs(memories: Sequence[RetrievedMemory]) -> tuple[tuple[int,
             turn_ref
             for memory in memories
             for turn_ref in _memory_turn_refs(memory)
+        )
+    )
+
+
+def _selected_direct_turn_refs(
+    memories: Sequence[RetrievedMemory],
+) -> tuple[tuple[int, int], ...]:
+    return tuple(
+        dict.fromkeys(
+            turn_ref
+            for memory in memories
+            for turn_ref in _direct_memory_turn_refs(memory)
         )
     )
 

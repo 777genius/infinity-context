@@ -409,6 +409,59 @@ def test_answer_context_backfill_keeps_precise_support_inside_broad_primary_refs
     assert context.skipped_redundant_source_backfill_count == 0
 
 
+def test_answer_context_backfill_skips_noisy_summary_of_selected_turn() -> None:
+    memories = (
+        RetrievedMemory(
+            text="D4:2 Caroline found the support group helpful.",
+            rank=1,
+            item_id="primary-turn",
+            source_refs=("D4:2",),
+        ),
+        RetrievedMemory(
+            text=(
+                "Conversation summary: D4:2 Caroline found the support group "
+                "helpful and nearby."
+            ),
+            rank=2,
+            item_id="selected-turn-summary",
+            source_refs=("D4:2",),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "broad_summary": True,
+                        "query_roles": ["status_support"],
+                        "relation_category_hits": ["status_profile"],
+                        "entity_hits": ["caroline"],
+                        "answerability_score": 0.9,
+                        "source_locality_score": 0.9,
+                    },
+                },
+            },
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "role_requirement_complete": False,
+            "missing_required_roles": ["status_support"],
+            "items": [
+                {
+                    "id": "primary-turn",
+                    "retrieval_order": 1,
+                    "role": "primary",
+                    "source_refs": ["D4:2"],
+                }
+            ],
+        },
+        cutoff=2,
+    )
+
+    assert [memory.item_id for memory in context.memories] == ["primary-turn"]
+    assert context.backfilled_retrieval_item_count == 0
+    assert context.skipped_redundant_source_backfill_count == 1
+
+
 def test_answer_context_keeps_bundle_sibling_after_compacted_primary() -> None:
     memories = (
         RetrievedMemory(
