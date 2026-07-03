@@ -238,6 +238,7 @@ def test_evidence_bundle_planner_drops_redundant_source_ref_overlap() -> None:
     assert "duplicate-context" not in selected_ids
     assert plan.dropped_diversity_count == 1
     assert diagnostics["dropped_source_ref_overlap_count"] == 1
+    assert diagnostics["dropped_source_ref_overlap_keys_sample"] == ["D1:1"]
     assert diagnostics["selected_dedupe_keys"] == ["raw:D1:1", "raw:D1:2"]
 
 

@@ -208,6 +208,7 @@ class EvidenceBundlePlan:
     dropped_source_type_diversity_count: int
     dropped_retrieval_source_diversity_count: int
     dropped_source_ref_overlap_count: int
+    dropped_source_ref_overlap_keys: tuple[str, ...]
     role_counts: Mapping[str, int]
     source_type_counts: Mapping[str, int]
     retrieval_source_counts: Mapping[str, int]
@@ -237,6 +238,9 @@ class EvidenceBundlePlan:
             ),
             "dropped_source_ref_overlap_count": (
                 self.dropped_source_ref_overlap_count
+            ),
+            "dropped_source_ref_overlap_keys_sample": list(
+                self.dropped_source_ref_overlap_keys[:12]
             ),
             "role_counts": dict(self.role_counts),
             "required_roles": list(self.required_roles),
@@ -353,6 +357,7 @@ class EvidenceBundlePlanner:
             dropped_source_type_diversity_count,
             dropped_retrieval_source_diversity_count,
             dropped_source_ref_overlap_count,
+            dropped_source_ref_overlap_keys,
         ) = self._select_with_diversity(planned)
         selected, repaired_required_roles = _repair_required_role_selection(
             selected,
@@ -393,6 +398,7 @@ class EvidenceBundlePlanner:
                 dropped_retrieval_source_diversity_count
             ),
             dropped_source_ref_overlap_count=dropped_source_ref_overlap_count,
+            dropped_source_ref_overlap_keys=dropped_source_ref_overlap_keys,
             role_counts=dict(role_counts),
             source_type_counts=dict(source_type_counts),
             retrieval_source_counts=dict(retrieval_source_counts),
@@ -453,7 +459,7 @@ class EvidenceBundlePlanner:
     def _select_with_diversity(
         self,
         planned: Sequence[PlannedEvidenceItem],
-    ) -> tuple[tuple[PlannedEvidenceItem, ...], int, int, int, int]:
+    ) -> tuple[tuple[PlannedEvidenceItem, ...], int, int, int, int, tuple[str, ...]]:
         selected: list[PlannedEvidenceItem] = []
         source_type_counts: Counter[str] = Counter()
         retrieval_source_counts: Counter[str] = Counter()
@@ -464,6 +470,7 @@ class EvidenceBundlePlanner:
         dropped_source_type_diversity_count = 0
         dropped_retrieval_source_diversity_count = 0
         dropped_source_ref_overlap_count = 0
+        dropped_source_ref_overlap_keys: list[str] = []
         remaining = list(planned)
         while remaining and len(selected) < self._max_items:
             remaining.sort(
@@ -516,6 +523,7 @@ class EvidenceBundlePlanner:
                     dropped_retrieval_source_diversity_count += 1
                 if source_ref_overlap_full:
                     dropped_source_ref_overlap_count += 1
+                    dropped_source_ref_overlap_keys.extend(source_ref_keys)
                 continue
             selected.append(item)
             source_type_counts.update(source_type_keys)
@@ -544,6 +552,7 @@ class EvidenceBundlePlanner:
             dropped_source_type_diversity_count,
             dropped_retrieval_source_diversity_count,
             dropped_source_ref_overlap_count,
+            tuple(dict.fromkeys(dropped_source_ref_overlap_keys)),
         )
 
 
