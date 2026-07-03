@@ -32,7 +32,9 @@ _RECURRENCE_EXACT_RE = re.compile(
     r"(?:day|week|month|year)|"
     r"(?:once|twice)\s+(?:a|per)\s+(?:day|week|month|year)|"
     r"couple\s+times?\s+(?:a|per)\s+(?:day|week|month|year)|"
-    r"several\s+times?\s+(?:a|per)\s+(?:day|week|month|year))\b|"
+    r"several\s+times?\s+(?:a|per)\s+(?:day|week|month|year)|"
+    r"(?:on|most)\s+(?:weekdays|weekends|mondays|tuesdays|wednesdays|"
+    r"thursdays|fridays|saturdays|sundays))\b|"
     r"\b(?:кажд\w+\s+(?:день|недел\w*|месяц|год|утро|вечер|выходн\w*)|"
     r"ежедневно|еженедельно|ежемесячно|ежегодно|регулярно|обычно|часто|"
     r"(?:один|два|три|четыре|пять|шесть|\d{1,2})\s+раз(?:а)?\s+в\s+"
@@ -48,7 +50,8 @@ _ONE_TIME_EVENT_RE = re.compile(
 _GENERIC_TOPIC_RE = re.compile(
     r"\b(?:schedule|calendar|activity|event|meeting|volunteer|practice|training)\b"
     r"(?![^.]{0,80}\b(?:every|daily|weekly|monthly|regularly|usually|often|"
-    r"times?\s+(?:a|per))\b)",
+    r"times?\s+(?:a|per)|on\s+(?:weekdays|weekends|mondays|tuesdays|wednesdays|"
+    r"thursdays|fridays|saturdays|sundays)|most\s+(?:weekdays|weekends))\b)",
     re.IGNORECASE,
 )
 

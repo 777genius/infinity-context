@@ -186,6 +186,42 @@ def test_deterministic_rerank_prefers_less_formulaic_recurrence_phrases() -> Non
     )
 
 
+def test_deterministic_rerank_treats_weekend_cadence_as_frequency_evidence() -> None:
+    query = "How often does Maria volunteer at the shelter?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    recurring = _item(
+        "recurring",
+        score=0.70,
+        text="D4:1 Maria volunteers at the homeless shelter on weekends.",
+    )
+    one_time = _item(
+        "one_time",
+        score=0.755,
+        text="D2:3 Maria visited the homeless shelter once for orientation.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (one_time, recurring),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert by_id["recurring"].score > by_id["one_time"].score
+    assert (
+        "frequency_recurrence_exact_evidence"
+        in by_id["recurring"].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+    assert (
+        "frequency_recurrence_weak_evidence"
+        not in by_id["recurring"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+
+
 def _item(item_id: str, *, score: float, text: str) -> ContextItem:
     return ContextItem(
         item_id=item_id,
