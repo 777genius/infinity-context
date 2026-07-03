@@ -524,6 +524,7 @@ class EvidenceBundlePlanner:
             adds_query_support_terms = not set(
                 item.candidate.query_support_terms
             ).issubset(covered_support_terms)
+            adds_answer_support = adds_required_terms or adds_query_support_terms
             source_ref_overlap_full = bool(source_ref_keys) and set(
                 source_ref_keys
             ).issubset(selected_source_ref_keys)
@@ -547,11 +548,11 @@ class EvidenceBundlePlanner:
             if (
                 not diversity_exempt
                 and source_type_diversity_full
-                and not adds_required_terms
+                and not adds_answer_support
             ) or (
                 not diversity_exempt
                 and retrieval_source_diversity_full
-                and not adds_required_terms
+                and not adds_answer_support
             ) or (
                 source_ref_overlap_full
                 and not adds_required_terms
