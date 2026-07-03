@@ -3434,6 +3434,47 @@ def test_query_decomposition_classifies_ordered_event_temporal_queries() -> None
     assert next_queries[-1] == "alex when upcoming event session date time"
 
 
+def test_query_decomposition_preserves_anchored_period_modifiers() -> None:
+    early_case = _case(
+        case_id="conv-1:qa:early-august",
+        question="What did John do in early August 2023?",
+        expected_terms=("Seattle",),
+        answer="Seattle",
+        category=2,
+    )
+    first_half_case = _case(
+        case_id="conv-1:qa:first-half-september",
+        question=(
+            "Was the first half of September 2022 a good month career-wise for "
+            "Nate and Joanna?"
+        ),
+        expected_terms=("No",),
+        answer="No",
+        category=3,
+    )
+
+    early_queries, early_metadata = rerank_module.decomposed_search_queries(early_case)
+    first_half_queries, first_half_metadata = rerank_module.decomposed_search_queries(
+        first_half_case
+    )
+
+    assert early_metadata["query_profile"]["is_temporal_query"] is True
+    assert early_metadata["query_profile"]["time_intent_kind"] == "relative_time"
+    assert "early" in early_metadata["query_profile"]["temporal_terms"]
+    assert early_queries[-1] == "john early august session date time"
+
+    assert first_half_metadata["query_profile"]["is_temporal_query"] is True
+    assert first_half_metadata["query_profile"]["time_intent_kind"] == "relative_time"
+    assert "first half" in first_half_metadata["query_profile"]["temporal_terms"]
+    assert "relative_temporal_support" in first_half_metadata["query_plan"][
+        "selected_roles"
+    ]
+    assert (
+        first_half_queries[-1]
+        == "nate joanna first half september month session date time"
+    )
+
+
 def test_benchmark_rerank_marks_quarter_relative_time_surface() -> None:
     case = _case(
         case_id="quarter-relative-rerank",

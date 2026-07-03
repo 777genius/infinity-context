@@ -365,6 +365,11 @@ _ORDERED_EVENT_REQUEST_RE = re.compile(
     r"review|demo|interview|workshop|session)\b",
     re.IGNORECASE,
 )
+_PERIOD_ANCHOR_TERMS_RE = re.compile(
+    r"\b(?:january|february|march|april|may|june|july|august|september|"
+    r"october|november|december|\d{4})\b",
+    re.IGNORECASE,
+)
 _TEMPORAL_SURFACE_TERMS = (
     "monday",
     "tuesday",
@@ -1948,6 +1953,9 @@ def _temporal_query_profile(case: PublicBenchmarkCase) -> dict[str, object]:
         for term in _TEMPORAL_QUERY_TERMS
         if _contains_temporal_query_term(temporal_query, term)
     )
+    period_modifier_terms = _period_modifier_temporal_terms(query)
+    if period_modifier_terms:
+        matched_terms = tuple(dict.fromkeys((*matched_terms, *period_modifier_terms)))
     ordered_event_term = _ordered_event_temporal_term(query)
     if ordered_event_term:
         matched_terms = tuple(dict.fromkeys((*matched_terms, ordered_event_term)))
@@ -1989,6 +1997,17 @@ def _ordered_event_temporal_term(query: str) -> str:
     if order in {"first", "earliest", "oldest"}:
         return "earliest event"
     return "latest event"
+
+
+def _period_modifier_temporal_terms(query: str) -> tuple[str, ...]:
+    terms: list[str] = []
+    for match in re.finditer(r"\b(early|late)\s+([a-z]+|\d{4})\b", query):
+        if _PERIOD_ANCHOR_TERMS_RE.fullmatch(match.group(2)):
+            terms.append(match.group(1))
+    for match in re.finditer(r"\b(first|second)\s+half\s+of\s+([a-z]+|\d{4})\b", query):
+        if _PERIOD_ANCHOR_TERMS_RE.fullmatch(match.group(2)):
+            terms.append(f"{match.group(1)} half")
+    return tuple(dict.fromkeys(terms))
 
 
 def _without_overlapped_relative_temporal_terms(
