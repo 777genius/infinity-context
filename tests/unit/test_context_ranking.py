@@ -8517,6 +8517,42 @@ def test_deterministic_rerank_handles_absence_contrast_negative_descriptor() -> 
     )
 
 
+def test_deterministic_rerank_prefers_explicit_choice_absence_contrast() -> None:
+    query = "Which provider did the team choose, OpenAI instead of Anthropic?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    positive = _item(
+        "positive",
+        score=0.7,
+        retrieval_source="keyword_chunks",
+        text="The team chose OpenAI for the summary provider.",
+    )
+    negative = _item(
+        "negative",
+        score=0.72,
+        retrieval_source="keyword_chunks",
+        text="An old note evaluated Anthropic for the summary provider.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (negative, positive),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert by_id["positive"].score > by_id["negative"].score
+    assert (
+        "absence_contrast_positive_match"
+        in by_id["positive"].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+    assert (
+        "absence_contrast_negative_only_conflict"
+        in by_id["negative"].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+
+
 def test_deterministic_rerank_penalizes_pet_species_mismatch() -> None:
     query = "What hamster did I mention?"
     plan = build_query_expansion_plan(query)

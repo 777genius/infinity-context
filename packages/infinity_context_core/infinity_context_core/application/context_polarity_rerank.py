@@ -57,7 +57,19 @@ _ABSENCE_CONTRAST_NEGATIVE_DESCRIPTOR_RE = (
 _ABSENCE_CONTRAST_NAMED_QUERY_RE = re.compile(
     r"\b(?:named|called|назвал\w*)\s+(?P<positive>[A-Za-zА-Яа-яЁё][\w.-]{1,60})\s+"
     r"(?:instead\s+of|rather\s+than)\s+"
-    r"(?:a|an|the)?\s*"
+    r"(?:(?:a|an|the)\b\s*)?"
+    rf"(?:(?:{_ABSENCE_CONTRAST_NEGATIVE_DESCRIPTOR_RE})\s+){{0,3}}"
+    r"(?P<negative>[A-Za-zА-Яа-яЁё][\w.-]{1,60})\b",
+    re.IGNORECASE,
+)
+_ABSENCE_CONTRAST_CHOICE_QUERY_RE = re.compile(
+    r"\b(?:choose|chooses|chose|chosen|selects?|selected|picks?|picked|"
+    r"prefers?|preferred|recommends?|recommended|uses?|used|using|adopts?|"
+    r"adopted|switch(?:es|ed)?\s+to|went\s+with|go\s+with)\b"
+    r"[^?.!;\n]{0,80}?"
+    r"(?P<positive>[A-Za-zА-Яа-яЁё][\w.-]{1,60})\s+"
+    r"(?:instead\s+of|rather\s+than)\s+"
+    r"(?:(?:a|an|the)\b\s*)?"
     rf"(?:(?:{_ABSENCE_CONTRAST_NEGATIVE_DESCRIPTOR_RE})\s+){{0,3}}"
     r"(?P<negative>[A-Za-zА-Яа-яЁё][\w.-]{1,60})\b",
     re.IGNORECASE,
@@ -88,7 +100,7 @@ def negative_preference_signal(*, query: str, text: str) -> tuple[float, float, 
 
 
 def absence_contrast_signal(*, query: str, text: str) -> tuple[float, float, str]:
-    match = _ABSENCE_CONTRAST_NAMED_QUERY_RE.search(query)
+    match = _absence_contrast_match(query)
     if match is None:
         return 0.0, 0.0, ""
     positive = match.group("positive")
@@ -102,6 +114,17 @@ def absence_contrast_signal(*, query: str, text: str) -> tuple[float, float, str
     if has_negative and not has_positive:
         return 0.0, 0.032, "absence_contrast_negative_only_conflict"
     return 0.0, 0.0, ""
+
+
+def _absence_contrast_match(query: str) -> re.Match[str] | None:
+    for pattern in (
+        _ABSENCE_CONTRAST_NAMED_QUERY_RE,
+        _ABSENCE_CONTRAST_CHOICE_QUERY_RE,
+    ):
+        match = pattern.search(query)
+        if match is not None:
+            return match
+    return None
 
 
 def _query_token_in_text(token: str, text: str) -> bool:
