@@ -2002,7 +2002,22 @@ def test_query_expansion_covers_commonality_interest_bridges() -> None:
     common_hobby = build_query_expansion_plan(
         "What hobbies do Caroline and Melanie have in common?"
     )
+    broad_common = build_query_expansion_plan(
+        "What do Caroline and Melanie have in common?"
+    )
     both_enjoy = build_query_expansion_plan("What do Caroline and Melanie both enjoy?")
+    both_interested = build_query_expansion_plan(
+        "What are Caroline and Melanie both interested in?"
+    )
+    similar_interests = build_query_expansion_plan(
+        "What similar interests do Caroline and Melanie have?"
+    )
+    shared_activities = build_query_expansion_plan(
+        "What shared activities do Caroline and Melanie enjoy?"
+    )
+    mutual_hobbies = build_query_expansion_plan(
+        "What mutual hobbies do Caroline and Melanie have?"
+    )
     russian = build_query_expansion_plan("Что общего у Алисы и Марии в хобби?")
     russian_both = build_query_expansion_plan("Что Алиса и Мария обе любят?")
     russian_interests = build_query_expansion_plan("Какие общие интересы у Алисы и Марии?")
@@ -2014,8 +2029,28 @@ def test_query_expansion_covers_commonality_interest_bridges() -> None:
         common_hobby,
         "commonality_interest_bridge",
     )
+    assert "common shared both mutual" in _expansion_query(
+        broad_common,
+        "commonality_interest_bridge",
+    )
     assert "interests hobbies activities" in _expansion_query(
         both_enjoy,
+        "commonality_interest_bridge",
+    )
+    assert "interests hobbies activities" in _expansion_query(
+        both_interested,
+        "commonality_interest_bridge",
+    )
+    assert "interests hobbies activities" in _expansion_query(
+        similar_interests,
+        "commonality_interest_bridge",
+    )
+    assert "interests hobbies activities" in _expansion_query(
+        shared_activities,
+        "commonality_interest_bridge",
+    )
+    assert "interests hobbies activities" in _expansion_query(
+        mutual_hobbies,
         "commonality_interest_bridge",
     )
     assert "coconut milk dairy-free sweet treats revised old recipes" in _expansion_query(

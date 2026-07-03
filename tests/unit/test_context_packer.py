@@ -5527,6 +5527,49 @@ def test_answer_support_hobby_query_keeps_personal_social_writing_turn() -> None
     assert "D2:25 Joanna: Writing and hanging with friends" in result.bundle.rendered_text
 
 
+def test_answer_support_common_interest_keeps_shared_activity_turns() -> None:
+    shared_activity = _answer_support_item(
+        "shared_activity",
+        "D8:3 Caroline and Melanie both enjoy painting landscapes and hiking outdoors.",
+        query_reason="commonality_interest_bridge",
+        source_id="locomo:conv-fixture:session_8:D8:3:turn",
+        score=0.82,
+    )
+    generic_interest = _answer_support_item(
+        "generic_interest",
+        "D9:4 Caroline: It is great to meet people who share your interests.",
+        query_reason="commonality_interest_bridge",
+        source_id="locomo:conv-fixture:session_9:D9:4:turn",
+        score=0.99,
+    )
+    shared_artifact_noise = _answer_support_item(
+        "shared_artifact_noise",
+        "D10:4 Caroline shared a photo of a painting with Melanie.",
+        query_reason="commonality_interest_bridge",
+        source_id="locomo:conv-fixture:session_10:D10:4:turn",
+        score=0.98,
+    )
+
+    candidates = _answer_support_diversity_candidates(
+        [generic_interest, shared_artifact_noise, shared_activity],
+        query="What do Caroline and Melanie have in common?",
+    )
+    result = ContextPacker().pack(
+        bundle_id="ctx_common_interest_activity",
+        items=(generic_interest, shared_artifact_noise, shared_activity),
+        query="What do Caroline and Melanie have in common?",
+        token_budget=700,
+        max_rendered_chars=620,
+    )
+
+    assert any("common-interest-activity" in family for family in candidates)
+    assert "D8:3 Caroline and Melanie both enjoy painting landscapes" in (
+        result.bundle.rendered_text
+    )
+    assert "people who share your interests" not in result.bundle.rendered_text
+    assert "shared a photo of a painting" not in result.bundle.rendered_text
+
+
 def test_answer_support_common_interest_prefers_earlier_same_slot_turns() -> None:
     early_recipe = ContextItem(
         item_id="early_recipe",

@@ -1013,6 +1013,20 @@ _COMMON_INTEREST_PERSONAL_HOBBY_SLOT_RE = re.compile(
     r")\b",
     re.IGNORECASE,
 )
+_COMMON_INTEREST_ACTIVITY_SLOT_RE = re.compile(
+    r"\b(?:paint(?:ing|ed)?|camp(?:ing)?|hik(?:e|es|ing)|music|books?|"
+    r"read(?:ing)?|games?|art|pottery|swim(?:ming)?|running|nature|"
+    r"outdoors?)\b"
+    r"(?=.{0,180}\b(?:both|common|mutual|same|similar|"
+    r"also|enjoys?|enjoyed|likes?|liked|loves?|interested|hobbies?|"
+    r"interests?|activities)\b)|"
+    r"\b(?:both|common|mutual|same|similar|also|enjoys?|"
+    r"enjoyed|likes?|liked|loves?|interested|hobbies?|interests?|activities)\b"
+    r"(?=.{0,180}\b(?:paint(?:ing|ed)?|camp(?:ing)?|hik(?:e|es|ing)|"
+    r"music|books?|read(?:ing)?|games?|art|pottery|swim(?:ming)?|"
+    r"running|nature|outdoors?)\b)",
+    re.IGNORECASE | re.DOTALL,
+)
 _COMMON_INTEREST_ANIMAL_AFFINITY_SLOT_RE = re.compile(
     r"\b(?:turtles?|pets?|animals?|reptiles?)\b"
     r"(?=.{0,220}\b(?:drawn|like|likes|love|loves|enjoys?|prefer|"

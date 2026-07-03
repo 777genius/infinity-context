@@ -1149,12 +1149,47 @@ EXPANSION_RULES_PART_1: tuple[tuple[frozenset[str], str, str], ...] = (
             "commonality_interest_bridge",
         ),
     (
+            frozenset({"common", "have"}),
+            _terms._COMMONALITY_INTEREST_EXPANSION,
+            "commonality_interest_bridge",
+        ),
+    (
+            frozenset({"similar", "interests"}),
+            _terms._COMMONALITY_INTEREST_EXPANSION,
+            "commonality_interest_bridge",
+        ),
+    (
+            frozenset({"mutual", "interests"}),
+            _terms._COMMONALITY_INTEREST_EXPANSION,
+            "commonality_interest_bridge",
+        ),
+    (
+            frozenset({"mutual", "hobbies"}),
+            _terms._COMMONALITY_INTEREST_EXPANSION,
+            "commonality_interest_bridge",
+        ),
+    (
+            frozenset({"shared", "activities"}),
+            _terms._COMMONALITY_INTEREST_EXPANSION,
+            "commonality_interest_bridge",
+        ),
+    (
+            frozenset({"share", "activities"}),
+            _terms._COMMONALITY_INTEREST_EXPANSION,
+            "commonality_interest_bridge",
+        ),
+    (
             frozenset({"both", "enjoy"}),
             _terms._COMMONALITY_INTEREST_EXPANSION,
             "commonality_interest_bridge",
         ),
     (
             frozenset({"both", "like"}),
+            _terms._COMMONALITY_INTEREST_EXPANSION,
+            "commonality_interest_bridge",
+        ),
+    (
+            frozenset({"both", "interest"}),
             _terms._COMMONALITY_INTEREST_EXPANSION,
             "commonality_interest_bridge",
         ),

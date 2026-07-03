@@ -19,6 +19,7 @@ from infinity_context_core.application.context_packer_answer_support_patterns im
     _CAUSE_EVENT_FOOD_DRIVE_SLOT_RE,
     _CAUSE_EVENT_SHELTER_TOY_DRIVE_SLOT_RE,
     _CAUSE_INFRASTRUCTURE_SLOT_RE,
+    _COMMON_INTEREST_ACTIVITY_SLOT_RE,
     _COMMON_INTEREST_ANIMAL_AFFINITY_SLOT_RE,
     _COMMON_INTEREST_ANSWER_SUPPORT_REASONS,
     _COMMON_INTEREST_DESSERT_BAKING_SLOT_RE,
@@ -921,6 +922,8 @@ def _common_interest_answer_slot(item: ContextItem, *, query_reason: str) -> str
         return "common_interest_movies"
     if _COMMON_INTEREST_PERSONAL_HOBBY_SLOT_RE.search(text) is not None:
         return "common_interest_personal_hobby"
+    if _COMMON_INTEREST_ACTIVITY_SLOT_RE.search(text) is not None:
+        return "common_interest_activity"
     if _COMMON_INTEREST_ANIMAL_AFFINITY_SLOT_RE.search(text) is not None:
         return "common_interest_animal_affinity"
     if _COMMON_INTEREST_INSPIRATIONAL_AFFINITY_SLOT_RE.search(text) is not None:
@@ -938,6 +941,7 @@ def _common_interest_answer_slot_priority(slot: str) -> int:
     return {
         "common_interest_movies": 0,
         "common_interest_personal_hobby": 0,
+        "common_interest_activity": 0,
         "common_interest_animal_affinity": 0,
         "common_interest_affinity_reason": 1,
         "common_interest_dessert_recipe": 0,
