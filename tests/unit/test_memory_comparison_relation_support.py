@@ -64,3 +64,22 @@ def test_status_profile_support_accepts_explicit_team_member_evidence() -> None:
         )
         is True
     )
+
+
+def test_preference_support_accepts_book_author_evidence() -> None:
+    assert (
+        typed_relation_category_support(
+            "preference",
+            {"dana", "liked", "author", "novels", "octavia"},
+            memory_text="D4:6 Dana: I liked Octavia as an author for those novels.",
+        )
+        is True
+    )
+    assert (
+        typed_relation_category_support(
+            "preference",
+            {"dana", "author", "novels", "school"},
+            memory_text="D4:7 Dana: I read novels by that author for school.",
+        )
+        is False
+    )

@@ -1833,3 +1833,71 @@ def test_candidate_features_do_not_count_question_echo_as_category_hit() -> None
     assert features.relation_categories == ("temporal",)
     assert features.relation_category_hits == ()
     assert features.relation_category_coverage_ratio == 0.0
+
+
+def test_candidate_features_credit_book_author_preference_evidence() -> None:
+    generic_book_reference = build_candidate_evidence_features(
+        RetrievedMemory(
+            item_id="generic-author-reference",
+            rank=1,
+            text="D3:5 Dana: I read novels by Octavia for school.",
+            source_refs=("D3:5",),
+        ),
+        memory_terms={"dana", "read", "novels", "octavia", "school"},
+        query_terms=("dana", "liked", "author"),
+        relation_terms=("liked", "author"),
+        relation_variant_terms=("novel", "novels", "read", "reading"),
+        relation_category_terms={
+            "preference": ("liked", "author", "novel", "novels", "read", "reading")
+        },
+        entities=("dana",),
+        entity_hits=("dana",),
+        speaker_hits=("dana",),
+        high_signal_relation_terms={"liked"},
+        is_temporal_query=False,
+        is_preference_query=True,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+    liked_author = build_candidate_evidence_features(
+        RetrievedMemory(
+            item_id="liked-author",
+            rank=2,
+            text="D4:6 Dana: I liked Octavia as an author for those novels.",
+            source_refs=("D4:6",),
+        ),
+        memory_terms={"dana", "liked", "octavia", "author", "novels"},
+        query_terms=("dana", "liked", "author"),
+        relation_terms=("liked", "author"),
+        relation_variant_terms=("novel", "novels", "read", "reading"),
+        relation_category_terms={
+            "preference": ("liked", "author", "novel", "novels", "read", "reading")
+        },
+        entities=("dana",),
+        entity_hits=("dana",),
+        speaker_hits=("dana",),
+        high_signal_relation_terms={"liked"},
+        is_temporal_query=False,
+        is_preference_query=True,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=True,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+
+    assert generic_book_reference.relation_category_hits == ()
+    assert "missing_preference_evidence" in (
+        generic_book_reference.answerability_reason_codes
+    )
+    assert liked_author.relation_category_hits == ("preference",)
+    assert "preference_evidence" in liked_author.answerability_reason_codes
+    assert liked_author.answerability_score > generic_book_reference.answerability_score
+    assert liked_author.answerability_score >= 0.8

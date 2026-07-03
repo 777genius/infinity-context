@@ -1606,9 +1606,13 @@ def _has_preference_support(memory_terms: set[str]) -> bool:
         "movie",
         "movies",
         "music",
+        "novel",
+        "novels",
         "outdoor",
         "outdoors",
         "park",
+        "read",
+        "reading",
         "restaurant",
         "run",
         "running",
@@ -1619,7 +1623,13 @@ def _has_preference_support(memory_terms: set[str]) -> bool:
         "story",
         "summer",
         "tea",
+        "writer",
+        "writers",
     } & memory_terms
+    author_context = {"author", "authors"} & memory_terms and (
+        {"book", "books", "novel", "novels", "read", "reading", "writer", "writers"}
+        & memory_terms
+    )
     outdoor_context = {"camp", "camping", "outdoor", "outdoors", "park"} & memory_terms
     self_care_surface = {"self-care", "relax", "refresh", "refreshes", "routine"} & memory_terms
     self_care_context = {"balance", "family", "present", "wellness"} & memory_terms
@@ -1632,6 +1642,7 @@ def _has_preference_support(memory_terms: set[str]) -> bool:
     } & memory_terms
     return bool(
         (preference_action and preference_context)
+        or (preference_action and author_context)
         or (outdoor_context and durable_outdoor_context)
         or (self_care_surface and self_care_context)
     )
