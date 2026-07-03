@@ -963,13 +963,12 @@ def _source_ref_dedupe_key(
 ) -> str:
     source_turn_refs = _source_turn_refs(source_refs)
     source_session_turn_refs = _source_session_turn_refs(source_refs)
-    if _has_multiple_sessions(source_session_turn_refs) and len(source_session_turn_refs) <= 3:
-        return "source_session_turn_refs:" + "|".join(sorted(source_session_turn_refs))
     if (
-        not source_turn_refs
-        and _has_multiple_sessions(text_session_turn_refs)
-        and len(text_session_turn_refs) <= 3
+        0 < len(source_session_turn_refs) <= 3
+        and _turn_ref_count(source_session_turn_refs) == len(source_turn_refs)
     ):
+        return "source_session_turn_refs:" + "|".join(sorted(source_session_turn_refs))
+    if not source_turn_refs and 0 < len(text_session_turn_refs) <= 3:
         return "source_session_turn_refs:" + "|".join(sorted(text_session_turn_refs))
     turn_refs = source_turn_refs or tuple(
         dict.fromkeys(ref for ref in text_turn_refs if _TURN_REF_RE.fullmatch(str(ref)))
@@ -977,6 +976,10 @@ def _source_ref_dedupe_key(
     if not turn_refs or len(turn_refs) > 3:
         return ""
     return "source_turn_refs:" + "|".join(sorted(turn_refs))
+
+
+def _turn_ref_count(values: Sequence[str]) -> int:
+    return sum(1 for value in values if _TURN_REF_RE.search(str(value)))
 
 
 def _source_turn_refs(source_refs: Sequence[str]) -> tuple[str, ...]:

@@ -934,11 +934,60 @@ def test_candidate_features_use_source_ref_turns_for_locality_and_dedupe() -> No
     assert features.source_turn_span == 2
     assert features.source_locality_score == 0.95
     assert features.source_locality_reason_codes == ("proximate_source_turn_refs",)
-    assert features.source_ref_dedupe_key == "source_turn_refs:D2:8|D2:9"
+    assert features.source_ref_dedupe_key == (
+        "source_session_turn_refs:session_2:D2:8|session_2:D2:9"
+    )
     assert "source_provenance" in features.answerability_reason_codes
     diagnostics = features.to_diagnostics()
     assert diagnostics["source_turn_refs"] == ["D2:8", "D2:9"]
     assert diagnostics["source_turn_span"] == 2
+
+
+def test_candidate_features_keep_single_session_source_refs_dedupe_qualified() -> None:
+    first_session = _features_for_session_source_ref(
+        "locomo:conv-26:session_1:D1:8:turn"
+    )
+    second_session = _features_for_session_source_ref(
+        "locomo:conv-26:session_2:D1:8:turn"
+    )
+
+    assert first_session.source_ref_dedupe_key == (
+        "source_session_turn_refs:session_1:D1:8"
+    )
+    assert second_session.source_ref_dedupe_key == (
+        "source_session_turn_refs:session_2:D1:8"
+    )
+    assert first_session.source_ref_dedupe_key != second_session.source_ref_dedupe_key
+
+
+def _features_for_session_source_ref(source_ref: str):
+    return build_candidate_evidence_features(
+        RetrievedMemory(
+            item_id=source_ref,
+            rank=1,
+            text="Caroline brought a notebook to the planning meeting.",
+            source_refs=(source_ref,),
+            metadata={"item_type": "chunk"},
+        ),
+        memory_terms={"caroline", "brought", "notebook", "planning", "meeting"},
+        query_terms=("caroline", "brought", "notebook"),
+        relation_terms=("brought", "notebook"),
+        relation_variant_terms=("planning", "meeting"),
+        relation_category_terms={"action_event": ("brought", "notebook")},
+        entities=("caroline",),
+        entity_hits=("caroline",),
+        speaker_hits=("caroline",),
+        high_signal_relation_terms={"notebook"},
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=True,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
 
 
 def test_candidate_features_do_not_treat_cross_session_turn_refs_as_proximate() -> None:
