@@ -7946,6 +7946,48 @@ def test_deterministic_rerank_prefers_dated_latest_conversation_over_undated() -
     )
 
 
+def test_deterministic_rerank_prefers_upcoming_event_hint_for_next_meeting() -> None:
+    query = "When is the next meeting with Alex?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    upcoming_event = _item(
+        "upcoming_event",
+        score=0.7,
+        retrieval_source="keyword_chunks",
+        event_temporal_hint_code="next_week",
+        text="Meeting with Alex is about invoice background.",
+    )
+    previous_event = _item(
+        "previous_event",
+        score=0.71,
+        retrieval_source="keyword_chunks",
+        event_temporal_hint_code="last_week",
+        text="Meeting with Alex was about invoice background.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (previous_event, upcoming_event),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert by_id["upcoming_event"].score > by_id["previous_event"].score
+    assert (
+        "temporal_query_upcoming_event_future_temporal_hint"
+        in by_id["upcoming_event"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+    assert (
+        "temporal_query_upcoming_event_past_temporal_hint_conflict"
+        in by_id["previous_event"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+
+
 def test_deterministic_rerank_penalizes_wrong_person_decoy() -> None:
     query = "Would Melanie be considered an ally?"
     plan = build_query_expansion_plan(query)

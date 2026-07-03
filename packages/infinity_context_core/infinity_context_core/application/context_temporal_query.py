@@ -57,13 +57,22 @@ _ORDERED_EVENT_REQUEST_RE = re.compile(
     r"обсуждени\w*|ревью)\b",
     re.IGNORECASE,
 )
+_UPCOMING_EVENT_REQUEST_RE = re.compile(
+    r"\b(?:next|upcoming)\s+"
+    r"(?:conversation|call|meeting|chat|dm|message|discussion|sync|review|demo|"
+    r"interview|workshop|session)\b|"
+    r"\b(?:следующ\w*|предстоящ\w*)\s+"
+    r"(?:разговор\w*|созвон\w*|встреч\w*|переписк\w*|чат\w*|"
+    r"обсуждени\w*|ревью)\b",
+    re.IGNORECASE,
+)
 _CURRENT_PHRASE_RE = re.compile(
     r"\b(?:right\s+now|as\s+of\s+now|at\s+the\s+moment|for\s+now)\b|"
     r"\b(?:прямо\s+сейчас|на\s+данный\s+момент|в\s+данный\s+момент)\b",
     re.IGNORECASE,
 )
 _RECENT_EVENT_REQUEST_RE = re.compile(
-    r"\b(?:latest|newest|recent|most\s+recent|last|previous|prior|next|upcoming)\s+"
+    r"\b(?:latest|newest|recent|most\s+recent|last|previous|prior)\s+"
     r"(?:conversation|call|meeting|chat|dm|message|discussion|sync|review|demo|"
     r"interview|workshop|session)\b|"
     r"\b(?:последн\w*|недавн\w*|свеж\w*)\s+"
@@ -384,6 +393,7 @@ class TemporalQueryIntent:
     after_event: bool
     before_event: bool
     during_event: bool
+    requests_upcoming: bool
     excludes_stale: bool
     relative_time_hints: tuple[str, ...] = ()
     event_sequence_terms: tuple[str, ...] = ()
@@ -402,6 +412,7 @@ class TemporalQueryIntent:
                 self.after_event,
                 self.before_event,
                 self.during_event,
+                self.requests_upcoming,
                 self.excludes_stale,
                 self.relative_time_hints,
                 self.event_sequence_terms,
@@ -422,6 +433,8 @@ class TemporalQueryIntent:
             reasons.append("before_event")
         if self.during_event:
             reasons.append("during_event")
+        if self.requests_upcoming:
+            reasons.append("requests_upcoming")
         if self.excludes_stale:
             reasons.append("excludes_stale")
         if self.relative_time_hints:
@@ -434,6 +447,7 @@ class TemporalQueryIntent:
             "temporal_query_after_event": self.after_event,
             "temporal_query_before_event": self.before_event,
             "temporal_query_during_event": self.during_event,
+            "temporal_query_requests_upcoming": self.requests_upcoming,
             "temporal_query_excludes_stale": self.excludes_stale,
             "temporal_query_include_superseded_review": (self.include_superseded_review),
             "temporal_query_relative_time_hints": list(self.relative_time_hints),
@@ -474,13 +488,14 @@ def build_temporal_query_intent(query: str) -> TemporalQueryIntent:
         or not _OLD_PREVIOUS_STATE_QUERY_RE.search(query)
     ):
         previous_terms = previous_terms.difference({"old"})
+    requests_upcoming = bool(_UPCOMING_EVENT_REQUEST_RE.search(query))
     requests_previous = (bool(previous_terms) or no_longer_current_state) and not excludes_stale
     prefers_current = (
         excludes_stale
         or still_current_state
         or bool(variants.intersection(_CURRENT_TERMS))
         or bool(_CURRENT_PHRASE_RE.search(query))
-        or bool(_RECENT_EVENT_REQUEST_RE.search(query))
+        or (bool(_RECENT_EVENT_REQUEST_RE.search(query)) and not requests_upcoming)
         or bool(_CURRENT_RECOMMENDATION_RE.search(query))
         or (requests_change and not requests_previous)
     ) and not no_longer_current_state
@@ -516,6 +531,7 @@ def build_temporal_query_intent(query: str) -> TemporalQueryIntent:
         after_event=after_event,
         before_event=before_event,
         during_event=during_event,
+        requests_upcoming=requests_upcoming,
         excludes_stale=excludes_stale,
         relative_time_hints=relative_time_hints,
         event_sequence_terms=event_sequence_terms,
@@ -588,6 +604,18 @@ def temporal_query_boost_signal(
             boost=-0.026,
             reason="query relative time conflicts with item event window",
             code="relative_time_conflict",
+        )
+    if intent.requests_upcoming and _is_future_temporal_hint(temporal_hint_code):
+        return TemporalQueryBoostSignal(
+            boost=0.03,
+            reason="query asks for upcoming event and item has future event window",
+            code="upcoming_event_future_temporal_hint",
+        )
+    if intent.requests_upcoming and _is_past_temporal_hint(temporal_hint_code):
+        return TemporalQueryBoostSignal(
+            boost=-0.022,
+            reason="query asks for upcoming event and item has past event window",
+            code="upcoming_event_past_temporal_hint_conflict",
         )
     if intent.requests_change and retrieval_source == "temporal_supersedes_relation":
         return TemporalQueryBoostSignal(
@@ -883,6 +911,31 @@ def _temporal_hint_overlaps(
 
 def _is_exact_date_temporal_hint(code: str) -> bool:
     return code.startswith("date_")
+
+
+def _is_future_temporal_hint(code: str) -> bool:
+    return code in {
+        "next_month",
+        "next_quarter",
+        "next_week",
+        "next_year",
+        "this_weekend",
+        "tomorrow",
+    }
+
+
+def _is_past_temporal_hint(code: str) -> bool:
+    return bool(
+        code == "yesterday"
+        or code.startswith("last_")
+        or code.endswith("_ago")
+        or code in {
+            "earlier_today",
+            "last_night",
+            "today_morning",
+            "weekends_ago",
+        }
+    )
 
 
 def _temporal_hint_code(

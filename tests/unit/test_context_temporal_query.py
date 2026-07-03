@@ -47,6 +47,7 @@ def test_temporal_query_intent_detects_latest_event_queries() -> None:
         "What did Alex say in the previous session?"
     )
     english_next_meeting = build_temporal_query_intent("When is the next meeting?")
+    russian_next_meeting = build_temporal_query_intent("Когда следующая встреча с Алексом?")
     russian_last_call = build_temporal_query_intent("Что было на последнем созвоне с Алексом?")
     russian_recent_meeting = build_temporal_query_intent(
         "Что обсуждали на недавней встрече с Алексом?"
@@ -57,7 +58,9 @@ def test_temporal_query_intent_detects_latest_event_queries() -> None:
     assert english_recent.prefers_current is True
     assert english_last_call.prefers_current is True
     assert english_previous_session.prefers_current is True
-    assert english_next_meeting.prefers_current is True
+    assert english_next_meeting.prefers_current is False
+    assert english_next_meeting.requests_upcoming is True
+    assert russian_next_meeting.requests_upcoming is True
     assert english_previous_session.requests_previous is False
     assert russian_last_call.prefers_current is True
     assert russian_recent_meeting.prefers_current is True
@@ -455,6 +458,45 @@ def test_temporal_query_does_not_demote_exact_date_for_relative_future_query() -
 
     assert boosted[0].score == 0.72
     assert "temporal_query_intent_reason" not in boosted[0].diagnostics
+
+
+def test_temporal_query_boosts_upcoming_event_hints_without_date_terms() -> None:
+    intent = build_temporal_query_intent("When is the next meeting with Alex?")
+    upcoming = _item(
+        "upcoming",
+        score=0.7,
+        retrieval_source="keyword_chunks",
+        fact_status="active",
+        event_temporal_hint_code="next_week",
+    )
+    previous = _item(
+        "previous",
+        score=0.71,
+        retrieval_source="keyword_chunks",
+        fact_status="active",
+        event_temporal_hint_code="last_week",
+    )
+    undated = _item(
+        "undated",
+        score=0.72,
+        retrieval_source="keyword_chunks",
+        fact_status="active",
+    )
+
+    boosted = apply_temporal_query_intent_boosts(
+        (undated, previous, upcoming),
+        intent=intent,
+    )
+    by_id = {item.item_id: item for item in boosted}
+
+    assert by_id["upcoming"].score > by_id["undated"].score
+    assert by_id["previous"].score < by_id["upcoming"].score
+    assert by_id["upcoming"].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for upcoming event and item has future event window"
+    )
+    assert by_id["previous"].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for upcoming event and item has past event window"
+    )
 
 
 def test_temporal_query_boosts_matching_exact_date_event_temporal_hint() -> None:
