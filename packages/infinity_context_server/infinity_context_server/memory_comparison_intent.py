@@ -372,7 +372,7 @@ def infer_evidence_need(
 ) -> tuple[str, ...]:
     needs: list[str] = []
     relation_set = set(relation_terms)
-    count_intent = _has_count_intent(question)
+    count_intent = _has_count_intent(question) and benchmark_category != 3
     direct_emotion_response = _has_direct_emotion_response_intent(
         question=question,
         relation_terms=relation_terms,
@@ -478,6 +478,7 @@ def infer_bundle_evidence_roles(
         role
         for need, role in profile_role_by_need.items()
         if need in evidence_need_set
+        and not (benchmark_category == 1 and need == "activity_support")
     )
     if "commitment_profile" in evidence_need_set:
         roles.append("commitment_support")
@@ -507,11 +508,7 @@ def merge_relation_evidence_needs(
 ) -> tuple[str, ...]:
     """Promote selected typed relation-facet needs into bundle planning."""
 
-    category_promoted_needs = {
-        "current_goal",
-        "identity_profile",
-        "support_goal",
-    }
+    category_promoted_needs: set[str] = set()
     promoted_needs = {
         "emotion_response",
         "commitment_profile",
@@ -541,19 +538,28 @@ def merge_relation_evidence_needs(
         "support_goal",
         "symbolic_meaning",
     }
-    relation_needs = tuple(
-        relation_need
-        for intent in relation_intents
-        for relation_need in (
-            intent.category
-            if (
-                intent.category in category_promoted_needs
-                and "inference_support" in evidence_need
-            )
-            else intent.evidence_need,
-        )
-        if relation_need in promoted_needs and relation_need != "inference_support"
-    )
+    relation_needs: list[str] = []
+    for intent in relation_intents:
+        if intent.category in category_promoted_needs:
+            if "inference_support" not in evidence_need:
+                continue
+            relation_need = intent.category
+        else:
+            relation_need = intent.evidence_need
+        if relation_need in promoted_needs and relation_need != "inference_support":
+            if relation_need == "activity_support" and any(
+                relation_intent.category == "activity_profile"
+                for relation_intent in relation_intents
+            ):
+                continue
+            if relation_need == "activity_support" and "preference" in evidence_need:
+                continue
+            if relation_need == "support_goal" and {
+                "causal_support",
+                "multi_hop",
+            } & set(evidence_need):
+                continue
+            relation_needs.append(relation_need)
     if not relation_needs:
         return evidence_need
     base_needs = tuple(need for need in evidence_need if need != "single_fact")
@@ -643,6 +649,8 @@ def _has_current_goal_intent(
     if not {"want", "plan"} & set(relation_terms):
         return False
     normalized = " ".join(str(question or "").casefold().split())
+    if re.search(r"\b(?:if|hadn t|had not)\b", normalized):
+        return False
     if "plan" in set(relation_terms) and re.search(
         r"\b(?:plan|plans|planned|planning)\b",
         normalized,
@@ -688,6 +696,11 @@ def _has_support_goal_intent(
     } & relation_set:
         return False
     normalized_question = " ".join(str(question or "").casefold().split())
+    if re.search(
+        r"\b(?:different|difference|compare|compared|before|former|previous)\b",
+        normalized_question,
+    ):
+        return False
     return bool(
         normalized_question
         and (

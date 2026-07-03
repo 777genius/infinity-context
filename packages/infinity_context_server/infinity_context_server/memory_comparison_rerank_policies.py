@@ -956,6 +956,13 @@ def _typed_relation_support_category_hits(
     category_hits = set(features.relation_category_hits)
     hits: list[str] = []
     for role in support_roles:
+        if (
+            role == "activity_support"
+            and "activity_profile" in set(features.evidence_need)
+        ):
+            if "activity_profile" in category_hits:
+                hits.append("activity_profile")
+            continue
         hits.extend(
             category
             for category in _TYPED_RELATION_SUPPORT_ROLE_CATEGORIES[role]

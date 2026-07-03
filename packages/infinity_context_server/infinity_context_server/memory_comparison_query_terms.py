@@ -221,15 +221,15 @@ def _support_query_terms(
     relation_term_set = set(relation_terms)
     if (
         (
-            {"live", "move", "origin", "relocate", "relocated", "roadtrip"}
+            {"live", "move", "relocate", "relocated"}
             & relation_term_set
             or (
-                {"grow", "stay"} & relation_term_set
+                "stay" in relation_term_set
                 and {"where", "from", "city", "country", "place", "origin"}
                 & set(lexical_terms)
             )
         )
-        and not {"plan", "want"} & relation_term_set
+        and not {"current", "plan", "want"} & relation_term_set
     ):
         return _location_support_query_terms(
             relation_terms=relation_terms,
@@ -1359,6 +1359,25 @@ def _location_support_query_terms(
             "outdoor",
             "trip",
         )
+    elif {"live", "based"} & relation_term_set:
+        location_first_terms = ("live", "liv", "bas", "home", "city", "place")
+    elif {"origin", "from"} & relation_term_set:
+        location_first_terms = ("origin", "home", "city", "country", "grew", "born")
+        return tuple(
+            dict.fromkeys(
+                (
+                    *location_first_terms,
+                    *(
+                        term
+                        for term in relation_query_terms
+                        if term not in _QUERY_STOPWORDS
+                    ),
+                    *location_surfaces,
+                )
+            )
+        )
+    elif {"stay"} & relation_term_set:
+        location_first_terms = ("stay", "stayed", "hotel", "place", "location")
     return tuple(
         dict.fromkeys(
             (

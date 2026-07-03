@@ -274,6 +274,13 @@ def _boost_cap(
     if any(policy_boosts.get(key, 0.0) > 0 for key in medium_confidence_policy_keys):
         return 0.62
     if (
+        focused_turn_boost > 0
+        and focused_relation_density_boost > 0
+        and features.source_locality_score >= 0.95
+        and not features.broad_summary
+    ):
+        return 0.62
+    if (
         typed_relation_support_boost > 0
         and features.direct_speaker_turn
         and features.relation_category_coverage_ratio >= 1.0

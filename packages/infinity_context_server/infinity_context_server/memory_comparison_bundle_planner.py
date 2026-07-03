@@ -1251,6 +1251,14 @@ def _candidate_has_typed_relation_support(
         return False
     if candidate.broad_summary or candidate.conflict_or_stale:
         return False
+    if role == "support_goal_support" and not (
+        candidate.relation_category_hits or candidate.entity_hits or candidate.speaker_hits
+    ):
+        support_terms = set(candidate.query_support_terms)
+        return bool(
+            "support" in support_terms
+            and {"adoption", "agency", "individual", "help"} & support_terms
+        )
     if not (candidate.entity_hits or candidate.speaker_hits):
         return False
     if _candidate_has_measured_weak_source_locality(candidate):

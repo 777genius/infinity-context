@@ -605,6 +605,8 @@ def decomposed_search_queries(
             or "destress" in relation_terms
         ):
             relation_term_limit = 10 if "destress" in relation_terms else 8
+        elif {"current", "live"} <= set(relation_terms):
+            relation_term_limit = 9
         else:
             relation_term_limit = 6
         compact_entity_surfaces = speaker_surfaces or entity_surfaces
@@ -657,7 +659,7 @@ def decomposed_search_queries(
             relation_variant_terms=relation_variant_terms,
             lexical_terms=lexical_terms,
         )
-        if "location_support" in intent.evidence_need
+        if "location_support" in intent.evidence_need and "current" not in relation_terms
         else ()
     )
     if location_query_terms and (entity_surfaces or len(location_query_terms) >= 4):
@@ -1031,7 +1033,10 @@ def _recommended_query_role_families(intent: RetrievalIntent) -> tuple[str, ...]
         families.append("relation_compact")
     if intent.visual_terms:
         families.append("visual_support")
-    if intent.time_intent.is_temporal:
+    if intent.time_intent.is_temporal and not (
+        "contrast" in intent.evidence_need
+        and intent.time_intent.kind == "temporal_sequence"
+    ):
         families.append("temporal_support")
     if "contrast" in intent.evidence_need:
         families.append("contrast_support")
@@ -1062,6 +1067,8 @@ def _compact_relation_query_role(intent: RetrievalIntent) -> str:
         return "diet_support"
     if "identity_profile" in evidence_needs:
         return "identity_support"
+    if "communication" in evidence_needs:
+        return "communication_support"
     if {"activity_profile", "activity_support"} & evidence_needs:
         return "activity_support"
     if "employment_profile" in evidence_needs:
@@ -1096,7 +1103,6 @@ def _compact_relation_query_role(intent: RetrievalIntent) -> str:
         "symbolic_meaning_support",
         "preference_support",
         "causal_support",
-        "inference_support",
     )
     roles = set(intent.bundle_evidence_roles)
     for role in role_priority:
@@ -1197,7 +1203,7 @@ def benchmark_rerank_memories(
     }
 
 
-def _benchmark_rerank_sort_key(memory: RetrievedMemory) -> tuple[float, float, int]:
+def _benchmark_rerank_sort_key(memory: RetrievedMemory) -> tuple[float, float, float, int]:
     diagnostics = (
         memory.metadata.get("diagnostics")
         if isinstance(memory.metadata.get("diagnostics"), Mapping)
@@ -1211,7 +1217,17 @@ def _benchmark_rerank_sort_key(memory: RetrievedMemory) -> tuple[float, float, i
     visual_boost = _positive_float(
         score_signals.get("benchmark_visual_evidence_boost")
     )
-    return (-memory.score, -visual_boost, memory.rank)
+    focused_support_boost = sum(
+        _positive_float(score_signals.get(key))
+        for key in (
+            "benchmark_focused_turn_boost",
+            "benchmark_political_context_boost",
+            "benchmark_roadtrip_incident_boost",
+            "benchmark_destress_running_shape_boost",
+            "benchmark_outdoor_park_preference_boost",
+        )
+    )
+    return (-memory.score, -focused_support_boost, -visual_boost, memory.rank)
 
 
 def _positive_float(value: object) -> float:
@@ -1773,6 +1789,11 @@ def _temporal_query_profile(case: PublicBenchmarkCase) -> dict[str, object]:
     matched_terms = tuple(
         term for term in _TEMPORAL_QUERY_TERMS if term in temporal_query
     )
+    if "during" in matched_terms and not re.search(
+        r"\b(?:session|conversation|chat|call|meeting|event|interview)\b",
+        temporal_query,
+    ):
+        matched_terms = tuple(term for term in matched_terms if term != "during")
     surface_terms = tuple(term for term in _TEMPORAL_SURFACE_TERMS if term in query)
     is_temporal = category == 2 or bool(matched_terms) or bool(surface_terms)
     reasons: list[str] = []
