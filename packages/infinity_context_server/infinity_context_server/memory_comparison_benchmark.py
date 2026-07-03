@@ -30,6 +30,12 @@ from infinity_context_server.memory_comparison_evidence import (
 from infinity_context_server.memory_comparison_evidence import (
     retrieval_quality as build_retrieval_quality,
 )
+from infinity_context_server.memory_comparison_failure_diagnostics import (
+    failure_diagnostic_reason_codes as _failure_diagnostic_reason_codes,
+)
+from infinity_context_server.memory_comparison_failure_diagnostics import (
+    failure_diagnostics as _failure_diagnostics,
+)
 from infinity_context_server.memory_comparison_llm import (
     EvidenceOnlyAnswerer,
     ExpectedTermsJudge,
@@ -1706,6 +1712,7 @@ def _failure_analysis_entry(
     retrieval_recall = float(retrieval_quality.get("expected_term_recall", 0.0))
     if score >= 1.0 and retrieval_recall >= 1.0:
         return None
+    diagnostics = _failure_diagnostics(evaluation)
     return {
         "backend": evaluation.get("backend"),
         "case_id": evaluation.get("case_id"),
@@ -1715,6 +1722,13 @@ def _failure_analysis_entry(
         "retrieval_expected_term_recall": retrieval_recall,
         "missing_terms": missing_terms if isinstance(missing_terms, list) else [],
         "reason": judgment.get("reason") or "retrieval_or_judgment_failed",
+        "diagnostic_reason_codes": _failure_diagnostic_reason_codes(
+            evaluation,
+            score=score,
+            retrieval_recall=retrieval_recall,
+            diagnostics=diagnostics,
+        ),
+        "diagnostics": diagnostics,
         "answer_preview": str(_mapping(evaluation.get("generation")).get("answer", ""))[:240],
     }
 
