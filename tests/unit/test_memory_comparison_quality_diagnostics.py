@@ -119,6 +119,8 @@ def test_quality_diagnostics_reports_intents_policies_bundle_gaps_and_leakage() 
                             source_identity_support_ref_count=2,
                             source_type_diversity=2,
                             retrieval_source_diversity=2,
+                            source_type_support_diversity=2,
+                            retrieval_source_support_diversity=2,
                         )
                     },
                     "items": [
@@ -270,6 +272,10 @@ def test_quality_diagnostics_reports_intents_policies_bundle_gaps_and_leakage() 
     assert bundle_quality["source_identity_support_bundle_count"] == 1
     assert bundle_quality["avg_source_identity_support_ref_count"] == 1.0
     assert bundle_quality["total_source_identity_support_ref_count"] == 2
+    assert bundle_quality["avg_source_type_support_diversity"] == 1.0
+    assert bundle_quality["max_source_type_support_diversity"] == 2
+    assert bundle_quality["avg_retrieval_source_support_diversity"] == 1.0
+    assert bundle_quality["max_retrieval_source_support_diversity"] == 2
     assert bundle_quality["avg_selected_source_locality_score"] == 0.625
     assert bundle_quality["weak_bundle_count"] == 1
     assert bundle_quality["medium_or_high_bundle_count"] == 1
@@ -3303,6 +3309,8 @@ def _bundle_quality(
     source_identity_support_ref_count: int = 0,
     source_type_diversity: int = 0,
     retrieval_source_diversity: int = 0,
+    source_type_support_diversity: int = 0,
+    retrieval_source_support_diversity: int = 0,
     bridge_count: int = 0,
     causal_support_count: int = 0,
     event_support_count: int = 0,
@@ -3342,6 +3350,8 @@ def _bundle_quality(
         "source_identity_support_ref_count": source_identity_support_ref_count,
         "source_type_diversity": source_type_diversity,
         "retrieval_source_diversity": retrieval_source_diversity,
+        "source_type_support_diversity": source_type_support_diversity,
+        "retrieval_source_support_diversity": retrieval_source_support_diversity,
         "bridge_count": bridge_count,
         "causal_support_count": causal_support_count,
         "event_support_count": event_support_count,

@@ -940,6 +940,8 @@ def _bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, ob
     source_identity_ref_counts: list[int] = []
     source_identity_support_item_counts: list[int] = []
     source_identity_support_ref_counts: list[int] = []
+    source_type_support_diversities: list[int] = []
+    retrieval_source_support_diversities: list[int] = []
     contrast_counts: list[int] = []
     selected_source_locality_scores: list[float] = []
     measured_selected_source_locality_scores: list[float] = []
@@ -1007,6 +1009,12 @@ def _bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, ob
         )
         source_identity_support_ref_counts.append(
             _positive_int(quality.get("source_identity_support_ref_count")) or 0
+        )
+        source_type_support_diversities.append(
+            _positive_int(quality.get("source_type_support_diversity")) or 0
+        )
+        retrieval_source_support_diversities.append(
+            _positive_int(quality.get("retrieval_source_support_diversity")) or 0
         )
         closest_distance = _positive_int(
             quality.get("source_proximity_closest_distance")
@@ -1182,6 +1190,22 @@ def _bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, ob
         "total_source_identity_support_ref_count": sum(
             source_identity_support_ref_counts
         ),
+        "avg_source_type_support_diversity": _avg(
+            source_type_support_diversities
+        ),
+        "max_source_type_support_diversity": (
+            max(source_type_support_diversities)
+            if source_type_support_diversities
+            else 0
+        ),
+        "avg_retrieval_source_support_diversity": _avg(
+            retrieval_source_support_diversities
+        ),
+        "max_retrieval_source_support_diversity": (
+            max(retrieval_source_support_diversities)
+            if retrieval_source_support_diversities
+            else 0
+        ),
         "avg_contrast_count": _avg(contrast_counts),
         "total_contrast_count": sum(contrast_counts),
         "contrast_bundle_count": sum(1 for count in contrast_counts if count > 0),
@@ -1326,6 +1350,12 @@ def _bundle_quality_sample(
         ),
         "retrieval_source_diversity": (
             _positive_int(quality.get("retrieval_source_diversity")) or 0
+        ),
+        "source_type_support_diversity": (
+            _positive_int(quality.get("source_type_support_diversity")) or 0
+        ),
+        "retrieval_source_support_diversity": (
+            _positive_int(quality.get("retrieval_source_support_diversity")) or 0
         ),
         "low_answerability_count": (
             _positive_int(quality.get("low_answerability_count")) or 0
