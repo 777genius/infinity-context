@@ -65,6 +65,7 @@ class AnswerContext:
     bundle_source_chain_proximity_distance_counts: Mapping[str, int] = field(
         default_factory=dict
     )
+    bundle_diffuse_source_ref_count: int = 0
     bundle_causal_support_count: int = 0
     bundle_communication_support_count: int = 0
     bundle_event_support_count: int = 0
@@ -160,6 +161,7 @@ class AnswerContext:
             "bundle_source_chain_proximity_distance_counts": dict(
                 sorted(self.bundle_source_chain_proximity_distance_counts.items())
             ),
+            "bundle_diffuse_source_ref_count": self.bundle_diffuse_source_ref_count,
             "bundle_causal_support_count": self.bundle_causal_support_count,
             "bundle_communication_support_count": (
                 self.bundle_communication_support_count
@@ -475,6 +477,12 @@ def answer_context_from_evidence_bundle(
             bundle_context.get(
                 "answer_context_bundle_source_chain_proximity_distance_counts"
             )
+        ),
+        bundle_diffuse_source_ref_count=(
+            _positive_int(
+                bundle_context.get("answer_context_bundle_diffuse_source_ref_count")
+            )
+            or 0
         ),
         bundle_causal_support_count=(
             _positive_int(
@@ -1758,6 +1766,11 @@ def _bundle_context_metadata(bundle: Mapping[str, object]) -> dict[str, object]:
     if source_chain_proximity_distance_counts:
         metadata["answer_context_bundle_source_chain_proximity_distance_counts"] = (
             source_chain_proximity_distance_counts
+        )
+    diffuse_source_ref_count = _positive_int(quality.get("diffuse_source_ref_count"))
+    if diffuse_source_ref_count is not None:
+        metadata["answer_context_bundle_diffuse_source_ref_count"] = (
+            diffuse_source_ref_count
         )
     causal_support_count = _positive_int(quality.get("causal_support_count"))
     if causal_support_count is not None:
