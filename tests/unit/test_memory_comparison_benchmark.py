@@ -3593,6 +3593,26 @@ def test_query_decomposition_preserves_numeric_date_anchors() -> None:
     assert ordinal_queries[-1] == "audrey before 4th 2023 october weekend week session"
 
 
+def test_query_decomposition_classifies_relative_weekday_phrases() -> None:
+    case = _case(
+        case_id="conv-1:qa:last-friday-date",
+        question="What did Joanna just finish last Friday on 23 January, 2022?",
+        expected_terms=("screenplay",),
+        answer="screenplay",
+        category=4,
+    )
+
+    queries, metadata = rerank_module.decomposed_search_queries(case)
+
+    assert metadata["query_profile"]["is_temporal_query"] is True
+    assert metadata["query_profile"]["time_intent_kind"] == "relative_time"
+    assert "last friday" in metadata["query_profile"]["temporal_terms"]
+    assert "23" in metadata["query_profile"]["temporal_terms"]
+    assert "2022" in metadata["query_profile"]["temporal_terms"]
+    assert "relative_temporal_support" in metadata["query_plan"]["selected_roles"]
+    assert queries[-1] == "joanna last friday 23 2022 friday january session date"
+
+
 def test_query_decomposition_classifies_after_how_many_as_duration() -> None:
     case = _case(
         case_id="conv-1:qa:after-how-many-weeks",

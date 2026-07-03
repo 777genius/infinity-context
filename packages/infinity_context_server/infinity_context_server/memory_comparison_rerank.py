@@ -371,6 +371,11 @@ _PERIOD_ANCHOR_TERMS_RE = re.compile(
     re.IGNORECASE,
 )
 _SEASON_TERMS = frozenset({"spring", "summer", "fall", "autumn", "winter"})
+_RELATIVE_WEEKDAY_RE = re.compile(
+    r"\b(?:last|next|this)\s+"
+    r"(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b",
+    re.IGNORECASE,
+)
 _TEMPORAL_SURFACE_TERMS = (
     "monday",
     "tuesday",
@@ -1966,6 +1971,9 @@ def _temporal_query_profile(case: PublicBenchmarkCase) -> dict[str, object]:
     duration_amount_terms = _duration_amount_temporal_terms(query)
     if duration_amount_terms:
         matched_terms = tuple(dict.fromkeys((*matched_terms, *duration_amount_terms)))
+    relative_weekday_terms = _relative_weekday_temporal_terms(query)
+    if relative_weekday_terms:
+        matched_terms = tuple(dict.fromkeys((*matched_terms, *relative_weekday_terms)))
     explicit_date_anchor_terms = _explicit_date_anchor_temporal_terms(query)
     if explicit_date_anchor_terms:
         matched_terms = tuple(
@@ -2051,6 +2059,12 @@ def _duration_amount_temporal_terms(query: str) -> tuple[str, ...]:
     if match is None:
         return ()
     return ("duration", match.group(1))
+
+
+def _relative_weekday_temporal_terms(query: str) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(match.group(0) for match in _RELATIVE_WEEKDAY_RE.finditer(query))
+    )
 
 
 def _explicit_date_anchor_temporal_terms(query: str) -> tuple[str, ...]:
