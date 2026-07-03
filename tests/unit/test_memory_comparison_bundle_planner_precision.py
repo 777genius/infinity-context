@@ -194,6 +194,47 @@ def test_evidence_bundle_planner_drops_noisy_partial_source_overlap() -> None:
     assert quality["source_proximity_closest_distance"] is None
 
 
+def test_evidence_bundle_quality_does_not_reward_noisy_source_diversity() -> None:
+    primary = _candidate(
+        item_id="primary",
+        retrieval_order=1,
+        dedupe_key="refs:D4:10",
+        covered_evidence_terms=("plan",),
+        primary_signal=True,
+        source_refs=("D4:10",),
+        source_type="raw_turn",
+        retrieval_sources=("raw_turns",),
+        focused_evidence_score=1.0,
+        direct_speaker_turn=True,
+        answerability_score=0.92,
+    )
+    broad_summary = _candidate(
+        item_id="broad-summary",
+        retrieval_order=2,
+        dedupe_key="refs:D4:30",
+        query_support_terms=("origin", "country"),
+        source_refs=("D4:30",),
+        source_type="summary",
+        retrieval_sources=("semantic_chunks",),
+        broad_summary=True,
+        answerability_score=0.86,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, broad_summary),
+        case_group="single",
+    )
+
+    quality = plan.to_diagnostics()["bundle_quality"]
+    assert quality["source_type_diversity"] == 2
+    assert quality["retrieval_source_diversity"] == 2
+    assert quality["source_type_support_diversity"] == 1
+    assert quality["retrieval_source_support_diversity"] == 1
+    assert quality["component_scores"]["source_diversity"] == 0.0
+    assert "source_type_diverse" not in quality["reason_codes"]
+    assert "retrieval_source_diverse" not in quality["reason_codes"]
+
+
 def test_evidence_bundle_planner_prefers_compact_chained_sibling_support() -> None:
     primary = _candidate(
         item_id="primary",

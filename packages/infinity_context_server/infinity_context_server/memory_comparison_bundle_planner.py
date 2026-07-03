@@ -1629,6 +1629,8 @@ def _bundle_quality_diagnostics(
             "source_identity_support_ref_count": 0,
             "source_type_diversity": 0,
             "retrieval_source_diversity": 0,
+            "source_type_support_diversity": 0,
+            "retrieval_source_support_diversity": 0,
             "low_answerability_count": 0,
             "measured_answerability_count": 0,
             "unmeasured_answerability_count": 0,
@@ -1707,6 +1709,18 @@ def _bundle_quality_diagnostics(
     }
     retrieval_sources = {
         source for item in items for source in _retrieval_source_keys(item.candidate)
+    }
+    source_type_supports = {
+        source_type
+        for item in items
+        if _candidate_has_source_identity_quality_support(item.candidate)
+        for source_type in _source_type_keys(item.candidate)
+    }
+    retrieval_source_supports = {
+        source
+        for item in items
+        if _candidate_has_source_identity_quality_support(item.candidate)
+        for source in _retrieval_source_keys(item.candidate)
     }
     answerability_scores = [item.candidate.answerability_score for item in items]
     avg_answerability = sum(answerability_scores) / len(answerability_scores)
@@ -1790,8 +1804,8 @@ def _bundle_quality_diagnostics(
         ),
         "source_refs": min(0.16, 0.08 * source_identity_support_item_count),
         "source_diversity": (
-            (0.06 if len(source_types) >= 2 else 0.0)
-            + (0.06 if len(retrieval_sources) >= 2 else 0.0)
+            (0.06 if len(source_type_supports) >= 2 else 0.0)
+            + (0.06 if len(retrieval_source_supports) >= 2 else 0.0)
         ),
         "answerability": min(
             0.24,
@@ -1851,6 +1865,8 @@ def _bundle_quality_diagnostics(
             source_identity_support_item_count=source_identity_support_item_count,
             source_type_diversity=len(source_types),
             retrieval_source_diversity=len(retrieval_sources),
+            source_type_support_diversity=len(source_type_supports),
+            retrieval_source_support_diversity=len(retrieval_source_supports),
             max_answerability=max_answerability,
             low_answerability_count=low_answerability_count,
             bridge_count=bridge_count,
@@ -1894,6 +1910,8 @@ def _bundle_quality_diagnostics(
         "source_identity_support_ref_count": source_identity_support_ref_count,
         "source_type_diversity": len(source_types),
         "retrieval_source_diversity": len(retrieval_sources),
+        "source_type_support_diversity": len(source_type_supports),
+        "retrieval_source_support_diversity": len(retrieval_source_supports),
         "average_answerability_score": round(avg_answerability, 6),
         "average_measured_answerability_score": round(
             avg_measured_answerability,
@@ -2113,6 +2131,8 @@ def _bundle_quality_reason_codes(
     source_identity_support_item_count: int,
     source_type_diversity: int,
     retrieval_source_diversity: int,
+    source_type_support_diversity: int,
+    retrieval_source_support_diversity: int,
     max_answerability: float,
     low_answerability_count: int,
     bridge_count: int,
@@ -2153,9 +2173,9 @@ def _bundle_quality_reason_codes(
         reasons.append("has_source_refs")
     elif source_identity_support_item_count:
         reasons.append("has_source_identity")
-    if source_type_diversity >= 2:
+    if source_type_support_diversity >= 2:
         reasons.append("source_type_diverse")
-    if retrieval_source_diversity >= 2:
+    if retrieval_source_support_diversity >= 2:
         reasons.append("retrieval_source_diverse")
     if max_answerability >= 0.8:
         reasons.append("high_answerability")
