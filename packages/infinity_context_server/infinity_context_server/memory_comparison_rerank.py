@@ -128,6 +128,7 @@ _RELATION_QUERY_TERMS = {
     "ask",
     "attend",
     "based",
+    "because",
     "birthday",
     "book",
     "bookshelf",
@@ -137,6 +138,7 @@ _RELATION_QUERY_TERMS = {
     "brought",
     "camp",
     "call",
+    "caus",
     "cause",
     "chat",
     "choose",
@@ -177,6 +179,7 @@ _RELATION_QUERY_TERMS = {
     "hobby",
     "interest",
     "identity",
+    "inspir",
     "join",
     "learn",
     "like",
@@ -188,6 +191,9 @@ _RELATION_QUERY_TERMS = {
     "message",
     "messag",
     "mention",
+    "motivat",
+    "motivate",
+    "motivation",
     "move",
     "nickname",
     "offer",
@@ -197,6 +203,8 @@ _RELATION_QUERY_TERMS = {
     "political",
     "prefer",
     "previous",
+    "prompt",
+    "prompted",
     "promise",
     "prioritize",
     "purchas",
@@ -211,6 +219,7 @@ _RELATION_QUERY_TERMS = {
     "religious",
     "relationship",
     "realize",
+    "reason",
     "remember",
     "research",
     "run",
@@ -643,6 +652,13 @@ def decomposed_search_queries(
             skill_support=compact_relation_role == "skill_support",
             vehicle_support=compact_relation_role == "vehicle_support",
         )
+        if compact_relation_role == "causal_support":
+            relation_query_terms = _causal_compact_query_terms(
+                lexical_terms=lexical_terms,
+                relation_terms=relation_terms,
+                relation_variant_terms=relation_variant_terms,
+                fallback_terms=relation_query_terms,
+            )
         compact_temporal_terms = (
             _compact_temporal_relation_terms(lexical_terms) if is_temporal_query else ()
         )
@@ -1089,6 +1105,70 @@ def _count_support_query_terms(
     return tuple(dict.fromkeys(count_terms))
 
 
+def _causal_compact_query_terms(
+    *,
+    lexical_terms: tuple[str, ...],
+    relation_terms: tuple[str, ...],
+    relation_variant_terms: tuple[str, ...],
+    fallback_terms: tuple[str, ...],
+) -> tuple[str, ...]:
+    emotion_cue_terms = (
+        "happy",
+        "sad",
+        "angry",
+        "frustrat",
+        "frustration",
+        "nervous",
+        "proud",
+        "relieved",
+        "upset",
+        "worried",
+        "excite",
+        "excited",
+    )
+    causal_variant_order = (
+        "motivat",
+        "motivation",
+        "reason",
+        "because",
+        "cause",
+        "caus",
+        "decision",
+        "explain",
+        "prompt",
+        "inspir",
+        "reflect",
+        "felt",
+        "reaction",
+        "response",
+    )
+    variant_set = set(relation_variant_terms)
+    relation_set = set(relation_terms)
+    lexical_set = set(lexical_terms)
+    prioritized_emotion_terms = tuple(
+        term for term in emotion_cue_terms if term in lexical_set
+    )
+    prioritized_variants = tuple(
+        term for term in causal_variant_order if term in variant_set
+    )
+    missing_generic_causal_terms = tuple(
+        term
+        for term in ("reason", "because", "cause")
+        if term not in relation_set and term not in variant_set
+    )
+    return tuple(
+        dict.fromkeys(
+            (
+                *relation_terms,
+                *prioritized_emotion_terms,
+                *prioritized_variants,
+                *missing_generic_causal_terms,
+                *fallback_terms,
+            )
+        )
+    )
+
+
 def _recommended_query_role_families(intent: RetrievalIntent) -> tuple[str, ...]:
     families: list[str] = ["base_query"]
     if intent.relation_terms or intent.relation_variant_terms:
@@ -1131,6 +1211,26 @@ def _compact_relation_query_role(intent: RetrievalIntent) -> str:
         return "identity_support"
     if "communication" in evidence_needs:
         return "communication_support"
+    if "causal_support" in evidence_needs and "reason" in set(intent.relation_terms):
+        return "causal_support"
+    if "causal_support" in evidence_needs and {
+        "because",
+        "caus",
+        "cause",
+    } & set(intent.relation_terms):
+        return "causal_support"
+    if "causal_support" in evidence_needs and {
+        "motivat",
+        "motivate",
+        "motivation",
+    } & set(intent.relation_terms):
+        return "causal_support"
+    if (
+        "causal_support" in evidence_needs
+        and "emotion_response" in evidence_needs
+        and "inspir" in set(intent.relation_terms)
+    ):
+        return "causal_support"
     if {"activity_profile", "activity_support"} & evidence_needs:
         return "activity_support"
     if "employment_profile" in evidence_needs:
@@ -1961,6 +2061,12 @@ def _filter_relation_variant_terms_for_profile(
         blocked_terms.update({"inclusive", "inclusivity", "lgbtq"})
     if {"personality", "trait"} & relation_term_set:
         blocked_terms.update({"mention", "mentioned", "said", "say", "tell", "told"})
+    if "prompt" in relation_term_set and not re.search(
+        r"\bprompt(?:ed|ing)?\b.+\b(?:to|into)\b"
+        r"|\bthat\s+prompt(?:ed|ing)?\b",
+        normalized_question,
+    ):
+        blocked_terms.update({"because", "cause", "prompted", "reason", "reflect"})
     if not blocked_terms:
         return tuple(relation_variant_terms)
     return tuple(term for term in relation_variant_terms if term not in blocked_terms)

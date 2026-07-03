@@ -289,9 +289,11 @@ def infer_relation_intents(
     variant_set = set(relation_variant_terms)
     facets: list[RetrievalRelationIntent] = []
     for category, config in _RELATION_FACET_CONFIG.items():
-        if category == "causal" and _has_direct_emotion_response_intent(
+        if category == "causal" and not _has_causal_support_intent(
             question=question,
             relation_terms=relation_terms,
+            multi_hop_markers=multi_hop_markers,
+            time_intent=time_intent,
         ):
             continue
         if category == "location_transition" and not _has_location_transition_intent(
@@ -485,15 +487,12 @@ def infer_evidence_need(
         benchmark_category=benchmark_category,
     ):
         needs.append("inference_support")
-    causal_relation_terms = {"why", "cause", "realize"} & relation_set
-    causal_marker_terms = {"why"} & set(multi_hop_markers)
-    if not time_intent.is_temporal:
-        causal_relation_terms = causal_relation_terms | ({"how"} & relation_set)
-        causal_marker_terms = causal_marker_terms | ({"how"} & set(multi_hop_markers))
-    if direct_emotion_response:
-        causal_relation_terms = set()
-        causal_marker_terms = set()
-    if not count_intent and (causal_relation_terms or causal_marker_terms):
+    if not count_intent and _has_causal_support_intent(
+        question=question,
+        relation_terms=relation_terms,
+        multi_hop_markers=multi_hop_markers,
+        time_intent=time_intent,
+    ):
         needs.append("causal_support")
     if _has_location_transition_intent(
         question=question,
@@ -667,6 +666,79 @@ def _has_count_intent(question: str) -> bool:
         and re.search(
             r"\b(?:how\s+many|number\s+of|count\s+of|total\s+(?:number|count))\b",
             normalized,
+        )
+    )
+
+
+def _has_causal_support_intent(
+    *,
+    question: str,
+    relation_terms: tuple[str, ...],
+    multi_hop_markers: tuple[str, ...],
+    time_intent: RetrievalTimeIntent,
+) -> bool:
+    relation_set = set(relation_terms)
+    marker_set = set(multi_hop_markers)
+    if _has_direct_emotion_response_intent(
+        question=question,
+        relation_terms=relation_terms,
+    ):
+        return False
+    normalized = " ".join(str(question or "").casefold().split())
+    if "motivation" in relation_set and _has_motivation_artifact_lookup(normalized):
+        return False
+    if {"why"} & marker_set:
+        return True
+    if not time_intent.is_temporal and ({"how"} & marker_set or {"how"} & relation_set):
+        return True
+    if "prompt" in relation_set and re.search(
+        r"\bprompt(?:ed|ing)?\b.+\b(?:to|into)\b"
+        r"|\bthat\s+prompt(?:ed|ing)?\b",
+        normalized,
+    ):
+        return True
+    direct_causal_terms = {
+        "because",
+        "caus",
+        "cause",
+        "inspir",
+        "motivat",
+        "motivate",
+        "realize",
+        "reason",
+        "why",
+    }
+    if direct_causal_terms & relation_set:
+        return True
+    if "motivation" not in relation_set:
+        return False
+    return bool(
+        re.search(
+            r"\bwhat\s+(?:is|was)\b.+\bmotivation\s+for\s+"
+            r"(?:chang|changing|creat|creating|get|getting|keep|keeping|"
+            r"leav|leaving|mak|making|pursu|pursuing|runn|running|"
+            r"tak|taking|writ|writing)\b",
+            normalized,
+        )
+        or re.search(
+            r"\b(?:boost|boosts|boosted|boosting|keep|keeping|stay|staying)\b"
+            r".+\bmotivation\b",
+            normalized,
+        )
+    )
+
+
+def _has_motivation_artifact_lookup(normalized_question: str) -> bool:
+    return bool(
+        normalized_question
+        and re.search(
+            r"\b(?:displayed|shown|wrote|written|quote|quotes|plaque|board|"
+            r"cork\s+board|whiteboard|journal|spread|schedule)\b"
+            r".+\bmotivation(?:al)?\b"
+            r"|\bmotivation(?:al)?\b.+"
+            r"\b(?:quote|quotes|plaque|board|cork\s+board|whiteboard|"
+            r"journal|spread|schedule)\b",
+            normalized_question,
         )
     )
 
@@ -1773,13 +1845,39 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
     },
     "causal": {
         "terms": frozenset(
-            {"cause", "choose", "decide", "decision", "feel", "realize", "think"}
+            {
+                "because",
+                "caus",
+                "cause",
+                "choose",
+                "decide",
+                "decision",
+                "feel",
+                "inspir",
+                "motivat",
+                "motivate",
+                "motivation",
+                "prompt",
+                "prompted",
+                "realize",
+                "reason",
+                "think",
+            }
         ),
         "variants": frozenset(
             {
                 "because",
+                "cause",
+                "caus",
                 "chose",
+                "decision",
+                "explain",
                 "fit",
+                "inspir",
+                "motivat",
+                "motivation",
+                "prompt",
+                "prompted",
                 "reason",
                 "reaction",
                 "response",
@@ -1797,6 +1895,7 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
         "variants": frozenset(
             {
                 "anxious",
+                "angry",
                 "concern",
                 "emotion",
                 "enthusiastic",
@@ -1812,6 +1911,7 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "reaction",
                 "relieved",
                 "response",
+                "sad",
                 "thrilled",
                 "upset",
                 "worried",

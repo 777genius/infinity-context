@@ -381,6 +381,26 @@ def normalized_terms(text: str) -> tuple[str, ...]:
 
 def question_phrase_terms(text: str) -> tuple[str, ...]:
     terms: list[str] = []
+    if re.search(
+        r"\bwhat\s+caused\b|\b(?:because|due\s+to|as\s+a\s+result(?:\s+of)?)\b",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        terms.append("cause")
+    if re.search(
+        r"\bwhat\s+(?:made|caused|led|prompted|inspired)\b.+\b(?:to|do|leav(?:e|ing)?|"
+        r"choose|decide|change|start|stop|pursue|move)\b",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        terms.append("cause")
+    if re.search(
+        r"\bwhat\s+(?:made|caused|prompted)\b.+\b(?:happy|sad|proud|nervous|"
+        r"excited|upset|angry|frustrat(?:ed|ion)?|feel|feeling|felt)\b",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        terms.extend(("cause", "feel"))
     if re.search(r"\bgo-to\b", text, flags=re.IGNORECASE):
         terms.append("favorite")
     if re.search(r"\bmarital\s+status\b", text, flags=re.IGNORECASE):
