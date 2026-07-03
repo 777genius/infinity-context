@@ -1178,6 +1178,7 @@ def _has_status_profile_intent(
         "grandmother",
         "husband",
         "manager",
+        "member",
         "mentor",
         "marital",
         "marri",
@@ -1194,6 +1195,7 @@ def _has_status_profile_intent(
         "son",
         "spouse",
         "status",
+        "team",
         "teammate",
         "wife",
     }
@@ -1220,7 +1222,7 @@ def _has_status_profile_intent(
             r"cousin|coworker|daughter|father|fiancee?|friend|girlfriend|"
             r"grandfather|grandmother|husband|"
             r"kids|manager|mentor|mother|neighbor|parent|parents|partner|roommate|sibling|"
-            r"sister|son|spouse|teammate|wife)\b",
+            r"sister|son|spouse|team|team\s+member|teammate|wife)\b",
             normalized_question,
         )
         or re.search(
@@ -1233,8 +1235,15 @@ def _has_status_profile_intent(
             r"\b(?:boyfriend|boss|brother|child|children|colleague|cousin|"
             r"coworker|daughter|father|fiancee?|friend|girlfriend|grandfather|"
             r"grandmother|husband|kids|manager|mentor|mother|neighbor|parent|"
-            r"parents|partner|roommate|sibling|sister|son|spouse|teammate|wife)"
+            r"parents|partner|roommate|sibling|sister|son|spouse|team|"
+            r"team\s+member|teammate|wife)"
             r"\s+s\s+names?\b",
+            normalized_question,
+        )
+        or re.search(
+            r"\b(?:who|whom)\b.+\b(?:team\s+member|teammate)\b|"
+            r"\b(?:who|whom)\b.+\bon\b.+\bteam\b|"
+            r"\bwhat\b.+\bteam\b.+\b(?:on|member|teammate)\b",
             normalized_question,
         )
         or re.search(
@@ -1776,6 +1785,7 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "colleague",
                 "coworker",
                 "manager",
+                "member",
                 "mentor",
                 "marry",
                 "mother",
@@ -1789,6 +1799,7 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "son",
                 "spouse",
                 "status",
+                "team",
                 "teammate",
                 "wife",
             }
@@ -1820,6 +1831,7 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "colleague",
                 "coworker",
                 "manager",
+                "member",
                 "mentor",
                 "marry",
                 "kids",
@@ -1836,6 +1848,7 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "son",
                 "spouse",
                 "support",
+                "team",
                 "teammate",
                 "wife",
             }

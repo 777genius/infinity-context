@@ -234,6 +234,7 @@ _RELATION_QUERY_TERMS = {
     "sport",
     "talk",
     "task",
+    "team",
     "tell",
     "text",
     "think",

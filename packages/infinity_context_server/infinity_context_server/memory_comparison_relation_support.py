@@ -1324,29 +1324,34 @@ _STATUS_PROFILE_RELATION_RE = re.compile(
     r"(?:boyfriend|boss|brother|child|children|colleague|cousin|coworker|daughter|"
     r"father|fiancee?|friend|girlfriend|grandfather|grandmother|husband|kid|kids|manager|mentor|"
     r"mother|neighbor|parent|parents|partner|roommate|sibling|sister|son|spouse|"
-    r"teammate|wife)\b"
+    r"team\s+member|teammate|wife)\b"
     r"|\b[A-Z][a-zA-Z0-9_-]+\s+(?:is|was|are|were)\s+"
     r"[A-Z][a-zA-Z0-9_-]+(?:'s|’s)\s+"
     r"(?:boyfriend|boss|brother|child|children|colleague|cousin|coworker|daughter|"
     r"father|fiancee?|friend|girlfriend|grandfather|grandmother|husband|kid|kids|manager|mentor|"
     r"mother|neighbor|parent|parents|partner|roommate|sibling|sister|son|spouse|"
-    r"teammate|wife)\b"
+    r"team\s+member|teammate|wife)\b"
     r"|\b[A-Z][a-zA-Z0-9_-]+(?:'s|’s)\s+"
     r"(?:boyfriend|boss|brother|child|children|colleague|cousin|coworker|daughter|"
     r"father|fiancee?|friend|girlfriend|grandfather|grandmother|husband|kid|kids|manager|mentor|"
     r"mother|neighbor|parent|parents|partner|roommate|sibling|sister|son|spouse|"
-    r"teammate|wife)\s+(?:is|was|are|were)\s+"
+    r"team\s+member|teammate|wife)\s+(?:is|was|are|were)\s+"
     r"[A-Z][a-zA-Z0-9_-]+\b"
     r"|\b[A-Z][a-zA-Z0-9_-]+(?:'s|’s)\s+"
     r"(?:boyfriend|boss|brother|child|children|colleague|cousin|coworker|daughter|"
     r"father|fiancee?|friend|girlfriend|grandfather|grandmother|husband|kid|kids|manager|mentor|"
     r"mother|neighbor|parent|parents|partner|roommate|sibling|sister|son|spouse|"
-    r"teammate|wife)[,;:]\s+[A-Z][a-zA-Z0-9_-]+\b"
+    r"team\s+member|teammate|wife)[,;:]\s+[A-Z][a-zA-Z0-9_-]+\b"
     r"|\b(?:is|was|are|were)\s+"
     r"(?:my|his|her|their|our|your)\s+"
     r"(?:boyfriend|boss|brother|child|colleague|cousin|coworker|daughter|father|"
     r"fiancee?|friend|girlfriend|grandfather|grandmother|husband|manager|mentor|mother|neighbor|"
-    r"parent|parents|partner|roommate|sibling|sister|son|spouse|teammate|wife)\b"
+    r"parent|parents|partner|roommate|sibling|sister|son|spouse|"
+    r"team\s+member|teammate|wife)\b"
+    r"|\b[A-Z][a-zA-Z0-9_-]+\s+(?:is|was|are|were)\s+on\s+"
+    r"[A-Z][a-zA-Z0-9_-]+(?:'s|’s)\s+team\b"
+    r"|\b[A-Z][a-zA-Z0-9_-]+\s+(?:and|&)\s+"
+    r"[A-Z][a-zA-Z0-9_-]+\s+(?:are|were)\s+on\s+the\s+same\s+team\b"
     r"|\b(?:have|has|had)\s+"
     r"(?:(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+|a|an|no)\s+)?"
     r"(?:child|children|kids?|son|daughter)\b"
@@ -1398,6 +1403,7 @@ def _has_status_profile_support(
         "kids",
         "manager",
         "mentor",
+        "member",
         "mother",
         "neighbor",
         "parent",
@@ -1408,7 +1414,9 @@ def _has_status_profile_support(
         "sister",
         "son",
         "spouse",
+        "team",
         "teammate",
+        "teammates",
         "wife",
     } & memory_terms
     return bool(
