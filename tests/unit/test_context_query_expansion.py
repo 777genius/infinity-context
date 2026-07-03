@@ -540,6 +540,11 @@ def test_query_expansion_covers_future_conference_and_duration_answers() -> None
         duration,
         "relationship_duration_bridge",
     )
+    assert "how long have mel" not in {
+        item.query.casefold()
+        for item in duration.retrieval_queries
+        if item.reason == "decomposition_clause"
+    }
     assert "known each other friends relationship since years" in _expansion_query(
         known_each_other,
         "relationship_duration_bridge",

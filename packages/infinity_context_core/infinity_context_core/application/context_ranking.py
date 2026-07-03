@@ -757,6 +757,10 @@ def _query_relevance_rank_key_for_plan(
         and _is_direct_visual_text_query(plan.original_query)
     ):
         priority += 2
+    if reason == "decomposition_quantity_count" and _is_direct_quantity_query(
+        plan.original_query
+    ):
+        priority += 2
     return (
         is_query_relevance_sufficient(relevance),
         priority,
@@ -771,6 +775,16 @@ def _is_direct_visual_text_query(query: str) -> bool:
     return bool(
         _DIRECT_VISUAL_TEXT_QUERY_RE.search(query)
         and _ARTIFACT_CONTEXT_COMPOSITE_QUERY_RE.search(query) is None
+    )
+
+
+def _is_direct_quantity_query(query: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(?:how many|how much|number of|count|total)\b",
+            query,
+            re.IGNORECASE,
+        )
     )
 
 

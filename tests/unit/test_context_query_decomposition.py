@@ -41,6 +41,29 @@ def test_query_decomposition_keeps_compound_person_clauses_separate() -> None:
     assert not any(query.startswith("alex and what did maria") for query in clause_queries)
 
 
+def test_query_decomposition_does_not_split_compound_person_or_role_subjects() -> None:
+    person_pair = build_query_decomposition_plan("What did Alex and Maria talk about?")
+    role_pair = build_query_decomposition_plan(
+        "How long have Mel and her husband been married?"
+    )
+
+    person_clauses = [
+        item.query.casefold()
+        for item in person_pair.decompositions
+        if item.reason == "decomposition_clause"
+    ]
+    role_clauses = [
+        item.query.casefold()
+        for item in role_pair.decompositions
+        if item.reason == "decomposition_clause"
+    ]
+
+    assert not any(query == "what did alex" for query in person_clauses)
+    assert not any(query == "maria talk about" for query in person_clauses)
+    assert "how long have mel" not in role_clauses
+    assert "mel her husband been married" not in role_clauses
+
+
 def test_query_decomposition_handles_russian_event_artifact_query() -> None:
     plan = build_query_decomposition_plan(
         "Что изменилось после созвона с алексом по Атласу и что было на скриншоте?"

@@ -48,7 +48,12 @@ _MAX_QUERY_CHARS = 220
 _MAX_IDENTITY_TERMS = 4
 _TOKEN_RE = re.compile(r"\w+", re.UNICODE)
 _CLAUSE_SPLIT_RE = re.compile(
-    r"(?:[;?!]+|,\s+|\s+\b(?:and|also|then|plus|и|также|потом|затем)\b\s+)",
+    r"(?:[;?!]+|,\s+|"
+    r"\s+\b(?:and|also|then|plus)\b\s+"
+    r"(?=(?:what|when|where|who|why|how|which|did|does|do|is|are|was|were|"
+    r"can|could|should|would|will)\b)|"
+    r"\s+\b(?:и|также|потом|затем)\b\s+"
+    r"(?=(?:что|когда|где|кто|почему|как|какая|какие|какой|куда|откуда)\b))",
     re.IGNORECASE,
 )
 _QUESTION_STOPWORDS = frozenset(
