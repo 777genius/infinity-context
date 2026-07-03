@@ -347,6 +347,46 @@ def test_evidence_bundle_quality_does_not_chain_through_noisy_sibling() -> None:
     assert "has_source_chain_proximity_support" not in quality["reason_codes"]
 
 
+def test_evidence_bundle_quality_credits_grounded_contrast_source_refs() -> None:
+    primary = _candidate(
+        item_id="current",
+        retrieval_order=1,
+        dedupe_key="refs:D5:8",
+        covered_evidence_terms=("team",),
+        primary_signal=True,
+        source_refs=("D5:8",),
+        focused_evidence_score=1.0,
+        direct_speaker_turn=True,
+        answerability_score=0.92,
+        source_locality_score=0.9,
+    )
+    stale_contrast = _candidate(
+        item_id="stale-contrast",
+        retrieval_order=2,
+        dedupe_key="refs:D5:3",
+        query_support_terms=("solo", "used"),
+        source_refs=("D5:3",),
+        conflict_or_stale=True,
+        contrast_surface=True,
+        stale_surface=True,
+        answerability_score=0.86,
+        source_locality_score=0.9,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, stale_contrast),
+        case_group="single",
+    )
+
+    quality = plan.to_diagnostics()["bundle_quality"]
+    assert quality["source_ref_item_count"] == 2
+    assert quality["source_ref_support_item_count"] == 2
+    assert quality["source_identity_support_item_count"] == 2
+    assert quality["component_scores"]["source_refs"] == 0.16
+    assert "has_source_refs" in quality["reason_codes"]
+    assert "risk:conflict_or_stale" in quality["reason_codes"]
+
+
 def _candidate(
     *,
     item_id: str,
@@ -365,6 +405,9 @@ def _candidate(
     retrieval_sources: tuple[str, ...] = (),
     direct_speaker_turn: bool = False,
     broad_summary: bool = False,
+    conflict_or_stale: bool = False,
+    contrast_surface: bool = False,
+    stale_surface: bool = False,
     answerability_score: float = 0.0,
     source_locality_score: float = 0.0,
 ) -> EvidenceBundleCandidate:
@@ -385,6 +428,9 @@ def _candidate(
         retrieval_sources=retrieval_sources,
         direct_speaker_turn=direct_speaker_turn,
         broad_summary=broad_summary,
+        conflict_or_stale=conflict_or_stale,
+        contrast_surface=contrast_surface,
+        stale_surface=stale_surface,
         answerability_score=answerability_score,
         source_locality_score=source_locality_score,
     )

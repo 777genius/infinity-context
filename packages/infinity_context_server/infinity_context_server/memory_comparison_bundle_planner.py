@@ -2064,7 +2064,19 @@ def _candidate_has_source_proximity_diagnostic_support(
 def _candidate_has_source_identity_quality_support(
     candidate: EvidenceBundleCandidate,
 ) -> bool:
-    return _candidate_has_source_proximity_diagnostic_support(candidate)
+    if candidate.broad_summary:
+        return False
+    if _candidate_has_measured_weak_source_locality(candidate):
+        return False
+    if _is_measured_low_answerability(candidate.answerability_score):
+        return False
+    if candidate.conflict_or_stale and not (
+        candidate.contrast_surface
+        or candidate.currentness_surface
+        or candidate.stale_surface
+    ):
+        return False
+    return True
 
 
 def _candidate_has_noisy_source_overlap_risk(
