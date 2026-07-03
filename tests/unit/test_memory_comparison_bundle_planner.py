@@ -1431,6 +1431,120 @@ def test_evidence_bundle_planner_labels_textual_contrast_support() -> None:
     assert "has_stale_evidence" in quality["reason_codes"]
 
 
+def test_evidence_bundle_planner_keeps_negative_absence_before_support() -> None:
+    primary = _candidate(
+        item_id="primary",
+        covered_expected_terms=("dog",),
+        primary_signal=True,
+        direct_speaker_turn=True,
+        focused_evidence_score=1.0,
+        answerability_score=0.9,
+        source_locality_score=1.0,
+        bundle_strength_score=5.0,
+    )
+    generic_support = _candidate(
+        item_id="generic-support",
+        dedupe_key="refs:D7:4",
+        query_support_terms=("dog", "pet", "home"),
+        bundle_strength_score=6.0,
+    )
+    absence = _candidate(
+        item_id="negative-absence",
+        dedupe_key="refs:D7:5",
+        query_support_terms=("dog", "pet"),
+        negation_surface=True,
+        direct_speaker_turn=True,
+        focused_evidence_score=1.0,
+        answerability_score=0.82,
+        bundle_strength_score=1.0,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, generic_support, absence),
+        case_group="single",
+    )
+
+    assert [item.candidate.item_id for item in plan.items] == [
+        "primary",
+        "negative-absence",
+    ]
+    assert plan.items[1].role == "negative_support"
+    assert "negative_absence_support" in plan.items[1].reason_codes
+    quality = plan.to_diagnostics()["bundle_quality"]
+    assert quality["negative_absence_support_count"] == 1
+    assert quality["negation_surface_count"] == 1
+    assert quality["component_scores"]["negative_absence_support"] == 0.08
+    assert "has_negative_absence_evidence" in quality["reason_codes"]
+    assert "has_negation_surface" in quality["reason_codes"]
+
+
+def test_evidence_bundle_planner_diagnoses_weak_negative_absence_surface() -> None:
+    primary = _candidate(
+        item_id="primary",
+        covered_expected_terms=("caffeine",),
+        primary_signal=True,
+        direct_speaker_turn=True,
+        focused_evidence_score=1.0,
+        source_locality_score=1.0,
+        answerability_score=0.9,
+    )
+    weak_absence = _candidate(
+        item_id="weak-absence",
+        dedupe_key="refs:D7:5",
+        query_support_terms=("avoid", "caffeine"),
+        negation_surface=True,
+        source_locality_score=0.2,
+        answerability_score=0.4,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, weak_absence),
+        case_group="single",
+        required_roles=("primary", "negative_support"),
+    )
+
+    diagnostics = plan.to_diagnostics()
+    quality = diagnostics["bundle_quality"]
+    assert plan.missing_required_roles == ("negative_support",)
+    assert quality["negative_absence_support_count"] == 0
+    assert quality["negation_surface_count"] == 1
+    assert quality["component_scores"]["negative_absence_support"] == 0.0
+    assert "risk:missing_required_negative_support" in quality["reason_codes"]
+    assert "has_negative_absence_evidence" not in quality["reason_codes"]
+    assert "has_negation_surface" in quality["reason_codes"]
+
+
+def test_evidence_bundle_planner_satisfies_absence_role_with_negation() -> None:
+    primary = _candidate(
+        item_id="primary",
+        covered_expected_terms=("allergy",),
+        primary_signal=True,
+        direct_speaker_turn=True,
+        focused_evidence_score=1.0,
+        source_locality_score=1.0,
+        answerability_score=0.9,
+    )
+    absence = _candidate(
+        item_id="absence-support",
+        dedupe_key="refs:D7:5",
+        query_support_terms=("allergy", "peanut"),
+        negation_surface=True,
+        direct_speaker_turn=True,
+        focused_evidence_score=1.0,
+        answerability_score=0.82,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, absence),
+        case_group="single",
+        required_roles=("primary", "absence_support"),
+    )
+
+    assert plan.missing_required_roles == ()
+    assert plan.satisfied_required_roles == ("primary", "absence_support")
+    assert [item.role for item in plan.items] == ["primary", "negative_support"]
+
+
 def test_evidence_bundle_planner_keeps_contrast_before_generic_support() -> None:
     primary = _candidate(
         item_id="primary",

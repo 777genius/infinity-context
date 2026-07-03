@@ -66,10 +66,12 @@ _PREDICATE_REQUIRED_ROLES = frozenset(
         *_TYPED_RELATION_SUPPORT_CATEGORIES,
     }
 )
+_NEGATIVE_ABSENCE_ROLES = frozenset({"absence_support", "negative_support"})
 _DIVERSITY_EXEMPT_ROLES = frozenset(
     {
         "bridge",
         "entity_disambiguation",
+        "negative_support",
         "primary",
         *_PREDICATE_REQUIRED_ROLES,
     }
@@ -673,6 +675,8 @@ def _role_for_candidate(
         return "contrast"
     if _is_bridge_candidate(candidate, case_group=case_group):
         return "bridge"
+    if _candidate_has_negative_absence_support(candidate):
+        return "negative_support"
     if _candidate_has_location_support(candidate):
         return "location_support"
     if (
@@ -791,6 +795,12 @@ def _satisfied_required_roles(
             continue
         if role == "contrast" and any(
             _candidate_has_contrast_support(item.candidate) for item in selected
+        ):
+            satisfied.add(role)
+            continue
+        if role in _NEGATIVE_ABSENCE_ROLES and any(
+            _candidate_has_negative_absence_support(item.candidate)
+            for item in selected
         ):
             satisfied.add(role)
             continue
@@ -973,6 +983,8 @@ def _item_can_satisfy_required_role(
         return _candidate_has_temporal_support(item.candidate)
     if role == "contrast":
         return _candidate_has_contrast_support(item.candidate)
+    if role in _NEGATIVE_ABSENCE_ROLES:
+        return _candidate_has_negative_absence_support(item.candidate)
     if role == "bridge":
         return item.role == "bridge"
     if role == "location_support":
@@ -1060,6 +1072,7 @@ def _replacement_role_order(item: PlannedEvidenceItem) -> float:
         "event_support": 2,
         "exchange_support": 2,
         "inference_support": 2,
+        "negative_support": 2,
         "emotion_response_support": 2,
         "symbolic_meaning_support": 2,
         "preference_support": 2,
@@ -1149,6 +1162,33 @@ def _candidate_has_contrast_grounding(candidate: EvidenceBundleCandidate) -> boo
         return False
     return not candidate.query_has_entities or bool(
         candidate.entity_hits or candidate.speaker_hits
+    )
+
+
+def _candidate_has_negative_absence_support(
+    candidate: EvidenceBundleCandidate,
+) -> bool:
+    if not candidate.negation_surface:
+        return False
+    if candidate.broad_summary or candidate.conflict_or_stale:
+        return False
+    if _candidate_has_measured_weak_source_locality(candidate):
+        return False
+    if candidate.answerability_score and candidate.answerability_score < 0.55:
+        return False
+    if candidate.query_has_entities and not (
+        candidate.entity_hits or candidate.speaker_hits
+    ):
+        return False
+    return bool(
+        candidate.direct_speaker_turn
+        or candidate.focused_evidence_score > 0
+        or candidate.relation_hits
+        or candidate.relation_category_hits
+        or candidate.query_support_terms
+        or candidate.entity_hits
+        or candidate.speaker_hits
+        or candidate.source_refs
     )
 
 
@@ -1481,6 +1521,8 @@ def _reason_codes(
             reasons.append("location_relation_category_hits")
         if candidate.relation_hits:
             reasons.append("location_relation_hits")
+    if role == "negative_support":
+        reasons.append("negative_absence_support")
     if role == "preference_support":
         reasons.append("preference_support")
         if candidate.has_preference_evidence:
@@ -1578,6 +1620,7 @@ def _role_order(item: PlannedEvidenceItem) -> float:
         "primary": 0,
         "bridge": 1,
         "contrast": 2,
+        "negative_support": 3,
         "location_support": 3,
         "communication_support": 3,
         "event_support": 3,
@@ -1765,6 +1808,8 @@ def _item_has_explicit_relation_or_role_grounding(
         return _candidate_has_temporal_support(candidate)
     if item.role == "contrast":
         return _candidate_has_contrast_support(candidate)
+    if item.role == "negative_support":
+        return _candidate_has_negative_absence_support(candidate)
     if item.role in _PREDICATE_REQUIRED_ROLES:
         return _item_can_satisfy_required_role(item, item.role)
     return False
@@ -1885,7 +1930,9 @@ def _bundle_quality_diagnostics(
             "missing_required_role_count": len(missing_roles),
             "missing_required_roles": list(missing_roles),
             "contrast_count": 0,
+            "negative_absence_support_count": 0,
             "contrast_surface_count": 0,
+            "negation_surface_count": 0,
             "currentness_surface_count": 0,
             "stale_surface_count": 0,
             "broad_summary_count": 0,
@@ -2040,7 +2087,13 @@ def _bundle_quality_diagnostics(
     contrast_count = sum(
         1 for item in items if _candidate_has_contrast_support(item.candidate)
     )
+    negative_absence_support_count = sum(
+        1
+        for item in items
+        if _candidate_has_negative_absence_support(item.candidate)
+    )
     contrast_surface_count = sum(1 for item in items if item.candidate.contrast_surface)
+    negation_surface_count = sum(1 for item in items if item.candidate.negation_surface)
     currentness_surface_count = sum(
         1 for item in items if item.candidate.currentness_surface
     )
@@ -2082,6 +2135,10 @@ def _bundle_quality_diagnostics(
         "favorite_support": min(0.08, 0.08 * favorite_support_count),
         "typed_relation_support": min(0.08, 0.08 * typed_relation_quality_count),
         "visual_support": min(0.08, 0.08 * visual_support_count),
+        "negative_absence_support": min(
+            0.08,
+            0.08 * negative_absence_support_count,
+        ),
         "source_proximity": (
             min(0.06, 0.03 * source_proximity_support_count)
             if not missing_roles
@@ -2150,7 +2207,9 @@ def _bundle_quality_diagnostics(
             ),
             missing_required_roles=missing_roles,
             contrast_count=contrast_count,
+            negative_absence_support_count=negative_absence_support_count,
             contrast_surface_count=contrast_surface_count,
+            negation_surface_count=negation_surface_count,
             currentness_surface_count=currentness_surface_count,
             stale_surface_count=stale_surface_count,
             broad_summary_count=broad_summary_count,
@@ -2246,7 +2305,9 @@ def _bundle_quality_diagnostics(
         "missing_required_role_count": len(missing_roles),
         "missing_required_roles": list(missing_roles),
         "contrast_count": contrast_count,
+        "negative_absence_support_count": negative_absence_support_count,
         "contrast_surface_count": contrast_surface_count,
+        "negation_surface_count": negation_surface_count,
         "currentness_surface_count": currentness_surface_count,
         "stale_surface_count": stale_surface_count,
         "broad_summary_count": broad_summary_count,
@@ -2473,7 +2534,9 @@ def _bundle_quality_reason_codes(
     source_chain_proximity_support_count: int,
     missing_required_roles: Sequence[str],
     contrast_count: int,
+    negative_absence_support_count: int,
     contrast_surface_count: int,
+    negation_surface_count: int,
     currentness_surface_count: int,
     stale_surface_count: int,
     broad_summary_count: int,
@@ -2552,11 +2615,17 @@ def _bundle_quality_reason_codes(
         reasons.append("has_source_chain_proximity_support")
     if missing_required_roles:
         reasons.append("risk:missing_required_role")
-        reasons.extend(f"risk:missing_required_{role}" for role in missing_required_roles)
+        reasons.extend(
+            f"risk:missing_required_{role}" for role in missing_required_roles
+        )
     if contrast_count:
         reasons.append("has_contrast_evidence")
+    if negative_absence_support_count:
+        reasons.append("has_negative_absence_evidence")
     if contrast_surface_count:
         reasons.append("has_contrast_surface")
+    if negation_surface_count:
+        reasons.append("has_negation_surface")
     if currentness_surface_count:
         reasons.append("has_currentness_evidence")
     if stale_surface_count:
