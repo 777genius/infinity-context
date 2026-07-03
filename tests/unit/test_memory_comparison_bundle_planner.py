@@ -2365,6 +2365,7 @@ def test_evidence_bundle_planner_reports_low_confidence_broad_bundle() -> None:
         covered_expected_terms=("support",),
         primary_signal=True,
         source_type="summary",
+        source_refs=("D1:1",),
         broad_summary=True,
         answerability_score=0.2,
     )
@@ -2375,8 +2376,12 @@ def test_evidence_bundle_planner_reports_low_confidence_broad_bundle() -> None:
     assert quality["confidence_band"] == "low"
     assert quality["confidence_score"] < 0.1
     assert quality["risk_penalty"] == 0.21
+    assert quality["source_ref_item_count"] == 1
+    assert quality["source_ref_support_item_count"] == 0
+    assert quality["component_scores"]["source_refs"] == 0.0
     assert quality["broad_summary_count"] == 1
     assert quality["low_answerability_count"] == 1
+    assert "has_source_refs" not in quality["reason_codes"]
     assert "risk:low_answerability" in quality["reason_codes"]
     assert "risk:broad_summary" in quality["reason_codes"]
     assert "risk:all_broad_summary" in quality["reason_codes"]
