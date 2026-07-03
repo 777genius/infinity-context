@@ -78,11 +78,25 @@ def backfill_incomplete_bundle_context(
         for memory in selected
         for ref in _memory_source_match_refs(memory)
     )
+    selected_local_source_match_refs = set(
+        ref
+        for memory in selected
+        for ref in _memory_source_match_refs(
+            memory,
+            include_compacted_fusion_refs=False,
+        )
+    )
     for retrieval_order, memory in candidates:
         features = _candidate_features(memory)
         role_hits = _missing_role_hits(features, missing_roles)
         source_refs = set(_memory_source_refs(memory))
         source_match_refs = set(_memory_source_match_refs(memory))
+        local_source_match_refs = set(
+            _memory_source_match_refs(
+                memory,
+                include_compacted_fusion_refs=False,
+            )
+        )
         source_proximity_distance = _source_proximity_distance(
             memory,
             selected_turn_refs=selected_turn_refs,
@@ -96,6 +110,14 @@ def backfill_incomplete_bundle_context(
             bool(role_hits)
             and bool(source_match_refs)
             and bool(source_match_refs.intersection(selected_source_match_refs))
+            and not (
+                source_proximate
+                and not bool(
+                    local_source_match_refs.intersection(
+                        selected_local_source_match_refs
+                    )
+                )
+            )
             and not memory_has_broad_summary(memory, features)
         )
         if selected_source_duplicate:
@@ -145,6 +167,7 @@ def backfill_incomplete_bundle_context(
         covered_roles.update(role_hits)
         covered_backfill_source_refs.update(source_refs)
         selected_source_match_refs.update(source_match_refs)
+        selected_local_source_match_refs.update(local_source_match_refs)
         selected_turn_refs = tuple(
             dict.fromkeys((*selected_turn_refs, *_memory_turn_refs(memory)))
         )
@@ -735,22 +758,34 @@ def _memory_source_refs(
     )
 
 
-def _memory_source_match_refs(memory: RetrievedMemory) -> tuple[str, ...]:
+def _memory_source_match_refs(
+    memory: RetrievedMemory,
+    *,
+    include_compacted_fusion_refs: bool = True,
+) -> tuple[str, ...]:
     diagnostics = _mapping(memory.metadata.get("diagnostics"))
     fusion = _mapping(diagnostics.get("benchmark_candidate_fusion"))
     features = _candidate_features(memory)
+    fusion_source_refs = (
+        _string_tuple(fusion.get("source_refs"))
+        if include_compacted_fusion_refs
+        else ()
+    )
     source_refs = tuple(
         dict.fromkeys(
             (
                 *(str(ref).strip() for ref in memory.source_refs if str(ref).strip()),
-                *_string_tuple(fusion.get("source_refs")),
+                *fusion_source_refs,
             )
         )
     )
     return tuple(
         dict.fromkeys(
             (
-                *_memory_source_refs(memory, include_compacted_fusion_refs=True),
+                *_memory_source_refs(
+                    memory,
+                    include_compacted_fusion_refs=include_compacted_fusion_refs,
+                ),
                 *_source_identity_refs_from_source_refs(
                     source_refs,
                     include_exact_turn_refs=True,

@@ -285,6 +285,72 @@ def test_answer_context_backfill_keeps_compacted_fusion_source_refs_local() -> N
     assert "D2:13" not in context.memories[1].source_refs
 
 
+def test_answer_context_backfill_keeps_precise_sibling_after_compacted_primary() -> None:
+    memories = (
+        RetrievedMemory(
+            text="D2:9 Caroline: I found an adoption agency that can help.",
+            rank=1,
+            item_id="primary-turn",
+            source_refs=("D2:9",),
+            metadata={
+                "diagnostics": {
+                    "benchmark_compacted_selected_source_refs": True,
+                    "benchmark_candidate_fusion": {
+                        "source_refs": ["D2:9", "D2:10", "D2:11", "D2:12"],
+                    },
+                },
+            },
+        ),
+        RetrievedMemory(
+            text="D2:10 Caroline: The agency confirmed my application status.",
+            rank=2,
+            item_id="status-sibling",
+            source_refs=("D2:10",),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "query_roles": ["status_support"],
+                        "relation_category_hits": ["status_profile"],
+                        "entity_hits": ["caroline"],
+                        "answerability_score": 0.9,
+                        "source_locality_score": 0.9,
+                    },
+                },
+            },
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "role_requirement_complete": False,
+            "missing_required_roles": ["status_support"],
+            "items": [
+                {
+                    "id": "primary-turn",
+                    "retrieval_order": 1,
+                    "role": "primary",
+                    "source_refs": ["D2:9"],
+                }
+            ],
+        },
+        cutoff=2,
+    )
+
+    assert [memory.item_id for memory in context.memories] == [
+        "primary-turn",
+        "status-sibling",
+    ]
+    assert context.backfilled_retrieval_item_count == 1
+    assert context.skipped_redundant_source_backfill_count == 0
+    assert context.memories[1].metadata["answer_context_reason_codes"] == (
+        "incomplete_bundle_backfill",
+        "retrieval_slice_support",
+        "missing_role_support",
+        "source_proximity_support",
+    )
+
+
 def test_answer_context_diagnostics_count_low_quality_backfill() -> None:
     memories = (
         RetrievedMemory(text="D6:1 Alex mentioned Maria.", rank=1, item_id="primary"),
