@@ -29,7 +29,14 @@ import httpx
 from infinity_context_adapters.provider_errors import classify_provider_exception
 from infinity_context_core.reporting import build_report_provenance
 from infinity_context_server.official_public_benchmark import run_official_public_benchmark_canary
-from neo4j import GraphDatabase
+
+try:
+    from neo4j import GraphDatabase
+except ModuleNotFoundError:
+    class GraphDatabase:  # type: ignore[no-redef]
+        @staticmethod
+        def driver(*_args: object, **_kwargs: object) -> object:
+            raise ModuleNotFoundError("neo4j")
 
 _SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(_SCRIPTS_DIR) not in sys.path:
@@ -2309,10 +2316,15 @@ def _worker_timeout_seconds() -> float:
 
 
 def _graph_episode(env: Mapping[str, str], fact_id: str) -> dict[str, Any]:
-    driver = GraphDatabase.driver(
-        env["MEMORY_GRAPHITI_NEO4J_URI"],
-        auth=(env["MEMORY_GRAPHITI_NEO4J_USER"], env["MEMORY_GRAPHITI_NEO4J_PASSWORD"]),
-    )
+    try:
+        driver = GraphDatabase.driver(
+            env["MEMORY_GRAPHITI_NEO4J_URI"],
+            auth=(env["MEMORY_GRAPHITI_NEO4J_USER"], env["MEMORY_GRAPHITI_NEO4J_PASSWORD"]),
+        )
+    except ModuleNotFoundError as exc:
+        raise CleanSmokeFailure(
+            "neo4j package is required for full-provider graph checks"
+        ) from exc
     try:
         records, _, _ = driver.execute_query(
             (
@@ -2442,17 +2454,23 @@ def _wait_for_neo4j(port: int, *, env: Mapping[str, str] | None = None) -> None:
     deadline = time.monotonic() + 120
     last_error = ""
     while time.monotonic() < deadline:
-        driver = GraphDatabase.driver(
-            f"bolt://127.0.0.1:{port}",
-            auth=("neo4j", "infinitycontextgraph"),
-        )
+        driver: Any | None = None
         try:
+            driver = GraphDatabase.driver(
+                f"bolt://127.0.0.1:{port}",
+                auth=("neo4j", "infinitycontextgraph"),
+            )
             driver.verify_connectivity()
             return
+        except ModuleNotFoundError as exc:
+            raise CleanSmokeFailure(
+                "neo4j package is required for full-provider graph checks"
+            ) from exc
         except Exception as exc:
             last_error = _exception_summary(exc, env=redaction_env)
         finally:
-            driver.close()
+            if driver is not None:
+                driver.close()
         time.sleep(1)
     raise CleanSmokeFailure(f"Neo4j did not become ready: {last_error}")
 
