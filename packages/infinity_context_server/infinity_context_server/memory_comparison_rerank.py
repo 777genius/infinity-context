@@ -932,6 +932,14 @@ def decomposed_search_queries(
         extra_query_slots += 1
     if any(candidate.role == "contrast_support" for candidate in query_candidates):
         extra_query_slots += 1
+    has_temporal_support_query = any(
+        candidate.role == "temporal_support"
+        or candidate.role.endswith("_temporal_support")
+        or candidate.role == "temporal_sequence_support"
+        for candidate in query_candidates
+    )
+    if has_temporal_support_query and max_queries < 3:
+        extra_query_slots += 1
     has_location_support_query = any(
         candidate.role == "location_support" for candidate in query_candidates
     )

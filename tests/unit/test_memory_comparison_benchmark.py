@@ -3861,6 +3861,23 @@ def test_query_decomposition_preserves_month_year_anchors() -> None:
     assert duration_queries[-1] == "tim how long 2023 december session date time"
 
 
+def test_query_decomposition_keeps_temporal_family_under_weak_fanout() -> None:
+    case = _case(
+        case_id="conv-1:qa:weak-temporal-fanout",
+        question="When did Morgan mention the checklist on Friday?",
+        expected_terms=("Friday",),
+        answer="Friday",
+        category=2,
+    )
+
+    _, metadata = rerank_module.decomposed_search_queries(case, max_queries=2)
+    query_plan = metadata["query_plan"]
+
+    assert "explicit_temporal_support" in query_plan["selected_roles"]
+    assert "temporal_support" in query_plan["selected_role_families"]
+    assert query_plan["missing_recommended_role_families"] == []
+
+
 def test_query_decomposition_classifies_currently_recency_queries() -> None:
     currently_case = _case(
         case_id="conv-1:qa:currently-reading",
