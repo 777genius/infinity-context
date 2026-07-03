@@ -4350,6 +4350,26 @@ def test_query_decomposition_classifies_after_how_many_as_duration() -> None:
     )
 
 
+def test_query_decomposition_classifies_since_when_as_duration() -> None:
+    case = _case(
+        case_id="conv-1:qa:since-when-duration",
+        question="Since when has Maria lived in Sweden?",
+        expected_terms=("since 2021",),
+        answer="since 2021",
+        category=2,
+    )
+
+    queries, metadata = rerank_module.decomposed_search_queries(case)
+
+    assert metadata["query_profile"]["entity_surfaces"] == ("maria", "sweden")
+    assert metadata["query_profile"]["time_intent_kind"] == "duration"
+    assert "duration" in metadata["query_profile"]["temporal_terms"]
+    assert "duration_temporal_support" in metadata["query_plan"]["selected_roles"]
+    assert queries[-1] == (
+        "maria sweden when since duration start year month session"
+    )
+
+
 def test_benchmark_rerank_marks_quarter_relative_time_surface() -> None:
     case = _case(
         case_id="quarter-relative-rerank",

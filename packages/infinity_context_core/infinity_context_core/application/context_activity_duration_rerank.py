@@ -11,6 +11,9 @@ from infinity_context_core.application.context_diagnostics import (
 from infinity_context_core.application.context_domain_rerank_signals import (
     DomainRerankSignal,
 )
+from infinity_context_core.application.context_query_duration import (
+    requests_activity_duration_context,
+)
 from infinity_context_core.application.context_relevance import QueryRelevance
 from infinity_context_core.application.dto import ContextItem
 
@@ -51,13 +54,18 @@ _ACTIVITY_DURATION_WEAK_TOPIC_RE = re.compile(
 
 def activity_duration_rerank_signal(
     *,
+    query: str,
     query_reason: str,
     item: ContextItem,
     relevance: QueryRelevance,
 ) -> DomainRerankSignal:
     """Prefer explicit duration answers over topic-only activity mentions."""
 
-    if not _is_activity_duration_candidate(query_reason=query_reason, item=item):
+    if not _is_activity_duration_candidate(
+        query=query,
+        query_reason=query_reason,
+        item=item,
+    ):
         return DomainRerankSignal()
     if _ACTIVITY_DURATION_EXACT_RE.search(item.text) is not None:
         return DomainRerankSignal(
@@ -86,10 +94,21 @@ def is_activity_duration_evidence_text(text: str) -> bool:
     )
 
 
-def _is_activity_duration_candidate(*, query_reason: str, item: ContextItem) -> bool:
+def _is_activity_duration_candidate(
+    *,
+    query: str,
+    query_reason: str,
+    item: ContextItem,
+) -> bool:
     if query_reason == _ACTIVITY_DURATION_REASON:
         return True
     diagnostics = safe_diagnostic_mapping(item.diagnostics)
     signals = safe_score_signals(diagnostics.get("score_signals"))
     reason = signals.get("query_expansion_reason")
-    return isinstance(reason, str) and reason == _ACTIVITY_DURATION_REASON
+    if isinstance(reason, str) and reason == _ACTIVITY_DURATION_REASON:
+        return True
+    raw_tokens = frozenset(re.findall(r"\w+", query.casefold()))
+    return requests_activity_duration_context(
+        raw_tokens=raw_tokens,
+        variants=raw_tokens,
+    )

@@ -742,11 +742,37 @@ EXPANSION_RULES_PART_1: tuple[tuple[frozenset[str], str, str], ...] = (
             "relationship_duration_bridge",
         ),
     (
+            frozenset({"since", "when", "known"}),
+            (
+                "known each other friends relationship since years months duration met "
+                "school college together anniversary time flies started began"
+            ),
+            "relationship_duration_bridge",
+        ),
+    (
+            frozenset({"since", "when", "married"}),
+            (
+                "married husband wife spouse wedding anniversary years already time "
+                "flies been married for have been married we've been married my "
+                "husband and I together duration since started began"
+            ),
+            "relationship_duration_bridge",
+        ),
+    (
             frozenset({"how", "long", "friends"}),
             (
                 "known these friends known friends group of friends current friends "
                 "friendship relationship since for years months duration moved from "
                 "home country support love help"
+            ),
+            "relationship_duration_bridge",
+        ),
+    (
+            frozenset({"since", "when", "friends"}),
+            (
+                "known these friends known friends group of friends current friends "
+                "friendship relationship since for years months duration moved from "
+                "home country support love help started began"
             ),
             "relationship_duration_bridge",
         ),

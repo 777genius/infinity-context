@@ -152,6 +152,7 @@ def _domain_rerank_signals(
             relevance=relevance,
         ),
         activity_duration_rerank_signal(
+            query=query,
             query_reason=query_reason,
             item=item,
             relevance=relevance,

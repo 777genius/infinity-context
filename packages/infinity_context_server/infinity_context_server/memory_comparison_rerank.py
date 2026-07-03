@@ -432,6 +432,7 @@ _TEMPORAL_SURFACE_TERMS = (
     "year",
 )
 _NON_ENTITY_UPPERCASE_TERMS = frozenset({"dob"})
+_QUERY_ENTITY_STOPWORDS = frozenset({"since"})
 _RELATIVE_TEMPORAL_QUERY_SURFACES = (
     "last",
     "today",
@@ -2125,6 +2126,11 @@ def _temporal_query_profile(case: PublicBenchmarkCase) -> dict[str, object]:
     duration_amount_terms = _duration_amount_temporal_terms(query)
     if duration_amount_terms:
         matched_terms = tuple(dict.fromkeys((*matched_terms, *duration_amount_terms)))
+    since_when_duration_terms = _since_when_duration_temporal_terms(query)
+    if since_when_duration_terms:
+        matched_terms = tuple(
+            dict.fromkeys((*matched_terms, *since_when_duration_terms))
+        )
     relative_offset_terms = _relative_offset_temporal_terms(query)
     if relative_offset_terms:
         matched_terms = tuple(dict.fromkeys((*matched_terms, *relative_offset_terms)))
@@ -2278,6 +2284,12 @@ def _duration_amount_temporal_terms(query: str) -> tuple[str, ...]:
     return ("duration", match.group(1))
 
 
+def _since_when_duration_temporal_terms(query: str) -> tuple[str, ...]:
+    if not re.search(r"\bsince\s+when\b", query):
+        return ()
+    return ("duration", "start", "year", "month")
+
+
 def _relative_offset_temporal_terms(query: str) -> tuple[str, ...]:
     amount = r"\d+|one|two|three|four|five|six|seven|few|couple"
     unit = r"day|days|week|weeks|month|months|year|years"
@@ -2362,7 +2374,10 @@ def _query_entities(text: str) -> tuple[str, ...]:
             continue
         entity = _clean_query_entity(match.group(0))
         if entity and entity not in (
-            _QUERY_STOPWORDS | set(_TEMPORAL_SURFACE_TERMS) | _NON_ENTITY_UPPERCASE_TERMS
+            _QUERY_STOPWORDS
+            | _QUERY_ENTITY_STOPWORDS
+            | set(_TEMPORAL_SURFACE_TERMS)
+            | _NON_ENTITY_UPPERCASE_TERMS
         ):
             entities.append((match.start(), entity))
     return tuple(entity for _, entity in sorted(entities, key=lambda item: item[0]))
@@ -2375,7 +2390,10 @@ def _clean_query_entity(raw: str) -> str:
         if term.endswith("'s"):
             term = term[:-2]
         if term and term not in (
-            _QUERY_STOPWORDS | set(_TEMPORAL_SURFACE_TERMS) | _NON_ENTITY_UPPERCASE_TERMS
+            _QUERY_STOPWORDS
+            | _QUERY_ENTITY_STOPWORDS
+            | set(_TEMPORAL_SURFACE_TERMS)
+            | _NON_ENTITY_UPPERCASE_TERMS
         ):
             terms.append(term)
     return " ".join(terms)

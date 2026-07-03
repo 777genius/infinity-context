@@ -522,6 +522,7 @@ def test_query_expansion_covers_future_conference_and_duration_answers() -> None
     conference = build_query_expansion_plan("When is Caroline going to the transgender conference?")
     duration = build_query_expansion_plan("How long have Mel and her husband been married?")
     known_each_other = build_query_expansion_plan("How long has Alex known Maria?")
+    known_since_when = build_query_expansion_plan("Since when has Alex known Maria?")
     where_met = build_query_expansion_plan("Where did Alex meet Maria?")
     how_met = build_query_expansion_plan("How did Alex and Maria meet?")
     russian_where_met = build_query_expansion_plan("Где Алекс познакомился с Марией?")
@@ -541,6 +542,10 @@ def test_query_expansion_covers_future_conference_and_duration_answers() -> None
     )
     assert "known each other friends relationship since years" in _expansion_query(
         known_each_other,
+        "relationship_duration_bridge",
+    )
+    assert "started began" in _expansion_query(
+        known_since_when,
         "relationship_duration_bridge",
     )
     friend_group = build_query_expansion_plan(
