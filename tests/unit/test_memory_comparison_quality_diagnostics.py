@@ -951,6 +951,7 @@ def test_quality_diagnostics_reports_answer_context_provenance_table() -> None:
     assert table["backfilled_context_count"] == 1
     assert table["duplicate_source_bundle_skip_context_count"] == 1
     assert table["noisy_overlap_bundle_skip_context_count"] == 1
+    assert table["backfill_skip_context_count"] == 1
     assert table["backfilled_retrieval_item_count"] == 1
     assert table["skipped_duplicate_source_bundle_item_count"] == 1
     assert table["avg_skipped_duplicate_source_bundle_item_count"] == 0.5
@@ -1015,6 +1016,19 @@ def test_quality_diagnostics_reports_answer_context_provenance_table() -> None:
             "backfilled_source_proximity_support_count": 1,
             "backfilled_chained_source_proximity_support_count": 1,
             "backfilled_source_proximity_closest_distance": 2,
+            "missing_required_roles": ["contrast"],
+        }
+    ]
+    assert table["backfill_skip_context_samples"] == [
+        {
+            "case_id": "bundle-context",
+            "cutoff": "200",
+            "source": "evidence_bundle",
+            "memory_count": 2,
+            "backfilled_retrieval_item_count": 1,
+            "skipped_redundant_risky_backfill_count": 1,
+            "skipped_redundant_source_backfill_count": 1,
+            "skipped_redundant_role_backfill_count": 1,
             "missing_required_roles": ["contrast"],
         }
     ]
@@ -2599,6 +2613,7 @@ def test_fast_gate_metrics_reports_answer_context_provenance() -> None:
     assert provenance["backfilled_context_count"] == 1
     assert provenance["duplicate_source_bundle_skip_context_count"] == 1
     assert provenance["noisy_overlap_bundle_skip_context_count"] == 1
+    assert provenance["backfill_skip_context_count"] == 1
     assert provenance["backfilled_retrieval_item_count"] == 2
     assert provenance["skipped_duplicate_source_bundle_item_count"] == 1
     assert provenance["avg_skipped_duplicate_source_bundle_item_count"] == 0.5
@@ -2660,6 +2675,19 @@ def test_fast_gate_metrics_reports_answer_context_provenance() -> None:
             "backfilled_source_proximity_support_count": 1,
             "backfilled_chained_source_proximity_support_count": 1,
             "backfilled_source_proximity_closest_distance": 1,
+            "missing_required_roles": ["visual"],
+        }
+    ]
+    assert provenance["backfill_skip_context_samples"] == [
+        {
+            "case_id": "weak-context",
+            "cutoff": "200",
+            "source": "evidence_bundle",
+            "memory_count": 2,
+            "backfilled_retrieval_item_count": 2,
+            "skipped_redundant_risky_backfill_count": 1,
+            "skipped_redundant_source_backfill_count": 1,
+            "skipped_redundant_role_backfill_count": 1,
             "missing_required_roles": ["visual"],
         }
     ]

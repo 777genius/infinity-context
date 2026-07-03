@@ -1668,6 +1668,7 @@ def _answer_context_provenance_table(
     backfilled_context_count = 0
     duplicate_source_bundle_skip_context_count = 0
     noisy_overlap_bundle_skip_context_count = 0
+    backfill_skip_context_count = 0
     backfilled_retrieval_item_count = 0
     skipped_duplicate_source_bundle_item_count = 0
     skipped_noisy_overlap_bundle_item_count = 0
@@ -1701,6 +1702,7 @@ def _answer_context_provenance_table(
     backfilled_context_samples: list[dict[str, object]] = []
     duplicate_source_bundle_skip_context_samples: list[dict[str, object]] = []
     noisy_overlap_bundle_skip_context_samples: list[dict[str, object]] = []
+    backfill_skip_context_samples: list[dict[str, object]] = []
 
     for item in items:
         for cutoff, context in _answer_contexts(item):
@@ -1883,6 +1885,13 @@ def _answer_context_provenance_table(
                 duplicate_source_bundle_skip_context_count += 1
             if context_skipped_noisy_overlap_bundle_item_count > 0:
                 noisy_overlap_bundle_skip_context_count += 1
+            context_backfill_skip_count = (
+                context_skipped_redundant_risky_backfill_count
+                + context_skipped_redundant_source_backfill_count
+                + context_skipped_redundant_role_backfill_count
+            )
+            if context_backfill_skip_count > 0:
+                backfill_skip_context_count += 1
             if context_source_ref_count > 0 or context_source_ref_item_count > 0:
                 source_ref_context_count += 1
             if (
@@ -1917,6 +1926,31 @@ def _answer_context_provenance_table(
                         ),
                         "source_ref_count": context_source_ref_count,
                         "source_ref_item_count": context_source_ref_item_count,
+                    }
+                )
+            if (
+                context_backfill_skip_count > 0
+                and len(backfill_skip_context_samples) < 10
+            ):
+                backfill_skip_context_samples.append(
+                    {
+                        "case_id": str(item.get("case_id") or ""),
+                        "cutoff": cutoff,
+                        "source": source,
+                        "memory_count": context_memory_count,
+                        "backfilled_retrieval_item_count": (
+                            context_backfilled_count
+                        ),
+                        "skipped_redundant_risky_backfill_count": (
+                            context_skipped_redundant_risky_backfill_count
+                        ),
+                        "skipped_redundant_source_backfill_count": (
+                            context_skipped_redundant_source_backfill_count
+                        ),
+                        "skipped_redundant_role_backfill_count": (
+                            context_skipped_redundant_role_backfill_count
+                        ),
+                        "missing_required_roles": list(missing_required_roles),
                     }
                 )
             if context_backfilled_count > 0 and len(backfilled_context_samples) < 10:
@@ -2002,6 +2036,7 @@ def _answer_context_provenance_table(
         "noisy_overlap_bundle_skip_context_count": (
             noisy_overlap_bundle_skip_context_count
         ),
+        "backfill_skip_context_count": backfill_skip_context_count,
         "backfilled_retrieval_item_count": backfilled_retrieval_item_count,
         "skipped_duplicate_source_bundle_item_count": (
             skipped_duplicate_source_bundle_item_count
@@ -2134,6 +2169,7 @@ def _answer_context_provenance_table(
             backfilled_missing_required_role_counts
         ),
         "backfilled_context_samples": backfilled_context_samples,
+        "backfill_skip_context_samples": backfill_skip_context_samples,
         "duplicate_source_bundle_skip_context_samples": (
             duplicate_source_bundle_skip_context_samples
         ),
