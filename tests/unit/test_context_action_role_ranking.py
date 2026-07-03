@@ -263,6 +263,50 @@ def test_deterministic_rerank_uses_russian_whose_advice_recipient() -> None:
     )
 
 
+def test_deterministic_rerank_prefers_actual_companion_over_mentioned_person() -> None:
+    query = "Who visited Spain with Maria?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    correct = _item(
+        "alex_with_maria",
+        score=0.7,
+        text="Alex visited Spain with Maria after the conference.",
+    )
+    mentioned_person = _item(
+        "alex_alone_maria_mentioned",
+        score=0.72,
+        text="Alex visited Spain alone after Maria mentioned the conference.",
+    )
+    participant_without_companion = _item(
+        "maria_without_companion",
+        score=0.71,
+        text="Maria visited Spain after the conference.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (mentioned_person, participant_without_companion, correct),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert by_id["alex_with_maria"].score > by_id["alex_alone_maria_mentioned"].score
+    assert by_id["alex_with_maria"].score > by_id["maria_without_companion"].score
+    assert (
+        "action_role_companion_match"
+        in by_id["alex_with_maria"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+    assert (
+        "action_role_companion_missing"
+        in by_id["maria_without_companion"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+
+
 def _item(item_id: str, *, score: float, text: str) -> ContextItem:
     return ContextItem(
         item_id=item_id,

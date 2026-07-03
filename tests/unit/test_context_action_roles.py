@@ -778,6 +778,66 @@ def test_action_role_extracts_support_recipient_role() -> None:
     assert reversed_roles.reason == "action_role_recipient_mismatch"
 
 
+def test_action_role_extracts_joined_participant_role() -> None:
+    matched = action_role_rerank_signal(
+        query="Who joined Maria at the fundraiser?",
+        text="Alex joined Maria at the fundraiser after the volunteer shift.",
+    )
+    reversed_roles = action_role_rerank_signal(
+        query="Who joined Maria at the fundraiser?",
+        text="Maria joined Alex at the fundraiser after the volunteer shift.",
+    )
+
+    assert matched.boost > 0
+    assert matched.reason == "action_role_recipient_match"
+    assert reversed_roles.penalty > 0
+    assert reversed_roles.reason == "action_role_recipient_mismatch"
+
+
+def test_action_role_treats_met_as_reciprocal_participant_evidence() -> None:
+    direct = action_role_rerank_signal(
+        query="Who met Maria at the shelter?",
+        text="Alex met Maria at the shelter orientation.",
+    )
+    reciprocal = action_role_rerank_signal(
+        query="Who met Maria at the shelter?",
+        text="Maria met Alex at the shelter orientation.",
+    )
+    actor_question = action_role_rerank_signal(
+        query="Who did Maria meet at the shelter?",
+        text="Alex met Maria at the shelter orientation.",
+    )
+
+    assert direct.boost > 0
+    assert direct.reason == "action_role_recipient_match"
+    assert reciprocal.boost > 0
+    assert reciprocal.reason == "action_role_recipient_match"
+    assert actor_question.boost > 0
+    assert actor_question.reason == "action_role_actor_to_recipient_evidence"
+
+
+def test_action_role_extracts_activity_companion_participant() -> None:
+    matched = action_role_rerank_signal(
+        query="Who visited Spain with Maria?",
+        text="Alex visited Spain with Maria after the conference.",
+    )
+    missing_companion = action_role_rerank_signal(
+        query="Who visited Spain with Maria?",
+        text="Maria visited Spain after the conference.",
+    )
+    mentioned_person = action_role_rerank_signal(
+        query="Who visited Spain with Maria?",
+        text="Alex visited Spain alone after Maria mentioned the conference.",
+    )
+
+    assert matched.boost > 0
+    assert matched.reason == "action_role_companion_match"
+    assert missing_companion.penalty > 0
+    assert missing_companion.reason == "action_role_companion_missing"
+    assert mentioned_person.boost == 0.0
+    assert mentioned_person.penalty == 0.0
+
+
 def test_action_role_extracts_support_requested_recipient() -> None:
     matched = action_role_rerank_signal(
         query="Who did Caroline help with the Atlas migration?",

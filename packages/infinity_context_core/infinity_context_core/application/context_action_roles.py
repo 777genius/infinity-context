@@ -13,6 +13,7 @@ _ACTION_VERB_RE = (
     r"ask(?:ed|s|ing)?|assign(?:ed|s|ing)?|approv(?:e|ed|es|ing)|"
     r"call(?:ed|s|ing)?|message(?:d|s|ing)?|text(?:ed|s|ing)?|"
     r"help(?:ed|s|ing)?|assist(?:ed|s|ing)?|support(?:ed|s|ing)?|"
+    r"join(?:ed|s|ing)?|meet|met|visit(?:ed|s|ing)?|"
     r"introduc(?:e|ed|es|ing)|send|sent|give|gave|lend|lent|tell|told|"
     r"рекомендовал(?:а)?|порекомендовал(?:а)?|посоветовал(?:а)?|"
     r"пообещал(?:а)?|обещал(?:а)?|решил(?:а)?|"
@@ -24,6 +25,7 @@ _DIRECT_RECIPIENT_ACTION_VERB_RE = (
     r"promise(?:d|s|ing)?|ask(?:ed|s|ing)?|assign(?:ed|s|ing)?|"
     r"call(?:ed|s|ing)?|message(?:d|s|ing)?|text(?:ed|s|ing)?|"
     r"help(?:ed|s|ing)?|assist(?:ed|s|ing)?|support(?:ed|s|ing)?|"
+    r"join(?:ed|s|ing)?|meet|met|visit(?:ed|s|ing)?|"
     r"introduc(?:e|ed|es|ing)|send|sent|give|gave|lend|lent|tell|told|"
     r"пообещал(?:а)?|обещал(?:а)?|спросил(?:а)?|назначил(?:а)?|"
     r"сказал(?:а)?|познакомил(?:а|и)?|представил(?:а|и)?|"
@@ -31,7 +33,8 @@ _DIRECT_RECIPIENT_ACTION_VERB_RE = (
 )
 _PASSIVE_ACTION_VERB_RE = (
     r"recommended|suggested|promised|asked|assigned|approved|"
-    r"called|messaged|texted|helped|assisted|supported|introduced|sent|given|lent|told"
+    r"called|messaged|texted|helped|assisted|supported|joined|met|visited|"
+    r"introduced|sent|given|lent|told"
 )
 _INFO_SOURCE_VERB_RE = (
     r"hear(?:d|s|ing)?|learn(?:ed|s|ing)?|find\s+out|found\s+out|"
@@ -78,6 +81,18 @@ _WHO_DID_ACTOR_DIRECT_RECIPIENT_QUERY_RE = re.compile(
     rf"(?P<verb>{_DIRECT_RECIPIENT_ACTION_VERB_RE})\b"
     rf"(?P<object>.{{0,120}}?)"
     rf"(?=\?|$|\b(?:about|regarding|during|after|before|on|at|in|when|because)\b)",
+    re.IGNORECASE | re.DOTALL,
+)
+_WHO_DID_ACTOR_ACTION_WITH_QUERY_RE = re.compile(
+    rf"\b(?:who|whom)\s+did\s+(?P<actor>{_QUERY_LABEL_RE})\s+"
+    rf"(?P<verb>{_ACTION_VERB_RE})\b"
+    rf"(?P<object>.{{0,120}}?)\bwith\b"
+    rf"(?=\s*(?:\?|$|in\b|during\b|after\b|before\b|on\b|at\b))",
+    re.IGNORECASE | re.DOTALL,
+)
+_WHO_ACTION_WITH_RECIPIENT_QUERY_RE = re.compile(
+    rf"\bwho\s+(?P<verb>{_ACTION_VERB_RE})\b"
+    rf"(?P<object>.{{0,120}}?)\bwith\s+(?P<recipient>{_QUERY_LABEL_RE})\b",
     re.IGNORECASE | re.DOTALL,
 )
 _TO_WHOM_DID_ACTOR_ACTION_QUERY_RE = re.compile(
@@ -265,6 +280,7 @@ _QUERY_LABEL_STOP_WORDS = frozenset(
         "someone",
         "start",
         "take",
+        "the",
         "try",
         "use",
         "visit",
@@ -282,13 +298,13 @@ _TEXT_LABEL_STOP_WORDS = _QUERY_LABEL_STOP_WORDS.union(
     }
 )
 _ACTION_ROLE_MATCH_BOOST = 0.024
-_ACTION_ROLE_REQUESTED_RECIPIENT_EVIDENCE_BOOST = 0.021
+_ACTION_ROLE_REQUESTED_RECIPIENT_EVIDENCE_BOOST = 0.028
 _ACTION_ROLE_ACTOR_MATCH_BOOST = 0.018
 _ACTION_ROLE_RECIPIENT_MATCH_BOOST = 0.016
 _ACTION_ROLE_OWNER_EVIDENCE_BOOST = 0.014
 _ACTION_ROLE_MISMATCH_PENALTY = 0.034
 _ACTION_ROLE_RECIPIENT_MISMATCH_PENALTY = 0.028
-_ACTION_ROLE_REQUESTED_RECIPIENT_MISSING_PENALTY = 0.014
+_ACTION_ROLE_REQUESTED_RECIPIENT_MISSING_PENALTY = 0.024
 _DIRECT_RECIPIENT_VERBS = frozenset(
     {
         "ask",
@@ -297,13 +313,17 @@ _DIRECT_RECIPIENT_VERBS = frozenset(
         "give",
         "help",
         "introduce",
+        "join",
         "lend",
+        "meet",
         "message",
         "promise",
         "send",
         "tell",
+        "visit",
     }
 )
+_COMPANION_ACTION_VERBS = frozenset({"join", "meet", "visit"})
 _DIRECT_RECIPIENT_OBJECT_STOP_WORDS = frozenset(
     {
         "a",
@@ -393,6 +413,7 @@ class _ActionRoleQuery:
     owner_requested: bool = False
     recipient_requested: bool = False
     source_requested: bool = False
+    companion_requested: bool = False
 
 
 def action_role_rerank_signal(*, query: str, text: str) -> ActionRoleRerankSignal:
@@ -409,6 +430,8 @@ def action_role_rerank_signal(*, query: str, text: str) -> ActionRoleRerankSigna
         if role_query.verb_key == "borrow":
             return _borrow_source_signal(role_query, text)
         return _information_source_signal(role_query, text)
+    if role_query.companion_requested:
+        return _companion_action_signal(role_query, text)
     if role_query.owner_requested:
         return _owner_responsibility_signal(role_query, text)
     if role_query.actor_label:
@@ -442,6 +465,22 @@ def _action_role_query(query: str) -> _ActionRoleQuery | None:
                     verb_key="support_presence",
                     recipient_label=recipient,
                 )
+
+    match = _WHO_ACTION_WITH_RECIPIENT_QUERY_RE.search(query)
+    if match is not None:
+        recipient = _clean_label(match.group("recipient"))
+        verb_key = _canonical_verb_key(match.group("verb"))
+        context_terms = _action_context_terms(
+            match.groupdict().get("object") or "",
+            verb_key=verb_key,
+        )
+        if recipient and verb_key in _COMPANION_ACTION_VERBS:
+            return _ActionRoleQuery(
+                verb_key=verb_key,
+                recipient_label=recipient,
+                context_terms=context_terms,
+                companion_requested=True,
+            )
 
     for pattern in (_WHO_TO_ACTION_RE, _RU_WHO_OBJECT_TO_ACTION_RE):
         match = pattern.search(query)
@@ -516,6 +555,22 @@ def _action_role_query(query: str) -> _ActionRoleQuery | None:
             return _ActionRoleQuery(
                 verb_key="recommend",
                 recipient_label=recipient,
+            )
+
+    match = _WHO_DID_ACTOR_ACTION_WITH_QUERY_RE.search(query)
+    if match is not None:
+        actor = _clean_label(match.group("actor"))
+        verb_key = _canonical_verb_key(match.group("verb"))
+        context_terms = _action_context_terms(
+            match.groupdict().get("object") or "",
+            verb_key=verb_key,
+        )
+        if actor and verb_key in _COMPANION_ACTION_VERBS:
+            return _ActionRoleQuery(
+                verb_key=verb_key,
+                actor_label=actor,
+                context_terms=context_terms,
+                companion_requested=True,
             )
 
     for pattern in (
@@ -663,6 +718,22 @@ def _actor_action_signal(
     verb_key = role_query.verb_key
     object_label = role_query.object_label
     context_terms = role_query.context_terms
+    if (
+        verb_key == "meet"
+        and role_query.recipient_requested
+        and (
+            _has_actor_action_to_any_recipient(
+                text,
+                actor=actor,
+                verb_key=verb_key,
+            )
+            or _has_action_to_recipient(text, recipient=actor, verb_key=verb_key)
+        )
+    ):
+        return ActionRoleRerankSignal(
+            boost=_ACTION_ROLE_REQUESTED_RECIPIENT_EVIDENCE_BOOST,
+            reason="action_role_actor_to_recipient_evidence",
+        )
     if _has_negated_actor_action(
         text,
         actor=actor,
@@ -820,10 +891,49 @@ def _recipient_action_signal(
             boost=_ACTION_ROLE_RECIPIENT_MATCH_BOOST,
             reason="action_role_recipient_match",
         )
+    if verb_key == "meet" and _recipient_acts_to_other(
+        text,
+        recipient=recipient,
+        verb_key=verb_key,
+    ):
+        return ActionRoleRerankSignal(
+            boost=_ACTION_ROLE_RECIPIENT_MATCH_BOOST,
+            reason="action_role_recipient_match",
+        )
     if _recipient_acts_to_other(text, recipient=recipient, verb_key=verb_key):
         return ActionRoleRerankSignal(
             penalty=_ACTION_ROLE_RECIPIENT_MISMATCH_PENALTY,
             reason="action_role_recipient_mismatch",
+        )
+    return ActionRoleRerankSignal()
+
+
+def _companion_action_signal(
+    role_query: _ActionRoleQuery,
+    text: str,
+) -> ActionRoleRerankSignal:
+    participant = role_query.actor_label or role_query.recipient_label
+    if not participant:
+        return ActionRoleRerankSignal()
+    if _has_participant_action_with_companion(
+        text,
+        participant=participant,
+        verb_key=role_query.verb_key,
+        context_terms=role_query.context_terms,
+    ):
+        return ActionRoleRerankSignal(
+            boost=_ACTION_ROLE_MATCH_BOOST,
+            reason="action_role_companion_match",
+        )
+    if _has_participant_action_without_companion(
+        text,
+        participant=participant,
+        verb_key=role_query.verb_key,
+        context_terms=role_query.context_terms,
+    ):
+        return ActionRoleRerankSignal(
+            penalty=_ACTION_ROLE_REQUESTED_RECIPIENT_MISSING_PENALTY,
+            reason="action_role_companion_missing",
         )
     return ActionRoleRerankSignal()
 
@@ -1102,6 +1212,87 @@ def _has_actor_action(text: str, *, actor: str, verb_key: str) -> bool:
         actor=actor,
         verb_key=verb_key,
         tail_pattern="",
+    )
+
+
+def _has_participant_action_with_companion(
+    text: str,
+    *,
+    participant: str,
+    verb_key: str,
+    context_terms: tuple[str, ...],
+) -> bool:
+    participant_key = _normalized_label(participant)
+    pattern = re.compile(
+        rf"(?P<actor>{_LABEL_RE})(?P<gap>.{{0,80}}?)\b"
+        rf"(?:{_verb_forms(verb_key)})\b(?P<body>.{{0,220}})",
+        re.IGNORECASE | re.DOTALL,
+    )
+    for match in pattern.finditer(text):
+        if _action_gap_blocks_positive_match(match.group("gap")):
+            continue
+        actor = _clean_label(match.group("actor"))
+        body = match.group("body")
+        if context_terms and not _context_terms_match(body, context_terms):
+            continue
+        if _normalized_label(actor) == participant_key and _body_has_companion(body):
+            return True
+        if _body_has_companion_label(body, participant=participant):
+            return True
+    paired_pattern = re.compile(
+        rf"(?:{_label_pattern(participant)}\s+and\s+{_LABEL_RE}\b|"
+        rf"\b{_LABEL_RE}\s+and\s+{_label_pattern(participant)}\b)"
+        rf"(?P<body>.{{0,180}}\b(?:{_verb_forms(verb_key)})\b.{{0,140}})",
+        re.IGNORECASE | re.DOTALL,
+    )
+    return any(
+        not context_terms or _context_terms_match(match.group("body"), context_terms)
+        for match in paired_pattern.finditer(text)
+    )
+
+
+def _has_participant_action_without_companion(
+    text: str,
+    *,
+    participant: str,
+    verb_key: str,
+    context_terms: tuple[str, ...],
+) -> bool:
+    pattern = re.compile(
+        rf"{_label_pattern(participant)}(?P<gap>.{{0,80}}?)\b"
+        rf"(?:{_verb_forms(verb_key)})\b(?P<body>.{{0,180}})",
+        re.IGNORECASE | re.DOTALL,
+    )
+    for match in pattern.finditer(text):
+        if _action_gap_blocks_positive_match(match.group("gap")):
+            continue
+        body = match.group("body")
+        if context_terms and not _context_terms_match(body, context_terms):
+            continue
+        if not _body_has_companion(body):
+            return True
+    return False
+
+
+def _body_has_companion(body: str) -> bool:
+    return bool(
+        re.search(
+            rf"\b(?:with|alongside|together\s+with|joined\s+by|accompanied\s+by)\s+"
+            rf"(?P<companion>{_LABEL_RE})\b",
+            body,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+    )
+
+
+def _body_has_companion_label(body: str, *, participant: str) -> bool:
+    return bool(
+        re.search(
+            rf"\b(?:with|alongside|together\s+with|joined\s+by|accompanied\s+by)\s+"
+            rf"{_role_label_pattern(participant)}\b",
+            body,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
     )
 
 
@@ -1585,10 +1776,7 @@ def _has_negated_action_to_recipient(
         rf"(?:{_verb_forms(verb_key)})\b",
         re.IGNORECASE | re.DOTALL,
     )
-    for match in passive_pattern.finditer(text):
-        if _negated_action_gap(match.group(0)):
-            return True
-    return False
+    return any(_negated_action_gap(match.group(0)) for match in passive_pattern.finditer(text))
 
 
 def _recipient_acts_to_other(text: str, *, recipient: str, verb_key: str) -> bool:
@@ -1693,6 +1881,12 @@ def _canonical_verb_key(value: str) -> str:
         return "approve"
     if token.startswith(("help", "assist", "support", "помог", "поддерж")):
         return "help"
+    if token.startswith("join"):
+        return "join"
+    if token in {"meet", "met"}:
+        return "meet"
+    if token.startswith("visit"):
+        return "visit"
     if token.startswith("call"):
         return "call"
     if token.startswith(("message", "text")):
@@ -1747,7 +1941,21 @@ def _action_context_terms(value: str, *, verb_key: str) -> tuple[str, ...]:
         token = match.group(0)
         if token in _ACTION_CONTEXT_STOP_WORDS:
             continue
-        if token.startswith(("send", "sent", "tell", "told", "ask", "help", "support", "lend", "lent")):
+        if token.startswith((
+            "send",
+            "sent",
+            "tell",
+            "told",
+            "ask",
+            "help",
+            "support",
+            "join",
+            "meet",
+            "met",
+            "visit",
+            "lend",
+            "lent",
+        )):
             continue
         if token.startswith(("сказ", "спрос", "помог", "поддерж")):
             continue
@@ -1815,11 +2023,14 @@ def _verb_forms(verb_key: str) -> str:
             r"help(?:ed|s|ing)?|assist(?:ed|s|ing)?|support(?:ed|s|ing)?|"
             r"помог(?:ла|ли)?|поддержал(?:а|и)?"
         ),
+        "join": r"join(?:ed|s|ing)?",
+        "meet": r"meet|met",
         "message": r"message(?:d|s|ing)?|text(?:ed|s|ing)?",
         "send": r"send|sent",
         "give": r"give|gave|given",
         "lend": r"lend|lent",
         "tell": r"tell|told|сказал(?:а)?",
+        "visit": r"visit(?:ed|s|ing)?",
     }
     return forms.get(verb_key, r"(?!x)x")
 
