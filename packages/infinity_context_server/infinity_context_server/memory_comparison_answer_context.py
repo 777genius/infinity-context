@@ -716,6 +716,18 @@ def answer_context_metrics(
             primary,
             "avg_source_ref_coverage_rate",
         ),
+        "primary_total_compacted_fusion_source_ref_item_count": (
+            _positive_int(
+                primary.get("total_compacted_fusion_source_ref_item_count")
+            )
+            or 0
+        ),
+        "primary_total_compacted_fusion_source_ref_saved_count": (
+            _positive_int(
+                primary.get("total_compacted_fusion_source_ref_saved_count")
+            )
+            or 0
+        ),
         "primary_avg_context_answerability_score": _metric_value(
             primary,
             "avg_context_answerability_score",
@@ -873,6 +885,8 @@ def _answer_context_cutoff_metrics(
     source_ref_item_counts: list[int] = []
     source_refless_item_counts: list[int] = []
     source_ref_coverage_rates: list[float] = []
+    compacted_fusion_source_ref_item_counts: list[int] = []
+    compacted_fusion_source_ref_saved_counts: list[int] = []
     bundle_confidence_scores: list[float] = []
     bundle_confidence_band_counts: Counter[str] = Counter()
     bundle_bridge_counts: list[int] = []
@@ -1012,6 +1026,18 @@ def _answer_context_cutoff_metrics(
         )
         source_ref_coverage_rates.append(
             _metric_value(context, "source_ref_coverage_rate")
+        )
+        compacted_fusion_source_ref_item_counts.append(
+            _positive_int(
+                context.get("compacted_fusion_source_ref_item_count")
+            )
+            or 0
+        )
+        compacted_fusion_source_ref_saved_counts.append(
+            _positive_int(
+                context.get("compacted_fusion_source_ref_saved_count")
+            )
+            or 0
         )
         answerability_scores.append(
             _metric_value(context, "avg_answerability_score")
@@ -1248,6 +1274,18 @@ def _answer_context_cutoff_metrics(
         "avg_source_ref_item_count": _avg(source_ref_item_counts),
         "avg_source_refless_item_count": _avg(source_refless_item_counts),
         "avg_source_ref_coverage_rate": _avg(source_ref_coverage_rates),
+        "avg_compacted_fusion_source_ref_item_count": _avg(
+            compacted_fusion_source_ref_item_counts
+        ),
+        "total_compacted_fusion_source_ref_item_count": sum(
+            compacted_fusion_source_ref_item_counts
+        ),
+        "avg_compacted_fusion_source_ref_saved_count": _avg(
+            compacted_fusion_source_ref_saved_counts
+        ),
+        "total_compacted_fusion_source_ref_saved_count": sum(
+            compacted_fusion_source_ref_saved_counts
+        ),
         "avg_context_answerability_score": _avg(answerability_scores),
         "avg_measured_context_answerability_score": _avg(
             measured_answerability_scores
@@ -1894,11 +1932,48 @@ def _source_ref_stats(memories: Sequence[RetrievedMemory]) -> dict[str, object]:
     source_ref_counts = [len(_memory_source_refs(memory)) for memory in memories]
     source_ref_item_count = sum(1 for count in source_ref_counts if count > 0)
     source_ref_count = sum(source_ref_counts)
+    compacted_stats = [
+        _compacted_fusion_source_ref_stats(memory) for memory in memories
+    ]
     return {
         "source_ref_count": source_ref_count,
         "source_ref_item_count": source_ref_item_count,
         "source_refless_item_count": len(memories) - source_ref_item_count,
         "source_ref_coverage_rate": _ratio(source_ref_item_count, len(memories)),
+        "compacted_fusion_source_ref_item_count": sum(
+            stats["compacted_count"] for stats in compacted_stats
+        ),
+        "compacted_fusion_source_ref_original_count": sum(
+            stats["original_count"] for stats in compacted_stats
+        ),
+        "compacted_fusion_source_ref_selected_count": sum(
+            stats["selected_count"] for stats in compacted_stats
+        ),
+        "compacted_fusion_source_ref_saved_count": sum(
+            stats["saved_count"] for stats in compacted_stats
+        ),
+    }
+
+
+def _compacted_fusion_source_ref_stats(memory: RetrievedMemory) -> dict[str, int]:
+    diagnostics = _mapping(memory.metadata.get("diagnostics"))
+    if diagnostics.get("benchmark_compacted_selected_source_refs") is not True:
+        return {
+            "compacted_count": 0,
+            "original_count": 0,
+            "selected_count": 0,
+            "saved_count": 0,
+        }
+    fusion = _mapping(diagnostics.get("benchmark_candidate_fusion"))
+    original_refs = _string_tuple(fusion.get("source_refs"))
+    selected_refs = tuple(
+        str(ref).strip() for ref in memory.source_refs if str(ref).strip()
+    )
+    return {
+        "compacted_count": 1,
+        "original_count": len(original_refs),
+        "selected_count": len(selected_refs),
+        "saved_count": max(0, len(original_refs) - len(selected_refs)),
     }
 
 

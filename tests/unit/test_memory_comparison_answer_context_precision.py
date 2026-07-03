@@ -221,6 +221,10 @@ def test_answer_context_keeps_compacted_fusion_source_refs_local() -> None:
     assert context.memories[0].source_refs == ("D2:9",)
     diagnostics = context.to_diagnostics()
     assert diagnostics["source_ref_count"] == 1
+    assert diagnostics["compacted_fusion_source_ref_item_count"] == 1
+    assert diagnostics["compacted_fusion_source_ref_original_count"] == 4
+    assert diagnostics["compacted_fusion_source_ref_selected_count"] == 1
+    assert diagnostics["compacted_fusion_source_ref_saved_count"] == 3
 
 
 def test_answer_context_backfill_keeps_compacted_fusion_source_refs_local() -> None:
