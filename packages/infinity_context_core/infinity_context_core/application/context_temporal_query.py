@@ -21,6 +21,8 @@ from infinity_context_core.application.context_temporal_metadata import (
     temporal_hint_code_from_metadata,
 )
 from infinity_context_core.application.context_temporal_session_order import (
+    temporal_session_orders,
+    temporal_session_orders_from_query,
     temporal_session_recency_boost,
 )
 from infinity_context_core.application.dto import ContextItem
@@ -404,6 +406,7 @@ class TemporalQueryIntent:
     requests_upcoming: bool
     requests_recent_event: bool
     excludes_stale: bool
+    session_ordinals: tuple[int, ...] = ()
     relative_time_hints: tuple[str, ...] = ()
     event_sequence_terms: tuple[str, ...] = ()
 
@@ -424,6 +427,7 @@ class TemporalQueryIntent:
                 self.requests_upcoming,
                 self.requests_recent_event,
                 self.excludes_stale,
+                self.session_ordinals,
                 self.relative_time_hints,
                 self.event_sequence_terms,
             )
@@ -449,6 +453,8 @@ class TemporalQueryIntent:
             reasons.append("requests_recent_event")
         if self.excludes_stale:
             reasons.append("excludes_stale")
+        if self.session_ordinals:
+            reasons.append("session_order_hint")
         if self.relative_time_hints:
             reasons.append("relative_time_hint")
         return {
@@ -463,6 +469,7 @@ class TemporalQueryIntent:
             "temporal_query_requests_recent_event": self.requests_recent_event,
             "temporal_query_excludes_stale": self.excludes_stale,
             "temporal_query_include_superseded_review": (self.include_superseded_review),
+            "temporal_query_session_ordinals": list(self.session_ordinals),
             "temporal_query_relative_time_hints": list(self.relative_time_hints),
             "temporal_query_event_sequence_terms": list(self.event_sequence_terms),
             "temporal_query_intent_reasons": reasons,
@@ -483,6 +490,7 @@ class TemporalQueryBoostSignal:
 def build_temporal_query_intent(query: str) -> TemporalQueryIntent:
     variants = _query_variant_set(query)
     variants = frozenset((*variants, *state_transition_query_variants(query)))
+    session_ordinals = temporal_session_orders_from_query(query)
     relative_time_hints = _query_temporal_hint_codes(query)
     excludes_stale = bool(_EXCLUDE_STALE_RE.search(query))
     still_current_state = bool(_STILL_CURRENT_STATE_RE.search(query))
@@ -550,6 +558,7 @@ def build_temporal_query_intent(query: str) -> TemporalQueryIntent:
         requests_upcoming=requests_upcoming,
         requests_recent_event=requests_recent_event,
         excludes_stale=excludes_stale,
+        session_ordinals=session_ordinals,
         relative_time_hints=relative_time_hints,
         event_sequence_terms=event_sequence_terms,
     )
@@ -601,6 +610,21 @@ def temporal_query_boost_signal(
             reason="query excludes stale memory",
             code="excludes_stale",
         )
+    if intent.session_ordinals:
+        item_session_orders = set(temporal_session_orders(item))
+        query_session_orders = set(intent.session_ordinals)
+        if item_session_orders.intersection(query_session_orders):
+            return TemporalQueryBoostSignal(
+                boost=0.034,
+                reason="query asks for an explicit session and item matches it",
+                code="exact_session_order_match",
+            )
+        if item_session_orders:
+            return TemporalQueryBoostSignal(
+                boost=-0.018,
+                reason="query asks for an explicit session and item has a different session",
+                code="exact_session_order_conflict",
+            )
     if _temporal_hint_matches(intent=intent, temporal_hint_code=temporal_hint_code):
         return TemporalQueryBoostSignal(
             boost=0.032,

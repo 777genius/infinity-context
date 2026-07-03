@@ -1001,6 +1001,73 @@ def test_temporal_query_boosts_matching_russian_before_event_direction() -> None
     )
 
 
+def test_temporal_query_boosts_explicit_session_bridge_match() -> None:
+    intent = build_temporal_query_intent("What did Alex decide in session 4?")
+    matched = _item(
+        "locomo:conv-1:session_4:D4:7:turn",
+        score=0.7,
+        retrieval_source="keyword_chunks",
+        fact_status="active",
+        text="session_4 turn D4:7 Alex decided to wait for invoice approval.",
+    )
+    different_session = _item(
+        "locomo:conv-1:session_3:D3:7:turn",
+        score=0.72,
+        retrieval_source="keyword_chunks",
+        fact_status="active",
+        text="session_3 turn D3:7 Alex was still evaluating invoice options.",
+    )
+
+    boosted = apply_temporal_query_intent_boosts(
+        (different_session, matched),
+        intent=intent,
+    )
+    by_id = {item.item_id: item for item in boosted}
+
+    assert intent.session_ordinals == (4,)
+    assert by_id["locomo:conv-1:session_4:D4:7:turn"].score == 0.734
+    assert by_id["locomo:conv-1:session_3:D3:7:turn"].score == 0.702
+    assert by_id["locomo:conv-1:session_4:D4:7:turn"].score > by_id[
+        "locomo:conv-1:session_3:D3:7:turn"
+    ].score
+    assert by_id["locomo:conv-1:session_4:D4:7:turn"].diagnostics[
+        "temporal_query_intent_reason"
+    ] == "query asks for an explicit session and item matches it"
+    assert by_id["locomo:conv-1:session_3:D3:7:turn"].diagnostics[
+        "temporal_query_intent_reason"
+    ] == "query asks for an explicit session and item has a different session"
+
+
+def test_temporal_query_extracts_dialogue_turn_session_hint() -> None:
+    intent = build_temporal_query_intent("What did Riley mention around D12:4?")
+    matched = _item(
+        "turn_match",
+        score=0.7,
+        retrieval_source="keyword_chunks",
+        fact_status="active",
+        text="D12:4 Riley mentioned the studio visit with Morgan.",
+    )
+    different_session = _item(
+        "turn_decoy",
+        score=0.71,
+        retrieval_source="keyword_chunks",
+        fact_status="active",
+        text="D11:4 Riley mentioned the volunteer shift.",
+    )
+
+    boosted = apply_temporal_query_intent_boosts(
+        (different_session, matched),
+        intent=intent,
+    )
+    by_id = {item.item_id: item for item in boosted}
+
+    assert intent.session_ordinals == (12,)
+    assert by_id["turn_match"].score > by_id["turn_decoy"].score
+    assert by_id["turn_match"].diagnostics["score_signals"][
+        "temporal_query_intent_boost"
+    ] == 0.034
+
+
 def test_temporal_query_demotes_stale_when_query_excludes_stale() -> None:
     intent = build_temporal_query_intent("ignore stale notes, what is current?")
     current = _item(
