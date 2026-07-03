@@ -36,8 +36,18 @@ _DURATION_EVIDENCE_RE = re.compile(
 )
 _TEMPORAL_EVIDENCE_RE = re.compile(
     r"\b(?:date:|session[_\s-]?\d+|today|yesterday|tomorrow|ago|"
-    r"last|next|before|after|earlier|later|monday|tuesday|wednesday|"
-    r"thursday|friday|saturday|sunday)\b",
+    r"tonight|last|next|before|after|earlier|later|"
+    r"morning|afternoon|evening|weekend|quarter|month|year|"
+    r"monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b",
+    re.IGNORECASE,
+)
+_RELATIVE_TEMPORAL_EVIDENCE_RE = re.compile(
+    r"\b(?:today|yesterday|tomorrow|ago|recently|recent|lately|tonight|"
+    r"earlier\s+today|"
+    r"(?:today|tomorrow|yesterday)\s+(?:morning|afternoon|evening)|"
+    r"(?:last|next|this|previous)\s+"
+    r"(?:night|morning|afternoon|evening|week|weekend|month|quarter|year)|"
+    r"last|next|previously|previous|earlier|later|back then|these days)\b",
     re.IGNORECASE,
 )
 
@@ -171,6 +181,9 @@ def evidence_bundle(
                 or _bool_value(temporal_text_features.get("has_duration_surface")),
                 has_relative_time_surface=_bool_value(
                     features.get("has_relative_time_surface")
+                )
+                or _bool_value(
+                    temporal_text_features.get("has_relative_time_surface")
                 ),
                 has_explicit_time_surface=_bool_value(
                     features.get("has_explicit_time_surface")
@@ -446,6 +459,9 @@ def _has_structured_support_need(evidence_need: Sequence[str]) -> bool:
 def _temporal_text_features(text: str) -> dict[str, bool]:
     return {
         "has_temporal_surface": bool(_TEMPORAL_EVIDENCE_RE.search(text)),
+        "has_relative_time_surface": bool(
+            _RELATIVE_TEMPORAL_EVIDENCE_RE.search(text)
+        ),
         "has_sequence_surface": bool(
             re.search(r"\b(?:date:|session[_\s-]?\d+)\b", text, re.IGNORECASE)
         ),

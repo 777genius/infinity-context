@@ -492,6 +492,50 @@ def test_evidence_bundle_preserves_typed_temporal_feature_provenance() -> None:
     assert bundle["role_requirement_complete"] is True
 
 
+def test_evidence_bundle_detects_daypart_relative_temporal_text_fallback() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:this-afternoon",
+        question="What did Morgan review this afternoon?",
+        expected_terms=("studio plan",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={"category": 2},
+    )
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text="D2:4 Morgan: This afternoon I reviewed the studio plan.",
+                rank=1,
+                item_id="daypart-evidence",
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.88,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "entity_hits": ["morgan"],
+                            "speaker_hits": ["morgan"],
+                            "relation_hits": ["review", "studio", "plan"],
+                            "time_intent_kind": "relative_time",
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+        ),
+    )
+
+    item = bundle["items"][0]
+    assert item["id"] == "daypart-evidence"
+    assert item["has_relative_time_surface"] is True
+    assert "temporal_surface" in item["planner_reason_codes"]
+    assert "relative_time_surface" in item["planner_reason_codes"]
+    assert bundle["satisfied_required_roles"] == ["primary", "temporal_support"]
+    assert bundle["missing_required_roles"] == []
+
+
 def test_evidence_bundle_uses_source_refs_preserved_by_candidate_fusion() -> None:
     case = PublicBenchmarkCase(
         benchmark="locomo",
