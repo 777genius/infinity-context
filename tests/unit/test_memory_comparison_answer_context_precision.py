@@ -351,6 +351,58 @@ def test_answer_context_backfill_keeps_precise_sibling_after_compacted_primary()
     )
 
 
+def test_answer_context_keeps_bundle_sibling_after_compacted_primary() -> None:
+    memories = (
+        RetrievedMemory(
+            text="D2:9 Caroline: I found an adoption agency that can help.",
+            rank=1,
+            item_id="primary-turn",
+            source_refs=("D2:9",),
+            metadata={
+                "diagnostics": {
+                    "benchmark_compacted_selected_source_refs": True,
+                    "benchmark_candidate_fusion": {
+                        "source_refs": ["D2:9", "D2:10", "D2:11", "D2:12"],
+                    },
+                },
+            },
+        ),
+        RetrievedMemory(
+            text="D2:10 Caroline: The agency confirmed my application status.",
+            rank=2,
+            item_id="status-sibling",
+            source_refs=("D2:10",),
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "items": [
+                {
+                    "id": "primary-turn",
+                    "retrieval_order": 1,
+                    "role": "primary",
+                    "source_refs": ["D2:9"],
+                },
+                {
+                    "id": "status-sibling",
+                    "retrieval_order": 2,
+                    "role": "status_support",
+                    "source_refs": ["D2:10"],
+                },
+            ]
+        },
+        cutoff=2,
+    )
+
+    assert [memory.item_id for memory in context.memories] == [
+        "primary-turn",
+        "status-sibling",
+    ]
+    assert context.skipped_duplicate_source_bundle_item_count == 0
+
+
 def test_answer_context_diagnostics_count_low_quality_backfill() -> None:
     memories = (
         RetrievedMemory(text="D6:1 Alex mentioned Maria.", rank=1, item_id="primary"),
