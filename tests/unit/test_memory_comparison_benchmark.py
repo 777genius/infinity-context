@@ -3690,6 +3690,49 @@ def test_query_decomposition_preserves_relative_offset_phrases() -> None:
     assert numeric_queries[-1] == "morgan after 3 days 10 2023 april session date"
 
 
+def test_query_decomposition_classifies_since_sequence_queries() -> None:
+    sequence_case = _case(
+        case_id="conv-1:qa:fitness-since-boot-camps",
+        question="How has John's fitness improved since starting boot camps with his family?",
+        expected_terms=("energy",),
+        answer="energy",
+        category=4,
+    )
+    duration_case = _case(
+        case_id="conv-1:qa:duration-since-adoption",
+        question="How long has it been since Andrew adopted his first pet, as of November 2023?",
+        expected_terms=("4 months",),
+        answer="4 months",
+        category=2,
+    )
+
+    _, sequence_metadata = rerank_module.decomposed_search_queries(
+        sequence_case
+    )
+    duration_queries, duration_metadata = rerank_module.decomposed_search_queries(
+        duration_case
+    )
+
+    assert sequence_metadata["query_profile"]["time_intent_kind"] == "temporal_sequence"
+    assert "since" in sequence_metadata["query_profile"]["temporal_terms"]
+    assert "temporal_sequence_support" in sequence_metadata["query_plan"][
+        "selected_roles"
+    ]
+    sequence_temporal_candidate = next(
+        candidate
+        for candidate in sequence_metadata["query_plan"]["candidates"]
+        if candidate["role"] == "temporal_sequence_support"
+    )
+    assert sequence_temporal_candidate["query"] == "john since session date time"
+
+    assert duration_metadata["query_profile"]["time_intent_kind"] == "duration"
+    assert "since" in duration_metadata["query_profile"]["temporal_terms"]
+    assert "duration_temporal_support" in duration_metadata["query_plan"][
+        "selected_roles"
+    ]
+    assert duration_queries[-1] == "andrew how long since november session date time"
+
+
 def test_query_decomposition_classifies_after_how_many_as_duration() -> None:
     case = _case(
         case_id="conv-1:qa:after-how-many-weeks",

@@ -316,6 +316,7 @@ _TEMPORAL_QUERY_TERMS = (
     "after",
     "afterward",
     "afterwards",
+    "since",
     "ago",
     "yesterday",
     "today",
@@ -2010,7 +2011,7 @@ def _temporal_query_profile(case: PublicBenchmarkCase) -> dict[str, object]:
 
 
 def _contains_temporal_query_term(query: str, term: str) -> bool:
-    if term not in {"after", "afterward", "afterwards", "before", "during"}:
+    if term not in {"after", "afterward", "afterwards", "before", "during", "since"}:
         return term in query
     escaped = re.escape(term)
     return bool(re.search(rf"(?<![a-z0-9]){escaped}(?![a-z0-9])", query))
