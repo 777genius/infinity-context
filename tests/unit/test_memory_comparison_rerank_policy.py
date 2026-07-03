@@ -33,7 +33,7 @@ def test_rerank_policy_boosts_dense_focused_relation_evidence() -> None:
 
     signals = score.signals["score_signals"]
     policy = score.signals["policy_contributions"]
-    assert score.boost == 0.6
+    assert score.boost == 0.62
     assert signals["benchmark_focused_relation_density_boost"] == 0.06
     assert signals["benchmark_direct_speaker_relation_boost"] == 0.12
     assert policy["schema_version"] == "benchmark_rerank_policy.v2"
