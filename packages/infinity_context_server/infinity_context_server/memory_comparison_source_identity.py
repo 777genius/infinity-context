@@ -6,6 +6,19 @@ import re
 from collections.abc import Sequence
 
 _TURN_REF_RE = re.compile(r"\bD\d+:\d+\b")
+_SOURCE_SESSION_TURN_RE = re.compile(
+    r"(?:^|:)session_(?P<session>\d+):(?P<turn_ref>D\d+:\d+):(?:turn|chunk|fact)$",
+    re.IGNORECASE,
+)
+_TEXT_SESSION_TURN_RE = re.compile(
+    r"\bsession_(?P<session>\d+)\s+(?:turn\s+)?(?P<turn_ref>D\d+:\d+)\b",
+    re.IGNORECASE,
+)
+_TEXT_SESSION_DATE_TURN_RE = re.compile(
+    r"\bsession_(?P<session>\d+)\s+date:\s*[^.\n]{0,80}?\s"
+    r"(?P<turn_ref>D\d+:\d+)\b",
+    re.IGNORECASE,
+)
 
 
 def source_identity_refs_from_dedupe_key(value: object) -> tuple[str, ...]:
@@ -26,6 +39,13 @@ def source_identity_refs_from_dedupe_key(value: object) -> tuple[str, ...]:
             f"source_turn_refs:{ref}"
             for ref in _split_identity_refs(key.removeprefix(prefix))
         )
+    if key.startswith("source_session_turn_refs:"):
+        return tuple(
+            f"source_session_turn_refs:{ref}"
+            for ref in _split_identity_refs(
+                key.removeprefix("source_session_turn_refs:")
+            )
+        )
     return ()
 
 
@@ -36,6 +56,9 @@ def source_identity_refs_from_text(
 ) -> tuple[str, ...]:
     if source_refs:
         return ()
+    session_turn_refs = _session_turn_refs_from_text(text)
+    if 0 < len(session_turn_refs) <= 3:
+        return _session_identity_refs(session_turn_refs)
     turn_refs = tuple(dict.fromkeys(_TURN_REF_RE.findall(text or "")))
     if not 0 < len(turn_refs) <= 3:
         return ()
@@ -48,6 +71,15 @@ def source_identity_refs_from_source_refs(
     include_exact_turn_refs: bool = False,
 ) -> tuple[str, ...]:
     refs = tuple(str(ref).strip() for ref in source_refs if str(ref).strip())
+    session_turn_refs = tuple(
+        dict.fromkeys(
+            f"session_{match.group('session')}:{match.group('turn_ref')}"
+            for source_ref in refs
+            if (match := _SOURCE_SESSION_TURN_RE.search(source_ref))
+        )
+    )
+    if 0 < len(session_turn_refs) <= 3:
+        return _session_identity_refs(session_turn_refs)
     turn_refs = tuple(
         dict.fromkeys(
             ref
@@ -64,4 +96,48 @@ def source_identity_refs_from_source_refs(
 def _split_identity_refs(value: str) -> tuple[str, ...]:
     return tuple(
         dict.fromkeys(ref.strip() for ref in value.split("|") if ref.strip())
+    )
+
+
+def _session_turn_refs_from_text(text: str) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            f"session_{match.group('session')}:{match.group('turn_ref')}"
+            for pattern in (_TEXT_SESSION_TURN_RE, _TEXT_SESSION_DATE_TURN_RE)
+            for match in pattern.finditer(text or "")
+        )
+    )
+
+
+def _session_identity_refs(session_turn_refs: Sequence[str]) -> tuple[str, ...]:
+    qualified = tuple(
+        f"source_session_turn_refs:{ref}" for ref in sorted(session_turn_refs)
+    )
+    if _session_count(session_turn_refs) != 1:
+        return qualified
+    turn_refs: list[str] = []
+    for session_ref in session_turn_refs:
+        match = _TURN_REF_RE.search(session_ref)
+        if match is not None:
+            turn_refs.append(match.group(0))
+    unqualified = tuple(
+        f"source_turn_refs:{ref}"
+        for ref in sorted(dict.fromkeys(turn_refs))
+    )
+    return (*qualified, *unqualified)
+
+
+def _session_count(session_turn_refs: Sequence[str]) -> int:
+    return len(
+        {
+            match.group("session")
+            for ref in session_turn_refs
+            if (
+                match := re.search(
+                    r"\bsession_(?P<session>\d+):D\d+:\d+\b",
+                    ref,
+                    re.IGNORECASE,
+                )
+            )
+        }
     )

@@ -618,9 +618,44 @@ def test_answer_context_matches_canonical_source_ref_to_source_turn_key() -> Non
     ]
     assert context.memories[0].source_refs == (
         "locomo:conv-19:session_4:D4:2:chunk",
+        "source_session_turn_refs:session_4:D4:2",
         "source_turn_refs:D4:2",
     )
     assert context.memories[0].metadata["answer_context_retrieval_order"] == 2
+
+
+def test_answer_context_matches_session_qualified_turn_key() -> None:
+    memories = (
+        RetrievedMemory(
+            text="session_11 date: Friday D1:8 Caroline discussed old adoption notes.",
+            rank=1,
+            item_id="cross-session-noise",
+        ),
+        RetrievedMemory(
+            text="session_1 date: Monday D1:8 Caroline discussed adoption support.",
+            rank=2,
+            item_id="session-evidence",
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "items": [
+                {
+                    "role": "primary",
+                    "source_ref_dedupe_key": "source_session_turn_refs:session_1:D1:8",
+                }
+            ]
+        },
+        cutoff=2,
+    )
+
+    assert [memory.item_id for memory in context.memories] == ["session-evidence"]
+    assert context.memories[0].source_refs == (
+        "source_session_turn_refs:session_1:D1:8",
+        "source_turn_refs:D1:8",
+    )
 
 
 def test_answer_context_matches_partial_multi_turn_source_identity() -> None:

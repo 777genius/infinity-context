@@ -27,6 +27,8 @@ from infinity_context_server.memory_comparison_source_identity import (
     source_identity_refs_from_text as _source_identity_refs_from_text,
 )
 
+_SOURCE_TURN_REF_PREFIXES = ("source_turn_refs:", "source_session_turn_refs:")
+
 
 @dataclass(frozen=True)
 class AnswerContext:
@@ -1923,12 +1925,34 @@ def _bundle_source_identity_key(
             )
         )
     )
-    turn_refs = tuple(
-        sorted(ref for ref in refs if ref.startswith("source_turn_refs:"))
-    )
+    if _bundle_item_has_session_turn_key(bundle_item):
+        turn_refs = tuple(
+            sorted(ref for ref in refs if ref.startswith("source_session_turn_refs:"))
+        )
+    else:
+        turn_refs = tuple(
+            sorted(ref for ref in refs if ref.startswith("source_turn_refs:"))
+        )
+        if not turn_refs:
+            turn_refs = tuple(
+                sorted(
+                    ref
+                    for ref in refs
+                    if ref.startswith("source_session_turn_refs:")
+                )
+            )
     if turn_refs:
         return turn_refs
     return tuple(sorted(_merged_source_refs(memory, bundle_item)))
+
+
+def _bundle_item_has_session_turn_key(bundle_item: Mapping[str, object]) -> bool:
+    values = (
+        bundle_item.get("source_ref_dedupe_key"),
+        bundle_item.get("dedupe_key"),
+        *_string_tuple(bundle_item.get("source_refs")),
+    )
+    return any(str(value).startswith("source_session_turn_refs:") for value in values)
 
 
 def _bundle_source_turn_refs(
@@ -1941,7 +1965,7 @@ def _bundle_source_turn_refs(
             *_source_match_refs_from_memory(memory),
             *_source_match_refs_from_bundle_item(bundle_item),
         )
-        if ref.startswith("source_turn_refs:")
+        if ref.startswith(_SOURCE_TURN_REF_PREFIXES)
     }
 
 

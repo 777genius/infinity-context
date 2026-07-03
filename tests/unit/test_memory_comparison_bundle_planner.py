@@ -2674,6 +2674,22 @@ def test_evidence_bundle_quality_counts_multi_ref_source_identity() -> None:
     assert quality["source_proximity_support_count"] == 1
 
 
+def test_planned_evidence_payload_keeps_session_qualified_turn_key() -> None:
+    primary = _candidate(
+        item_id="primary",
+        retrieval_order=1,
+        dedupe_key="source_session_turn_refs:session_1:D1:8",
+        covered_evidence_terms=("adoption",),
+        primary_signal=True,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=1).plan((primary,), case_group="single")
+
+    assert plan.items[0].to_payload()["source_ref_dedupe_key"] == (
+        "source_session_turn_refs:session_1:D1:8"
+    )
+
+
 def _candidate(
     *,
     item_id: str,

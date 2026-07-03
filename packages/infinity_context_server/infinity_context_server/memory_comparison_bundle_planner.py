@@ -165,7 +165,9 @@ class PlannedEvidenceItem:
             "dedupe_key": self.candidate.dedupe_key,
             "planner_reason_codes": list(self.reason_codes),
         }
-        if self.candidate.dedupe_key.startswith(("source_refs:", "source_turn_refs:")):
+        if self.candidate.dedupe_key.startswith(
+            ("source_refs:", "source_turn_refs:", "source_session_turn_refs:")
+        ):
             payload["source_ref_dedupe_key"] = self.candidate.dedupe_key
         if self.candidate.source_type != "unknown":
             payload["source_type"] = self.candidate.source_type
