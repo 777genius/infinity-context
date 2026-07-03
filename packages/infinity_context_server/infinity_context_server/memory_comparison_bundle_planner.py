@@ -15,8 +15,9 @@ from infinity_context_server.memory_comparison_source_identity import (
 )
 
 BundleRole = str
-_TURN_REF_RE = re.compile(r"\bD\d+:\d+\b")
-_TURN_REF_PARTS_RE = re.compile(r"\bD(?P<dialogue>\d+):(?P<turn>\d+)\b")
+_TURN_REF_PARTS_RE = re.compile(
+    r"\b(?:(?P<session>session_\d+):)?D(?P<dialogue>\d+):(?P<turn>\d+)\b"
+)
 _SOURCE_PROXIMITY_WINDOW = 3
 _COMPACT_SOURCE_REF_MAX_TURNS = 2
 _COMPACT_SOURCE_REF_MAX_SPAN = _SOURCE_PROXIMITY_WINDOW
@@ -1686,13 +1687,14 @@ def _selection_precision_sort_key(item: PlannedEvidenceItem) -> tuple[float, ...
 def _closest_turn_ref_distance(
     candidate: EvidenceBundleCandidate,
     *,
-    comparison_turn_refs: Sequence[tuple[int, int]],
+    comparison_turn_refs: Sequence[tuple[str, int, int]],
 ) -> int | None:
+    candidate_turn_refs = _candidate_turn_refs(candidate)
     distances = [
-        abs(comparison_turn - candidate_turn)
-        for comparison_dialogue, comparison_turn in comparison_turn_refs
-        for candidate_dialogue, candidate_turn in _candidate_turn_refs(candidate)
-        if comparison_dialogue == candidate_dialogue
+        abs(comparison_ref[2] - candidate_ref[2])
+        for comparison_ref in comparison_turn_refs
+        for candidate_ref in candidate_turn_refs
+        if comparison_ref[:2] == candidate_ref[:2]
     ]
     if not distances:
         return None
@@ -2153,7 +2155,7 @@ def _source_chain_proximity_distances(
         if _candidate_has_source_proximity_diagnostic_support(item.candidate)
         for turn_ref in _candidate_turn_refs(item.candidate)
     )
-    previously_selected_turn_refs: list[tuple[int, int]] = []
+    previously_selected_turn_refs: list[tuple[str, int, int]] = []
     distances: list[int] = []
     for item in items:
         item_turn_refs = _candidate_turn_refs(item.candidate)
@@ -2215,20 +2217,16 @@ def _candidate_has_diffuse_source_refs(candidate: EvidenceBundleCandidate) -> bo
         return True
     if not turn_refs:
         return False
-    dialogue_count = len({dialogue for dialogue, _turn in turn_refs})
-    return dialogue_count > 1 or _turn_ref_span(turn_refs) > _COMPACT_SOURCE_REF_MAX_SPAN
+    source_count = len({turn_ref[:2] for turn_ref in turn_refs})
+    return source_count > 1 or _turn_ref_span(turn_refs) > _COMPACT_SOURCE_REF_MAX_SPAN
 
 
-def _turn_ref_span(turn_refs: Sequence[tuple[int, int]]) -> int:
+def _turn_ref_span(turn_refs: Sequence[tuple[str, int, int]]) -> int:
     if not turn_refs:
         return 0
     spans = []
-    for dialogue in {dialogue for dialogue, _turn in turn_refs}:
-        turns = [
-            turn
-            for candidate_dialogue, turn in turn_refs
-            if candidate_dialogue == dialogue
-        ]
+    for source_ref in {turn_ref[:2] for turn_ref in turn_refs}:
+        turns = [turn_ref[2] for turn_ref in turn_refs if turn_ref[:2] == source_ref]
         if turns:
             spans.append(max(turns) - min(turns))
     return max(spans, default=0)
@@ -2266,27 +2264,33 @@ def _source_identity_refs(candidate: EvidenceBundleCandidate) -> tuple[str, ...]
     )
 
 
-def _candidate_turn_refs(candidate: EvidenceBundleCandidate) -> tuple[tuple[int, int], ...]:
-    refs: list[tuple[int, int]] = []
+def _candidate_turn_refs(candidate: EvidenceBundleCandidate) -> tuple[tuple[str, int, int], ...]:
+    refs: list[tuple[str, int, int]] = []
     for turn_ref in _candidate_turn_ref_strings(candidate):
         for match in _TURN_REF_PARTS_RE.finditer(turn_ref):
-            refs.append(
-                (
-                    int(match.group("dialogue")),
-                    int(match.group("turn")),
-                )
-            )
+            session = str(match.group("session") or "")
+            dialogue = int(match.group("dialogue"))
+            turn = int(match.group("turn"))
+            refs.append((session, dialogue, turn))
     return tuple(dict.fromkeys(refs))
 
 
 def _candidate_turn_ref_strings(candidate: EvidenceBundleCandidate) -> tuple[str, ...]:
-    return tuple(
-        dict.fromkeys(
-            turn_ref
-            for value in (*candidate.source_refs, candidate.dedupe_key)
-            for turn_ref in _TURN_REF_RE.findall(str(value))
-        )
+    session_refs: list[str] = []
+    turn_refs: list[str] = []
+    qualified_turn_refs: set[str] = set()
+    for value in (*candidate.source_refs, candidate.dedupe_key):
+        for match in _TURN_REF_PARTS_RE.finditer(str(value)):
+            turn_ref = f"D{match.group('dialogue')}:{match.group('turn')}"
+            if session := match.group("session"):
+                session_refs.append(f"{session}:{turn_ref}")
+                qualified_turn_refs.add(turn_ref)
+            else:
+                turn_refs.append(turn_ref)
+    unresolved_turn_refs = (
+        turn_ref for turn_ref in turn_refs if turn_ref not in qualified_turn_refs
     )
+    return tuple(dict.fromkeys((*session_refs, *unresolved_turn_refs)))
 
 
 def _bundle_quality_reason_codes(

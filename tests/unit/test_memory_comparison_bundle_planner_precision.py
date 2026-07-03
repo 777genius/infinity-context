@@ -337,6 +337,66 @@ def test_evidence_bundle_quality_does_not_reward_noisy_source_diversity() -> Non
     assert "retrieval_source_diverse" not in quality["reason_codes"]
 
 
+def test_evidence_bundle_planner_requires_same_session_source_proximity() -> None:
+    primary = _candidate(
+        item_id="primary",
+        retrieval_order=1,
+        dedupe_key="primary",
+        covered_evidence_terms=("plan",),
+        primary_signal=True,
+        source_refs=("locomo:conv-19:session_1:D1:10:turn",),
+        focused_evidence_score=1.0,
+        direct_speaker_turn=True,
+        answerability_score=0.92,
+    )
+    cross_session_support = _candidate(
+        item_id="cross-session-support",
+        retrieval_order=2,
+        dedupe_key="cross-session",
+        query_support_terms=("origin", "country", "move", "support"),
+        source_refs=("locomo:conv-19:session_2:D1:12:turn",),
+        focused_evidence_score=1.0,
+        direct_speaker_turn=True,
+        answerability_score=0.84,
+    )
+
+    cross_session_plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, cross_session_support),
+        case_group="single",
+    )
+
+    cross_session_quality = cross_session_plan.to_diagnostics()["bundle_quality"]
+    assert cross_session_quality["source_proximity_support_count"] == 0
+    assert cross_session_quality["source_proximity_closest_distance"] is None
+    assert cross_session_quality["component_scores"]["source_proximity"] == 0.0
+    assert "has_source_proximity_support" not in cross_session_quality["reason_codes"]
+
+    same_session_support = _candidate(
+        item_id="same-session-support",
+        retrieval_order=3,
+        dedupe_key="same-session",
+        query_support_terms=("origin", "country"),
+        source_refs=("locomo:conv-19:session_1:D1:12:turn",),
+        focused_evidence_score=1.0,
+        direct_speaker_turn=True,
+        answerability_score=0.82,
+    )
+
+    same_session_plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, cross_session_support, same_session_support),
+        case_group="single",
+    )
+
+    assert [item.candidate.item_id for item in same_session_plan.items] == [
+        "primary",
+        "same-session-support",
+    ]
+    same_session_quality = same_session_plan.to_diagnostics()["bundle_quality"]
+    assert same_session_quality["source_proximity_support_count"] == 1
+    assert same_session_quality["source_proximity_closest_distance"] == 2
+    assert same_session_quality["source_proximity_distance_counts"] == {"2": 1}
+
+
 def test_evidence_bundle_planner_prefers_compact_source_refs_over_diffuse_support_gain() -> None:
     primary = _candidate(
         item_id="primary",
@@ -409,6 +469,42 @@ def test_evidence_bundle_quality_flags_diffuse_source_refs() -> None:
 
     plan = EvidenceBundlePlanner(max_items=2).plan(
         (primary, diffuse_support),
+        case_group="single",
+    )
+
+    quality = plan.to_diagnostics()["bundle_quality"]
+    assert quality["diffuse_source_ref_count"] == 1
+    assert "risk:diffuse_source_refs" in quality["reason_codes"]
+
+
+def test_evidence_bundle_quality_preserves_mixed_session_and_plain_refs() -> None:
+    primary = _candidate(
+        item_id="primary",
+        retrieval_order=1,
+        dedupe_key="refs:session_1:D1:10",
+        covered_evidence_terms=("plan",),
+        primary_signal=True,
+        source_refs=("locomo:conv-19:session_1:D1:10:turn",),
+        focused_evidence_score=1.0,
+        direct_speaker_turn=True,
+        answerability_score=0.92,
+    )
+    mixed_support = _candidate(
+        item_id="mixed-support",
+        retrieval_order=2,
+        dedupe_key="refs:D2:50",
+        query_support_terms=("origin", "country"),
+        source_refs=(
+            "locomo:conv-19:session_1:D1:12:turn",
+            "legacy:D2:50",
+        ),
+        focused_evidence_score=1.0,
+        direct_speaker_turn=True,
+        answerability_score=0.9,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, mixed_support),
         case_group="single",
     )
 
