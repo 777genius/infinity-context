@@ -10,6 +10,9 @@ from dataclasses import dataclass
 from infinity_context_server.memory_comparison_bundle_partial_support import (
     has_partial_required_role_support,
 )
+from infinity_context_server.memory_comparison_bundle_source_windows import (
+    is_redundant_source_window_filler,
+)
 from infinity_context_server.memory_comparison_source_identity import (
     source_identity_refs_from_dedupe_key as _source_identity_refs_from_dedupe_key,
 )
@@ -549,6 +552,19 @@ class EvidenceBundlePlanner:
                 and _candidate_has_noisy_source_overlap_risk(item.candidate)
                 and not adds_required_terms
             )
+            redundant_source_window = is_redundant_source_window_filler(
+                item,
+                remaining=remaining,
+                selected=selected,
+                adds_required_terms=adds_required_terms,
+                adds_query_support_terms=adds_query_support_terms,
+                has_answer_evidence=_candidate_has_answer_evidence(item.candidate),
+                source_type_keys=source_type_keys,
+                retrieval_source_keys=retrieval_source_keys,
+                source_type_counts=source_type_counts,
+                retrieval_source_counts=retrieval_source_counts,
+                source_proximity_window=_SOURCE_PROXIMITY_WINDOW,
+            )
             source_type_diversity_full = any(
                 source_type_counts[source_type] >= self._max_items_per_source_type
                 for source_type in source_type_keys
@@ -570,7 +586,7 @@ class EvidenceBundlePlanner:
                 source_ref_overlap_full
                 and not adds_required_terms
                 and not adds_query_support_terms
-            ) or noisy_source_overlap:
+            ) or noisy_source_overlap or redundant_source_window:
                 dropped_diversity_count += 1
                 if source_type_diversity_full and not diversity_exempt:
                     dropped_source_type_diversity_count += 1
