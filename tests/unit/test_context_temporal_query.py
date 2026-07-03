@@ -1209,6 +1209,51 @@ def test_temporal_query_extracts_dialogue_turn_session_hint() -> None:
     ] == 0.034
 
 
+def test_temporal_query_boosts_written_ordinal_session_match() -> None:
+    intent = build_temporal_query_intent("What did Alex decide in the fourth session?")
+    matched = _item(
+        "locomo:conv-1:session_4:D4:7:turn",
+        score=0.7,
+        retrieval_source="keyword_chunks",
+        fact_status="active",
+        text="session_4 turn D4:7 Alex decided to wait for invoice approval.",
+    )
+    different_session = _item(
+        "locomo:conv-1:session_3:D3:7:turn",
+        score=0.72,
+        retrieval_source="keyword_chunks",
+        fact_status="active",
+        text="session_3 turn D3:7 Alex was still evaluating invoice options.",
+    )
+
+    boosted = apply_temporal_query_intent_boosts(
+        (different_session, matched),
+        intent=intent,
+    )
+    by_id = {item.item_id: item for item in boosted}
+
+    assert intent.session_ordinals == (4,)
+    assert by_id["locomo:conv-1:session_4:D4:7:turn"].score > by_id[
+        "locomo:conv-1:session_3:D3:7:turn"
+    ].score
+    assert by_id["locomo:conv-1:session_4:D4:7:turn"].diagnostics[
+        "temporal_query_intent_reason"
+    ] == "query asks for an explicit session and item matches it"
+
+
+def test_temporal_query_extracts_cardinal_word_after_session() -> None:
+    intent = build_temporal_query_intent("What did Riley mention in session twelve?")
+
+    assert intent.session_ordinals == (12,)
+
+
+def test_temporal_query_does_not_treat_event_ordinals_as_session_ordinals() -> None:
+    intent = build_temporal_query_intent("What was the first conversation with Sam?")
+
+    assert intent.requests_earliest_event is True
+    assert intent.session_ordinals == ()
+
+
 def test_temporal_query_demotes_stale_when_query_excludes_stale() -> None:
     intent = build_temporal_query_intent("ignore stale notes, what is current?")
     current = _item(

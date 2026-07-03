@@ -11,6 +11,76 @@ _SESSION_ORDINAL_RE = re.compile(
     r"\bsession(?:[\s_-]+)(?P<session>\d{1,4})\b", re.IGNORECASE
 )
 _DIALOGUE_TURN_RE = re.compile(r"\bD(?P<dialogue>\d{1,4}):\d{1,4}\b", re.IGNORECASE)
+_ORDINAL_WORDS = {
+    "first": 1,
+    "second": 2,
+    "third": 3,
+    "fourth": 4,
+    "fifth": 5,
+    "sixth": 6,
+    "seventh": 7,
+    "eighth": 8,
+    "ninth": 9,
+    "tenth": 10,
+    "eleventh": 11,
+    "twelfth": 12,
+    "thirteenth": 13,
+    "fourteenth": 14,
+    "fifteenth": 15,
+    "sixteenth": 16,
+    "seventeenth": 17,
+    "eighteenth": 18,
+    "nineteenth": 19,
+    "twentieth": 20,
+    "thirtieth": 30,
+    "fortieth": 40,
+}
+_CARDINAL_WORDS = {
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+    "eleven": 11,
+    "twelve": 12,
+    "thirteen": 13,
+    "fourteen": 14,
+    "fifteen": 15,
+    "sixteen": 16,
+    "seventeen": 17,
+    "eighteen": 18,
+    "nineteen": 19,
+}
+_TENS_WORDS = {
+    "twenty": 20,
+    "thirty": 30,
+}
+_WORD_NUMBER_PATTERN = (
+    r"(?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|"
+    r"eleventh|twelfth|thirteenth|fourteenth|fifteenth|sixteenth|seventeenth|"
+    r"eighteenth|nineteenth|twentieth|thirtieth|fortieth|"
+    r"twenty(?:[\s-]+(?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|"
+    r"one|two|three|four|five|six|seven|eight|nine))?|"
+    r"thirty(?:[\s-]+(?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|"
+    r"one|two|three|four|five|six|seven|eight|nine))?|"
+    r"one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|"
+    r"thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen)"
+)
+_QUERY_SESSION_NUMERIC_ORDINAL_RE = re.compile(
+    r"\b(?P<before>\d{1,4})(?:st|nd|rd|th)\s+(?:locomo\s+)?session\b|"
+    r"\bsession\s+(?P<after>\d{1,4})(?:st|nd|rd|th)\b",
+    re.IGNORECASE,
+)
+_QUERY_SESSION_WORD_ORDINAL_RE = re.compile(
+    rf"\b(?P<before>{_WORD_NUMBER_PATTERN})\s+(?:locomo\s+)?session\b|"
+    rf"\bsession\s+(?P<after>{_WORD_NUMBER_PATTERN})\b",
+    re.IGNORECASE,
+)
 
 
 def temporal_session_recency_boost(item: ContextItem) -> float:
@@ -40,7 +110,7 @@ def temporal_session_orders(item: ContextItem) -> tuple[int, ...]:
 def temporal_session_orders_from_query(query: str) -> tuple[int, ...]:
     """Return explicit session/dialogue ordinals requested by a query."""
 
-    return _session_orders_from_values((query,))
+    return _session_orders_from_query_values((query,))
 
 
 def _session_order_source_values(item: ContextItem) -> tuple[str, ...]:
@@ -64,3 +134,36 @@ def _session_orders_from_values(values: tuple[str, ...]) -> tuple[int, ...]:
         for match in _DIALOGUE_TURN_RE.finditer(value):
             orders.setdefault(int(match.group("dialogue")), None)
     return tuple(orders)
+
+
+def _session_orders_from_query_values(values: tuple[str, ...]) -> tuple[int, ...]:
+    orders: dict[int, None] = {}
+    for order in _session_orders_from_values(values):
+        orders.setdefault(order, None)
+    for value in values:
+        for match in _QUERY_SESSION_NUMERIC_ORDINAL_RE.finditer(value):
+            raw = match.group("before") or match.group("after")
+            if raw:
+                orders.setdefault(int(raw), None)
+        for match in _QUERY_SESSION_WORD_ORDINAL_RE.finditer(value):
+            raw = match.group("before") or match.group("after")
+            if raw and (order := _word_number_value(raw)):
+                orders.setdefault(order, None)
+    return tuple(orders)
+
+
+def _word_number_value(raw: str) -> int:
+    normalized = re.sub(r"[\s-]+", " ", raw.casefold()).strip()
+    if normalized in _ORDINAL_WORDS:
+        return _ORDINAL_WORDS[normalized]
+    if normalized in _CARDINAL_WORDS:
+        return _CARDINAL_WORDS[normalized]
+    if normalized in _TENS_WORDS:
+        return _TENS_WORDS[normalized]
+    parts = normalized.split()
+    if len(parts) != 2:
+        return 0
+    tens, unit = parts
+    return _TENS_WORDS.get(tens, 0) + (
+        _ORDINAL_WORDS.get(unit, 0) or _CARDINAL_WORDS.get(unit, 0)
+    )
