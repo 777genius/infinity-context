@@ -3526,7 +3526,7 @@ def test_query_decomposition_preserves_anchored_period_modifiers() -> None:
     assert early_metadata["query_profile"]["is_temporal_query"] is True
     assert early_metadata["query_profile"]["time_intent_kind"] == "relative_time"
     assert "early" in early_metadata["query_profile"]["temporal_terms"]
-    assert early_queries[-1] == "john early august session date time"
+    assert early_queries[-1] == "john early 2023 august session date time"
 
     assert first_half_metadata["query_profile"]["is_temporal_query"] is True
     assert first_half_metadata["query_profile"]["time_intent_kind"] == "relative_time"
@@ -3536,7 +3536,7 @@ def test_query_decomposition_preserves_anchored_period_modifiers() -> None:
     ]
     assert (
         first_half_queries[-1]
-        == "nate joanna first half september month session date time"
+        == "nate joanna first half 2022 september month session date time"
     )
 
 
@@ -3593,6 +3593,40 @@ def test_query_decomposition_preserves_numeric_date_anchors() -> None:
     assert ordinal_queries[-1] == "audrey before 4th 2023 october weekend week session"
 
 
+def test_query_decomposition_preserves_month_year_anchors() -> None:
+    explicit_case = _case(
+        case_id="conv-1:qa:currently-august-2023",
+        question="What is John currently doing as a volunteer in August 2023?",
+        expected_terms=("mentoring",),
+        answer="mentoring",
+        category=4,
+    )
+    duration_case = _case(
+        case_id="conv-1:qa:duration-december-2023",
+        question="How long has Tim been playing the piano for, as of December 2023?",
+        expected_terms=("four months",),
+        answer="four months",
+        category=4,
+    )
+
+    explicit_queries, explicit_metadata = rerank_module.decomposed_search_queries(
+        explicit_case
+    )
+    duration_queries, duration_metadata = rerank_module.decomposed_search_queries(
+        duration_case
+    )
+
+    assert explicit_metadata["query_profile"]["time_intent_kind"] == "explicit_time"
+    assert "2023" in explicit_metadata["query_profile"]["temporal_terms"]
+    assert "august" in explicit_metadata["query_profile"]["temporal_surface_terms"]
+    assert explicit_queries[-1] == "john 2023 august session date time"
+
+    assert duration_metadata["query_profile"]["time_intent_kind"] == "duration"
+    assert "2023" in duration_metadata["query_profile"]["temporal_terms"]
+    assert "december" in duration_metadata["query_profile"]["temporal_surface_terms"]
+    assert duration_queries[-1] == "tim how long 2023 december session date time"
+
+
 def test_query_decomposition_classifies_relative_weekday_phrases() -> None:
     case = _case(
         case_id="conv-1:qa:last-friday-date",
@@ -3643,7 +3677,7 @@ def test_query_decomposition_preserves_ordinal_period_phrases() -> None:
         "selected_roles"
     ]
     assert (
-        first_queries[-1] == "andrew first weekend august weekend week session date time"
+        first_queries[-1] == "andrew first weekend 2023 august weekend week session date"
     )
 
     assert second_metadata["query_profile"]["time_intent_kind"] == "relative_time"
@@ -3730,7 +3764,7 @@ def test_query_decomposition_classifies_since_sequence_queries() -> None:
     assert "duration_temporal_support" in duration_metadata["query_plan"][
         "selected_roles"
     ]
-    assert duration_queries[-1] == "andrew how long since november session date time"
+    assert duration_queries[-1] == "andrew how long since 2023 november session date time"
 
 
 def test_query_decomposition_classifies_holiday_temporal_surfaces() -> None:

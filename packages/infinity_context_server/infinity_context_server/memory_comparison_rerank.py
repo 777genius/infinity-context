@@ -2140,6 +2140,8 @@ def _explicit_date_anchor_temporal_terms(query: str) -> tuple[str, ...]:
         query,
     ):
         terms.extend(term for term in match.groups() if term)
+    for match in re.finditer(rf"\b(?:{month_pattern})\s+((?:19|20)\d{{2}})\b", query):
+        terms.append(match.group(1))
     return tuple(dict.fromkeys(terms))
 
 
