@@ -43,6 +43,17 @@ _POSITIVE_PREFERENCE_TEXT_RE = re.compile(
     r"interested\s+in|fan\s+of)\b",
     re.IGNORECASE,
 )
+_CORRECTED_NEGATIVE_PREFERENCE_TEXT_RE = re.compile(
+    r"\b(?:used\s+to|previously|formerly|once)\b"
+    r"(?=.{0,100}\b(?:dislikes?|hates?|avoids?|"
+    r"not\s+(?:like|likes|liked|eat|eats|enjoy|enjoys|want|wants)|"
+    r"doesn'?t\s+(?:like|eat|enjoy|want)|"
+    r"didn'?t\s+(?:like|eat|enjoy|want)|"
+    r"cannot\s+eat|can'?t\s+eat)\b)"
+    r"(?=.{0,180}\b(?:but\s+now|now|currently|these\s+days|nowadays)\b"
+    r".{0,100}\b(?:likes?|loves?|eats?|enjoys?|wants?|prefers?|can\s+eat)\b)",
+    re.IGNORECASE | re.DOTALL,
+)
 _ABSENCE_CONTRAST_NEGATIVE_DESCRIPTOR_RE = (
     r"(?:"
     r"pet|animal|provider|model|project|thread|scope|meeting|call|event|person|"
@@ -202,6 +213,8 @@ def negative_preference_signal(*, query: str, text: str) -> tuple[float, float, 
         or _NEGATIVE_EATING_QUERY_RE.search(query)
     ):
         return 0.0, 0.0, ""
+    if _CORRECTED_NEGATIVE_PREFERENCE_TEXT_RE.search(text):
+        return 0.0, 0.03, "negative_preference_positive_conflict"
     if _NEGATIVE_PREFERENCE_TEXT_RE.search(text):
         return 0.026, 0.0, "negative_preference_match"
     if _POSITIVE_PREFERENCE_TEXT_RE.search(text):
