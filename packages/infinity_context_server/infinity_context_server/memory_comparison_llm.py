@@ -165,6 +165,16 @@ def _render_memory_evidence_line(memory: RetrievedMemory, *, index: int) -> str:
         source_diversity_labels.append(f"retrieval:{retrieval_source_diversity}")
     if source_diversity_labels:
         labels.append(f"bundle_sources={','.join(source_diversity_labels)}")
+    source_ref_support = _positive_int(
+        metadata.get("answer_context_bundle_source_ref_support_item_count")
+    )
+    if source_ref_support is not None:
+        labels.append(f"bundle_source_ref_support={source_ref_support}")
+    source_identity_support = _positive_int(
+        metadata.get("answer_context_bundle_source_identity_support_item_count")
+    )
+    if source_identity_support is not None:
+        labels.append(f"bundle_source_identity_support={source_identity_support}")
     proximity_count = _positive_int(
         metadata.get("answer_context_bundle_source_proximity_support_count")
     )
