@@ -17,6 +17,8 @@ class RerankPolicyFeatures(Protocol):
     relation_category_hits: tuple[str, ...]
     relation_category_coverage_ratio: float
     covered_answer_unit_shapes: tuple[str, ...]
+    exact_count_evidence: bool
+    list_item_count: int
     query_has_entities: bool
     high_signal_relation_hit_count: int
     is_temporal_query: bool
@@ -576,6 +578,71 @@ class ValueAnswerShapePolicy:
             reason_codes=(
                 *_reason_codes(("value_answer_shape", evidence_boost)),
                 *_reason_codes(("value_query_role_support", role_boost)),
+            ),
+        )
+
+
+class CountListAnswerShapePolicy:
+    name = "CountListAnswerShapePolicy"
+
+    def score(self, features: RerankPolicyFeatures) -> RerankPolicyContribution:
+        evidence_needs = set(features.evidence_need)
+        query_roles = set(features.query_roles)
+        grounded = bool(
+            features.entity_hits
+            or features.speaker_hits
+            or len(features.overlap_terms) >= 2
+            or not features.query_has_entities
+        )
+        precise_provenance = _has_precise_or_unmeasured_source_provenance(features)
+        count_needed = "count_support" in evidence_needs
+        list_needed = "list_support" in evidence_needs
+        multi_item_evidence = features.list_item_count >= 2
+        count_evidence_boost = (
+            0.09
+            if count_needed
+            and features.exact_count_evidence
+            and grounded
+            and precise_provenance
+            else 0.06
+            if count_needed
+            and multi_item_evidence
+            and grounded
+            and precise_provenance
+            else 0.0
+        )
+        list_evidence_boost = (
+            0.09
+            if list_needed and multi_item_evidence and grounded and precise_provenance
+            else 0.0
+        )
+        role_boost = (
+            0.035
+            if (
+                (count_evidence_boost > 0 and "count_support" in query_roles)
+                or (list_evidence_boost > 0 and "list_support" in query_roles)
+            )
+            else 0.0
+        )
+        return RerankPolicyContribution(
+            policy=self.name,
+            score=count_evidence_boost + list_evidence_boost + role_boost,
+            signals={
+                "benchmark_count_answer_shape_boost": round(
+                    count_evidence_boost,
+                    6,
+                ),
+                "benchmark_list_answer_shape_boost": round(list_evidence_boost, 6),
+                "benchmark_count_list_query_role_boost": round(role_boost, 6),
+                "benchmark_exact_count_evidence": features.exact_count_evidence,
+                "benchmark_list_item_count": features.list_item_count,
+                "benchmark_count_list_answer_grounded": grounded,
+                "benchmark_count_list_precise_provenance": precise_provenance,
+            },
+            reason_codes=(
+                *_reason_codes(("count_answer_shape", count_evidence_boost)),
+                *_reason_codes(("list_answer_shape", list_evidence_boost)),
+                *_reason_codes(("count_list_query_role_support", role_boost)),
             ),
         )
 
@@ -1192,5 +1259,6 @@ _DEFAULT_POLICIES: tuple[RerankPolicy, ...] = (
     ContrastIntentPolicy(),
     TypedRelationSupportPolicy(),
     LocationIntentPolicy(),
+    CountListAnswerShapePolicy(),
     ValueAnswerShapePolicy(),
 )

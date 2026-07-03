@@ -795,6 +795,32 @@ def decomposed_search_queries(
                 ),
             )
         )
+    list_query_terms = (
+        _list_support_query_terms(
+            relation_terms=relation_terms,
+            relation_variant_terms=relation_variant_terms,
+            lexical_terms=lexical_terms,
+            entity_surfaces=entity_surfaces,
+        )
+        if "list_support" in evidence_need_set
+        else ()
+    )
+    if list_query_terms and (entity_surfaces or len(list_query_terms) >= 4):
+        query_candidates.append(
+            QueryPlanCandidate(
+                role="list_support",
+                query=" ".join(
+                    (*entity_surfaces, *_render_query_terms(list_query_terms[:10]))
+                ),
+                priority=38,
+                query_type="lexical",
+                reason_codes=(
+                    "list_support",
+                    "multi_item_evidence",
+                    "question_only",
+                ),
+            )
+        )
     value_query_terms = (
         _value_support_query_terms(
             relation_terms=relation_terms,
@@ -1184,6 +1210,25 @@ def _count_support_query_terms(
     return tuple(dict.fromkeys(count_terms))
 
 
+def _list_support_query_terms(
+    *,
+    relation_terms: tuple[str, ...],
+    relation_variant_terms: tuple[str, ...],
+    lexical_terms: tuple[str, ...],
+    entity_surfaces: tuple[str, ...],
+) -> tuple[str, ...]:
+    list_terms = list(
+        _count_support_query_terms(
+            relation_terms=relation_terms,
+            relation_variant_terms=relation_variant_terms,
+            lexical_terms=lexical_terms,
+            entity_surfaces=entity_surfaces,
+        )
+    )
+    list_terms.extend(("list", "names", "items", "including"))
+    return tuple(dict.fromkeys(list_terms))
+
+
 def _value_support_query_terms(
     *,
     relation_terms: tuple[str, ...],
@@ -1322,6 +1367,8 @@ def _recommended_query_role_families(intent: RetrievalIntent) -> tuple[str, ...]
         families.append("location_support")
     if "count_support" in intent.evidence_need:
         families.append("count_support")
+    if "list_support" in intent.evidence_need:
+        families.append("list_support")
     if "value_support" in intent.evidence_need:
         families.append("value_support")
     if "causal_support" in intent.evidence_need:
@@ -2662,6 +2709,8 @@ def _benchmark_rerank_boost(
                 candidate_features.high_signal_relation_hit_count
             ),
             covered_answer_unit_shapes=candidate_features.covered_answer_unit_shapes,
+            exact_count_evidence=candidate_features.exact_count_evidence,
+            list_item_count=candidate_features.list_item_count,
             is_temporal_query=candidate_features.is_temporal_query,
             has_temporal_surface=candidate_features.has_temporal_surface,
             has_sequence_surface=candidate_features.has_sequence_surface,

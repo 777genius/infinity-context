@@ -217,6 +217,8 @@ def evidence_bundle(
                 covered_answer_unit_shapes=_string_sequence(
                     features.get("covered_answer_unit_shapes")
                 ),
+                exact_count_evidence=_bool_value(features.get("exact_count_evidence")),
+                list_item_count=_int_value(features.get("list_item_count")),
                 entity_hits=_string_sequence(features.get("entity_hits")),
                 speaker_hits=_string_sequence(features.get("speaker_hits")),
                 query_has_entities=_bool_value(features.get("query_has_entities")),
@@ -629,6 +631,10 @@ def _numeric_value(value: object) -> float:
 
 def _float_value(value: object) -> float:
     return _numeric_value(value)
+
+
+def _int_value(value: object) -> int:
+    return int(_numeric_value(value))
 
 
 def _bool_value(value: object) -> bool:

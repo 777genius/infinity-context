@@ -10,6 +10,9 @@ from dataclasses import dataclass
 from infinity_context_core.application.context_answer_unit_shapes import (
     covered_answer_unit_shapes,
 )
+from infinity_context_core.application.context_count_cardinality import (
+    has_exact_count_cardinality_evidence,
+)
 
 from infinity_context_server.memory_comparison_candidate_risks import (
     memory_has_broad_summary,
@@ -102,6 +105,15 @@ _TEMPORAL_SEQUENCE_EVIDENCE_RE = re.compile(
     r"following|subsequent|subsequently|previously|earlier|later|prior)\b",
     re.IGNORECASE,
 )
+_LIST_ITEM_INTRO_RE = re.compile(
+    r"\b(?:are|were|include|includes|including|included|such\s+as|"
+    r"names?\s+(?:are|were)|named|called|listed|list)\b[:\s]*(?P<items>.{0,180})",
+    re.IGNORECASE | re.DOTALL,
+)
+_LIST_ITEM_SPLIT_RE = re.compile(
+    r"\s*(?:,|;|\band\b|\bplus\b|\bas\s+well\s+as\b|\bor\b)\s*",
+    re.IGNORECASE,
+)
 _INTENT_RELATION_CATEGORY_ORDER = (
     "causal",
     "contrast",
@@ -146,6 +158,8 @@ class CandidateEvidenceFeatures:
     relation_category_hits: tuple[str, ...]
     relation_category_coverage_ratio: float
     covered_answer_unit_shapes: tuple[str, ...]
+    exact_count_evidence: bool
+    list_item_count: int
     entity_hits: tuple[str, ...]
     speaker_hits: tuple[str, ...]
     relation_coverage_ratio: float
@@ -231,6 +245,8 @@ class CandidateEvidenceFeatures:
                 6,
             ),
             "covered_answer_unit_shapes": list(self.covered_answer_unit_shapes),
+            "exact_count_evidence": self.exact_count_evidence,
+            "list_item_count": self.list_item_count,
             "high_signal_relation_hit_count": self.high_signal_relation_hit_count,
             "overlap_terms": list(self.overlap_terms),
             "relation_hits": list(self.relation_hits),
@@ -296,6 +312,9 @@ def build_candidate_evidence_features(
     contrast_features = _contrast_features(text)
     temporal_features = _temporal_evidence_features(text)
     answer_unit_shapes = covered_answer_unit_shapes(text)
+    content_text = _evidence_content_text(text)
+    exact_count_evidence = has_exact_count_cardinality_evidence(content_text)
+    list_item_count = _list_item_count(content_text)
     source_refs = tuple(str(ref) for ref in memory.source_refs if str(ref).strip())
     text_turn_refs = tuple(dict.fromkeys(_TURN_REF_RE.findall(text)))
     text_session_turn_refs = _text_session_turn_refs(text)
@@ -379,6 +398,8 @@ def build_candidate_evidence_features(
             len(relation_category_terms or {}),
         ),
         covered_answer_unit_shapes=answer_unit_shapes,
+        exact_count_evidence=exact_count_evidence,
+        list_item_count=list_item_count,
         entity_hits=tuple(entity_hits),
         speaker_hits=tuple(speaker_hits),
         relation_coverage_ratio=_ratio(
@@ -480,6 +501,39 @@ def _evidence_content_text(text: str) -> str:
     if not turn_matches:
         return text
     return text[turn_matches[-1].end() :]
+
+
+def _list_item_count(text: str) -> int:
+    candidates: list[str] = []
+    if match := _LIST_ITEM_INTRO_RE.search(text):
+        candidates.append(match.group("items"))
+    elif "," in text and re.search(r"\b(?:and|plus|as\s+well\s+as)\b", text, re.IGNORECASE):
+        candidates.append(text)
+    counts = tuple(_split_list_item_count(candidate) for candidate in candidates)
+    return max(counts, default=0)
+
+
+def _split_list_item_count(text: str) -> int:
+    sentence = re.split(r"[.\n]", text.strip(), maxsplit=1)[0]
+    parts = tuple(_normalized_list_item(part) for part in _LIST_ITEM_SPLIT_RE.split(sentence))
+    unique_parts = tuple(dict.fromkeys(part for part in parts if part))
+    return len(unique_parts) if len(unique_parts) >= 2 else 0
+
+
+def _normalized_list_item(value: str) -> str:
+    item = re.sub(r"^[\s:()\[\]\"']+|[\s:()\[\]\"']+$", "", value)
+    item = re.sub(
+        r"^(?:my|his|her|their|our|the|a|an|another|also)\s+",
+        "",
+        item,
+        flags=re.IGNORECASE,
+    ).strip()
+    if not re.search(r"[A-Za-z]", item):
+        return ""
+    words = re.findall(r"[A-Za-z][A-Za-z'_-]*", item)
+    if not words or len(words) > 5:
+        return ""
+    return " ".join(word.casefold() for word in words)
 
 
 def _relation_category_hits(

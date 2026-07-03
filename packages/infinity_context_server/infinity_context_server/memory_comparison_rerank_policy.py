@@ -33,6 +33,8 @@ class BenchmarkRerankFeatures:
     relation_categories: tuple[str, ...] = ()
     relation_category_hits: tuple[str, ...] = ()
     relation_category_coverage_ratio: float = 0.0
+    exact_count_evidence: bool = False
+    list_item_count: int = 0
     policy_boosts: Mapping[str, float] = field(default_factory=dict)
     shape_boosts: Mapping[str, float] = field(default_factory=dict)
     source_type: str = "unknown"
@@ -111,6 +113,13 @@ def score_benchmark_rerank_candidate(
         score_signals,
         "benchmark_value_answer_shape_boost",
     ) + _float_signal(score_signals, "benchmark_value_query_role_boost")
+    count_list_answer_shape_boost = _float_signal(
+        score_signals,
+        "benchmark_count_answer_shape_boost",
+    ) + _float_signal(
+        score_signals,
+        "benchmark_list_answer_shape_boost",
+    ) + _float_signal(score_signals, "benchmark_count_list_query_role_boost")
     typed_relation_support_boost = _float_signal(
         score_signals,
         "benchmark_typed_relation_support_boost",
@@ -156,6 +165,7 @@ def score_benchmark_rerank_candidate(
         contrast_support_boost=contrast_support_boost,
         location_support_boost=location_support_boost,
         value_answer_shape_boost=value_answer_shape_boost,
+        count_list_answer_shape_boost=count_list_answer_shape_boost,
         typed_relation_support_boost=typed_relation_support_boost,
         policy_boosts=policy_boosts,
         shape_boosts=shape_boosts,
@@ -249,6 +259,7 @@ def _boost_cap(
     contrast_support_boost: float,
     location_support_boost: float,
     value_answer_shape_boost: float,
+    count_list_answer_shape_boost: float,
     typed_relation_support_boost: float,
     policy_boosts: Mapping[str, float],
     shape_boosts: Mapping[str, float],
@@ -323,6 +334,8 @@ def _boost_cap(
         return 0.46
     if value_answer_shape_boost > 0:
         return 0.46
+    if count_list_answer_shape_boost > 0:
+        return 0.46
     if typed_relation_support_boost > 0:
         return 0.46
     if speaker_grounding_boost > 0:
@@ -341,6 +354,7 @@ def _boost_cap(
         or contrast_support_boost > 0
         or location_support_boost > 0
         or value_answer_shape_boost > 0
+        or count_list_answer_shape_boost > 0
         or typed_relation_support_boost > 0
     ):
         return 0.38

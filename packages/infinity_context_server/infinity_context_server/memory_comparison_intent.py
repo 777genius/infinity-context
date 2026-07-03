@@ -462,6 +462,7 @@ def infer_evidence_need(
     relation_set = set(relation_terms)
     answer_unit_set = set(answer_unit_shapes)
     count_intent = _has_count_intent(question) and benchmark_category != 3
+    list_intent = _has_list_intent(question)
     direct_emotion_response = _has_direct_emotion_response_intent(
         question=question,
         relation_terms=relation_terms,
@@ -470,6 +471,8 @@ def infer_evidence_need(
         needs.append("multi_hop")
     if count_intent:
         needs.append("count_support")
+    if list_intent:
+        needs.append("list_support")
     if "quantity_dollar" in answer_unit_set and "employment" not in relation_set:
         needs.append("value_support")
     if time_intent.is_temporal:
@@ -542,6 +545,8 @@ def infer_bundle_evidence_roles(
         roles.append("contrast")
     if "count_support" in evidence_need_set:
         roles.append("count_support")
+    if "list_support" in evidence_need_set:
+        roles.append("list_support")
     if "value_support" in evidence_need_set:
         roles.append("value_support")
     if "location_support" in evidence_need_set:
@@ -688,6 +693,22 @@ def _has_count_intent(question: str) -> bool:
         normalized
         and re.search(
             r"\b(?:how\s+many|number\s+of|count\s+of|total\s+(?:number|count))\b",
+            normalized,
+        )
+    )
+
+
+def _has_list_intent(question: str) -> bool:
+    normalized = " ".join(str(question or "").casefold().split())
+    if not normalized:
+        return False
+    return bool(
+        re.search(
+            r"\b(?:list|names|items)\b.+\b(?:are|were|of|for)\b|"
+            r"\b(?:what|which)\s+(?:are|were)\s+(?:the\s+)?"
+            r"(?:names?|items?|things?|activities|hobbies|books|songs|"
+            r"movies|places|people|friends|pets|dogs|cats|children|kids)\b|"
+            r"\bwho\s+(?:are|were)\b",
             normalized,
         )
     )
