@@ -840,11 +840,21 @@ def _answerability_boost(score: float) -> float:
 
 
 def _answerability_boost_eligible(features: RerankPolicyFeatures) -> bool:
+    if _has_missing_required_answer_evidence(features):
+        return False
     if not features.relation_terms:
         return True
     if _typed_category_answerability_grounded(features):
         return True
     return len(features.relation_hits) >= 2 or features.high_signal_relation_hit_count > 0
+
+
+def _has_missing_required_answer_evidence(features: RerankPolicyFeatures) -> bool:
+    return bool(
+        set(features.answerability_reason_codes).intersection(
+            _MISSING_REQUIRED_ANSWER_EVIDENCE_REASONS
+        )
+    )
 
 
 def _typed_category_answerability_grounded(features: RerankPolicyFeatures) -> bool:
@@ -902,6 +912,40 @@ _TYPED_RELATION_SUPPORT_ROLE_CATEGORIES = {
     "symbolic_meaning_support": frozenset({"symbolic_meaning"}),
     "vehicle_support": frozenset({"vehicle_profile"}),
 }
+
+_MISSING_REQUIRED_ANSWER_EVIDENCE_REASONS = frozenset(
+    {
+        "missing_activity_evidence",
+        "missing_activity_profile_evidence",
+        "missing_age_profile_evidence",
+        "missing_alias_profile_evidence",
+        "missing_causal_evidence",
+        "missing_commitment_profile_evidence",
+        "missing_communication_evidence",
+        "missing_contact_profile_evidence",
+        "missing_contrast_evidence",
+        "missing_current_goal_evidence",
+        "missing_date_profile_evidence",
+        "missing_diet_profile_evidence",
+        "missing_education_profile_evidence",
+        "missing_emotion_response_evidence",
+        "missing_employment_profile_evidence",
+        "missing_exchange_evidence",
+        "missing_favorite_preference_evidence",
+        "missing_health_profile_evidence",
+        "missing_identity_profile_evidence",
+        "missing_location_transition_evidence",
+        "missing_participation_event_evidence",
+        "missing_pet_profile_evidence",
+        "missing_preference_evidence",
+        "missing_registration_event_evidence",
+        "missing_skill_profile_evidence",
+        "missing_status_profile_evidence",
+        "missing_support_goal_evidence",
+        "missing_symbolic_meaning_evidence",
+        "missing_vehicle_profile_evidence",
+    }
+)
 _TYPED_RELATION_SUPPORT_NEEDS = {
     "action_support": frozenset({"action_support"}),
     "causal_support": frozenset({"causal_support"}),

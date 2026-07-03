@@ -1004,6 +1004,95 @@ def test_evidence_bundle_planner_rejects_weak_temporal_role_completion() -> None
     assert grounded.missing_required_roles == ()
 
 
+def test_evidence_bundle_planner_prefers_complete_event_support_over_partial_overlap() -> None:
+    primary = _candidate(
+        item_id="primary",
+        covered_expected_terms=("community event",),
+        primary_signal=True,
+        source_locality_score=1.0,
+        answerability_score=0.9,
+    )
+    generic_activity = _candidate(
+        item_id="generic-activity",
+        dedupe_key="refs:D3:4",
+        query_roles=("event_support",),
+        query_support_terms=("community", "event"),
+        relation_hits=("community", "activity", "people"),
+        relation_category_hits=("activity",),
+        entity_hits=("morgan",),
+        source_locality_score=0.95,
+        answerability_score=0.92,
+        bundle_strength_score=10.0,
+    )
+    participation_event = _candidate(
+        item_id="participation-event",
+        dedupe_key="refs:D3:8",
+        query_roles=("event_support",),
+        query_support_terms=("attended", "community", "event"),
+        relation_hits=("attended", "registered", "event"),
+        relation_category_hits=("participation_event",),
+        entity_hits=("morgan",),
+        source_locality_score=0.9,
+        answerability_score=0.78,
+        bundle_strength_score=1.0,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, generic_activity, participation_event),
+        case_group="single",
+        required_roles=("primary", "event_support"),
+    )
+
+    assert [item.candidate.item_id for item in plan.items] == [
+        "primary",
+        "participation-event",
+    ]
+    assert plan.satisfied_required_roles == ("primary", "event_support")
+    assert plan.missing_required_roles == ()
+    quality = plan.to_diagnostics()["bundle_quality"]
+    assert quality["event_support_count"] == 1
+    assert quality["partial_required_role_support_count"] == 0
+
+
+def test_evidence_bundle_planner_keeps_partial_event_evidence_when_complete_missing() -> None:
+    primary = _candidate(
+        item_id="primary",
+        covered_expected_terms=("community event",),
+        primary_signal=True,
+        source_locality_score=1.0,
+        answerability_score=0.9,
+    )
+    generic_activity = _candidate(
+        item_id="generic-activity",
+        dedupe_key="refs:D3:4",
+        query_roles=("event_support",),
+        query_support_terms=("community", "event"),
+        relation_hits=("community", "activity", "people"),
+        relation_category_hits=("activity",),
+        entity_hits=("morgan",),
+        source_locality_score=0.95,
+        answerability_score=0.92,
+        bundle_strength_score=10.0,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, generic_activity),
+        case_group="single",
+        required_roles=("primary", "event_support"),
+    )
+
+    assert [item.candidate.item_id for item in plan.items] == [
+        "primary",
+        "generic-activity",
+    ]
+    assert plan.satisfied_required_roles == ("primary",)
+    assert plan.missing_required_roles == ("event_support",)
+    quality = plan.to_diagnostics()["bundle_quality"]
+    assert quality["event_support_count"] == 0
+    assert quality["partial_required_role_support_counts"] == {"event_support": 1}
+    assert "partial_required_event_support" in quality["reason_codes"]
+
+
 def test_evidence_bundle_planner_rejects_metadata_only_explicit_time_completion() -> None:
     primary = _candidate(
         item_id="primary",

@@ -1267,6 +1267,69 @@ def test_rerank_policy_caps_missing_typed_profile_evidence() -> None:
     ]
 
 
+def test_rerank_policy_prefers_complete_event_support_over_generic_partial_overlap() -> None:
+    complete = score_benchmark_rerank_candidate(
+        _features(
+            overlap_terms=("morgan", "community", "event"),
+            entity_hits=("morgan",),
+            speaker_hits=("morgan",),
+            relation_hits=("attended", "registered", "event"),
+            relation_terms=("community", "event", "attended"),
+            relation_categories=("participation_event",),
+            relation_category_hits=("participation_event",),
+            evidence_need=("event_support",),
+            query_roles=("event_support",),
+            direct_speaker_turn=True,
+            source_locality_score=1.0,
+            source_ref_count=1,
+            turn_ref_count=1,
+            answerability_score=0.78,
+            answerability_reason_codes=(
+                "entity_satisfied",
+                "relation_satisfied",
+                "source_provenance",
+                "medium_answerability",
+            ),
+        )
+    )
+    partial = score_benchmark_rerank_candidate(
+        _features(
+            overlap_terms=("morgan", "community", "event"),
+            entity_hits=("morgan",),
+            relation_hits=("community", "activity", "people"),
+            relation_terms=("community", "event", "attended"),
+            relation_categories=("participation_event",),
+            relation_category_hits=("activity",),
+            evidence_need=("event_support",),
+            query_roles=("event_support",),
+            source_locality_score=1.0,
+            source_ref_count=1,
+            turn_ref_count=1,
+            answerability_score=0.92,
+            answerability_reason_codes=(
+                "entity_satisfied",
+                "relation_partial",
+                "source_provenance",
+                "missing_participation_event_evidence",
+                "high_answerability",
+            ),
+        )
+    )
+
+    complete_signals = complete.signals["score_signals"]
+    partial_signals = partial.signals["score_signals"]
+
+    assert complete.boost > partial.boost
+    assert partial.boost > 0
+    assert complete_signals["benchmark_typed_relation_support_boost"] == 0.045
+    assert complete_signals["benchmark_answerability_boost_eligible"] is True
+    assert partial_signals["benchmark_typed_relation_support_boost"] == 0.0
+    assert partial_signals["benchmark_answerability_boost_eligible"] is False
+    assert "missing_participation_event_evidence_cap" in partial_signals[
+        "benchmark_provenance_safety_reason_codes"
+    ]
+
+
 def _features(**overrides: object) -> BenchmarkRerankFeatures:
     values = {
         "overlap_terms": (),

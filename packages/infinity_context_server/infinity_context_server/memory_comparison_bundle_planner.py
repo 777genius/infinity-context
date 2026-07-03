@@ -7,6 +7,9 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
+from infinity_context_server.memory_comparison_bundle_partial_support import (
+    has_partial_required_role_support,
+)
 from infinity_context_server.memory_comparison_source_identity import (
     source_identity_refs_from_dedupe_key as _source_identity_refs_from_dedupe_key,
 )
@@ -1806,6 +1809,8 @@ def _bundle_quality_diagnostics(
             "visual_support_count": 0,
             "typed_relation_support_count": 0,
             "typed_relation_support_counts": {},
+            "partial_required_role_support_count": 0,
+            "partial_required_role_support_counts": {},
             "location_relation_category_hit_count": 0,
             "source_proximity_support_count": 0,
             "source_chain_proximity_support_count": 0,
@@ -1946,6 +1951,15 @@ def _bundle_quality_diagnostics(
     typed_relation_quality_count = (
         typed_relation_support_count - favorite_support_count
     )
+    partial_required_role_support_counts = Counter(
+        role
+        for role in missing_roles
+        for item in items
+        if _item_has_partial_required_role_support(item, role)
+    )
+    partial_required_role_support_count = sum(
+        partial_required_role_support_counts.values()
+    )
     location_relation_category_hit_count = sum(
         1
         for item in items
@@ -2061,6 +2075,9 @@ def _bundle_quality_diagnostics(
             favorite_support_count=favorite_support_count,
             visual_support_count=visual_support_count,
             typed_relation_support_counts=typed_relation_support_counts,
+            partial_required_role_support_counts=(
+                partial_required_role_support_counts
+            ),
             location_relation_category_hit_count=location_relation_category_hit_count,
             source_proximity_support_count=source_proximity_support_count,
             source_chain_proximity_support_count=(
@@ -2127,6 +2144,10 @@ def _bundle_quality_diagnostics(
         "typed_relation_support_count": typed_relation_support_count,
         "typed_relation_support_counts": dict(
             sorted(typed_relation_support_counts.items())
+        ),
+        "partial_required_role_support_count": partial_required_role_support_count,
+        "partial_required_role_support_counts": dict(
+            sorted(partial_required_role_support_counts.items())
         ),
         "location_relation_category_hit_count": (
             location_relation_category_hit_count
@@ -2372,6 +2393,7 @@ def _bundle_quality_reason_codes(
     favorite_support_count: int,
     visual_support_count: int,
     typed_relation_support_counts: Mapping[str, int],
+    partial_required_role_support_counts: Mapping[str, int],
     location_relation_category_hit_count: int,
     source_proximity_support_count: int,
     source_chain_proximity_support_count: int,
@@ -2441,6 +2463,13 @@ def _bundle_quality_reason_codes(
             for role, count in sorted(typed_relation_support_counts.items())
             if count > 0
         )
+    if partial_required_role_support_counts:
+        reasons.append("has_partial_required_role_support")
+        reasons.extend(
+            f"partial_required_{role}"
+            for role, count in sorted(partial_required_role_support_counts.items())
+            if count > 0
+        )
     if location_relation_category_hit_count:
         reasons.append("has_location_relation_category_evidence")
     if source_proximity_support_count:
@@ -2469,6 +2498,19 @@ def _bundle_quality_reason_codes(
     if selected_item_count and conflict_or_stale_count == selected_item_count:
         reasons.append("risk:all_conflict_or_stale")
     return reasons or ["weak_bundle"]
+
+
+def _item_has_partial_required_role_support(
+    item: PlannedEvidenceItem,
+    role: str,
+) -> bool:
+    return has_partial_required_role_support(
+        item.candidate,
+        item_role=item.role,
+        role=role,
+        complete_support=_item_can_satisfy_required_role(item, role),
+        typed_relation_support_categories=_TYPED_RELATION_SUPPORT_CATEGORIES,
+    )
 
 
 def _confidence_band(score: float) -> str:
