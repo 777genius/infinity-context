@@ -50,6 +50,16 @@ def test_person_kinship_signal_matches_plural_relation_names_question() -> None:
     assert signal.reason == "person_kinship_match"
 
 
+def test_person_kinship_signal_treats_married_to_as_spouse_evidence() -> None:
+    signal = person_kinship_signal(
+        query="Who is Melanie's spouse?",
+        text="D7:2 Melanie: I am married to Noah.",
+    )
+
+    assert signal.boost > 0
+    assert signal.reason == "person_kinship_match"
+
+
 def test_person_kinship_signal_ignores_sibling_false_friend_phrase() -> None:
     signal = person_kinship_signal(
         query="Who is Alex's sister?",
@@ -63,6 +73,15 @@ def test_person_kinship_signal_ignores_non_family_partner_phrase() -> None:
     signal = person_kinship_signal(
         query="Who is Caroline's partner?",
         text="D4:2 Caroline's project partner on Atlas is Maria.",
+    )
+
+    assert signal == (0.0, 0.0, "")
+
+
+def test_person_kinship_signal_ignores_unrelated_marriage_mention() -> None:
+    signal = person_kinship_signal(
+        query="Who is Melanie's spouse?",
+        text="D7:2 Melanie: Noah is married to Ada.",
     )
 
     assert signal == (0.0, 0.0, "")
@@ -164,6 +183,38 @@ def test_deterministic_rerank_prefers_plural_relation_names_evidence() -> None:
     assert (
         "person_kinship_other_person"
         in reranked[1].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+
+
+def test_deterministic_rerank_prefers_married_to_spouse_evidence() -> None:
+    query = "Who is Melanie's spouse?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    melanie_spouse = _item(
+        "melanie_spouse",
+        score=0.7,
+        text="D7:2 Melanie: I am married to Noah.",
+    )
+    generic_partner = _item(
+        "generic_partner",
+        score=0.71,
+        text="D7:3 Caroline's project partner on Atlas is Maria.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (generic_partner, melanie_spouse),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert by_id["melanie_spouse"].score > by_id["generic_partner"].score
+    assert (
+        "person_kinship_match"
+        in by_id["melanie_spouse"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
     )
 
 

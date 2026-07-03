@@ -75,7 +75,11 @@ def person_kinship_signal(*, query: str, text: str) -> PersonKinshipSignal:
         return PersonKinshipSignal()
     if (
         _text_mentions_person(kinship_query.person_label, text)
-        and _has_kinship_evidence(kinship_query.kind, text)
+        and _has_kinship_evidence(
+            kinship_query.kind,
+            text,
+            person_label=kinship_query.person_label,
+        )
     ):
         return PersonKinshipSignal(boost=0.022, reason="person_kinship_match")
     if (
@@ -139,10 +143,17 @@ def _kinship_cue(kind: KinshipRelationKind) -> re.Pattern[str]:
     return _KINSHIP_EVIDENCE_RE
 
 
-def _has_kinship_evidence(kind: KinshipRelationKind, text: str) -> bool:
+def _has_kinship_evidence(
+    kind: KinshipRelationKind,
+    text: str,
+    *,
+    person_label: str = "",
+) -> bool:
     for match in _kinship_cue(kind).finditer(text):
         if not _is_false_positive_kinship_match(kind, text, match):
             return True
+    if kind is KinshipRelationKind.PARTNER and person_label:
+        return _has_named_marriage_evidence(person_label=person_label, text=text)
     return False
 
 
@@ -186,6 +197,46 @@ def _text_mentions_other_person(person: str, text: str) -> bool:
             continue
         return True
     return False
+
+
+def _has_named_marriage_evidence(*, person_label: str, text: str) -> bool:
+    for alias in _person_label_alias_patterns(person_label):
+        speaker_first_person = re.compile(
+            rf"\bD\d+:\d+\s+{alias}:\s*.{{0,80}}"
+            r"\bI\s+(?:am|was|got|became)\s+"
+            r"(?:married|engaged)\s+(?:to|with)\b",
+            re.IGNORECASE | re.DOTALL,
+        )
+        named_married_to = re.compile(
+            rf"\b{alias}\b\s+"
+            r"(?:is|was|has\s+been|had\s+been|got|gets|became)\s+"
+            r"(?:married|engaged)\s+(?:to|with)\b",
+            re.IGNORECASE,
+        )
+        married_to_named = re.compile(
+            r"\b(?:married|engaged)\s+(?:to|with)\s+"
+            rf"{alias}\b",
+            re.IGNORECASE,
+        )
+        if (
+            speaker_first_person.search(text)
+            or named_married_to.search(text)
+            or married_to_named.search(text)
+        ):
+            return True
+    return False
+
+
+def _person_label_alias_patterns(person_label: str) -> tuple[str, ...]:
+    tokens = _LABEL_TOKEN_RE.findall(person_label)
+    aliases = [" ".join(tokens)]
+    if len(tokens) > 1:
+        aliases.append(tokens[0])
+    return tuple(
+        re.escape(alias)
+        for alias in dict.fromkeys(alias.strip() for alias in aliases)
+        if _valid_label(alias)
+    )
 
 
 def _valid_label(label: str) -> bool:
