@@ -1,0 +1,134 @@
+from infinity_context_core.application.context_person_team_membership import (
+    person_team_membership_signal,
+)
+from infinity_context_core.application.context_query_expansion import (
+    build_query_expansion_plan,
+)
+from infinity_context_core.application.context_query_intent import build_query_anchor_intent
+from infinity_context_core.application.context_ranking import (
+    apply_deterministic_rerank_adjustments,
+)
+from infinity_context_core.application.dto import ContextItem
+from infinity_context_core.domain.entities import SourceRef
+
+
+def test_person_team_membership_signal_matches_named_person_team() -> None:
+    signal = person_team_membership_signal(
+        query="What team is Alice Chen on?",
+        text="D5:6 Alice: I joined the robotics team this spring.",
+    )
+
+    assert signal.boost > 0
+    assert signal.reason == "person_team_membership_match"
+
+
+def test_person_team_membership_signal_penalizes_other_person_team() -> None:
+    signal = person_team_membership_signal(
+        query="What team is Alice on?",
+        text="D5:6 Ben: I joined the robotics team this spring.",
+    )
+
+    assert signal.penalty > 0
+    assert signal.reason == "person_team_membership_other_person"
+
+
+def test_person_team_membership_signal_matches_belong_to_question() -> None:
+    signal = person_team_membership_signal(
+        query="Which club does Alice Chen belong to?",
+        text="D5:6 Alice: I belong to the robotics club.",
+    )
+
+    assert signal.boost > 0
+    assert signal.reason == "person_team_membership_match"
+
+
+def test_person_team_membership_signal_matches_member_of_question() -> None:
+    signal = person_team_membership_signal(
+        query="What group is Alice a member of?",
+        text="D5:6 Alice: I am a member of the neighborhood garden group.",
+    )
+
+    assert signal.boost > 0
+    assert signal.reason == "person_team_membership_match"
+
+
+def test_deterministic_rerank_prefers_named_person_team_membership() -> None:
+    query = "What team is Alice Chen on?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    alice_team = _item(
+        "alice_team",
+        score=0.7,
+        text="D5:6 Alice: I joined the robotics team this spring.",
+    )
+    ben_team = _item(
+        "ben_team",
+        score=0.72,
+        text="D5:7 Ben: I joined the robotics team this spring.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (alice_team, ben_team),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+
+    assert reranked[0].score > reranked[1].score
+    assert (
+        "person_team_membership_match"
+        in reranked[0].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+    assert (
+        "person_team_membership_other_person"
+        in reranked[1].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+
+
+def test_deterministic_rerank_prefers_named_person_club_membership() -> None:
+    query = "Which club does Alice Chen belong to?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    alice_club = _item(
+        "alice_club",
+        score=0.7,
+        text="D5:6 Alice: I belong to the robotics club.",
+    )
+    ben_club = _item(
+        "ben_club",
+        score=0.72,
+        text="D5:7 Ben: I belong to the hiking club.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (alice_club, ben_club),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+
+    assert reranked[0].score > reranked[1].score
+    assert (
+        "person_team_membership_match"
+        in reranked[0].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+    assert (
+        "person_team_membership_other_person"
+        in reranked[1].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+
+
+def _item(item_id: str, *, score: float, text: str) -> ContextItem:
+    return ContextItem(
+        item_id=item_id,
+        item_type="chunk",
+        text=text,
+        score=score,
+        source_refs=(SourceRef(source_type="document", source_id="doc"),),
+        diagnostics={
+            "retrieval_source": "keyword_chunks",
+            "retrieval_sources": ["keyword_chunks"],
+            "score_signals": {"base_score": score},
+            "provenance": {"retrieval_sources": ["keyword_chunks"]},
+        },
+    )

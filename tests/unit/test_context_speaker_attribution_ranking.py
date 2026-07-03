@@ -37,7 +37,7 @@ def test_deterministic_rerank_uses_according_to_speaker_attribution() -> None:
         in reranked[0].diagnostics["provenance"]["deterministic_rerank_reasons"]
     )
     assert (
-        "speaker_attribution_other_speaker"
+        "speaker_attribution_subject_self_report"
         in reranked[1].diagnostics["provenance"]["deterministic_rerank_reasons"]
     )
 
@@ -70,7 +70,40 @@ def test_deterministic_rerank_uses_russian_according_to_speaker_attribution() ->
         in reranked[0].diagnostics["provenance"]["deterministic_rerank_reasons"]
     )
     assert (
-        "speaker_attribution_other_speaker"
+        "speaker_attribution_subject_self_report"
+        in reranked[1].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+
+
+def test_deterministic_rerank_matches_full_name_speaker_alias() -> None:
+    query = "According to Melanie Chen, what traits does Caroline White have?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    melanie_turn = _item(
+        "melanie_trait",
+        score=0.7,
+        text="D16:18 Melanie: Caroline is thoughtful and patient.",
+    )
+    caroline_self_report = _item(
+        "caroline_self_report",
+        score=0.73,
+        text="D16:9 Caroline: I try to be thoughtful and patient.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (melanie_turn, caroline_self_report),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+
+    assert reranked[0].score > reranked[1].score
+    assert (
+        "speaker_attribution_match"
+        in reranked[0].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+    assert (
+        "speaker_attribution_subject_self_report"
         in reranked[1].diagnostics["provenance"]["deterministic_rerank_reasons"]
     )
 

@@ -53,8 +53,29 @@ from infinity_context_core.application.context_lexical import (
     text_variant_profile,
     text_variant_stats,
 )
+from infinity_context_core.application.context_named_person_preference import (
+    named_person_preference_signal,
+)
 from infinity_context_core.application.context_object_mismatch import (
     object_kind_mismatch_signal,
+)
+from infinity_context_core.application.context_person_kinship import (
+    person_kinship_signal,
+)
+from infinity_context_core.application.context_person_occupation import (
+    person_occupation_signal,
+)
+from infinity_context_core.application.context_person_relation_inventory import (
+    person_relation_inventory_signal,
+)
+from infinity_context_core.application.context_person_residence import (
+    person_residence_signal,
+)
+from infinity_context_core.application.context_person_team_membership import (
+    person_team_membership_signal,
+)
+from infinity_context_core.application.context_pet_ownership import (
+    pet_ownership_signal,
 )
 from infinity_context_core.application.context_polarity_rerank import (
     absence_contrast_signal,
@@ -1833,6 +1854,23 @@ def _deterministic_rerank_signals(
     if negative_penalty > 0:
         penalty += negative_penalty
         reasons.append(negative_reason)
+    named_preference_signal = named_person_preference_signal(
+        query=query,
+        text=item.text,
+    )
+    if named_preference_signal.boost > 0:
+        boost += named_preference_signal.boost
+        reasons.append(named_preference_signal.reason)
+    if named_preference_signal.penalty > 0:
+        penalty += named_preference_signal.penalty
+        reasons.append(named_preference_signal.reason)
+    pet_signal = pet_ownership_signal(query=query, text=item.text)
+    if pet_signal.boost > 0:
+        boost += pet_signal.boost
+        reasons.append(pet_signal.reason)
+    if pet_signal.penalty > 0:
+        penalty += pet_signal.penalty
+        reasons.append(pet_signal.reason)
     contrast_boost, contrast_penalty, contrast_reason = absence_contrast_signal(
         query=query,
         text=item.text,
@@ -1863,6 +1901,44 @@ def _deterministic_rerank_signals(
     ):
         penalty += relation_signal.penalty
         reasons.append(relation_signal.reason)
+    person_relation_signal = person_relation_inventory_signal(
+        query=query,
+        text=item.text,
+    )
+    if person_relation_signal.boost > 0:
+        boost += person_relation_signal.boost
+        reasons.append(person_relation_signal.reason)
+    if person_relation_signal.penalty > 0:
+        penalty += person_relation_signal.penalty
+        reasons.append(person_relation_signal.reason)
+    occupation_signal = person_occupation_signal(query=query, text=item.text)
+    if occupation_signal.boost > 0:
+        boost += occupation_signal.boost
+        reasons.append(occupation_signal.reason)
+    if occupation_signal.penalty > 0:
+        penalty += occupation_signal.penalty
+        reasons.append(occupation_signal.reason)
+    residence_signal = person_residence_signal(query=query, text=item.text)
+    if residence_signal.boost > 0:
+        boost += residence_signal.boost
+        reasons.append(residence_signal.reason)
+    if residence_signal.penalty > 0:
+        penalty += residence_signal.penalty
+        reasons.append(residence_signal.reason)
+    kinship_signal = person_kinship_signal(query=query, text=item.text)
+    if kinship_signal.boost > 0:
+        boost += kinship_signal.boost
+        reasons.append(kinship_signal.reason)
+    if kinship_signal.penalty > 0:
+        penalty += kinship_signal.penalty
+        reasons.append(kinship_signal.reason)
+    team_signal = person_team_membership_signal(query=query, text=item.text)
+    if team_signal.boost > 0:
+        boost += team_signal.boost
+        reasons.append(team_signal.reason)
+    if team_signal.penalty > 0:
+        penalty += team_signal.penalty
+        reasons.append(team_signal.reason)
     conversation_boost, conversation_penalty, conversation_reason = (
         conversation_counterparty_evidence_signal(
             query=query,

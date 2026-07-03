@@ -254,6 +254,113 @@ def test_query_expansion_covers_entity_relation_inventory_questions() -> None:
     assert "Атлас" in _expansion_query(russian, "entity_relation_inventory_bridge")
 
 
+def test_query_expansion_covers_person_relation_inventory_questions() -> None:
+    coworkers = build_query_expansion_plan("Who works with Alice?")
+    friends = build_query_expansion_plan("Who are Alice's friends?")
+    teammates = build_query_expansion_plan("Who are the teammates of Alice?")
+    brother = build_query_expansion_plan("Who is Alice's brother?")
+    brother_name = build_query_expansion_plan("What is Alice's brother's name?")
+    parent_names = build_query_expansion_plan("What are Alice's parents' names?")
+    boss = build_query_expansion_plan("Who is Alice's boss?")
+    supervisor = build_query_expansion_plan("Who is the supervisor of Alice?")
+    roommate = build_query_expansion_plan("Who is Alice's roommate?")
+    neighbor = build_query_expansion_plan("Who is the neighbor of Alice?")
+    coach = build_query_expansion_plan("Who is Alice's coach?")
+    trainer = build_query_expansion_plan("Who is the trainer of Alice?")
+    teacher = build_query_expansion_plan("Who is Alice's teacher?")
+    tutor = build_query_expansion_plan("Who is the tutor of Alice?")
+    classmate = build_query_expansion_plan("Who is Alice's classmate?")
+    doctor = build_query_expansion_plan("Who is Alice's doctor?")
+    therapist = build_query_expansion_plan("Who is the therapist of Alice?")
+    russian = build_query_expansion_plan("Кто работает с Алисой?")
+
+    for plan in (
+        coworkers,
+        friends,
+        teammates,
+        brother,
+        brother_name,
+        parent_names,
+        boss,
+        supervisor,
+        roommate,
+        neighbor,
+        coach,
+        trainer,
+        teacher,
+        tutor,
+        classmate,
+        doctor,
+        therapist,
+        russian,
+    ):
+        relation = _expansion_query(plan, "person_relation_inventory_bridge")
+
+        assert "friends" in relation.casefold() or "друзья" in relation.casefold()
+        assert "coworkers" in relation.casefold() or "коллеги" in relation.casefold()
+
+    assert "Alice" in _expansion_query(coworkers, "person_relation_inventory_bridge")
+    assert "Alice" in _expansion_query(friends, "person_relation_inventory_bridge")
+    assert "Alice" in _expansion_query(teammates, "person_relation_inventory_bridge")
+    assert "Alice" in _expansion_query(brother, "person_relation_inventory_bridge")
+    assert "Alice" in _expansion_query(brother_name, "person_relation_inventory_bridge")
+    assert "Alice" in _expansion_query(parent_names, "person_relation_inventory_bridge")
+    assert "Alice" in _expansion_query(boss, "person_relation_inventory_bridge")
+    assert "Alice" in _expansion_query(supervisor, "person_relation_inventory_bridge")
+    assert "Alice" in _expansion_query(roommate, "person_relation_inventory_bridge")
+    assert "Alice" in _expansion_query(neighbor, "person_relation_inventory_bridge")
+    assert "Alice" in _expansion_query(coach, "person_relation_inventory_bridge")
+    assert "Alice" in _expansion_query(trainer, "person_relation_inventory_bridge")
+    assert "Alice" in _expansion_query(teacher, "person_relation_inventory_bridge")
+    assert "Alice" in _expansion_query(tutor, "person_relation_inventory_bridge")
+    assert "Alice" in _expansion_query(classmate, "person_relation_inventory_bridge")
+    assert "Alice" in _expansion_query(doctor, "person_relation_inventory_bridge")
+    assert "Alice" in _expansion_query(therapist, "person_relation_inventory_bridge")
+    assert "teacher tutor" in _expansion_query(
+        teacher,
+        "person_relation_inventory_bridge",
+    )
+    assert "classmate schoolmate" in _expansion_query(
+        classmate,
+        "person_relation_inventory_bridge",
+    )
+    assert "doctor dentist therapist counselor" in _expansion_query(
+        doctor,
+        "person_relation_inventory_bridge",
+    )
+    assert "coach trainer" in _expansion_query(
+        coach,
+        "person_relation_inventory_bridge",
+    )
+    assert "roommate neighbor" in _expansion_query(
+        roommate,
+        "person_relation_inventory_bridge",
+    )
+    assert "boss supervisor" in _expansion_query(
+        boss,
+        "person_relation_inventory_bridge",
+    )
+    assert "Алисой" in _expansion_query(russian, "person_relation_inventory_bridge")
+
+
+def test_query_expansion_covers_person_team_membership_questions() -> None:
+    team = build_query_expansion_plan("What team is Alice on?")
+    club = build_query_expansion_plan("Which club is Alice Chen in?")
+    belongs = build_query_expansion_plan("Which club does Alice Chen belong to?")
+    member = build_query_expansion_plan("What group is Alice Chen a member of?")
+
+    for plan in (team, club, belongs, member):
+        assert "team club group member membership" in _expansion_query(
+            plan,
+            "person_team_membership_bridge",
+        )
+
+    assert "Alice" in _expansion_query(team, "person_team_membership_bridge")
+    assert "Alice Chen" in _expansion_query(club, "person_team_membership_bridge")
+    assert "Alice Chen" in _expansion_query(belongs, "person_team_membership_bridge")
+    assert "Alice Chen" in _expansion_query(member, "person_team_membership_bridge")
+
+
 def test_query_expansion_covers_event_summary_questions() -> None:
     recap = build_query_expansion_plan("Recap the last call with Alex")
     discussed = build_query_expansion_plan("What did we discuss during the launch review?")
@@ -285,6 +392,32 @@ def test_query_expansion_covers_temporal_pet_acquisition_questions() -> None:
     assert "new addition family pet dog puppy pup" in adopt_expansion
     assert "gift from named stuffed animal" in got_expansion
     assert "image caption visual query cute dog" in got_expansion
+
+
+def test_query_expansion_covers_pet_ownership_questions() -> None:
+    owner = build_query_expansion_plan("Who owns Max?")
+    named_owner = build_query_expansion_plan("Who has a dog named Max?")
+    cat_owner = build_query_expansion_plan("Who has a cat named Luna?")
+    puppy_owner = build_query_expansion_plan("Who has a puppy named Scout?")
+    dog_name = build_query_expansion_plan("What is Alice's dog name?")
+
+    assert "owner owns has have belongs to" in _expansion_query(
+        owner,
+        "pet_ownership_bridge",
+    )
+    assert "owner owns has have belongs to" in _expansion_query(
+        named_owner,
+        "pet_ownership_bridge",
+    )
+    assert "owner owns has have belongs to" in _expansion_query(
+        cat_owner,
+        "pet_ownership_bridge",
+    )
+    assert "owner owns has have belongs to" in _expansion_query(
+        puppy_owner,
+        "pet_ownership_bridge",
+    )
+    assert "name names" in _expansion_query(dog_name, "pet_ownership_bridge")
 
 
 def test_query_expansion_does_not_treat_event_scheduling_as_event_summary() -> None:

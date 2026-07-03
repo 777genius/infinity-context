@@ -4,11 +4,17 @@ from __future__ import annotations
 
 import re
 
-_SPEAKER_LABEL_RE = r"[A-ZА-ЯЁ][A-Za-zА-Яа-яЁё._-]{1,39}"
+from infinity_context_core.application.context_person_aliases import person_alias_keys
+
+_SPEAKER_LABEL_RE = (
+    r"[A-ZА-ЯЁ][A-Za-zА-Яа-яЁё._-]{1,39}"
+    r"(?:\s+[A-ZА-ЯЁ][A-Za-zА-Яа-яЁё._-]{1,39}){0,2}"
+)
 _DIALOGUE_SPEAKER_RE = re.compile(
     rf"\bD\d+:\d+\s+(?P<speaker>{_SPEAKER_LABEL_RE}):",
     re.IGNORECASE,
 )
+_QUERY_PERSON_LABEL_RE = re.compile(rf"\b(?P<label>{_SPEAKER_LABEL_RE})\b")
 _SPEAKER_ATTRIBUTION_QUERY_RE = re.compile(
     rf"\b(?P<speaker>{_SPEAKER_LABEL_RE})\s+"
     r"(?:say|said|tell|told|think|thinks|describe|describes|"
@@ -53,6 +59,13 @@ _ATTRIBUTION_QUERY_LABEL_STOP_WORDS = frozenset(
         "where",
         "when",
         "which",
+        "according",
+        "from",
+        "in",
+        "opinion",
+        "perspective",
+        "view",
+        "по",
         "что",
         "кто",
         "где",
@@ -76,16 +89,23 @@ def speaker_attribution_signal(*, query: str, text: str) -> tuple[float, float, 
         attributed_speaker = _attributed_speaker_from_query(query)
     if not attributed_speaker:
         return 0.0, 0.0, ""
+    if not attributed_subject:
+        attributed_subject = _attributed_subject_from_query(
+            query,
+            speaker=attributed_speaker,
+        )
     speakers = _dialogue_speaker_labels(text)
     if not speakers:
         return 0.0, 0.0, ""
-    if attributed_speaker in speakers:
+    attributed_speaker_aliases = person_alias_keys(attributed_speaker)
+    attributed_subject_aliases = person_alias_keys(attributed_subject)
+    if attributed_speaker_aliases.intersection(speakers):
         return (
             _SPEAKER_ATTRIBUTION_MATCH_BOOST,
             0.0,
             "speaker_attribution_match",
         )
-    if attributed_subject and attributed_subject in speakers:
+    if attributed_subject_aliases and attributed_subject_aliases.intersection(speakers):
         return (
             0.0,
             _SPEAKER_ATTRIBUTION_SUBJECT_SELF_REPORT_PENALTY,
@@ -103,9 +123,15 @@ def _attributed_speaker_and_subject(
 ) -> tuple[str, str]:
     if match is None:
         return "", ""
-    speaker = _normalized_dialogue_label(match.group("speaker"))
-    subject = _normalized_dialogue_label(match.group("subject"))
-    if not speaker or speaker == subject or speaker in _ATTRIBUTION_QUERY_LABEL_STOP_WORDS:
+    speaker = match.group("speaker").strip()
+    subject = match.group("subject").strip()
+    speaker_aliases = person_alias_keys(speaker)
+    subject_aliases = person_alias_keys(subject)
+    if (
+        not speaker_aliases
+        or speaker_aliases.intersection(subject_aliases)
+        or speaker.casefold() in _ATTRIBUTION_QUERY_LABEL_STOP_WORDS
+    ):
         return "", ""
     return speaker, subject
 
@@ -120,22 +146,33 @@ def _attributed_speaker_from_query(query: str) -> str:
     ):
         match = pattern.search(query)
         if match is not None:
-            speaker = _normalized_dialogue_label(match.group("speaker"))
-            if speaker not in _ATTRIBUTION_QUERY_LABEL_STOP_WORDS:
+            speaker = match.group("speaker").strip()
+            if (
+                speaker.casefold() not in _ATTRIBUTION_QUERY_LABEL_STOP_WORDS
+                and person_alias_keys(speaker)
+            ):
                 return speaker
+    return ""
+
+
+def _attributed_subject_from_query(query: str, *, speaker: str) -> str:
+    speaker_aliases = person_alias_keys(speaker)
+    for match in _QUERY_PERSON_LABEL_RE.finditer(query):
+        label = match.group("label").strip()
+        label_aliases = person_alias_keys(label)
+        if not label_aliases:
+            continue
+        if label.casefold() in _ATTRIBUTION_QUERY_LABEL_STOP_WORDS:
+            continue
+        if label_aliases.intersection(speaker_aliases):
+            continue
+        return label
     return ""
 
 
 def _dialogue_speaker_labels(text: str) -> frozenset[str]:
     return frozenset(
-        label
-        for label in (
-            _normalized_dialogue_label(match.group("speaker"))
-            for match in _DIALOGUE_SPEAKER_RE.finditer(text)
-        )
-        if label
+        alias
+        for match in _DIALOGUE_SPEAKER_RE.finditer(text)
+        for alias in person_alias_keys(match.group("speaker"))
     )
-
-
-def _normalized_dialogue_label(value: str) -> str:
-    return "".join(char for char in value.casefold() if char.isalnum())

@@ -21,6 +21,9 @@ _PET_INVENTORY_EXPANSION = (
     "pet pets dog dogs puppy pup name names named called adopted got new addition "
     "family companion owner belongs shelter rescue more recently has have"
 )
+_PET_OWNERSHIP_EXPANSION = (
+    "owner owns has have belongs to adopted got named called name names"
+)
 
 PET_ACTIVITY_EXPANSION_RULES: tuple[tuple[frozenset[str], str, str], ...] = (
     (
@@ -192,6 +195,51 @@ PET_ACTIVITY_EXPANSION_RULES: tuple[tuple[frozenset[str], str, str], ...] = (
         frozenset({"pet", "has"}),
         _PET_INVENTORY_EXPANSION,
         "pet_inventory_bridge",
+    ),
+    (
+        frozenset({"who", "owns"}),
+        _PET_OWNERSHIP_EXPANSION,
+        "pet_ownership_bridge",
+    ),
+    (
+        frozenset({"who", "has", "dog"}),
+        _PET_OWNERSHIP_EXPANSION,
+        "pet_ownership_bridge",
+    ),
+    (
+        frozenset({"who", "has", "cat"}),
+        _PET_OWNERSHIP_EXPANSION,
+        "pet_ownership_bridge",
+    ),
+    (
+        frozenset({"who", "has", "puppy"}),
+        _PET_OWNERSHIP_EXPANSION,
+        "pet_ownership_bridge",
+    ),
+    (
+        frozenset({"who", "has", "pup"}),
+        _PET_OWNERSHIP_EXPANSION,
+        "pet_ownership_bridge",
+    ),
+    (
+        frozenset({"who", "has", "pet"}),
+        _PET_OWNERSHIP_EXPANSION,
+        "pet_ownership_bridge",
+    ),
+    (
+        frozenset({"whose", "dog"}),
+        _PET_OWNERSHIP_EXPANSION,
+        "pet_ownership_bridge",
+    ),
+    (
+        frozenset({"dog", "name"}),
+        _PET_OWNERSHIP_EXPANSION,
+        "pet_ownership_bridge",
+    ),
+    (
+        frozenset({"pet", "name"}),
+        _PET_OWNERSHIP_EXPANSION,
+        "pet_ownership_bridge",
     ),
     (
         frozenset({"dogs", "classes"}),
