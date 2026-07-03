@@ -538,6 +538,35 @@ def test_evidence_bundle_planner_assigns_specialized_support_roles() -> None:
     assert typed_item.to_payload()["has_duration_surface"] is True
 
 
+def test_evidence_bundle_planner_rejects_conflict_or_stale_primary_signal() -> None:
+    stale_primary = _candidate(
+        item_id="stale-primary-signal",
+        covered_expected_terms=("current role",),
+        primary_signal=True,
+        conflict_or_stale=True,
+        stale_surface=True,
+        contrast_surface=True,
+        answerability_score=0.9,
+        source_locality_score=0.9,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=1).plan(
+        (stale_primary,),
+        case_group="single",
+        required_roles=("primary",),
+    )
+
+    assert plan.items[0].role == "contrast"
+    assert plan.satisfied_required_roles == ()
+    assert plan.missing_required_roles == ("primary",)
+    quality = plan.to_diagnostics()["bundle_quality"]
+    assert quality["primary_count"] == 0
+    assert quality["conflict_or_stale_count"] == 1
+    assert "risk:conflict_or_stale" in quality["reason_codes"]
+    assert "risk:all_conflict_or_stale" in quality["reason_codes"]
+    assert "risk:missing_required_primary" in quality["reason_codes"]
+
+
 def test_evidence_bundle_planner_tracks_location_support_role() -> None:
     primary = _candidate(
         item_id="primary",

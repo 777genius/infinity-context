@@ -1332,9 +1332,11 @@ def _selection_has_bridge_support(selected: Sequence[PlannedEvidenceItem]) -> bo
 
 
 def _primary_candidate_eligible(candidate: EvidenceBundleCandidate) -> bool:
+    if candidate.conflict_or_stale:
+        return False
     if candidate.primary_signal:
         return True
-    if candidate.broad_summary or candidate.conflict_or_stale:
+    if candidate.broad_summary:
         return False
     if not candidate.direct_speaker_turn:
         return False
@@ -1969,6 +1971,7 @@ def _bundle_quality_diagnostics(
         + (0.04 * diffuse_source_ref_count)
         + (0.08 * conflict_or_stale_count)
         + (0.08 if broad_summary_count == len(items) else 0.0)
+        + (0.08 if conflict_or_stale_count == len(items) else 0.0)
         + min(0.3, 0.18 * len(missing_roles)),
     )
     confidence_score = round(
@@ -2407,6 +2410,8 @@ def _bundle_quality_reason_codes(
         reasons.append("risk:diffuse_source_refs")
     if conflict_or_stale_count:
         reasons.append("risk:conflict_or_stale")
+    if selected_item_count and conflict_or_stale_count == selected_item_count:
+        reasons.append("risk:all_conflict_or_stale")
     return reasons or ["weak_bundle"]
 
 
