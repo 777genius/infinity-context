@@ -48,6 +48,22 @@ EXPANSION_RULES_PART_1: tuple[tuple[frozenset[str], str, str], ...] = (
             "relationship_status_bridge",
         ),
     (
+            frozenset({"husband"}),
+            (
+                "relationship status married husband wife spouse partner wedding "
+                "romantic partner family together"
+            ),
+            "relationship_status_bridge",
+        ),
+    (
+            frozenset({"wife"}),
+            (
+                "relationship status married husband wife spouse partner wedding "
+                "romantic partner family together"
+            ),
+            "relationship_status_bridge",
+        ),
+    (
             frozenset({"nickname"}),
             (
                 "nickname nick name called call address addressed greeting hey hi "

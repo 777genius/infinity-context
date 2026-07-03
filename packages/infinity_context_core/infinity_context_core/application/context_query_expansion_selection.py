@@ -569,7 +569,9 @@ def _requests_relationship_origin(raw_tokens: set[str]) -> bool:
 def _requests_relationship_status(raw_tokens: set[str]) -> bool:
     if {"relationship", "status"}.issubset(raw_tokens):
         return True
-    if raw_tokens.intersection({"single", "married", "dating", "partner", "spouse"}):
+    if raw_tokens.intersection(
+        {"single", "married", "dating", "partner", "spouse", "husband", "wife"}
+    ):
         return True
     if raw_tokens.intersection({"помимо", "кроме", "besides", "other", "apart"}):
         return False

@@ -72,6 +72,16 @@ def test_person_relation_inventory_signal_matches_named_person_roommate() -> Non
     assert signal.reason == "person_relation_inventory_match"
 
 
+def test_person_relation_inventory_signal_matches_named_person_spouse_role_alias() -> None:
+    signal = person_relation_inventory_signal(
+        query="Who is Alice Chen's wife?",
+        text="D4:8 Alice: Maria is my spouse and partner.",
+    )
+
+    assert signal.boost > 0
+    assert signal.reason == "person_relation_inventory_match"
+
+
 def test_person_relation_inventory_signal_matches_named_person_neighbor() -> None:
     signal = person_relation_inventory_signal(
         query="Who is the neighbor of Alice?",
@@ -235,6 +245,53 @@ def test_deterministic_rerank_prefers_named_person_roommate_evidence() -> None:
 
     reranked = apply_deterministic_rerank_adjustments(
         (roommate, anchor_only),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+
+    assert reranked[0].score > reranked[1].score
+    assert (
+        "person_relation_inventory_match"
+        in reranked[0].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+    assert (
+        "person_relation_inventory_anchor_only"
+        in reranked[1].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+
+
+def test_query_expansion_adds_spouse_role_bridge_for_wife_question() -> None:
+    plan = build_query_expansion_plan("Who is Alice Chen's wife?")
+
+    expansion = next(
+        item
+        for item in plan.expansions
+        if item.reason == "relationship_status_bridge"
+    )
+    assert "Alice" in expansion.query
+    assert "Chen" in expansion.query
+    assert "spouse" in expansion.query
+    assert "partner" in expansion.query
+
+
+def test_deterministic_rerank_prefers_named_person_spouse_role_alias_evidence() -> None:
+    query = "Who is Alice Chen's wife?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    spouse = _item(
+        "spouse",
+        score=0.7,
+        text="D4:8 Alice: Maria is my spouse and partner.",
+    )
+    anchor_only = _item(
+        "anchor_only",
+        score=0.72,
+        text="D4:9 Alice reviewed the release notes after lunch.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (spouse, anchor_only),
         query=query,
         plan=plan,
         query_anchor_intent=intent,

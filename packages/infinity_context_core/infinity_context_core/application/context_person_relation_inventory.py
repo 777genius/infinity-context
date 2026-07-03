@@ -57,7 +57,7 @@ _POSSESSIVE_RELATION_QUERY_RE = re.compile(
     rf"supervisors?|coach(?:es)?|trainers?|teachers?|tutors?|classmates?|"
     rf"schoolmates?|roommates?|"
     rf"neighbors?|neighbours?|doctors?|dentists?|therapists?|counsellors?|"
-    rf"counselors?|partner|spouse|siblings?|parents?|children|kids)\b",
+    rf"counselors?|partner|spouse|husband|wife|siblings?|parents?|children|kids)\b",
     re.IGNORECASE,
 )
 _OF_RELATION_QUERY_RE = re.compile(
@@ -67,7 +67,7 @@ _OF_RELATION_QUERY_RE = re.compile(
     rf"supervisors?|coach(?:es)?|trainers?|teachers?|tutors?|classmates?|"
     rf"schoolmates?|roommates?|"
     rf"neighbors?|neighbours?|doctors?|dentists?|therapists?|counsellors?|"
-    rf"counselors?|partner|spouse|siblings?|parents?|children|kids)\s+"
+    rf"counselors?|partner|spouse|husband|wife|siblings?|parents?|children|kids)\s+"
     rf"(?:with|of|to|for)\s+"
     rf"(?P<anchor>{_LABEL_RE})\b",
     re.IGNORECASE,
@@ -186,6 +186,8 @@ def _kind_for_relation(relation: str) -> PersonRelationKind:
             "children",
             "kid",
             "spouse",
+            "husband",
+            "wife",
             "partner",
         )
     ):
