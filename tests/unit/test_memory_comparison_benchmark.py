@@ -3654,6 +3654,42 @@ def test_query_decomposition_preserves_ordinal_period_phrases() -> None:
     assert second_queries[-1] == "tim second week november week session date time"
 
 
+def test_query_decomposition_preserves_relative_offset_phrases() -> None:
+    worded_case = _case(
+        case_id="conv-1:qa:two-weeks-before-date",
+        question="What is the name of Maria's puppy she got two weeks before August 11, 2023?",
+        expected_terms=("Coco",),
+        answer="Coco",
+        category=4,
+    )
+    numeric_case = _case(
+        case_id="conv-1:qa:3-days-after-date",
+        question="What did Morgan do 3 days after April 10, 2023?",
+        expected_terms=("studio",),
+        answer="studio",
+        category=2,
+    )
+
+    worded_queries, worded_metadata = rerank_module.decomposed_search_queries(
+        worded_case
+    )
+    numeric_queries, numeric_metadata = rerank_module.decomposed_search_queries(
+        numeric_case
+    )
+
+    assert worded_metadata["query_profile"]["time_intent_kind"] == "temporal_sequence"
+    assert "two weeks" in worded_metadata["query_profile"]["temporal_terms"]
+    assert "11" in worded_metadata["query_profile"]["temporal_terms"]
+    assert "2023" in worded_metadata["query_profile"]["temporal_terms"]
+    assert worded_queries[-1] == "maria before two weeks 11 2023 august week session"
+
+    assert numeric_metadata["query_profile"]["time_intent_kind"] == "temporal_sequence"
+    assert "3 days" in numeric_metadata["query_profile"]["temporal_terms"]
+    assert "10" in numeric_metadata["query_profile"]["temporal_terms"]
+    assert "2023" in numeric_metadata["query_profile"]["temporal_terms"]
+    assert numeric_queries[-1] == "morgan after 3 days 10 2023 april session date"
+
+
 def test_query_decomposition_classifies_after_how_many_as_duration() -> None:
     case = _case(
         case_id="conv-1:qa:after-how-many-weeks",

@@ -1974,6 +1974,9 @@ def _temporal_query_profile(case: PublicBenchmarkCase) -> dict[str, object]:
     duration_amount_terms = _duration_amount_temporal_terms(query)
     if duration_amount_terms:
         matched_terms = tuple(dict.fromkeys((*matched_terms, *duration_amount_terms)))
+    relative_offset_terms = _relative_offset_temporal_terms(query)
+    if relative_offset_terms:
+        matched_terms = tuple(dict.fromkeys((*matched_terms, *relative_offset_terms)))
     relative_weekday_terms = _relative_weekday_temporal_terms(query)
     if relative_weekday_terms:
         matched_terms = tuple(dict.fromkeys((*matched_terms, *relative_weekday_terms)))
@@ -2077,6 +2080,20 @@ def _duration_amount_temporal_terms(query: str) -> tuple[str, ...]:
     if match is None:
         return ()
     return ("duration", match.group(1))
+
+
+def _relative_offset_temporal_terms(query: str) -> tuple[str, ...]:
+    amount = r"\d+|one|two|three|four|five|six|seven|few|couple"
+    unit = r"day|days|week|weeks|month|months|year|years"
+    return tuple(
+        dict.fromkeys(
+            f"{match.group(1)} {match.group(2)}"
+            for match in re.finditer(
+                rf"\b({amount})\s+({unit})\s+(?:before|after)\b",
+                query,
+            )
+        )
+    )
 
 
 def _relative_weekday_temporal_terms(query: str) -> tuple[str, ...]:
