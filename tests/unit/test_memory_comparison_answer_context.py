@@ -1634,6 +1634,18 @@ def test_answer_context_backfill_does_not_prefer_low_quality_sibling() -> None:
         "answer_context_reason_codes"
     ]
     assert context.skipped_redundant_role_backfill_count == 1
+    assert (
+        context.memories[0].metadata[
+            "answer_context_skipped_redundant_role_backfill_count"
+        ]
+        == 1
+    )
+    assert (
+        context.memories[1].metadata[
+            "answer_context_skipped_redundant_role_backfill_count"
+        ]
+        == 1
+    )
     diagnostics = context.to_diagnostics()
     assert diagnostics["backfilled_low_answerability_count"] == 0
     assert diagnostics["backfilled_weak_source_locality_count"] == 0

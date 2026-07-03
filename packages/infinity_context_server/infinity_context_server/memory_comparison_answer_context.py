@@ -317,6 +317,24 @@ def answer_context_from_evidence_bundle(
             )
             for memory in selected
         ]
+    if (
+        skipped_redundant_risky_backfill_count
+        or skipped_redundant_source_backfill_count
+        or skipped_redundant_role_backfill_count
+    ):
+        selected = [
+            _with_backfill_skip_metadata(
+                memory,
+                skipped_redundant_risky_count=(
+                    skipped_redundant_risky_backfill_count
+                ),
+                skipped_redundant_source_count=(
+                    skipped_redundant_source_backfill_count
+                ),
+                skipped_redundant_role_count=skipped_redundant_role_backfill_count,
+            )
+            for memory in selected
+        ]
 
     return AnswerContext(
         memories=tuple(selected),
@@ -1511,6 +1529,37 @@ def _with_bundle_skip_metadata(
     if skipped_noisy_overlap_count > 0:
         metadata["answer_context_skipped_noisy_overlap_bundle_item_count"] = (
             skipped_noisy_overlap_count
+        )
+    return RetrievedMemory(
+        text=memory.text,
+        rank=memory.rank,
+        score=memory.score,
+        item_id=memory.item_id,
+        created_at=memory.created_at,
+        source_refs=memory.source_refs,
+        metadata=metadata,
+    )
+
+
+def _with_backfill_skip_metadata(
+    memory: RetrievedMemory,
+    *,
+    skipped_redundant_risky_count: int,
+    skipped_redundant_source_count: int,
+    skipped_redundant_role_count: int,
+) -> RetrievedMemory:
+    metadata = dict(memory.metadata)
+    if skipped_redundant_risky_count > 0:
+        metadata["answer_context_skipped_redundant_risky_backfill_count"] = (
+            skipped_redundant_risky_count
+        )
+    if skipped_redundant_source_count > 0:
+        metadata["answer_context_skipped_redundant_source_backfill_count"] = (
+            skipped_redundant_source_count
+        )
+    if skipped_redundant_role_count > 0:
+        metadata["answer_context_skipped_redundant_role_backfill_count"] = (
+            skipped_redundant_role_count
         )
     return RetrievedMemory(
         text=memory.text,

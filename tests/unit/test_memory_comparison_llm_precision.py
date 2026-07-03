@@ -62,3 +62,22 @@ def test_llm_memory_line_suppresses_raw_source_diversity_when_support_is_zero() 
 
     assert "bundle_sources=" not in line
     assert "bundle_sources=types:3,retrieval:4" not in line
+
+
+def test_llm_memory_line_renders_backfill_skip_diagnostics() -> None:
+    line = _render_memory_evidence_line(
+        RetrievedMemory(
+            text="D2:12 Morgan: The class registration email arrived.",
+            rank=3,
+            source_refs=("D2:12",),
+            metadata={
+                "answer_context_role": "retrieval_backfill",
+                "answer_context_skipped_redundant_risky_backfill_count": 1,
+                "answer_context_skipped_redundant_source_backfill_count": 2,
+                "answer_context_skipped_redundant_role_backfill_count": 3,
+            },
+        ),
+        index=2,
+    )
+
+    assert "backfill_skipped=risky:1,source:2,role:3" in line
