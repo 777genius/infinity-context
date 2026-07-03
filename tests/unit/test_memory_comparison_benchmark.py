@@ -3499,6 +3499,73 @@ def test_query_decomposition_classifies_ordered_event_temporal_queries() -> None
     assert next_queries[-1] == "alex when upcoming event session date time"
 
 
+def test_query_decomposition_preserves_ordinal_event_temporal_queries() -> None:
+    third_tourney_case = _case(
+        case_id="conv-1:qa:third-tourney",
+        question="When did Nate win his third tourney?",
+        expected_terms=("June",),
+        answer="June",
+        category=2,
+    )
+    fourth_tournament_case = _case(
+        case_id="conv-1:qa:fourth-video-game-tournament",
+        question="When did Nate win his fourth video game tournament?",
+        expected_terms=("July",),
+        answer="July",
+        category=2,
+    )
+    screenplay_case = _case(
+        case_id="conv-1:qa:third-screenplay",
+        question="What is Joanna's third screenplay about?",
+        expected_terms=("loss",),
+        answer="loss",
+        category=4,
+    )
+    placement_case = _case(
+        case_id="conv-1:qa:second-place-guard",
+        question="What did John receive for achieving second place in the tournament?",
+        expected_terms=("trophy",),
+        answer="trophy",
+        category=4,
+    )
+
+    third_queries, third_metadata = rerank_module.decomposed_search_queries(
+        third_tourney_case
+    )
+    fourth_queries, fourth_metadata = rerank_module.decomposed_search_queries(
+        fourth_tournament_case
+    )
+    screenplay_queries, screenplay_metadata = rerank_module.decomposed_search_queries(
+        screenplay_case
+    )
+    _, placement_metadata = rerank_module.decomposed_search_queries(placement_case)
+
+    assert third_metadata["query_profile"]["time_intent_kind"] == "relative_time"
+    assert "third tourney" in third_metadata["query_profile"]["temporal_terms"]
+    assert "relative_temporal_support" in third_metadata["query_plan"][
+        "selected_roles"
+    ]
+    assert third_queries[-1] == "nate when third tourney session date time"
+
+    assert fourth_metadata["query_profile"]["time_intent_kind"] == "relative_time"
+    assert "fourth video game tournament" in fourth_metadata["query_profile"][
+        "temporal_terms"
+    ]
+    assert (
+        fourth_queries[-1]
+        == "nate when fourth video game tournament session date time"
+    )
+
+    assert screenplay_metadata["query_profile"]["time_intent_kind"] == "relative_time"
+    assert "third screenplay" in screenplay_metadata["query_profile"]["temporal_terms"]
+    assert screenplay_queries[-1] == "joanna third screenplay session date time"
+
+    assert placement_metadata["query_profile"]["time_intent_kind"] == "none"
+    assert "second place in the tournament" not in placement_metadata["query_profile"][
+        "temporal_terms"
+    ]
+
+
 def test_query_decomposition_preserves_anchored_period_modifiers() -> None:
     early_case = _case(
         case_id="conv-1:qa:early-august",

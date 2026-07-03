@@ -169,7 +169,9 @@ def infer_time_intent_kind(
         "since",
     } & temporal_term_set:
         return "temporal_sequence"
-    if _RELATIVE_TIME_TERMS & temporal_term_set:
+    if _RELATIVE_TIME_TERMS & temporal_term_set or _has_ordinal_event_term(
+        temporal_terms
+    ):
         return "relative_time"
     if temporal_surface_terms:
         return "explicit_time"
@@ -200,6 +202,12 @@ _RELATIVE_SEASON_TERMS = frozenset(
     for season in ("spring", "summer", "fall", "autumn", "winter")
 )
 _SEASON_TERMS = frozenset({"spring", "summer", "fall", "autumn", "winter"})
+_ORDINAL_EVENT_TERM_RE = re.compile(
+    r"\b(?:first|second|third|fourth|fifth|last|latest)\s+"
+    r"(?:(?!(?:at|for|in|of|on|place|the)\b)[a-z0-9-]+\s+){0,3}"
+    r"(?:call-?out|competition|event|game|project|screenplay|script|"
+    r"tournament|tourney|trip)\b"
+)
 _RELATIVE_TIME_TERMS = (
     frozenset(
         {
@@ -259,6 +267,10 @@ _RELATIVE_TIME_TERMS = (
     | _RELATIVE_SEASON_TERMS
     | _SEASON_TERMS
 )
+
+
+def _has_ordinal_event_term(temporal_terms: tuple[str, ...]) -> bool:
+    return any(_ORDINAL_EVENT_TERM_RE.search(term) for term in temporal_terms)
 
 
 def infer_relation_intents(

@@ -368,6 +368,13 @@ _ORDERED_EVENT_REQUEST_RE = re.compile(
     r"review|demo|interview|workshop|session)\b",
     re.IGNORECASE,
 )
+_ORDINAL_EVENT_REQUEST_RE = re.compile(
+    r"\b(?P<ordinal>first|second|third|fourth|fifth|last|latest)\s+"
+    r"(?P<event>(?:(?!(?:at|for|in|of|on|place|the)\b)[a-z0-9-]+\s+){0,3}"
+    r"(?:call-?out|competition|event|game|project|screenplay|script|"
+    r"tournament|tourney|trip))\b",
+    re.IGNORECASE,
+)
 _PERIOD_ANCHOR_TERMS_RE = re.compile(
     r"\b(?:january|february|march|april|may|june|july|august|september|"
     r"october|november|december|spring|summer|fall|autumn|winter|\d{4})\b",
@@ -1983,6 +1990,9 @@ def _temporal_query_profile(case: PublicBenchmarkCase) -> dict[str, object]:
     season_terms = _season_temporal_terms(query)
     if season_terms:
         matched_terms = tuple(dict.fromkeys((*matched_terms, *season_terms)))
+    ordinal_event_terms = _ordinal_event_temporal_terms(query)
+    if ordinal_event_terms:
+        matched_terms = tuple(dict.fromkeys((*matched_terms, *ordinal_event_terms)))
     duration_amount_terms = _duration_amount_temporal_terms(query)
     if duration_amount_terms:
         matched_terms = tuple(dict.fromkeys((*matched_terms, *duration_amount_terms)))
@@ -2104,6 +2114,13 @@ def _season_temporal_terms(query: str) -> tuple[str, ...]:
         terms.append(f"{match.group(1)} {match.group(2)}")
     for match in re.finditer(rf"\b({season})\s+((?:19|20)\d{{2}})\b", query):
         terms.extend((match.group(1), match.group(2)))
+    return tuple(dict.fromkeys(terms))
+
+
+def _ordinal_event_temporal_terms(query: str) -> tuple[str, ...]:
+    terms: list[str] = []
+    for match in _ORDINAL_EVENT_REQUEST_RE.finditer(query):
+        terms.append(f"{match.group('ordinal')} {match.group('event')}")
     return tuple(dict.fromkeys(terms))
 
 
