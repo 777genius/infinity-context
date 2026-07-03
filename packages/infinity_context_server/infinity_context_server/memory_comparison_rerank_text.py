@@ -351,10 +351,18 @@ def timestamped_memory_count(memories: Sequence[RetrievedMemory]) -> int:
 
 
 def memory_timestamp_values(memory: RetrievedMemory) -> tuple[int, ...]:
+    metadata_timestamps = tuple(
+        value
+        for key in ("source_timestamp", "timestamp")
+        if (value := optional_int(memory.metadata.get(key))) is not None
+    )
     values = memory.metadata.get("source_ref_time_start_ms")
     if not isinstance(values, Sequence) or isinstance(values, str | bytes):
-        return ()
-    return tuple(value for item in values if (value := optional_int(item)) is not None)
+        return metadata_timestamps
+    source_ref_timestamps = tuple(
+        value for item in values if (value := optional_int(item)) is not None
+    )
+    return tuple(dict.fromkeys((*metadata_timestamps, *source_ref_timestamps)))
 
 
 def normalized_terms(text: str) -> tuple[str, ...]:

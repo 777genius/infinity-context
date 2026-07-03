@@ -435,6 +435,10 @@ def _infinity_context_memories(raw_items: object) -> list[RetrievedMemory]:
             for ref in source_ref_payloads
             if (timestamp := _source_ref_time_start_ms(ref)) is not None
         )
+        item_metadata = (
+            item.get("metadata") if isinstance(item.get("metadata"), Mapping) else {}
+        )
+        temporal_metadata = _source_temporal_metadata(item_metadata)
         memories.append(
             RetrievedMemory(
                 text=str(item.get("text") or ""),
@@ -443,10 +447,13 @@ def _infinity_context_memories(raw_items: object) -> list[RetrievedMemory]:
                 item_id=str(item.get("item_id") or "") or None,
                 source_refs=refs,
                 metadata={
+                    **temporal_metadata,
                     "item_type": item.get("item_type"),
                     "diagnostics": _item_diagnostics(item),
                     "source_ref_time_start_ms": list(time_start_ms),
-                    "has_temporal_source_ref": bool(time_start_ms),
+                    "has_temporal_source_ref": bool(
+                        time_start_ms or temporal_metadata
+                    ),
                 },
             )
         )
@@ -536,7 +543,9 @@ def _source_ref_payload(
 
 
 def _source_temporal_metadata(metadata: Mapping[str, object]) -> dict[str, object]:
-    timestamp = _optional_int(metadata.get("timestamp"))
+    timestamp = _optional_int(metadata.get("source_timestamp"))
+    if timestamp is None:
+        timestamp = _optional_int(metadata.get("timestamp"))
     result: dict[str, object] = {}
     if timestamp is not None:
         result["source_timestamp"] = timestamp

@@ -2950,6 +2950,52 @@ def test_infinity_context_http_search_temporal_reranks_timestamped_evidence() ->
     assert result.metadata["temporal_rerank"]["timestamped_memory_count"] == 1
 
 
+def test_infinity_context_http_search_preserves_item_temporal_metadata() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "data": {
+                    "items": [
+                        {
+                            "item_id": "metadata-timed",
+                            "item_type": "chunk",
+                            "text": "Morgan discussed the studio launch.",
+                            "score": 0.86,
+                            "metadata": {
+                                "timestamp": 1683554160,
+                                "session_date": "1:56 pm on 8 May, 2023",
+                            },
+                        },
+                    ]
+                }
+            },
+        )
+
+    backend = http_module.InfinityContextHttpComparisonBackend(
+        base_url="http://memo.test",
+        auth_token="unit-token",
+        transport=httpx.MockTransport(handler),
+    )
+    case = _case(
+        case_id="conv-1:qa:latest-conversation-metadata",
+        question="What was the latest conversation with Morgan?",
+        expected_terms=("studio launch",),
+        answer="studio launch",
+        category=2,
+    )
+
+    try:
+        result = backend.search(case, run_id="Run 42", top_k=1)
+    finally:
+        backend.close()
+
+    assert result.memories[0].metadata["source_timestamp"] == 1683554160
+    assert result.memories[0].metadata["session_date"] == "1:56 pm on 8 May, 2023"
+    assert result.memories[0].metadata["has_temporal_source_ref"] is True
+    assert result.metadata["temporal_rerank"]["timestamped_memory_count"] == 1
+
+
 def test_temporal_rerank_orders_latest_event_by_timestamp() -> None:
     case = _case(
         case_id="conv-1:qa:latest-conversation-rerank",
@@ -2976,6 +3022,39 @@ def test_temporal_rerank_orders_latest_event_by_timestamp() -> None:
     reranked, metadata = rerank_module.temporal_rerank_memories(case, (older, newer))
 
     assert [memory.item_id for memory in reranked] == ["newer", "older"]
+    assert metadata["timestamp_order_boosted_count"] == 1
+    assert reranked[0].metadata["diagnostics"]["score_signals"][
+        "benchmark_temporal_timestamp_order_boost"
+    ] > 0
+
+
+def test_temporal_rerank_reads_metadata_source_timestamp() -> None:
+    case = _case(
+        case_id="conv-1:qa:latest-conversation-metadata-rerank",
+        question="What was the latest conversation with Morgan?",
+        expected_terms=("studio launch",),
+        answer="studio launch",
+        category=2,
+    )
+    older = RetrievedMemory(
+        item_id="older",
+        rank=1,
+        score=0.9,
+        text="Morgan discussed the checklist.",
+        metadata={"source_timestamp": 1683546960},
+    )
+    newer = RetrievedMemory(
+        item_id="newer",
+        rank=2,
+        score=0.86,
+        text="Morgan discussed the studio launch.",
+        metadata={"source_timestamp": 1683554160},
+    )
+
+    reranked, metadata = rerank_module.temporal_rerank_memories(case, (older, newer))
+
+    assert [memory.item_id for memory in reranked] == ["newer", "older"]
+    assert metadata["timestamped_memory_count"] == 2
     assert metadata["timestamp_order_boosted_count"] == 1
     assert reranked[0].metadata["diagnostics"]["score_signals"][
         "benchmark_temporal_timestamp_order_boost"
