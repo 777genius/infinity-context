@@ -1640,9 +1640,24 @@ def _person_grounding_selection_sort_key(
     if not candidate_terms:
         return (1.0, 0.0)
     overlap_count = len(candidate_terms.intersection(selected_terms))
+    if _candidate_prefers_distinct_person_grounding(item.candidate):
+        new_count = len(candidate_terms.difference(selected_terms))
+        if new_count:
+            return (0.0, -float(new_count))
+        if overlap_count:
+            return (1.0, -float(overlap_count))
+        return (2.0, 0.0)
     if overlap_count:
         return (0.0, -float(overlap_count))
     return (2.0, 0.0)
+
+
+def _candidate_prefers_distinct_person_grounding(
+    candidate: EvidenceBundleCandidate,
+) -> bool:
+    if candidate.query_has_entities:
+        return False
+    return bool(candidate.entity_hits or candidate.speaker_hits)
 
 
 def _candidate_person_grounding_terms(
@@ -1774,6 +1789,10 @@ def _bundle_quality_diagnostics(
             "average_measured_source_locality_score": 0.0,
             "bridge_count": 0,
             "bridge_query_hit_count": 0,
+            "person_grounding_item_count": 0,
+            "person_grounding_ref_count": 0,
+            "distinct_person_grounding_count": 0,
+            "repeated_person_grounding_count": 0,
             "causal_support_count": 0,
             "communication_support_count": 0,
             "event_support_count": 0,
@@ -1880,6 +1899,25 @@ def _bundle_quality_diagnostics(
     )
     bridge_count = sum(1 for item in items if item.role == "bridge")
     bridge_query_hit_count = sum(1 for item in items if item.candidate.bridge_query_hit)
+    person_grounding_terms_by_item = tuple(
+        _candidate_person_grounding_terms(item.candidate) for item in items
+    )
+    person_grounding_item_count = sum(
+        1 for terms in person_grounding_terms_by_item if terms
+    )
+    person_grounding_ref_count = sum(
+        len(terms) for terms in person_grounding_terms_by_item
+    )
+    distinct_person_grounding_terms = tuple(
+        dict.fromkeys(
+            term for terms in person_grounding_terms_by_item for term in terms
+        )
+    )
+    distinct_person_grounding_count = len(distinct_person_grounding_terms)
+    repeated_person_grounding_count = max(
+        0,
+        person_grounding_ref_count - distinct_person_grounding_count,
+    )
     causal_support_count = sum(1 for item in items if item.role == "causal_support")
     communication_support_count = sum(
         1 for item in items if item.role == "communication_support"
@@ -2010,6 +2048,7 @@ def _bundle_quality_diagnostics(
             max_answerability=max_answerability,
             low_answerability_count=low_answerability_count,
             bridge_count=bridge_count,
+            distinct_person_grounding_count=distinct_person_grounding_count,
             causal_support_count=causal_support_count,
             communication_support_count=communication_support_count,
             event_support_count=event_support_count,
@@ -2070,6 +2109,10 @@ def _bundle_quality_diagnostics(
         "unmeasured_source_locality_count": unmeasured_source_locality_count,
         "bridge_count": bridge_count,
         "bridge_query_hit_count": bridge_query_hit_count,
+        "person_grounding_item_count": person_grounding_item_count,
+        "person_grounding_ref_count": person_grounding_ref_count,
+        "distinct_person_grounding_count": distinct_person_grounding_count,
+        "repeated_person_grounding_count": repeated_person_grounding_count,
         "causal_support_count": causal_support_count,
         "communication_support_count": communication_support_count,
         "event_support_count": event_support_count,
@@ -2316,6 +2359,7 @@ def _bundle_quality_reason_codes(
     max_answerability: float,
     low_answerability_count: int,
     bridge_count: int,
+    distinct_person_grounding_count: int,
     causal_support_count: int,
     communication_support_count: int,
     event_support_count: int,
@@ -2366,6 +2410,8 @@ def _bundle_quality_reason_codes(
         reasons.append("risk:low_answerability")
     if bridge_count:
         reasons.append("has_bridge_evidence")
+    if distinct_person_grounding_count >= 2:
+        reasons.append("has_distinct_person_grounding")
     if causal_support_count:
         reasons.append("has_causal_support_evidence")
     if communication_support_count:

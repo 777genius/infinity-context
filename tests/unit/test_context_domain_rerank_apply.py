@@ -445,6 +445,64 @@ def test_apply_domain_rerank_signals_boosts_slot_diverse_pottery_aggregation() -
     assert "aggregation_list_multi_evidence" not in adjustment.reasons
 
 
+def test_apply_domain_rerank_signals_reports_distinct_person_list_slots() -> None:
+    duplicate_person = ContextItem(
+        item_id="duplicate_person_aggregation",
+        item_type="chunk",
+        text=(
+            "D2:1 Maria met Alex at the shelter. "
+            "D8:3 Maria helped Alex with the food drive."
+        ),
+        score=0.8,
+        source_refs=(SourceRef(source_type="document", source_id="doc"),),
+        diagnostics={
+            "retrieval_source": "keyword_aggregation_chunks",
+            "retrieval_sources": ["keyword_aggregation_chunks"],
+            "score_signals": {"query_expansion_reason": "decomposition_inventory_list"},
+        },
+    )
+    distinct_people = ContextItem(
+        item_id="distinct_people_aggregation",
+        item_type="chunk",
+        text=(
+            "D2:1 Maria met Alex at the shelter. "
+            "D11:10 Maria helped Priya with the food drive."
+        ),
+        score=0.78,
+        source_refs=(SourceRef(source_type="document", source_id="doc"),),
+        diagnostics={
+            "retrieval_source": "keyword_aggregation_chunks",
+            "retrieval_sources": ["keyword_aggregation_chunks"],
+            "score_signals": {"query_expansion_reason": "decomposition_inventory_list"},
+        },
+    )
+
+    duplicate_adjustment = apply_domain_rerank_signals(
+        query="Who has Maria met and helped while volunteering?",
+        query_reason="decomposition_inventory_list",
+        item=duplicate_person,
+        relevance=_relevance(distinctive_term_hits=7),
+    )
+    distinct_adjustment = apply_domain_rerank_signals(
+        query="Who has Maria met and helped while volunteering?",
+        query_reason="decomposition_inventory_list",
+        item=distinct_people,
+        relevance=_relevance(distinctive_term_hits=7),
+    )
+
+    assert "aggregation_list_duplicate_answer_slot_evidence" in (
+        duplicate_adjustment.reasons
+    )
+    assert dict(duplicate_adjustment.rank_signals)[
+        "aggregation_list_distinct_answer_slot_count"
+    ] == 1.0
+    assert "aggregation_list_slot_diverse_evidence" in distinct_adjustment.reasons
+    assert dict(distinct_adjustment.rank_signals)[
+        "aggregation_list_distinct_answer_slot_count"
+    ] == 2.0
+    assert distinct_adjustment.boost > duplicate_adjustment.boost
+
+
 def test_apply_domain_rerank_signals_boosts_slot_diverse_vector_event_evidence() -> None:
     item = ContextItem(
         item_id="lgbtq_events_vector",

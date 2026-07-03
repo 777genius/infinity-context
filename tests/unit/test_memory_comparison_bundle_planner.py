@@ -382,6 +382,51 @@ def test_evidence_bundle_planner_keeps_answer_support_before_repeated_mentions()
     assert "answer_evidence" in plan.items[1].reason_codes
 
 
+def test_evidence_bundle_planner_prefers_distinct_people_over_duplicate_mentions() -> None:
+    primary = _candidate(
+        item_id="primary-alex",
+        covered_evidence_terms=("D1:1",),
+        primary_signal=True,
+        entity_hits=("alex",),
+        answerability_score=0.9,
+        source_locality_score=1.0,
+    )
+    duplicate_alex = _candidate(
+        item_id="duplicate-alex",
+        dedupe_key="refs:D2:1",
+        query_support_terms=("volunteering",),
+        relation_hits=("helped",),
+        entity_hits=("alex",),
+        answerability_score=0.88,
+        source_locality_score=0.95,
+        bundle_strength_score=10.0,
+    )
+    distinct_priya = _candidate(
+        item_id="distinct-priya",
+        dedupe_key="refs:D3:1",
+        query_support_terms=("volunteering",),
+        relation_hits=("helped",),
+        entity_hits=("priya",),
+        answerability_score=0.78,
+        source_locality_score=0.9,
+        bundle_strength_score=1.0,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, duplicate_alex, distinct_priya),
+        case_group="single",
+    )
+
+    assert [item.candidate.item_id for item in plan.items] == [
+        "primary-alex",
+        "distinct-priya",
+    ]
+    quality = plan.to_diagnostics()["bundle_quality"]
+    assert quality["distinct_person_grounding_count"] == 2
+    assert quality["repeated_person_grounding_count"] == 0
+    assert "has_distinct_person_grounding" in quality["reason_codes"]
+
+
 def test_evidence_bundle_planner_drops_redundant_source_ref_overlap() -> None:
     primary = _candidate(
         item_id="primary-turn",

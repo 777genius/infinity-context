@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from infinity_context_core.application.context_aggregation_answer_slots import (
     aggregation_answer_slot_count,
+    aggregation_answer_slots,
 )
 from infinity_context_core.application.context_diagnostics import (
     safe_diagnostic_mapping,
@@ -999,12 +1000,14 @@ def aggregation_evidence_rerank_signal(
     if not _is_aggregation_query(query):
         return DomainRerankSignal()
     is_list_query = _is_aggregation_list_query(query)
-    answer_slot_count = aggregation_answer_slot_count(query=query, text=item.text)
+    answer_slot_count = len(aggregation_answer_slots(query=query, text=item.text))
     if answer_slot_count >= 2:
         if is_list_query:
             return DomainRerankSignal(
                 boost=0.058,
                 reason="aggregation_list_slot_diverse_evidence",
+                rank_signal_key="aggregation_list_distinct_answer_slot_count",
+                rank_signal=float(answer_slot_count),
             )
         return DomainRerankSignal(
             boost=0.044,
@@ -1012,6 +1015,13 @@ def aggregation_evidence_rerank_signal(
         )
     if _is_aggregation_context_item(item):
         if _aggregation_evidence_count(item) >= 2:
+            if is_list_query and answer_slot_count == 1:
+                return DomainRerankSignal(
+                    penalty=0.024,
+                    reason="aggregation_list_duplicate_answer_slot_evidence",
+                    rank_signal_key="aggregation_list_distinct_answer_slot_count",
+                    rank_signal=1.0,
+                )
             if is_list_query:
                 return DomainRerankSignal(
                     boost=0.046,

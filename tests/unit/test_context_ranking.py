@@ -783,6 +783,60 @@ def test_deterministic_rerank_prefers_list_aggregation_over_single_mention() -> 
     )
 
 
+def test_deterministic_rerank_prefers_distinct_people_list_over_duplicate_mentions() -> None:
+    query = "Who has Maria met and helped while volunteering?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    duplicate_person = _item(
+        "duplicate_alex",
+        score=0.77,
+        retrieval_source="keyword_aggregation_chunks",
+        text=(
+            "D2:1 Maria met Alex at the shelter. "
+            "D8:3 Maria helped Alex with the food drive."
+        ),
+        score_signals={"query_expansion_reason": "decomposition_inventory_list"},
+    )
+    distinct_people = _item(
+        "alex_and_priya",
+        score=0.75,
+        retrieval_source="keyword_aggregation_chunks",
+        text=(
+            "D2:1 Maria met Alex at the shelter. "
+            "D11:10 Maria helped Priya with the food drive."
+        ),
+        score_signals={"query_expansion_reason": "decomposition_inventory_list"},
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (duplicate_person, distinct_people),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert by_id["alex_and_priya"].score > by_id["duplicate_alex"].score
+    assert (
+        by_id["alex_and_priya"].diagnostics["score_signals"][
+            "aggregation_list_distinct_answer_slot_count"
+        ]
+        == 2.0
+    )
+    assert (
+        by_id["duplicate_alex"].diagnostics["score_signals"][
+            "aggregation_list_distinct_answer_slot_count"
+        ]
+        == 1.0
+    )
+    assert (
+        "aggregation_list_duplicate_answer_slot_evidence"
+        in by_id["duplicate_alex"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+
+
 def test_deterministic_rerank_keeps_direct_numeric_count_answer() -> None:
     query = "How many children does Melanie have?"
     plan = build_query_expansion_plan(query)
