@@ -3613,6 +3613,47 @@ def test_query_decomposition_classifies_relative_weekday_phrases() -> None:
     assert queries[-1] == "joanna last friday 23 2022 friday january session date"
 
 
+def test_query_decomposition_preserves_ordinal_period_phrases() -> None:
+    first_weekend_case = _case(
+        case_id="conv-1:qa:first-weekend-august",
+        question="Where did Andrew go during the first weekend of August 2023?",
+        expected_terms=("camping",),
+        answer="camping",
+        category=2,
+    )
+    second_week_case = _case(
+        case_id="conv-1:qa:second-week-november",
+        question="Which country was Tim visiting in the second week of November?",
+        expected_terms=("UK",),
+        answer="UK",
+        category=2,
+    )
+
+    first_queries, first_metadata = rerank_module.decomposed_search_queries(
+        first_weekend_case
+    )
+    second_queries, second_metadata = rerank_module.decomposed_search_queries(
+        second_week_case
+    )
+
+    assert first_metadata["query_profile"]["time_intent_kind"] == "relative_time"
+    assert "first weekend" in first_metadata["query_profile"]["temporal_terms"]
+    assert "during" not in first_metadata["query_profile"]["temporal_terms"]
+    assert "relative_temporal_support" in first_metadata["query_plan"][
+        "selected_roles"
+    ]
+    assert (
+        first_queries[-1] == "andrew first weekend august weekend week session date time"
+    )
+
+    assert second_metadata["query_profile"]["time_intent_kind"] == "relative_time"
+    assert "second week" in second_metadata["query_profile"]["temporal_terms"]
+    assert "relative_temporal_support" in second_metadata["query_plan"][
+        "selected_roles"
+    ]
+    assert second_queries[-1] == "tim second week november week session date time"
+
+
 def test_query_decomposition_classifies_after_how_many_as_duration() -> None:
     case = _case(
         case_id="conv-1:qa:after-how-many-weeks",

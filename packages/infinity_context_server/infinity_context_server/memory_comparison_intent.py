@@ -182,6 +182,11 @@ _RELATIVE_WEEKDAY_TERMS = frozenset(
         "sunday",
     )
 )
+_RELATIVE_ORDINAL_PERIOD_TERMS = frozenset(
+    f"{ordinal} {period}"
+    for ordinal in ("first", "second", "third", "fourth", "last")
+    for period in ("weekend", "week", "half", "quarter", "month")
+)
 _RELATIVE_TIME_TERMS = (
     frozenset(
         {
@@ -233,6 +238,7 @@ _RELATIVE_TIME_TERMS = (
         }
     )
     | _RELATIVE_WEEKDAY_TERMS
+    | _RELATIVE_ORDINAL_PERIOD_TERMS
 )
 
 

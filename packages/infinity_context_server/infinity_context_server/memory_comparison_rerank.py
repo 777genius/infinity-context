@@ -1968,6 +1968,9 @@ def _temporal_query_profile(case: PublicBenchmarkCase) -> dict[str, object]:
     period_modifier_terms = _period_modifier_temporal_terms(query)
     if period_modifier_terms:
         matched_terms = tuple(dict.fromkeys((*matched_terms, *period_modifier_terms)))
+    ordinal_period_terms = _ordinal_period_temporal_terms(query)
+    if ordinal_period_terms:
+        matched_terms = tuple(dict.fromkeys((*matched_terms, *ordinal_period_terms)))
     duration_amount_terms = _duration_amount_temporal_terms(query)
     if duration_amount_terms:
         matched_terms = tuple(dict.fromkeys((*matched_terms, *duration_amount_terms)))
@@ -2045,6 +2048,21 @@ def _period_modifier_temporal_terms(query: str) -> tuple[str, ...]:
         if _PERIOD_ANCHOR_TERMS_RE.fullmatch(anchor):
             boundary = "start" if match.group(1) == "beginning" else match.group(1)
             terms.append(boundary)
+            if anchor in _SEASON_TERMS:
+                terms.append(anchor)
+    return tuple(dict.fromkeys(terms))
+
+
+def _ordinal_period_temporal_terms(query: str) -> tuple[str, ...]:
+    terms: list[str] = []
+    for match in re.finditer(
+        r"\b(first|second|third|fourth|last)\s+"
+        r"(weekend|week|half|quarter|month)\s+of\s+(?:the\s+)?([a-z]+|\d{4})\b",
+        query,
+    ):
+        anchor = match.group(3)
+        if _PERIOD_ANCHOR_TERMS_RE.fullmatch(anchor):
+            terms.append(f"{match.group(1)} {match.group(2)}")
             if anchor in _SEASON_TERMS:
                 terms.append(anchor)
     return tuple(dict.fromkeys(terms))
