@@ -56,19 +56,18 @@ def _candidate_has_redundant_source_window(
         return False
     if not _candidate_has_source_proximity_support(candidate):
         return False
-    selected_support_turn_refs = tuple(
+    selected_turn_refs = tuple(
         turn_ref
         for item in selected
-        if item.role != "primary"
         if item.candidate.source_refs
         if _candidate_has_source_proximity_support(item.candidate)
         for turn_ref in _candidate_turn_refs(item.candidate)
     )
-    if not selected_support_turn_refs:
+    if not selected_turn_refs:
         return False
     closest_distance = _closest_turn_ref_distance(
         candidate,
-        comparison_turn_refs=selected_support_turn_refs,
+        comparison_turn_refs=selected_turn_refs,
     )
     return closest_distance is not None and closest_distance <= source_proximity_window
 
@@ -80,7 +79,6 @@ def _has_distinct_source_window_alternative(
     selected_source_groups = {
         source_group
         for item in selected
-        if item.role != "primary"
         if item.candidate.source_refs
         for source_group in _candidate_source_groups(item.candidate)
     }

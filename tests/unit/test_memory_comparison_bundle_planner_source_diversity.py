@@ -54,6 +54,46 @@ def test_evidence_bundle_planner_prefers_distinct_source_over_redundant_window()
     assert diagnostics["bundle_quality"]["source_proximity_support_count"] == 1
 
 
+def test_evidence_bundle_planner_drops_primary_window_filler_for_distinct_source() -> None:
+    primary = _candidate(
+        item_id="primary",
+        covered_evidence_terms=("venue",),
+        query_support_terms=("venue",),
+        primary_signal=True,
+        source_refs=("D4:10",),
+    )
+    redundant_local = _candidate(
+        item_id="redundant-local",
+        retrieval_order=2,
+        dedupe_key="refs:D4:11",
+        query_support_terms=("venue",),
+        source_refs=("D4:11",),
+        answerability_score=0.94,
+        bundle_strength_score=10.0,
+    )
+    distinct_source = _candidate(
+        item_id="distinct-source",
+        retrieval_order=3,
+        dedupe_key="refs:D8:5",
+        query_support_terms=("venue",),
+        source_refs=("D8:5",),
+        answerability_score=0.8,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, redundant_local, distinct_source),
+        case_group="single",
+    )
+
+    assert [item.candidate.item_id for item in plan.items] == [
+        "primary",
+        "distinct-source",
+    ]
+    diagnostics = plan.to_diagnostics()
+    assert diagnostics["dropped_diversity_count"] == 1
+    assert diagnostics["bundle_quality"]["source_identity_support_item_count"] == 2
+
+
 def test_evidence_bundle_planner_keeps_required_role_over_redundant_window() -> None:
     primary = _candidate(
         item_id="primary",
