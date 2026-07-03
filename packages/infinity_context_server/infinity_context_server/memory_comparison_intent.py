@@ -181,6 +181,7 @@ _RELATIVE_TIME_TERMS = frozenset(
         "last month",
         "last year",
         "later",
+        "latest event",
         "long ago",
         "next month",
         "next quarter",
@@ -196,6 +197,7 @@ _RELATIVE_TIME_TERMS = frozenset(
         "this year",
         "today",
         "tomorrow",
+        "upcoming event",
         "yesterday",
     }
 )

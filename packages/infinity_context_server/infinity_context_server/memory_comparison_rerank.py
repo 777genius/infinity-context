@@ -318,6 +318,8 @@ _TEMPORAL_QUERY_TERMS = (
     "today",
     "tomorrow",
     "earlier today",
+    "latest event",
+    "upcoming event",
     "last night",
     "last weekend",
     "last week",
@@ -340,6 +342,13 @@ _TEMPORAL_QUERY_TERMS = (
     "recent",
     "date",
     "time",
+)
+_ORDERED_EVENT_REQUEST_RE = re.compile(
+    r"\b(?P<order>latest|newest|recent|most\s+recent|last|previous|prior|"
+    r"next|upcoming)\s+"
+    r"(?:conversation|call|meeting|chat|dm|message|text|discussion|sync|"
+    r"review|demo|interview|workshop|session)\b",
+    re.IGNORECASE,
 )
 _TEMPORAL_SURFACE_TERMS = (
     "monday",
@@ -1798,6 +1807,9 @@ def _temporal_query_profile(case: PublicBenchmarkCase) -> dict[str, object]:
     matched_terms = tuple(
         term for term in _TEMPORAL_QUERY_TERMS if term in temporal_query
     )
+    ordered_event_term = _ordered_event_temporal_term(query)
+    if ordered_event_term:
+        matched_terms = tuple(dict.fromkeys((*matched_terms, ordered_event_term)))
     if "during" in matched_terms and not re.search(
         r"\b(?:session|conversation|chat|call|meeting|event|interview)\b",
         temporal_query,
@@ -1817,6 +1829,16 @@ def _temporal_query_profile(case: PublicBenchmarkCase) -> dict[str, object]:
         "matched_terms": list(matched_terms),
         "surface_terms": list(surface_terms),
     }
+
+
+def _ordered_event_temporal_term(query: str) -> str:
+    match = _ORDERED_EVENT_REQUEST_RE.search(query)
+    if match is None:
+        return ""
+    order = match.group("order").casefold()
+    if order in {"next", "upcoming"}:
+        return "upcoming event"
+    return "latest event"
 
 
 def _without_overlapped_relative_temporal_terms(

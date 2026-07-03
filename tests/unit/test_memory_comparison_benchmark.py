@@ -3125,6 +3125,42 @@ def test_query_decomposition_classifies_month_year_relative_temporal_terms() -> 
     assert next_year_queries[-1] == "morgan next year year session date time"
 
 
+def test_query_decomposition_classifies_ordered_event_temporal_queries() -> None:
+    latest_case = _case(
+        case_id="conv-1:qa:latest-conversation",
+        question="What was the latest conversation with Alex?",
+        expected_terms=("invoice",),
+        answer="invoice",
+    )
+    next_case = _case(
+        case_id="conv-1:qa:next-meeting",
+        question="When is the next meeting with Alex?",
+        expected_terms=("Friday",),
+        answer="Friday",
+    )
+
+    latest_queries, latest_metadata = rerank_module.decomposed_search_queries(
+        latest_case
+    )
+    next_queries, next_metadata = rerank_module.decomposed_search_queries(next_case)
+
+    assert latest_metadata["query_profile"]["is_temporal_query"] is True
+    assert latest_metadata["query_profile"]["time_intent_kind"] == "relative_time"
+    assert "latest event" in latest_metadata["query_profile"]["temporal_terms"]
+    assert "relative_temporal_support" in latest_metadata["query_plan"][
+        "selected_roles"
+    ]
+    assert latest_queries[-1] == "alex latest event session date time"
+
+    assert next_metadata["query_profile"]["is_temporal_query"] is True
+    assert next_metadata["query_profile"]["time_intent_kind"] == "relative_time"
+    assert "upcoming event" in next_metadata["query_profile"]["temporal_terms"]
+    assert "relative_temporal_support" in next_metadata["query_plan"][
+        "selected_roles"
+    ]
+    assert next_queries[-1] == "alex when upcoming event session date time"
+
+
 def test_infinity_context_http_search_boosts_relative_temporal_text() -> None:
     seen_payloads: list[dict[str, object]] = []
 
