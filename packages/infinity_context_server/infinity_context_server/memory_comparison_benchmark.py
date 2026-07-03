@@ -12,6 +12,7 @@ import time
 import uuid
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
+from math import isfinite
 from pathlib import Path
 
 from infinity_context_core.application.sensitive_text import redact_sensitive_text
@@ -167,6 +168,7 @@ def run_memory_comparison_benchmark(
     case_set: str = MEMORY_COMPARISON_CASE_SET_ALL,
     report_mode: str = MEMORY_COMPARISON_REPORT_FULL,
     compact_failure_limit: int = 50,
+    runtime_timeout_seconds: float | None = None,
 ) -> dict[str, object]:
     """Run a mem0-style benchmark against multiple memory backends."""
 
@@ -174,6 +176,9 @@ def run_memory_comparison_benchmark(
         raise BenchmarkValidationError("at least one comparison backend is required")
     case_set = _normalize_case_set(case_set)
     report_mode = _normalize_report_mode(report_mode)
+    runtime_timeout_seconds = _normalize_runtime_timeout_seconds(
+        runtime_timeout_seconds
+    )
     backend_names = _unique_backend_names(backends)
     validate_artifact_paths_do_not_overwrite_dataset(
         dataset_path=dataset_path,
@@ -258,17 +263,38 @@ def run_memory_comparison_benchmark(
     evaluations: list[dict[str, object]] = []
     failures: list[dict[str, object]] = []
     ingested_corpus_by_backend: dict[str, set[str]] = {name: set() for name in backend_names}
+    runtime_blocker: dict[str, object] | None = None
 
     reset_failure_by_backend: dict[str, str] = {}
     for backend, backend_name in zip(backends, backend_names, strict=True):
+        runtime_blocker = _runtime_timeout_blocker(
+            started=started,
+            timeout_seconds=runtime_timeout_seconds,
+            backend_name=backend_name,
+            stage="reset",
+        )
+        if runtime_blocker is not None:
+            break
         try:
             backend.reset(run_id=run_id)
         except Exception as exc:
             reset_failure_by_backend[backend_name] = _safe_error_reason(exc)
+    if runtime_blocker is not None:
+        failures.append(runtime_blocker)
 
-    for case in cases:
+    for case in cases if runtime_blocker is None else ():
         corpus_key = _case_corpus_key(case)
         for backend, backend_name in zip(backends, backend_names, strict=True):
+            runtime_blocker = _runtime_timeout_blocker(
+                started=started,
+                timeout_seconds=runtime_timeout_seconds,
+                backend_name=backend_name,
+                stage="case",
+                case=case,
+            )
+            if runtime_blocker is not None:
+                failures.append(runtime_blocker)
+                break
             reset_failure = reset_failure_by_backend.get(backend_name)
             if reset_failure is not None:
                 evaluation = _stage_failure_evaluation(
@@ -340,6 +366,29 @@ def run_memory_comparison_benchmark(
                         failures.append(failure)
                     continue
                 ingested_corpus_by_backend[backend_name].add(corpus_key)
+            runtime_blocker = _runtime_timeout_blocker(
+                started=started,
+                timeout_seconds=runtime_timeout_seconds,
+                backend_name=backend_name,
+                stage="search",
+                case=case,
+            )
+            if runtime_blocker is not None:
+                evaluation = _stage_failure_evaluation(
+                    case,
+                    backend_name=backend_name,
+                    stage="runtime_timeout",
+                    reason=str(runtime_blocker["reason"]),
+                    ingest_result=ingest_result,
+                    answerer_model=answerer.model,
+                    judge_model=judge.model,
+                )
+                evaluations.append(evaluation)
+                failure = _failure_analysis_entry(evaluation)
+                if failure is not None:
+                    failures.append(failure)
+                failures.append(runtime_blocker)
+                break
             evaluation = _run_backend_case(
                 case,
                 backend=backend,
@@ -356,6 +405,8 @@ def run_memory_comparison_benchmark(
             failure = _failure_analysis_entry(evaluation)
             if failure is not None:
                 failures.append(failure)
+        if runtime_blocker is not None:
+            break
 
     backend_metrics = {
         backend_name: _backend_metrics(
@@ -369,7 +420,7 @@ def run_memory_comparison_benchmark(
         )
         for backend_name in backend_names
     }
-    ok = bool(evaluations) and all(
+    ok = runtime_blocker is None and bool(evaluations) and all(
         bool(metrics["ok"]) for metrics in backend_metrics.values()
     )
     result: dict[str, object] = {
@@ -409,6 +460,8 @@ def run_memory_comparison_benchmark(
             "case_set": case_set,
             "case_set_selection": case_set_selection,
             "report_mode": report_mode,
+            "runtime_timeout_seconds": runtime_timeout_seconds,
+            "runtime_limit_exceeded": runtime_blocker is not None,
         },
         "metrics": {
             "backend_count": len(backend_names),
@@ -1743,6 +1796,43 @@ def _normalize_report_mode(value: str | None) -> str:
             f"{normalized}. Supported: {', '.join(MEMORY_COMPARISON_REPORT_MODES)}"
         )
     return normalized
+
+
+def _normalize_runtime_timeout_seconds(value: float | None) -> float | None:
+    if value is None:
+        return None
+    timeout_seconds = float(value)
+    if not isfinite(timeout_seconds) or timeout_seconds <= 0:
+        raise BenchmarkValidationError("runtime_timeout_seconds must be positive")
+    return timeout_seconds
+
+
+def _runtime_timeout_blocker(
+    *,
+    started: float,
+    timeout_seconds: float | None,
+    backend_name: str,
+    stage: str,
+    case: PublicBenchmarkCase | None = None,
+) -> dict[str, object] | None:
+    if timeout_seconds is None:
+        return None
+    elapsed_ms = _elapsed_ms(started)
+    if elapsed_ms < timeout_seconds * 1000:
+        return None
+    blocker: dict[str, object] = {
+        "case_id": case.case_id if case is not None else "suite_runtime",
+        "backend": backend_name,
+        "group": _case_group(case) if case is not None else "runtime",
+        "stage": stage,
+        "reason": "runtime_timeout_seconds_exceeded",
+        "elapsed_ms": elapsed_ms,
+        "timeout_seconds": timeout_seconds,
+        "preserves_benchmark_honesty": True,
+    }
+    if case is not None:
+        blocker["capability"] = _case_capability(case)
+    return blocker
 
 
 def _apply_case_set(

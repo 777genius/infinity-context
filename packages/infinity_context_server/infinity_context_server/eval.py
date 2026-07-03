@@ -129,6 +129,7 @@ from infinity_context_server.memory_comparison_cli import (
     _close_memory_comparison_clients,
     _memory_comparison_float_env_default,
     _memory_comparison_llms_from_args,
+    _memory_comparison_runtime_timeout_from_args,
     _memory_comparison_token_cost_rate_from_args,
 )
 from infinity_context_server.memory_comparison_preflight import (
@@ -2642,6 +2643,16 @@ def main(argv: Sequence[str] | None = None) -> None:
         default=1.5,
         help="HTTP timeout for --preflight-probe-services.",
     )
+    memory_comparison.add_argument(
+        "--runtime-timeout-seconds",
+        type=float,
+        default=None,
+        help=(
+            "Total live benchmark runtime budget. LoCoMo fast case sets default "
+            "to a short internal budget so failed gates write a report before "
+            "external job timeouts."
+        ),
+    )
     memory_comparison_replay = sub.add_parser("memory-comparison-replay")
     memory_comparison_replay.add_argument("--report", type=Path, required=True)
     memory_comparison_replay.add_argument("--report-out", type=Path, default=None)
@@ -2896,6 +2907,9 @@ def main(argv: Sequence[str] | None = None) -> None:
                         case_set=str(args.case_set),
                         report_mode=str(args.report_mode),
                         compact_failure_limit=int(args.compact_failure_limit),
+                        runtime_timeout_seconds=(
+                            _memory_comparison_runtime_timeout_from_args(args)
+                        ),
                         answerer=answerer,
                         judge=judge,
                         backends=backends,

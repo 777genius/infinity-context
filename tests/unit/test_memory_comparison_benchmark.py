@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import replace
@@ -123,6 +124,18 @@ class _TimestampingBackend(_StaticBackend):
                 ),
             ),
         )
+
+
+class _SlowIngestBackend(_StaticBackend):
+    def ingest(
+        self,
+        case: PublicBenchmarkCase,
+        *,
+        run_id: str,
+        corpus_key: str,
+    ) -> BackendIngestResult:
+        time.sleep(0.01)
+        return super().ingest(case, run_id=run_id, corpus_key=corpus_key)
 
 
 class _FixedLatencyAnswerer:
@@ -420,6 +433,55 @@ def test_memory_comparison_benchmark_reports_side_by_side_metrics(
     )
     assert result["metadata"]["token_cost_scope"] == "answerer_judge_only"
     assert "backend_internal_ingest_provider_cost" in result["metadata"]["unmeasured_costs"]
+
+
+def test_memory_comparison_runtime_timeout_writes_blocker_report(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "unused.json"
+    report_out = tmp_path / "runtime-timeout.json"
+    dataset.write_text("[]", encoding="utf-8")
+    case = _case(
+        case_id="conv-1:qa:timeout",
+        question="Where did Morgan keep the launch checklist?",
+        expected_terms=("blue notebook",),
+        answer="Morgan kept it in the blue notebook.",
+    )
+    backend = _SlowIngestBackend(
+        "mem0",
+        {
+            case.case_id: (
+                RetrievedMemory(
+                    text="Morgan kept the launch checklist in the blue notebook.",
+                    rank=1,
+                    item_id="memo-hit",
+                ),
+            )
+        },
+    )
+
+    result = run_memory_comparison_benchmark(
+        dataset_path=dataset,
+        backends=(backend,),
+        top_k=1,
+        top_k_cutoffs=(1,),
+        run_id="timeout-run",
+        cases_override=(case,),
+        report_out=report_out,
+        runtime_timeout_seconds=0.001,
+    )
+
+    written = json.loads(report_out.read_text(encoding="utf-8"))
+    assert result["ok"] is False
+    assert result["status"] == "failed"
+    assert result["metadata"]["runtime_limit_exceeded"] is True
+    assert result["metadata"]["runtime_timeout_seconds"] == 0.001
+    assert result["metrics"]["evaluation_count"] == 1
+    assert any(
+        failure.get("reason") == "runtime_timeout_seconds_exceeded"
+        for failure in result["failures"]
+    )
+    assert written["metadata"]["runtime_limit_exceeded"] is True
 
 
 def test_memory_comparison_locomo_fast_case_set_selects_ten_per_group(
@@ -2423,6 +2485,7 @@ def test_memory_comparison_cli_closes_live_backend_clients(
         assert kwargs["case_set"] == "locomo-fast"
         assert kwargs["report_mode"] == "compact"
         assert kwargs["compact_failure_limit"] == 7
+        assert kwargs["runtime_timeout_seconds"] == 180.0
         assert kwargs["answerer_token_cost_rate"] == TokenCostRate(
             input_usd_per_1m=2.5,
             output_usd_per_1m=10.0,

@@ -114,9 +114,15 @@ python -m infinity_context_server.eval memory-comparison-benchmark \
   --top-k-cutoff 50 \
   --top-k-cutoff 200 \
   --allow-live \
+  --runtime-timeout-seconds 180 \
   --run-id locomo-fast-sandbox-001 \
   --report-out .e2e-artifacts/memory-comparison-locomo-fast.json
 ```
+
+LoCoMo fast case sets default to the same short internal runtime budget when
+`--runtime-timeout-seconds` is omitted. If the gate exceeds that budget, the
+runner writes a failed report with a runtime blocker instead of relying on an
+external job timeout that can leave no artifact.
 
 Fast case sets:
 

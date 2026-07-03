@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import argparse
 import os
+from math import isfinite
+
+_DEFAULT_LOCOMO_FAST_RUNTIME_TIMEOUT_SECONDS = 180.0
 
 
 def _memory_comparison_llms_from_args(args: argparse.Namespace):
@@ -118,6 +121,27 @@ def _memory_comparison_float_env_default(env_name: str, fallback: float) -> floa
         return float(raw_value)
     except ValueError as exc:
         raise SystemExit(f"{env_name} must be a float") from exc
+
+
+def _memory_comparison_runtime_timeout_from_args(args: argparse.Namespace) -> float | None:
+    value = args.runtime_timeout_seconds
+    if value is None:
+        raw_value = os.getenv("MEMORY_COMPARISON_RUNTIME_TIMEOUT_SECONDS")
+        if raw_value is not None and raw_value.strip():
+            try:
+                value = float(raw_value)
+            except ValueError as exc:
+                raise SystemExit(
+                    "MEMORY_COMPARISON_RUNTIME_TIMEOUT_SECONDS must be a float"
+                ) from exc
+    if value is None and str(args.case_set).startswith("locomo-fast"):
+        value = _DEFAULT_LOCOMO_FAST_RUNTIME_TIMEOUT_SECONDS
+    if value is None:
+        return None
+    timeout_seconds = float(value)
+    if not isfinite(timeout_seconds) or timeout_seconds <= 0:
+        raise SystemExit("--runtime-timeout-seconds must be positive")
+    return timeout_seconds
 
 
 def _memory_comparison_token_cost_rate_from_args(
