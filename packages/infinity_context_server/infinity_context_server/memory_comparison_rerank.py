@@ -1993,6 +1993,9 @@ def _temporal_query_profile(case: PublicBenchmarkCase) -> dict[str, object]:
     ordinal_event_terms = _ordinal_event_temporal_terms(query)
     if ordinal_event_terms:
         matched_terms = tuple(dict.fromkeys((*matched_terms, *ordinal_event_terms)))
+    repeated_event_terms = _repeated_event_temporal_terms(query)
+    if repeated_event_terms:
+        matched_terms = tuple(dict.fromkeys((*matched_terms, *repeated_event_terms)))
     duration_amount_terms = _duration_amount_temporal_terms(query)
     if duration_amount_terms:
         matched_terms = tuple(dict.fromkeys((*matched_terms, *duration_amount_terms)))
@@ -2122,6 +2125,20 @@ def _ordinal_event_temporal_terms(query: str) -> tuple[str, ...]:
     for match in _ORDINAL_EVENT_REQUEST_RE.finditer(query):
         terms.append(f"{match.group('ordinal')} {match.group('event')}")
     return tuple(dict.fromkeys(terms))
+
+
+def _repeated_event_temporal_terms(query: str) -> tuple[str, ...]:
+    if not re.search(r"\bagain\b", query):
+        return ()
+    action = (
+        r"attend|finish|go|join|meet|move|read|reconnect|return|run|start|"
+        r"travel|visit|watch|win|write"
+    )
+    if re.search(rf"\b(?:{action})\b(?:\W+\w+){{0,6}}\W+again\b", query):
+        return ("again",)
+    if re.search(rf"\bagain\b(?:\W+\w+){{0,6}}\W+\b(?:{action})\b", query):
+        return ("again",)
+    return ()
 
 
 def _duration_amount_temporal_terms(query: str) -> tuple[str, ...]:

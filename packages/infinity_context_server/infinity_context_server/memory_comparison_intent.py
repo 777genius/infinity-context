@@ -212,6 +212,7 @@ _RELATIVE_TIME_TERMS = (
     frozenset(
         {
             "ago",
+            "again",
             "earlier",
             "earlier today",
             "earliest event",

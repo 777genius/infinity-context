@@ -3923,6 +3923,39 @@ def test_query_decomposition_classifies_since_sequence_queries() -> None:
     assert duration_queries[-1] == "andrew how long since 2023 november session date time"
 
 
+def test_query_decomposition_classifies_guarded_again_repeated_events() -> None:
+    repeated_case = _case(
+        case_id="conv-1:qa:run-for-office-again",
+        question="Why did John decide to run for office again?",
+        expected_terms=("impact",),
+        answer="impact",
+        category=4,
+    )
+    thanks_case = _case(
+        case_id="conv-1:qa:thanks-again-guard",
+        question="What did Alex say thanks again for?",
+        expected_terms=("help",),
+        answer="help",
+        category=4,
+    )
+
+    repeated_queries, repeated_metadata = rerank_module.decomposed_search_queries(
+        repeated_case
+    )
+    _, thanks_metadata = rerank_module.decomposed_search_queries(thanks_case)
+
+    assert repeated_metadata["query_profile"]["time_intent_kind"] == "relative_time"
+    assert "again" in repeated_metadata["query_profile"]["temporal_terms"]
+    assert "relative_temporal_support" in repeated_metadata["query_plan"][
+        "selected_roles"
+    ]
+    assert repeated_queries[2] == "john again session date time"
+
+    assert thanks_metadata["query_profile"]["time_intent_kind"] == "none"
+    assert "again" not in thanks_metadata["query_profile"]["temporal_terms"]
+    assert "communication_support" in thanks_metadata["query_plan"]["selected_roles"]
+
+
 def test_query_decomposition_classifies_holiday_temporal_surfaces() -> None:
     holiday_case = _case(
         case_id="conv-1:qa:us-holiday-car-accident",
