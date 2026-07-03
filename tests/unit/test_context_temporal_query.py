@@ -182,7 +182,9 @@ def test_temporal_query_intent_detects_change_and_previous_state() -> None:
 
 def test_temporal_query_intent_detects_since_and_until_event_sequences() -> None:
     since_call = build_temporal_query_intent("What changed since the Atlas call?")
+    since_last_week = build_temporal_query_intent("What changed since last week?")
     until_review = build_temporal_query_intent("What did Alex decide until the review?")
+    until_last_week = build_temporal_query_intent("What did Alex decide until last week?")
     during_review = build_temporal_query_intent(
         "What did we decide during the Atlas review?"
     )
@@ -216,6 +218,8 @@ def test_temporal_query_intent_detects_since_and_until_event_sequences() -> None
 
     assert since_call.after_event is True
     assert since_call.requests_change is True
+    assert since_last_week.after_event is True
+    assert since_last_week.relative_time_hints == ("last_week",)
     assert after_roadtrip.after_event is True
     assert after_work.after_event is False
     assert after_gaming.after_event is False
@@ -229,6 +233,8 @@ def test_temporal_query_intent_detects_since_and_until_event_sequences() -> None
     assert russian_during_meeting.during_event is True
     assert russian_during_meeting.event_sequence_terms == ("атласу",)
     assert russian_until.before_event is True
+    assert until_last_week.before_event is True
+    assert until_last_week.relative_time_hints == ("last_week",)
     assert russian_after_work.after_event is False
     assert causal_since.after_event is False
     assert causal_since.before_event is False
@@ -911,6 +917,39 @@ def test_temporal_query_boosts_matching_since_event_direction() -> None:
     assert boosted[0].score > after_item.score
     assert boosted[0].diagnostics["temporal_query_intent_reason"] == (
         "query asks for after-event sequence and item matches direction"
+    )
+
+
+def test_temporal_query_prefers_since_evidence_over_boundary_window() -> None:
+    intent = build_temporal_query_intent("What changed since last week?")
+    since_item = _item(
+        "since",
+        score=0.7,
+        retrieval_source="canonical_anchors",
+        fact_status="active",
+        text="Since last week, Atlas uses OpenAI for extraction.",
+    )
+    boundary_stale = _item(
+        "boundary_stale",
+        score=0.72,
+        retrieval_source="superseded_review",
+        fact_status="superseded",
+        event_temporal_hint_code="last_week",
+        text="Last week, Atlas still used LocalAI for extraction.",
+    )
+
+    boosted = apply_temporal_query_intent_boosts(
+        (boundary_stale, since_item),
+        intent=intent,
+    )
+    by_id = {item.item_id: item for item in boosted}
+
+    assert by_id["since"].score > by_id["boundary_stale"].score
+    assert by_id["since"].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for after-event sequence and item matches direction"
+    )
+    assert by_id["boundary_stale"].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for after-event sequence and item only matches the boundary window"
     )
 
 

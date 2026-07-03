@@ -542,11 +542,11 @@ def build_temporal_query_intent(query: str) -> TemporalQueryIntent:
     after_event = _has_after_event_context(
         query,
         variants,
-    )
+    ) or _has_since_relative_time_context(query, relative_time_hints)
     before_event = _has_before_event_context(
         query,
         variants,
-    )
+    ) or _has_until_relative_time_context(query, relative_time_hints)
     during_event = _has_during_event_context(query, variants)
     event_sequence_terms = (
         _event_sequence_anchor_terms(query)
@@ -643,6 +643,20 @@ def temporal_query_boost_signal(
                 reason="query asks for an explicit session and item has a different session",
                 code="exact_session_order_conflict",
             )
+    if direction_boost := _event_sequence_direction_boost(
+        intent=intent,
+        text=item.text,
+    ):
+        return TemporalQueryBoostSignal(
+            boost=direction_boost,
+            reason=_event_sequence_direction_reason(intent=intent, boost=direction_boost),
+            code=_event_sequence_direction_code(intent=intent, boost=direction_boost),
+        )
+    if boundary_conflict := _relative_time_boundary_conflict_signal(
+        intent=intent,
+        temporal_hint_code=temporal_hint_code,
+    ):
+        return boundary_conflict
     if _temporal_hint_matches(intent=intent, temporal_hint_code=temporal_hint_code):
         return TemporalQueryBoostSignal(
             boost=0.032,
@@ -725,15 +739,6 @@ def temporal_query_boost_signal(
             boost=0.035,
             reason="query asks what changed and item is previous state evidence",
             code="change_previous_state",
-        )
-    if direction_boost := _event_sequence_direction_boost(
-        intent=intent,
-        text=item.text,
-    ):
-        return TemporalQueryBoostSignal(
-            boost=direction_boost,
-            reason=_event_sequence_direction_reason(intent=intent, boost=direction_boost),
-            code=_event_sequence_direction_code(intent=intent, boost=direction_boost),
         )
     if during_boost := _event_sequence_during_boost(intent=intent, text=item.text):
         return TemporalQueryBoostSignal(
@@ -822,10 +827,16 @@ def _event_sequence_direction_boost(*, intent: TemporalQueryIntent, text: str) -
     has_after = bool(variants.intersection(_AFTER_TERMS)) or _has_since_event_context(
         text,
         variants,
+    ) or _has_matching_since_relative_time_context(
+        text,
+        intent,
     )
     has_before = bool(variants.intersection(_BEFORE_TERMS)) or _has_until_event_context(
         text,
         variants,
+    ) or _has_matching_until_relative_time_context(
+        text,
+        intent,
     )
     has_same_event = _event_sequence_terms_match(text, intent.event_sequence_terms)
     if intent.after_event:
@@ -839,6 +850,28 @@ def _event_sequence_direction_boost(*, intent: TemporalQueryIntent, text: str) -
         if has_after and has_same_event and not intent.requests_change:
             return -0.024
     return 0.0
+
+
+def _relative_time_boundary_conflict_signal(
+    *,
+    intent: TemporalQueryIntent,
+    temporal_hint_code: str,
+) -> TemporalQueryBoostSignal | None:
+    if intent.after_event == intent.before_event:
+        return None
+    if not temporal_hint_code or not intent.relative_time_hints:
+        return None
+    if not _temporal_hint_overlaps(intent=intent, temporal_hint_code=temporal_hint_code):
+        return None
+    direction = "after" if intent.after_event else "before"
+    return TemporalQueryBoostSignal(
+        boost=-0.014,
+        reason=(
+            f"query asks for {direction}-event sequence and item only matches "
+            "the boundary window"
+        ),
+        code=f"{direction}_event_boundary_window_conflict",
+    )
 
 
 def _event_sequence_during_boost(*, intent: TemporalQueryIntent, text: str) -> float:
@@ -938,6 +971,49 @@ def _has_since_event_context(text: str, variants: frozenset[str]) -> bool:
 def _has_until_event_context(text: str, variants: frozenset[str]) -> bool:
     return bool(_UNTIL_EVENT_RE.search(text)) and bool(
         variants.intersection(_EVENT_SEQUENCE_CONTEXT_TERMS)
+    )
+
+
+def _has_since_relative_time_context(
+    text: str,
+    relative_time_hints: tuple[str, ...],
+) -> bool:
+    return bool(relative_time_hints) and bool(_SINCE_EVENT_RE.search(text))
+
+
+def _has_until_relative_time_context(
+    text: str,
+    relative_time_hints: tuple[str, ...],
+) -> bool:
+    return bool(relative_time_hints) and bool(_UNTIL_EVENT_RE.search(text))
+
+
+def _has_matching_since_relative_time_context(
+    text: str,
+    intent: TemporalQueryIntent,
+) -> bool:
+    return (
+        bool(_SINCE_EVENT_RE.search(text))
+        and bool(intent.relative_time_hints)
+        and _text_has_overlapping_relative_hint(text, intent)
+    )
+
+
+def _has_matching_until_relative_time_context(
+    text: str,
+    intent: TemporalQueryIntent,
+) -> bool:
+    return (
+        bool(_UNTIL_EVENT_RE.search(text))
+        and bool(intent.relative_time_hints)
+        and _text_has_overlapping_relative_hint(text, intent)
+    )
+
+
+def _text_has_overlapping_relative_hint(text: str, intent: TemporalQueryIntent) -> bool:
+    return any(
+        _temporal_hint_overlaps(intent=intent, temporal_hint_code=hint)
+        for hint in _query_temporal_hint_codes(text)
     )
 
 
