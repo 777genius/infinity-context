@@ -323,8 +323,13 @@ def test_candidate_fusion_selects_local_evidence_within_score_band() -> None:
     assert diagnostics["focused_query_evidence_selection_count"] == 0
     assert fused[0].text == raw_turn.text
     assert fused[0].score > broad_chunk.score
-    assert fused[0].source_refs == ("D2:9", "D2:8", "D2:10", "D2:11")
+    assert fused[0].source_refs == ("D2:9",)
+    assert (
+        fused[0].metadata["diagnostics"]["benchmark_compacted_selected_source_refs"]
+        is True
+    )
     fusion = fused[0].metadata["diagnostics"]["benchmark_candidate_fusion"]
+    assert fusion["source_refs"] == ["D2:9", "D2:8", "D2:10", "D2:11"]
     assert fusion["winner_score"] == 0.82
     assert fusion["score_winner_source_type"] == "chunk"
     assert fusion["selected_evidence_score"] == 0.805

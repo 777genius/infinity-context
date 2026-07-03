@@ -361,19 +361,78 @@ def _with_candidate_fusion_metadata(
     diagnostics["benchmark_bridge_query_hit"] = bool(fusion["bridge_query_hit"])
     diagnostics["benchmark_query_ranks"] = list(fusion["query_ranks"])
     diagnostics["benchmark_candidate_fusion"] = dict(fusion)
-    source_refs = tuple(
-        dict.fromkeys(
-            (
-                *(str(ref) for ref in memory.source_refs if str(ref).strip()),
-                *_string_sequence(fusion.get("source_refs")),
-            )
-        )
+    source_refs = _selected_memory_source_refs(memory, fusion)
+    compacted_source_refs = len(source_refs) < len(
+        _string_sequence(fusion.get("source_refs"))
     )
+    if compacted_source_refs:
+        diagnostics["benchmark_compacted_selected_source_refs"] = True
+        diagnostics["benchmark_compacted_source_ref_count"] = len(source_refs)
     return replace(
         memory,
         score=round(memory.score + total_boost, 6),
         source_refs=source_refs,
         metadata={**dict(memory.metadata), "diagnostics": diagnostics},
+    )
+
+
+def _selected_memory_source_refs(
+    memory: RetrievedMemory,
+    fusion: Mapping[str, object],
+) -> tuple[str, ...]:
+    selected_refs = tuple(
+        dict.fromkeys(str(ref) for ref in memory.source_refs if str(ref).strip())
+    )
+    merged_refs = tuple(
+        dict.fromkeys((*selected_refs, *_string_sequence(fusion.get("source_refs"))))
+    )
+    if not selected_refs:
+        return merged_refs
+    if not _should_keep_selected_source_refs_compact(
+        selected_refs=selected_refs,
+        merged_refs=merged_refs,
+        fusion=fusion,
+    ):
+        return merged_refs
+    return selected_refs
+
+
+def _should_keep_selected_source_refs_compact(
+    *,
+    selected_refs: Sequence[str],
+    merged_refs: Sequence[str],
+    fusion: Mapping[str, object],
+) -> bool:
+    if len(merged_refs) <= len(selected_refs):
+        return False
+    selected_turn_refs = _turn_refs_from_values(selected_refs)
+    merged_turn_refs = _turn_refs_from_values(merged_refs)
+    if not selected_turn_refs or len(selected_turn_refs) > 2:
+        return False
+    if len(merged_turn_refs) <= 3:
+        return False
+    selected_type = str(fusion.get("selected_evidence_source_type") or "")
+    winner_type = str(fusion.get("score_winner_source_type") or "")
+    if selected_type not in {"raw_turn", "chunk"}:
+        return False
+    return selected_type != winner_type or _selected_evidence_quality_score(fusion) > 0
+
+
+def _selected_evidence_quality_score(fusion: Mapping[str, object]) -> float:
+    try:
+        selected_quality = float(fusion.get("selected_evidence_quality_score") or 0.0)
+    except (TypeError, ValueError):
+        selected_quality = 0.0
+    return selected_quality
+
+
+def _turn_refs_from_values(values: Sequence[str]) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            ref
+            for value in values
+            for ref in _TURN_REF_RE.findall(str(value))
+        )
     )
 
 
