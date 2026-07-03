@@ -1494,6 +1494,9 @@ def _source_proximity_selection_sort_key(
     selected_turn_refs = tuple(
         turn_ref
         for selected_item in selected
+        if _candidate_has_source_proximity_diagnostic_support(
+            selected_item.candidate
+        )
         for turn_ref in _candidate_turn_refs(selected_item.candidate)
     )
     if not selected_turn_refs:
@@ -1889,6 +1892,7 @@ def _source_proximity_distances(items: Sequence[PlannedEvidenceItem]) -> tuple[i
         turn_ref
         for item in items
         if item.role == "primary"
+        if _candidate_has_source_proximity_diagnostic_support(item.candidate)
         for turn_ref in _candidate_turn_refs(item.candidate)
     )
     if not primary_turn_refs:
@@ -1916,6 +1920,7 @@ def _source_chain_proximity_distances(
         turn_ref
         for item in items
         if item.role == "primary"
+        if _candidate_has_source_proximity_diagnostic_support(item.candidate)
         for turn_ref in _candidate_turn_refs(item.candidate)
     )
     previously_selected_turn_refs: list[tuple[int, int]] = []
@@ -1923,10 +1928,10 @@ def _source_chain_proximity_distances(
     for item in items:
         item_turn_refs = _candidate_turn_refs(item.candidate)
         if item.role == "primary":
-            previously_selected_turn_refs.extend(item_turn_refs)
+            if _candidate_has_source_proximity_diagnostic_support(item.candidate):
+                previously_selected_turn_refs.extend(item_turn_refs)
             continue
         if not _candidate_has_source_proximity_diagnostic_support(item.candidate):
-            previously_selected_turn_refs.extend(item_turn_refs)
             continue
         primary_distance = _closest_turn_ref_distance(
             item.candidate,

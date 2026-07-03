@@ -199,6 +199,57 @@ def test_evidence_bundle_planner_prefers_compact_chained_sibling_support() -> No
     assert "has_source_chain_proximity_support" in quality["reason_codes"]
 
 
+def test_evidence_bundle_quality_does_not_chain_through_noisy_sibling() -> None:
+    primary = _candidate(
+        item_id="primary",
+        retrieval_order=1,
+        dedupe_key="refs:D4:10",
+        covered_evidence_terms=("plan",),
+        primary_signal=True,
+        source_refs=("D4:10",),
+        focused_evidence_score=1.0,
+        direct_speaker_turn=True,
+        answerability_score=0.92,
+    )
+    broad_bridge = _candidate(
+        item_id="broad-bridge",
+        retrieval_order=2,
+        dedupe_key="refs:D4:20",
+        covered_evidence_terms=("context",),
+        query_support_terms=("origin", "country"),
+        source_refs=("D4:20",),
+        broad_summary=True,
+        answerability_score=0.88,
+    )
+    clean_near_broad = _candidate(
+        item_id="clean-near-broad",
+        retrieval_order=3,
+        dedupe_key="refs:D4:22",
+        query_support_terms=("move", "support"),
+        source_refs=("D4:22",),
+        focused_evidence_score=1.0,
+        direct_speaker_turn=True,
+        answerability_score=0.84,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=3).plan(
+        (primary, broad_bridge, clean_near_broad),
+        case_group="single",
+    )
+
+    assert [item.candidate.item_id for item in plan.items] == [
+        "primary",
+        "broad-bridge",
+        "clean-near-broad",
+    ]
+    quality = plan.to_diagnostics()["bundle_quality"]
+    assert quality["broad_summary_count"] == 1
+    assert quality["source_proximity_support_count"] == 0
+    assert quality["source_chain_proximity_support_count"] == 0
+    assert quality["source_chain_proximity_distance_counts"] == {}
+    assert "has_source_chain_proximity_support" not in quality["reason_codes"]
+
+
 def _candidate(
     *,
     item_id: str,
