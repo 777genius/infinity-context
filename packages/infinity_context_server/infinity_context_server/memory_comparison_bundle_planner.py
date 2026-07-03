@@ -450,7 +450,13 @@ class EvidenceBundlePlanner:
         )
         if not primary_candidates:
             return None
-        return sorted(primary_candidates, key=_primary_sort_key)[0]
+        non_contrast_candidates = tuple(
+            candidate
+            for candidate in primary_candidates
+            if not _candidate_has_contrast_support(candidate)
+        )
+        candidates_to_rank = non_contrast_candidates or primary_candidates
+        return sorted(candidates_to_rank, key=_primary_sort_key)[0]
 
     def _planned_item(
         self,

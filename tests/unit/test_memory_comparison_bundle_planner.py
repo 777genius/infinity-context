@@ -113,6 +113,53 @@ def test_evidence_bundle_planner_prefers_answer_evidence_over_topic_primary() ->
     assert "answer_evidence" in plan.primary_selection_reason_codes
 
 
+def test_evidence_bundle_planner_keeps_contrast_support_out_of_primary_slot() -> None:
+    primary = _candidate(
+        item_id="career-primary",
+        retrieval_order=1,
+        primary_signal=True,
+        query_support_terms=("caroline", "career"),
+        relation_hits=("current", "career", "path"),
+        entity_hits=("caroline",),
+        direct_speaker_turn=True,
+        query_has_entities=True,
+        answerability_score=0.91,
+        source_locality_score=1.0,
+    )
+    contrast = _candidate(
+        item_id="career-contrast",
+        retrieval_order=2,
+        primary_signal=True,
+        query_support_terms=("caroline", "different"),
+        relation_hits=("current", "path", "different"),
+        entity_hits=("caroline",),
+        direct_speaker_turn=True,
+        query_has_entities=True,
+        contrast_surface=True,
+        currentness_surface=True,
+        stale_surface=True,
+        query_roles=("contrast_support",),
+        answerability_score=0.8,
+        source_locality_score=1.0,
+    )
+
+    plan = EvidenceBundlePlanner().plan(
+        (primary, contrast),
+        case_group="single",
+        required_roles=("primary", "contrast"),
+    )
+
+    assert [item.candidate.item_id for item in plan.items] == [
+        "career-primary",
+        "career-contrast",
+    ]
+    assert {item.candidate.item_id: item.role for item in plan.items} == {
+        "career-primary": "primary",
+        "career-contrast": "contrast",
+    }
+    assert plan.satisfied_required_roles == ("primary", "contrast")
+
+
 def test_evidence_bundle_planner_promotes_unmeasured_direct_turn_to_primary() -> None:
     broad = _candidate(
         item_id="broad-summary",
