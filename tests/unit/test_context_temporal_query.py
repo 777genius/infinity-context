@@ -182,6 +182,12 @@ def test_temporal_query_intent_detects_since_and_until_event_sequences() -> None
     during_review = build_temporal_query_intent(
         "What did we decide during the Atlas review?"
     )
+    russian_during_call = build_temporal_query_intent(
+        "Что Алекс решил во время созвона по Атласу?"
+    )
+    russian_during_meeting = build_temporal_query_intent(
+        "Что Алекс решил в ходе встречи по Атласу?"
+    )
     after_roadtrip = build_temporal_query_intent("What happened after the roadtrip?")
     after_work = build_temporal_query_intent("How does Melanie unwind after work?")
     after_gaming = build_temporal_query_intent(
@@ -214,6 +220,10 @@ def test_temporal_query_intent_detects_since_and_until_event_sequences() -> None
     assert until_review.before_event is True
     assert during_review.during_event is True
     assert during_review.event_sequence_terms == ("atlas",)
+    assert russian_during_call.during_event is True
+    assert russian_during_call.event_sequence_terms == ("атласу",)
+    assert russian_during_meeting.during_event is True
+    assert russian_during_meeting.event_sequence_terms == ("атласу",)
     assert russian_until.before_event is True
     assert russian_after_work.after_event is False
     assert causal_since.after_event is False
@@ -811,6 +821,35 @@ def test_temporal_query_boosts_matching_during_event_context() -> None:
 
     assert intent.during_event is True
     assert intent.event_sequence_terms == ("atlas",)
+    assert boosted[0].score == 0.724
+    assert boosted[0].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for during-event context and item matches event"
+    )
+    assert boosted[1].score == 0.72
+    assert "temporal_query_intent_reason" not in boosted[1].diagnostics
+
+
+def test_temporal_query_boosts_matching_russian_during_event_context() -> None:
+    intent = build_temporal_query_intent("Что Алекс решил во время созвона по Атласу?")
+    matched = _item(
+        "matched",
+        score=0.7,
+        retrieval_source="canonical_anchors",
+        fact_status="active",
+        text="Во время созвона по Атласу Алекс выбрал план запуска.",
+    )
+    distractor = _item(
+        "distractor",
+        score=0.72,
+        retrieval_source="canonical_anchors",
+        fact_status="active",
+        text="После созвона по Атласу Алекс написал заметку.",
+    )
+
+    boosted = apply_temporal_query_intent_boosts((matched, distractor), intent=intent)
+
+    assert intent.during_event is True
+    assert intent.event_sequence_terms == ("атласу",)
     assert boosted[0].score == 0.724
     assert boosted[0].diagnostics["temporal_query_intent_reason"] == (
         "query asks for during-event context and item matches event"

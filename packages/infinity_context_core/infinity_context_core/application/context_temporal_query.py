@@ -306,12 +306,17 @@ _UNTIL_EVENT_RE = re.compile(
     r"\b(?:вплоть\s+до|сразу\s+до|прямо\s+перед)\b",
     re.IGNORECASE,
 )
+_DURING_EVENT_RE = re.compile(
+    r"\b(?:during|while)\b|"
+    r"\b(?:во\s+время|в\s+ходе)\b",
+    re.IGNORECASE,
+)
 _EVENT_SEQUENCE_ANCHOR_RE = re.compile(
     r"\b(?:right\s+after|immediately\s+after|shortly\s+after|after|following|since|"
     r"right\s+before|immediately\s+before|shortly\s+before|before|prior\s+to|until|"
     r"up\s+to|during|while)\b\s+(?P<tail>[^?.!,;:\n]{0,96})|"
     r"\b(?:с\s+момента|сразу\s+после|прямо\s+после|после|позже|затем|"
-    r"вплоть\s+до|сразу\s+до|прямо\s+перед|перед|раньше|до)\b"
+    r"вплоть\s+до|сразу\s+до|прямо\s+перед|перед|раньше|до|во\s+время|в\s+ходе)\b"
     r"\s+(?P<ru_tail>[^?.!,;:\n]{0,96})",
     re.IGNORECASE,
 )
@@ -760,7 +765,9 @@ def _event_sequence_during_boost(*, intent: TemporalQueryIntent, text: str) -> f
     if not intent.during_event:
         return 0.0
     variants = _query_variant_set(text)
-    has_during = bool(variants.intersection(_DURING_TERMS))
+    has_during = bool(_DURING_EVENT_RE.search(text)) or bool(
+        variants.intersection(_DURING_TERMS)
+    )
     has_same_event = _event_sequence_terms_match(text, intent.event_sequence_terms)
     return 0.024 if has_during and has_same_event else 0.0
 
@@ -833,6 +840,10 @@ def _has_before_event_context(text: str, variants: frozenset[str]) -> bool:
 
 
 def _has_during_event_context(text: str, variants: frozenset[str]) -> bool:
+    if bool(_DURING_EVENT_RE.search(text)) and bool(
+        variants.intersection(_EVENT_SEQUENCE_CONTEXT_TERMS)
+    ):
+        return True
     return bool(variants.intersection(_DURING_TERMS)) and bool(
         variants.intersection(_EVENT_SEQUENCE_CONTEXT_TERMS)
     )
