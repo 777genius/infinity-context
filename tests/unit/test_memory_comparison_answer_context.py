@@ -82,6 +82,9 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
                     "planner_reason_codes": ["role:primary", "query_support"],
                     "eligibility_reason_codes": ["query_support_terms"],
                     "query_roles": ["location_support"],
+                    "source_type": "raw_turn",
+                    "source_types": ["raw_turn", "chunk"],
+                    "retrieval_sources": ["raw_turns", "semantic_chunks"],
                     "relation_category_hits": ["location_transition"],
                     "entity_hits": ["caroline"],
                     "speaker_hits": ["caroline"],
@@ -111,6 +114,15 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
     ] == ("query_support_terms",)
     assert context.memories[0].metadata["answer_context_query_roles"] == (
         "location_support",
+    )
+    assert context.memories[0].metadata["answer_context_source_type"] == "raw_turn"
+    assert context.memories[0].metadata["answer_context_source_types"] == (
+        "raw_turn",
+        "chunk",
+    )
+    assert context.memories[0].metadata["answer_context_retrieval_sources"] == (
+        "raw_turns",
+        "semantic_chunks",
     )
     assert context.memories[0].metadata[
         "answer_context_relation_category_hits"

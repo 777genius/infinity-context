@@ -1142,6 +1142,15 @@ def _with_answer_context_metadata(
     query_roles = _string_tuple(bundle_item.get("query_roles"))
     if query_roles:
         metadata["answer_context_query_roles"] = query_roles
+    source_type = str(bundle_item.get("source_type") or "").strip()
+    if source_type:
+        metadata["answer_context_source_type"] = source_type
+    source_types = _string_tuple(bundle_item.get("source_types"))
+    if source_types:
+        metadata["answer_context_source_types"] = source_types
+    retrieval_sources = _string_tuple(bundle_item.get("retrieval_sources"))
+    if retrieval_sources:
+        metadata["answer_context_retrieval_sources"] = retrieval_sources
     relation_category_hits = _string_tuple(bundle_item.get("relation_category_hits"))
     if relation_category_hits:
         metadata["answer_context_relation_category_hits"] = relation_category_hits

@@ -117,6 +117,17 @@ def _render_memory_evidence_line(memory: RetrievedMemory, *, index: int) -> str:
     locality = _prompt_score(metadata.get("answer_context_source_locality_score"))
     if locality is not None:
         labels.append(f"locality={locality}")
+    source_type = str(metadata.get("answer_context_source_type") or "").strip()
+    if source_type:
+        labels.append(f"source_type={source_type}")
+    source_types = _string_sequence(metadata.get("answer_context_source_types"))
+    if source_types:
+        labels.append(f"source_types={','.join(source_types[:3])}")
+    retrieval_sources = _string_sequence(
+        metadata.get("answer_context_retrieval_sources")
+    )
+    if retrieval_sources:
+        labels.append(f"retrieval_sources={','.join(retrieval_sources[:3])}")
     query_roles = _string_sequence(metadata.get("answer_context_query_roles"))
     if query_roles:
         labels.append(f"query_roles={','.join(query_roles[:3])}")

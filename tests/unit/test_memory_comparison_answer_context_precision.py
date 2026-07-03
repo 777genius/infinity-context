@@ -199,6 +199,9 @@ def test_answer_context_diagnostics_count_low_quality_backfill() -> None:
                         "query_roles": ["status_support"],
                         "relation_category_hits": ["status_profile"],
                         "entity_hits": ["alex", "maria"],
+                        "source_type": "raw_turn",
+                        "source_types": ["raw_turn"],
+                        "retrieval_sources": ["keyword_source_sibling_chunks"],
                         "answerability_score": 0.4,
                         "source_locality_score": 0.3,
                     }
@@ -225,3 +228,10 @@ def test_answer_context_diagnostics_count_low_quality_backfill() -> None:
     ]
     assert diagnostics["backfilled_low_answerability_count"] == 1
     assert diagnostics["backfilled_weak_source_locality_count"] == 1
+    assert context.memories[1].metadata["answer_context_source_type"] == "raw_turn"
+    assert context.memories[1].metadata["answer_context_source_types"] == (
+        "raw_turn",
+    )
+    assert context.memories[1].metadata["answer_context_retrieval_sources"] == (
+        "keyword_source_sibling_chunks",
+    )

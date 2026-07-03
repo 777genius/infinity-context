@@ -642,6 +642,8 @@ def _add_backfill_feature_metadata(
             6,
         )
     for source_key, target_key in (
+        ("source_types", "answer_context_source_types"),
+        ("retrieval_sources", "answer_context_retrieval_sources"),
         ("query_roles", "answer_context_query_roles"),
         ("relation_category_hits", "answer_context_relation_category_hits"),
         ("entity_hits", "answer_context_entity_hits"),
@@ -650,6 +652,9 @@ def _add_backfill_feature_metadata(
         values = _string_tuple(features.get(source_key))
         if values:
             metadata[target_key] = values
+    source_type = str(features.get("source_type") or "").strip()
+    if source_type:
+        metadata["answer_context_source_type"] = source_type
     matched_roles = tuple(
         role
         for role in missing_roles
