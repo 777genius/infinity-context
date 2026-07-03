@@ -3680,6 +3680,42 @@ def test_query_decomposition_classifies_currently_recency_queries() -> None:
     ]
 
 
+def test_query_decomposition_classifies_upcoming_without_time_substring_false_positive() -> None:
+    upcoming_case = _case(
+        case_id="conv-1:qa:upcoming-grand-opening",
+        question="What is the general sentiment about the upcoming grand opening?",
+        expected_terms=("excitement",),
+        answer="excitement",
+        category=4,
+    )
+    sentiment_case = _case(
+        case_id="conv-1:qa:sentiment-no-time-token",
+        question="What is Jon's sentiment about dancing?",
+        expected_terms=("positive",),
+        answer="positive",
+        category=4,
+    )
+
+    upcoming_queries, upcoming_metadata = rerank_module.decomposed_search_queries(
+        upcoming_case
+    )
+    _, sentiment_metadata = rerank_module.decomposed_search_queries(sentiment_case)
+
+    assert upcoming_metadata["query_profile"]["time_intent_kind"] == "relative_time"
+    assert "upcoming" in upcoming_metadata["query_profile"]["temporal_terms"]
+    assert "time" not in upcoming_metadata["query_profile"]["temporal_terms"]
+    assert "relative_temporal_support" in upcoming_metadata["query_plan"][
+        "selected_roles"
+    ]
+    assert upcoming_queries[-1] == "upcoming session date time"
+
+    assert sentiment_metadata["query_profile"]["time_intent_kind"] == "none"
+    assert "time" not in sentiment_metadata["query_profile"]["temporal_terms"]
+    assert "temporal_support" not in sentiment_metadata["query_plan"][
+        "selected_role_families"
+    ]
+
+
 def test_query_decomposition_classifies_relative_weekday_phrases() -> None:
     case = _case(
         case_id="conv-1:qa:last-friday-date",

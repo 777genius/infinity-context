@@ -245,6 +245,7 @@ _RELATIVE_TIME_TERMS = (
             "tomorrow evening",
             "tomorrow morning",
             "tomorrow",
+            "upcoming",
             "upcoming event",
             "yesterday afternoon",
             "yesterday evening",

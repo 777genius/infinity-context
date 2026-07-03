@@ -325,6 +325,7 @@ _TEMPORAL_QUERY_TERMS = (
     "tonight",
     "earliest event",
     "latest event",
+    "upcoming",
     "upcoming event",
     "last night",
     "this morning",
@@ -2023,7 +2024,18 @@ def _temporal_query_profile(case: PublicBenchmarkCase) -> dict[str, object]:
 
 
 def _contains_temporal_query_term(query: str, term: str) -> bool:
-    if term not in {"after", "afterward", "afterwards", "before", "during", "since"}:
+    if term == "date":
+        return bool(re.search(r"\b(?:date|birthdate)\b", query))
+    if term == "time":
+        return bool(re.search(r"\btimes?\b", query))
+    if term not in {
+        "after",
+        "afterward",
+        "afterwards",
+        "before",
+        "during",
+        "since",
+    }:
         return term in query
     escaped = re.escape(term)
     return bool(re.search(rf"(?<![a-z0-9]){escaped}(?![a-z0-9])", query))
