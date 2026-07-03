@@ -36,6 +36,7 @@ class BackfillResult:
     """Answer-context backfill counts used for safe retrieval diagnostics."""
 
     backfilled_count: int = 0
+    precise_source_overlap_count: int = 0
     skipped_redundant_risky_count: int = 0
     skipped_redundant_source_count: int = 0
     skipped_redundant_role_count: int = 0
@@ -68,6 +69,7 @@ def backfill_incomplete_bundle_context(
     )
     original_selected_turn_refs = selected_turn_refs
     backfilled_count = 0
+    precise_source_overlap_count = 0
     skipped_redundant_risky_count = 0
     skipped_redundant_source_count = 0
     skipped_redundant_role_count = 0
@@ -98,18 +100,21 @@ def backfill_incomplete_bundle_context(
             and source_proximity_distance <= _SOURCE_PROXIMITY_WINDOW
             and _memory_has_source_proximity_support(memory, features)
         )
+        precise_source_overlap = (
+            bool(role_hits)
+            and source_proximate
+            and bool(source_match_refs.intersection(selected_source_match_refs))
+            and not bool(
+                precise_source_match_refs.intersection(
+                    selected_precise_source_match_refs
+                )
+            )
+        )
         selected_source_duplicate = (
             bool(role_hits)
             and bool(source_match_refs)
             and bool(source_match_refs.intersection(selected_source_match_refs))
-            and not (
-                source_proximate
-                and not bool(
-                    precise_source_match_refs.intersection(
-                        selected_precise_source_match_refs
-                    )
-                )
-            )
+            and not precise_source_overlap
             and not memory_has_broad_summary(memory, features)
         )
         if selected_source_duplicate:
@@ -154,6 +159,7 @@ def backfill_incomplete_bundle_context(
                 original_selected_turn_refs=original_selected_turn_refs,
                 selected_turn_refs=selected_turn_refs,
                 retrieval_order=retrieval_order,
+                precise_source_overlap=precise_source_overlap,
             )
         )
         covered_roles.update(role_hits)
@@ -164,8 +170,11 @@ def backfill_incomplete_bundle_context(
             dict.fromkeys((*selected_turn_refs, *_memory_turn_refs(memory)))
         )
         backfilled_count += 1
+        if precise_source_overlap:
+            precise_source_overlap_count += 1
     return BackfillResult(
         backfilled_count=backfilled_count,
+        precise_source_overlap_count=precise_source_overlap_count,
         skipped_redundant_risky_count=skipped_redundant_risky_count,
         skipped_redundant_source_count=skipped_redundant_source_count,
         skipped_redundant_role_count=skipped_redundant_role_count,
@@ -609,6 +618,7 @@ def _with_retrieval_backfill_metadata(
     original_selected_turn_refs: Sequence[tuple[int, int]],
     selected_turn_refs: Sequence[tuple[int, int]],
     retrieval_order: int,
+    precise_source_overlap: bool = False,
 ) -> RetrievedMemory:
     metadata = dict(memory.metadata)
     metadata["answer_context_retrieval_order"] = retrieval_order
@@ -622,6 +632,9 @@ def _with_retrieval_backfill_metadata(
     ]
     if role_score > 0:
         reason_codes.append("missing_role_support")
+    if precise_source_overlap:
+        reason_codes.append("precise_source_overlap_support")
+        metadata["answer_context_backfill_precise_source_overlap"] = True
     source_proximity_distance = _source_proximity_distance(
         memory,
         selected_turn_refs=selected_turn_refs,

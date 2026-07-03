@@ -382,6 +382,7 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
         "skipped_duplicate_source_bundle_item_count": 0,
         "skipped_noisy_overlap_bundle_item_count": 0,
         "backfilled_retrieval_item_count": 1,
+        "backfilled_precise_source_overlap_count": 0,
         "skipped_redundant_risky_backfill_count": 0,
         "skipped_redundant_source_backfill_count": 0,
         "skipped_redundant_role_backfill_count": 0,
@@ -2159,6 +2160,7 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
                             "skipped_duplicate_source_bundle_item_count": 1,
                             "skipped_noisy_overlap_bundle_item_count": 1,
                             "backfilled_retrieval_item_count": 1,
+                            "backfilled_precise_source_overlap_count": 1,
                             "skipped_redundant_risky_backfill_count": 1,
                             "skipped_redundant_source_backfill_count": 1,
                             "skipped_redundant_role_backfill_count": 1,
@@ -2258,6 +2260,8 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
     assert metrics["primary_total_skipped_noisy_overlap_bundle_item_count"] == 1
     assert metrics["primary_avg_skipped_noisy_overlap_bundle_item_count"] == 0.5
     assert metrics["primary_total_backfilled_low_answerability_count"] == 1
+    assert metrics["primary_total_backfilled_precise_source_overlap_count"] == 1
+    assert metrics["primary_avg_backfilled_precise_source_overlap_count"] == 0.5
     assert metrics["primary_avg_backfilled_low_answerability_count"] == 0.5
     assert metrics["primary_total_backfilled_weak_source_locality_count"] == 1
     assert metrics["primary_avg_backfilled_weak_source_locality_count"] == 0.5
@@ -2341,6 +2345,8 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
     assert primary["fallback_context_count"] == 1
     assert primary["avg_backfilled_retrieval_item_count"] == 0.5
     assert primary["total_backfilled_retrieval_item_count"] == 1
+    assert primary["avg_backfilled_precise_source_overlap_count"] == 0.5
+    assert primary["total_backfilled_precise_source_overlap_count"] == 1
     assert primary["avg_skipped_redundant_risky_backfill_count"] == 0.5
     assert primary["total_skipped_redundant_risky_backfill_count"] == 1
     assert primary["avg_skipped_redundant_source_backfill_count"] == 0.5

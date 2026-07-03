@@ -40,6 +40,7 @@ class AnswerContext:
     skipped_duplicate_source_bundle_item_count: int = 0
     skipped_noisy_overlap_bundle_item_count: int = 0
     backfilled_retrieval_item_count: int = 0
+    backfilled_precise_source_overlap_count: int = 0
     skipped_redundant_risky_backfill_count: int = 0
     skipped_redundant_source_backfill_count: int = 0
     skipped_redundant_role_backfill_count: int = 0
@@ -103,6 +104,9 @@ class AnswerContext:
                 self.skipped_noisy_overlap_bundle_item_count
             ),
             "backfilled_retrieval_item_count": self.backfilled_retrieval_item_count,
+            "backfilled_precise_source_overlap_count": (
+                self.backfilled_precise_source_overlap_count
+            ),
             "skipped_redundant_risky_backfill_count": (
                 self.skipped_redundant_risky_backfill_count
             ),
@@ -286,6 +290,7 @@ def answer_context_from_evidence_bundle(
 
     bundle_selected_count = len(selected)
     backfilled_count = 0
+    backfilled_precise_source_overlap_count = 0
     skipped_redundant_risky_backfill_count = 0
     skipped_redundant_source_backfill_count = 0
     skipped_redundant_role_backfill_count = 0
@@ -298,6 +303,9 @@ def answer_context_from_evidence_bundle(
             bounded_cutoff=bounded_cutoff,
         )
         backfilled_count = backfill_result.backfilled_count
+        backfilled_precise_source_overlap_count = (
+            backfill_result.precise_source_overlap_count
+        )
         skipped_redundant_risky_backfill_count = (
             backfill_result.skipped_redundant_risky_count
         )
@@ -344,6 +352,9 @@ def answer_context_from_evidence_bundle(
         skipped_duplicate_source_bundle_item_count=skipped_duplicate_source,
         skipped_noisy_overlap_bundle_item_count=skipped_noisy_overlap,
         backfilled_retrieval_item_count=backfilled_count,
+        backfilled_precise_source_overlap_count=(
+            backfilled_precise_source_overlap_count
+        ),
         skipped_redundant_risky_backfill_count=(
             skipped_redundant_risky_backfill_count
         ),
@@ -665,6 +676,16 @@ def answer_context_metrics(
             _positive_int(primary.get("total_backfilled_low_answerability_count"))
             or 0
         ),
+        "primary_total_backfilled_precise_source_overlap_count": (
+            _positive_int(
+                primary.get("total_backfilled_precise_source_overlap_count")
+            )
+            or 0
+        ),
+        "primary_avg_backfilled_precise_source_overlap_count": _metric_value(
+            primary,
+            "avg_backfilled_precise_source_overlap_count",
+        ),
         "primary_avg_backfilled_low_answerability_count": _metric_value(
             primary,
             "avg_backfilled_low_answerability_count",
@@ -876,6 +897,7 @@ def _answer_context_cutoff_metrics(
     skipped_redundant_role_backfill_counts: list[int] = []
     backfilled_broad_summary_counts: list[int] = []
     backfilled_conflict_or_stale_counts: list[int] = []
+    backfilled_precise_source_overlap_counts: list[int] = []
     backfilled_low_answerability_counts: list[int] = []
     backfilled_weak_source_locality_counts: list[int] = []
     backfilled_source_proximity_support_counts: list[int] = []
@@ -989,6 +1011,12 @@ def _answer_context_cutoff_metrics(
         )
         backfilled_conflict_or_stale_counts.append(
             _positive_int(context.get("backfilled_conflict_or_stale_count")) or 0
+        )
+        backfilled_precise_source_overlap_counts.append(
+            _positive_int(
+                context.get("backfilled_precise_source_overlap_count")
+            )
+            or 0
         )
         backfilled_low_answerability_counts.append(
             _positive_int(context.get("backfilled_low_answerability_count")) or 0
@@ -1237,6 +1265,12 @@ def _answer_context_cutoff_metrics(
         ),
         "total_backfilled_conflict_or_stale_count": sum(
             backfilled_conflict_or_stale_counts
+        ),
+        "total_backfilled_precise_source_overlap_count": sum(
+            backfilled_precise_source_overlap_counts
+        ),
+        "avg_backfilled_precise_source_overlap_count": _avg(
+            backfilled_precise_source_overlap_counts
         ),
         "total_backfilled_low_answerability_count": sum(
             backfilled_low_answerability_counts

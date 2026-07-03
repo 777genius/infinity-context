@@ -342,11 +342,13 @@ def test_answer_context_backfill_keeps_precise_sibling_after_compacted_primary()
         "status-sibling",
     ]
     assert context.backfilled_retrieval_item_count == 1
+    assert context.backfilled_precise_source_overlap_count == 1
     assert context.skipped_redundant_source_backfill_count == 0
     assert context.memories[1].metadata["answer_context_reason_codes"] == (
         "incomplete_bundle_backfill",
         "retrieval_slice_support",
         "missing_role_support",
+        "precise_source_overlap_support",
         "source_proximity_support",
     )
 
@@ -403,6 +405,7 @@ def test_answer_context_backfill_keeps_precise_support_inside_broad_primary_refs
         "status-turn",
     ]
     assert context.backfilled_retrieval_item_count == 1
+    assert context.backfilled_precise_source_overlap_count == 1
     assert context.skipped_redundant_source_backfill_count == 0
 
 
