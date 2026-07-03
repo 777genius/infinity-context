@@ -171,6 +171,55 @@ def test_person_relation_inventory_signal_matches_named_person_classmate() -> No
     assert signal.reason == "person_relation_inventory_match"
 
 
+def test_person_relation_inventory_signal_requires_specific_relation_target() -> None:
+    exact = person_relation_inventory_signal(
+        query="Is Maria Alice's boss?",
+        text="D4:8 Alice: Maria is my boss at the clinic.",
+    )
+    wrong_target = person_relation_inventory_signal(
+        query="Is Maria Alice's boss?",
+        text="D4:8 Alice: Ben is my boss at the clinic.",
+    )
+
+    assert exact.boost > 0
+    assert exact.reason == "person_relation_inventory_match"
+    assert wrong_target.penalty > 0
+    assert wrong_target.reason == "person_relation_inventory_target_mismatch"
+
+
+def test_person_relation_inventory_signal_matches_specific_target_alias() -> None:
+    signal = person_relation_inventory_signal(
+        query="Is Maria Lee Alice's doctor?",
+        text="D4:8 Alice: Maria is my doctor at the clinic.",
+    )
+
+    assert signal.boost > 0
+    assert signal.reason == "person_relation_inventory_match"
+
+
+def test_person_relation_inventory_signal_matches_specific_work_target() -> None:
+    signal = person_relation_inventory_signal(
+        query="Does Alice work with Maria?",
+        text="D4:8 Alice: I collaborate with Maria on the mobile team.",
+    )
+
+    assert signal.boost > 0
+    assert signal.reason == "person_relation_inventory_match"
+
+
+def test_query_expansion_covers_specific_relation_target_questions() -> None:
+    plan = build_query_expansion_plan("Is Maria Alice's boss?")
+
+    expansion = next(
+        item
+        for item in plan.expansions
+        if item.reason == "person_relation_inventory_bridge"
+    )
+    assert "Alice" in expansion.query
+    assert "Maria" in expansion.query
+    assert "boss supervisor" in expansion.query
+
+
 def test_deterministic_rerank_prefers_person_relation_evidence() -> None:
     query = "Who works with Alice?"
     plan = build_query_expansion_plan(query)
@@ -201,6 +250,42 @@ def test_deterministic_rerank_prefers_person_relation_evidence() -> None:
     assert (
         "person_relation_inventory_anchor_only"
         in reranked[1].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+
+
+def test_deterministic_rerank_prefers_specific_relation_target_evidence() -> None:
+    query = "Is Maria Alice's boss?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    exact_target = _item(
+        "exact_target",
+        score=0.7,
+        text="D4:8 Alice: Maria is my boss at the clinic.",
+    )
+    wrong_target = _item(
+        "wrong_target",
+        score=0.72,
+        text="D4:9 Alice: Ben is my boss at the clinic.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (wrong_target, exact_target),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert by_id["exact_target"].score > by_id["wrong_target"].score
+    assert (
+        "person_relation_inventory_match"
+        in by_id["exact_target"]
+        .diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+    assert (
+        "person_relation_inventory_target_mismatch"
+        in by_id["wrong_target"]
+        .diagnostics["provenance"]["deterministic_rerank_reasons"]
     )
 
 

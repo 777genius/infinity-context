@@ -30,6 +30,7 @@ class PersonRelationInventorySignal(NamedTuple):
 class _PersonRelationQuery:
     anchor_label: str
     kind: PersonRelationKind
+    target_label: str | None = None
 
 
 _LABEL_RE = (
@@ -72,6 +73,43 @@ _OF_RELATION_QUERY_RE = re.compile(
     rf"(?P<anchor>{_LABEL_RE})\b",
     re.IGNORECASE,
 )
+_TARGET_POSSESSIVE_RELATION_QUERY_RE = re.compile(
+    rf"(?<!who\s)\b(?:is|are|was|were)\s+(?P<target>{_LABEL_RE})\s+"
+    rf"(?P<anchor>{_LABEL_RE})(?:'s|s')?\s+"
+    rf"(?P<relation>friends?|family|relatives?|coworkers?|co-workers?|"
+    rf"colleagues?|teammates?|team\s+members?|managers?|mentors?|boss|bosses|"
+    rf"supervisors?|coach(?:es)?|trainers?|teachers?|tutors?|classmates?|"
+    rf"schoolmates?|roommates?|"
+    rf"neighbors?|neighbours?|doctors?|dentists?|therapists?|counsellors?|"
+    rf"counselors?|partner|spouse|husband|wife|siblings?|parents?|children|kids)\b",
+    re.IGNORECASE,
+)
+_TARGET_OF_RELATION_QUERY_RE = re.compile(
+    rf"(?<!who\s)\b(?:is|are|was|were)\s+(?P<target>{_LABEL_RE})\s+(?:the\s+)?"
+    rf"(?P<relation>friends?|family|relatives?|coworkers?|co-workers?|"
+    rf"colleagues?|teammates?|team\s+members?|managers?|mentors?|boss|bosses|"
+    rf"supervisors?|coach(?:es)?|trainers?|teachers?|tutors?|classmates?|"
+    rf"schoolmates?|roommates?|"
+    rf"neighbors?|neighbours?|doctors?|dentists?|therapists?|counsellors?|"
+    rf"counselors?|partner|spouse|husband|wife|siblings?|parents?|children|kids)\s+"
+    rf"(?:with|of|to|for)\s+(?P<anchor>{_LABEL_RE})\b",
+    re.IGNORECASE,
+)
+_TARGET_WORK_WITH_QUERY_RE = re.compile(
+    rf"\b(?:does|did)\s+(?P<anchor>{_LABEL_RE})\s+"
+    rf"(?:work|collaborate|partner|team\s+up)\s+(?:with|alongside)\s+"
+    rf"(?P<target>{_LABEL_RE})\b",
+    re.IGNORECASE,
+)
+_TARGET_GENERIC_RELATION_QUERY_RE = re.compile(
+    rf"\bwhat\s+(?:is|was|are|were)\s+(?P<anchor>{_LABEL_RE})(?:'s|s')?\s+"
+    rf"(?:relationship|relation|connection)\s+(?:to|with)\s+"
+    rf"(?P<target>{_LABEL_RE})\b|"
+    rf"\bhow\s+(?:is|are|was|were)\s+(?P<anchor_alt>{_LABEL_RE})\s+"
+    rf"(?:connected|related|linked|associated)\s+(?:to|with)\s+"
+    rf"(?P<target_alt>{_LABEL_RE})\b",
+    re.IGNORECASE,
+)
 _GENERIC_RELATION_QUERY_RE = re.compile(
     rf"\bwho\s+(?:is|are|was|were)\s+(?P<anchor>{_LABEL_RE})\s+"
     rf"(?:connected|related|linked|associated)\s+(?:to|with)\b",
@@ -88,7 +126,7 @@ _FRIEND_CUE_RE = re.compile(
     re.IGNORECASE,
 )
 _WORK_CUE_RE = re.compile(
-    r"\b(?:work(?:s|ed|ing)?\s+(?:with|alongside)|collaborat(?:es|ed|ing)?|"
+    r"\b(?:work(?:s|ed|ing)?\s+(?:with|alongside)|collaborat(?:e|es|ed|ing)|"
     r"partner(?:s|ed|ing)?|coworker|co-worker|colleague|teammate|team\s+member|"
     r"manager|mentor|boss|reports?\s+to|supervisor)\b",
     re.IGNORECASE,
@@ -115,8 +153,16 @@ def person_relation_inventory_signal(
         return PersonRelationInventorySignal()
     if _text_satisfies_relation_query(relation_query, text):
         return PersonRelationInventorySignal(
-            boost=0.022,
+            boost=0.03 if relation_query.target_label else 0.022,
             reason="person_relation_inventory_match",
+        )
+    if relation_query.target_label and _text_mentions_anchor_relation_without_target(
+        relation_query,
+        text,
+    ):
+        return PersonRelationInventorySignal(
+            penalty=0.04,
+            reason="person_relation_inventory_target_mismatch",
         )
     if _text_mentions_anchor(relation_query.anchor_label, text):
         return PersonRelationInventorySignal(
@@ -127,6 +173,39 @@ def person_relation_inventory_signal(
 
 
 def _person_relation_query(query: str) -> _PersonRelationQuery | None:
+    work_target_match = _TARGET_WORK_WITH_QUERY_RE.search(query)
+    if work_target_match is not None:
+        return _query_for_anchor(
+            _clean_label(work_target_match.group("anchor")),
+            PersonRelationKind.WORK,
+            target=_clean_label(work_target_match.group("target")),
+        )
+    for pattern in (_TARGET_POSSESSIVE_RELATION_QUERY_RE, _TARGET_OF_RELATION_QUERY_RE):
+        match = pattern.search(query)
+        if match is None:
+            continue
+        relation_query = _query_for_anchor(
+            _clean_label(match.group("anchor")),
+            _kind_for_relation(match.group("relation")),
+            target=_clean_label(match.group("target")),
+        )
+        if relation_query is not None:
+            return relation_query
+    generic_target_match = _TARGET_GENERIC_RELATION_QUERY_RE.search(query)
+    if generic_target_match is not None:
+        return _query_for_anchor(
+            _clean_label(
+                generic_target_match.group("anchor")
+                or generic_target_match.group("anchor_alt")
+                or ""
+            ),
+            PersonRelationKind.GENERIC,
+            target=_clean_label(
+                generic_target_match.group("target")
+                or generic_target_match.group("target_alt")
+                or ""
+            ),
+        )
     work_match = _WORK_WITH_QUERY_RE.search(query)
     if work_match is not None:
         anchor = _clean_label(
@@ -153,10 +232,22 @@ def _person_relation_query(query: str) -> _PersonRelationQuery | None:
 def _query_for_anchor(
     anchor: str,
     kind: PersonRelationKind,
+    *,
+    target: str | None = None,
 ) -> _PersonRelationQuery | None:
     if not anchor or _normalized_label(anchor) in _QUERY_LABEL_STOP_WORDS:
         return None
-    return _PersonRelationQuery(anchor_label=anchor, kind=kind)
+    cleaned_target = _clean_label(target or "")
+    if cleaned_target and (
+        _normalized_label(cleaned_target) in _QUERY_LABEL_STOP_WORDS
+        or person_labels_match(cleaned_target, anchor)
+    ):
+        cleaned_target = ""
+    return _PersonRelationQuery(
+        anchor_label=anchor,
+        kind=kind,
+        target_label=cleaned_target or None,
+    )
 
 
 def _kind_for_relation(relation: str) -> PersonRelationKind:
@@ -208,11 +299,32 @@ def _text_satisfies_relation_query(
             continue
         if not _relation_cue(relation_query.kind).search(sentence):
             continue
+        if relation_query.target_label is not None:
+            return _text_mentions_anchor(relation_query.target_label, sentence)
         if _has_distinct_named_person(
             sentence,
             relation_query.anchor_label,
         ) or _has_kinship_common_person(sentence):
             return True
+    return False
+
+
+def _text_mentions_anchor_relation_without_target(
+    relation_query: _PersonRelationQuery,
+    text: str,
+) -> bool:
+    if relation_query.target_label is None:
+        return False
+    normalized_text = _HONORIFIC_PERIOD_RE.sub(r"\1", text)
+    for sentence_match in _SENTENCE_RE.finditer(normalized_text):
+        sentence = sentence_match.group(0)
+        if not _text_mentions_anchor(relation_query.anchor_label, sentence):
+            continue
+        if not _relation_cue(relation_query.kind).search(sentence):
+            continue
+        if _text_mentions_anchor(relation_query.target_label, sentence):
+            continue
+        return True
     return False
 
 
