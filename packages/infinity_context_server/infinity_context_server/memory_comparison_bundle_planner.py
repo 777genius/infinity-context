@@ -1623,6 +1623,8 @@ def _bundle_quality_diagnostics(
             "source_ref_item_count": 0,
             "source_identity_item_count": 0,
             "source_identity_ref_count": 0,
+            "source_identity_support_item_count": 0,
+            "source_identity_support_ref_count": 0,
             "source_type_diversity": 0,
             "retrieval_source_diversity": 0,
             "low_answerability_count": 0,
@@ -1675,6 +1677,15 @@ def _bundle_quality_diagnostics(
     source_identity_refs = tuple(_source_identity_refs(item.candidate) for item in items)
     source_identity_item_count = sum(1 for refs in source_identity_refs if refs)
     source_identity_ref_count = sum(len(refs) for refs in source_identity_refs)
+    source_identity_support_refs = tuple(
+        refs
+        for item, refs in zip(items, source_identity_refs, strict=False)
+        if refs and _candidate_has_source_identity_quality_support(item.candidate)
+    )
+    source_identity_support_item_count = len(source_identity_support_refs)
+    source_identity_support_ref_count = sum(
+        len(refs) for refs in source_identity_support_refs
+    )
     source_types = {
         source_type
         for item in items
@@ -1763,7 +1774,7 @@ def _bundle_quality_diagnostics(
             0.16,
             (0.08 * focused_count) + (0.08 * direct_speaker_count),
         ),
-        "source_refs": min(0.16, 0.08 * source_identity_item_count),
+        "source_refs": min(0.16, 0.08 * source_identity_support_item_count),
         "source_diversity": (
             (0.06 if len(source_types) >= 2 else 0.0)
             + (0.06 if len(retrieval_sources) >= 2 else 0.0)
@@ -1861,6 +1872,8 @@ def _bundle_quality_diagnostics(
         "source_ref_item_count": source_ref_item_count,
         "source_identity_item_count": source_identity_item_count,
         "source_identity_ref_count": source_identity_ref_count,
+        "source_identity_support_item_count": source_identity_support_item_count,
+        "source_identity_support_ref_count": source_identity_support_ref_count,
         "source_type_diversity": len(source_types),
         "retrieval_source_diversity": len(retrieval_sources),
         "average_answerability_score": round(avg_answerability, 6),
@@ -2010,6 +2023,12 @@ def _candidate_has_source_proximity_diagnostic_support(
     if _is_measured_low_answerability(candidate.answerability_score):
         return False
     return True
+
+
+def _candidate_has_source_identity_quality_support(
+    candidate: EvidenceBundleCandidate,
+) -> bool:
+    return _candidate_has_source_proximity_diagnostic_support(candidate)
 
 
 def _candidate_has_noisy_source_overlap_risk(

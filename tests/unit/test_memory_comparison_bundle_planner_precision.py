@@ -88,6 +88,9 @@ def test_evidence_bundle_quality_does_not_reward_noisy_source_proximity() -> Non
     assert quality["source_proximity_support_count"] == 0
     assert quality["source_proximity_closest_distance"] is None
     assert quality["component_scores"]["source_proximity"] == 0.0
+    assert quality["source_identity_item_count"] == 2
+    assert quality["source_identity_support_item_count"] == 1
+    assert quality["component_scores"]["source_refs"] == 0.08
     assert "has_source_proximity_support" not in quality["reason_codes"]
     assert "risk:broad_summary" in quality["reason_codes"]
 
