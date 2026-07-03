@@ -136,6 +136,46 @@ EXPANSION_RULES_PART_1: tuple[tuple[frozenset[str], str, str], ...] = (
             "relationship_origin_bridge",
         ),
     (
+            frozenset({"know", "each", "other"}),
+            (
+                "relationship origin first met meet meeting introduced got to know "
+                "known each other since where when how through school college work event friend"
+            ),
+            "relationship_origin_bridge",
+        ),
+    (
+            frozenset({"get", "know"}),
+            (
+                "relationship origin first met meet meeting introduced got to know "
+                "known each other since where when how through school college work event friend"
+            ),
+            "relationship_origin_bridge",
+        ),
+    (
+            frozenset({"become", "friends"}),
+            (
+                "relationship origin became friends first met meet meeting introduced "
+                "known since where when how through school college work event"
+            ),
+            "relationship_origin_bridge",
+        ),
+    (
+            frozenset({"where", "introduced"}),
+            (
+                "relationship origin first introduced met meet meeting known since "
+                "where when how at in during through school college work event place"
+            ),
+            "relationship_origin_bridge",
+        ),
+    (
+            frozenset({"first", "encounter"}),
+            (
+                "relationship origin first encounter first met meet meeting introduced "
+                "known since where when how at in during through school college work event"
+            ),
+            "relationship_origin_bridge",
+        ),
+    (
             frozenset({"где", "познакомились"}),
             (
                 "где когда как впервые познакомились встретились знакомы с школа "

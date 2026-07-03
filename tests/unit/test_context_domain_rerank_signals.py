@@ -21,6 +21,7 @@ from infinity_context_core.application.context_domain_rerank_signals import (
     post_event_emotion_rerank_signal,
     recommendation_followup_rerank_signal,
     relationship_duration_rerank_signal,
+    relationship_origin_rerank_signal,
     relationship_status_rerank_signal,
     state_transition_rerank_signal,
     support_network_rerank_signal,
@@ -1040,6 +1041,47 @@ def test_relationship_duration_signal_prefers_duration_over_generic_relation() -
     assert exact_signal.reason == "relationship_duration_exact_evidence"
     assert generic_signal.penalty > 0
     assert generic_signal.reason == "relationship_duration_weak_evidence"
+
+
+def test_relationship_origin_signal_covers_formation_phrasing() -> None:
+    exact_cases = (
+        "Alex met Maria at college during orientation.",
+        "Alex and Maria met while volunteering at the shelter.",
+        "Riley met this amazing woman, Harper, while volunteering.",
+        "Caroline introduced Maria to Alex at the Atlas meetup.",
+        "Alex and Maria got to know each other through the college film club.",
+        "Alex got to know Maria during the college film club.",
+        "Alex and Maria became friends after a neighborhood fundraiser.",
+        "Alex and Maria's first encounter was at the Atlas meetup.",
+    )
+    for text in exact_cases:
+        signal = relationship_origin_rerank_signal(
+            query_reason="relationship_origin_bridge",
+            item=_item(
+                "origin",
+                text=text,
+                query_expansion_reason="relationship_origin_bridge",
+            ),
+            relevance=_relevance(distinctive_term_hits=5, unique_term_hits=5),
+        )
+
+        assert signal.boost > 0
+        assert signal.reason == "relationship_origin_exact_evidence"
+
+
+def test_relationship_origin_signal_does_not_treat_goal_completion_as_origin() -> None:
+    signal = relationship_origin_rerank_signal(
+        query_reason="relationship_origin_bridge",
+        item=_item(
+            "goal_completion",
+            text="Alex met the deadline at work and thanked Maria for reviewing it.",
+            query_expansion_reason="relationship_origin_bridge",
+        ),
+        relevance=_relevance(distinctive_term_hits=5, unique_term_hits=5),
+    )
+
+    assert signal.boost == 0
+    assert signal.reason != "relationship_origin_exact_evidence"
 
 
 def test_state_transition_signal_prefers_explicit_transition_pair_over_topic_note() -> None:

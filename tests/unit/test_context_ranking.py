@@ -6690,6 +6690,63 @@ def test_deterministic_rerank_prefers_relationship_origin_over_generic_relation(
     )
 
 
+def test_deterministic_rerank_prefers_relationship_formation_phrasing() -> None:
+    cases = (
+        (
+            "How do Alex and Maria know each other?",
+            "alex_maria_got_to_know",
+            "Alex and Maria got to know each other through the college film club.",
+        ),
+        (
+            "How did Alex get to know Maria?",
+            "alex_got_to_know_maria",
+            "Alex got to know Maria during the college film club.",
+        ),
+        (
+            "What was Alex and Maria's first encounter?",
+            "alex_maria_first_encounter",
+            "Alex and Maria's first encounter was at the Atlas meetup.",
+        ),
+        (
+            "Where was Alex first introduced to Maria?",
+            "alex_maria_introduced",
+            "Caroline introduced Alex to Maria at the Atlas meetup.",
+        ),
+    )
+
+    for query, origin_id, origin_text in cases:
+        plan = build_query_expansion_plan(query)
+        intent = build_query_anchor_intent(query)
+        generic = _item(
+            f"{origin_id}_generic",
+            score=0.75,
+            retrieval_source="keyword_chunks",
+            text="Alex's old friend from school is Maria.",
+        )
+        origin = _item(
+            origin_id,
+            score=0.72,
+            retrieval_source="keyword_chunks",
+            text=origin_text,
+        )
+
+        reranked = apply_deterministic_rerank_adjustments(
+            (generic, origin),
+            query=query,
+            plan=plan,
+            query_anchor_intent=intent,
+        )
+        by_id = {item.item_id: item for item in reranked}
+
+        assert by_id[origin_id].score > by_id[generic.item_id].score
+        assert (
+            "relationship_origin_exact_evidence"
+            in by_id[origin_id].diagnostics["provenance"][
+                "deterministic_rerank_reasons"
+            ]
+        )
+
+
 def test_deterministic_rerank_prefers_russian_relationship_origin_evidence() -> None:
     query = "Где Алекс познакомился с Марией?"
     plan = build_query_expansion_plan(query)

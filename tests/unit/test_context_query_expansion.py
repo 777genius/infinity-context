@@ -525,6 +525,19 @@ def test_query_expansion_covers_future_conference_and_duration_answers() -> None
     known_since_when = build_query_expansion_plan("Since when has Alex known Maria?")
     where_met = build_query_expansion_plan("Where did Alex meet Maria?")
     how_met = build_query_expansion_plan("How did Alex and Maria meet?")
+    know_each_other_origin = build_query_expansion_plan(
+        "How do Alex and Maria know each other?"
+    )
+    get_to_know_origin = build_query_expansion_plan("How did Alex get to know Maria?")
+    became_friends_origin = build_query_expansion_plan(
+        "How did Alex and Maria become friends?"
+    )
+    first_encounter_origin = build_query_expansion_plan(
+        "What was Alex and Maria's first encounter?"
+    )
+    introduced_origin = build_query_expansion_plan(
+        "Where was Alex first introduced to Maria?"
+    )
     russian_where_met = build_query_expansion_plan("Где Алекс познакомился с Марией?")
     russian_when_met = build_query_expansion_plan("Когда Алекс впервые встретил Марию?")
 
@@ -566,6 +579,26 @@ def test_query_expansion_covers_future_conference_and_duration_answers() -> None
     )
     assert "introduced known since" in _expansion_query(
         how_met,
+        "relationship_origin_bridge",
+    )
+    assert "got to know known each other since" in _expansion_query(
+        know_each_other_origin,
+        "relationship_origin_bridge",
+    )
+    assert "got to know known each other since" in _expansion_query(
+        get_to_know_origin,
+        "relationship_origin_bridge",
+    )
+    assert "relationship origin became friends first met" in _expansion_query(
+        became_friends_origin,
+        "relationship_origin_bridge",
+    )
+    assert "relationship origin first encounter first met" in _expansion_query(
+        first_encounter_origin,
+        "relationship_origin_bridge",
+    )
+    assert "relationship origin first introduced met" in _expansion_query(
+        introduced_origin,
         "relationship_origin_bridge",
     )
     assert "впервые познакомились встретились" in _expansion_query(

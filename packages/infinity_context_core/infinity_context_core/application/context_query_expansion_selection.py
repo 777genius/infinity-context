@@ -574,6 +574,9 @@ def _requests_relationship_origin(raw_tokens: set[str]) -> bool:
         {
             "introduced",
             "introduce",
+            "become",
+            "encounter",
+            "know",
             "known",
             "meet",
             "met",
