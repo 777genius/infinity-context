@@ -1185,12 +1185,19 @@ def temporal_rerank_memories(
             "reranked_memory_count": 0,
         }
     timestamp_order_boosts = _temporal_timestamp_order_boosts(memories, profile)
+    session_order_boosts = _temporal_session_order_boosts(
+        memories,
+        profile,
+        timestamp_order_boosts=timestamp_order_boosts,
+    )
     reranked = [
         _with_temporal_rerank_boost(
             memory,
             timestamp_order_boost=timestamp_order_boosts.get(index, 0.0),
+            session_order_boost=session_order_boosts.get(index, 0.0),
         )
         if _memory_timestamp_values(memory)
+        or session_order_boosts.get(index, 0.0) > 0
         else memory
         for index, memory in enumerate(memories)
     ]
@@ -1204,6 +1211,9 @@ def temporal_rerank_memories(
         "boost": 0.3 if timestamped_count > 0 else 0.0,
         "timestamp_order_boosted_count": sum(
             1 for boost in timestamp_order_boosts.values() if boost > 0
+        ),
+        "session_order_boosted_count": sum(
+            1 for boost in session_order_boosts.values() if boost > 0
         ),
     }
 
@@ -1282,6 +1292,7 @@ def _with_temporal_rerank_boost(
     memory: RetrievedMemory,
     *,
     timestamp_order_boost: float = 0.0,
+    session_order_boost: float = 0.0,
 ) -> RetrievedMemory:
     diagnostics = (
         dict(memory.metadata.get("diagnostics"))
@@ -1299,11 +1310,16 @@ def _with_temporal_rerank_boost(
             timestamp_order_boost,
             6,
         )
+    if session_order_boost > 0:
+        score_signals["benchmark_temporal_session_order_boost"] = round(
+            session_order_boost,
+            6,
+        )
     diagnostics["score_signals"] = score_signals
     diagnostics["temporal_rerank_boosted"] = True
     return replace(
         memory,
-        score=round(memory.score + 0.3 + timestamp_order_boost, 6),
+        score=round(memory.score + 0.3 + timestamp_order_boost + session_order_boost, 6),
         metadata={**dict(memory.metadata), "diagnostics": diagnostics},
     )
 
@@ -1330,6 +1346,54 @@ def _temporal_timestamp_order_boosts(
         index: round(0.12 * (ordered_timestamps.index(timestamp) / denominator), 6)
         for index, timestamp in timestamped
     }
+
+
+def _temporal_session_order_boosts(
+    memories: Sequence[RetrievedMemory],
+    profile: Mapping[str, object],
+    *,
+    timestamp_order_boosts: Mapping[int, float],
+) -> dict[int, float]:
+    matched_terms = set(_string_sequence(profile.get("matched_terms")))
+    if not {"latest event", "upcoming event"} & matched_terms:
+        return {}
+    session_indexed: list[tuple[int, int]] = []
+    for index, memory in enumerate(memories):
+        if index in timestamp_order_boosts:
+            continue
+        session_indices = _memory_session_indices(memory)
+        if session_indices:
+            session_indexed.append((index, max(session_indices)))
+    if len(session_indexed) <= 1:
+        return {}
+    ordered_sessions = sorted({session for _, session in session_indexed})
+    if len(ordered_sessions) <= 1:
+        return {}
+    denominator = len(ordered_sessions) - 1
+    return {
+        index: round(0.1 * (ordered_sessions.index(session) / denominator), 6)
+        for index, session in session_indexed
+    }
+
+
+def _memory_session_indices(memory: RetrievedMemory) -> tuple[int, ...]:
+    raw_values = [
+        memory.metadata.get("session_index"),
+        memory.metadata.get("session_id"),
+    ]
+    session_key = memory.metadata.get("session_key")
+    if isinstance(session_key, str):
+        raw_values.append(session_key)
+    raw_values.extend(memory.source_refs)
+    raw_values.append(memory.text)
+    indices: list[int] = []
+    for value in raw_values:
+        if (parsed := _optional_int(value)) is not None:
+            indices.append(parsed)
+            continue
+        for match in re.finditer(r"\bsession_(\d+)\b", str(value or ""), re.IGNORECASE):
+            indices.append(int(match.group(1)))
+    return tuple(dict.fromkeys(index for index in indices if index > 0))
 
 
 def query_retrieval_intent(case: PublicBenchmarkCase) -> RetrievalIntent:

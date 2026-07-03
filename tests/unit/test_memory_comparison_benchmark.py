@@ -3061,6 +3061,37 @@ def test_temporal_rerank_reads_metadata_source_timestamp() -> None:
     ] > 0
 
 
+def test_temporal_rerank_orders_latest_event_by_session_index() -> None:
+    case = _case(
+        case_id="conv-1:qa:latest-conversation-session-rerank",
+        question="What was the latest conversation with Morgan?",
+        expected_terms=("studio launch",),
+        answer="studio launch",
+        category=2,
+    )
+    older = RetrievedMemory(
+        item_id="older",
+        rank=1,
+        score=0.9,
+        text="session_2 date: Monday D2:1 Morgan discussed the checklist.",
+    )
+    newer = RetrievedMemory(
+        item_id="newer",
+        rank=2,
+        score=0.86,
+        text="session_19 date: Friday D19:4 Morgan discussed the studio launch.",
+    )
+
+    reranked, metadata = rerank_module.temporal_rerank_memories(case, (older, newer))
+
+    assert [memory.item_id for memory in reranked] == ["newer", "older"]
+    assert metadata["timestamped_memory_count"] == 0
+    assert metadata["session_order_boosted_count"] == 1
+    assert reranked[0].metadata["diagnostics"]["score_signals"][
+        "benchmark_temporal_session_order_boost"
+    ] > 0
+
+
 def test_infinity_context_http_search_decomposes_temporal_session_queries() -> None:
     seen_payloads: list[dict[str, object]] = []
 
