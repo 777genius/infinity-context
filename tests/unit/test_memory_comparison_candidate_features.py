@@ -749,6 +749,85 @@ def test_candidate_features_do_not_ground_wrong_exchange_action() -> None:
     assert matching_action.answerability_score > wrong_action.answerability_score
 
 
+def test_candidate_features_do_not_ground_status_relation_to_wrong_target() -> None:
+    wrong_target = build_candidate_evidence_features(
+        RetrievedMemory(
+            item_id="wrong-target-roommate-status",
+            rank=1,
+            text="D1:2 Dana: Riley is Jordan's roommate.",
+            source_refs=("D1:2",),
+        ),
+        memory_terms={"dana", "riley", "jordan", "roommate"},
+        query_terms=("dana", "roommate"),
+        relation_terms=("roommate",),
+        relation_variant_terms=("housemate", "apartment", "home", "living"),
+        relation_category_terms={
+            "status_profile": (
+                "roommate",
+                "housemate",
+                "apartment",
+                "home",
+                "living",
+            )
+        },
+        entities=("dana",),
+        entity_hits=("dana",),
+        speaker_hits=("dana",),
+        high_signal_relation_terms={"roommate", "housemate"},
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+    matching_target = build_candidate_evidence_features(
+        RetrievedMemory(
+            item_id="matching-target-roommate-status",
+            rank=2,
+            text="D2:5 Dana: Riley is my roommate.",
+            source_refs=("D2:5",),
+        ),
+        memory_terms={"dana", "riley", "roommate"},
+        query_terms=("dana", "roommate"),
+        relation_terms=("roommate",),
+        relation_variant_terms=("housemate", "apartment", "home", "living"),
+        relation_category_terms={
+            "status_profile": (
+                "roommate",
+                "housemate",
+                "apartment",
+                "home",
+                "living",
+            )
+        },
+        entities=("dana",),
+        entity_hits=("dana",),
+        speaker_hits=("dana",),
+        high_signal_relation_terms={"roommate", "housemate"},
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+
+    assert wrong_target.relation_category_hits == ()
+    assert (
+        "missing_status_profile_evidence"
+        in wrong_target.answerability_reason_codes
+    )
+    assert matching_target.relation_category_hits == ("status_profile",)
+    assert matching_target.answerability_score > wrong_target.answerability_score
+
+
 def test_candidate_features_detect_directed_communication_surface() -> None:
     topic_mention = build_candidate_evidence_features(
         RetrievedMemory(

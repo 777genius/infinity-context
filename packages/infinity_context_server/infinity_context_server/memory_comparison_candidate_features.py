@@ -45,6 +45,11 @@ _TEXT_SESSION_DATE_TURN_RE = re.compile(
 _DIRECT_TURN_SPEAKER_RE = re.compile(
     r"\bD\d+:\d+\s+[A-Z][a-zA-Z0-9_-]{1,40}\s*:"
 )
+_FIRST_PERSON_SURFACE_RE = re.compile(
+    r"\b(?:I|I'm|I've|I'd|I'll|me|my|mine|we|we're|we've|we'd|we'll|"
+    r"us|our|ours)\b",
+    re.IGNORECASE,
+)
 _NEGATION_SURFACE_RE = re.compile(
     r"\b(?:no longer|not|never|without|didn't|doesn't|don't|hadn't|wasn't|"
     r"isn't|won't|can't|couldn't)\b",
@@ -304,6 +309,7 @@ def build_candidate_evidence_features(
         memory_terms,
         relation_category_terms or {},
         query_terms=query_terms,
+        entities=entities,
         memory_text=text,
     )
     high_signal_hit_count = sum(
@@ -541,6 +547,7 @@ def _relation_category_hits(
     relation_category_terms: Mapping[str, Sequence[str]],
     *,
     query_terms: Sequence[str],
+    entities: Sequence[str],
     memory_text: str = "",
 ) -> tuple[str, ...]:
     hits: list[str] = []
@@ -558,10 +565,16 @@ def _relation_category_hits(
                 memory_terms=memory_terms,
                 term_values=term_values,
                 memory_text=memory_text,
+            ) and _typed_category_has_target_grounding(
+                entities=entities,
+                term_values=term_values,
+                memory_text=memory_text,
             ):
                 hits.append(str(category))
             continue
-        grounding_terms = tuple(term for term in term_values if term not in query_term_set)
+        grounding_terms = tuple(
+            term for term in term_values if term not in query_term_set
+        )
         terms_to_match = grounding_terms or term_values
         if any(term in memory_terms for term in terms_to_match):
             hits.append(str(category))
@@ -618,6 +631,129 @@ def _has_named_school_surface(memory_text: str) -> bool:
             memory_text,
         )
     )
+
+
+def _typed_category_has_target_grounding(
+    *,
+    entities: Sequence[str],
+    term_values: Sequence[str],
+    memory_text: str = "",
+) -> bool:
+    query_entities = tuple(
+        dict.fromkeys(
+            entity.casefold().strip()
+            for entity in entities
+            if entity.casefold().strip()
+        )
+    )
+    if not query_entities or not memory_text:
+        return True
+
+    relation_clauses = tuple(
+        clause for clause in _relation_clauses(memory_text, term_values) if clause
+    )
+    if not relation_clauses:
+        return True
+
+    for clause in relation_clauses:
+        if _clause_covers_query_entities(clause, query_entities):
+            return True
+        if _first_person_speaker_clause_covers_query_entities(
+            memory_text=memory_text,
+            clause=clause,
+            query_entities=query_entities,
+        ):
+            return True
+
+    return not any(_has_competing_named_target(clause) for clause in relation_clauses)
+
+
+def _relation_clauses(memory_text: str, term_values: Sequence[str]) -> tuple[str, ...]:
+    relation_terms = tuple(
+        dict.fromkeys(
+            term.casefold().strip()
+            for term in term_values
+            if term.casefold().strip()
+        )
+    )
+    content_text = _evidence_content_text(memory_text)
+    clauses = re.split(r"(?<=[.!?])\s+|[;\n]", content_text)
+    return tuple(
+        clause
+        for clause in clauses
+        if any(_contains_surface(clause, term) for term in relation_terms)
+    )
+
+
+def _clause_covers_query_entities(
+    clause: str,
+    query_entities: Sequence[str],
+) -> bool:
+    return all(_contains_entity_surface(clause, entity) for entity in query_entities)
+
+
+def _first_person_speaker_clause_covers_query_entities(
+    *,
+    memory_text: str,
+    clause: str,
+    query_entities: Sequence[str],
+) -> bool:
+    if _FIRST_PERSON_SURFACE_RE.search(clause) is None:
+        return False
+    speaker = _direct_turn_speaker(memory_text)
+    if not speaker:
+        return False
+    speaker_entities = tuple(
+        entity for entity in query_entities if _entity_surface_matches(speaker, entity)
+    )
+    if not speaker_entities:
+        return False
+    speaker_entity_set = set(speaker_entities)
+    return all(
+        _contains_entity_surface(clause, entity)
+        for entity in query_entities
+        if entity not in speaker_entity_set
+    )
+
+
+def _direct_turn_speaker(memory_text: str) -> str:
+    match = re.search(
+        r"\bD\d+:\d+\s+(?P<speaker>[A-Z][a-zA-Z0-9_-]{1,40})\s*:",
+        memory_text,
+    )
+    return match.group("speaker").casefold() if match else ""
+
+
+def _contains_entity_surface(text: str, entity: str) -> bool:
+    if _contains_surface(text, entity):
+        return True
+    first = entity.split()[0] if entity.split() else ""
+    return bool(first and _contains_surface(text, first))
+
+
+def _contains_surface(text: str, surface: str) -> bool:
+    escaped = re.escape(surface)
+    return (
+        re.search(
+            rf"(?<![A-Za-z0-9_]){escaped}(?![A-Za-z0-9_])",
+            text,
+            re.IGNORECASE,
+        )
+        is not None
+    )
+
+
+def _entity_surface_matches(surface: str, entity: str) -> bool:
+    normalized_surface = surface.casefold().strip()
+    normalized_entity = entity.casefold().strip()
+    return normalized_surface == normalized_entity or normalized_surface == (
+        normalized_entity.split()[0] if normalized_entity.split() else ""
+    )
+
+
+def _has_competing_named_target(clause: str) -> bool:
+    content = _evidence_content_text(clause)
+    return re.search(r"\b[A-Z][a-zA-Z0-9_-]{1,40}(?:'s)?\b", content) is not None
 
 
 def _answerability(
