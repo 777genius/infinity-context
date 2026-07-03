@@ -3430,6 +3430,15 @@ def test_fast_gate_metrics_blocks_full_run_for_weak_bundle_quality() -> None:
     assert "bundle_quality_medium_or_high" in gate["failed_gates"]
     assert gate["gates"]["bundle_quality_medium_or_high"]["actual"] == 39
     assert gate["gates"]["bundle_quality_medium_or_high"]["target"] == 40
+    breakdown = gate["bundle_quality_failure_breakdown"]
+    assert breakdown["schema_version"] == "bundle_quality_failure_breakdown.v1"
+    assert breakdown["required_medium_or_high_bundle_count"] == 40
+    assert breakdown["medium_or_high_bundle_count"] == 39
+    assert breakdown["medium_or_high_bundle_gap"] == 1
+    assert breakdown["weak_bundle_count"] == 1
+    assert breakdown["risk_reason_counts"] == {"risk:low_answerability": 1}
+    assert breakdown["weak_samples"][0]["case_id"] == "case-1"
+    assert breakdown["weak_samples"][0]["reason_codes"] == ("risk:low_answerability",)
 
 
 def _item(

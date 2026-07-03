@@ -326,6 +326,10 @@ def fast_gate_metrics(
         "bundle_quality_gate_applied": bool(bundle_quality_count),
         "bundle_quality_count": bundle_quality_count,
         "weak_bundle_count": _positive_int(bundle_quality.get("weak_bundle_count")) or 0,
+        "bundle_quality_failure_breakdown": _bundle_quality_failure_breakdown(
+            bundle_quality,
+            expected_case_count=expected_case_count,
+        ),
         "bundle_support_counts": _bundle_support_counts(bundle_quality),
         "bundle_support_bundle_counts": _bundle_support_bundle_counts(bundle_quality),
         "bundle_source_identity": _bundle_source_identity_summary(bundle_quality),
@@ -1302,6 +1306,30 @@ def _bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, ob
         },
         "top_reason_counts": _top_counts(reason_counts),
         "weak_samples": weak_samples,
+    }
+
+
+def _bundle_quality_failure_breakdown(
+    bundle_quality: Mapping[str, object],
+    *,
+    expected_case_count: int,
+) -> dict[str, object]:
+    medium_or_high_count = (
+        _positive_int(bundle_quality.get("medium_or_high_bundle_count")) or 0
+    )
+    weak_count = _positive_int(bundle_quality.get("weak_bundle_count")) or 0
+    return {
+        "schema_version": "bundle_quality_failure_breakdown.v1",
+        "required_medium_or_high_bundle_count": expected_case_count,
+        "medium_or_high_bundle_count": medium_or_high_count,
+        "medium_or_high_bundle_gap": max(
+            0,
+            expected_case_count - medium_or_high_count,
+        ),
+        "weak_bundle_count": weak_count,
+        "risk_reason_counts": _count_mapping(bundle_quality.get("risk_reason_counts")),
+        "top_reason_counts": _count_mapping(bundle_quality.get("top_reason_counts")),
+        "weak_samples": list(_sequence(bundle_quality.get("weak_samples")))[:5],
     }
 
 
