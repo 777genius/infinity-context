@@ -414,7 +414,19 @@ def _required_bundle_roles(
         roles.append("bridge")
     if case_group == "temporal" and "temporal_support" not in roles:
         roles.append("temporal_support")
-    return tuple(dict.fromkeys(roles))
+    return _suppress_ambiguous_required_roles(tuple(dict.fromkeys(roles)))
+
+
+def _suppress_ambiguous_required_roles(roles: tuple[str, ...]) -> tuple[str, ...]:
+    role_set = set(roles)
+    suppressed: set[str] = set()
+    if "visual_support" in role_set:
+        suppressed.add("activity_support")
+    if "contrast" in role_set:
+        suppressed.add("support_goal_support")
+    if not suppressed:
+        return roles
+    return tuple(role for role in roles if role not in suppressed)
 
 
 def _has_structured_support_need(evidence_need: Sequence[str]) -> bool:
