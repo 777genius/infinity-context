@@ -22,6 +22,9 @@ from infinity_context_core.application.context_conversation_counterparty import 
     conversation_recency_temporal_hint_signal,
     conversation_topic_evidence_signal,
 )
+from infinity_context_core.application.context_count_cardinality import (
+    has_exact_count_cardinality_evidence,
+)
 from infinity_context_core.application.context_diagnostics import (
     context_duplicate_primary_key,
     context_rank_key,
@@ -207,6 +210,7 @@ _CONTEXT_REQUIREMENT_ANCHOR_BOOST = 0.008
 _CONTEXT_REQUIREMENT_MODALITY_BOOST = 0.022
 _CONTEXT_REQUIREMENT_FEATURE_BOOST = 0.014
 _CONTEXT_REQUIREMENT_ANSWER_SHAPE_BOOST = 0.012
+_CONTEXT_REQUIREMENT_EXACT_COUNT_CARDINALITY_BOOST = 0.008
 _GENERIC_BOOSTABLE_ANSWER_SHAPES = frozenset((
     "causal",
     "choice",
@@ -1542,11 +1546,18 @@ def _with_context_requirement_boost(
     score_boosted_answer_shapes = tuple(
         shape for shape in matched_answer_shapes if shape in _GENERIC_BOOSTABLE_ANSWER_SHAPES
     )
+    exact_count_cardinality_boost = (
+        _CONTEXT_REQUIREMENT_EXACT_COUNT_CARDINALITY_BOOST
+        if "count" in score_boosted_answer_shapes
+        and has_exact_count_cardinality_evidence(normalized_item.text)
+        else 0.0
+    )
     raw_boost = (
         len(matched_anchor_kinds) * _CONTEXT_REQUIREMENT_ANCHOR_BOOST
         + len(matched_modalities) * _CONTEXT_REQUIREMENT_MODALITY_BOOST
         + len(matched_features) * _CONTEXT_REQUIREMENT_FEATURE_BOOST
         + len(score_boosted_answer_shapes) * _CONTEXT_REQUIREMENT_ANSWER_SHAPE_BOOST
+        + exact_count_cardinality_boost
     )
     boost = min(max_boost, round(raw_boost, 4))
     if boost <= 0:
@@ -1560,6 +1571,15 @@ def _with_context_requirement_boost(
         "context_requirement_matched_modality_count": len(matched_modalities),
         "context_requirement_matched_feature_count": len(matched_features),
         "context_requirement_matched_answer_shape_count": len(score_boosted_answer_shapes),
+        **(
+            {
+                "context_requirement_exact_count_cardinality_boost": (
+                    exact_count_cardinality_boost
+                )
+            }
+            if exact_count_cardinality_boost > 0
+            else {}
+        ),
     }
     diagnostics["provenance"] = {
         **safe_diagnostic_mapping(diagnostics.get("provenance")),
