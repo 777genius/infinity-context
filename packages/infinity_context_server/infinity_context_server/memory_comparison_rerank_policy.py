@@ -420,15 +420,21 @@ def _provenance_safety_cap(
         "missing_commitment_profile_evidence": 0.4,
         "missing_contact_profile_evidence": 0.4,
         "missing_diet_profile_evidence": 0.4,
+        "missing_duration_temporal_evidence": 0.4,
         "missing_education_profile_evidence": 0.4,
         "missing_employment_profile_evidence": 0.4,
+        "missing_explicit_temporal_evidence": 0.4,
         "missing_age_profile_evidence": 0.4,
         "missing_alias_profile_evidence": 0.4,
         "missing_date_profile_evidence": 0.32,
         "missing_health_profile_evidence": 0.4,
         "missing_pet_profile_evidence": 0.4,
+        "missing_relative_temporal_evidence": 0.4,
+        "missing_sequence_temporal_evidence": 0.4,
         "missing_skill_profile_evidence": 0.4,
+        "missing_temporal_evidence": 0.4,
         "missing_vehicle_profile_evidence": 0.4,
+        "missing_visual_evidence": 0.4,
     }
     for reason, cap in missing_evidence_caps.items():
         if reason in answerability_reasons:

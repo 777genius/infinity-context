@@ -478,6 +478,45 @@ def test_rerank_policy_prefers_typed_duration_temporal_evidence() -> None:
     assert duration.boost > generic_temporal.boost
 
 
+def test_rerank_policy_caps_missing_typed_temporal_evidence() -> None:
+    score = score_benchmark_rerank_candidate(
+        _features(
+            overlap_terms=("caroline", "known", "friend"),
+            entity_hits=("caroline",),
+            speaker_hits=("caroline",),
+            relation_hits=("known", "friend", "school", "years"),
+            relation_terms=("known", "friend", "school", "years"),
+            high_signal_relation_hit_count=1,
+            is_temporal_query=True,
+            time_intent_kind="duration",
+            has_temporal_surface=True,
+            query_roles=("duration_temporal_support",),
+            direct_speaker_turn=True,
+            source_locality_score=1.0,
+            source_ref_count=1,
+            turn_ref_count=1,
+            focused_turn_boost=0.08,
+            answerability_score=0.54,
+            answerability_reason_codes=(
+                "entity_satisfied",
+                "relation_satisfied",
+                "direct_provenance",
+                "missing_duration_temporal_evidence",
+                "low_answerability",
+            ),
+        )
+    )
+
+    signals = score.signals["score_signals"]
+    assert score.boost == 0.4
+    assert signals["benchmark_answerability_boost"] == 0.0
+    assert signals["benchmark_answerability_boost_eligible"] is False
+    assert signals["benchmark_effective_boost_cap"] == 0.4
+    assert "missing_duration_temporal_evidence_cap" in signals[
+        "benchmark_provenance_safety_reason_codes"
+    ]
+
+
 def test_rerank_policy_accepts_typed_contrast_need() -> None:
     score = score_benchmark_rerank_candidate(
         BenchmarkRerankFeatures(
