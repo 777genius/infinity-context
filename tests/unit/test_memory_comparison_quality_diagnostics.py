@@ -1680,6 +1680,38 @@ def test_fast_gate_metrics_fails_when_thresholds_or_leakage_fail() -> None:
     }
 
 
+def test_fast_gate_metrics_ignores_unscored_bundle_completion() -> None:
+    scored_items = tuple(
+        _item(
+            case_id=f"scored-{index}",
+            evidence_bundle={
+                "bundle_complete": index != 40,
+                "evidence_term_count": 1,
+                "covered_evidence_terms": [f"D{index}:1"],
+                "items": [
+                    {
+                        "retrieval_order": 1,
+                        "covered_evidence_terms": [f"D{index}:1"],
+                        "focused_evidence_score": 1.0,
+                    }
+                ],
+            },
+        )
+        for index in range(1, 41)
+    )
+    unscored_item = _item(
+        case_id="unscored-complete",
+        scored=False,
+        evidence_bundle={"bundle_complete": True},
+    )
+
+    gate = fast_gate_metrics((*scored_items, unscored_item))
+
+    assert gate["evaluation_count"] == 40
+    assert gate["gates"]["evidence_bundle_complete"]["actual"] == 39
+    assert "evidence_bundle_complete" in gate["failed_gates"]
+
+
 def test_fast_gate_metrics_reports_bundle_gap_breakdown() -> None:
     gate = fast_gate_metrics(
         (
@@ -3446,6 +3478,7 @@ def _item(
     case_id: str,
     score: float = 1.0,
     group: str = "multi-hop",
+    scored: bool = True,
     retrieval_quality: dict[str, object] | None = None,
     evidence_bundle: dict[str, object] | None = None,
     retrieval: dict[str, object] | None = None,
@@ -3454,7 +3487,7 @@ def _item(
     return {
         "case_id": case_id,
         "group": group,
-        "scored": True,
+        "scored": scored,
         "judgment": {"score": score},
         "retrieval_quality": retrieval_quality or {},
         "evidence_bundle": evidence_bundle or {},

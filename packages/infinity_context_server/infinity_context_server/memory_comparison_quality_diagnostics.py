@@ -235,7 +235,9 @@ def fast_gate_metrics(
 ) -> dict[str, object]:
     expected_case_count = max(1, expected_case_count)
     scored_count = sum(1 for item in items if item.get("scored") is True)
-    bundle_complete_count = sum(1 for item in items if _bundle_complete(item))
+    bundle_complete_count = sum(
+        1 for item in items if item.get("scored") is True and _bundle_complete(item)
+    )
     ref_gate = evidence_ref_rank_gate_metrics(items)
     query_overlap_count, profile_overlap_count, intent_overlap_count = (
         _leakage_counts(items)
