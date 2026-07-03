@@ -45,6 +45,10 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
                     "confidence_score": 0.68,
                     "confidence_band": "medium",
                     "bridge_count": 1,
+                    "source_ref_support_item_count": 2,
+                    "source_ref_support_ref_count": 3,
+                    "source_identity_support_item_count": 2,
+                    "source_identity_support_ref_count": 4,
                     "source_type_diversity": 2,
                     "retrieval_source_diversity": 3,
                     "source_proximity_support_count": 1,
@@ -148,6 +152,10 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
         == "medium"
     )
     assert context.bundle_bridge_count == 1
+    assert context.bundle_source_ref_support_item_count == 2
+    assert context.bundle_source_ref_support_ref_count == 3
+    assert context.bundle_source_identity_support_item_count == 2
+    assert context.bundle_source_identity_support_ref_count == 4
     assert context.bundle_source_type_diversity == 2
     assert context.bundle_retrieval_source_diversity == 3
     assert context.bundle_source_proximity_support_count == 1
@@ -174,6 +182,30 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
     }
     assert context.bundle_contrast_count == 2
     assert context.memories[0].metadata["answer_context_bundle_bridge_count"] == 1
+    assert (
+        context.memories[0].metadata[
+            "answer_context_bundle_source_ref_support_item_count"
+        ]
+        == 2
+    )
+    assert (
+        context.memories[0].metadata[
+            "answer_context_bundle_source_ref_support_ref_count"
+        ]
+        == 3
+    )
+    assert (
+        context.memories[0].metadata[
+            "answer_context_bundle_source_identity_support_item_count"
+        ]
+        == 2
+    )
+    assert (
+        context.memories[0].metadata[
+            "answer_context_bundle_source_identity_support_ref_count"
+        ]
+        == 4
+    )
     assert (
         context.memories[0].metadata[
             "answer_context_bundle_source_type_diversity"
@@ -343,6 +375,10 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
         "bundle_confidence_score": 0.68,
         "bundle_confidence_band": "medium",
         "bundle_bridge_count": 1,
+        "bundle_source_ref_support_item_count": 2,
+        "bundle_source_ref_support_ref_count": 3,
+        "bundle_source_identity_support_item_count": 2,
+        "bundle_source_identity_support_ref_count": 4,
         "bundle_source_type_diversity": 2,
         "bundle_retrieval_source_diversity": 3,
         "bundle_source_proximity_support_count": 1,
@@ -1982,6 +2018,10 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
                             "bundle_confidence_score": 0.68,
                             "bundle_confidence_band": "medium",
                             "bundle_bridge_count": 1,
+                            "bundle_source_ref_support_item_count": 2,
+                            "bundle_source_ref_support_ref_count": 3,
+                            "bundle_source_identity_support_item_count": 2,
+                            "bundle_source_identity_support_ref_count": 4,
                             "bundle_source_type_diversity": 2,
                             "bundle_retrieval_source_diversity": 3,
                             "bundle_source_proximity_support_count": 1,
@@ -2090,6 +2130,16 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
     assert metrics["primary_max_bundle_source_type_diversity"] == 2
     assert metrics["primary_avg_bundle_retrieval_source_diversity"] == 1.5
     assert metrics["primary_max_bundle_retrieval_source_diversity"] == 3
+    assert metrics["primary_avg_bundle_source_ref_support_item_count"] == 1.0
+    assert metrics["primary_total_bundle_source_ref_support_item_count"] == 2
+    assert (
+        metrics["primary_avg_bundle_source_identity_support_item_count"]
+        == 1.0
+    )
+    assert (
+        metrics["primary_total_bundle_source_identity_support_item_count"]
+        == 2
+    )
     assert metrics["primary_avg_bundle_source_proximity_support_count"] == 0.5
     assert (
         metrics["primary_total_bundle_source_proximity_support_count"]
@@ -2156,6 +2206,14 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
     assert primary["avg_bundle_confidence_score"] == 0.68
     assert primary["avg_bundle_bridge_count"] == 0.5
     assert primary["total_bundle_bridge_count"] == 1
+    assert primary["avg_bundle_source_ref_support_item_count"] == 1.0
+    assert primary["total_bundle_source_ref_support_item_count"] == 2
+    assert primary["avg_bundle_source_ref_support_ref_count"] == 1.5
+    assert primary["total_bundle_source_ref_support_ref_count"] == 3
+    assert primary["avg_bundle_source_identity_support_item_count"] == 1.0
+    assert primary["total_bundle_source_identity_support_item_count"] == 2
+    assert primary["avg_bundle_source_identity_support_ref_count"] == 2.0
+    assert primary["total_bundle_source_identity_support_ref_count"] == 4
     assert primary["avg_bundle_source_type_diversity"] == 1.0
     assert primary["max_bundle_source_type_diversity"] == 2
     assert primary["avg_bundle_retrieval_source_diversity"] == 1.5
