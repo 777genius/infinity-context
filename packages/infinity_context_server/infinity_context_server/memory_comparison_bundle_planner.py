@@ -2336,7 +2336,11 @@ def _source_proximity_distances(
         lacks_explicit_grounding = not _item_has_explicit_relation_or_role_grounding(
             item
         )
-        if missing_required_roles and lacks_explicit_grounding:
+        if (
+            missing_required_roles
+            and lacks_explicit_grounding
+            and not _candidate_has_focused_source_proximity_support(item.candidate)
+        ):
             continue
         if not _candidate_has_source_proximity_diagnostic_support(item.candidate):
             continue
@@ -2388,6 +2392,17 @@ def _source_chain_proximity_distances(
             distances.append(closest_distance)
         previously_selected_turn_refs.extend(item_turn_refs)
     return tuple(distances)
+
+
+def _candidate_has_focused_source_proximity_support(
+    candidate: EvidenceBundleCandidate,
+) -> bool:
+    return bool(
+        candidate.covered_expected_terms
+        or candidate.covered_evidence_terms
+        or candidate.direct_speaker_turn
+        or candidate.focused_evidence_score > 0
+    )
 
 
 def _candidate_has_source_proximity_diagnostic_support(
