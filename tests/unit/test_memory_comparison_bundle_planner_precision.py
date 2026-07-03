@@ -183,6 +183,8 @@ def test_evidence_bundle_planner_drops_noisy_partial_source_overlap() -> None:
     diagnostics = plan.to_diagnostics()
     assert diagnostics["dropped_source_ref_overlap_count"] == 1
     assert diagnostics["dropped_source_ref_overlap_keys_sample"] == ["D4:2"]
+    assert diagnostics["dropped_noisy_source_overlap_count"] == 1
+    assert diagnostics["dropped_noisy_source_overlap_keys_sample"] == ["D4:2"]
     quality = diagnostics["bundle_quality"]
     assert quality["source_proximity_support_count"] == 0
     assert quality["source_proximity_closest_distance"] is None

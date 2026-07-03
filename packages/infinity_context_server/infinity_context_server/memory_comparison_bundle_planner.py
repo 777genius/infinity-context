@@ -209,6 +209,8 @@ class EvidenceBundlePlan:
     dropped_retrieval_source_diversity_count: int
     dropped_source_ref_overlap_count: int
     dropped_source_ref_overlap_keys: tuple[str, ...]
+    dropped_noisy_source_overlap_count: int
+    dropped_noisy_source_overlap_keys: tuple[str, ...]
     role_counts: Mapping[str, int]
     source_type_counts: Mapping[str, int]
     retrieval_source_counts: Mapping[str, int]
@@ -241,6 +243,12 @@ class EvidenceBundlePlan:
             ),
             "dropped_source_ref_overlap_keys_sample": list(
                 self.dropped_source_ref_overlap_keys[:12]
+            ),
+            "dropped_noisy_source_overlap_count": (
+                self.dropped_noisy_source_overlap_count
+            ),
+            "dropped_noisy_source_overlap_keys_sample": list(
+                self.dropped_noisy_source_overlap_keys[:12]
             ),
             "role_counts": dict(self.role_counts),
             "required_roles": list(self.required_roles),
@@ -358,6 +366,8 @@ class EvidenceBundlePlanner:
             dropped_retrieval_source_diversity_count,
             dropped_source_ref_overlap_count,
             dropped_source_ref_overlap_keys,
+            dropped_noisy_source_overlap_count,
+            dropped_noisy_source_overlap_keys,
         ) = self._select_with_diversity(planned)
         selected, repaired_required_roles = _repair_required_role_selection(
             selected,
@@ -399,6 +409,8 @@ class EvidenceBundlePlanner:
             ),
             dropped_source_ref_overlap_count=dropped_source_ref_overlap_count,
             dropped_source_ref_overlap_keys=dropped_source_ref_overlap_keys,
+            dropped_noisy_source_overlap_count=dropped_noisy_source_overlap_count,
+            dropped_noisy_source_overlap_keys=dropped_noisy_source_overlap_keys,
             role_counts=dict(role_counts),
             source_type_counts=dict(source_type_counts),
             retrieval_source_counts=dict(retrieval_source_counts),
@@ -459,7 +471,16 @@ class EvidenceBundlePlanner:
     def _select_with_diversity(
         self,
         planned: Sequence[PlannedEvidenceItem],
-    ) -> tuple[tuple[PlannedEvidenceItem, ...], int, int, int, int, tuple[str, ...]]:
+    ) -> tuple[
+        tuple[PlannedEvidenceItem, ...],
+        int,
+        int,
+        int,
+        int,
+        tuple[str, ...],
+        int,
+        tuple[str, ...],
+    ]:
         selected: list[PlannedEvidenceItem] = []
         source_type_counts: Counter[str] = Counter()
         retrieval_source_counts: Counter[str] = Counter()
@@ -471,6 +492,8 @@ class EvidenceBundlePlanner:
         dropped_retrieval_source_diversity_count = 0
         dropped_source_ref_overlap_count = 0
         dropped_source_ref_overlap_keys: list[str] = []
+        dropped_noisy_source_overlap_count = 0
+        dropped_noisy_source_overlap_keys: list[str] = []
         remaining = list(planned)
         while remaining and len(selected) < self._max_items:
             remaining.sort(
@@ -497,6 +520,11 @@ class EvidenceBundlePlanner:
             source_ref_overlap_any = bool(
                 set(source_ref_keys).intersection(selected_source_ref_keys)
             )
+            noisy_source_overlap = (
+                source_ref_overlap_any
+                and _candidate_has_noisy_source_overlap_risk(item.candidate)
+                and not adds_required_terms
+            )
             source_type_diversity_full = any(
                 source_type_counts[source_type] >= self._max_items_per_source_type
                 for source_type in source_type_keys
@@ -518,11 +546,7 @@ class EvidenceBundlePlanner:
                 source_ref_overlap_full
                 and not adds_required_terms
                 and not adds_query_support_terms
-            ) or (
-                source_ref_overlap_any
-                and _candidate_has_noisy_source_overlap_risk(item.candidate)
-                and not adds_required_terms
-            ):
+            ) or noisy_source_overlap:
                 dropped_diversity_count += 1
                 if source_type_diversity_full and not diversity_exempt:
                     dropped_source_type_diversity_count += 1
@@ -534,6 +558,13 @@ class EvidenceBundlePlanner:
                 elif source_ref_overlap_any:
                     dropped_source_ref_overlap_count += 1
                     dropped_source_ref_overlap_keys.extend(
+                        key
+                        for key in source_ref_keys
+                        if key in selected_source_ref_keys
+                    )
+                if noisy_source_overlap:
+                    dropped_noisy_source_overlap_count += 1
+                    dropped_noisy_source_overlap_keys.extend(
                         key
                         for key in source_ref_keys
                         if key in selected_source_ref_keys
@@ -567,6 +598,8 @@ class EvidenceBundlePlanner:
             dropped_retrieval_source_diversity_count,
             dropped_source_ref_overlap_count,
             tuple(dict.fromkeys(dropped_source_ref_overlap_keys)),
+            dropped_noisy_source_overlap_count,
+            tuple(dict.fromkeys(dropped_noisy_source_overlap_keys)),
         )
 
 
