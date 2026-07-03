@@ -641,6 +641,15 @@ def _answerability(
         score -= 0.1
     if conflict_or_stale:
         score -= 0.16
+    specificity_cap = _answerability_specificity_cap(
+        relation_categories=relation_categories,
+        relation_category_hits=relation_category_hits,
+        intent_reason_codes=intent_reason_codes,
+    )
+    specificity_cap_reason = ""
+    if specificity_cap is not None:
+        score = min(score, specificity_cap[0])
+        specificity_cap_reason = specificity_cap[1]
     rounded_score = round(max(0.0, min(1.0, score)), 6)
     return rounded_score, _answerability_reasons(
         answerability_score=rounded_score,
@@ -651,6 +660,7 @@ def _answerability(
         intent_reason_codes=intent_reason_codes,
         broad_summary=broad_summary,
         conflict_or_stale=conflict_or_stale,
+        specificity_cap_reason=specificity_cap_reason,
     )
 
 
@@ -659,6 +669,30 @@ def _provenance_answerability_score(
     source_locality_score: float,
 ) -> float:
     return max(0.0, min(1.0, source_locality_score))
+
+
+def _answerability_specificity_cap(
+    *,
+    relation_categories: Sequence[str],
+    relation_category_hits: Sequence[str],
+    intent_reason_codes: Sequence[str],
+) -> tuple[float, str] | None:
+    missing_evidence = any(
+        reason.startswith("missing_") and reason.endswith("_evidence")
+        for reason in intent_reason_codes
+    )
+    if missing_evidence:
+        if relation_categories and relation_category_hits:
+            return 0.74, "partial_answer_specificity_cap"
+        return 0.54, "missing_answer_specificity_cap"
+    partial_evidence = any(
+        reason.endswith("_partial")
+        or reason in {"current_or_stale_surface_only"}
+        for reason in intent_reason_codes
+    )
+    if partial_evidence:
+        return 0.74, "partial_answer_specificity_cap"
+    return None
 
 
 def _source_locality(
@@ -858,6 +892,7 @@ def _answerability_reasons(
     intent_reason_codes: Sequence[str],
     broad_summary: bool,
     conflict_or_stale: bool,
+    specificity_cap_reason: str = "",
 ) -> tuple[str, ...]:
     reasons: list[str] = []
     if entity_score >= 1.0:
@@ -881,6 +916,8 @@ def _answerability_reasons(
         reasons.append("broad_summary_penalty")
     if conflict_or_stale:
         reasons.append("conflict_or_stale_penalty")
+    if specificity_cap_reason:
+        reasons.append(specificity_cap_reason)
     if answerability_score >= 0.8:
         reasons.append("high_answerability")
     elif answerability_score >= 0.55:

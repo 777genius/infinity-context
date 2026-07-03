@@ -246,6 +246,82 @@ def test_candidate_features_require_typed_relation_evidence_for_answerability(
     assert grounded.answerability_score > weak.answerability_score
 
 
+def test_candidate_features_cap_vague_support_below_explicit_answer_evidence() -> None:
+    vague_support = build_candidate_evidence_features(
+        RetrievedMemory(
+            item_id="vague-roommate-support",
+            rank=1,
+            text=(
+                "D4:7 Dana: Riley stopped by the apartment while I was "
+                "searching for a roommate."
+            ),
+            source_refs=("D4:7",),
+        ),
+        memory_terms={"dana", "riley", "apartment", "searching", "roommate"},
+        query_terms=("dana", "roommate"),
+        relation_terms=("roommate",),
+        relation_variant_terms=(),
+        relation_category_terms={
+            "status_profile": ("roommate", "apartment", "living")
+        },
+        entities=("dana",),
+        entity_hits=("dana",),
+        speaker_hits=("dana",),
+        high_signal_relation_terms={"roommate", "roommates"},
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+    explicit_answer = build_candidate_evidence_features(
+        RetrievedMemory(
+            item_id="explicit-roommate-answer",
+            rank=2,
+            text="D4:8 Dana: Riley is my roommate.",
+            source_refs=("D4:8",),
+        ),
+        memory_terms={"dana", "riley", "roommate"},
+        query_terms=("dana", "roommate"),
+        relation_terms=("roommate",),
+        relation_variant_terms=(),
+        relation_category_terms={
+            "status_profile": ("roommate", "apartment", "living")
+        },
+        entities=("dana",),
+        entity_hits=("dana",),
+        speaker_hits=("dana",),
+        high_signal_relation_terms={"roommate", "roommates"},
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+
+    assert vague_support.relation_category_hits == ()
+    assert "missing_status_profile_evidence" in (
+        vague_support.answerability_reason_codes
+    )
+    assert "missing_answer_specificity_cap" in (
+        vague_support.answerability_reason_codes
+    )
+    assert "low_answerability" in vague_support.answerability_reason_codes
+    assert vague_support.answerability_score < 0.55
+    assert explicit_answer.relation_category_hits == ("status_profile",)
+    assert "status_profile_evidence" in explicit_answer.answerability_reason_codes
+    assert "high_answerability" in explicit_answer.answerability_reason_codes
+    assert explicit_answer.answerability_score > vague_support.answerability_score
+
+
 def test_candidate_features_ground_partner_status_relation_evidence() -> None:
     generic_mention = build_candidate_evidence_features(
         RetrievedMemory(
