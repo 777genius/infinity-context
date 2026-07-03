@@ -88,6 +88,8 @@ def test_quality_diagnostics_reports_intents_policies_bundle_gaps_and_leakage() 
                     "query_support_term_recall": 1.0,
                     "bundle_planner": {
                         "average_selected_source_locality_score": 0.9,
+                        "dropped_source_ref_overlap_count": 1,
+                        "dropped_source_ref_overlap_keys_sample": ["D1:1"],
                         "bundle_quality": _bundle_quality(
                             confidence_score=0.86,
                             confidence_band="high",
@@ -178,6 +180,10 @@ def test_quality_diagnostics_reports_intents_policies_bundle_gaps_and_leakage() 
                     "query_support_term_recall": 0.0,
                     "bundle_planner": {
                         "average_selected_source_locality_score": 0.35,
+                        "dropped_source_ref_overlap_count": 2,
+                        "dropped_source_ref_overlap_keys_sample": ["D2:3", "D2:4"],
+                        "dropped_noisy_source_overlap_count": 2,
+                        "dropped_noisy_source_overlap_keys_sample": ["D2:3", "D2:4"],
                         "bundle_quality": _bundle_quality(
                             confidence_score=0.18,
                             confidence_band="low",
@@ -277,6 +283,21 @@ def test_quality_diagnostics_reports_intents_policies_bundle_gaps_and_leakage() 
     assert bundle_quality["avg_retrieval_source_support_diversity"] == 1.0
     assert bundle_quality["max_retrieval_source_support_diversity"] == 2
     assert bundle_quality["avg_selected_source_locality_score"] == 0.625
+    assert bundle_quality["avg_dropped_source_ref_overlap_count"] == 1.5
+    assert bundle_quality["total_dropped_source_ref_overlap_count"] == 3
+    assert bundle_quality["source_ref_overlap_drop_bundle_count"] == 2
+    assert bundle_quality["top_dropped_source_ref_overlap_keys"] == {
+        "D1:1": 1,
+        "D2:3": 1,
+        "D2:4": 1,
+    }
+    assert bundle_quality["avg_dropped_noisy_source_overlap_count"] == 1.0
+    assert bundle_quality["total_dropped_noisy_source_overlap_count"] == 2
+    assert bundle_quality["noisy_source_overlap_drop_bundle_count"] == 1
+    assert bundle_quality["top_dropped_noisy_source_overlap_keys"] == {
+        "D2:3": 1,
+        "D2:4": 1,
+    }
     assert bundle_quality["weak_bundle_count"] == 1
     assert bundle_quality["medium_or_high_bundle_count"] == 1
     assert bundle_quality["confidence_band_counts"] == {"high": 1, "low": 1}

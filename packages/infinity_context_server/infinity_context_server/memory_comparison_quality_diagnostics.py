@@ -948,6 +948,10 @@ def _bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, ob
     unmeasured_selected_source_locality_counts: list[int] = []
     measured_answerability_scores: list[float] = []
     unmeasured_answerability_counts: list[int] = []
+    dropped_source_ref_overlap_counts: list[int] = []
+    dropped_noisy_source_overlap_counts: list[int] = []
+    dropped_source_ref_overlap_keys: Counter[str] = Counter()
+    dropped_noisy_source_overlap_keys: Counter[str] = Counter()
     band_counts: Counter[str] = Counter()
     reason_counts: Counter[str] = Counter()
     weak_samples: list[dict[str, object]] = []
@@ -1062,6 +1066,18 @@ def _bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, ob
             unmeasured_answerability_counts.append(
                 _positive_int(quality.get("unmeasured_answerability_count")) or 0
             )
+        dropped_source_ref_overlap_counts.append(
+            _positive_int(planner.get("dropped_source_ref_overlap_count")) or 0
+        )
+        dropped_noisy_source_overlap_counts.append(
+            _positive_int(planner.get("dropped_noisy_source_overlap_count")) or 0
+        )
+        dropped_source_ref_overlap_keys.update(
+            _str_tuple(planner.get("dropped_source_ref_overlap_keys_sample"))
+        )
+        dropped_noisy_source_overlap_keys.update(
+            _str_tuple(planner.get("dropped_noisy_source_overlap_keys_sample"))
+        )
         band = str(quality.get("confidence_band") or "unknown").strip() or "unknown"
         band_counts[band] += 1
         reason_counts.update(_str_tuple(quality.get("reason_codes")))
@@ -1218,6 +1234,30 @@ def _bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, ob
         ),
         "avg_measured_answerability_score": _avg(measured_answerability_scores),
         "total_unmeasured_answerability_count": sum(unmeasured_answerability_counts),
+        "avg_dropped_source_ref_overlap_count": _avg(
+            dropped_source_ref_overlap_counts
+        ),
+        "total_dropped_source_ref_overlap_count": sum(
+            dropped_source_ref_overlap_counts
+        ),
+        "source_ref_overlap_drop_bundle_count": sum(
+            1 for count in dropped_source_ref_overlap_counts if count > 0
+        ),
+        "top_dropped_source_ref_overlap_keys": _top_counts(
+            dropped_source_ref_overlap_keys
+        ),
+        "avg_dropped_noisy_source_overlap_count": _avg(
+            dropped_noisy_source_overlap_counts
+        ),
+        "total_dropped_noisy_source_overlap_count": sum(
+            dropped_noisy_source_overlap_counts
+        ),
+        "noisy_source_overlap_drop_bundle_count": sum(
+            1 for count in dropped_noisy_source_overlap_counts if count > 0
+        ),
+        "top_dropped_noisy_source_overlap_keys": _top_counts(
+            dropped_noisy_source_overlap_keys
+        ),
         "weak_bundle_count": weak_count,
         "medium_or_high_bundle_count": medium_or_high_count,
         "confidence_band_counts": dict(sorted(band_counts.items())),
