@@ -439,6 +439,10 @@ def should_skip_expansion_rule(
         raw_tokens
     ):
         return True
+    if reason == "generic_behavior_inference_bridge" and _requests_cardinality_count(
+        raw_tokens
+    ):
+        return True
     if reason in {"painting_inventory_bridge", "followup_task_bridge"} and (
         _requests_sentimental_reminder(raw_tokens)
     ):
@@ -457,8 +461,24 @@ def should_skip_expansion_rule(
         raw_tokens
     ):
         return True
-    if reason == "children_count_sibling_bridge" and not raw_tokens.intersection(
-        {"child", "children", "kid", "kids", "sibling", "siblings", "brother", "sister"}
+    if reason in {
+        "children_count_event_bridge",
+        "children_count_sibling_bridge",
+    } and not raw_tokens.intersection(
+        {
+            "child",
+            "children",
+            "kid",
+            "kids",
+            "sibling",
+            "siblings",
+            "brother",
+            "son",
+            "sons",
+            "sister",
+            "daughter",
+            "daughters",
+        }
     ):
         return True
     if reason == "children_name_inventory_bridge":
@@ -677,6 +697,17 @@ def _requests_repeated_test_attempt(raw_tokens: set[str]) -> bool:
         raw_tokens.intersection(
             {"multiple", "again", "retake", "retook", "repeated", "several"}
         )
+        or (
+            raw_tokens.intersection({"attempt", "attempts"})
+            and raw_tokens.intersection({"count", "how", "many", "number"})
+        )
+    )
+
+
+def _requests_cardinality_count(raw_tokens: set[str]) -> bool:
+    return bool(
+        raw_tokens.intersection({"count", "number"})
+        or {"how", "many"}.issubset(raw_tokens)
     )
 
 

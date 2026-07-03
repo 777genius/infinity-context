@@ -501,6 +501,30 @@ EXPANSION_RULES_PART_4: tuple[tuple[frozenset[str], str, str], ...] = (
         "repeated_test_attempt_bridge",
     ),
     (
+        frozenset({"attempt", "count"}),
+        (
+            "test tests exam assessment aptitude multiple times repeated retook "
+            "retake again failed passed results attempt tried again"
+        ),
+        "repeated_test_attempt_bridge",
+    ),
+    (
+        frozenset({"attempts", "many"}),
+        (
+            "test tests exam assessment aptitude multiple times repeated retook "
+            "retake again failed passed results attempt tried again"
+        ),
+        "repeated_test_attempt_bridge",
+    ),
+    (
+        frozenset({"attempts", "number"}),
+        (
+            "test tests exam assessment aptitude multiple times repeated retook "
+            "retake again failed passed results attempt tried again"
+        ),
+        "repeated_test_attempt_bridge",
+    ),
+    (
         frozenset({"family", "money", "younger"}),
         (
             "family money problems financial hardship tough times younger outside "
@@ -579,6 +603,26 @@ EXPANSION_RULES_PART_4: tuple[tuple[frozenset[str], str, str], ...] = (
         "volunteering_people_inventory_bridge",
     ),
     (
+        frozenset({"people", "shelter", "count"}),
+        (
+            "volunteering volunteer shelter residents resident people someone named "
+            "met helped hardship story local organization support wrote letter note "
+            "thank gratitude appreciation heartfelt expression support received support "
+            "they receive impact life person who wrote thank you note"
+        ),
+        "volunteering_people_inventory_bridge",
+    ),
+    (
+        frozenset({"people", "shelter", "number"}),
+        (
+            "volunteering volunteer shelter residents resident people someone named "
+            "met helped hardship story local organization support wrote letter note "
+            "thank gratitude appreciation heartfelt expression support received support "
+            "they receive impact life person who wrote thank you note"
+        ),
+        "volunteering_people_inventory_bridge",
+    ),
+    (
         frozenset({"gratitude"}),
         (
             "gratitude appreciation thank notes letters wrote written residents "
@@ -615,6 +659,22 @@ EXPANSION_RULES_PART_4: tuple[tuple[frozenset[str], str, str], ...] = (
     ),
     (
         frozenset({"areas"}),
+        (
+            "areas places states cities countries visited vacationed traveled trip "
+            "coastal city mountain area hometown capital abroad beach mountains"
+        ),
+        "place_area_inventory_bridge",
+    ),
+    (
+        frozenset({"number", "places"}),
+        (
+            "areas places states cities countries visited vacationed traveled trip "
+            "coastal city mountain area hometown capital abroad beach mountains"
+        ),
+        "place_area_inventory_bridge",
+    ),
+    (
+        frozenset({"count", "places"}),
         (
             "areas places states cities countries visited vacationed traveled trip "
             "coastal city mountain area hometown capital abroad beach mountains"
@@ -761,7 +821,33 @@ EXPANSION_RULES_PART_4: tuple[tuple[frozenset[str], str, str], ...] = (
             "children_count_sibling_bridge",
         ),
     (
+            frozenset({"children", "number"}),
+            (
+                "children kids brother siblings two younger kids son daughter scared "
+                "reassured tough family"
+            ),
+            "children_count_sibling_bridge",
+        ),
+    (
+            frozenset({"children", "count"}),
+            (
+                "children kids brother siblings two younger kids son daughter scared "
+                "reassured tough family"
+            ),
+            "children_count_sibling_bridge",
+        ),
+    (
             frozenset({"children", "many"}),
+            "son accident roadtrip lucky okay ok scary car",
+            "children_count_event_bridge",
+        ),
+    (
+            frozenset({"children", "number"}),
+            "son accident roadtrip lucky okay ok scary car",
+            "children_count_event_bridge",
+        ),
+    (
+            frozenset({"children", "count"}),
             "son accident roadtrip lucky okay ok scary car",
             "children_count_event_bridge",
         ),

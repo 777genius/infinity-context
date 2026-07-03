@@ -6011,6 +6011,35 @@ def test_context_packer_allows_more_answer_support_repairs_for_aggregation_reaso
     assert result.bundle.diagnostics["answer_support_items_used"] == 4
 
 
+def test_context_packer_allows_more_answer_support_repairs_for_attempt_counts() -> None:
+    items = tuple(
+        ContextItem(
+            item_id=f"chunk_attempt_count_{index}",
+            item_type="chunk",
+            text=f"TEST_ATTEMPT_GROUP_MARKER {index} independent attempt evidence.",
+            score=0.9 - index * 0.04,
+            source_refs=(),
+            diagnostics={
+                "memory_scope_id": "memory_scope_default",
+                "score_signals": {"query_expansion_reason": "repeated_test_attempt_bridge"},
+                "provenance": {
+                    "keyword_aggregation_source_group": f"locomo:conv-42:session_{index}"
+                },
+            },
+        )
+        for index in range(5)
+    )
+
+    result = ContextPacker().pack(
+        bundle_id="ctx_answer_support_attempt_count_repair_cap",
+        items=items,
+        token_budget=2000,
+    )
+
+    assert result.bundle.diagnostics["answer_support_families_considered"] == 5
+    assert result.bundle.diagnostics["answer_support_items_used"] == 4
+
+
 def test_context_packer_allows_more_answer_support_repairs_for_inventory_lists() -> None:
     items = tuple(
         ContextItem(

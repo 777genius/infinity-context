@@ -4963,14 +4963,102 @@ def test_best_query_relevance_bridges_ordinal_answer_evidence() -> None:
 
 def test_query_expansion_adds_quantity_enumeration_fallback_for_unknown_count() -> None:
     plan = build_query_expansion_plan("How many certificates did Priya collect?")
+    number_plan = build_query_expansion_plan(
+        "What is the number of certificates Priya collected?"
+    )
+    count_plan = build_query_expansion_plan("Count the certificates Priya collected.")
 
     assert "quantity_enumeration_bridge" in {
         expansion.reason for expansion in plan.expansions
+    }
+    assert "quantity_enumeration_bridge" in {
+        expansion.reason for expansion in number_plan.expansions
+    }
+    assert "quantity_enumeration_bridge" in {
+        expansion.reason for expansion in count_plan.expansions
     }
     assert "count total number quantity" in _expansion_query(
         plan,
         "quantity_enumeration_bridge",
     )
+
+
+def test_query_expansion_routes_number_and_count_cardinality_questions() -> None:
+    tournaments = build_query_expansion_plan("What number of tournaments did Nate win?")
+    people = build_query_expansion_plan(
+        "What is the count of people Maria met at the shelter?"
+    )
+    attempts = build_query_expansion_plan(
+        "What is the number of attempts Joanna made before passing the test?"
+    )
+    how_many_attempts = build_query_expansion_plan(
+        "How many attempts did Joanna make before passing the test?"
+    )
+    places = build_query_expansion_plan("What is the number of places Maria visited?")
+    children = build_query_expansion_plan("What is the number of children Melanie has?")
+    events = build_query_expansion_plan("Count the events John organized.")
+
+    assert "tournament_count_bridge" in {item.reason for item in tournaments.expansions}
+    assert "volunteering_people_inventory_bridge" in {
+        item.reason for item in people.expansions
+    }
+    assert "repeated_test_attempt_bridge" in {
+        item.reason for item in attempts.expansions
+    }
+    assert "repeated_test_attempt_bridge" in {
+        item.reason for item in how_many_attempts.expansions
+    }
+    assert "place_area_inventory_bridge" in {item.reason for item in places.expansions}
+    assert "children_count_event_bridge" in {item.reason for item in children.expansions}
+    assert "children_count_sibling_bridge" in {item.reason for item in children.expansions}
+    assert "event_participation_bridge" in {item.reason for item in events.expansions}
+
+
+def test_query_expansion_does_not_route_pet_count_to_children_count() -> None:
+    plan = build_query_expansion_plan("Count the dogs Maria adopted from the shelter.")
+
+    assert "pet_count_bridge" in {item.reason for item in plan.expansions}
+    assert "children_count_event_bridge" not in {item.reason for item in plan.expansions}
+    assert "children_count_sibling_bridge" not in {item.reason for item in plan.expansions}
+
+
+def test_best_query_relevance_bridges_number_and_count_cardinality_evidence() -> None:
+    tournaments = build_query_expansion_plan("What number of tournaments did Nate win?")
+    people = build_query_expansion_plan(
+        "What is the count of people Maria met at the shelter?"
+    )
+    attempts = build_query_expansion_plan(
+        "What is the number of attempts Joanna made before passing the test?"
+    )
+    events = build_query_expansion_plan("Count the events John organized.")
+
+    _, tournament_reason, tournament_relevance = best_query_relevance(
+        tournaments,
+        text="D17:1 Nate won his fourth video game tournament on Friday.",
+    )
+    _, people_reason, people_relevance = best_query_relevance(
+        people,
+        text=(
+            "D9:2 Maria met a resident named Sam while volunteering at the "
+            "homeless shelter."
+        ),
+    )
+    _, attempt_reason, attempt_relevance = best_query_relevance(
+        attempts,
+        text="D7:4 Joanna retook the aptitude test and passed after trying again.",
+    )
+    event_relevance = score_query_relevance(
+        query=_expansion_query(events, "event_participation_bridge"),
+        text="D11:3 John organized a community fundraiser event with friends.",
+    )
+
+    assert tournament_reason == "tournament_count_bridge"
+    assert tournament_relevance.distinctive_term_hits >= 4
+    assert people_reason == "volunteering_people_inventory_bridge"
+    assert people_relevance.distinctive_term_hits >= 5
+    assert attempt_reason == "repeated_test_attempt_bridge"
+    assert attempt_relevance.distinctive_term_hits >= 5
+    assert event_relevance.distinctive_term_hits >= 4
 
 
 def test_best_query_relevance_bridges_charity_tournament_count_evidence() -> None:

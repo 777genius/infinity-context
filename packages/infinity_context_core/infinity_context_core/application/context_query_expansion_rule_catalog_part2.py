@@ -116,6 +116,22 @@ EXPANSION_RULES_PART_2: tuple[tuple[frozenset[str], str, str], ...] = (
             "cause_event_inventory_bridge",
         ),
     (
+            frozenset({"count", "events"}),
+            (
+                "events event participated attended joined went organized hosted planned "
+                "fundraiser charity community support group meeting program count total"
+            ),
+            "event_participation_bridge",
+        ),
+    (
+            frozenset({"number", "events"}),
+            (
+                "events event participated attended joined went organized hosted planned "
+                "fundraiser charity community support group meeting program count total"
+            ),
+            "event_participation_bridge",
+        ),
+    (
             frozenset({"causes"}),
             _terms._CAUSE_EDUCATION_INFRASTRUCTURE_EXPANSION,
             "cause_education_infrastructure_inventory_bridge",
@@ -459,6 +475,26 @@ EXPANSION_RULES_PART_2: tuple[tuple[frozenset[str], str, str], ...] = (
             "quantity_enumeration_bridge",
         ),
     (
+            frozenset({"number"}),
+            (
+                "count total number quantity listed list includes including consists "
+                "of first second third fourth another one two three four five collected "
+                "earned received got completed items events people places attempts pets "
+                "books certificates awards"
+            ),
+            "quantity_enumeration_bridge",
+        ),
+    (
+            frozenset({"count"}),
+            (
+                "count total number quantity listed list includes including consists "
+                "of first second third fourth another one two three four five collected "
+                "earned received got completed items events people places attempts pets "
+                "books certificates awards"
+            ),
+            "quantity_enumeration_bridge",
+        ),
+    (
             frozenset({"many", "games"}),
             (
                 "games game won winning wins victory count total number mentioned "
@@ -487,6 +523,24 @@ EXPANSION_RULES_PART_2: tuple[tuple[frozenset[str], str, str], ...] = (
         ),
     (
             frozenset({"many", "tournaments"}),
+            (
+                "tournament tournaments won winning first second fourth regional "
+                "international big video game Valorant champion victory final money "
+                "organized held tourney raised charity children hospital good cause"
+            ),
+            "tournament_count_bridge",
+        ),
+    (
+            frozenset({"number", "tournaments"}),
+            (
+                "tournament tournaments won winning first second fourth regional "
+                "international big video game Valorant champion victory final money "
+                "organized held tourney raised charity children hospital good cause"
+            ),
+            "tournament_count_bridge",
+        ),
+    (
+            frozenset({"count", "tournaments"}),
             (
                 "tournament tournaments won winning first second fourth regional "
                 "international big video game Valorant champion victory final money "
@@ -564,7 +618,39 @@ EXPANSION_RULES_PART_2: tuple[tuple[frozenset[str], str, str], ...] = (
             "pet_count_bridge",
         ),
     (
+            frozenset({"number", "pet"}),
+            (
+                "pets pet puppy pup dog doggo adopted another dog adopted another pup "
+                "shelter Toby Buddy Coco Shadow turtle turtles new friend critters count"
+            ),
+            "pet_count_bridge",
+        ),
+    (
+            frozenset({"count", "pet"}),
+            (
+                "pets pet puppy pup dog doggo adopted another dog adopted another pup "
+                "shelter Toby Buddy Coco Shadow turtle turtles new friend critters count"
+            ),
+            "pet_count_bridge",
+        ),
+    (
             frozenset({"many", "dogs"}),
+            (
+                "pets pet puppy pup dog dogs doggo adopted another dog adopted another "
+                "pup shelter animal shelter dog shelter named new friend count"
+            ),
+            "pet_count_bridge",
+        ),
+    (
+            frozenset({"number", "dogs"}),
+            (
+                "pets pet puppy pup dog dogs doggo adopted another dog adopted another "
+                "pup shelter animal shelter dog shelter named new friend count"
+            ),
+            "pet_count_bridge",
+        ),
+    (
+            frozenset({"count", "dog"}),
             (
                 "pets pet puppy pup dog dogs doggo adopted another dog adopted another "
                 "pup shelter animal shelter dog shelter named new friend count"
