@@ -1388,6 +1388,11 @@ def _location_support_query_terms(
         "visit",
         "visited",
         "visiting",
+        "gallery",
+        "museum",
+        "studio",
+        "theater",
+        "theatre",
     )
     explicit_location_terms = tuple(
         term
@@ -1420,6 +1425,18 @@ def _location_support_query_terms(
             "city",
             "place",
             "location",
+        )
+    elif "attend" in relation_term_set:
+        location_first_terms = (
+            "attend",
+            "attended",
+            "event",
+            "venue",
+            "place",
+            "location",
+            "gallery",
+            "museum",
+            "theater",
         )
     elif {"origin", "from"} & relation_term_set:
         location_first_terms = ("origin", "home", "city", "country", "grew", "born")

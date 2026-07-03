@@ -69,6 +69,11 @@ RELATION_QUERY_VARIANTS = {
         "meeting",
         "class",
         "workshop",
+        "gallery",
+        "museum",
+        "theater",
+        "theatre",
+        "venue",
     ),
     "birthday": ("birthday", "born", "age", "years", "ago"),
     "book": (

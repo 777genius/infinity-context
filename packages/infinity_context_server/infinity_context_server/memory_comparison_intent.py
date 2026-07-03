@@ -812,6 +812,7 @@ def _has_location_transition_intent(
         "trip",
         "visit",
         "stay",
+        "attend",
     } & relation_set:
         return False
     normalized = " ".join(str(question or "").casefold().split())
@@ -851,15 +852,24 @@ def _has_location_transition_intent(
     return bool(
         re.search(
             r"\b(?:where|which\s+(?:city|country|place)|from|origin|"
-            r"home\s+country|hometown|born|raised|childhood|originally|"
-            r"relocat(?:e|ed|ion)|current\s+(?:city|home|location))\b",
+            r"what\s+(?:place|venue)|home\s+country|hometown|born|raised|"
+            r"childhood|originally|relocat(?:e|ed|ion)|"
+            r"current\s+(?:city|home|location))\b",
             normalized,
         )
         or re.search(
             r"\b(?:move|moved|moving|relocate|relocated|live|lived|living|based|"
             r"stay|stayed|staying|grow|grew|camp|camped|camping|travel|"
-            r"traveled|travelled|traveling|travelling|visit|visited|visiting)\s+"
+            r"traveled|travelled|traveling|travelling|visit|visited|visiting|"
+            r"attend|attended|attending)\s+"
             r"(?:from|in|at|near|around|up\b)",
+            normalized,
+        )
+        or re.search(
+            r"\b(?:where|which\s+(?:place|venue)|what\s+(?:place|venue))\b"
+            r".+\b(?:attend|attended|attending)\b|"
+            r"\b(?:attend|attended|attending)\b.+"
+            r"\b(?:where|which\s+(?:place|venue)|what\s+(?:place|venue))\b",
             normalized,
         )
         or re.search(
@@ -2523,6 +2533,7 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
     "location_transition": {
         "terms": frozenset(
             {
+                "attend",
                 "grow",
                 "based",
                 "camp",
@@ -2553,9 +2564,11 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "drive",
                 "from",
                 "grew",
+                "gallery",
                 "home",
                 "hometown",
                 "hotel",
+                "museum",
                 "company",
                 "employer",
                 "office",
@@ -2566,10 +2579,13 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "relocated",
                 "stayed",
                 "staying",
+                "theater",
+                "theatre",
                 "travel",
                 "traveled",
                 "traveling",
                 "trip",
+                "venue",
                 "visited",
                 "visiting",
                 "work",

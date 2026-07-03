@@ -251,6 +251,45 @@ def test_workplace_location_support_ignores_non_place_work_field() -> None:
     assert field_signals["benchmark_location_support_boost"] == 0.0
 
 
+def test_event_location_rerank_boosts_venue_evidence_over_generic_event() -> None:
+    case = _case("Where did Alex attend the concert?")
+    venue_evidence = RetrievedMemory(
+        item_id="event-venue",
+        rank=2,
+        score=0.5,
+        text="D3:9 Alex: I attended the concert at the Rialto Theater last Friday.",
+        source_refs=("D3:9",),
+        metadata={"item_type": "raw_turn"},
+    )
+    generic_event = RetrievedMemory(
+        item_id="generic-event",
+        rank=1,
+        score=0.55,
+        text="D3:8 Alex: I attended the concert after work and enjoyed it.",
+        source_refs=("D3:8",),
+        metadata={"item_type": "raw_turn"},
+    )
+
+    reranked, diagnostics = benchmark_rerank_memories(
+        case,
+        (generic_event, venue_evidence),
+    )
+
+    assert reranked[0].item_id == "event-venue"
+    assert diagnostics["retrieval_intent"]["uses_ground_truth"] is False
+    assert "location_support" in diagnostics["retrieval_intent"]["evidence_need"]
+    venue_features = reranked[0].metadata["diagnostics"][
+        "benchmark_candidate_features"
+    ]
+    venue_signals = reranked[0].metadata["diagnostics"]["score_signals"]
+    generic_features = next(
+        memory for memory in reranked if memory.item_id == "generic-event"
+    ).metadata["diagnostics"]["benchmark_candidate_features"]
+    assert venue_features["relation_category_hits"] == ["location_transition"]
+    assert generic_features["relation_category_hits"] == []
+    assert venue_signals["benchmark_location_support_boost"] > 0
+
+
 def test_non_place_work_question_does_not_get_location_support() -> None:
     case = _case("What field was Alex working in?")
 

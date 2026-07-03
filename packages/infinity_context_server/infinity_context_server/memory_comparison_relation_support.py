@@ -1466,6 +1466,15 @@ _WORKPLACE_LOCATION_SURFACE_RE = re.compile(
     r"(?:a\s+|an\s+|the\s+)?(?:[A-Z][a-zA-Z0-9_-]+|"
     r"downtown|midtown|uptown)",
 )
+_EVENT_VENUE_LOCATION_SURFACE_RE = re.compile(
+    r"(?i:\b(?:attend|attended|attending|event|concert|conference|meet|met|"
+    r"meeting|show|visit|visited|workshop)\b)"
+    r"[^.?!\n]{0,100}(?i:\b(?:at|in|near|around)\s+)"
+    r"(?i:(?:a\s+|an\s+|the\s+)?)"
+    r"(?:[A-Z][a-zA-Z0-9_-]+(?:\s+[A-Z][a-zA-Z0-9_-]+){0,3}|"
+    r"(?i:auditorium|cafe|center|centre|gallery|hall|library|museum|park|"
+    r"restaurant|school|studio|theater|theatre|venue))\b",
+)
 
 
 def _has_location_transition_support(
@@ -1485,9 +1494,14 @@ def _has_location_transition_support(
         "city",
         "country",
         "from",
+        "gallery",
         "home",
         "origin",
         "place",
+        "museum",
+        "theater",
+        "theatre",
+        "venue",
     } & memory_terms
     location_profile_action = {
         "live",
@@ -1550,6 +1564,7 @@ def _has_location_transition_support(
         or _LOCATION_PROFILE_SURFACE_RE.search(memory_text)
         or _CAMPING_LOCATION_SURFACE_RE.search(memory_text)
         or _WORKPLACE_LOCATION_SURFACE_RE.search(memory_text)
+        or _EVENT_VENUE_LOCATION_SURFACE_RE.search(memory_text)
         or (travel_surface and travel_context)
     )
 
