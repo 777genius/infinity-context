@@ -3556,7 +3556,7 @@ def test_query_decomposition_preserves_anchored_season_boundary() -> None:
     assert "end" in metadata["query_profile"]["temporal_terms"]
     assert "summer" in metadata["query_profile"]["temporal_terms"]
     assert "relative_temporal_support" in metadata["query_plan"]["selected_roles"]
-    assert queries[-1] == "sam end summer session date time"
+    assert queries[-1] == "sam end summer 2023 session date time"
 
 
 def test_query_decomposition_preserves_numeric_date_anchors() -> None:
@@ -3774,6 +3774,71 @@ def test_query_decomposition_classifies_holiday_temporal_surfaces() -> None:
         "selected_roles"
     ]
     assert thanksgiving_queries[-1] == "tim thanksgiving session date time"
+
+
+def test_query_decomposition_classifies_season_temporal_anchors() -> None:
+    season_year_case = _case(
+        case_id="conv-1:qa:during-summer-2022",
+        question="In what country was Jolene during summer 2022?",
+        expected_terms=("Colombia",),
+        answer="Colombia",
+        category=3,
+    )
+    relative_season_case = _case(
+        case_id="conv-1:qa:last-summer-picture",
+        question="What did Joanna take a picture of near Fort Wayne last summer?",
+        expected_terms=("Sunset",),
+        answer="Sunset",
+        category=4,
+    )
+    unanchored_summer_case = _case(
+        case_id="conv-1:qa:summer-plans",
+        question="What are Caroline's plans for the summer?",
+        expected_terms=("adoption agencies",),
+        answer="adoption agencies",
+        category=4,
+    )
+
+    season_year_queries, season_year_metadata = (
+        rerank_module.decomposed_search_queries(season_year_case)
+    )
+    _, relative_season_metadata = (
+        rerank_module.decomposed_search_queries(relative_season_case)
+    )
+    _, unanchored_summer_metadata = rerank_module.decomposed_search_queries(
+        unanchored_summer_case
+    )
+
+    assert season_year_metadata["query_profile"]["time_intent_kind"] == "relative_time"
+    assert "summer" in season_year_metadata["query_profile"]["temporal_terms"]
+    assert "2022" in season_year_metadata["query_profile"]["temporal_terms"]
+    assert "relative_temporal_support" in season_year_metadata["query_plan"][
+        "selected_roles"
+    ]
+    assert season_year_queries[-1] == "in jolene summer 2022 session date time"
+
+    assert relative_season_metadata["query_profile"]["time_intent_kind"] == (
+        "relative_time"
+    )
+    assert "last summer" in relative_season_metadata["query_profile"][
+        "temporal_terms"
+    ]
+    assert "visual_temporal_support" in relative_season_metadata["query_plan"][
+        "selected_roles"
+    ]
+    visual_temporal_candidate = next(
+        candidate
+        for candidate in relative_season_metadata["query_plan"]["candidates"]
+        if candidate["role"] == "visual_temporal_support"
+    )
+    assert visual_temporal_candidate["query"] == (
+        "joanna fort wayne picture take near fort wayne summer last summer date"
+    )
+
+    assert unanchored_summer_metadata["query_profile"]["time_intent_kind"] == "none"
+    assert "relative_temporal_support" not in unanchored_summer_metadata["query_plan"][
+        "selected_roles"
+    ]
 
 
 def test_query_decomposition_classifies_after_how_many_as_duration() -> None:

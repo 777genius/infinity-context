@@ -194,6 +194,12 @@ _RELATIVE_ORDINAL_PERIOD_TERMS = frozenset(
     for ordinal in ("first", "second", "third", "fourth", "last")
     for period in ("weekend", "week", "half", "quarter", "month")
 )
+_RELATIVE_SEASON_TERMS = frozenset(
+    f"{modifier} {season}"
+    for modifier in ("last", "next", "this")
+    for season in ("spring", "summer", "fall", "autumn", "winter")
+)
+_SEASON_TERMS = frozenset({"spring", "summer", "fall", "autumn", "winter"})
 _RELATIVE_TIME_TERMS = (
     frozenset(
         {
@@ -247,6 +253,8 @@ _RELATIVE_TIME_TERMS = (
     )
     | _RELATIVE_WEEKDAY_TERMS
     | _RELATIVE_ORDINAL_PERIOD_TERMS
+    | _RELATIVE_SEASON_TERMS
+    | _SEASON_TERMS
 )
 
 
