@@ -452,7 +452,7 @@ def _role_families(role: str) -> tuple[str, ...]:
     if role in _RELATION_COMPACT_SUPPORT_ROLES:
         return ("relation_compact",)
     if role == "location_support":
-        return ("location_support",)
+        return ("relation_compact", "location_support")
     if role == "count_support":
         return ("count_support",)
     if role == "visual_temporal_support":

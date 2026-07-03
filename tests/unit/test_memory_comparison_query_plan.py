@@ -268,12 +268,13 @@ def test_query_planner_preserves_location_support_family() -> None:
     assert diagnostics["selected_role_families"] == [
         "base_query",
         "relation_compact",
+        "relation_compact",
         "location_support",
     ]
     assert diagnostics["missing_recommended_role_families"] == []
 
 
-def test_query_planner_prefers_specific_recommended_role_under_type_cap() -> None:
+def test_query_planner_type_limit_replacement_preserves_relation_support() -> None:
     plan = QueryPlannerV2(max_queries=3, max_queries_per_type=1).plan(
         (
             _candidate(
@@ -313,6 +314,11 @@ def test_query_planner_prefers_specific_recommended_role_under_type_cap() -> Non
         "original_question",
         "location_support",
     ]
+    assert diagnostics["selected_role_families"] == [
+        "base_query",
+        "relation_compact",
+        "location_support",
+    ]
     assert diagnostics["dropped_roles"] == [
         "expanded_focus",
         "compact_relation",
@@ -322,9 +328,7 @@ def test_query_planner_prefers_specific_recommended_role_under_type_cap() -> Non
     assert diagnostics["replaced_type_limit_roles"] == ["compact_relation"]
     assert diagnostics["type_limit_replacement_roles"] == ["location_support"]
     assert diagnostics["fanout_integrity"]["type_limit_hit"] is True
-    assert diagnostics["missing_recommended_role_families"] == [
-        "relation_compact"
-    ]
+    assert diagnostics["missing_recommended_role_families"] == []
 
 
 def test_query_planner_maps_relation_support_roles_to_compact_family() -> None:
