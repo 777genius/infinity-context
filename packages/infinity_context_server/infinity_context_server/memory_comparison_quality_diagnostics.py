@@ -1661,6 +1661,7 @@ def _answer_context_provenance_table(
     context_count = 0
     evidence_bundle_context_count = 0
     source_ref_context_count = 0
+    source_refless_context_count = 0
     memory_count = 0
     source_ref_count = 0
     source_ref_item_count = 0
@@ -1894,6 +1895,8 @@ def _answer_context_provenance_table(
                 backfill_skip_context_count += 1
             if context_source_ref_count > 0 or context_source_ref_item_count > 0:
                 source_ref_context_count += 1
+            if context_source_refless_item_count > 0:
+                source_refless_context_count += 1
             if (
                 context_skipped_duplicate_source_bundle_item_count > 0
                 and len(duplicate_source_bundle_skip_context_samples) < 10
@@ -2024,7 +2027,7 @@ def _answer_context_provenance_table(
         "evidence_bundle_context_count": evidence_bundle_context_count,
         "fallback_context_count": fallback_context_count,
         "source_ref_context_count": source_ref_context_count,
-        "source_refless_context_count": context_count - source_ref_context_count,
+        "source_refless_context_count": source_refless_context_count,
         "memory_count": memory_count,
         "source_ref_count": source_ref_count,
         "source_ref_item_count": source_ref_item_count,

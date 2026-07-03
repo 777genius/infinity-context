@@ -943,7 +943,7 @@ def test_quality_diagnostics_reports_answer_context_provenance_table() -> None:
     assert table["evidence_bundle_context_count"] == 1
     assert table["fallback_context_count"] == 1
     assert table["source_ref_context_count"] == 2
-    assert table["source_refless_context_count"] == 0
+    assert table["source_refless_context_count"] == 1
     assert table["memory_count"] == 5
     assert table["source_ref_count"] == 4
     assert table["source_ref_item_count"] == 3
