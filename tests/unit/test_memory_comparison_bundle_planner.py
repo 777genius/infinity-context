@@ -868,6 +868,58 @@ def test_evidence_bundle_planner_repair_prefers_nearby_required_support() -> Non
     assert quality["source_proximity_closest_distance"] == 2
 
 
+def test_evidence_bundle_planner_prefers_non_overlapping_required_support() -> None:
+    primary = _candidate(
+        item_id="primary",
+        retrieval_order=1,
+        dedupe_key="refs:D4:10",
+        covered_expected_terms=("move",),
+        primary_signal=True,
+        source_refs=("D4:10",),
+        focused_evidence_score=1.0,
+        direct_speaker_turn=True,
+        answerability_score=0.9,
+    )
+    broad_temporal = _candidate(
+        item_id="broad-temporal",
+        retrieval_order=2,
+        dedupe_key="refs:D4:10|D4:11|D4:12",
+        time_intent_kind="duration",
+        has_duration_surface=True,
+        query_support_terms=("years",),
+        source_refs=("D4:10", "D4:11", "D4:12"),
+        source_type="chunk",
+        source_locality_score=0.95,
+        answerability_score=0.9,
+        bundle_strength_score=4.0,
+    )
+    precise_temporal = _candidate(
+        item_id="precise-temporal",
+        retrieval_order=3,
+        dedupe_key="refs:D4:11",
+        time_intent_kind="duration",
+        has_duration_surface=True,
+        query_support_terms=("years",),
+        source_refs=("D4:11",),
+        source_type="raw_turn",
+        source_locality_score=0.9,
+        answerability_score=0.82,
+        bundle_strength_score=1.0,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, broad_temporal, precise_temporal),
+        case_group="single",
+        required_roles=("primary", "temporal_support"),
+    )
+
+    selected_ids = [item.candidate.item_id for item in plan.items]
+
+    assert selected_ids == ["primary", "precise-temporal"]
+    assert "broad-temporal" not in selected_ids
+    assert plan.satisfied_required_roles == ("primary", "temporal_support")
+
+
 def test_evidence_bundle_planner_prefers_more_answerable_primary() -> None:
     weaker = _candidate(
         item_id="weak-primary",

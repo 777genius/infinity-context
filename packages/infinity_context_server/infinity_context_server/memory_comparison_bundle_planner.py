@@ -939,6 +939,7 @@ def _required_role_candidate_sort_key(
     selected: Sequence[PlannedEvidenceItem] = (),
 ) -> tuple[float, ...]:
     return (
+        *_source_overlap_selection_sort_key(item, selected),
         *_source_proximity_selection_sort_key(item, selected),
         *_candidate_sort_key(item.candidate),
         _role_order(item),
@@ -1524,10 +1525,28 @@ def _planned_coverage_sort_key(
     return (
         _role_order(item),
         -float(required_gain),
+        *_source_overlap_selection_sort_key(item, selected),
         *_source_proximity_selection_sort_key(item, selected),
         -float(support_gain),
         *_candidate_sort_key(item.candidate),
     )
+
+
+def _source_overlap_selection_sort_key(
+    item: PlannedEvidenceItem,
+    selected: Sequence[PlannedEvidenceItem],
+) -> tuple[float]:
+    if item.role == "primary" or not selected:
+        return (0.0,)
+    item_turn_refs = set(_candidate_turn_ref_strings(item.candidate))
+    if not item_turn_refs:
+        return (0.0,)
+    selected_turn_refs = {
+        turn_ref
+        for selected_item in selected
+        for turn_ref in _candidate_turn_ref_strings(selected_item.candidate)
+    }
+    return (1.0 if item_turn_refs.intersection(selected_turn_refs) else 0.0,)
 
 
 def _source_proximity_selection_sort_key(
