@@ -3559,6 +3559,40 @@ def test_query_decomposition_preserves_anchored_season_boundary() -> None:
     assert queries[-1] == "sam end summer session date time"
 
 
+def test_query_decomposition_preserves_numeric_date_anchors() -> None:
+    before_case = _case(
+        case_id="conv-1:qa:week-before-august-date",
+        question="What did John do the week before August 3, 2023 involving his kids?",
+        expected_terms=("memorial",),
+        answer="memorial",
+        category=2,
+    )
+    ordinal_case = _case(
+        case_id="conv-1:qa:weekend-before-october-date",
+        question="What did Audrey do over the weekend before 4th October, 2023?",
+        expected_terms=("beach",),
+        answer="beach",
+        category=4,
+    )
+
+    before_queries, before_metadata = rerank_module.decomposed_search_queries(
+        before_case
+    )
+    ordinal_queries, ordinal_metadata = rerank_module.decomposed_search_queries(
+        ordinal_case
+    )
+
+    assert before_metadata["query_profile"]["time_intent_kind"] == "temporal_sequence"
+    assert "3" in before_metadata["query_profile"]["temporal_terms"]
+    assert "2023" in before_metadata["query_profile"]["temporal_terms"]
+    assert before_queries[-1] == "john before 3 2023 august week session date"
+
+    assert ordinal_metadata["query_profile"]["time_intent_kind"] == "temporal_sequence"
+    assert "4th" in ordinal_metadata["query_profile"]["temporal_terms"]
+    assert "2023" in ordinal_metadata["query_profile"]["temporal_terms"]
+    assert ordinal_queries[-1] == "audrey before 4th 2023 october weekend week session"
+
+
 def test_query_decomposition_classifies_after_how_many_as_duration() -> None:
     case = _case(
         case_id="conv-1:qa:after-how-many-weeks",

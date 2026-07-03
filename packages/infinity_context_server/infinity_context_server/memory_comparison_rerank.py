@@ -1966,6 +1966,11 @@ def _temporal_query_profile(case: PublicBenchmarkCase) -> dict[str, object]:
     duration_amount_terms = _duration_amount_temporal_terms(query)
     if duration_amount_terms:
         matched_terms = tuple(dict.fromkeys((*matched_terms, *duration_amount_terms)))
+    explicit_date_anchor_terms = _explicit_date_anchor_temporal_terms(query)
+    if explicit_date_anchor_terms:
+        matched_terms = tuple(
+            dict.fromkeys((*matched_terms, *explicit_date_anchor_terms))
+        )
     ordered_event_term = _ordered_event_temporal_term(query)
     if ordered_event_term:
         matched_terms = tuple(dict.fromkeys((*matched_terms, ordered_event_term)))
@@ -2046,6 +2051,27 @@ def _duration_amount_temporal_terms(query: str) -> tuple[str, ...]:
     if match is None:
         return ()
     return ("duration", match.group(1))
+
+
+def _explicit_date_anchor_temporal_terms(query: str) -> tuple[str, ...]:
+    terms: list[str] = []
+    month_pattern = (
+        r"january|february|march|april|may|june|july|august|september|"
+        r"october|november|december"
+    )
+    for match in re.finditer(
+        rf"\b(?:{month_pattern})\s+(\d{{1,2}}(?:st|nd|rd|th)?)"
+        r"(?:\s*,?\s*(\d{4}))?\b",
+        query,
+    ):
+        terms.extend(term for term in match.groups() if term)
+    for match in re.finditer(
+        rf"\b(\d{{1,2}}(?:st|nd|rd|th)?)\s+(?:of\s+)?(?:{month_pattern})"
+        r"(?:\s*,?\s*(\d{4}))?\b",
+        query,
+    ):
+        terms.extend(term for term in match.groups() if term)
+    return tuple(dict.fromkeys(terms))
 
 
 def _without_overlapped_relative_temporal_terms(
