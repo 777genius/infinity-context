@@ -235,6 +235,86 @@ def test_evidence_bundle_quality_does_not_reward_noisy_source_diversity() -> Non
     assert "retrieval_source_diverse" not in quality["reason_codes"]
 
 
+def test_evidence_bundle_planner_prefers_compact_source_refs_over_diffuse_support_gain() -> None:
+    primary = _candidate(
+        item_id="primary",
+        retrieval_order=1,
+        dedupe_key="refs:D4:10",
+        covered_evidence_terms=("plan",),
+        primary_signal=True,
+        source_refs=("D4:10",),
+        focused_evidence_score=1.0,
+        direct_speaker_turn=True,
+        answerability_score=0.92,
+    )
+    diffuse_support = _candidate(
+        item_id="diffuse-support",
+        retrieval_order=2,
+        dedupe_key="refs:D4:2,D4:11,D4:28",
+        query_support_terms=("origin", "country", "move", "support"),
+        source_refs=("D4:2", "D4:11", "D4:28"),
+        focused_evidence_score=1.0,
+        direct_speaker_turn=True,
+        answerability_score=0.9,
+    )
+    compact_support = _candidate(
+        item_id="compact-support",
+        retrieval_order=3,
+        dedupe_key="refs:D4:12",
+        query_support_terms=("origin", "country"),
+        source_refs=("D4:12",),
+        focused_evidence_score=1.0,
+        direct_speaker_turn=True,
+        answerability_score=0.84,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, diffuse_support, compact_support),
+        case_group="single",
+    )
+
+    assert [item.candidate.item_id for item in plan.items] == [
+        "primary",
+        "compact-support",
+    ]
+    quality = plan.to_diagnostics()["bundle_quality"]
+    assert quality["diffuse_source_ref_count"] == 0
+    assert "risk:diffuse_source_refs" not in quality["reason_codes"]
+
+
+def test_evidence_bundle_quality_flags_diffuse_source_refs() -> None:
+    primary = _candidate(
+        item_id="primary",
+        retrieval_order=1,
+        dedupe_key="refs:D4:10",
+        covered_evidence_terms=("plan",),
+        primary_signal=True,
+        source_refs=("D4:10",),
+        focused_evidence_score=1.0,
+        direct_speaker_turn=True,
+        answerability_score=0.92,
+    )
+    diffuse_support = _candidate(
+        item_id="diffuse-support",
+        retrieval_order=2,
+        dedupe_key="refs:D4:2,D4:11,D4:28",
+        query_support_terms=("origin", "country"),
+        source_refs=("D4:2", "D4:11", "D4:28"),
+        focused_evidence_score=1.0,
+        direct_speaker_turn=True,
+        answerability_score=0.9,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, diffuse_support),
+        case_group="single",
+    )
+
+    quality = plan.to_diagnostics()["bundle_quality"]
+    assert quality["diffuse_source_ref_count"] == 1
+    assert "risk:diffuse_source_refs" in quality["reason_codes"]
+
+
 def test_evidence_bundle_planner_prefers_compact_chained_sibling_support() -> None:
     primary = _candidate(
         item_id="primary",

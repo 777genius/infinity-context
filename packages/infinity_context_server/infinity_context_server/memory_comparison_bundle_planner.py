@@ -18,6 +18,8 @@ BundleRole = str
 _TURN_REF_RE = re.compile(r"\bD\d+:\d+\b")
 _TURN_REF_PARTS_RE = re.compile(r"\bD(?P<dialogue>\d+):(?P<turn>\d+)\b")
 _SOURCE_PROXIMITY_WINDOW = 3
+_COMPACT_SOURCE_REF_MAX_TURNS = 2
+_COMPACT_SOURCE_REF_MAX_SPAN = _SOURCE_PROXIMITY_WINDOW
 _TYPED_RELATION_SUPPORT_CATEGORIES = {
     "action_support": frozenset({"action_event"}),
     "activity_support": frozenset({"activity_profile"}),
@@ -591,6 +593,18 @@ class EvidenceBundlePlanner:
             dropped_diversity_count += max_dropped_count
             dropped_source_type_diversity_count += max_dropped_source_type_count
             dropped_retrieval_source_diversity_count += max_dropped_retrieval_source_count
+            for item in remaining:
+                source_ref_keys = _source_ref_overlap_keys(item.candidate)
+                overlapped_keys = [
+                    key for key in source_ref_keys if key in selected_source_ref_keys
+                ]
+                if not overlapped_keys:
+                    continue
+                dropped_source_ref_overlap_count += 1
+                dropped_source_ref_overlap_keys.extend(overlapped_keys)
+                if _candidate_has_noisy_source_overlap_risk(item.candidate):
+                    dropped_noisy_source_overlap_count += 1
+                    dropped_noisy_source_overlap_keys.extend(overlapped_keys)
         return (
             tuple(selected),
             dropped_diversity_count,
@@ -1526,6 +1540,7 @@ def _planned_coverage_sort_key(
         _role_order(item),
         -float(required_gain),
         *_source_overlap_selection_sort_key(item, selected),
+        *_source_ref_compactness_selection_sort_key(item),
         *_source_proximity_selection_sort_key(item, selected),
         -float(support_gain),
         *_candidate_sort_key(item.candidate),
@@ -1574,6 +1589,23 @@ def _source_proximity_selection_sort_key(
     if closest_distance is None or closest_distance > _SOURCE_PROXIMITY_WINDOW:
         return (1.0, float("inf"))
     return (0.0, float(closest_distance))
+
+
+def _source_ref_compactness_selection_sort_key(
+    item: PlannedEvidenceItem,
+) -> tuple[float, float, float]:
+    if item.role == "primary":
+        return (0.0, 0.0, 0.0)
+    turn_refs = _candidate_turn_refs(item.candidate)
+    if not turn_refs:
+        return (0.0, 0.0, 0.0)
+    if not _candidate_has_diffuse_source_refs(item.candidate):
+        return (0.0, 0.0, 0.0)
+    return (
+        1.0,
+        float(_turn_ref_span(turn_refs)),
+        float(len(turn_refs)),
+    )
 
 
 def _closest_turn_ref_distance(
@@ -1680,6 +1712,7 @@ def _bundle_quality_diagnostics(
             "source_proximity_distance_counts": {},
             "source_chain_proximity_distance_counts": {},
             "source_proximity_window": _SOURCE_PROXIMITY_WINDOW,
+            "diffuse_source_ref_count": 0,
             "missing_required_role_count": len(missing_roles),
             "missing_required_roles": list(missing_roles),
             "contrast_count": 0,
@@ -1801,6 +1834,9 @@ def _bundle_quality_diagnostics(
     source_proximity_support_count = len(source_proximity_distances)
     source_chain_proximity_distances = _source_chain_proximity_distances(items)
     source_chain_proximity_support_count = len(source_chain_proximity_distances)
+    diffuse_source_ref_count = sum(
+        1 for item in items if _candidate_has_diffuse_source_refs(item.candidate)
+    )
     contrast_count = sum(
         1 for item in items if _candidate_has_contrast_support(item.candidate)
     )
@@ -1857,6 +1893,7 @@ def _bundle_quality_diagnostics(
         0.48,
         (0.08 * low_answerability_count)
         + (0.05 * broad_summary_count)
+        + (0.04 * diffuse_source_ref_count)
         + (0.08 * conflict_or_stale_count)
         + (0.08 if broad_summary_count == len(items) else 0.0)
         + min(0.3, 0.18 * len(missing_roles)),
@@ -1912,6 +1949,7 @@ def _bundle_quality_diagnostics(
             currentness_surface_count=currentness_surface_count,
             stale_surface_count=stale_surface_count,
             broad_summary_count=broad_summary_count,
+            diffuse_source_ref_count=diffuse_source_ref_count,
             conflict_or_stale_count=conflict_or_stale_count,
             selected_item_count=len(items),
         ),
@@ -1991,6 +2029,7 @@ def _bundle_quality_diagnostics(
             )
         ),
         "source_proximity_window": _SOURCE_PROXIMITY_WINDOW,
+        "diffuse_source_ref_count": diffuse_source_ref_count,
         "missing_required_role_count": len(missing_roles),
         "missing_required_roles": list(missing_roles),
         "contrast_count": contrast_count,
@@ -2075,9 +2114,7 @@ def _candidate_has_source_proximity_diagnostic_support(
         return False
     if _candidate_has_measured_weak_source_locality(candidate):
         return False
-    if _is_measured_low_answerability(candidate.answerability_score):
-        return False
-    return True
+    return not _is_measured_low_answerability(candidate.answerability_score)
 
 
 def _candidate_has_source_identity_quality_support(
@@ -2089,13 +2126,36 @@ def _candidate_has_source_identity_quality_support(
         return False
     if _is_measured_low_answerability(candidate.answerability_score):
         return False
-    if candidate.conflict_or_stale and not (
+    return not candidate.conflict_or_stale or bool(
         candidate.contrast_surface
         or candidate.currentness_surface
         or candidate.stale_surface
-    ):
+    )
+
+
+def _candidate_has_diffuse_source_refs(candidate: EvidenceBundleCandidate) -> bool:
+    turn_refs = _candidate_turn_refs(candidate)
+    if len(turn_refs) > _COMPACT_SOURCE_REF_MAX_TURNS:
+        return True
+    if not turn_refs:
         return False
-    return True
+    dialogue_count = len({dialogue for dialogue, _turn in turn_refs})
+    return dialogue_count > 1 or _turn_ref_span(turn_refs) > _COMPACT_SOURCE_REF_MAX_SPAN
+
+
+def _turn_ref_span(turn_refs: Sequence[tuple[int, int]]) -> int:
+    if not turn_refs:
+        return 0
+    spans = []
+    for dialogue in {dialogue for dialogue, _turn in turn_refs}:
+        turns = [
+            turn
+            for candidate_dialogue, turn in turn_refs
+            if candidate_dialogue == dialogue
+        ]
+        if turns:
+            spans.append(max(turns) - min(turns))
+    return max(spans, default=0)
 
 
 def _candidate_has_noisy_source_overlap_risk(
@@ -2188,6 +2248,7 @@ def _bundle_quality_reason_codes(
     currentness_surface_count: int,
     stale_surface_count: int,
     broad_summary_count: int,
+    diffuse_source_ref_count: int,
     conflict_or_stale_count: int,
     selected_item_count: int,
 ) -> list[str]:
@@ -2266,6 +2327,8 @@ def _bundle_quality_reason_codes(
         reasons.append("risk:broad_summary")
     if selected_item_count and broad_summary_count == selected_item_count:
         reasons.append("risk:all_broad_summary")
+    if diffuse_source_ref_count:
+        reasons.append("risk:diffuse_source_refs")
     if conflict_or_stale_count:
         reasons.append("risk:conflict_or_stale")
     return reasons or ["weak_bundle"]
