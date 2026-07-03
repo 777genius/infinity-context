@@ -49,6 +49,7 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
                     "retrieval_source_diversity": 3,
                     "source_proximity_support_count": 1,
                     "source_proximity_closest_distance": 2,
+                    "source_proximity_distance_counts": {"2": 1},
                     "source_chain_proximity_support_count": 1,
                     "source_chain_proximity_closest_distance": 3,
                     "source_chain_proximity_distance_counts": {"3": 1},
@@ -151,6 +152,7 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
     assert context.bundle_retrieval_source_diversity == 3
     assert context.bundle_source_proximity_support_count == 1
     assert context.bundle_source_proximity_closest_distance == 2
+    assert context.bundle_source_proximity_distance_counts == {"2": 1}
     assert context.bundle_source_chain_proximity_support_count == 1
     assert context.bundle_source_chain_proximity_closest_distance == 3
     assert context.bundle_source_chain_proximity_distance_counts == {"3": 1}
@@ -196,6 +198,9 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
         ]
         == 2
     )
+    assert context.memories[0].metadata[
+        "answer_context_bundle_source_proximity_distance_counts"
+    ] == {"2": 1}
     assert (
         context.memories[0].metadata[
             "answer_context_bundle_source_chain_proximity_support_count"
@@ -342,6 +347,7 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
         "bundle_retrieval_source_diversity": 3,
         "bundle_source_proximity_support_count": 1,
         "bundle_source_proximity_closest_distance": 2,
+        "bundle_source_proximity_distance_counts": {"2": 1},
         "bundle_source_chain_proximity_support_count": 1,
         "bundle_source_chain_proximity_closest_distance": 3,
         "bundle_source_chain_proximity_distance_counts": {"3": 1},
@@ -1980,6 +1986,9 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
                             "bundle_retrieval_source_diversity": 3,
                             "bundle_source_proximity_support_count": 1,
                             "bundle_source_proximity_closest_distance": 2,
+                            "bundle_source_proximity_distance_counts": {
+                                "2": 1,
+                            },
                             "bundle_source_chain_proximity_support_count": 1,
                             "bundle_source_chain_proximity_closest_distance": 3,
                             "bundle_source_chain_proximity_distance_counts": {
@@ -2091,6 +2100,9 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
         == 2.0
     )
     assert metrics["primary_min_bundle_source_proximity_closest_distance"] == 2
+    assert metrics["primary_bundle_source_proximity_distance_counts"] == {
+        "2": 1,
+    }
     assert (
         metrics["primary_avg_bundle_source_chain_proximity_support_count"]
         == 0.5
@@ -2152,6 +2164,7 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
     assert primary["total_bundle_source_proximity_support_count"] == 1
     assert primary["avg_bundle_source_proximity_closest_distance"] == 2.0
     assert primary["min_bundle_source_proximity_closest_distance"] == 2
+    assert primary["bundle_source_proximity_distance_counts"] == {"2": 1}
     assert primary["avg_bundle_source_chain_proximity_support_count"] == 0.5
     assert primary["total_bundle_source_chain_proximity_support_count"] == 1
     assert primary["avg_bundle_source_chain_proximity_closest_distance"] == 3.0

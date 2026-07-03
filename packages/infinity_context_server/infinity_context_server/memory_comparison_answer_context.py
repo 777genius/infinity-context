@@ -50,6 +50,9 @@ class AnswerContext:
     bundle_retrieval_source_diversity: int = 0
     bundle_source_proximity_support_count: int = 0
     bundle_source_proximity_closest_distance: int | None = None
+    bundle_source_proximity_distance_counts: Mapping[str, int] = field(
+        default_factory=dict
+    )
     bundle_source_chain_proximity_support_count: int = 0
     bundle_source_chain_proximity_closest_distance: int | None = None
     bundle_source_chain_proximity_distance_counts: Mapping[str, int] = field(
@@ -116,6 +119,9 @@ class AnswerContext:
             ),
             "bundle_source_proximity_closest_distance": (
                 self.bundle_source_proximity_closest_distance
+            ),
+            "bundle_source_proximity_distance_counts": dict(
+                sorted(self.bundle_source_proximity_distance_counts.items())
             ),
             "bundle_source_chain_proximity_support_count": (
                 self.bundle_source_chain_proximity_support_count
@@ -342,6 +348,11 @@ def answer_context_from_evidence_bundle(
                 bundle_context.get(
                     "answer_context_bundle_source_proximity_closest_distance"
                 )
+            )
+        ),
+        bundle_source_proximity_distance_counts=_int_mapping(
+            bundle_context.get(
+                "answer_context_bundle_source_proximity_distance_counts"
             )
         ),
         bundle_source_chain_proximity_support_count=(
@@ -676,6 +687,9 @@ def answer_context_metrics(
                 primary.get("min_bundle_source_proximity_closest_distance")
             )
         ),
+        "primary_bundle_source_proximity_distance_counts": _int_mapping(
+            primary.get("bundle_source_proximity_distance_counts")
+        ),
         "primary_avg_bundle_source_chain_proximity_support_count": _metric_value(
             primary,
             "avg_bundle_source_chain_proximity_support_count",
@@ -738,6 +752,7 @@ def _answer_context_cutoff_metrics(
     bundle_retrieval_source_diversities: list[int] = []
     bundle_source_proximity_support_counts: list[int] = []
     bundle_source_proximity_closest_distances: list[int] = []
+    bundle_source_proximity_distance_counts: Counter[str] = Counter()
     bundle_source_chain_proximity_support_counts: list[int] = []
     bundle_source_chain_proximity_closest_distances: list[int] = []
     bundle_source_chain_proximity_distance_counts: Counter[str] = Counter()
@@ -913,6 +928,9 @@ def _answer_context_cutoff_metrics(
             bundle_source_proximity_closest_distances.append(
                 source_proximity_closest_distance
             )
+        bundle_source_proximity_distance_counts.update(
+            _int_mapping(context.get("bundle_source_proximity_distance_counts"))
+        )
         bundle_source_chain_proximity_support_counts.append(
             _positive_int(
                 context.get("bundle_source_chain_proximity_support_count")
@@ -1122,6 +1140,9 @@ def _answer_context_cutoff_metrics(
             min(bundle_source_proximity_closest_distances)
             if bundle_source_proximity_closest_distances
             else None
+        ),
+        "bundle_source_proximity_distance_counts": dict(
+            sorted(bundle_source_proximity_distance_counts.items())
         ),
         "avg_bundle_source_chain_proximity_support_count": _avg(
             bundle_source_chain_proximity_support_counts
@@ -1364,6 +1385,13 @@ def _bundle_context_metadata(bundle: Mapping[str, object]) -> dict[str, object]:
     if source_proximity_closest_distance is not None:
         metadata["answer_context_bundle_source_proximity_closest_distance"] = (
             source_proximity_closest_distance
+        )
+    source_proximity_distance_counts = _int_mapping(
+        quality.get("source_proximity_distance_counts")
+    )
+    if source_proximity_distance_counts:
+        metadata["answer_context_bundle_source_proximity_distance_counts"] = (
+            source_proximity_distance_counts
         )
     source_chain_proximity_support_count = _positive_int(
         quality.get("source_chain_proximity_support_count")
