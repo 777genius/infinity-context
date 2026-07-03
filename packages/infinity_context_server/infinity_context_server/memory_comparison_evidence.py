@@ -36,7 +36,8 @@ _DURATION_EVIDENCE_RE = re.compile(
 )
 _TEMPORAL_EVIDENCE_RE = re.compile(
     r"\b(?:date:|session[_\s-]?\d+|today|yesterday|tomorrow|ago|"
-    r"tonight|last|next|before|after|earlier|later|"
+    r"tonight|last|next|before|beforehand|after|afterward|afterwards|"
+    r"earlier|later|"
     r"morning|afternoon|evening|weekend|quarter|month|year|"
     r"monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b",
     re.IGNORECASE,

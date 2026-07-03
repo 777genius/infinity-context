@@ -158,7 +158,7 @@ def infer_time_intent_kind(
     if not is_temporal:
         return "none"
     temporal_term_set = set(temporal_terms)
-    if {"before", "after"} & temporal_term_set:
+    if {"before", "beforehand", "after", "afterward", "afterwards"} & temporal_term_set:
         return "temporal_sequence"
     if {"how long", "long", "duration"} & temporal_term_set:
         return "duration"

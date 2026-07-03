@@ -3106,6 +3106,60 @@ def test_infinity_context_http_search_decomposes_during_session_queries() -> Non
     assert diagnostics["score_signals"]["benchmark_temporal_text_boost"] > 0
 
 
+def test_query_decomposition_classifies_afterward_sequence_queries() -> None:
+    case = _case(
+        case_id="conv-1:qa:afterward",
+        question="What did Morgan do afterward?",
+        expected_terms=("called Riley",),
+        answer="called Riley",
+        category=2,
+    )
+
+    queries, metadata = rerank_module.decomposed_search_queries(case)
+
+    assert metadata["query_profile"]["time_intent_kind"] == "temporal_sequence"
+    assert "afterward" in metadata["query_profile"]["temporal_terms"]
+    assert "after" not in metadata["query_profile"]["temporal_terms"]
+    assert "temporal_sequence_support" in metadata["query_plan"]["selected_roles"]
+    assert queries[-1] == "morgan afterward session date time"
+
+
+def test_benchmark_rerank_marks_afterward_sequence_surface() -> None:
+    case = _case(
+        case_id="afterward-sequence-rerank",
+        question="What did Morgan do afterward?",
+        expected_terms=("called Riley",),
+        answer="called Riley",
+        category=2,
+    )
+    topical = RetrievedMemory(
+        item_id="topic",
+        rank=1,
+        score=0.05,
+        text="D1:1 Morgan: I reviewed the studio checklist.",
+    )
+    afterward = RetrievedMemory(
+        item_id="afterward",
+        rank=2,
+        score=0.0,
+        text="D2:4 Morgan: Afterward I called Riley about the studio.",
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical, afterward),
+    )
+
+    assert metadata["query_profile"]["time_intent_kind"] == "temporal_sequence"
+    assert [memory.item_id for memory in reranked] == ["afterward", "topic"]
+    diagnostics = reranked[0].metadata["diagnostics"]
+    features = diagnostics["benchmark_candidate_features"]
+    assert features["has_temporal_sequence_surface"] is True
+    assert diagnostics["score_signals"]["benchmark_typed_temporal_reason"] == (
+        "sequence_temporal_evidence"
+    )
+
+
 def test_query_decomposition_classifies_month_year_relative_temporal_terms() -> None:
     this_month_case = _case(
         case_id="conv-1:qa:this-month",

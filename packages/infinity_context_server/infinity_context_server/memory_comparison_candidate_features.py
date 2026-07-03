@@ -94,8 +94,8 @@ _EXPLICIT_TIME_CONTENT_RE = re.compile(
     re.IGNORECASE,
 )
 _TEMPORAL_SEQUENCE_EVIDENCE_RE = re.compile(
-    r"\b(?:before|after|during|then|following|subsequent|subsequently|"
-    r"previously|earlier|later|prior)\b",
+    r"\b(?:before|beforehand|after|afterward|afterwards|during|then|"
+    r"following|subsequent|subsequently|previously|earlier|later|prior)\b",
     re.IGNORECASE,
 )
 _INTENT_RELATION_CATEGORY_ORDER = (
