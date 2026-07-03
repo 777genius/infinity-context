@@ -171,6 +171,35 @@ def test_apply_domain_rerank_signals_includes_future_plan_timing_evidence() -> N
     assert ("future_plan_timing_answer_evidence", 3.0) in adjustment.rank_signals
 
 
+def test_apply_domain_rerank_signals_accepts_near_future_time_expressions() -> None:
+    item = ContextItem(
+        item_id="museum_tomorrow",
+        item_type="chunk",
+        text=(
+            "D9:4 Melanie: I'm hoping to visit the science museum tomorrow "
+            "with the kids."
+        ),
+        score=0.7,
+        source_refs=(SourceRef(source_type="locomo_turn", source_id="conv-26:D9:4"),),
+        diagnostics={
+            "retrieval_source": "keyword_chunks",
+            "retrieval_sources": ["keyword_chunks"],
+            "score_signals": {"query_expansion_reason": "future_plan_timing_bridge"},
+        },
+    )
+
+    adjustment = apply_domain_rerank_signals(
+        query="When is Melanie planning to visit the science museum?",
+        query_reason="future_plan_timing_bridge",
+        item=item,
+        relevance=_relevance(distinctive_term_hits=7),
+    )
+
+    assert adjustment.boost > 0
+    assert "future_plan_timing_exact_evidence" in adjustment.reasons
+    assert ("future_plan_timing_answer_evidence", 3.0) in adjustment.rank_signals
+
+
 def test_apply_domain_rerank_signals_includes_lifestyle_food_evidence() -> None:
     item = ContextItem(
         item_id="sam_roasted_veg_recipe",

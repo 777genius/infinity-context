@@ -20,6 +20,9 @@ from infinity_context_core.application.context_temporal_hints import temporal_hi
 from infinity_context_core.application.context_temporal_metadata import (
     temporal_hint_code_from_metadata,
 )
+from infinity_context_core.application.context_temporal_session_order import (
+    temporal_session_recency_boost,
+)
 from infinity_context_core.application.dto import ContextItem
 
 _TOKEN_RE = re.compile(r"\w+", re.UNICODE)
@@ -399,6 +402,7 @@ class TemporalQueryIntent:
     before_event: bool
     during_event: bool
     requests_upcoming: bool
+    requests_recent_event: bool
     excludes_stale: bool
     relative_time_hints: tuple[str, ...] = ()
     event_sequence_terms: tuple[str, ...] = ()
@@ -418,6 +422,7 @@ class TemporalQueryIntent:
                 self.before_event,
                 self.during_event,
                 self.requests_upcoming,
+                self.requests_recent_event,
                 self.excludes_stale,
                 self.relative_time_hints,
                 self.event_sequence_terms,
@@ -440,6 +445,8 @@ class TemporalQueryIntent:
             reasons.append("during_event")
         if self.requests_upcoming:
             reasons.append("requests_upcoming")
+        if self.requests_recent_event:
+            reasons.append("requests_recent_event")
         if self.excludes_stale:
             reasons.append("excludes_stale")
         if self.relative_time_hints:
@@ -453,6 +460,7 @@ class TemporalQueryIntent:
             "temporal_query_before_event": self.before_event,
             "temporal_query_during_event": self.during_event,
             "temporal_query_requests_upcoming": self.requests_upcoming,
+            "temporal_query_requests_recent_event": self.requests_recent_event,
             "temporal_query_excludes_stale": self.excludes_stale,
             "temporal_query_include_superseded_review": (self.include_superseded_review),
             "temporal_query_relative_time_hints": list(self.relative_time_hints),
@@ -494,13 +502,16 @@ def build_temporal_query_intent(query: str) -> TemporalQueryIntent:
     ):
         previous_terms = previous_terms.difference({"old"})
     requests_upcoming = bool(_UPCOMING_EVENT_REQUEST_RE.search(query))
+    requests_recent_event = (
+        bool(_RECENT_EVENT_REQUEST_RE.search(query)) and not requests_upcoming
+    )
     requests_previous = (bool(previous_terms) or no_longer_current_state) and not excludes_stale
     prefers_current = (
         excludes_stale
         or still_current_state
         or bool(variants.intersection(_CURRENT_TERMS))
         or bool(_CURRENT_PHRASE_RE.search(query))
-        or (bool(_RECENT_EVENT_REQUEST_RE.search(query)) and not requests_upcoming)
+        or requests_recent_event
         or bool(_CURRENT_RECOMMENDATION_RE.search(query))
         or (requests_change and not requests_previous)
     ) and not no_longer_current_state
@@ -537,6 +548,7 @@ def build_temporal_query_intent(query: str) -> TemporalQueryIntent:
         before_event=before_event,
         during_event=during_event,
         requests_upcoming=requests_upcoming,
+        requests_recent_event=requests_recent_event,
         excludes_stale=excludes_stale,
         relative_time_hints=relative_time_hints,
         event_sequence_terms=event_sequence_terms,
@@ -621,6 +633,19 @@ def temporal_query_boost_signal(
             boost=-0.022,
             reason="query asks for upcoming event and item has past event window",
             code="upcoming_event_past_temporal_hint_conflict",
+        )
+    if (
+        intent.requests_recent_event
+        and not temporal_hint_code
+        and not is_review_only
+        and not is_superseded
+        and not state_markers.stale_only
+        and (session_recency_boost := temporal_session_recency_boost(item))
+    ):
+        return TemporalQueryBoostSignal(
+            boost=session_recency_boost,
+            reason="query asks for recent event and item has session-order evidence",
+            code="recent_event_session_order",
         )
     if intent.requests_change and retrieval_source == "temporal_supersedes_relation":
         return TemporalQueryBoostSignal(
