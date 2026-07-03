@@ -8160,6 +8160,73 @@ def test_deterministic_rerank_penalizes_wrong_person_decoy() -> None:
     )
 
 
+def test_deterministic_rerank_penalizes_same_person_wrong_topic_decoy() -> None:
+    query = "What did Alex say about Atlas billing?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    correct_topic = _item(
+        "alex_atlas_billing",
+        score=0.7,
+        retrieval_source="keyword_chunks",
+        text="Alex said the Atlas billing rollout needs a final QA pass.",
+    )
+    wrong_topic = _item(
+        "alex_apollo_mobile",
+        score=0.74,
+        retrieval_source="keyword_chunks",
+        text="Alex said the Apollo mobile launch plan needs a final QA pass.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (wrong_topic, correct_topic),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert by_id["alex_atlas_billing"].score > by_id["alex_apollo_mobile"].score
+    assert (
+        "same_person_wrong_topic_decoy"
+        in by_id["alex_apollo_mobile"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+    assert (
+        by_id["alex_apollo_mobile"].diagnostics["score_signals"][
+            "same_person_topic_disambiguation_penalty"
+        ]
+        > 0
+    )
+
+
+def test_deterministic_rerank_does_not_penalize_single_same_person_low_topic_item() -> None:
+    query = "What did Alex say about Atlas billing?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    same_person_other_topic = _item(
+        "alex_apollo_mobile",
+        score=0.74,
+        retrieval_source="keyword_chunks",
+        text="Alex said the Apollo mobile launch plan needs a final QA pass.",
+    )
+
+    (reranked,) = apply_deterministic_rerank_adjustments(
+        (same_person_other_topic,),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+
+    assert "same_person_topic_disambiguation_penalty" not in reranked.diagnostics[
+        "score_signals"
+    ]
+    assert (
+        "same_person_wrong_topic_decoy"
+        not in reranked.diagnostics["provenance"].get("deterministic_rerank_reasons", ())
+    )
+
+
 def test_deterministic_rerank_prefers_temporal_answer_shape_match() -> None:
     query = "When did Caroline go to the adoption meeting?"
     plan = build_query_expansion_plan(query)
