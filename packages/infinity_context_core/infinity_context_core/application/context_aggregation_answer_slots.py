@@ -4,6 +4,42 @@ from __future__ import annotations
 
 import re
 
+_PERSON_LIST_QUERY_RE = re.compile(
+    r"\bwho\b(?=.{0,120}\b(?:friends?|people|person|volunteer(?:s|ed|ing)?|"
+    r"met|helped|worked\s+with|customers?|clients?|colleagues?|teammates?)\b)",
+    re.IGNORECASE | re.DOTALL,
+)
+_PERSON_NAME_RE = re.compile(
+    r"\b[A-Z][a-z][A-Za-z'_-]{1,39}(?:\s+[A-Z][a-z][A-Za-z'_-]{1,39})?\b"
+)
+_PERSON_SLOT_STOPWORDS = frozenset(
+    {
+        "he",
+        "her",
+        "him",
+        "how",
+        "i",
+        "it",
+        "related",
+        "she",
+        "session",
+        "that",
+        "the",
+        "them",
+        "there",
+        "they",
+        "this",
+        "who",
+        "what",
+        "when",
+        "where",
+        "which",
+        "why",
+        "we",
+        "you",
+    }
+)
+
 _SLOT_RULES: tuple[
     tuple[re.Pattern[str], tuple[tuple[str, re.Pattern[str]], ...]],
     ...,
@@ -522,4 +558,26 @@ def aggregation_answer_slots(*, query: str, text: str) -> frozenset[str]:
         for slot, text_pattern in slot_patterns:
             if text_pattern.search(text) is not None:
                 slots.add(slot)
+    slots.update(_generic_person_list_slots(query=query, text=text))
     return frozenset(slots)
+
+
+def _generic_person_list_slots(*, query: str, text: str) -> frozenset[str]:
+    if _PERSON_LIST_QUERY_RE.search(query) is None:
+        return frozenset()
+    query_names = {
+        _normalized_person_slot(name)
+        for name in _PERSON_NAME_RE.findall(query)
+        if name.casefold() not in _PERSON_SLOT_STOPWORDS
+    }
+    slots: set[str] = set()
+    for name in _PERSON_NAME_RE.findall(text):
+        normalized = _normalized_person_slot(name)
+        if normalized in query_names or normalized in _PERSON_SLOT_STOPWORDS:
+            continue
+        slots.add(f"person:{normalized}")
+    return frozenset(slots)
+
+
+def _normalized_person_slot(value: str) -> str:
+    return " ".join(value.casefold().replace("_", " ").split())

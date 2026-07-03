@@ -889,6 +889,40 @@ def test_aggregation_signal_keeps_food_recipe_inventory_evidence() -> None:
     assert single_signal.reason == "aggregation_list_single_evidence_incomplete"
 
 
+def test_aggregation_signal_keeps_who_people_list_evidence() -> None:
+    aggregation = _item(
+        "maria_people_met",
+        text=(
+            "D2:1 Maria met Alex at the shelter. "
+            "D11:10 Maria helped Priya with the food drive."
+        ),
+        query_expansion_reason="decomposition_inventory_list",
+        retrieval_source="keyword_aggregation_chunks",
+        source_ref_count=2,
+    )
+    single_person = _item(
+        "maria_single_person",
+        text="D2:1 Maria met Alex at the shelter.",
+        query_expansion_reason="decomposition_inventory_list",
+    )
+
+    exact_signal = aggregation_evidence_rerank_signal(
+        query="Who has Maria met and helped while volunteering?",
+        item=aggregation,
+        has_multi_evidence_competitor=True,
+    )
+    single_signal = aggregation_evidence_rerank_signal(
+        query="Who has Maria met and helped while volunteering?",
+        item=single_person,
+        has_multi_evidence_competitor=True,
+    )
+
+    assert exact_signal.boost > 0
+    assert exact_signal.reason == "aggregation_list_slot_diverse_evidence"
+    assert single_signal.penalty > 0
+    assert single_signal.reason == "aggregation_list_single_evidence_incomplete"
+
+
 def test_aggregation_signal_keeps_direct_numeric_count_answer() -> None:
     direct_count = _item(
         "children_count",

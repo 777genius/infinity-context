@@ -246,6 +246,8 @@ _LIST_AGGREGATION_QUERY_RE = re.compile(
     r"instruments?|items?|martial\s+arts|people|places?|shelters?|states?|"
     r"traits?|books?|songs?|artists?|bands?|foods?|desserts?|pets?|projects?|tasks?|"
     r"types?|kinds?)\b|"
+    r"\bwho\b(?=.{0,120}\b(?:friends?|people|person|volunteer(?:s|ed|ing)?|"
+    r"met|helped|worked\s+with|customers?|clients?|colleagues?|teammates?)\b)|"
     r"\b(?:has|have|did|does)\s+\w{2,40}\s+"
     r"(?:bought|attended|joined|visited|played|shared|mentioned|done|used)\b|"
     r"\b(?:какие|какие\s+именно|что\s+за)\s+"

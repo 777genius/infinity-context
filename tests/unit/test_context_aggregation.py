@@ -313,13 +313,44 @@ def test_keyword_aggregation_query_kind_handles_inventory_list_queries() -> None
         "What shelters does Maria volunteer at?",
         "What causes does John feel passionate about supporting?",
         "What people has Maria met and helped while volunteering?",
+        "Who has Maria met and helped while volunteering?",
         "What martial arts has John done?",
         "Where has Maria made friends?",
     ]
 
     for query in cases:
         assert _keyword_aggregation_query_kind(query) == "list"
-    assert _keyword_aggregation_query_kind("Where did Caroline move from 4 years ago?") != "list"
+    assert (
+        _keyword_aggregation_query_kind("Where did Caroline move from 4 years ago?")
+        != "list"
+    )
+    assert _keyword_aggregation_query_kind("Who supports Caroline?") != "list"
+    assert (
+        _keyword_aggregation_query_kind("Who did Caroline recommend Becoming Nicole to?")
+        != "list"
+    )
+
+
+def test_inventory_answer_slots_detect_who_people_list_names() -> None:
+    slots = aggregation_answer_slots(
+        query="Who has Maria met and helped while volunteering?",
+        text=(
+            "D2:1 Maria met Alex at the shelter. "
+            "D11:10 Maria helped Priya with the food drive."
+        ),
+    )
+    support_slots = aggregation_answer_slots(
+        query="Who supports Caroline?",
+        text="D2:1 Caroline said Alex and Priya support her.",
+    )
+    pronoun_slots = aggregation_answer_slots(
+        query="Who has Maria met and helped while volunteering?",
+        text="D2:1 She met Alex at the shelter.",
+    )
+
+    assert slots == frozenset({"person:alex", "person:priya"})
+    assert support_slots == frozenset()
+    assert pronoun_slots == frozenset({"person:alex"})
 
 
 def test_keyword_aggregation_source_kind_prefers_observation_over_raw_session() -> None:

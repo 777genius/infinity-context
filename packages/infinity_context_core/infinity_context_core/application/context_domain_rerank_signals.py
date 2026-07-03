@@ -643,6 +643,8 @@ _AGGREGATION_LIST_QUERY_RE = re.compile(
     r"\b(?:what|which|where)\b(?=.{0,80}\b(?:items?|things?|countries|places|"
     r"types?|kinds?|events?|activities|bands?|artists?|shelters?|causes?|people|"
     r"foods?|recipes?|meals?|dishes?|desserts?|baked\s+goods?)\b)|"
+    r"\bwho\b(?=.{0,120}\b(?:friends?|people|person|volunteer(?:s|ed|ing)?|"
+    r"met|helped|worked\s+with|customers?|clients?|colleagues?|teammates?)\b)|"
     r"\b(?:какие|какой|где|кого|кому)\b",
     re.IGNORECASE | re.DOTALL,
 )
