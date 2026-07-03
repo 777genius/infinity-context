@@ -1,4 +1,5 @@
 from infinity_context_core.application.context_query_expansion import build_query_expansion_plan
+from infinity_context_core.application.context_ranking import best_query_relevance
 
 
 def test_query_expansion_covers_children_name_inventory() -> None:
@@ -105,6 +106,31 @@ def test_query_expansion_covers_outdoor_visual_group_responses() -> None:
     assert bridge.startswith("Riley ")
     assert "colleagues friends team group people" in bridge
     assert "photo image visual waterfall" in bridge
+
+
+def test_query_expansion_covers_music_event_inventory_variants() -> None:
+    singular = build_query_expansion_plan("What music event has John attended?")
+    concert = build_query_expansion_plan("Which concerts did John attend?")
+
+    singular_bridge = _expansion_query(singular, "music_event_inventory_bridge")
+    concert_bridge = _expansion_query(concert, "music_event_inventory_bridge")
+
+    assert singular_bridge.startswith("John ")
+    assert concert_bridge.startswith("John ")
+    assert "music events concert concerts festival festivals" in singular_bridge
+    assert "music events concert concerts festival festivals" in concert_bridge
+
+
+def test_best_query_relevance_uses_music_event_inventory_for_concert_questions() -> None:
+    plan = build_query_expansion_plan("Which concerts did John attend?")
+
+    _, reason, relevance = best_query_relevance(
+        plan,
+        text="D8:12 John found a violin concert that everyone enjoyed.",
+    )
+
+    assert reason == "music_event_inventory_bridge"
+    assert relevance.distinctive_term_hits >= 2
 
 
 def _expansion_query(plan, reason: str) -> str:

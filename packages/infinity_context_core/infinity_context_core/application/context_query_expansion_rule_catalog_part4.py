@@ -11,6 +11,10 @@ _EXERCISE_ACTIVITY_EXPANSION = (
     "starting colleague friend session routine mentally physically stay shape "
     "fitness energy basketball performance game court"
 )
+_MUSIC_EVENT_INVENTORY_EXPANSION = (
+    "music events concert concerts festival festivals live show band artist "
+    "artists singing dancing performance attended went saw"
+)
 
 EXPANSION_RULES_PART_4: tuple[tuple[frozenset[str], str, str], ...] = (
     (
@@ -627,10 +631,22 @@ EXPANSION_RULES_PART_4: tuple[tuple[frozenset[str], str, str], ...] = (
     ),
     (
         frozenset({"music", "events"}),
-        (
-            "music events concert concerts festival festivals live show band artist "
-            "artists singing dancing performance attended went saw"
-        ),
+        _MUSIC_EVENT_INVENTORY_EXPANSION,
+        "music_event_inventory_bridge",
+    ),
+    (
+        frozenset({"music", "event"}),
+        _MUSIC_EVENT_INVENTORY_EXPANSION,
+        "music_event_inventory_bridge",
+    ),
+    (
+        frozenset({"concert"}),
+        _MUSIC_EVENT_INVENTORY_EXPANSION,
+        "music_event_inventory_bridge",
+    ),
+    (
+        frozenset({"concerts"}),
+        _MUSIC_EVENT_INVENTORY_EXPANSION,
         "music_event_inventory_bridge",
     ),
     (
