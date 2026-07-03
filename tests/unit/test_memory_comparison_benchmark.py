@@ -3199,6 +3199,62 @@ def test_benchmark_rerank_marks_quarter_relative_time_surface() -> None:
     )
 
 
+def test_query_decomposition_classifies_daypart_relative_temporal_queries() -> None:
+    case = _case(
+        case_id="conv-1:qa:this-afternoon",
+        question="What did Morgan review this afternoon?",
+        expected_terms=("studio plan",),
+        answer="studio plan",
+        category=2,
+    )
+
+    queries, metadata = rerank_module.decomposed_search_queries(case)
+
+    assert metadata["query_profile"]["time_intent_kind"] == "relative_time"
+    assert "this afternoon" in metadata["query_profile"]["temporal_terms"]
+    assert "after" not in metadata["query_profile"]["temporal_terms"]
+    assert "relative_temporal_support" in metadata["query_plan"]["selected_roles"]
+    assert queries[-1] == "morgan this afternoon session date time"
+
+
+def test_benchmark_rerank_marks_daypart_relative_time_surface() -> None:
+    case = _case(
+        case_id="daypart-relative-rerank",
+        question="What did Morgan review this afternoon?",
+        expected_terms=("studio plan",),
+        answer="studio plan",
+        category=2,
+    )
+    topical = RetrievedMemory(
+        item_id="topic",
+        rank=1,
+        score=0.05,
+        text="D1:1 Morgan: I reviewed the checklist for the studio.",
+    )
+    daypart_plan = RetrievedMemory(
+        item_id="daypart-plan",
+        rank=2,
+        score=0.0,
+        text="D2:4 Morgan: This afternoon I reviewed the studio plan.",
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (topical, daypart_plan),
+    )
+
+    assert metadata["query_profile"]["time_intent_kind"] == "relative_time"
+    assert [memory.item_id for memory in reranked] == ["daypart-plan", "topic"]
+    diagnostics = reranked[0].metadata["diagnostics"]
+    features = diagnostics["benchmark_candidate_features"]
+    assert features["has_temporal_surface"] is True
+    assert features["has_relative_time_surface"] is True
+    assert diagnostics["score_signals"]["benchmark_temporal_text_boost"] > 0
+    assert diagnostics["score_signals"]["benchmark_typed_temporal_reason"] == (
+        "relative_temporal_evidence"
+    )
+
+
 def test_infinity_context_http_search_boosts_relative_temporal_text() -> None:
     seen_payloads: list[dict[str, object]] = []
 

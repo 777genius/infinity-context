@@ -318,9 +318,19 @@ _TEMPORAL_QUERY_TERMS = (
     "today",
     "tomorrow",
     "earlier today",
+    "tonight",
     "latest event",
     "upcoming event",
     "last night",
+    "this morning",
+    "this afternoon",
+    "this evening",
+    "tomorrow morning",
+    "tomorrow afternoon",
+    "tomorrow evening",
+    "yesterday morning",
+    "yesterday afternoon",
+    "yesterday evening",
     "last weekend",
     "last week",
     "last month",
@@ -1805,7 +1815,9 @@ def _temporal_query_profile(case: PublicBenchmarkCase) -> dict[str, object]:
     category = _optional_int(case.metadata.get("category"))
     temporal_query = re.sub(r"\b(?:free\s+time|pastime)\b", " ", query)
     matched_terms = tuple(
-        term for term in _TEMPORAL_QUERY_TERMS if term in temporal_query
+        term
+        for term in _TEMPORAL_QUERY_TERMS
+        if _contains_temporal_query_term(temporal_query, term)
     )
     ordered_event_term = _ordered_event_temporal_term(query)
     if ordered_event_term:
@@ -1829,6 +1841,13 @@ def _temporal_query_profile(case: PublicBenchmarkCase) -> dict[str, object]:
         "matched_terms": list(matched_terms),
         "surface_terms": list(surface_terms),
     }
+
+
+def _contains_temporal_query_term(query: str, term: str) -> bool:
+    if term not in {"after", "before", "during"}:
+        return term in query
+    escaped = re.escape(term)
+    return bool(re.search(rf"(?<![a-z0-9]){escaped}(?![a-z0-9])", query))
 
 
 def _ordered_event_temporal_term(query: str) -> str:

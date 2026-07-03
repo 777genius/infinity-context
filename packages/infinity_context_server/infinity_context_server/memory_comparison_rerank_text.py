@@ -10,8 +10,10 @@ from infinity_context_server.memory_comparison_models import RetrievedMemory
 _WORD_RE = re.compile(r"\d+(?:st|nd|rd|th)?|[a-zA-Z][a-zA-Z0-9+'-]*")
 _TIME_SURFACE_RE = re.compile(
     r"\b(?:\d{1,2}:\d{2}|\d{1,2}\s*(?:am|pm)|(?:19|20)\d{2}|"
-    r"today|yesterday|tomorrow|"
-    r"(?:last|next|previous|this)\s+(?:night|week|weekend|month|quarter|year|"
+    r"today|yesterday|tomorrow|tonight|"
+    r"(?:today|tomorrow|yesterday)\s+(?:morning|afternoon|evening)|"
+    r"(?:last|next|previous|this)\s+(?:night|morning|afternoon|evening|"
+    r"week|weekend|month|quarter|year|"
     r"monday|tuesday|wednesday|thursday|friday|saturday|sunday)|"
     r"\d+\s+weekends?\s+ago|"
     r"monday|tuesday|wednesday|thursday|friday|saturday|sunday|"
