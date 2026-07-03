@@ -8502,6 +8502,112 @@ def test_deterministic_rerank_prefers_cant_eat_negative_match() -> None:
     )
 
 
+def test_deterministic_rerank_prefers_negative_attendance_evidence() -> None:
+    query = "Who did not attend the Atlas planning dinner?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    negative = _item(
+        "negative_attendance",
+        score=0.7,
+        retrieval_source="keyword_chunks",
+        text="Dana did not attend the Atlas planning dinner after the workshop ran late.",
+    )
+    positive = _item(
+        "positive_attendance",
+        score=0.735,
+        retrieval_source="keyword_chunks",
+        text="Alex attended the Atlas planning dinner and brought the slide deck.",
+    )
+    unrelated_absence = _item(
+        "unrelated_absence",
+        score=0.74,
+        retrieval_source="keyword_chunks",
+        text="Sam was absent from school during the morning assembly.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (unrelated_absence, positive, negative),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert by_id["negative_attendance"].score > by_id["positive_attendance"].score
+    assert by_id["negative_attendance"].score > by_id["unrelated_absence"].score
+    assert (
+        "absence_negation_match"
+        in by_id["negative_attendance"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+    assert (
+        "absence_negation_positive_conflict"
+        in by_id["positive_attendance"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+    assert (
+        "absence_negation_unrelated_absence"
+        in by_id["unrelated_absence"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+
+
+def test_deterministic_rerank_prefers_missing_item_evidence() -> None:
+    query = "What was missing from the picnic basket?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    missing_item = _item(
+        "missing_item",
+        score=0.7,
+        retrieval_source="keyword_chunks",
+        text="The dessert was missing from the picnic basket after the potluck.",
+    )
+    positive_item = _item(
+        "positive_item",
+        score=0.735,
+        retrieval_source="keyword_chunks",
+        text="The picnic basket included dessert, plates, and napkins.",
+    )
+    unrelated_absence = _item(
+        "unrelated_absence",
+        score=0.74,
+        retrieval_source="keyword_chunks",
+        text="The agenda was missing from the project kickoff packet.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (unrelated_absence, positive_item, missing_item),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert by_id["missing_item"].score > by_id["positive_item"].score
+    assert by_id["missing_item"].score > by_id["unrelated_absence"].score
+    assert (
+        "absence_negation_match"
+        in by_id["missing_item"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+    assert (
+        "absence_negation_positive_conflict"
+        in by_id["positive_item"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+    assert (
+        "absence_negation_unrelated_absence"
+        in by_id["unrelated_absence"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+
+
 def test_deterministic_rerank_prefers_absence_contrast_positive_evidence() -> None:
     query = "What pet did I mention named Luna instead of a hamster?"
     plan = build_query_expansion_plan(query)

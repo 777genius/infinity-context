@@ -85,6 +85,7 @@ from infinity_context_core.application.context_pet_ownership import (
 )
 from infinity_context_core.application.context_polarity_rerank import (
     absence_contrast_signal,
+    absence_negation_signal,
     negative_preference_signal,
     status_polarity_signal,
 )
@@ -1907,6 +1908,16 @@ def _deterministic_rerank_signals(
     if negative_penalty > 0:
         penalty += negative_penalty
         reasons.append(negative_reason)
+    absence_boost, absence_penalty, absence_reason = absence_negation_signal(
+        query=query,
+        text=item.text,
+    )
+    if absence_boost > 0:
+        boost += absence_boost
+        reasons.append(absence_reason)
+    if absence_penalty > 0:
+        penalty += absence_penalty
+        reasons.append(absence_reason)
     named_preference_signal = named_person_preference_signal(
         query=query,
         text=item.text,

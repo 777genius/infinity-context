@@ -74,6 +74,116 @@ _ABSENCE_CONTRAST_CHOICE_QUERY_RE = re.compile(
     r"(?P<negative>[A-Za-zА-Яа-яЁё][\w.-]{1,60})\b",
     re.IGNORECASE,
 )
+_NEGATED_ACTION_QUERY_RE = re.compile(
+    r"\b(?:who|what|which)\b(?=[^?.!]{0,120}\b(?:did\s+not|didn't|does\s+not|"
+    r"doesn't|never)\b)"
+    r"(?=[^?.!]{0,160}\b(?:attend|go|bring|like|join|visit|help|ask|send|"
+    r"come|show\s+up)\b)|"
+    r"\b(?:did\s+not|didn't|does\s+not|doesn't|never)\s+"
+    r"(?:attend|go|bring|like|join|visit|help|ask|send|come|show\s+up)\b",
+    re.IGNORECASE | re.DOTALL,
+)
+_ABSENCE_QUERY_RE = re.compile(
+    r"\b(?:what|which|who|whether|was|were|is|are|did)\b"
+    r"(?=[^?.!]{0,160}\b(?:missing|absent|absence|not\s+(?:there|included|"
+    r"present)|wasn'?t\s+(?:there|included|present)|weren'?t\s+(?:there|"
+    r"included|present)|without|no\s+one|nobody|did\s+not\s+(?:happen|occur|"
+    r"show\s+up)|didn't\s+(?:happen|occur|show\s+up))\b)",
+    re.IGNORECASE | re.DOTALL,
+)
+_NEGATED_ACTION_TEXT_RE = re.compile(
+    r"\b(?:did\s+not|didn't|does\s+not|doesn't|never|not)\s+"
+    r"(?:attend|attended|go|goes|went|bring|brings|brought|like|likes|liked|"
+    r"enjoy|enjoys|enjoyed|join|joined|visit|visited|help|helped|ask|asked|"
+    r"send|sent|come|came|show\s+up|showed\s+up)\b|"
+    r"\b(?:missed|skipped|sat\s+out|wasn'?t\s+there|weren'?t\s+there|"
+    r"absent\s+from|without)\b",
+    re.IGNORECASE,
+)
+_POSITIVE_ACTION_TEXT_RE = re.compile(
+    r"\b(?:attend|attended|go|goes|went|bring|brings|brought|like|likes|liked|"
+    r"enjoy|enjoys|enjoyed|join|joined|visit|visited|help|helped|ask|asked|"
+    r"send|sent|come|came|show\s+up|showed\s+up)\b",
+    re.IGNORECASE,
+)
+_ABSENCE_TEXT_RE = re.compile(
+    r"\b(?:missing|absent|absence|not\s+(?:there|included|present)|wasn'?t\s+"
+    r"(?:there|included|present)|weren'?t\s+(?:there|included|present)|"
+    r"without|no\s+one|nobody|did\s+not\s+(?:happen|occur|show\s+up)|didn't\s+"
+    r"(?:happen|occur|show\s+up)|missed|skipped|sat\s+out)\b",
+    re.IGNORECASE,
+)
+_PRESENCE_TEXT_RE = re.compile(
+    r"\b(?:included|present|there|available|happened|occurred|showed\s+up|"
+    r"attended|went|brought|had|contained|joined|visited|came)\b",
+    re.IGNORECASE,
+)
+_ABSENCE_CONTEXT_STOPWORDS = frozenset(
+    {
+        "absent",
+        "absence",
+        "after",
+        "and",
+        "anyone",
+        "are",
+        "ask",
+        "asked",
+        "attend",
+        "attended",
+        "before",
+        "bring",
+        "brought",
+        "came",
+        "come",
+        "did",
+        "does",
+        "event",
+        "expected",
+        "for",
+        "from",
+        "go",
+        "had",
+        "has",
+        "have",
+        "happen",
+        "help",
+        "helped",
+        "into",
+        "included",
+        "is",
+        "item",
+        "join",
+        "joined",
+        "like",
+        "missing",
+        "never",
+        "not",
+        "of",
+        "on",
+        "occur",
+        "present",
+        "send",
+        "sent",
+        "show",
+        "that",
+        "the",
+        "there",
+        "this",
+        "to",
+        "visit",
+        "visited",
+        "was",
+        "went",
+        "were",
+        "what",
+        "when",
+        "where",
+        "whether",
+        "which",
+        "who",
+        "without",
+    }
+)
 
 
 def status_polarity_signal(*, query: str, text: str) -> tuple[float, float, str]:
@@ -116,6 +226,24 @@ def absence_contrast_signal(*, query: str, text: str) -> tuple[float, float, str
     return 0.0, 0.0, ""
 
 
+def absence_negation_signal(*, query: str, text: str) -> tuple[float, float, str]:
+    if not _is_absence_negation_query(query):
+        return 0.0, 0.0, ""
+    context_terms = _absence_context_terms(query)
+    context_matched = not context_terms or _text_has_context_term(text, context_terms)
+    has_negative_evidence = (
+        _NEGATED_ACTION_TEXT_RE.search(text) is not None
+        or _ABSENCE_TEXT_RE.search(text) is not None
+    )
+    if has_negative_evidence and context_matched:
+        return 0.052, 0.0, "absence_negation_match"
+    if has_negative_evidence and not context_matched:
+        return 0.0, 0.036, "absence_negation_unrelated_absence"
+    if context_matched and _has_positive_action_or_presence(text):
+        return 0.0, 0.04, "absence_negation_positive_conflict"
+    return 0.0, 0.0, ""
+
+
 def _absence_contrast_match(query: str) -> re.Match[str] | None:
     for pattern in (
         _ABSENCE_CONTRAST_NAMED_QUERY_RE,
@@ -132,3 +260,39 @@ def _query_token_in_text(token: str, text: str) -> bool:
     if not normalized:
         return False
     return bool(re.search(rf"\b{re.escape(normalized)}\b", text, flags=re.IGNORECASE))
+
+
+def _is_absence_negation_query(query: str) -> bool:
+    return bool(_NEGATED_ACTION_QUERY_RE.search(query) or _ABSENCE_QUERY_RE.search(query))
+
+
+def _absence_context_terms(query: str) -> tuple[str, ...]:
+    terms: list[str] = []
+    seen: set[str] = set()
+    for raw in re.findall(r"\b[A-Za-z][A-Za-z0-9'-]{2,}\b", query.casefold()):
+        term = raw.strip("'-")
+        if term in _ABSENCE_CONTEXT_STOPWORDS or term.endswith("n't"):
+            continue
+        if term in seen:
+            continue
+        seen.add(term)
+        terms.append(term)
+    return tuple(terms[:6])
+
+
+def _text_has_context_term(text: str, context_terms: tuple[str, ...]) -> bool:
+    return any(
+        re.search(rf"\b{re.escape(term)}\b", text, flags=re.IGNORECASE)
+        for term in context_terms
+    )
+
+
+def _has_positive_action_or_presence(text: str) -> bool:
+    if _PRESENCE_TEXT_RE.search(text) is not None:
+        return True
+    for match in _POSITIVE_ACTION_TEXT_RE.finditer(text):
+        prefix = text[max(0, match.start() - 32) : match.start()]
+        if _NEGATED_ACTION_TEXT_RE.search(prefix):
+            continue
+        return True
+    return False
