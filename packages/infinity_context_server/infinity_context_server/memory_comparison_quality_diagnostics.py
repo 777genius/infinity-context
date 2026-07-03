@@ -934,6 +934,8 @@ def _bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, ob
     source_proximity_support_counts: list[int] = []
     source_proximity_closest_distances: list[float] = []
     source_proximity_distance_counts: Counter[str] = Counter()
+    source_ref_support_item_counts: list[int] = []
+    source_ref_support_ref_counts: list[int] = []
     source_identity_item_counts: list[int] = []
     source_identity_ref_counts: list[int] = []
     source_identity_support_item_counts: list[int] = []
@@ -1013,6 +1015,12 @@ def _bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, ob
             source_proximity_closest_distances.append(float(closest_distance))
         source_proximity_distance_counts.update(
             _count_mapping(quality.get("source_proximity_distance_counts"))
+        )
+        source_ref_support_item_counts.append(
+            _positive_int(quality.get("source_ref_support_item_count")) or 0
+        )
+        source_ref_support_ref_counts.append(
+            _positive_int(quality.get("source_ref_support_ref_count")) or 0
         )
         contrast_counts.append(_positive_int(quality.get("contrast_count")) or 0)
         if "average_selected_source_locality_score" in planner:
@@ -1145,6 +1153,13 @@ def _bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, ob
         "source_proximity_distance_counts": dict(
             sorted(source_proximity_distance_counts.items())
         ),
+        "avg_source_ref_support_item_count": _avg(source_ref_support_item_counts),
+        "total_source_ref_support_item_count": sum(source_ref_support_item_counts),
+        "source_ref_support_bundle_count": sum(
+            1 for count in source_ref_support_item_counts if count > 0
+        ),
+        "avg_source_ref_support_ref_count": _avg(source_ref_support_ref_counts),
+        "total_source_ref_support_ref_count": sum(source_ref_support_ref_counts),
         "avg_source_identity_item_count": _avg(source_identity_item_counts),
         "total_source_identity_item_count": sum(source_identity_item_counts),
         "source_identity_bundle_count": sum(
