@@ -157,7 +157,7 @@ def _duration_evidence_re(aliases: tuple[str, ...]) -> re.Pattern[str]:
 @cache
 def _quantity_evidence_re(*, unit: str, aliases: tuple[str, ...]) -> re.Pattern[str]:
     unit_pattern = _unit_alias_pattern(aliases)
-    currency_value = r"\$\s*\d+(?:\.\d+)?|" if unit == "dollar" else ""
+    currency_value = r"\$\s*\d+(?:\.\d+)?\b|" if unit == "dollar" else ""
     return re.compile(
         rf"{currency_value}"
         rf"\b{_NUMBER_VALUE_RE}\s+{unit_pattern}\b",

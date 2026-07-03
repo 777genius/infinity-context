@@ -209,6 +209,33 @@ def test_context_requirement_boost_prefers_requested_quantity_unit() -> None:
     ]
 
 
+def test_context_requirement_boost_prefers_requested_dollar_unit() -> None:
+    query = "How many dollars did Nora spend?"
+    wrong_unit_number = _item(
+        "wrong_unit_number",
+        score=0.701,
+        text="Nora walked 12 miles after lunch.",
+    )
+    exact_cost = _item(
+        "exact_cost",
+        score=0.7,
+        text="Nora spent $12 on the museum ticket.",
+    )
+
+    boosted = apply_context_requirement_boosts(
+        (wrong_unit_number, exact_cost),
+        query=query,
+        query_anchor_intent=build_query_anchor_intent(query),
+        max_boost=0.04,
+    )
+    by_id = {item.item_id: item for item in boosted}
+
+    assert by_id["exact_cost"].score > by_id["wrong_unit_number"].score
+    assert "quantity_dollar" in by_id["exact_cost"].diagnostics["provenance"][
+        "context_requirement_matched_answer_shapes"
+    ]
+
+
 def test_context_requirement_coverage_keeps_who_is_summary_out_of_list_shape() -> None:
     query = "Who is Alex?"
 
