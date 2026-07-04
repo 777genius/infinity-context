@@ -72,14 +72,25 @@ _RESIDENCE_EVIDENCE_RE = re.compile(
     r"based\s+in|located\s+in|moved\s+to|relocated\s+to|settled\s+in)\b",
     re.IGNORECASE,
 )
+_RELOCATION_PLACE_SURFACE = (
+    r"(?:(?-i:[A-ZА-ЯЁ])[A-Za-zА-Яа-яЁё0-9_.-]{1,40}"
+    r"(?:\s+(?-i:[A-ZА-ЯЁ])[A-Za-zА-Яа-яЁё0-9_.-]{1,40}){0,3}|"
+    r"(?:a\s+|an\s+|the\s+)?(?:city|country|town|village|suburbs|coast|"
+    r"mountains?|neighborhood|neighbourhood)|"
+    r"(?:new|current|home)\s+(?:city|country|home|place|town))"
+)
 _RELOCATION_EVIDENCE_RE = re.compile(
-    r"\b(?:(?:moved|moving|relocated|relocating)\s+from\b.{0,80}\bto\b|"
-    r"moved\s+to|moving\s+to|relocated\s+to|relocating\s+to|"
-    r"settled\s+in|new\s+(?:city|home|place))\b",
+    r"\b(?:(?:moved|moving|relocated|relocating)\s+from\b.{0,80}\bto\s+"
+    + _RELOCATION_PLACE_SURFACE
+    + r"|(?:moved|moving|relocated|relocating)\s+to\s+"
+    + _RELOCATION_PLACE_SURFACE
+    + r"|settled\s+in|new\s+(?:city|home|place))\b",
     re.IGNORECASE | re.DOTALL,
 )
 _RELOCATION_ORIGIN_EVIDENCE_RE = re.compile(
-    r"\b(?:(?:moved|moving|relocated|relocating)\s+to\b.{0,80}\bfrom\b|"
+    r"\b(?:(?:moved|moving|relocated|relocating)\s+to\s+"
+    + _RELOCATION_PLACE_SURFACE
+    + r"\b.{0,80}\bfrom\b|"
     r"moved\s+from|moving\s+from|relocated\s+from|relocating\s+from|"
     r"left\s+(?:home|town|city|country)|came\s+from)\b",
     re.IGNORECASE | re.DOTALL,

@@ -1,6 +1,5 @@
-from infinity_context_core.application.context_person_residence import (
-    person_residence_signal,
-)
+from infinity_context_core.application.context_diagnostics import context_rank_key
+from infinity_context_core.application.context_person_residence import person_residence_signal
 from infinity_context_core.application.context_query_expansion import (
     build_query_expansion_plan,
 )
@@ -80,6 +79,16 @@ def test_person_residence_signal_matches_relocation_destination_after_origin() -
 
     assert signal.boost > 0
     assert signal.reason == "person_residence_match"
+
+
+def test_person_residence_signal_rejects_relocation_destination_purpose_clause() -> None:
+    signal = person_residence_signal(
+        query="Where did Alice Chen move to?",
+        text="D2:6 Alice: I moved from Boston to pursue a new studio role.",
+    )
+
+    assert signal.boost == 0
+    assert signal.reason == ""
 
 
 def test_person_residence_signal_penalizes_other_person_relocation_origin() -> None:
@@ -217,6 +226,40 @@ def test_deterministic_rerank_prefers_relocation_origin_over_destination_mention
     assert (
         "person_residence_match"
         in reranked[0].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+
+
+def test_deterministic_rerank_prefers_relocation_destination_over_origin_purpose() -> None:
+    query = "Where did Alice Chen move to?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    origin_with_purpose = _item(
+        "alice_origin_purpose",
+        score=0.72,
+        text="D2:6 Alice: I moved from Boston to pursue a new studio role.",
+    )
+    destination = _item(
+        "alice_relocation_destination",
+        score=0.7,
+        text="D2:7 Alice: I moved to Portland for the new studio role.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (origin_with_purpose, destination),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    ranked = sorted(reranked, key=context_rank_key)
+
+    assert ranked[0].item_id == "alice_relocation_destination"
+    assert (
+        "person_residence_match"
+        in ranked[0].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+    assert (
+        "person_residence_match"
+        not in ranked[1].diagnostics["provenance"]["deterministic_rerank_reasons"]
     )
 
 
