@@ -69,6 +69,9 @@ from infinity_context_core.application.context_object_mismatch import (
 from infinity_context_core.application.context_ordinal_sequence import (
     ordinal_sequence_rerank_signal,
 )
+from infinity_context_core.application.context_owner_grounding import (
+    owner_grounding_signal,
+)
 from infinity_context_core.application.context_person_kinship import (
     person_kinship_signal,
 )
@@ -2125,6 +2128,13 @@ def _deterministic_rerank_signals(
     if pet_signal.penalty > 0:
         penalty += pet_signal.penalty
         reasons.append(pet_signal.reason)
+    owner_grounding = owner_grounding_signal(query=query, text=item.text)
+    if owner_grounding.boost > 0:
+        boost += owner_grounding.boost
+        reasons.append(owner_grounding.reason)
+    if owner_grounding.penalty > 0:
+        penalty += owner_grounding.penalty
+        reasons.append(owner_grounding.reason)
     contrast_boost, contrast_penalty, contrast_reason = absence_contrast_signal(
         query=query,
         text=item.text,
