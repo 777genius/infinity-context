@@ -1,7 +1,14 @@
 from __future__ import annotations
 
-from infinity_context_server.memory_comparison_llm import _render_memory_evidence_line
-from infinity_context_server.memory_comparison_models import RetrievedMemory
+from infinity_context_server.memory_comparison_llm import (
+    _judge_prompt,
+    _render_memory_evidence_line,
+)
+from infinity_context_server.memory_comparison_models import (
+    AnswerResult,
+    RetrievedMemory,
+)
+from infinity_context_server.public_benchmark_models import PublicBenchmarkCase
 
 
 def test_llm_memory_line_renders_answer_context_source_attribution() -> None:
@@ -135,3 +142,44 @@ def test_llm_memory_line_merges_bundle_and_item_risk_reasons() -> None:
         "risks=risk:missing_required_role,risk:missing_required_contrast,"
         "risk:retrieval_backfill,risk:skipped_redundant_source_backfill"
     ) in line
+
+
+def test_judge_prompt_uses_precise_ground_truth_and_evidence_labels() -> None:
+    prompt = _judge_prompt(
+        PublicBenchmarkCase(
+            benchmark="locomo",
+            case_id="conv-1:qa:1",
+            question="Where did Morgan keep the launch checklist?",
+            expected_terms=("blue notebook",),
+            metadata={"answer_preview": "Morgan kept it in the blue notebook."},
+        ),
+        AnswerResult(answer="Morgan kept it in the blue notebook."),
+        (
+            RetrievedMemory(
+                text="D1:1 Morgan moved the blue notebook.",
+                rank=4,
+                source_refs=("D1:1",),
+                metadata={
+                    "answer_context_role": "primary",
+                    "answer_context_retrieval_order": 4,
+                    "answer_context_answerability_score": 0.91,
+                    "answer_context_source_type": "raw_turn",
+                    "answer_context_bundle_confidence_score": 0.68,
+                    "answer_context_bundle_confidence_band": "medium",
+                },
+            ),
+        ),
+    )
+
+    assert "Ground truth answer: Morgan kept it in the blue notebook." in prompt
+    assert "Expected answer terms: blue notebook" in prompt
+    assert "Retrieved memory evidence:" in prompt
+    assert (
+        "Use the ground truth answer to judge correctness, and retrieved memory "
+        "evidence to judge support."
+    ) in prompt
+    assert "1. [role=primary rank=4 retrieval_order=4" in prompt
+    assert "answerability=0.91" in prompt
+    assert "source_type=raw_turn" in prompt
+    assert "bundle=medium:0.68" in prompt
+    assert "refs=D1:1" in prompt

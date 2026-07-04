@@ -824,16 +824,21 @@ def _judge_prompt(
     answer: AnswerResult,
     memories: Sequence[RetrievedMemory],
 ) -> str:
-    memories_text = "\n".join(f"{memory.rank}. {memory.text}" for memory in memories)
+    memories_text = "\n".join(
+        _render_memory_evidence_line(memory, index=index)
+        for index, memory in enumerate(memories, 1)
+    )
     return "\n".join(
         (
             "Judge whether the generated answer correctly answers the question.",
-            "Use the ground truth and retrieved memory evidence. Equivalent wording is correct.",
-            "Return verdict correct only when the answer is supported and complete.",
+            "Use the ground truth answer to judge correctness, and retrieved memory "
+            "evidence to judge support. Equivalent wording is correct.",
+            "Return verdict correct only when the answer matches the ground truth "
+            "answer and is supported by retrieved memory evidence.",
             f"Question: {case.question}",
-            f"Ground truth: {_ground_truth(case)}",
-            f"Expected terms: {' | '.join(case.expected_terms)}",
-            f"Retrieved memories:\n{memories_text or '(none)'}",
+            f"Ground truth answer: {_ground_truth(case)}",
+            f"Expected answer terms: {' | '.join(case.expected_terms)}",
+            f"Retrieved memory evidence:\n{memories_text or '(none)'}",
             f"Generated answer: {answer.answer}",
         )
     )
