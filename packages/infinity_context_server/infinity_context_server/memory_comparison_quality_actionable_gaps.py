@@ -608,7 +608,7 @@ def _sample_case_ids(samples: Sequence[object]) -> list[str]:
     for sample in samples:
         if not isinstance(sample, Mapping):
             continue
-        case_id = str(sample.get("case_id") or "").strip()
+        case_id = _compact_query_plan_sample_text(sample.get("case_id"))
         if case_id and case_id not in case_ids:
             case_ids.append(case_id)
         if len(case_ids) >= _MAX_SAMPLE_CASE_IDS:

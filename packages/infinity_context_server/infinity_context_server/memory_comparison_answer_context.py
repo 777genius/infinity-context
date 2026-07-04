@@ -61,6 +61,7 @@ class AnswerContext:
     skipped_redundant_risky_backfill_count: int = 0
     skipped_redundant_source_backfill_count: int = 0
     skipped_redundant_role_backfill_count: int = 0
+    skipped_target_limit_backfill_count: int = 0
     bundle_confidence_score: float = 0.0
     bundle_confidence_band: str = ""
     bundle_bridge_count: int = 0
@@ -137,6 +138,9 @@ class AnswerContext:
             ),
             "skipped_redundant_role_backfill_count": (
                 self.skipped_redundant_role_backfill_count
+            ),
+            "skipped_target_limit_backfill_count": (
+                self.skipped_target_limit_backfill_count
             ),
             **backfill_risk_stats,
             "bundle_confidence_score": self.bundle_confidence_score,
@@ -363,6 +367,7 @@ def answer_context_from_evidence_bundle(
     skipped_redundant_risky_backfill_count = 0
     skipped_redundant_source_backfill_count = 0
     skipped_redundant_role_backfill_count = 0
+    skipped_target_limit_backfill_count = 0
     if bundle_context.get("answer_context_role_requirement_complete") is False:
         backfill_result = backfill_incomplete_bundle_context(
             selected,
@@ -384,6 +389,9 @@ def answer_context_from_evidence_bundle(
         skipped_redundant_role_backfill_count = (
             backfill_result.skipped_redundant_role_count
         )
+        skipped_target_limit_backfill_count = (
+            backfill_result.skipped_target_limit_count
+        )
 
     if skipped_duplicate_source or skipped_noisy_overlap:
         selected = [
@@ -398,6 +406,7 @@ def answer_context_from_evidence_bundle(
         skipped_redundant_risky_backfill_count
         or skipped_redundant_source_backfill_count
         or skipped_redundant_role_backfill_count
+        or skipped_target_limit_backfill_count
     ):
         selected = [
             _with_backfill_skip_metadata(
@@ -409,6 +418,7 @@ def answer_context_from_evidence_bundle(
                     skipped_redundant_source_backfill_count
                 ),
                 skipped_redundant_role_count=skipped_redundant_role_backfill_count,
+                skipped_target_limit_count=skipped_target_limit_backfill_count,
             )
             for memory in selected
         ]
@@ -433,6 +443,7 @@ def answer_context_from_evidence_bundle(
         skipped_redundant_role_backfill_count=(
             skipped_redundant_role_backfill_count
         ),
+        skipped_target_limit_backfill_count=skipped_target_limit_backfill_count,
         bundle_confidence_score=float(
             bundle_context.get("answer_context_bundle_confidence_score") or 0.0
         ),
@@ -727,6 +738,14 @@ def answer_context_metrics(
             primary,
             "avg_skipped_redundant_role_backfill_count",
         ),
+        "primary_total_skipped_target_limit_backfill_count": (
+            _positive_int(primary.get("total_skipped_target_limit_backfill_count"))
+            or 0
+        ),
+        "primary_avg_skipped_target_limit_backfill_count": _metric_value(
+            primary,
+            "avg_skipped_target_limit_backfill_count",
+        ),
         "primary_total_skipped_duplicate_source_bundle_item_count": (
             _positive_int(
                 primary.get("total_skipped_duplicate_source_bundle_item_count")
@@ -987,6 +1006,7 @@ def _answer_context_cutoff_metrics(
     skipped_redundant_risky_backfill_counts: list[int] = []
     skipped_redundant_source_backfill_counts: list[int] = []
     skipped_redundant_role_backfill_counts: list[int] = []
+    skipped_target_limit_backfill_counts: list[int] = []
     backfilled_broad_summary_counts: list[int] = []
     backfilled_conflict_or_stale_counts: list[int] = []
     backfilled_precise_source_overlap_counts: list[int] = []
@@ -1101,6 +1121,9 @@ def _answer_context_cutoff_metrics(
                 context.get("skipped_redundant_role_backfill_count")
             )
             or 0
+        )
+        skipped_target_limit_backfill_counts.append(
+            _positive_int(context.get("skipped_target_limit_backfill_count")) or 0
         )
         backfilled_broad_summary_counts.append(
             _positive_int(context.get("backfilled_broad_summary_count")) or 0
@@ -1365,6 +1388,12 @@ def _answer_context_cutoff_metrics(
         ),
         "total_skipped_redundant_role_backfill_count": sum(
             skipped_redundant_role_backfill_counts
+        ),
+        "avg_skipped_target_limit_backfill_count": _avg(
+            skipped_target_limit_backfill_counts
+        ),
+        "total_skipped_target_limit_backfill_count": sum(
+            skipped_target_limit_backfill_counts
         ),
         "total_backfilled_broad_summary_count": sum(
             backfilled_broad_summary_counts
@@ -1789,6 +1818,7 @@ def _with_backfill_skip_metadata(
     skipped_redundant_risky_count: int,
     skipped_redundant_source_count: int,
     skipped_redundant_role_count: int,
+    skipped_target_limit_count: int,
 ) -> RetrievedMemory:
     metadata = dict(memory.metadata)
     if skipped_redundant_risky_count > 0:
@@ -1802,6 +1832,10 @@ def _with_backfill_skip_metadata(
     if skipped_redundant_role_count > 0:
         metadata["answer_context_skipped_redundant_role_backfill_count"] = (
             skipped_redundant_role_count
+        )
+    if skipped_target_limit_count > 0:
+        metadata["answer_context_skipped_target_limit_backfill_count"] = (
+            skipped_target_limit_count
         )
     _add_answer_context_risk_codes(
         metadata,
@@ -1819,6 +1853,11 @@ def _with_backfill_skip_metadata(
             *(
                 ("risk:skipped_redundant_role_backfill",)
                 if skipped_redundant_role_count > 0
+                else ()
+            ),
+            *(
+                ("risk:skipped_target_limit_backfill",)
+                if skipped_target_limit_count > 0
                 else ()
             ),
         ),
@@ -2427,6 +2466,9 @@ def _answer_context_risk_reason_codes(
         ),
         skipped_redundant_role_backfill_count=(
             context.skipped_redundant_role_backfill_count
+        ),
+        skipped_target_limit_backfill_count=(
+            context.skipped_target_limit_backfill_count
         ),
         backfill_risk_stats=backfill_risk_stats,
         memory_metadata=tuple(memory.metadata for memory in context.memories),

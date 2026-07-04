@@ -62,6 +62,8 @@ def test_top_evidence_preflight_accepts_clean_publishable_config(tmp_path: Path)
     assert result.expected_git_commit == "abc123"
     assert result.allow_dirty_top_evidence is False
     assert result.failures == ()
+    assert payload["schema_version"] == "top-evidence-preflight.v1"
+    assert payload["failure_codes"] == []
     assert payload["checks"]["public_benchmark_case_count_representative"] is True
     assert payload["checks"]["agent_bench_scenario_set_all"] is True
     assert payload["checks"]["multimodal_live_invalid_key_probe_enabled"] is True
@@ -134,6 +136,7 @@ def test_top_evidence_preflight_rejects_dirty_worktree_without_override(
 
     assert result.ok is False
     assert result.checks["git_clean_or_dirty_allowed"] is False
+    assert result.failure_codes == ("git_clean_or_dirty_allowed",)
     assert any("Working tree must be clean" in failure for failure in result.failures)
 
 

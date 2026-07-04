@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from infinity_context_server import eval as eval_module
 from infinity_context_server.memory_comparison_preflight import (
     MEMORY_COMPARISON_PREFLIGHT_SUITE,
+    MemoryComparisonPreflightCheck,
     MemoryComparisonPreflightConfig,
     run_memory_comparison_preflight,
 )
@@ -56,6 +57,12 @@ def test_memory_comparison_preflight_reports_missing_required_gates(
         "memo_auth_token_configured",
     }
     assert result["warnings"] == ["mem0_api_key_configured"]
+    assert _check(result, "allow_live_gate")["reason_code"] == (
+        "allow_live_gate_failed"
+    )
+    assert _check(result, "memo_auth_token_configured")["reason_code"] == (
+        "memo_auth_token_configured_failed"
+    )
 
 
 def test_memory_comparison_preflight_gates_openai_without_leaking_keys(
@@ -220,6 +227,7 @@ def test_memory_comparison_preflight_rejects_wrong_mem0_service_contract(
     assert result["failed_checks"] == ["mem0_api_reachable"]
     assert mem0_check["details"]["required_paths"] == ["/memories", "/search"]
     assert mem0_check["details"]["matched_paths"] == []
+    assert mem0_check["reason_code"] == "mem0_api_contract_missing_required_paths"
 
 
 def test_memory_comparison_preflight_rejects_wrong_memo_service_health(
@@ -250,6 +258,27 @@ def test_memory_comparison_preflight_rejects_wrong_memo_service_health(
     assert result["ok"] is False
     assert result["failed_checks"] == ["memo_api_reachable"]
     assert _check(result, "memo_api_reachable")["details"]["path"] == "/v1/health"
+
+
+def test_memory_comparison_preflight_check_payload_details_are_bounded_json_safe() -> None:
+    check = MemoryComparisonPreflightCheck(
+        name="unit",
+        passed=False,
+        severity="required",
+        reason="unit reason",
+        reason_code="unit_reason",
+        details={
+            f"key-{index}": float("nan") if index == 0 else "x" * 300
+            for index in range(25)
+        },
+    )
+
+    payload = check.to_payload()
+
+    assert len(payload["details"]) == 20
+    assert payload["details"]["key-0"] == "nan"
+    assert payload["details"]["key-1"].endswith("...")
+    json.dumps(payload, allow_nan=False)
 
 
 def _config(

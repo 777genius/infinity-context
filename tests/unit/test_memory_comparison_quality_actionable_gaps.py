@@ -351,6 +351,31 @@ def test_actionable_gap_summary_caps_ranked_gaps_and_sample_case_ids() -> None:
     ]
 
 
+def test_actionable_gap_summary_caps_non_query_plan_sample_case_id_text() -> None:
+    long_case_id = f"case-{'x' * 200}"
+    summary = actionable_gap_summary(
+        evaluation_count=1,
+        expected_case_count=1,
+        failed_gates=("selected_low_answerability_clear",),
+        query_overlap_count=0,
+        profile_overlap_count=0,
+        intent_overlap_count=0,
+        selected_evidence_weakness={
+            "reason_counts": {"selected_low_answerability": 1},
+            "samples": [
+                {
+                    "case_id": long_case_id,
+                    "reasons": ["selected_low_answerability"],
+                }
+            ],
+        },
+    )
+
+    top_gap = summary["top_gap"]
+    assert isinstance(top_gap, dict)
+    assert top_gap["sample_case_ids"] == [long_case_id[:125] + "..."]
+
+
 def test_actionable_gap_summary_caps_query_plan_actionable_samples() -> None:
     long_text = "x" * 200
     samples = [

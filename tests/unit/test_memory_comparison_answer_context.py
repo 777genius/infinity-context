@@ -573,6 +573,7 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
         "skipped_redundant_risky_backfill_count": 0,
         "skipped_redundant_source_backfill_count": 0,
         "skipped_redundant_role_backfill_count": 0,
+        "skipped_target_limit_backfill_count": 0,
         "backfilled_broad_summary_count": 0,
         "backfilled_conflict_or_stale_count": 0,
         "backfilled_low_answerability_count": 0,
@@ -2702,6 +2703,7 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
                             "skipped_redundant_risky_backfill_count": 1,
                             "skipped_redundant_source_backfill_count": 1,
                             "skipped_redundant_role_backfill_count": 1,
+                            "skipped_target_limit_backfill_count": 1,
                             "backfilled_broad_summary_count": 0,
                             "backfilled_conflict_or_stale_count": 0,
                             "backfilled_low_answerability_count": 1,
@@ -2769,6 +2771,7 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
                                 "risk:skipped_redundant_risky_backfill",
                                 "risk:skipped_redundant_source_backfill",
                                 "risk:skipped_redundant_role_backfill",
+                                "risk:skipped_target_limit_backfill",
                             ],
                         },
                     }
@@ -2812,6 +2815,8 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
     assert metrics["primary_avg_skipped_redundant_source_backfill_count"] == 0.5
     assert metrics["primary_total_skipped_redundant_role_backfill_count"] == 1
     assert metrics["primary_avg_skipped_redundant_role_backfill_count"] == 0.5
+    assert metrics["primary_total_skipped_target_limit_backfill_count"] == 1
+    assert metrics["primary_avg_skipped_target_limit_backfill_count"] == 0.5
     assert metrics["primary_total_skipped_duplicate_source_bundle_item_count"] == 1
     assert metrics["primary_avg_skipped_duplicate_source_bundle_item_count"] == 0.5
     assert metrics["primary_total_skipped_noisy_overlap_bundle_item_count"] == 1
@@ -2827,6 +2832,7 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
         "risk:skipped_redundant_risky_backfill": 1,
         "risk:skipped_redundant_role_backfill": 1,
         "risk:skipped_redundant_source_backfill": 1,
+        "risk:skipped_target_limit_backfill": 1,
     }
     assert metrics["primary_total_backfilled_low_answerability_count"] == 1
     assert metrics["primary_total_backfilled_precise_source_overlap_count"] == 1
@@ -2930,6 +2936,8 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
     assert primary["total_skipped_redundant_source_backfill_count"] == 1
     assert primary["avg_skipped_redundant_role_backfill_count"] == 0.5
     assert primary["total_skipped_redundant_role_backfill_count"] == 1
+    assert primary["avg_skipped_target_limit_backfill_count"] == 0.5
+    assert primary["total_skipped_target_limit_backfill_count"] == 1
     assert primary["avg_skipped_duplicate_source_bundle_item_count"] == 0.5
     assert primary["total_skipped_duplicate_source_bundle_item_count"] == 1
     assert primary["avg_skipped_noisy_overlap_bundle_item_count"] == 0.5
@@ -3042,4 +3050,5 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
         "risk:skipped_redundant_risky_backfill": 1,
         "risk:skipped_redundant_role_backfill": 1,
         "risk:skipped_redundant_source_backfill": 1,
+        "risk:skipped_target_limit_backfill": 1,
     }

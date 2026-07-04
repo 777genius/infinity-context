@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -11,6 +12,8 @@ from urllib.parse import urlparse
 
 MEMORY_COMPARISON_PREFLIGHT_SUITE = "memory-comparison-preflight"
 MEMORY_COMPARISON_PREFLIGHT_SCHEMA_VERSION = "memory-comparison-preflight.v1"
+_MAX_DIAGNOSTIC_TEXT = 256
+_MAX_DIAGNOSTIC_ITEMS = 20
 _FAST_CASE_SETS = frozenset(
     {
         "locomo-fast",
@@ -57,6 +60,7 @@ class MemoryComparisonPreflightCheck:
     passed: bool
     severity: str
     reason: str | None = None
+    reason_code: str | None = None
     details: Mapping[str, object] = field(default_factory=dict)
 
     def to_payload(self) -> dict[str, object]:
@@ -65,7 +69,8 @@ class MemoryComparisonPreflightCheck:
             "passed": self.passed,
             "severity": self.severity,
             "reason": self.reason,
-            "details": dict(self.details),
+            "reason_code": self.reason_code,
+            "details": _json_safe_mapping(self.details),
         }
 
 
@@ -112,6 +117,7 @@ def run_memory_comparison_preflight(
                 passed=False,
                 severity="info",
                 reason="pass --preflight-probe-services to verify HTTP reachability",
+                reason_code="service_probe_skipped",
             )
         )
 
@@ -172,6 +178,7 @@ def _dataset_check(dataset_path: Path) -> MemoryComparisonPreflightCheck:
             "dataset_readable",
             passed=False,
             reason="dataset file does not exist",
+            reason_code="dataset_missing",
             details={"dataset_path_label": dataset_path.name},
         )
     if not dataset_path.is_file():
@@ -179,6 +186,7 @@ def _dataset_check(dataset_path: Path) -> MemoryComparisonPreflightCheck:
             "dataset_readable",
             passed=False,
             reason="dataset path is not a file",
+            reason_code="dataset_not_file",
             details={"dataset_path_label": dataset_path.name},
         )
     try:
@@ -189,6 +197,7 @@ def _dataset_check(dataset_path: Path) -> MemoryComparisonPreflightCheck:
             "dataset_readable",
             passed=False,
             reason="dataset file is not readable JSON",
+            reason_code="dataset_unreadable_json",
             details={
                 "dataset_path_label": dataset_path.name,
                 "error_type": type(exc).__name__,
@@ -199,6 +208,7 @@ def _dataset_check(dataset_path: Path) -> MemoryComparisonPreflightCheck:
         "dataset_readable",
         passed=size_bytes > 0 and top_level_count > 0,
         reason="dataset must contain at least one top-level case/sample",
+        reason_code="dataset_empty",
         details={
             "dataset_path_label": dataset_path.name,
             "size_bytes": size_bytes,
@@ -215,6 +225,7 @@ def _url_check(name: str, value: str) -> MemoryComparisonPreflightCheck:
         name,
         passed=valid,
         reason="URL must use http(s) and include a host",
+        reason_code="invalid_url",
         details={
             "scheme": parsed.scheme or None,
             "host_configured": bool(parsed.netloc),
@@ -231,6 +242,7 @@ def _llm_checks(
                 "paid_llm_gate",
                 passed=True,
                 reason=None,
+                reason_code=None,
                 details={"uses_openai": False},
             ),
         )
@@ -239,6 +251,7 @@ def _llm_checks(
             "paid_llm_gate",
             passed=config.allow_paid_llm,
             reason="pass --allow-paid-llm before OpenAI answerer or judge calls",
+            reason_code="paid_llm_not_allowed",
             details={"uses_openai": True},
         ),
         _required_check(
@@ -246,6 +259,7 @@ def _llm_checks(
             passed=_env_is_set(config.env, config.openai_api_key_env)
             or _env_is_set(config.env, "OPENAI_API_KEY"),
             reason=f"set {config.openai_api_key_env} or OPENAI_API_KEY",
+            reason_code="openai_api_key_missing",
             details={
                 config.openai_api_key_env: _env_is_set(config.env, config.openai_api_key_env),
                 "OPENAI_API_KEY": _env_is_set(config.env, "OPENAI_API_KEY"),
@@ -264,6 +278,7 @@ def _llm_checks(
                     "pass --answerer-model or set "
                     "MEMORY_COMPARISON_ANSWERER_MODEL"
                 ),
+                reason_code="openai_answerer_model_missing",
             )
         )
     if config.judge_provider == "openai":
@@ -275,6 +290,7 @@ def _llm_checks(
                     or _env_is_set(config.env, "MEMORY_COMPARISON_JUDGE_MODEL")
                 ),
                 reason="pass --judge-model or set MEMORY_COMPARISON_JUDGE_MODEL",
+                reason_code="openai_judge_model_missing",
             )
         )
     return tuple(checks)
@@ -360,6 +376,7 @@ def _probe_memo_api(
             passed=False,
             severity="service-probe",
             reason="memo API did not respond to unauthenticated health probe",
+            reason_code="memo_api_probe_failed",
             details={"path": path, "error_type": type(exc).__name__},
         )
     passed = response.status_code < 400
@@ -368,6 +385,7 @@ def _probe_memo_api(
         passed=passed,
         severity="service-probe",
         reason=None if passed else "memo API health endpoint did not return HTTP 2xx/3xx",
+        reason_code=None if passed else "memo_api_unhealthy_status",
         details={"path": path, "status_code": response.status_code},
     )
 
@@ -396,6 +414,7 @@ def _probe_mem0_api(
             passed=False,
             severity="service-probe",
             reason="mem0 API did not expose an unauthenticated OpenAPI contract",
+            reason_code="mem0_api_openapi_probe_failed",
             details={"path": path, "error_type": type(exc).__name__},
         )
 
@@ -407,6 +426,7 @@ def _probe_mem0_api(
         passed=passed,
         severity="service-probe",
         reason=None if passed else "mem0 API contract is missing required OSS benchmark endpoints",
+        reason_code=None if passed else "mem0_api_contract_missing_required_paths",
         details={
             "path": path,
             "status_code": response.status_code,
@@ -421,6 +441,7 @@ def _required_check(
     *,
     passed: bool,
     reason: str | None,
+    reason_code: str | None = None,
     details: Mapping[str, object] | None = None,
 ) -> MemoryComparisonPreflightCheck:
     return MemoryComparisonPreflightCheck(
@@ -428,6 +449,7 @@ def _required_check(
         passed=passed,
         severity="required",
         reason=None if passed else reason,
+        reason_code=None if passed else reason_code or f"{name}_failed",
         details=details or {},
     )
 
@@ -437,6 +459,7 @@ def _warning_check(
     *,
     passed: bool,
     reason: str,
+    reason_code: str | None = None,
     details: Mapping[str, object] | None = None,
 ) -> MemoryComparisonPreflightCheck:
     return MemoryComparisonPreflightCheck(
@@ -444,6 +467,7 @@ def _warning_check(
         passed=passed,
         severity="warning",
         reason=None if passed else reason,
+        reason_code=None if passed else reason_code or f"{name}_warning",
         details=details or {},
     )
 
@@ -453,6 +477,7 @@ def _fast_check(
     *,
     passed: bool,
     reason: str,
+    reason_code: str | None = None,
     details: Mapping[str, object] | None = None,
 ) -> MemoryComparisonPreflightCheck:
     return MemoryComparisonPreflightCheck(
@@ -460,6 +485,7 @@ def _fast_check(
         passed=passed,
         severity="fast-readiness",
         reason=None if passed else reason,
+        reason_code=None if passed else reason_code or f"{name}_not_fast_ready",
         details=details or {},
     )
 
@@ -508,3 +534,37 @@ def _openapi_paths(payload: object) -> frozenset[str]:
     if not isinstance(paths, Mapping):
         return frozenset()
     return frozenset(str(path) for path in paths)
+
+
+def _json_safe_mapping(value: Mapping[str, object]) -> dict[str, object]:
+    return {
+        safe_key: _json_safe_value(raw_value)
+        for safe_key, raw_value in sorted(
+            (
+                (_compact_diagnostic_text(key), raw_value)
+                for key, raw_value in value.items()
+            ),
+            key=lambda item: item[0],
+        )[:_MAX_DIAGNOSTIC_ITEMS]
+    }
+
+
+def _json_safe_value(value: object) -> object:
+    if value is None or isinstance(value, bool | int):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else _compact_diagnostic_text(value)
+    if isinstance(value, str):
+        return _compact_diagnostic_text(value)
+    if isinstance(value, Mapping):
+        return _json_safe_mapping(value)
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes):
+        return [_json_safe_value(item) for item in tuple(value)[:_MAX_DIAGNOSTIC_ITEMS]]
+    return _compact_diagnostic_text(value)
+
+
+def _compact_diagnostic_text(value: object) -> str:
+    text = str(value).strip()
+    if len(text) <= _MAX_DIAGNOSTIC_TEXT:
+        return text
+    return f"{text[: _MAX_DIAGNOSTIC_TEXT - 3]}..."

@@ -52,6 +52,7 @@ def context_risk_reason_codes(
     skipped_redundant_risky_backfill_count: int,
     skipped_redundant_source_backfill_count: int,
     skipped_redundant_role_backfill_count: int,
+    skipped_target_limit_backfill_count: int = 0,
     backfill_risk_stats: Mapping[str, object],
     memory_metadata: Sequence[Mapping[str, object]],
 ) -> tuple[str, ...]:
@@ -107,6 +108,10 @@ def context_risk_reason_codes(
                 (
                     skipped_redundant_role_backfill_count,
                     "risk:skipped_redundant_role_backfill",
+                ),
+                (
+                    skipped_target_limit_backfill_count,
+                    "risk:skipped_target_limit_backfill",
                 ),
             )
         ),

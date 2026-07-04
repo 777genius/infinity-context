@@ -6,6 +6,9 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 
 from infinity_context_server.memory_comparison_quality_accessors import (
+    active_policy_reasons as _active_policy_reasons,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
     bundle_items as _bundle_items,
 )
 from infinity_context_server.memory_comparison_quality_accessors import (
@@ -48,6 +51,9 @@ from infinity_context_server.memory_comparison_quality_query_roles import (
 
 _QUERY_ROLE_GAP_SAMPLE_LIMIT = 10
 _QUERY_ROLE_GAP_SELECTED_LIST_LIMIT = 6
+_QUERY_ROLE_GAP_REASON_LIMIT = 6
+_QUERY_ROLE_GAP_SIGNAL_LIMIT = 6
+_QUERY_ROLE_GAP_TEXT_VALUE_LIMIT = 120
 
 
 def query_role_gap_breakdown(
@@ -523,6 +529,7 @@ def _query_role_gap_samples(
             if not candidate_roles:
                 continue
             diagnostics = _memory_diagnostics(memory)
+            score_signals = _mapping(diagnostics.get("score_signals"))
             for query_role in candidate_roles:
                 key = (case_id, query_role)
                 if key in seen:
@@ -532,43 +539,72 @@ def _query_role_gap_samples(
                 gap_role_families = tuple(
                     family for family in query_role_families if family in gap_families
                 )
-                samples.append(
-                    {
-                        "case_id": case_id,
-                        "group": group,
-                        "query_role": query_role,
-                        "query_role_families": list(query_role_families),
-                        "query_role_gap_families": list(gap_role_families),
-                        "gap_reasons": _sample_gap_reasons(
-                            query_role=query_role,
-                            role_gaps=role_gaps,
-                            gap_role_families=gap_role_families,
-                            role_family_gaps=role_family_gaps,
-                        ),
-                        "memory_id": _memory_id(memory),
-                        "rank": _positive_int(memory.get("rank")) or 0,
-                        "lifted": _candidate_lifted(diagnostics),
-                        "positive_policy_score": round(
-                            _positive_policy_score(diagnostics),
-                            6,
-                        ),
-                        "answerability_score": round(
-                            _metric_value(features, "answerability_score"),
-                            6,
-                        ),
-                        "source_locality_score": round(
-                            _metric_value(features, "source_locality_score"),
-                            6,
-                        ),
-                        "bridge_query_hit": features.get("bridge_query_hit") is True,
-                        "selected_bundle_roles": list(selected_roles)[
-                            :_QUERY_ROLE_GAP_SELECTED_LIST_LIMIT
-                        ],
-                        "selected_bundle_query_roles": list(selected_query_roles)[
-                            :_QUERY_ROLE_GAP_SELECTED_LIST_LIMIT
-                        ],
-                    }
+                sample = {
+                    "case_id": case_id,
+                    "group": group,
+                    "query_role": query_role,
+                    "query_role_families": list(query_role_families),
+                    "query_role_gap_families": list(gap_role_families),
+                    "gap_reasons": _sample_gap_reasons(
+                        query_role=query_role,
+                        role_gaps=role_gaps,
+                        gap_role_families=gap_role_families,
+                        role_family_gaps=role_family_gaps,
+                    ),
+                    "memory_id": _memory_id(memory),
+                    "rank": _positive_int(memory.get("rank")) or 0,
+                    "lifted": _candidate_lifted(diagnostics),
+                    "positive_policy_score": round(
+                        _positive_policy_score(diagnostics),
+                        6,
+                    ),
+                    "answerability_score": round(
+                        _metric_value(features, "answerability_score"),
+                        6,
+                    ),
+                    "source_locality_score": round(
+                        _metric_value(features, "source_locality_score"),
+                        6,
+                    ),
+                    "bridge_query_hit": features.get("bridge_query_hit") is True,
+                    "selected_bundle_roles": list(selected_roles)[
+                        :_QUERY_ROLE_GAP_SELECTED_LIST_LIMIT
+                    ],
+                    "selected_bundle_role_count": len(selected_roles),
+                    "selected_bundle_query_roles": list(selected_query_roles)[
+                        :_QUERY_ROLE_GAP_SELECTED_LIST_LIMIT
+                    ],
+                    "selected_bundle_query_role_count": len(selected_query_roles),
+                }
+                _add_query_role_gap_sample_list(
+                    sample,
+                    "positive_signal_names",
+                    sorted(_positive_signal_names(score_signals)),
+                    limit=_QUERY_ROLE_GAP_SIGNAL_LIMIT,
+                    count_key="positive_signal_count",
                 )
+                _add_query_role_gap_sample_list(
+                    sample,
+                    "policy_reason_codes",
+                    _policy_reason_codes(diagnostics),
+                    limit=_QUERY_ROLE_GAP_REASON_LIMIT,
+                    count_key="policy_reason_count",
+                )
+                _add_query_role_gap_sample_list(
+                    sample,
+                    "answerability_reason_codes",
+                    _str_tuple(features.get("answerability_reason_codes")),
+                    limit=_QUERY_ROLE_GAP_REASON_LIMIT,
+                    count_key="answerability_reason_count",
+                )
+                _add_query_role_gap_sample_list(
+                    sample,
+                    "source_locality_reason_codes",
+                    _str_tuple(features.get("source_locality_reason_codes")),
+                    limit=_QUERY_ROLE_GAP_REASON_LIMIT,
+                    count_key="source_locality_reason_count",
+                )
+                samples.append(sample)
                 if len(samples) >= _QUERY_ROLE_GAP_SAMPLE_LIMIT:
                     return samples
     return samples
@@ -592,6 +628,48 @@ def _sample_gap_reasons(
             if reason not in reasons:
                 reasons.append(reason)
     return reasons
+
+
+def _policy_reason_codes(diagnostics: Mapping[str, object]) -> tuple[str, ...]:
+    policy_reasons = _active_policy_reasons(diagnostics)
+    return tuple(
+        reason
+        for policy in sorted(policy_reasons)
+        for reason in policy_reasons[policy]
+    )
+
+
+def _add_query_role_gap_sample_list(
+    sample: dict[str, object],
+    key: str,
+    values: Sequence[str],
+    *,
+    limit: int,
+    count_key: str | None = None,
+) -> None:
+    compact = _compact_sample_values(values)
+    if not compact:
+        return
+    sample[key] = _sample_value_list(compact[:limit])
+    if count_key:
+        sample[count_key] = len(compact)
+
+
+def _compact_sample_values(values: Sequence[str]) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(stripped for value in values if (stripped := value.strip()))
+    )
+
+
+def _sample_value_list(values: Sequence[str]) -> list[str]:
+    return [_compact_sample_text(value) for value in values]
+
+
+def _compact_sample_text(value: str) -> str:
+    stripped = value.strip()
+    if len(stripped) <= _QUERY_ROLE_GAP_TEXT_VALUE_LIMIT:
+        return stripped
+    return f"{stripped[:_QUERY_ROLE_GAP_TEXT_VALUE_LIMIT - 3]}..."
 
 
 def _selected_bundle_roles(item: Mapping[str, object]) -> tuple[str, ...]:

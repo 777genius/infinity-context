@@ -54,6 +54,7 @@ class BackfillResult:
     skipped_redundant_risky_count: int = 0
     skipped_redundant_source_count: int = 0
     skipped_redundant_role_count: int = 0
+    skipped_target_limit_count: int = 0
 
 
 def backfill_incomplete_bundle_context(
@@ -87,6 +88,7 @@ def backfill_incomplete_bundle_context(
     skipped_redundant_risky_count = 0
     skipped_redundant_source_count = 0
     skipped_redundant_role_count = 0
+    skipped_target_limit_count = 0
     covered_roles = set(_selected_role_hits(selected, missing_roles))
     covered_backfill_source_refs: set[str] = set()
     selected_direct_turn_refs = set(_selected_direct_turn_refs(selected))
@@ -181,6 +183,7 @@ def backfill_incomplete_bundle_context(
             skipped_redundant_role_count += 1
             continue
         if len(selected) >= target_count:
+            skipped_target_limit_count += 1
             continue
         selected_keys.add(_memory_key(memory, retrieval_order=retrieval_order))
         selected.append(
@@ -211,6 +214,7 @@ def backfill_incomplete_bundle_context(
         skipped_redundant_risky_count=skipped_redundant_risky_count,
         skipped_redundant_source_count=skipped_redundant_source_count,
         skipped_redundant_role_count=skipped_redundant_role_count,
+        skipped_target_limit_count=skipped_target_limit_count,
     )
 
 

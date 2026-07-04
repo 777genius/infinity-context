@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from infinity_context_server.memory_comparison_quality_diagnostics import (
     fast_gate_metrics,
     quality_diagnostics,
@@ -189,6 +191,70 @@ def test_query_role_gap_samples_match_positive_signal_lifted_candidates() -> Non
     assert breakdown["samples"][0]["lifted"] is True
 
 
+def test_query_role_gap_samples_include_bounded_reason_codes() -> None:
+    item = {
+        "case_id": "bounded-reason-sample",
+        "group": "single-hop",
+        "retrieval": {
+            "results": [
+                _memory(
+                    "reason-coded",
+                    query_roles=("temporal_support",),
+                    score_signals={
+                        "z_signal": True,
+                        "a_signal": True,
+                    },
+                    policy_reason_codes=tuple(
+                        f"policy-reason-{index}" for index in range(8)
+                    ),
+                    answerability_reason_codes=tuple(
+                        f"answerability-reason-{index}" for index in range(8)
+                    ),
+                    source_locality_reason_codes=tuple(
+                        f"source-locality-reason-{index}" for index in range(8)
+                    ),
+                ),
+            ],
+        },
+        "evidence_bundle": {"items": []},
+    }
+
+    sample = fast_gate_metrics((item,), expected_case_count=1)[
+        "query_role_gap_breakdown"
+    ]["samples"][0]
+
+    assert sample["positive_signal_names"] == ["a_signal", "z_signal"]
+    assert sample["positive_signal_count"] == 2
+    assert sample["policy_reason_codes"] == [
+        "policy-reason-0",
+        "policy-reason-1",
+        "policy-reason-2",
+        "policy-reason-3",
+        "policy-reason-4",
+        "policy-reason-5",
+    ]
+    assert sample["policy_reason_count"] == 8
+    assert sample["answerability_reason_codes"] == [
+        "answerability-reason-0",
+        "answerability-reason-1",
+        "answerability-reason-2",
+        "answerability-reason-3",
+        "answerability-reason-4",
+        "answerability-reason-5",
+    ]
+    assert sample["answerability_reason_count"] == 8
+    assert sample["source_locality_reason_codes"] == [
+        "source-locality-reason-0",
+        "source-locality-reason-1",
+        "source-locality-reason-2",
+        "source-locality-reason-3",
+        "source-locality-reason-4",
+        "source-locality-reason-5",
+    ]
+    assert sample["source_locality_reason_count"] == 8
+    json.dumps(sample)
+
+
 def test_query_role_gap_breakdown_uses_fusion_selected_evidence_role_families() -> None:
     item = {
         "case_id": "fusion-selected-role-family",
@@ -367,19 +433,39 @@ def _memory(
     bridge_query_hit: bool = False,
     lifted: bool = False,
     score_signals: dict[str, object] | None = None,
+    policy_reason_codes: tuple[str, ...] = (),
+    answerability_reason_codes: tuple[str, ...] = (),
+    source_locality_reason_codes: tuple[str, ...] = (),
 ) -> dict[str, object]:
+    candidate_features: dict[str, object] = {
+        "query_roles": query_roles,
+        "answerability_score": answerability_score,
+        "source_locality_score": source_locality_score,
+        "bridge_query_hit": bridge_query_hit,
+    }
+    if answerability_reason_codes:
+        candidate_features["answerability_reason_codes"] = answerability_reason_codes
+    if source_locality_reason_codes:
+        candidate_features["source_locality_reason_codes"] = (
+            source_locality_reason_codes
+        )
     diagnostics: dict[str, object] = {
-        "benchmark_candidate_features": {
-            "query_roles": query_roles,
-            "answerability_score": answerability_score,
-            "source_locality_score": source_locality_score,
-            "bridge_query_hit": bridge_query_hit,
-        }
+        "benchmark_candidate_features": candidate_features
     }
     if lifted:
         diagnostics["benchmark_rerank_boosted"] = True
     if score_signals is not None:
         diagnostics["score_signals"] = score_signals
+    if policy_reason_codes:
+        diagnostics["benchmark_rerank_policy"] = {
+            "contributions": [
+                {
+                    "policy": "QueryRoleDiagnosticPolicy",
+                    "score": 0.1,
+                    "reason_codes": list(policy_reason_codes),
+                }
+            ]
+        }
     return {
         "id": item_id,
         "metadata": {

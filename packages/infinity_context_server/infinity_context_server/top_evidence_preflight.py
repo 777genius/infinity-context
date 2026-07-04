@@ -31,6 +31,7 @@ DEFAULT_MIN_PUBLIC_ACCURACY = max(
     for floor in _PUBLIC_MEMORY_BENCHMARK_COMPETITIVE_FLOORS.values()
 )
 DEFAULT_MULTIMODAL_PROVIDER_TIMEOUT_SECONDS = 60.0
+TOP_EVIDENCE_PREFLIGHT_SCHEMA_VERSION = "top-evidence-preflight.v1"
 MAX_MULTIMODAL_PROVIDER_TIMEOUT_SECONDS = 120.0
 MIN_MULTIMODAL_PROVIDER_TIMEOUT_SECONDS = 5.0
 REQUIRED_MULTIMODAL_AUDIO_TYPES = frozenset({".mp3", ".wav"})
@@ -44,6 +45,7 @@ class TopEvidencePreflightResult:
     ok: bool
     checks: dict[str, bool]
     failures: tuple[str, ...]
+    failure_codes: tuple[str, ...]
     expected_git_commit: str | None
     allow_dirty_top_evidence: bool
     sanitized_config: dict[str, object]
@@ -53,10 +55,12 @@ class TopEvidencePreflightResult:
             "ok": self.ok,
             "checks": self.checks,
             "failures": list(self.failures),
+            "failure_codes": list(self.failure_codes),
             "expected_git_commit": self.expected_git_commit,
             "allow_dirty_top_evidence": self.allow_dirty_top_evidence,
             "sanitized_config": self.sanitized_config,
             "suite": "infinity-context-top-evidence-preflight",
+            "schema_version": TOP_EVIDENCE_PREFLIGHT_SCHEMA_VERSION,
         }
 
 
@@ -450,6 +454,7 @@ def run_top_evidence_preflight(
         ok=all(checks.values()),
         checks=checks,
         failures=tuple(failures),
+        failure_codes=tuple(name for name, passed in checks.items() if not passed),
         expected_git_commit=commit if isinstance(commit, str) and commit else None,
         allow_dirty_top_evidence=allow_dirty,
         sanitized_config={
