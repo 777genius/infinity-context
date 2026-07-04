@@ -29,6 +29,7 @@ def test_evidence_bundle_planner_prefers_person_grounded_temporal_support() -> N
         query_support_terms=("last", "week"),
         has_temporal_surface=True,
         entity_hits=("caroline",),
+        relation_hits=("career", "path"),
         query_has_entities=True,
         answerability_score=0.8,
     )
@@ -46,6 +47,54 @@ def test_evidence_bundle_planner_prefers_person_grounded_temporal_support() -> N
     assert plan.satisfied_required_roles == ("primary", "temporal_support")
 
 
+def test_evidence_bundle_planner_rejects_person_only_temporal_support() -> None:
+    primary = _candidate(
+        item_id="primary",
+        covered_evidence_terms=("D1:10",),
+        primary_signal=True,
+        entity_hits=("caroline",),
+        speaker_hits=("caroline",),
+        query_has_entities=True,
+        answerability_score=0.9,
+    )
+    person_only_temporal = _candidate(
+        item_id="person-only-temporal",
+        query_support_terms=("last", "week"),
+        has_temporal_surface=True,
+        entity_hits=("caroline",),
+        query_has_entities=True,
+        answerability_score=0.88,
+    )
+    relation_grounded_temporal = _candidate(
+        item_id="relation-grounded-temporal",
+        query_support_terms=("last", "week"),
+        has_temporal_surface=True,
+        entity_hits=("caroline",),
+        relation_hits=("career", "path"),
+        query_has_entities=True,
+        answerability_score=0.8,
+    )
+
+    incomplete = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, person_only_temporal),
+        case_group="temporal",
+        required_roles=("primary", "temporal_support"),
+    )
+    complete = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, person_only_temporal, relation_grounded_temporal),
+        case_group="temporal",
+        required_roles=("primary", "temporal_support"),
+    )
+
+    assert incomplete.satisfied_required_roles == ("primary",)
+    assert incomplete.missing_required_roles == ("temporal_support",)
+    assert [item.candidate.item_id for item in complete.items] == [
+        "primary",
+        "relation-grounded-temporal",
+    ]
+    assert complete.satisfied_required_roles == ("primary", "temporal_support")
+
+
 def _candidate(
     *,
     item_id: str,
@@ -56,6 +105,7 @@ def _candidate(
     answerability_score: float = 0.0,
     entity_hits: tuple[str, ...] = (),
     speaker_hits: tuple[str, ...] = (),
+    relation_hits: tuple[str, ...] = (),
     query_has_entities: bool = False,
 ) -> EvidenceBundleCandidate:
     return EvidenceBundleCandidate(
@@ -74,5 +124,6 @@ def _candidate(
         answerability_score=answerability_score,
         entity_hits=entity_hits,
         speaker_hits=speaker_hits,
+        relation_hits=relation_hits,
         query_has_entities=query_has_entities,
     )

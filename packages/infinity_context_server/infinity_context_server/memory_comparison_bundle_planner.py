@@ -1233,6 +1233,10 @@ def _candidate_has_temporal_grounding(candidate: EvidenceBundleCandidate) -> boo
         candidate.entity_hits or candidate.speaker_hits
     ):
         return False
+    if candidate.query_has_entities and not _candidate_has_relation_or_answer_grounding(
+        candidate
+    ):
+        return False
     return bool(
         candidate.entity_hits
         or candidate.speaker_hits
@@ -1240,6 +1244,22 @@ def _candidate_has_temporal_grounding(candidate: EvidenceBundleCandidate) -> boo
         or candidate.query_support_terms
         or candidate.direct_speaker_turn
         or candidate.focused_evidence_score > 0
+    )
+
+
+def _candidate_has_relation_or_answer_grounding(
+    candidate: EvidenceBundleCandidate,
+) -> bool:
+    return bool(
+        candidate.relation_hits
+        or candidate.relation_category_hits
+        or candidate.covered_expected_terms
+        or candidate.covered_evidence_terms
+        or candidate.has_preference_evidence
+        or candidate.has_visual_evidence
+        or candidate.exact_count_evidence
+        or candidate.list_item_count > 0
+        or candidate.covered_answer_unit_shapes
     )
 
 
