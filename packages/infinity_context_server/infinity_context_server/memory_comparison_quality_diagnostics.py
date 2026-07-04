@@ -444,6 +444,7 @@ def fast_gate_metrics(
             bundle_gap_breakdown=bundle_gap_breakdown,
             answerability_gap_breakdown=answerability_gap_breakdown,
             selected_evidence_weakness=selected_evidence_weakness,
+            evidence_recall_gap_summary=evidence_recall_gap_summary,
             query_role_gap_breakdown=query_role_gap_breakdown,
             query_plan_gap_breakdown=query_plan_gap_breakdown,
             rerank_signal_gap_breakdown=rerank_signal_gaps,

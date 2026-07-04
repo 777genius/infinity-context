@@ -30,6 +30,8 @@ _MAX_SELECTED_EVIDENCE_ACTIONABLE_SAMPLES = 3
 _MAX_SELECTED_EVIDENCE_ACTIONABLE_SAMPLE_VALUES = 5
 _MAX_RERANK_SIGNAL_ACTIONABLE_SAMPLES = 3
 _MAX_RERANK_SIGNAL_ACTIONABLE_SAMPLE_VALUES = 5
+_MAX_EVIDENCE_RECALL_ACTIONABLE_SAMPLES = 3
+_MAX_EVIDENCE_RECALL_ACTIONABLE_SAMPLE_VALUES = 5
 
 
 def actionable_gap_summary(
@@ -45,6 +47,7 @@ def actionable_gap_summary(
     bundle_gap_breakdown: Mapping[str, object] | None = None,
     answerability_gap_breakdown: Mapping[str, object] | None = None,
     selected_evidence_weakness: Mapping[str, object] | None = None,
+    evidence_recall_gap_summary: Mapping[str, object] | None = None,
     query_role_gap_breakdown: Mapping[str, object] | None = None,
     query_plan_gap_breakdown: Mapping[str, object] | None = None,
     rerank_signal_gap_breakdown: Mapping[str, object] | None = None,
@@ -57,6 +60,7 @@ def actionable_gap_summary(
     bundle_gap_breakdown = _mapping(bundle_gap_breakdown)
     answerability_gap_breakdown = _mapping(answerability_gap_breakdown)
     selected_evidence_weakness = _mapping(selected_evidence_weakness)
+    evidence_recall_gap_summary = _mapping(evidence_recall_gap_summary)
     query_role_gap_breakdown = _mapping(query_role_gap_breakdown)
     query_plan_gap_breakdown = _mapping(query_plan_gap_breakdown)
     rerank_signal_gap_breakdown = _mapping(rerank_signal_gap_breakdown)
@@ -88,6 +92,11 @@ def actionable_gap_summary(
         evaluation_count=evaluation_count,
         failed_gate_set=failed_gate_set,
         breakdown=selected_evidence_weakness,
+    )
+    _append_evidence_recall_gaps(
+        gaps,
+        evaluation_count=evaluation_count,
+        summary=evidence_recall_gap_summary,
     )
     _append_answerability_gaps(
         gaps,
@@ -274,6 +283,71 @@ def _append_selected_evidence_weakness_gaps(
             samples=matched_samples,
             sample_payloads=compact_samples,
         )
+
+
+def _append_evidence_recall_gaps(
+    gaps: list[dict[str, object]],
+    *,
+    evaluation_count: int,
+    summary: Mapping[str, object],
+) -> None:
+    samples = _compact_evidence_recall_actionable_samples(
+        _sequence(summary.get("samples"))
+    )
+    _append_actionable_gap(
+        gaps,
+        evaluation_count=evaluation_count,
+        category="evidence_recall",
+        gap="missing_evidence_refs",
+        impact_count=(
+            _positive_int(summary.get("missing_evidence_ref_case_count")) or 0
+        ),
+        source_metric="evidence_recall_gap_summary.missing_evidence_ref_case_count",
+        action=(
+            "Inspect sampled missing evidence refs and add retrieval coverage "
+            "for the absent source turns."
+        ),
+        evidence={
+            "top_missing_evidence_terms": _compact_evidence_recall_count_mapping(
+                summary.get("top_missing_evidence_terms")
+            ),
+            "measured_evidence_recall_count": (
+                _positive_int(summary.get("measured_evidence_recall_count")) or 0
+            ),
+            "avg_evidence_term_recall": _number(
+                summary.get("avg_evidence_term_recall")
+            ),
+        },
+        samples=_evidence_recall_samples_for_missing(samples),
+        sample_payloads=_evidence_recall_samples_for_missing(samples),
+    )
+    _append_actionable_gap(
+        gaps,
+        evaluation_count=evaluation_count,
+        category="evidence_recall",
+        gap="weak_evidence_term_recall",
+        impact_count=(
+            _positive_int(summary.get("weak_evidence_recall_case_count")) or 0
+        ),
+        source_metric="evidence_recall_gap_summary.weak_evidence_recall_case_count",
+        action=(
+            "Improve retrieval coverage for cases with partial evidence-term "
+            "recall before expanding evaluation."
+        ),
+        evidence={
+            "zero_evidence_recall_case_count": (
+                _positive_int(summary.get("zero_evidence_recall_case_count")) or 0
+            ),
+            "measured_evidence_recall_count": (
+                _positive_int(summary.get("measured_evidence_recall_count")) or 0
+            ),
+            "avg_evidence_term_recall": _number(
+                summary.get("avg_evidence_term_recall")
+            ),
+        },
+        samples=_evidence_recall_samples_for_weak_recall(samples),
+        sample_payloads=_evidence_recall_samples_for_weak_recall(samples),
+    )
 
 
 def _append_query_plan_gaps(
@@ -883,6 +957,93 @@ def _compact_selected_evidence_actionable_samples(
         if len(compact_samples) >= _MAX_SELECTED_EVIDENCE_ACTIONABLE_SAMPLES:
             break
     return tuple(compact_samples)
+
+
+def _compact_evidence_recall_actionable_samples(
+    samples: Sequence[object],
+) -> tuple[dict[str, object], ...]:
+    compact_samples: list[dict[str, object]] = []
+    for raw_sample in samples:
+        sample = _mapping(raw_sample)
+        if not sample:
+            continue
+        compact: dict[str, object] = {}
+        for key in ("case_id", "group"):
+            value = _compact_query_plan_sample_text(sample.get(key))
+            if value:
+                compact[key] = value
+        for key in ("expected_term_recall", "evidence_term_recall"):
+            value = sample.get(key)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                compact[key] = round(float(value), 6)
+        if sample.get("evidence_term_recall_measured") is not None:
+            compact["evidence_term_recall_measured"] = (
+                sample.get("evidence_term_recall_measured") is True
+            )
+        missing_terms = tuple(
+            value
+            for value in (
+                _compact_query_plan_sample_text(raw_value)
+                for raw_value in _str_tuple(sample.get("missing_evidence_terms"))
+            )
+            if value
+        )
+        if missing_terms:
+            compact["missing_evidence_terms"] = list(
+                missing_terms[:_MAX_EVIDENCE_RECALL_ACTIONABLE_SAMPLE_VALUES]
+            )
+        missing_count = _positive_int(sample.get("missing_evidence_term_count")) or 0
+        if missing_count:
+            compact["missing_evidence_term_count"] = missing_count
+        if "bundle_complete" in sample:
+            compact["bundle_complete"] = sample.get("bundle_complete") is True
+        if compact:
+            compact_samples.append(compact)
+        if len(compact_samples) >= _MAX_EVIDENCE_RECALL_ACTIONABLE_SAMPLES:
+            break
+    return tuple(compact_samples)
+
+
+def _compact_evidence_recall_count_mapping(value: object) -> dict[str, int]:
+    compact: dict[str, int] = {}
+    for key, raw_count in _mapping(value).items():
+        compact_key = _compact_query_plan_sample_text(key)
+        if not compact_key:
+            continue
+        count = _positive_int(raw_count) or 0
+        compact[compact_key] = count
+        if len(compact) >= _MAX_EVIDENCE_RECALL_ACTIONABLE_SAMPLE_VALUES:
+            break
+    return compact
+
+
+def _evidence_recall_samples_for_missing(
+    samples: Sequence[Mapping[str, object]],
+) -> tuple[Mapping[str, object], ...]:
+    matched = [
+        sample
+        for sample in samples
+        if (_positive_int(sample.get("missing_evidence_term_count")) or 0) > 0
+    ]
+    return tuple(matched or samples)
+
+
+def _evidence_recall_samples_for_weak_recall(
+    samples: Sequence[Mapping[str, object]],
+) -> tuple[Mapping[str, object], ...]:
+    matched = []
+    for sample in samples:
+        if sample.get("evidence_term_recall_measured") is not True:
+            continue
+        value = sample.get("evidence_term_recall")
+        if isinstance(value, bool):
+            continue
+        try:
+            if float(value) < 1.0:
+                matched.append(sample)
+        except (TypeError, ValueError):
+            continue
+    return tuple(matched or samples)
 
 
 def _compact_rerank_signal_actionable_samples(

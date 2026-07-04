@@ -252,6 +252,98 @@ def test_fast_gate_metrics_actionable_summary_explains_query_plan_role_gap() -> 
     assert reason_gap["samples"] == role_gap["samples"]
 
 
+def test_fast_gate_actionable_summary_reports_evidence_recall_gaps() -> None:
+    long_ref = f"D3:{'9' * 200}"
+    items = (
+        _item(
+            case_id="missing-ref",
+            group="multi-hop",
+            retrieval_quality={
+                "expected_term_recall": 1.0,
+                "evidence_term_recall": 0.0,
+                "missing_evidence_terms": ["D3:4", long_ref],
+            },
+            evidence_bundle={"bundle_complete": False},
+        ),
+        _item(
+            case_id="weak-recall",
+            group="single-hop",
+            retrieval_quality={
+                "expected_term_recall": 1.0,
+                "evidence_term_recall": 0.5,
+                "missing_evidence_terms": [],
+            },
+            evidence_bundle={"bundle_complete": True},
+        ),
+        _item(
+            case_id="unmeasured-missing-ref",
+            group="single-hop",
+            retrieval_quality={
+                "expected_term_recall": 0.5,
+                "missing_evidence_terms": ["D7:1"],
+            },
+            evidence_bundle={"bundle_complete": False},
+        ),
+    )
+
+    gate = fast_gate_metrics(items, expected_case_count=3)
+    ranked_gaps = gate["actionable_gap_summary"]["ranked_gaps"]
+    missing_gap = next(
+        gap
+        for gap in ranked_gaps
+        if gap["source_metric"]
+        == "evidence_recall_gap_summary.missing_evidence_ref_case_count"
+    )
+    weak_gap = next(
+        gap
+        for gap in ranked_gaps
+        if gap["source_metric"]
+        == "evidence_recall_gap_summary.weak_evidence_recall_case_count"
+    )
+
+    assert missing_gap["category"] == "evidence_recall"
+    assert missing_gap["gap"] == "missing_evidence_refs"
+    assert missing_gap["severity"] == "diagnostic"
+    assert missing_gap["impact_count"] == 2
+    assert missing_gap["sample_case_ids"] == [
+        "missing-ref",
+        "unmeasured-missing-ref",
+    ]
+    assert missing_gap["evidence"] == {
+        "top_missing_evidence_terms": {
+            "D3:4": 1,
+            "D7:1": 1,
+            f"D3:{'9' * 122}...": 1,
+        },
+        "measured_evidence_recall_count": 2,
+        "avg_evidence_term_recall": 0.25,
+    }
+    assert missing_gap["samples"] == [
+        {
+            "case_id": "missing-ref",
+            "group": "multi-hop",
+            "expected_term_recall": 1.0,
+            "evidence_term_recall": 0.0,
+            "evidence_term_recall_measured": True,
+            "missing_evidence_terms": ["D3:4", f"D3:{'9' * 122}..."],
+            "missing_evidence_term_count": 2,
+            "bundle_complete": False,
+        },
+        {
+            "case_id": "unmeasured-missing-ref",
+            "group": "single-hop",
+            "expected_term_recall": 0.5,
+            "evidence_term_recall_measured": False,
+            "missing_evidence_terms": ["D7:1"],
+            "missing_evidence_term_count": 1,
+            "bundle_complete": False,
+        },
+    ]
+    assert weak_gap["gap"] == "weak_evidence_term_recall"
+    assert weak_gap["impact_count"] == 2
+    assert weak_gap["sample_case_ids"] == ["missing-ref", "weak-recall"]
+
+
 def test_actionable_summary_reports_answer_context_provenance_gap() -> None:
     bundle = _fast_gate_bundle(
         1,
