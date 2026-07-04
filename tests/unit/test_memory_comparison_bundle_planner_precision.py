@@ -96,6 +96,45 @@ def test_evidence_bundle_quality_does_not_reward_noisy_source_proximity() -> Non
     assert "risk:broad_summary" in quality["reason_codes"]
 
 
+def test_evidence_bundle_quality_does_not_reward_generic_source_refs() -> None:
+    primary = _candidate(
+        item_id="primary",
+        retrieval_order=1,
+        dedupe_key="refs:D4:10",
+        covered_evidence_terms=("plan",),
+        primary_signal=True,
+        source_refs=("D4:10",),
+        focused_evidence_score=1.0,
+        direct_speaker_turn=True,
+        answerability_score=0.92,
+    )
+    generic_support = _candidate(
+        item_id="generic-support",
+        retrieval_order=2,
+        dedupe_key="refs:D8:30",
+        query_support_terms=("origin", "country"),
+        source_refs=("D8:30",),
+        answerability_score=0.86,
+        source_locality_score=0.9,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, generic_support),
+        case_group="single",
+    )
+
+    quality = plan.to_diagnostics()["bundle_quality"]
+    assert [item.candidate.item_id for item in plan.items] == [
+        "primary",
+        "generic-support",
+    ]
+    assert quality["source_ref_item_count"] == 2
+    assert quality["source_ref_support_item_count"] == 1
+    assert quality["source_identity_support_item_count"] == 1
+    assert quality["component_scores"]["source_refs"] == 0.08
+    assert "has_source_refs" in quality["reason_codes"]
+
+
 def test_evidence_bundle_planner_does_not_select_noisy_source_proximity() -> None:
     primary = _candidate(
         item_id="primary",

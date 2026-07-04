@@ -2466,10 +2466,42 @@ def _candidate_has_source_identity_quality_support(
         return False
     if _is_measured_low_answerability(candidate.answerability_score):
         return False
-    return not candidate.conflict_or_stale or bool(
-        candidate.contrast_surface
+    if candidate.conflict_or_stale:
+        return bool(
+            candidate.contrast_surface
+            or candidate.currentness_surface
+            or candidate.stale_surface
+        )
+    if not candidate.source_refs and _candidate_turn_refs(candidate):
+        return True
+    return _candidate_has_source_identity_grounding(candidate)
+
+
+def _candidate_has_source_identity_grounding(
+    candidate: EvidenceBundleCandidate,
+) -> bool:
+    return bool(
+        candidate.covered_expected_terms
+        or candidate.covered_evidence_terms
+        or candidate.direct_speaker_turn
+        or candidate.focused_evidence_score > 0
+        or candidate.relation_hits
+        or candidate.relation_category_hits
+        or candidate.entity_hits
+        or candidate.speaker_hits
+        or candidate.exact_count_evidence
+        or candidate.list_item_count > 0
+        or candidate.has_preference_evidence
+        or candidate.has_visual_evidence
+        or candidate.has_temporal_surface
+        or candidate.has_sequence_surface
+        or candidate.has_duration_surface
+        or candidate.has_relative_time_surface
+        or candidate.has_explicit_time_content_surface
+        or candidate.has_temporal_sequence_surface
+        or candidate.negation_surface
         or candidate.currentness_surface
-        or candidate.stale_surface
+        or candidate.contrast_surface
     )
 
 
