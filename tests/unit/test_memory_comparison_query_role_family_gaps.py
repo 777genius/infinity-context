@@ -158,6 +158,103 @@ def test_query_role_gap_breakdown_uses_fusion_selected_evidence_role_families() 
     }
 
 
+def test_query_role_family_gap_ignores_exact_role_loss_when_family_selected() -> None:
+    item = {
+        "case_id": "typed-profile-sibling-selected",
+        "retrieval": {
+            "results": [
+                _memory(
+                    "health",
+                    query_roles=("health_support",),
+                    lifted=True,
+                ),
+                _memory(
+                    "current-goal",
+                    query_roles=("current_goal_support",),
+                    lifted=True,
+                ),
+            ],
+        },
+        "evidence_bundle": {
+            "items": [
+                {
+                    "id": "current-goal",
+                    "role": "current_goal_support",
+                    "query_roles": ["current_goal_support"],
+                }
+            ]
+        },
+    }
+
+    breakdown = fast_gate_metrics((item,), expected_case_count=1)[
+        "query_role_gap_breakdown"
+    ]
+
+    assert breakdown["candidate_role_family_counts"] == {"relation_compact": 2}
+    assert breakdown["selected_item_role_family_counts"] == {"relation_compact": 1}
+    assert breakdown["role_families_without_selected_items"] == []
+    assert breakdown["role_families_without_selected_evidence"] == []
+    assert breakdown["role_family_gap_count"] == 0
+    assert breakdown["role_family_gaps"] == {}
+    assert breakdown["roles_without_selected_items"] == ["health_support"]
+
+
+def test_query_role_family_gap_counts_visual_temporal_selected_evidence_families() -> None:
+    item = {
+        "case_id": "visual-temporal-fusion-selected",
+        "retrieval": {
+            "metadata": {
+                "multi_query_merge": {
+                    "query_role_counts": {"visual_temporal_support": 1},
+                    "selected_evidence_query_role_counts": {
+                        "visual_temporal_support": 1
+                    },
+                }
+            },
+            "results": [
+                _memory(
+                    "visual-temporal",
+                    query_roles=("visual_temporal_support",),
+                    lifted=True,
+                ),
+            ],
+        },
+        "evidence_bundle": {
+            "items": [
+                {
+                    "id": "visual-temporal",
+                    "role": "visual_temporal_support",
+                }
+            ]
+        },
+    }
+
+    breakdown = fast_gate_metrics((item,), expected_case_count=1)[
+        "query_role_gap_breakdown"
+    ]
+
+    assert breakdown["candidate_role_family_counts"] == {
+        "temporal_support": 1,
+        "visual_support": 1,
+    }
+    assert breakdown["selected_evidence_query_role_family_counts"] == {
+        "temporal_support": 1,
+        "visual_support": 1,
+    }
+    assert breakdown["role_families_without_selected_evidence"] == []
+    assert breakdown["role_families_with_selected_evidence_only_in_fusion"] == [
+        "temporal_support",
+        "visual_support",
+    ]
+    assert breakdown["role_family_gap_count"] == 2
+    assert breakdown["role_family_gaps"]["temporal_support"]["gap_reasons"] == [
+        "selected_evidence_not_bundle_tagged"
+    ]
+    assert breakdown["role_family_gaps"]["visual_support"]["gap_reasons"] == [
+        "selected_evidence_not_bundle_tagged"
+    ]
+
+
 def _memory(
     item_id: str,
     *,

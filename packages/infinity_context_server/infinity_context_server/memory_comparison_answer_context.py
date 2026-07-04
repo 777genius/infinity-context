@@ -12,6 +12,18 @@ from infinity_context_server.memory_comparison_answer_context_backfill import (
 from infinity_context_server.memory_comparison_answer_context_retrieval_slice import (
     retrieval_slice_answer_context,
 )
+from infinity_context_server.memory_comparison_answer_context_risks import (
+    add_answer_context_risk_codes as _add_answer_context_risk_codes,
+)
+from infinity_context_server.memory_comparison_answer_context_risks import (
+    context_risk_reason_codes as _context_risk_reason_codes,
+)
+from infinity_context_server.memory_comparison_answer_context_risks import (
+    is_measured_low_answerability as _is_measured_low_answerability,
+)
+from infinity_context_server.memory_comparison_answer_context_risks import (
+    is_measured_weak_source_locality as _is_measured_weak_source_locality,
+)
 from infinity_context_server.memory_comparison_candidate_risks import (
     candidate_features as _candidate_features,
 )
@@ -2264,26 +2276,6 @@ def _bundle_item_has_noise_risk(memory: RetrievedMemory) -> bool:
         features,
     ) or memory_has_conflict_or_stale(memory, features)
 
-
-def _is_measured_low_answerability(value: object) -> bool:
-    score = _float_value(value)
-    return 0 < score < 0.55
-
-
-def _is_measured_weak_source_locality(value: object) -> bool:
-    score = _float_value(value)
-    return 0 < score < 0.45
-
-
-def _float_value(value: object) -> float:
-    if isinstance(value, bool):
-        return 0.0
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return 0.0
-
-
 def _source_ref_stats(memories: Sequence[RetrievedMemory]) -> dict[str, object]:
     source_ref_counts = [len(_memory_source_refs(memory)) for memory in memories]
     source_ref_item_count = sum(1 for count in source_ref_counts if count > 0)
@@ -2399,53 +2391,27 @@ def _answer_context_risk_reason_codes(
     *,
     backfill_risk_stats: Mapping[str, object],
 ) -> tuple[str, ...]:
-    codes: list[str] = []
-    codes.extend(context.bundle_risk_reason_codes)
-    if context.skipped_duplicate_source_bundle_item_count > 0:
-        codes.append("risk:skipped_duplicate_source_bundle_item")
-    if context.skipped_noisy_overlap_bundle_item_count > 0:
-        codes.append("risk:skipped_noisy_overlap_bundle_item")
-    if context.backfilled_retrieval_item_count > 0:
-        codes.append("risk:retrieval_backfill")
-    if _positive_count(backfill_risk_stats, "backfilled_broad_summary_count") > 0:
-        codes.append("risk:backfilled_broad_summary")
-    if _positive_count(backfill_risk_stats, "backfilled_conflict_or_stale_count") > 0:
-        codes.append("risk:backfilled_conflict_or_stale")
-    if _positive_count(backfill_risk_stats, "backfilled_low_answerability_count") > 0:
-        codes.append("risk:backfilled_low_answerability")
-    if _positive_count(backfill_risk_stats, "backfilled_weak_source_locality_count") > 0:
-        codes.append("risk:backfilled_weak_source_locality")
-    if context.skipped_redundant_risky_backfill_count > 0:
-        codes.append("risk:skipped_redundant_risky_backfill")
-    if context.skipped_redundant_source_backfill_count > 0:
-        codes.append("risk:skipped_redundant_source_backfill")
-    if context.skipped_redundant_role_backfill_count > 0:
-        codes.append("risk:skipped_redundant_role_backfill")
-    for memory in context.memories:
-        codes.extend(
-            _string_tuple(memory.metadata.get("answer_context_risk_reason_codes"))
-        )
-    return tuple(dict.fromkeys(codes))
-
-
-def _positive_count(values: Mapping[str, object], key: str) -> int:
-    return _positive_int(values.get(key)) or 0
-
-
-def _add_answer_context_risk_codes(
-    metadata: dict[str, object],
-    codes: Sequence[str],
-) -> None:
-    merged = tuple(
-        dict.fromkeys(
-            (
-                *_string_tuple(metadata.get("answer_context_risk_reason_codes")),
-                *(code for code in codes if str(code).strip()),
-            )
-        )
+    return _context_risk_reason_codes(
+        bundle_risk_reason_codes=context.bundle_risk_reason_codes,
+        skipped_duplicate_source_bundle_item_count=(
+            context.skipped_duplicate_source_bundle_item_count
+        ),
+        skipped_noisy_overlap_bundle_item_count=(
+            context.skipped_noisy_overlap_bundle_item_count
+        ),
+        backfilled_retrieval_item_count=context.backfilled_retrieval_item_count,
+        skipped_redundant_risky_backfill_count=(
+            context.skipped_redundant_risky_backfill_count
+        ),
+        skipped_redundant_source_backfill_count=(
+            context.skipped_redundant_source_backfill_count
+        ),
+        skipped_redundant_role_backfill_count=(
+            context.skipped_redundant_role_backfill_count
+        ),
+        backfill_risk_stats=backfill_risk_stats,
+        memory_metadata=tuple(memory.metadata for memory in context.memories),
     )
-    if merged:
-        metadata["answer_context_risk_reason_codes"] = merged
 
 
 def _quality_score_stats(memories: Sequence[RetrievedMemory]) -> dict[str, object]:

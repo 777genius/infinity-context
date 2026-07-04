@@ -3,8 +3,14 @@
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
+from infinity_context_server.memory_comparison_quality_accessors import (
+    bundle_items as _bundle_items,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    candidate_features as _candidate_features,
+)
 from infinity_context_server.memory_comparison_quality_accessors import (
     count_mapping as _count_mapping,
 )
@@ -12,12 +18,24 @@ from infinity_context_server.memory_comparison_quality_accessors import (
     mapping as _mapping,
 )
 from infinity_context_server.memory_comparison_quality_accessors import (
+    memory_diagnostics as _memory_diagnostics,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    memory_id as _memory_id,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
     metric_value as _metric_value,
 )
 from infinity_context_server.memory_comparison_quality_accessors import (
     positive_int as _positive_int,
 )
+from infinity_context_server.memory_comparison_quality_accessors import (
+    positive_policy_score as _positive_policy_score,
+)
 from infinity_context_server.memory_comparison_quality_accessors import ratio as _ratio
+from infinity_context_server.memory_comparison_quality_accessors import (
+    sequence as _sequence,
+)
 from infinity_context_server.memory_comparison_quality_accessors import (
     str_tuple as _str_tuple,
 )
@@ -25,11 +43,15 @@ from infinity_context_server.memory_comparison_quality_query_roles import (
     _query_role_families,
 )
 
+_QUERY_ROLE_GAP_SAMPLE_LIMIT = 10
+_QUERY_ROLE_GAP_SELECTED_LIST_LIMIT = 6
+
 
 def query_role_gap_breakdown(
     query_role_effectiveness: Mapping[str, object],
     *,
     candidate_fusion_summary: Mapping[str, object] | None = None,
+    items: Sequence[Mapping[str, object]] | None = None,
 ) -> dict[str, object]:
     candidate_role_counts = _count_mapping(
         query_role_effectiveness.get("candidate_role_counts")
@@ -319,6 +341,7 @@ def query_role_gap_breakdown(
             candidate_role_counts=candidate_role_counts,
         ),
         "role_gaps": role_gaps,
+        "samples": _query_role_gap_samples(items or (), role_gaps),
     }
 
 
@@ -461,3 +484,108 @@ def _typed_relation_roles_without_hits(
         )
         if candidate_role_counts.get(role, 0) > 0
     ]
+
+
+def _query_role_gap_samples(
+    items: Sequence[Mapping[str, object]],
+    role_gaps: Mapping[str, Mapping[str, object]],
+) -> list[dict[str, object]]:
+    if not role_gaps:
+        return []
+    samples: list[dict[str, object]] = []
+    seen: set[tuple[str, str]] = set()
+    gap_roles = set(role_gaps)
+    for item in items:
+        case_id = str(item.get("case_id") or "")
+        group = str(item.get("group") or "")
+        selected_roles = _selected_bundle_roles(item)
+        selected_query_roles = _selected_bundle_query_roles(item)
+        retrieval = _mapping(item.get("retrieval"))
+        for memory in _sequence(retrieval.get("results")):
+            if not isinstance(memory, Mapping):
+                continue
+            features = _candidate_features(memory)
+            candidate_roles = tuple(
+                role
+                for role in _str_tuple(features.get("query_roles"))
+                if role in gap_roles
+            )
+            if not candidate_roles:
+                continue
+            diagnostics = _memory_diagnostics(memory)
+            for query_role in candidate_roles:
+                key = (case_id, query_role)
+                if key in seen:
+                    continue
+                seen.add(key)
+                samples.append(
+                    {
+                        "case_id": case_id,
+                        "group": group,
+                        "query_role": query_role,
+                        "query_role_families": list(
+                            _query_role_families(query_role)
+                        ),
+                        "gap_reasons": list(
+                            _str_tuple(
+                                _mapping(role_gaps.get(query_role)).get(
+                                    "gap_reasons"
+                                )
+                            )
+                        ),
+                        "memory_id": _memory_id(memory),
+                        "rank": _positive_int(memory.get("rank")) or 0,
+                        "lifted": _candidate_lifted(diagnostics),
+                        "positive_policy_score": round(
+                            _positive_policy_score(diagnostics),
+                            6,
+                        ),
+                        "answerability_score": round(
+                            _metric_value(features, "answerability_score"),
+                            6,
+                        ),
+                        "source_locality_score": round(
+                            _metric_value(features, "source_locality_score"),
+                            6,
+                        ),
+                        "bridge_query_hit": features.get("bridge_query_hit") is True,
+                        "selected_bundle_roles": list(selected_roles)[
+                            :_QUERY_ROLE_GAP_SELECTED_LIST_LIMIT
+                        ],
+                        "selected_bundle_query_roles": list(selected_query_roles)[
+                            :_QUERY_ROLE_GAP_SELECTED_LIST_LIMIT
+                        ],
+                    }
+                )
+                if len(samples) >= _QUERY_ROLE_GAP_SAMPLE_LIMIT:
+                    return samples
+    return samples
+
+
+def _selected_bundle_roles(item: Mapping[str, object]) -> tuple[str, ...]:
+    bundle = _mapping(item.get("evidence_bundle"))
+    return tuple(
+        dict.fromkeys(
+            role
+            for bundle_item in _bundle_items(bundle)
+            for role in _str_tuple(bundle_item.get("role"))
+        )
+    )
+
+
+def _selected_bundle_query_roles(item: Mapping[str, object]) -> tuple[str, ...]:
+    bundle = _mapping(item.get("evidence_bundle"))
+    return tuple(
+        dict.fromkeys(
+            role
+            for bundle_item in _bundle_items(bundle)
+            for role in _str_tuple(bundle_item.get("query_roles"))
+        )
+    )
+
+
+def _candidate_lifted(diagnostics: Mapping[str, object]) -> bool:
+    return (
+        diagnostics.get("benchmark_rerank_boosted") is True
+        or _positive_policy_score(diagnostics) > 0
+    )

@@ -5,6 +5,12 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
 
+from infinity_context_server.memory_comparison_answer_context_risks import (
+    is_measured_low_answerability as _is_measured_low_answerability,
+)
+from infinity_context_server.memory_comparison_answer_context_risks import (
+    is_measured_weak_source_locality as _is_measured_weak_source_locality,
+)
 from infinity_context_server.memory_comparison_candidate_risks import (
     payload_has_broad_summary,
     payload_has_conflict_or_stale,
@@ -103,6 +109,9 @@ from infinity_context_server.memory_comparison_quality_accessors import (
 from infinity_context_server.memory_comparison_quality_accessors import (
     top_signal_values as _top_signal_values,
 )
+from infinity_context_server.memory_comparison_quality_actionable_gaps import (
+    actionable_gap_summary as _actionable_gap_summary,
+)
 from infinity_context_server.memory_comparison_quality_bundle_gaps import (
     bundle_gap_breakdown as _bundle_gap_breakdown,
 )
@@ -139,6 +148,13 @@ from infinity_context_server.memory_comparison_quality_query_roles import (
 from infinity_context_server.memory_comparison_quality_rerank_gaps import (
     rerank_signal_gap_breakdown as _rerank_signal_gap_breakdown,
 )
+
+_SELECTED_WEAKNESS_SAMPLE_LIMIT = 10
+_SELECTED_WEAKNESS_REASON_LIMIT = 6
+_SELECTED_WEAKNESS_QUERY_ROLE_LIMIT = 6
+_SELECTED_WEAKNESS_SOURCE_REF_LIMIT = 5
+_SELECTED_WEAKNESS_CATEGORY_SAMPLE_LIMIT = 5
+
 
 _PROFILE_SUPPORT_ROLES = frozenset(
     {
@@ -268,8 +284,14 @@ def fast_gate_metrics(
     query_role_gap_breakdown = _query_role_gap_breakdown(
         query_role_effectiveness,
         candidate_fusion_summary=candidate_fusion,
+        items=items,
     )
     query_plan_gap_breakdown = _query_plan_gap_breakdown(query_plan_integrity)
+    bundle_gap_breakdown = _bundle_gap_breakdown(bundle_incomplete)
+    bundle_quality_failure_breakdown = _bundle_quality_failure_breakdown(
+        bundle_quality,
+        expected_case_count=expected_case_count,
+    )
     bundle_quality_count = _positive_int(bundle_quality.get("bundle_count")) or 0
     medium_or_high_bundle_count = (
         _positive_int(bundle_quality.get("medium_or_high_bundle_count")) or 0
@@ -365,15 +387,12 @@ def fast_gate_metrics(
         "bundle_quality_gate_applied": bool(bundle_quality_count),
         "bundle_quality_count": bundle_quality_count,
         "weak_bundle_count": _positive_int(bundle_quality.get("weak_bundle_count")) or 0,
-        "bundle_quality_failure_breakdown": _bundle_quality_failure_breakdown(
-            bundle_quality,
-            expected_case_count=expected_case_count,
-        ),
+        "bundle_quality_failure_breakdown": bundle_quality_failure_breakdown,
         "bundle_support_counts": _bundle_support_counts(bundle_quality),
         "bundle_support_bundle_counts": _bundle_support_bundle_counts(bundle_quality),
         "bundle_source_identity": _bundle_source_identity_summary(bundle_quality),
         "bundle_source_proximity": _bundle_source_proximity_summary(bundle_quality),
-        "bundle_gap_breakdown": _bundle_gap_breakdown(bundle_incomplete),
+        "bundle_gap_breakdown": bundle_gap_breakdown,
         "answerability_gap_breakdown": answerability_gap_breakdown,
         "selected_evidence_weakness": selected_evidence_weakness,
         "query_role_gap_breakdown": query_role_gap_breakdown,
@@ -383,6 +402,22 @@ def fast_gate_metrics(
         "candidate_fusion": candidate_fusion,
         "rerank_signal_gap_breakdown": rerank_signal_gaps,
         "risk_flag_table": risk_flag_table,
+        "actionable_gap_summary": _actionable_gap_summary(
+            evaluation_count=scored_count,
+            expected_case_count=expected_case_count,
+            failed_gates=failed_gates,
+            query_overlap_count=query_overlap_count,
+            profile_overlap_count=profile_overlap_count,
+            intent_overlap_count=intent_overlap_count,
+            ref_gate=ref_gate,
+            bundle_quality_failure_breakdown=bundle_quality_failure_breakdown,
+            bundle_gap_breakdown=bundle_gap_breakdown,
+            answerability_gap_breakdown=answerability_gap_breakdown,
+            selected_evidence_weakness=selected_evidence_weakness,
+            query_role_gap_breakdown=query_role_gap_breakdown,
+            query_plan_gap_breakdown=query_plan_gap_breakdown,
+            source_ref_provenance=source_ref_provenance,
+        ),
         "gates": gates,
     }
 
@@ -710,6 +745,9 @@ def _selected_evidence_weakness_breakdown(
     broad_summary_item_count = 0
     conflict_or_stale_item_count = 0
     samples: list[dict[str, object]] = []
+    weak_source_locality_samples: list[dict[str, object]] = []
+    broad_summary_samples: list[dict[str, object]] = []
+    conflict_or_stale_samples: list[dict[str, object]] = []
 
     for item in items:
         if item.get("scored") is not True:
@@ -764,39 +802,37 @@ def _selected_evidence_weakness_breakdown(
             if "selected_weak_source_locality" in reasons:
                 weak_source_locality_query_role_counts.update(query_roles)
             reason_counts.update(reasons)
-            if len(samples) < 10:
-                samples.append(
-                    {
-                        "case_id": case_id,
-                        "group": group,
-                        "item_id": str(
-                            bundle_item.get("id")
-                            or bundle_item.get("item_id")
-                            or ""
-                        ),
-                        "role": role,
-                        "query_roles": list(query_roles),
-                        "retrieval_order": (
-                            _positive_int(bundle_item.get("retrieval_order"))
-                            or _positive_int(bundle_item.get("rank"))
-                            or 0
-                        ),
-                        "reasons": reasons,
-                        "answerability_score": round(answerability_score, 6),
-                        "source_locality_score": round(source_locality_score, 6),
-                        "broad_summary": (
-                            bundle_item.get("broad_summary") is True
-                            or "broad_summary" in planner_reasons
-                        ),
-                        "conflict_or_stale": (
-                            bundle_item.get("conflict_or_stale") is True
-                            or "conflict_or_stale" in planner_reasons
-                        ),
-                        "source_refs": list(
-                            _source_refs_from_bundle_item(bundle_item)
-                        )[:5],
-                    }
-                )
+            sample = _selected_evidence_weakness_sample(
+                bundle_item,
+                case_id=case_id,
+                group=group,
+                role=role,
+                query_roles=query_roles,
+                reasons=tuple(reasons),
+                planner_reasons=planner_reasons,
+                answerability_score=answerability_score,
+                source_locality_score=source_locality_score,
+            )
+            if len(samples) < _SELECTED_WEAKNESS_SAMPLE_LIMIT:
+                samples.append(sample)
+            if (
+                "selected_weak_source_locality" in reasons
+                and len(weak_source_locality_samples)
+                < _SELECTED_WEAKNESS_CATEGORY_SAMPLE_LIMIT
+            ):
+                weak_source_locality_samples.append(sample)
+            if (
+                "selected_broad_summary" in reasons
+                and len(broad_summary_samples)
+                < _SELECTED_WEAKNESS_CATEGORY_SAMPLE_LIMIT
+            ):
+                broad_summary_samples.append(sample)
+            if (
+                "selected_conflict_or_stale" in reasons
+                and len(conflict_or_stale_samples)
+                < _SELECTED_WEAKNESS_CATEGORY_SAMPLE_LIMIT
+            ):
+                conflict_or_stale_samples.append(sample)
 
     weak_case_ids = (
         low_answerability_case_ids
@@ -833,7 +869,87 @@ def _selected_evidence_weakness_breakdown(
             sorted(weak_source_locality_query_role_counts.items())
         ),
         "samples": samples,
+        "weak_source_locality_samples": weak_source_locality_samples,
+        "broad_summary_samples": broad_summary_samples,
+        "conflict_or_stale_samples": conflict_or_stale_samples,
     }
+
+
+def _selected_evidence_weakness_sample(
+    bundle_item: Mapping[str, object],
+    *,
+    case_id: str,
+    group: str,
+    role: str,
+    query_roles: Sequence[str],
+    reasons: Sequence[str],
+    planner_reasons: Sequence[str],
+    answerability_score: float,
+    source_locality_score: float,
+) -> dict[str, object]:
+    source_refs = _source_refs_from_bundle_item(bundle_item)
+    sample: dict[str, object] = {
+        "case_id": case_id,
+        "group": group,
+        "item_id": str(bundle_item.get("id") or bundle_item.get("item_id") or ""),
+        "role": role,
+        "query_roles": list(query_roles)[:_SELECTED_WEAKNESS_QUERY_ROLE_LIMIT],
+        "retrieval_order": (
+            _positive_int(bundle_item.get("retrieval_order"))
+            or _positive_int(bundle_item.get("rank"))
+            or 0
+        ),
+        "reasons": list(reasons),
+        "answerability_score": round(answerability_score, 6),
+        "source_locality_score": round(source_locality_score, 6),
+        "broad_summary": (
+            bundle_item.get("broad_summary") is True
+            or "broad_summary" in planner_reasons
+        ),
+        "conflict_or_stale": (
+            bundle_item.get("conflict_or_stale") is True
+            or "conflict_or_stale" in planner_reasons
+        ),
+        "source_refs": list(source_refs)[:_SELECTED_WEAKNESS_SOURCE_REF_LIMIT],
+        "source_ref_count": len(source_refs),
+    }
+    _add_compact_sample_list(
+        sample,
+        "planner_reason_codes",
+        planner_reasons,
+        limit=_SELECTED_WEAKNESS_REASON_LIMIT,
+    )
+    for key in (
+        "answerability_reason_codes",
+        "source_locality_reason_codes",
+        "retrieval_sources",
+        "source_types",
+        "relation_categories",
+        "relation_category_hits",
+    ):
+        _add_compact_sample_list(
+            sample,
+            key,
+            _str_tuple(bundle_item.get(key)),
+            limit=_SELECTED_WEAKNESS_REASON_LIMIT,
+        )
+    for key in ("source_type", "stale_reason", "conflict_reason"):
+        value = str(bundle_item.get(key) or "").strip()
+        if value:
+            sample[key] = value
+    return sample
+
+
+def _add_compact_sample_list(
+    sample: dict[str, object],
+    key: str,
+    values: Sequence[str],
+    *,
+    limit: int,
+) -> None:
+    compact = tuple(dict.fromkeys(value for value in values if value.strip()))[:limit]
+    if compact:
+        sample[key] = list(compact)
 
 
 def _query_plan_gap_breakdown(
@@ -2372,14 +2488,6 @@ def _zero_gate(actual: int) -> dict[str, object]:
         "target": 0,
         "mode": "zero",
     }
-
-
-def _is_measured_low_answerability(score: float) -> bool:
-    return 0 < score < 0.55
-
-
-def _is_measured_weak_source_locality(score: float) -> bool:
-    return 0 < score < 0.45
 
 
 def _overlap_samples(

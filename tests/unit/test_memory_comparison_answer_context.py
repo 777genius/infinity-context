@@ -1,8 +1,47 @@
 from infinity_context_server.memory_comparison_answer_context import (
+    AnswerContext,
     answer_context_from_evidence_bundle,
     answer_context_metrics,
 )
 from infinity_context_server.memory_comparison_models import RetrievedMemory
+
+
+def test_answer_context_risk_reasons_are_deduped_across_sources() -> None:
+    context = AnswerContext(
+        memories=(
+            RetrievedMemory(
+                text="backfilled summary",
+                rank=1,
+                metadata={
+                    "answer_context_role": "retrieval_backfill",
+                    "answer_context_risk_reason_codes": (
+                        "risk:retrieval_backfill",
+                        "risk:memory_specific",
+                    ),
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "broad_summary": True,
+                        }
+                    },
+                },
+            ),
+        ),
+        source="evidence_bundle",
+        backfilled_retrieval_item_count=1,
+        skipped_redundant_risky_backfill_count=1,
+        bundle_risk_reason_codes=(
+            "risk:retrieval_backfill",
+            "risk:bundle_specific",
+        ),
+    )
+
+    assert context.to_diagnostics()["risk_reason_codes"] == [
+        "risk:retrieval_backfill",
+        "risk:bundle_specific",
+        "risk:backfilled_broad_summary",
+        "risk:skipped_redundant_risky_backfill",
+        "risk:memory_specific",
+    ]
 
 
 def test_answer_context_uses_bundle_order_within_cutoff() -> None:

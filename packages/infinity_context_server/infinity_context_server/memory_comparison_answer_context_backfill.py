@@ -6,6 +6,18 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
+from infinity_context_server.memory_comparison_answer_context_risks import (
+    add_answer_context_risk_codes as _add_answer_context_risk_codes,
+)
+from infinity_context_server.memory_comparison_answer_context_risks import (
+    backfill_risk_reason_codes as _backfill_risk_reason_codes,
+)
+from infinity_context_server.memory_comparison_answer_context_risks import (
+    is_measured_low_answerability as _is_measured_low_answerability,
+)
+from infinity_context_server.memory_comparison_answer_context_risks import (
+    is_measured_weak_source_locality as _is_measured_weak_source_locality,
+)
 from infinity_context_server.memory_comparison_candidate_risks import (
     candidate_features as _candidate_features,
 )
@@ -735,38 +747,6 @@ def _with_retrieval_backfill_metadata(
     )
 
 
-def _backfill_risk_reason_codes(
-    memory: RetrievedMemory,
-    features: Mapping[str, object],
-) -> tuple[str, ...]:
-    codes = ["risk:retrieval_backfill"]
-    if memory_has_broad_summary(memory, features):
-        codes.append("risk:backfilled_broad_summary")
-    if memory_has_conflict_or_stale(memory, features):
-        codes.append("risk:backfilled_conflict_or_stale")
-    if _is_measured_low_answerability(features.get("answerability_score")):
-        codes.append("risk:backfilled_low_answerability")
-    if _is_measured_weak_source_locality(features.get("source_locality_score")):
-        codes.append("risk:backfilled_weak_source_locality")
-    return tuple(codes)
-
-
-def _add_answer_context_risk_codes(
-    metadata: dict[str, object],
-    codes: Sequence[str],
-) -> None:
-    merged = tuple(
-        dict.fromkeys(
-            (
-                *_string_tuple(metadata.get("answer_context_risk_reason_codes")),
-                *(code for code in codes if str(code).strip()),
-            )
-        )
-    )
-    if merged:
-        metadata["answer_context_risk_reason_codes"] = merged
-
-
 def _add_backfill_feature_metadata(
     metadata: dict[str, object],
     features: Mapping[str, object],
@@ -995,25 +975,6 @@ def _direct_memory_turn_refs(memory: RetrievedMemory) -> tuple[tuple[int, int], 
 
 def _metric_value(item: Mapping[str, object], key: str) -> float:
     value = item.get(key)
-    if isinstance(value, bool):
-        return 0.0
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return 0.0
-
-
-def _is_measured_low_answerability(value: object) -> bool:
-    score = _metric_scalar(value)
-    return 0 < score < 0.55
-
-
-def _is_measured_weak_source_locality(value: object) -> bool:
-    score = _metric_scalar(value)
-    return 0 < score < 0.45
-
-
-def _metric_scalar(value: object) -> float:
     if isinstance(value, bool):
         return 0.0
     try:
