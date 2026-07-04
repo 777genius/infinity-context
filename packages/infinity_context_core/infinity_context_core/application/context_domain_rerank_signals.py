@@ -1618,6 +1618,11 @@ def current_state_rerank_signal(
             boost=0.045,
             reason="current_state_correction_evidence",
         )
+    if _STATE_TRANSITION_PAIR_RE.search(item.text) is not None:
+        return DomainRerankSignal(
+            boost=0.038,
+            reason="current_state_transition_evidence",
+        )
     if _STALE_STATE_EXACT_RE.search(item.text) is not None:
         return DomainRerankSignal(
             penalty=0.055,
