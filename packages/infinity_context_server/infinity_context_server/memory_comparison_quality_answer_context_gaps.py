@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 from collections.abc import Mapping, Sequence
 
@@ -29,6 +30,14 @@ from infinity_context_server.memory_comparison_quality_accessors import (
 from infinity_context_server.memory_comparison_quality_accessors import (
     top_counts as _top_counts,
 )
+
+_SAFE_SOURCE_IDENTITY_REF_RE = re.compile(
+    r"^(?:(?P<turn_prefix>source_turn_refs):(?P<turn_ref>D\d+:\d+)|"
+    r"(?P<session_prefix>source_session_turn_refs):(?P<session>session_\d+):"
+    r"(?P<session_turn_ref>D\d+:\d+))$",
+    re.IGNORECASE,
+)
+_MAX_SAMPLE_SOURCE_IDENTITY_REFS = 8
 
 
 def answer_context_support_gap_summary(
@@ -249,7 +258,45 @@ def _answer_context_sample_identity(context: Mapping[str, object]) -> dict[str, 
         identity["item_ids"] = list(item_ids)
     if retrieval_orders:
         identity["retrieval_orders"] = list(retrieval_orders)
+    source_identity_refs = _safe_source_identity_refs(context.get("source_identity_refs"))
+    source_identity_ref_count = _positive_int(context.get("source_identity_ref_count"))
+    if source_identity_ref_count is not None or source_identity_refs:
+        identity["source_identity_ref_count"] = (
+            source_identity_ref_count or len(source_identity_refs)
+        )
+    source_identity_item_count = _positive_int(context.get("source_identity_item_count"))
+    if source_identity_item_count is not None:
+        identity["source_identity_item_count"] = source_identity_item_count
+    if source_identity_refs:
+        identity["source_identity_refs"] = list(source_identity_refs)
     return identity
+
+
+def _safe_source_identity_refs(value: object) -> tuple[str, ...]:
+    refs = tuple(
+        dict.fromkeys(
+            ref
+            for raw_ref in _sequence(value)
+            for ref in (_safe_source_identity_ref(raw_ref),)
+            if ref
+        )
+    )
+    return refs[:_MAX_SAMPLE_SOURCE_IDENTITY_REFS]
+
+
+def _safe_source_identity_ref(value: object) -> str | None:
+    ref = str(value or "").strip()
+    if not ref or len(ref) > 80:
+        return None
+    match = _SAFE_SOURCE_IDENTITY_REF_RE.fullmatch(ref)
+    if match is None:
+        return None
+    if match.group("turn_ref"):
+        return f"source_turn_refs:{match.group('turn_ref').upper()}"
+    return (
+        "source_session_turn_refs:"
+        f"{match.group('session').lower()}:{match.group('session_turn_ref').upper()}"
+    )
 
 
 def _metric_scalar(value: object) -> float:
