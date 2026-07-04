@@ -68,6 +68,10 @@ def test_answer_context_propagates_selected_item_risk_reasons() -> None:
                         "query_support_terms",
                         "risk:wide_relation_expansion",
                     ],
+                    "risk_reason_codes": [
+                        "risk:selected_item_specific",
+                        "not_a_risk",
+                    ],
                 }
             ]
         },
@@ -77,10 +81,12 @@ def test_answer_context_propagates_selected_item_risk_reasons() -> None:
     assert context.memories[0].metadata["answer_context_risk_reason_codes"] == (
         "risk:low_answerability",
         "risk:wide_relation_expansion",
+        "risk:selected_item_specific",
     )
     assert context.to_diagnostics()["risk_reason_codes"] == [
         "risk:low_answerability",
         "risk:wide_relation_expansion",
+        "risk:selected_item_specific",
     ]
 
 

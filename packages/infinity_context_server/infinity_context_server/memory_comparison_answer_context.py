@@ -1691,7 +1691,11 @@ def _with_answer_context_metadata(
         metadata["answer_context_eligibility_reason_codes"] = eligibility_reasons
     _add_answer_context_risk_codes(
         metadata,
-        _risk_reason_codes(reason_codes, eligibility_reasons),
+        _risk_reason_codes(
+            reason_codes,
+            eligibility_reasons,
+            _string_tuple(bundle_item.get("risk_reason_codes")),
+        ),
     )
     query_roles = _string_tuple(bundle_item.get("query_roles"))
     if query_roles:

@@ -122,6 +122,26 @@ def test_fast_gate_metrics_actionable_summary_is_empty_when_no_observed_gaps() -
     assert summary["gap_count"] == 0
 
 
+def test_fast_gate_metrics_actionable_summary_is_empty_for_missing_sections() -> None:
+    gate = fast_gate_metrics((), expected_case_count=40)
+    summary = gate["actionable_gap_summary"]
+
+    assert gate["schema_version"] == "fast_gate.v1"
+    assert gate["passed"] is False
+    assert "case_count" in gate["failed_gates"]
+    assert summary == {
+        "schema_version": "actionable_gap_summary.v1",
+        "evaluation_count": 0,
+        "expected_case_count": 40,
+        "gap_count": 0,
+        "blocking_gap_count": 0,
+        "diagnostic_gap_count": 0,
+        "rank_basis": "observed_impact_desc_blocking_tie_break",
+        "top_gap": None,
+        "ranked_gaps": [],
+    }
+
+
 def test_actionable_gap_summary_accepts_missing_optional_sections() -> None:
     summary = actionable_gap_summary(
         evaluation_count=0,
