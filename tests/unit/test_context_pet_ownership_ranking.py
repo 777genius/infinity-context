@@ -30,6 +30,16 @@ def test_pet_ownership_signal_penalizes_other_owner_pet_evidence() -> None:
     assert signal.reason == "pet_ownership_other_owner"
 
 
+def test_pet_ownership_signal_matches_owner_pet_inventory_query() -> None:
+    signal = pet_ownership_signal(
+        query="What pet does Alice have?",
+        text="D8:3 Alice: I have a dog named Max.",
+    )
+
+    assert signal.boost > 0
+    assert signal.reason == "pet_ownership_match"
+
+
 def test_pet_ownership_signal_matches_named_pet_owner_lookup() -> None:
     signal = pet_ownership_signal(
         query="Who has a dog named Max?",
@@ -102,6 +112,40 @@ def test_deterministic_rerank_prefers_named_owner_pet_evidence() -> None:
         query_anchor_intent=intent,
     )
 
+    assert reranked[0].score > reranked[1].score
+    assert (
+        "pet_ownership_match"
+        in reranked[0].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+    assert (
+        "pet_ownership_other_owner"
+        in reranked[1].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+
+
+def test_deterministic_rerank_prefers_owner_pet_inventory_evidence() -> None:
+    query = "What pet does Alice have?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    alice_pet = _item(
+        "alice_pet",
+        score=0.7,
+        text="D8:3 Alice: I have a dog named Max.",
+    )
+    ben_pet = _item(
+        "ben_pet",
+        score=0.72,
+        text="D8:4 Ben: I have a cat named Scout.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (alice_pet, ben_pet),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+
+    assert reranked[0].item_id == "alice_pet"
     assert reranked[0].score > reranked[1].score
     assert (
         "pet_ownership_match"

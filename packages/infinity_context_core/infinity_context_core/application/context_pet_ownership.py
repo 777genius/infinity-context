@@ -61,7 +61,18 @@ _OWNER_PET_QUERY_RE = re.compile(
 )
 _OWNER_HAS_PET_QUERY_RE = re.compile(
     rf"(?i:\bdoes\s+)(?P<owner>{_LABEL_RE})\s+"
-    rf"(?i:(?:have|own|adopt|get)\s+(?:a\s+|an\s+)?(?:dog|cat|puppy|pup|pet))"
+    rf"(?i:(?:have|own|adopt|get)\s+(?:a\s+|an\s+)?"
+    rf"(?:dogs?|cats?|pupp(?:y|ies)|pups?|pets?))"
+)
+_OWNER_PET_INVENTORY_QUERY_RE = re.compile(
+    rf"(?i:\b(?:what|which)\s+(?:kind\s+of\s+)?"
+    rf"(?:dogs?|cats?|pupp(?:y|ies)|pups?|pets?|animals?)\s+"
+    rf"(?:does|did)\s+)"
+    rf"(?P<owner>{_LABEL_RE})\s+"
+    rf"(?i:(?:have|own|keep|adopt|get))\b|"
+    rf"(?i:\bwhat\s+(?:is|was)\s+)(?P<owner_possessive>{_LABEL_RE})"
+    rf"(?:'s|s')?\s+"
+    rf"(?i:(?:dogs?|cats?|pupp(?:y|ies)|pups?|pets?|animals?))\b",
 )
 _OWNER_HAS_NAMED_PET_QUERY_RE = re.compile(
     rf"(?i:\b(?:does|did)\s+)(?P<owner>{_LABEL_RE})\s+"
@@ -74,7 +85,10 @@ _PET_OWNERSHIP_CUE_RE = re.compile(
     r"dog|cat|puppy|pup|pet|named|called|new\s+addition)\b",
     re.IGNORECASE,
 )
-_PET_KIND_RE = re.compile(r"\b(?:dog|cat|puppy|pup|pet)\b", re.IGNORECASE)
+_PET_KIND_RE = re.compile(
+    r"\b(?:dogs?|cats?|kittens?|pupp(?:y|ies)|pups?|pets?)\b",
+    re.IGNORECASE,
+)
 _QUERY_LABEL_STOP_WORDS = frozenset({"what", "who", "whose"})
 
 
@@ -111,13 +125,18 @@ def _pet_ownership_query(query: str) -> _PetOwnershipQuery | None:
                 owner_label=owner,
                 pet_label=pet,
             )
-    for pattern in (_OWNER_PET_QUERY_RE, _OWNER_HAS_PET_QUERY_RE):
+    for pattern in (
+        _OWNER_PET_QUERY_RE,
+        _OWNER_HAS_PET_QUERY_RE,
+        _OWNER_PET_INVENTORY_QUERY_RE,
+    ):
         match = pattern.search(query)
         if match is None:
             continue
         owner = (
             match.groupdict().get("owner")
             or match.groupdict().get("owner_direct")
+            or match.groupdict().get("owner_possessive")
             or ""
         ).strip(" :,.!?;")
         if _valid_label(owner):
