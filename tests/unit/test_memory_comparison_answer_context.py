@@ -44,6 +44,46 @@ def test_answer_context_risk_reasons_are_deduped_across_sources() -> None:
     ]
 
 
+def test_answer_context_propagates_selected_item_risk_reasons() -> None:
+    context = answer_context_from_evidence_bundle(
+        (
+            RetrievedMemory(
+                text="D1:1 Morgan gave a low-confidence preference answer.",
+                rank=1,
+                item_id="selected",
+                source_refs=("D1:1",),
+            ),
+        ),
+        {
+            "items": [
+                {
+                    "id": "selected",
+                    "retrieval_order": 1,
+                    "role": "primary",
+                    "planner_reason_codes": [
+                        "role:primary",
+                        "risk:low_answerability",
+                    ],
+                    "eligibility_reason_codes": [
+                        "query_support_terms",
+                        "risk:wide_relation_expansion",
+                    ],
+                }
+            ]
+        },
+        cutoff=1,
+    )
+
+    assert context.memories[0].metadata["answer_context_risk_reason_codes"] == (
+        "risk:low_answerability",
+        "risk:wide_relation_expansion",
+    )
+    assert context.to_diagnostics()["risk_reason_codes"] == [
+        "risk:low_answerability",
+        "risk:wide_relation_expansion",
+    ]
+
+
 def test_answer_context_uses_bundle_order_within_cutoff() -> None:
     memories = (
         RetrievedMemory(text="noise", rank=1, item_id="noise"),
@@ -936,9 +976,15 @@ def test_answer_context_skips_duplicate_source_bundle_items() -> None:
     assert context.selected_bundle_item_count == 2
     assert context.skipped_bundle_item_count == 1
     assert context.skipped_duplicate_source_bundle_item_count == 1
+    assert context.memories[0].metadata["answer_context_risk_reason_codes"] == (
+        "risk:skipped_duplicate_source_bundle_item",
+    )
     diagnostics = context.to_diagnostics()
     assert diagnostics["skipped_bundle_item_count"] == 1
     assert diagnostics["skipped_duplicate_source_bundle_item_count"] == 1
+    assert diagnostics["risk_reason_codes"] == [
+        "risk:skipped_duplicate_source_bundle_item",
+    ]
 
 
 def test_answer_context_skips_duplicate_exact_and_canonical_turn_sources() -> None:
@@ -1348,8 +1394,15 @@ def test_answer_context_backfill_prefers_local_role_evidence_over_summary() -> N
     ] == ("contrast",)
     assert context.backfilled_retrieval_item_count == 1
     assert context.skipped_redundant_risky_backfill_count == 1
+    assert (
+        context.memories[0].metadata["answer_context_risk_reason_codes"]
+        == ("risk:skipped_redundant_risky_backfill",)
+    )
     diagnostics = context.to_diagnostics()
     assert diagnostics["skipped_redundant_risky_backfill_count"] == 1
+    assert "risk:skipped_redundant_risky_backfill" in diagnostics[
+        "risk_reason_codes"
+    ]
     assert diagnostics["backfilled_broad_summary_count"] == 0
     assert diagnostics["backfilled_conflict_or_stale_count"] == 0
 
@@ -2144,8 +2197,15 @@ def test_answer_context_backfill_skips_duplicate_source_role_evidence() -> None:
     ]
     assert context.backfilled_retrieval_item_count == 1
     assert context.skipped_redundant_source_backfill_count == 1
+    assert (
+        context.memories[0].metadata["answer_context_risk_reason_codes"]
+        == ("risk:skipped_redundant_source_backfill",)
+    )
     diagnostics = context.to_diagnostics()
     assert diagnostics["skipped_redundant_source_backfill_count"] == 1
+    assert "risk:skipped_redundant_source_backfill" in diagnostics[
+        "risk_reason_codes"
+    ]
     assert diagnostics["backfilled_source_proximity_support_count"] == 1
 
 

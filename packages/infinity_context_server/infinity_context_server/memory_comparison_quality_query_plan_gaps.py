@@ -41,11 +41,68 @@ _PROFILE_SUPPORT_ROLES = frozenset(
     }
 )
 
+_QUERY_PLAN_GAP_SAMPLE_LIMIT = 5
+_COMPACT_SAMPLE_VALUE_LIMIT = 5
+
+_BRIDGE_QUERY_FAMILIES = ("multi_hop", "relation_compact", "expanded_focus")
+_LOCATION_QUERY_FAMILIES = (
+    "location_support",
+    "relation_compact",
+    "expanded_focus",
+)
+_VISUAL_QUERY_FAMILIES = ("visual_support", "expanded_focus", "relation_compact")
+_CONTRAST_QUERY_FAMILIES = (
+    "contrast_support",
+    "relation_compact",
+    "expanded_focus",
+)
+_RELATION_QUERY_FAMILIES = ("relation_compact", "expanded_focus")
+_RELATION_OR_BASE_QUERY_FAMILIES = (
+    "relation_compact",
+    "expanded_focus",
+    "base_query",
+)
+_EVIDENCE_ROLE_QUERY_FAMILIES = {
+    "primary": ("base_query", "expanded_focus", "relation_compact"),
+    "supporting": ("base_query", "expanded_focus", "relation_compact"),
+    "bridge": _BRIDGE_QUERY_FAMILIES,
+    "multi_hop_bridge": _BRIDGE_QUERY_FAMILIES,
+    "multi_hop_support": _BRIDGE_QUERY_FAMILIES,
+    "count_support": ("count_support", "expanded_focus"),
+    "list_support": ("list_support", "expanded_focus"),
+    "value_support": ("value_support", "expanded_focus"),
+    "temporal_support": ("temporal_support", "expanded_focus"),
+    "temporal_sequence_support": ("temporal_support", "expanded_focus"),
+    "visual_temporal_support": ("temporal_support", "expanded_focus"),
+    "location": _LOCATION_QUERY_FAMILIES,
+    "location_support": _LOCATION_QUERY_FAMILIES,
+    "causal_support": _BRIDGE_QUERY_FAMILIES,
+    "communication_support": _RELATION_QUERY_FAMILIES,
+    "event_support": _RELATION_QUERY_FAMILIES,
+    "exchange_support": _RELATION_QUERY_FAMILIES,
+    "emotion_response_support": _RELATION_QUERY_FAMILIES,
+    "symbolic_meaning_support": _RELATION_QUERY_FAMILIES,
+    "inference_support": _RELATION_OR_BASE_QUERY_FAMILIES,
+    "preference_support": _RELATION_OR_BASE_QUERY_FAMILIES,
+    "visual": _VISUAL_QUERY_FAMILIES,
+    "visual_support": _VISUAL_QUERY_FAMILIES,
+    "contrast": _CONTRAST_QUERY_FAMILIES,
+    "contrast_support": _CONTRAST_QUERY_FAMILIES,
+    "compact_relation": _RELATION_QUERY_FAMILIES,
+    "entity_disambiguation": (
+        "base_query",
+        "expanded_focus",
+        "relation_compact",
+    ),
+}
+
 
 def query_plan_gap_breakdown(
     query_plan_integrity: Mapping[str, object],
 ) -> dict[str, object]:
-    samples = list(_sequence(query_plan_integrity.get("samples")))[:5]
+    samples = list(_sequence(query_plan_integrity.get("samples")))[
+        :_QUERY_PLAN_GAP_SAMPLE_LIMIT
+    ]
     missing_evidence_role_counts = _count_mapping(
         query_plan_integrity.get("missing_evidence_role_query_family_counts")
     )
@@ -125,37 +182,12 @@ def query_plan_gap_breakdown(
 
 
 def evidence_role_query_families(role: str) -> tuple[str, ...]:
-    if role in _PROFILE_SUPPORT_ROLES:
+    role_key = str(role or "").strip()
+    if role_key in _PROFILE_SUPPORT_ROLES:
         return ("relation_compact", "expanded_focus")
-    return {
-        "primary": ("base_query", "expanded_focus", "relation_compact"),
-        "supporting": ("base_query", "expanded_focus", "relation_compact"),
-        "bridge": ("multi_hop", "relation_compact", "expanded_focus"),
-        "count_support": ("count_support", "expanded_focus"),
-        "list_support": ("list_support", "expanded_focus"),
-        "value_support": ("value_support", "expanded_focus"),
-        "temporal_support": ("temporal_support", "expanded_focus"),
-        "location_support": (
-            "location_support",
-            "relation_compact",
-            "expanded_focus",
-        ),
-        "causal_support": ("multi_hop", "relation_compact", "expanded_focus"),
-        "communication_support": ("relation_compact", "expanded_focus"),
-        "event_support": ("relation_compact", "expanded_focus"),
-        "exchange_support": ("relation_compact", "expanded_focus"),
-        "emotion_response_support": ("relation_compact", "expanded_focus"),
-        "symbolic_meaning_support": ("relation_compact", "expanded_focus"),
-        "inference_support": ("relation_compact", "expanded_focus", "base_query"),
-        "preference_support": ("relation_compact", "expanded_focus", "base_query"),
-        "visual_support": ("visual_support", "expanded_focus", "relation_compact"),
-        "contrast": ("contrast_support", "relation_compact", "expanded_focus"),
-        "entity_disambiguation": (
-            "base_query",
-            "expanded_focus",
-            "relation_compact",
-        ),
-    }.get(role, ())
+    if role_key.endswith("_temporal_support"):
+        return ("temporal_support", "expanded_focus")
+    return _EVIDENCE_ROLE_QUERY_FAMILIES.get(role_key, ())
 
 
 def _missing_evidence_role_query_family_details(
@@ -207,7 +239,7 @@ def _compact_query_plan_gap_sample(sample: Mapping[str, object]) -> dict[str, ob
     ):
         values = _str_tuple(sample.get(key))
         if values:
-            compact[key] = list(values[:5])
+            compact[key] = list(values[:_COMPACT_SAMPLE_VALUE_LIMIT])
     for key in ("selected_query_count", "dropped_query_count"):
         value = _positive_int(sample.get(key)) or 0
         if value:
@@ -229,7 +261,7 @@ def _sample_case_ids(samples: Sequence[object]) -> list[str]:
         case_id = str(sample.get("case_id") or "").strip()
         if case_id and case_id not in case_ids:
             case_ids.append(case_id)
-        if len(case_ids) >= 5:
+        if len(case_ids) >= _QUERY_PLAN_GAP_SAMPLE_LIMIT:
             break
     return case_ids
 

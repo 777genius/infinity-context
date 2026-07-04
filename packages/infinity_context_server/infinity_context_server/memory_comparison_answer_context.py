@@ -1689,6 +1689,10 @@ def _with_answer_context_metadata(
     eligibility_reasons = _string_tuple(bundle_item.get("eligibility_reason_codes"))
     if eligibility_reasons:
         metadata["answer_context_eligibility_reason_codes"] = eligibility_reasons
+    _add_answer_context_risk_codes(
+        metadata,
+        _risk_reason_codes(reason_codes, eligibility_reasons),
+    )
     query_roles = _string_tuple(bundle_item.get("query_roles"))
     if query_roles:
         metadata["answer_context_query_roles"] = query_roles
@@ -2061,6 +2065,17 @@ def _bundle_context_metadata(bundle: Mapping[str, object]) -> dict[str, object]:
     if risk_reasons:
         metadata["answer_context_bundle_risk_reason_codes"] = risk_reasons
     return metadata
+
+
+def _risk_reason_codes(*sources: Sequence[str]) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            reason
+            for source in sources
+            for reason in source
+            if reason.startswith("risk:")
+        )
+    )
 
 
 def _answer_context_required_roles(bundle: Mapping[str, object]) -> tuple[str, ...]:

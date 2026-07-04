@@ -721,6 +721,7 @@ def _selected_evidence_weakness_breakdown(
     low_answerability_query_role_counts: Counter[str] = Counter()
     weak_source_locality_query_role_counts: Counter[str] = Counter()
     reason_counts: Counter[str] = Counter()
+    risk_reason_counts: Counter[str] = Counter()
     low_answerability_item_count = 0
     weak_source_locality_item_count = 0
     broad_summary_item_count = 0
@@ -740,6 +741,10 @@ def _selected_evidence_weakness_breakdown(
             answerability_score = _metric_value(bundle_item, "answerability_score")
             source_locality_score = _metric_value(bundle_item, "source_locality_score")
             planner_reasons = _str_tuple(bundle_item.get("planner_reason_codes"))
+            risk_reasons = _selected_evidence_risk_reasons(
+                planner_reasons,
+                _str_tuple(bundle_item.get("risk_reason_codes")),
+            )
             if _is_measured_low_answerability(answerability_score):
                 low_answerability_item_count += 1
                 if case_id:
@@ -753,6 +758,7 @@ def _selected_evidence_weakness_breakdown(
             if (
                 bundle_item.get("broad_summary") is True
                 or "broad_summary" in planner_reasons
+                or "risk:broad_summary" in risk_reasons
             ):
                 broad_summary_item_count += 1
                 if case_id:
@@ -761,6 +767,7 @@ def _selected_evidence_weakness_breakdown(
             if (
                 bundle_item.get("conflict_or_stale") is True
                 or "conflict_or_stale" in planner_reasons
+                or "risk:conflict_or_stale" in risk_reasons
             ):
                 conflict_or_stale_item_count += 1
                 if case_id:
@@ -783,6 +790,7 @@ def _selected_evidence_weakness_breakdown(
             if "selected_weak_source_locality" in reasons:
                 weak_source_locality_query_role_counts.update(query_roles)
             reason_counts.update(reasons)
+            risk_reason_counts.update(risk_reasons)
             sample = _selected_evidence_weakness_sample(
                 bundle_item,
                 case_id=case_id,
@@ -790,6 +798,7 @@ def _selected_evidence_weakness_breakdown(
                 role=role,
                 query_roles=query_roles,
                 reasons=tuple(reasons),
+                risk_reasons=risk_reasons,
                 planner_reasons=planner_reasons,
                 answerability_score=answerability_score,
                 source_locality_score=source_locality_score,
@@ -833,6 +842,7 @@ def _selected_evidence_weakness_breakdown(
         "broad_summary_item_count": broad_summary_item_count,
         "conflict_or_stale_item_count": conflict_or_stale_item_count,
         "reason_counts": dict(sorted(reason_counts.items())),
+        "risk_reason_counts": dict(sorted(risk_reason_counts.items())),
         "group_counts": dict(sorted(group_counts.items())),
         "group_case_counts": {
             group: len(case_ids) for group, case_ids in sorted(group_case_ids.items())
@@ -864,6 +874,7 @@ def _selected_evidence_weakness_sample(
     role: str,
     query_roles: Sequence[str],
     reasons: Sequence[str],
+    risk_reasons: Sequence[str],
     planner_reasons: Sequence[str],
     answerability_score: float,
     source_locality_score: float,
@@ -896,6 +907,12 @@ def _selected_evidence_weakness_sample(
     }
     _add_compact_sample_list(
         sample,
+        "risk_reason_codes",
+        risk_reasons,
+        limit=_SELECTED_WEAKNESS_REASON_LIMIT,
+    )
+    _add_compact_sample_list(
+        sample,
         "planner_reason_codes",
         planner_reasons,
         limit=_SELECTED_WEAKNESS_REASON_LIMIT,
@@ -919,6 +936,19 @@ def _selected_evidence_weakness_sample(
         if value:
             sample[key] = value
     return sample
+
+
+def _selected_evidence_risk_reasons(
+    *sources: Sequence[str],
+) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            reason
+            for source in sources
+            for reason in source
+            if reason.startswith("risk:")
+        )
+    )
 
 
 def _add_compact_sample_list(

@@ -1608,6 +1608,56 @@ def test_quality_diagnostics_treats_zero_answerability_as_unmeasured() -> None:
     assert lift_table["low_answerability_lift_count"] == 0
 
 
+def test_quality_diagnostics_propagates_selected_evidence_risk_reasons() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="selected-risk",
+                evidence_bundle={
+                    "items": [
+                        {
+                            "id": "selected",
+                            "role": "support",
+                            "retrieval_order": 2,
+                            "query_roles": ["contrast_support"],
+                            "answerability_score": 0.54,
+                            "source_locality_score": 0.44,
+                            "planner_reason_codes": [
+                                "role:support",
+                                "risk:broad_summary",
+                                "risk:conflict_or_stale",
+                            ],
+                            "risk_reason_codes": [
+                                "risk:broad_summary",
+                                "risk:selected_custom",
+                            ],
+                        }
+                    ]
+                },
+            ),
+        )
+    )
+
+    breakdown = gate["selected_evidence_weakness"]
+
+    assert breakdown["reason_counts"] == {
+        "selected_broad_summary": 1,
+        "selected_conflict_or_stale": 1,
+        "selected_low_answerability": 1,
+        "selected_weak_source_locality": 1,
+    }
+    assert breakdown["risk_reason_counts"] == {
+        "risk:broad_summary": 1,
+        "risk:conflict_or_stale": 1,
+        "risk:selected_custom": 1,
+    }
+    assert breakdown["samples"][0]["risk_reason_codes"] == [
+        "risk:broad_summary",
+        "risk:conflict_or_stale",
+        "risk:selected_custom",
+    ]
+
+
 def test_quality_diagnostics_reports_empty_bundle_quality_table() -> None:
     diagnostics = quality_diagnostics(
         (
