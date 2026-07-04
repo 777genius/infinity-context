@@ -56,6 +56,67 @@ def test_query_role_effectiveness_uses_planner_role_families() -> None:
     ] == {"communication_support": 1}
 
 
+def test_query_role_effectiveness_reports_all_selected_query_role_families() -> None:
+    diagnostics = quality_diagnostics(
+        (
+            {
+                "case_id": "multi-family-selected-roles",
+                "retrieval": {
+                    "results": [
+                        _memory("reason", query_roles=("causal_support",)),
+                        _memory("location", query_roles=("location_support",)),
+                        _memory("preference", query_roles=("preference_support",)),
+                        _memory(
+                            "visual-time",
+                            query_roles=("visual_temporal_support",),
+                        ),
+                    ],
+                },
+                "evidence_bundle": {
+                    "items": [
+                        {
+                            "id": "reason",
+                            "role": "causal_support",
+                            "query_roles": ["causal_support"],
+                        },
+                        {
+                            "id": "location",
+                            "role": "location_support",
+                            "query_roles": ["location_support"],
+                        },
+                        {
+                            "id": "preference",
+                            "role": "preference_support",
+                            "query_roles": ["preference_support"],
+                        },
+                        {
+                            "id": "visual-time",
+                            "role": "temporal_support",
+                            "query_roles": ["visual_temporal_support"],
+                        },
+                    ],
+                },
+            },
+        )
+    )
+
+    table = diagnostics["query_role_effectiveness_table"]
+
+    expected_family_counts = {
+        "causal_support": 1,
+        "location_support": 1,
+        "preference_support": 1,
+        "relation_compact": 3,
+        "temporal_support": 1,
+        "visual_support": 1,
+    }
+    assert table["candidate_role_family_counts"] == expected_family_counts
+    assert table["selected_item_role_family_counts"] == expected_family_counts
+    assert table["role_stats"]["preference_support"][
+        "selected_bundle_role_counts"
+    ] == {"preference_support": 1}
+
+
 def test_query_role_effectiveness_distinguishes_unmeasured_answerability() -> None:
     diagnostics = quality_diagnostics(
         (

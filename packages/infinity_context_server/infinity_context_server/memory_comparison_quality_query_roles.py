@@ -108,17 +108,17 @@ def query_role_effectiveness_table(
             answerability_score = _metric_value(features, "answerability_score")
             source_locality_score = _metric_value(features, "source_locality_score")
             for query_role in query_roles:
-                query_role_family = _query_role_family(query_role)
-                item_candidate_role_families.add(query_role_family)
+                query_role_families = _query_role_families(query_role)
+                item_candidate_role_families.update(query_role_families)
                 candidate_role_counts[query_role] += 1
-                candidate_role_family_counts[query_role_family] += 1
+                candidate_role_family_counts.update(query_role_families)
                 candidate_answerability_scores[query_role].append(answerability_score)
                 candidate_source_locality_scores[query_role].append(
                     source_locality_score
                 )
                 if lifted:
                     lifted_candidate_role_counts[query_role] += 1
-                    lifted_candidate_role_family_counts[query_role_family] += 1
+                    lifted_candidate_role_family_counts.update(query_role_families)
                 if bridge_query_hit:
                     bridge_query_hit_candidate_counts[query_role] += 1
             for hit_role in typed_relation_hit_roles:
@@ -163,9 +163,9 @@ def query_role_effectiveness_table(
             answerability_score = _metric_value(bundle_item, "answerability_score")
             source_locality_score = _metric_value(bundle_item, "source_locality_score")
             for query_role in query_roles:
-                query_role_family = _query_role_family(query_role)
+                query_role_families = _query_role_families(query_role)
                 selected_item_role_counts[query_role] += 1
-                selected_item_role_family_counts[query_role_family] += 1
+                selected_item_role_family_counts.update(query_role_families)
                 selected_bundle_role_counts[query_role][bundle_role] += 1
                 if has_answerability_score:
                     selected_answerability_scores[query_role].append(answerability_score)
@@ -281,40 +281,50 @@ def query_role_effectiveness_table(
     }
 
 
-def _query_role_family(query_role: str) -> str:
+def _query_role_families(query_role: str) -> tuple[str, ...]:
     role = str(query_role or "").strip()
-    if (
-        role == "temporal_support"
-        or role == "visual_temporal_support"
-        or role.endswith("_temporal_support")
-        or role == "temporal_sequence_support"
-    ):
-        return "temporal_support"
-    if role.startswith("multi_hop_"):
-        return "multi_hop"
-    if role in {"original_question", "fallback_original"}:
-        return "base_query"
-    if role == "expanded_focus":
-        return "expanded_focus"
-    if role == "compact_relation":
-        return "relation_compact"
+    if role == "visual_temporal_support":
+        return ("visual_support", "temporal_support")
+    if role == "location_support":
+        return ("relation_compact", "location_support")
+    if role == "causal_support":
+        return ("relation_compact", "causal_support")
+    if role in {"favorite_support", "preference_support"}:
+        return ("relation_compact", "preference_support")
     if role in {
-        "causal_support",
+        "temporal_support",
+        "duration_temporal_support",
+        "explicit_temporal_support",
+        "relative_temporal_support",
+        "temporal_sequence_support",
+    } or role.endswith("_temporal_support"):
+        return ("temporal_support",)
+    if role.startswith("multi_hop_"):
+        return ("multi_hop",)
+    if role in {"original_question", "fallback_original"}:
+        return ("base_query",)
+    if role == "expanded_focus":
+        return ("expanded_focus",)
+    if role == "compact_relation":
+        return ("relation_compact",)
+    if role in {
         "communication_support",
         "emotion_response_support",
         "event_support",
         "exchange_support",
-        "favorite_support",
         "inference_support",
-        "preference_support",
         "symbolic_meaning_support",
     }:
-        return "relation_compact"
+        return ("relation_compact",)
     if role in _PROFILE_SUPPORT_ROLES:
-        return "relation_compact"
+        return ("relation_compact",)
     if role == "contrast_support":
-        return "contrast_support"
-    return role or "unknown"
+        return ("contrast_support",)
+    return (role or "unknown",)
+
+
+def _query_role_family(query_role: str) -> str:
+    return _query_role_families(query_role)[0]
 
 
 def _required_evidence_roles(item: Mapping[str, object]) -> tuple[str, ...]:
