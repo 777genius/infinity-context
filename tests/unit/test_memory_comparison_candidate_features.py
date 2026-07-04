@@ -98,6 +98,7 @@ def test_candidate_features_capture_focused_direct_turn_and_provenance() -> None
     assert diagnostics["query_roles"] == ["multi_hop_bridge"]
     assert diagnostics["bridge_query_hit"] is True
     assert diagnostics["source_ref_dedupe_key"] == "source_turn_refs:D2:14"
+    assert diagnostics["identity_confusion_reason_codes"] == []
 
 
 @pytest.mark.parametrize(
@@ -432,6 +433,9 @@ def test_candidate_features_report_other_speaker_alias_relation() -> None:
 
     assert features.relation_category_hits == ()
     assert features.other_speaker_profile_relation_categories == ("alias_profile",)
+    assert features.identity_confusion_reason_codes == (
+        "speaker_identity:first_person_profile_relation:alias_profile",
+    )
     assert "missing_alias_profile_evidence" in features.answerability_reason_codes
     diagnostics = features.to_diagnostics()
     assert diagnostics["other_speaker_profile_relation_categories"] == [
@@ -863,6 +867,9 @@ def test_candidate_features_do_not_ground_status_relation_to_wrong_target() -> N
     assert wrong_target.relation_target_specificity_reason_codes == (
         "target_mismatch:status_profile",
     )
+    assert wrong_target.identity_confusion_reason_codes == (
+        "person_identity:target_mismatch:status_profile",
+    )
     assert (
         "missing_status_profile_evidence"
         in wrong_target.answerability_reason_codes
@@ -1200,6 +1207,62 @@ def test_candidate_features_report_missing_source_refs_text_identity_gap() -> No
     assert features.to_diagnostics()["source_identity_audit_gap_codes"] == [
         "missing_source_refs_with_text_turn_identity"
     ]
+
+
+@pytest.mark.parametrize(
+    ("text", "source_refs", "expected_gap_code"),
+    (
+        (
+            "D5:7 Caroline: The support group meets on Thursday evenings.",
+            ("D5:8",),
+            "source_text_turn_mismatch",
+        ),
+        (
+            "session_5 turn D5:7 date: 8:00 pm "
+            "D5:7 Caroline: The support group meets on Thursday evenings.",
+            ("locomo:conv-26:session_6:D5:7:turn",),
+            "source_text_session_turn_mismatch",
+        ),
+    ),
+)
+def test_candidate_features_report_source_text_identity_mismatch(
+    text: str,
+    source_refs: tuple[str, ...],
+    expected_gap_code: str,
+) -> None:
+    features = build_candidate_evidence_features(
+        RetrievedMemory(
+            item_id="mismatched-source-turn",
+            rank=1,
+            text=text,
+            source_refs=source_refs,
+            metadata={"item_type": "chunk"},
+        ),
+        memory_terms={"caroline", "support", "group", "thursday"},
+        query_terms=("caroline", "support", "group"),
+        relation_terms=("support",),
+        relation_variant_terms=("group",),
+        entities=("caroline",),
+        entity_hits=("caroline",),
+        speaker_hits=("caroline",),
+        high_signal_relation_terms={"support"},
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+
+    assert features.source_identity_audit_gap_codes == (expected_gap_code,)
+    assert features.identity_confusion_reason_codes == (
+        f"source_identity:{expected_gap_code}",
+    )
+    assert features.source_locality_score == 1.0
+    assert features.answerability_score >= 0.8
 
 
 def test_candidate_features_use_source_ref_turns_for_locality_and_dedupe() -> None:

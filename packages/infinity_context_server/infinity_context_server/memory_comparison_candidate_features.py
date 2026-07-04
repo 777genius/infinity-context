@@ -72,6 +72,14 @@ _FIRST_PERSON_PROFILE_RELATION_RE = re.compile(
 _FIRST_PERSON_PROFILE_RELATION_CATEGORIES = frozenset(
     {"alias_profile", "status_profile"}
 )
+_SOURCE_IDENTITY_CONFUSION_GAP_CODES = frozenset(
+    {
+        "cross_session_source_identity",
+        "cross_session_text_identity",
+        "source_text_session_turn_mismatch",
+        "source_text_turn_mismatch",
+    }
+)
 _NEGATION_SURFACE_RE = re.compile(
     r"\b(?:no longer|not yet|not|never|none|nobody|no one|without|missing|"
     r"absent|(?:has|have|had|with|there is|there are)\s+no|didn't|doesn't|"
@@ -242,6 +250,7 @@ class CandidateEvidenceFeatures:
     duplicate_key: str
     source_ref_dedupe_key: str
     source_identity_audit_gap_codes: tuple[str, ...]
+    identity_confusion_reason_codes: tuple[str, ...]
     conflict_or_stale: bool
     negation_surface: bool
     currentness_surface: bool
@@ -282,6 +291,9 @@ class CandidateEvidenceFeatures:
             "source_ref_dedupe_key": self.source_ref_dedupe_key,
             "source_identity_audit_gap_codes": list(
                 self.source_identity_audit_gap_codes
+            ),
+            "identity_confusion_reason_codes": list(
+                self.identity_confusion_reason_codes
             ),
             "conflict_or_stale": self.conflict_or_stale,
             "negation_surface": self.negation_surface,
@@ -435,6 +447,10 @@ def build_candidate_evidence_features(
     relation_categories = tuple((relation_category_terms or {}).keys())
     conflict_or_stale = memory_has_conflict_or_stale(memory)
     query_roles = _query_roles(memory)
+    source_identity_gap_codes = _source_identity_audit_gap_codes(
+        source_refs=source_refs,
+        text=text,
+    )
     answerability_score, answerability_reasons = _answerability(
         entity_count=len(tuple(dict.fromkeys(entities))),
         entity_hit_count=len(tuple(dict.fromkeys((*entity_hits, *speaker_hits)))),
@@ -543,9 +559,15 @@ def build_candidate_evidence_features(
             text_turn_refs=text_turn_refs,
             text_session_turn_refs=text_session_turn_refs,
         ),
-        source_identity_audit_gap_codes=_source_identity_audit_gap_codes(
-            source_refs=source_refs,
-            text=text,
+        source_identity_audit_gap_codes=source_identity_gap_codes,
+        identity_confusion_reason_codes=_identity_confusion_reason_codes(
+            source_identity_gap_codes=source_identity_gap_codes,
+            relation_target_specificity_reason_codes=(
+                relation_target_specificity_reasons
+            ),
+            other_speaker_profile_relation_categories=(
+                other_speaker_profile_relation_categories
+            ),
         ),
         conflict_or_stale=conflict_or_stale,
         negation_surface=contrast_features["negation_surface"],
@@ -800,6 +822,30 @@ def _other_speaker_profile_relation_categories(
             categories.append(category_name)
     return tuple(dict.fromkeys(categories))
 
+
+def _identity_confusion_reason_codes(
+    *,
+    source_identity_gap_codes: Sequence[str],
+    relation_target_specificity_reason_codes: Sequence[str],
+    other_speaker_profile_relation_categories: Sequence[str],
+) -> tuple[str, ...]:
+    other_speaker_categories = set(other_speaker_profile_relation_categories)
+    reasons = [
+        f"source_identity:{gap_code}"
+        for gap_code in source_identity_gap_codes
+        if gap_code in _SOURCE_IDENTITY_CONFUSION_GAP_CODES
+    ]
+    reasons.extend(
+        f"person_identity:{reason_code}"
+        for reason_code in relation_target_specificity_reason_codes
+        if reason_code.startswith("target_mismatch:")
+        and reason_code.removeprefix("target_mismatch:") not in other_speaker_categories
+    )
+    reasons.extend(
+        f"speaker_identity:first_person_profile_relation:{category}"
+        for category in other_speaker_profile_relation_categories
+    )
+    return tuple(dict.fromkeys(reasons))
 
 
 def _typed_category_has_query_grounding(

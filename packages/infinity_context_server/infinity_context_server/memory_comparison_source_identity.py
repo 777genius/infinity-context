@@ -113,6 +113,18 @@ def source_identity_audit_gap_codes(
         gap_codes.append("broad_source_turn_identity")
     elif not source_turn_refs and len(text_turn_refs) > 3:
         gap_codes.append("broad_text_turn_identity")
+    if (
+        source_session_turn_refs
+        and text_session_turn_refs
+        and not set(source_session_turn_refs).intersection(text_session_turn_refs)
+    ):
+        gap_codes.append("source_text_session_turn_mismatch")
+    elif (
+        source_turn_refs
+        and text_turn_refs
+        and not set(source_turn_refs).intersection(text_turn_refs)
+    ):
+        gap_codes.append("source_text_turn_mismatch")
     if _session_count(source_session_turn_refs) > 1:
         gap_codes.append("cross_session_source_identity")
     elif not source_session_turn_refs and _session_count(text_session_turn_refs) > 1:
