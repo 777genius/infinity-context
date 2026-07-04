@@ -73,6 +73,17 @@ def test_named_person_preference_signal_matches_corrected_current_preference() -
     assert signal.reason == "named_person_preference_match"
 
 
+def test_named_person_preference_signal_marks_favorite_with_trailing_now_as_current() -> None:
+    signal = named_person_preference_signal(
+        query="What is Alice's favorite dessert now?",
+        text="D3:5 Alice: Ramen is my favorite dessert now.",
+    )
+
+    assert signal.boost == 0.04
+    assert signal.penalty == 0
+    assert signal.reason == "named_person_preference_match"
+
+
 def test_named_person_preference_signal_matches_avoid_then_prefer_correction() -> None:
     signal = named_person_preference_signal(
         query="What food does Alice like?",
@@ -202,6 +213,44 @@ def test_deterministic_rerank_prefers_corrected_preference_over_stale_preference
     assert (
         "named_person_preference_negative_or_obsolete"
         in by_id["stale_preference"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+
+
+def test_deterministic_rerank_prefers_current_favorite_over_undated_old_favorite() -> None:
+    query = "What is Alice's favorite dessert now?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    old_favorite = _item(
+        "old_favorite",
+        score=0.73,
+        text="D3:4 Alice: Gelato is my favorite dessert.",
+    )
+    current_favorite = _item(
+        "current_favorite",
+        score=0.7,
+        text="D3:5 Alice: Ramen is my favorite dessert now.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (old_favorite, current_favorite),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert by_id["current_favorite"].score > by_id["old_favorite"].score
+    assert (
+        "named_person_preference_match"
+        in by_id["current_favorite"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+    assert (
+        "named_person_preference_missing_current_evidence"
+        in by_id["old_favorite"].diagnostics["provenance"][
             "deterministic_rerank_reasons"
         ]
     )

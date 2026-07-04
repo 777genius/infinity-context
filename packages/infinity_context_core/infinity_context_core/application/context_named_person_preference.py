@@ -65,7 +65,14 @@ _PREFERENCE_CUE_RE = re.compile(
 _CURRENT_PREFERENCE_CUE_RE = re.compile(
     r"\b(?:now|currently|today|these\s+days|still)\s+"
     r"(?:likes?|like|loves?|love|enjoys?|enjoy|prefers?|prefer|wants?|want|"
-    r"is\s+(?:a\s+fan\s+of|interested\s+in|into))\b",
+    r"is\s+(?:a\s+fan\s+of|interested\s+in|into))\b|"
+    r"\b(?:likes?|like|loves?|love|enjoys?|enjoy|prefers?|prefer|wants?|want|"
+    r"favorite|favourite|preferred|fan\s+of|interested\s+in|into)\b"
+    r"(?=.{0,80}\b(?:now|currently|today|these\s+days|right\s+now|still)\b)",
+    re.IGNORECASE | re.DOTALL,
+)
+_CURRENT_PREFERENCE_QUERY_RE = re.compile(
+    r"\b(?:now|currently|today|these\s+days|right\s+now|still|latest|current)\b",
     re.IGNORECASE,
 )
 _NEGATIVE_OR_OBSOLETE_PREFERENCE_CUE_RE = re.compile(
@@ -145,24 +152,38 @@ def named_person_preference_signal(
     text_mentions_person = _text_mentions_person(preference_query.person_label, text)
     domain_matches = _domain_terms_match(preference_query.domain_terms, text)
     cue_scope = _preference_cue_scope(preference_query.person_label, text)
-    text_has_current_preference = (
-        _CURRENT_PREFERENCE_CUE_RE.search(cue_scope) is not None
-        or _has_corrected_current_preference(cue_scope)
-    )
-    if text_has_current_preference and text_mentions_person and domain_matches:
-        return NamedPersonPreferenceSignal(
-            boost=0.022,
-            reason="named_person_preference_match",
-        )
     text_has_negative_or_obsolete_preference = (
         _NEGATIVE_OR_OBSOLETE_PREFERENCE_CUE_RE.search(cue_scope) is not None
     )
+    text_has_corrected_current_preference = _has_corrected_current_preference(cue_scope)
+    text_has_current_preference = (
+        (
+            _CURRENT_PREFERENCE_CUE_RE.search(cue_scope) is not None
+            and not text_has_negative_or_obsolete_preference
+        )
+        or text_has_corrected_current_preference
+    )
+    if text_has_current_preference and text_mentions_person and domain_matches:
+        return NamedPersonPreferenceSignal(
+            boost=0.04 if _asks_current_preference(query) else 0.022,
+            reason="named_person_preference_match",
+        )
     if text_has_negative_or_obsolete_preference and text_mentions_person and domain_matches:
         return NamedPersonPreferenceSignal(
             penalty=0.024,
             reason="named_person_preference_negative_or_obsolete",
         )
     text_has_preference = _PREFERENCE_CUE_RE.search(text) is not None
+    if (
+        _asks_current_preference(query)
+        and text_has_preference
+        and text_mentions_person
+        and domain_matches
+    ):
+        return NamedPersonPreferenceSignal(
+            penalty=0.032,
+            reason="named_person_preference_missing_current_evidence",
+        )
     if (
         text_has_preference
         and text_mentions_person
@@ -182,6 +203,10 @@ def named_person_preference_signal(
             reason="named_person_preference_other_person",
         )
     return NamedPersonPreferenceSignal()
+
+
+def _asks_current_preference(query: str) -> bool:
+    return _CURRENT_PREFERENCE_QUERY_RE.search(query) is not None
 
 
 def _named_preference_query(query: str) -> _NamedPreferenceQuery | None:
