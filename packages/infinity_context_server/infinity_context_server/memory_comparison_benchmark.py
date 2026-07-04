@@ -2168,7 +2168,154 @@ def _compact_fast_gate_summary(
                 rerank_signal_gaps.get("selected_without_positive_reason_counts")
             ),
         },
+        "rerank_signal_gap_samples": _compact_rerank_signal_gap_samples(
+            rerank_signal_gaps
+        ),
     }
+
+
+def _compact_rerank_signal_gap_samples(
+    rerank_signal_gaps: Mapping[str, object],
+    *,
+    limit: int = 3,
+) -> dict[str, object]:
+    return {
+        "positive_unselected_samples": _compact_rerank_gap_samples(
+            rerank_signal_gaps.get("positive_unselected_samples"),
+            limit=limit,
+        ),
+        "selected_without_positive_samples": _compact_rerank_gap_samples(
+            rerank_signal_gaps.get("selected_without_positive_samples"),
+            limit=limit,
+        ),
+        "selection_conflict_samples": _compact_rerank_selection_conflict_samples(
+            rerank_signal_gaps.get("selection_conflict_samples"),
+            limit=limit,
+        ),
+    }
+
+
+def _compact_rerank_gap_samples(
+    value: object,
+    *,
+    limit: int,
+) -> list[dict[str, object]]:
+    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
+        return []
+    samples: list[dict[str, object]] = []
+    for raw_sample in value:
+        sample = _compact_rerank_gap_sample(_mapping(raw_sample))
+        if not sample:
+            continue
+        samples.append(sample)
+        if len(samples) >= limit:
+            break
+    return samples
+
+
+def _compact_rerank_selection_conflict_samples(
+    value: object,
+    *,
+    limit: int,
+) -> list[dict[str, object]]:
+    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
+        return []
+    samples: list[dict[str, object]] = []
+    for raw_sample in value:
+        sample = _mapping(raw_sample)
+        if not sample:
+            continue
+        compact: dict[str, object] = {}
+        for key in (
+            "case_id",
+            "group",
+            "positive_unselected_candidate_count",
+            "selected_without_positive_rerank_count",
+        ):
+            if key in sample:
+                compact[key] = sample[key]
+        signal_counts = _compact_count_mapping(
+            sample.get("positive_unselected_signal_counts"),
+            limit=6,
+        )
+        if signal_counts:
+            compact["positive_unselected_signal_counts"] = signal_counts
+        compact["positive_unselected_candidates"] = _compact_rerank_gap_samples(
+            sample.get("positive_unselected_candidates"),
+            limit=2,
+        )
+        compact["selected_without_positive_items"] = _compact_rerank_gap_samples(
+            sample.get("selected_without_positive_items"),
+            limit=2,
+        )
+        samples.append(compact)
+        if len(samples) >= limit:
+            break
+    return samples
+
+
+def _compact_rerank_gap_sample(sample: Mapping[str, object]) -> dict[str, object]:
+    if not sample:
+        return {}
+    compact: dict[str, object] = {}
+    scalar_keys = {
+        "answerability_score",
+        "benchmark_rerank_boosted",
+        "case_id",
+        "group",
+        "item_id",
+        "matched_retrieval_candidate",
+        "positive_policy_score",
+        "rank",
+        "reason",
+        "retrieval_order",
+        "role",
+        "score",
+        "source_locality_score",
+        "source_type",
+    }
+    sequence_keys = {
+        "planner_reason_codes",
+        "query_roles",
+        "relation_category_hits",
+        "selected_item_ids",
+    }
+    mapping_keys = {
+        "cap_signals",
+        "penalty_signals",
+        "policy_reasons",
+        "top_signals",
+    }
+    for key in sorted(scalar_keys):
+        if key in sample:
+            compact[key] = sample[key]
+    for key in sorted(sequence_keys):
+        if key not in sample:
+            continue
+        values = list(_str_tuple(sample.get(key))[:6])
+        if values:
+            compact[key] = values
+    for key in sorted(mapping_keys):
+        payload = _compact_scalar_mapping(sample.get(key), limit=6)
+        if payload:
+            compact[key] = payload
+    return compact
+
+
+def _compact_scalar_mapping(value: object, *, limit: int = 6) -> dict[str, object]:
+    if not isinstance(value, Mapping):
+        return {}
+    compact: dict[str, object] = {}
+    for key, raw_value in sorted(value.items(), key=lambda item: str(item[0])):
+        if len(compact) >= limit:
+            break
+        if isinstance(raw_value, bool | int | float | str):
+            compact[str(key)] = raw_value
+        elif isinstance(raw_value, Sequence) and not isinstance(raw_value, str | bytes):
+            values = list(_str_tuple(raw_value)[:6])
+            if values:
+                compact[str(key)] = values
+    return compact
 
 
 def _compact_selected_evidence_weakness_samples(

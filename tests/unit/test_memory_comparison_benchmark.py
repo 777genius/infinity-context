@@ -2236,6 +2236,57 @@ def test_compact_fast_gate_summary_surfaces_computed_gap_diagnostics() -> None:
     assert signal_counts == {
         "benchmark_effective_boost_cap": 1,
     }
+    rerank_samples = summary["rerank_signal_gap_samples"]
+    assert rerank_samples["positive_unselected_samples"] == [
+        {
+            "answerability_score": 0.0,
+            "benchmark_rerank_boosted": False,
+            "case_id": "compact-fastgate-gap",
+            "group": "single-hop",
+            "item_id": "unselected-positive",
+            "positive_policy_score": 0.0,
+            "rank": 1,
+            "score": 0.9,
+            "source_locality_score": 0.0,
+            "source_type": "unknown",
+            "selected_item_ids": ["weak-selected"],
+            "cap_signals": {"benchmark_effective_boost_cap": 0.16},
+            "top_signals": {"benchmark_effective_boost_cap": 0.16},
+        }
+    ]
+    assert rerank_samples["selected_without_positive_samples"] == [
+        {
+            "answerability_score": 0.1,
+            "case_id": "compact-fastgate-gap",
+            "group": "single-hop",
+            "item_id": "weak-selected",
+            "matched_retrieval_candidate": False,
+            "positive_policy_score": 0.0,
+            "reason": "missing_retrieval_match",
+            "retrieval_order": 1,
+            "role": "primary",
+            "source_locality_score": 0.1,
+            "source_type": "unknown",
+            "query_roles": ["relation_compact"],
+        }
+    ]
+    assert rerank_samples["selection_conflict_samples"] == [
+        {
+            "case_id": "compact-fastgate-gap",
+            "group": "single-hop",
+            "positive_unselected_candidate_count": 1,
+            "selected_without_positive_rerank_count": 1,
+            "positive_unselected_signal_counts": {
+                "benchmark_effective_boost_cap": 1
+            },
+            "positive_unselected_candidates": (
+                rerank_samples["positive_unselected_samples"]
+            ),
+            "selected_without_positive_items": (
+                rerank_samples["selected_without_positive_samples"]
+            ),
+        }
+    ]
     assert summary["top_gap"] is not None
 
 
