@@ -2986,6 +2986,9 @@ def _benchmark_rerank_boost(
             has_temporal_sequence_surface=(
                 candidate_features.has_temporal_sequence_surface
             ),
+            temporal_sequence_direction=(
+                candidate_features.temporal_sequence_direction
+            ),
             is_preference_query=candidate_features.is_preference_query,
             has_preference_evidence=candidate_features.has_preference_evidence,
             has_visual_terms=candidate_features.has_visual_terms,

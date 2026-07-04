@@ -753,6 +753,60 @@ def test_rerank_policy_accepts_typed_location_support_need() -> None:
     ]
 
 
+def test_rerank_policy_suppresses_temporal_boost_for_opposite_sequence() -> None:
+    matching = score_benchmark_rerank_candidate(
+        _features(
+            overlap_terms=("alex", "conference", "meet"),
+            entity_hits=("alex", "riley"),
+            speaker_hits=("alex",),
+            relation_hits=("meet", "conference"),
+            relation_terms=("meet", "conference"),
+            is_temporal_query=True,
+            time_intent_kind="temporal_sequence",
+            has_temporal_sequence_surface=True,
+            temporal_sequence_direction="after",
+            temporal_query_terms=("after",),
+            query_roles=("temporal_sequence_support", "location_support"),
+            direct_speaker_turn=True,
+            source_locality_score=1.0,
+        )
+    )
+    conflicting = score_benchmark_rerank_candidate(
+        _features(
+            overlap_terms=("alex", "conference", "meet"),
+            entity_hits=("alex", "riley"),
+            speaker_hits=("alex",),
+            relation_hits=("meet", "conference"),
+            relation_terms=("meet", "conference"),
+            is_temporal_query=True,
+            time_intent_kind="temporal_sequence",
+            has_temporal_sequence_surface=True,
+            temporal_sequence_direction="before",
+            temporal_query_terms=("after",),
+            query_roles=("temporal_sequence_support", "location_support"),
+            direct_speaker_turn=True,
+            source_locality_score=1.0,
+        )
+    )
+
+    matching_signals = matching.signals["score_signals"]
+    conflicting_signals = conflicting.signals["score_signals"]
+    conflicting_policy = conflicting.signals["policy_contributions"]
+
+    assert matching_signals["benchmark_temporal_text_boost"] == 0.08
+    assert matching_signals["benchmark_temporal_sequence_boost"] == 0.055
+    assert conflicting_signals["benchmark_temporal_text_boost"] == 0.0
+    assert conflicting_signals["benchmark_temporal_sequence_boost"] == 0.0
+    assert (
+        conflicting_signals["benchmark_temporal_sequence_direction_penalty"]
+        == -0.045
+    )
+    assert conflicting.boost < matching.boost
+    assert "temporal_sequence_direction_conflict" in conflicting_policy[
+        "reason_codes_by_policy"
+    ]["TemporalPolicy"]
+
+
 def test_rerank_policy_accepts_unmeasured_source_ref_location_support() -> None:
     unmeasured = score_benchmark_rerank_candidate(
         _features(

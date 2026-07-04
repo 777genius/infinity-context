@@ -290,6 +290,54 @@ def test_event_location_rerank_boosts_venue_evidence_over_generic_event() -> Non
     assert venue_signals["benchmark_location_support_boost"] > 0
 
 
+def test_event_location_rerank_rejects_opposite_temporal_sequence() -> None:
+    case = _case("Where did Alex attend the conference after meeting Riley?")
+    before_event_place = RetrievedMemory(
+        item_id="before-event-place",
+        rank=1,
+        score=0.57,
+        text=(
+            "D3:6 Alex: Before meeting Riley, I attended the conference "
+            "at Harbor Theater."
+        ),
+        source_refs=("D3:6",),
+        metadata={"item_type": "raw_turn"},
+    )
+    after_event_place = RetrievedMemory(
+        item_id="after-event-place",
+        rank=2,
+        score=0.5,
+        text=(
+            "D3:9 Alex: After meeting Riley, I attended the conference "
+            "at Rialto Theater."
+        ),
+        source_refs=("D3:9",),
+        metadata={"item_type": "raw_turn"},
+    )
+
+    reranked, _diagnostics = benchmark_rerank_memories(
+        case,
+        (before_event_place, after_event_place),
+    )
+
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    before_features = diagnostics_by_id["before-event-place"][
+        "benchmark_candidate_features"
+    ]
+    before_signals = diagnostics_by_id["before-event-place"]["score_signals"]
+    after_signals = diagnostics_by_id["after-event-place"]["score_signals"]
+
+    assert reranked[0].item_id == "after-event-place"
+    assert before_features["temporal_sequence_direction"] == "before"
+    assert before_signals["benchmark_temporal_sequence_query_direction"] == "after"
+    assert before_signals["benchmark_temporal_sequence_direction_conflict"] is True
+    assert before_signals["benchmark_temporal_text_boost"] == 0.0
+    assert after_signals["benchmark_temporal_sequence_direction_conflict"] is False
+    assert after_signals["benchmark_location_support_boost"] > 0
+
+
 def test_wedding_venue_query_gets_location_support_without_answer_leakage() -> None:
     case = _case(
         "What type of venue did John and his girlfriend choose for their wedding ceremony?"

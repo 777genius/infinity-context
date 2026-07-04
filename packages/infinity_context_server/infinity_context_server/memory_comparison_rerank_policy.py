@@ -61,6 +61,7 @@ class BenchmarkRerankFeatures:
     has_explicit_time_surface: bool = False
     has_explicit_time_content_surface: bool = False
     has_temporal_sequence_surface: bool = False
+    temporal_sequence_direction: str = ""
     covered_answer_unit_shapes: tuple[str, ...] = ()
 
 
@@ -266,6 +267,8 @@ def _boost_cap(
     policy_boosts: Mapping[str, float],
     shape_boosts: Mapping[str, float],
 ) -> float:
+    if _has_temporal_sequence_direction_conflict(features):
+        return 0.38
     high_confidence_policy_keys = {
         "benchmark_outdoor_park_preference_boost",
         "benchmark_support_motivation_boost",
@@ -361,6 +364,27 @@ def _boost_cap(
     ):
         return 0.38
     return 0.28
+
+
+def _has_temporal_sequence_direction_conflict(
+    features: BenchmarkRerankFeatures,
+) -> bool:
+    query_terms = {
+        str(term).casefold().strip()
+        for term in features.temporal_query_terms
+        if str(term).casefold().strip()
+    }
+    query_direction = ""
+    if query_terms & {"after", "afterward", "afterwards", "since"}:
+        query_direction = "after"
+    elif query_terms & {"before", "beforehand", "until", "prior"}:
+        query_direction = "before"
+    evidence_direction = features.temporal_sequence_direction.casefold().strip()
+    return bool(
+        query_direction in {"before", "after"}
+        and evidence_direction in {"before", "after"}
+        and query_direction != evidence_direction
+    )
 
 
 def _apply_provenance_safety_cap(

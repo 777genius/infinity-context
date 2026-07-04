@@ -30,6 +30,7 @@ class RerankPolicyFeatures(Protocol):
     has_explicit_time_surface: bool
     has_explicit_time_content_surface: bool
     has_temporal_sequence_surface: bool
+    temporal_sequence_direction: str
     is_preference_query: bool
     has_preference_evidence: bool
     has_visual_terms: bool
@@ -212,13 +213,23 @@ class TemporalPolicy:
 
     def score(self, features: RerankPolicyFeatures) -> RerankPolicyContribution:
         stale_only_current_state = _stale_only_current_state_evidence(features)
+        sequence_direction = _temporal_sequence_direction(features)
+        sequence_query_direction = _temporal_sequence_query_direction(
+            features.temporal_query_terms
+        )
+        sequence_direction_conflict = _temporal_sequence_direction_conflict(
+            query_direction=sequence_query_direction,
+            evidence_direction=sequence_direction,
+        )
         temporal_boost, temporal_reason = _typed_temporal_boost(features)
         sequence_boost = (
             0.055
             if features.is_temporal_query
             and features.has_temporal_sequence_surface
+            and not sequence_direction_conflict
             else 0.0
         )
+        sequence_penalty = -0.045 if sequence_direction_conflict else 0.0
         currentness_boost = (
             0.04
             if features.is_temporal_query
@@ -238,11 +249,23 @@ class TemporalPolicy:
                 + sequence_boost
                 + currentness_boost
                 + role_support_boost
+                + sequence_penalty
             ),
             signals={
                 "benchmark_time_intent_kind": features.time_intent_kind,
                 "benchmark_temporal_query_roles": list(features.query_roles),
                 "benchmark_temporal_query_terms": list(features.temporal_query_terms),
+                "benchmark_temporal_sequence_query_direction": (
+                    sequence_query_direction
+                ),
+                "benchmark_temporal_sequence_direction": sequence_direction,
+                "benchmark_temporal_sequence_direction_conflict": (
+                    sequence_direction_conflict
+                ),
+                "benchmark_temporal_sequence_direction_penalty": round(
+                    sequence_penalty,
+                    6,
+                ),
                 "benchmark_current_state_query": features.current_state_query,
                 "benchmark_stale_only_current_state_evidence": (
                     stale_only_current_state
@@ -288,6 +311,11 @@ class TemporalPolicy:
                     ("temporal_sequence", sequence_boost),
                     ("currentness_support", currentness_boost),
                     ("temporal_query_role_support", role_support_boost),
+                ),
+                *(
+                    ("temporal_sequence_direction_conflict",)
+                    if sequence_direction_conflict
+                    else ()
                 ),
             ),
         )
@@ -983,6 +1011,13 @@ def _typed_temporal_boost(features: RerankPolicyFeatures) -> tuple[float, str]:
             "missing_explicit_temporal_evidence",
         )
     if time_kind == "temporal_sequence":
+        if _temporal_sequence_direction_conflict(
+            query_direction=_temporal_sequence_query_direction(
+                features.temporal_query_terms
+            ),
+            evidence_direction=_temporal_sequence_direction(features),
+        ):
+            return 0.0, "conflicting_sequence_temporal_evidence"
         if features.has_temporal_sequence_surface:
             return 0.08, "sequence_temporal_evidence"
         return (0.025, "sequence_temporal_evidence_partial") if generic_temporal else (
@@ -994,10 +1029,47 @@ def _typed_temporal_boost(features: RerankPolicyFeatures) -> tuple[float, str]:
     return 0.0, "missing_temporal_evidence"
 
 
+def _temporal_sequence_direction(features: RerankPolicyFeatures) -> str:
+    direction = str(getattr(features, "temporal_sequence_direction", "") or "")
+    return direction.casefold().strip()
+
+
+def _temporal_sequence_query_direction(temporal_query_terms: Sequence[str]) -> str:
+    terms = {
+        str(term).casefold().strip()
+        for term in temporal_query_terms
+        if str(term).casefold().strip()
+    }
+    if terms & {"after", "afterward", "afterwards", "since"}:
+        return "after"
+    if terms & {"before", "beforehand", "until", "prior"}:
+        return "before"
+    return ""
+
+
+def _temporal_sequence_direction_conflict(
+    *,
+    query_direction: str,
+    evidence_direction: str,
+) -> bool:
+    return bool(
+        query_direction in {"before", "after"}
+        and evidence_direction in {"before", "after"}
+        and query_direction != evidence_direction
+    )
+
+
 def _temporal_role_support_eligible(features: RerankPolicyFeatures) -> bool:
     if not features.is_temporal_query:
         return False
     if _stale_only_current_state_evidence(features):
+        return False
+    if _temporal_sequence_direction_conflict(
+        query_direction=_temporal_sequence_query_direction(
+            features.temporal_query_terms
+        ),
+        evidence_direction=_temporal_sequence_direction(features),
+    ):
         return False
     if not _has_temporal_query_role(features.query_roles):
         return False

@@ -127,6 +127,11 @@ _TEMPORAL_SEQUENCE_EVIDENCE_RE = re.compile(
     r"following|subsequent|subsequently|previously|earlier|later|prior)\b",
     re.IGNORECASE,
 )
+_TEMPORAL_SEQUENCE_DIRECTION_RE = re.compile(
+    r"\b(?P<direction>before|beforehand|after|afterward|afterwards|during|"
+    r"following|subsequent|subsequently|previously|earlier|later|prior)\b",
+    re.IGNORECASE,
+)
 _LIST_ITEM_INTRO_RE = re.compile(
     r"\b(?:are|were|include|includes|including|included|such\s+as|"
     r"names?\s+(?:are|were)|named|called|listed|list|"
@@ -201,6 +206,7 @@ class CandidateEvidenceFeatures:
     has_explicit_time_surface: bool
     has_explicit_time_content_surface: bool
     has_temporal_sequence_surface: bool
+    temporal_sequence_direction: str
     has_preference_evidence: bool
     has_visual_evidence: bool
     source_ref_count: int
@@ -287,6 +293,7 @@ class CandidateEvidenceFeatures:
                 self.has_explicit_time_content_surface
             ),
             "has_temporal_sequence_surface": self.has_temporal_sequence_surface,
+            "temporal_sequence_direction": self.temporal_sequence_direction,
             "has_preference_evidence": self.has_preference_evidence,
             "has_visual_evidence": self.has_visual_evidence,
         }
@@ -449,6 +456,7 @@ def build_candidate_evidence_features(
         has_temporal_sequence_surface=temporal_features[
             "has_temporal_sequence_surface"
         ],
+        temporal_sequence_direction=temporal_features["temporal_sequence_direction"],
         has_preference_evidence=has_preference_evidence,
         has_visual_evidence=has_visual_evidence,
         source_ref_count=len(source_refs),
@@ -507,13 +515,31 @@ def _temporal_evidence_features(text: str) -> dict[str, bool]:
     explicit_time_surface = bool(_EXPLICIT_TIME_EVIDENCE_RE.search(text))
     explicit_time_content_surface = bool(_EXPLICIT_TIME_CONTENT_RE.search(content_text))
     temporal_sequence_surface = bool(_TEMPORAL_SEQUENCE_EVIDENCE_RE.search(text))
+    temporal_sequence_direction = _temporal_sequence_direction(content_text)
     return {
         "has_duration_surface": duration_surface,
         "has_relative_time_surface": relative_time_surface,
         "has_explicit_time_surface": explicit_time_surface,
         "has_explicit_time_content_surface": explicit_time_content_surface,
         "has_temporal_sequence_surface": temporal_sequence_surface,
+        "temporal_sequence_direction": temporal_sequence_direction,
     }
+
+
+def _temporal_sequence_direction(text: str) -> str:
+    match = _TEMPORAL_SEQUENCE_DIRECTION_RE.search(text)
+    if not match:
+        return ""
+    direction = match.group("direction").casefold()
+    if direction in {"after", "afterward", "afterwards", "following", "later"}:
+        return "after"
+    if direction in {"before", "beforehand", "previously", "earlier", "prior"}:
+        return "before"
+    if direction in {"subsequent", "subsequently"}:
+        return "after"
+    if direction == "during":
+        return "during"
+    return ""
 
 
 def _evidence_content_text(text: str) -> str:

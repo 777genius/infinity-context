@@ -2146,6 +2146,8 @@ def test_candidate_features_score_during_event_temporal_evidence() -> None:
     )
 
     assert during_event.has_temporal_sequence_surface is True
+    assert during_event.temporal_sequence_direction == "during"
+    assert during_event.to_diagnostics()["temporal_sequence_direction"] == "during"
     assert "generic_temporal_evidence" in during_event.answerability_reason_codes
     assert "missing_temporal_evidence" in no_temporal_content.answerability_reason_codes
     assert during_event.answerability_score > no_temporal_content.answerability_score
