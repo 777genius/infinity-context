@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from typing import TYPE_CHECKING
 
 from infinity_context_server.memory_comparison_candidate_risks import (
     memory_has_broad_summary,
     memory_has_conflict_or_stale,
 )
-from infinity_context_server.memory_comparison_models import RetrievedMemory
+
+if TYPE_CHECKING:
+    from infinity_context_server.memory_comparison_models import RetrievedMemory
 
 _RISK_METADATA_KEY = "answer_context_risk_reason_codes"
 

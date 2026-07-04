@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
+from typing import TYPE_CHECKING
 
-from infinity_context_server.memory_comparison_models import RetrievedMemory
+if TYPE_CHECKING:
+    from infinity_context_server.memory_comparison_models import RetrievedMemory
 
 _BROAD_SUMMARY_SURFACE_RE = re.compile(
     r"\b(?:conversation summary|memory summary|observations|"

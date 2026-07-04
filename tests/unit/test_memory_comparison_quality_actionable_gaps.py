@@ -420,3 +420,66 @@ def test_actionable_gap_summary_caps_query_plan_actionable_samples() -> None:
         len(value) <= 128
         for value in role_gap["samples"][0]["selected_role_families"]
     )
+
+
+def test_actionable_gap_summary_matches_query_plan_samples_before_compaction() -> None:
+    long_suffix = "x" * 200
+    first_family = f"first_support_{long_suffix}"
+    second_family = f"second_support_{long_suffix}"
+    samples = [
+        {
+            "case_id": "first-case",
+            "gap_reasons": ("missing_evidence_role_query_family",),
+            "missing_evidence_role_query_families": (first_family,),
+            "selected_role_families": ("base_query",),
+        },
+        {
+            "case_id": "second-case",
+            "gap_reasons": ("missing_evidence_role_query_family",),
+            "missing_evidence_role_query_families": (second_family,),
+            "selected_role_families": ("base_query",),
+        },
+    ]
+    compact_samples = [
+        {
+            "case_id": sample["case_id"],
+            "gap_reasons": sample["gap_reasons"],
+            "missing_evidence_role_query_families": (
+                str(sample["missing_evidence_role_query_families"][0])[:125] + "...",
+            ),
+            "selected_role_families": sample["selected_role_families"],
+        }
+        for sample in samples
+    ]
+
+    summary = actionable_gap_summary(
+        evaluation_count=2,
+        expected_case_count=2,
+        failed_gates=("query_plan_evidence_roles_clear",),
+        query_overlap_count=0,
+        profile_overlap_count=0,
+        intent_overlap_count=0,
+        query_plan_gap_breakdown={
+            "missing_evidence_role_query_family_counts": {
+                first_family: 1,
+                second_family: 1,
+            },
+            "gap_reason_counts": {},
+            "compact_samples": compact_samples,
+            "samples": samples,
+        },
+    )
+
+    second_gap = next(
+        gap for gap in summary["ranked_gaps"] if gap["gap"] == second_family
+    )
+
+    assert second_gap["sample_case_ids"] == ["second-case"]
+    assert second_gap["samples"] == [
+        {
+            "case_id": "second-case",
+            "gap_reasons": ["missing_evidence_role_query_family"],
+            "missing_evidence_role_query_families": [second_family[:125] + "..."],
+            "selected_role_families": ["base_query"],
+        }
+    ]

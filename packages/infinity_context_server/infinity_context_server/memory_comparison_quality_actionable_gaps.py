@@ -636,18 +636,19 @@ def _action_for_gap(category: str, gap: str, *, default: str) -> str:
 def _query_plan_samples(
     breakdown: Mapping[str, object],
 ) -> tuple[Mapping[str, object], ...]:
+    raw_samples = tuple(
+        sample
+        for sample in _sequence(breakdown.get("samples"))
+        if isinstance(sample, Mapping)
+    )
+    if raw_samples:
+        return raw_samples
     compact_samples = tuple(
         sample
         for sample in _sequence(breakdown.get("compact_samples"))
         if isinstance(sample, Mapping)
     )
-    if compact_samples:
-        return compact_samples
-    return tuple(
-        sample
-        for sample in _sequence(breakdown.get("samples"))
-        if isinstance(sample, Mapping)
-    )
+    return compact_samples
 
 
 def _query_plan_samples_for_gap(

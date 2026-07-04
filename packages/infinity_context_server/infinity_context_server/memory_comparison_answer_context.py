@@ -2673,6 +2673,11 @@ def _sequence(value: object) -> tuple[object, ...]:
 
 
 def _string_tuple(value: object) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        stripped = value.strip()
+        return (stripped,) if stripped else ()
     return tuple(str(item).strip() for item in _sequence(value) if str(item).strip())
 
 

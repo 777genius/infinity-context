@@ -90,6 +90,90 @@ def test_answer_context_propagates_selected_item_risk_reasons() -> None:
     ]
 
 
+def test_answer_context_keeps_scalar_bundle_risk_reason_through_skip_and_backfill() -> None:
+    memories = (
+        RetrievedMemory(
+            text="D1:1 Morgan chose the evening class.",
+            rank=1,
+            item_id="primary",
+            source_refs=("D1:1",),
+        ),
+        RetrievedMemory(
+            text="D1:1 Morgan picked the evening class.",
+            rank=2,
+            item_id="duplicate-contrast",
+            source_refs=("D1:1",),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "answerability_score": 0.8,
+                        "source_locality_score": 0.8,
+                    }
+                }
+            },
+        ),
+        RetrievedMemory(
+            text="D1:3 Morgan said the schedule was the reason.",
+            rank=3,
+            item_id="backfill-contrast",
+            source_refs=("D1:3",),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "answerability_score": 0.9,
+                        "source_locality_score": 0.9,
+                        "relation_category_hits": ["contrast"],
+                        "query_roles": ["contrast"],
+                    }
+                }
+            },
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "required_roles": ["contrast"],
+            "bundle_planner": {
+                "bundle_quality": {
+                    "reason_codes": "risk:provenance_gap",
+                }
+            },
+            "items": [
+                {"id": "primary", "retrieval_order": 1, "role": "primary"},
+                {
+                    "id": "duplicate-contrast",
+                    "retrieval_order": 2,
+                    "role": "contrast",
+                },
+            ],
+        },
+        cutoff=3,
+    )
+
+    bundle_risks = (
+        "risk:provenance_gap",
+        "risk:missing_required_role",
+        "risk:missing_required_contrast",
+    )
+    assert context.bundle_risk_reason_codes == bundle_risks
+    assert context.memories[0].metadata["answer_context_bundle_risk_reason_codes"] == (
+        bundle_risks
+    )
+    assert context.memories[1].metadata["answer_context_bundle_risk_reason_codes"] == (
+        bundle_risks
+    )
+    assert context.skipped_duplicate_source_bundle_item_count == 1
+    assert context.backfilled_retrieval_item_count == 1
+    assert context.to_diagnostics()["risk_reason_codes"] == [
+        "risk:provenance_gap",
+        "risk:missing_required_role",
+        "risk:missing_required_contrast",
+        "risk:skipped_duplicate_source_bundle_item",
+        "risk:retrieval_backfill",
+    ]
+
+
 def test_answer_context_uses_bundle_order_within_cutoff() -> None:
     memories = (
         RetrievedMemory(text="noise", rank=1, item_id="noise"),
