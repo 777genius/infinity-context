@@ -9,6 +9,9 @@ from dataclasses import dataclass, field
 from infinity_context_server.memory_comparison_answer_context_backfill import (
     backfill_incomplete_bundle_context,
 )
+from infinity_context_server.memory_comparison_answer_context_inspection import (
+    answer_context_inspection_flags as _answer_context_inspection_flags,
+)
 from infinity_context_server.memory_comparison_answer_context_retrieval_slice import (
     retrieval_slice_answer_context,
 )
@@ -111,6 +114,11 @@ class AnswerContext:
         risk_reason_codes = _answer_context_risk_reason_codes(
             self,
             backfill_risk_stats=backfill_risk_stats,
+        )
+        inspection_flags = _answer_context_inspection_flags(
+            self,
+            backfill_risk_stats=backfill_risk_stats,
+            quality_score_stats=quality_score_stats,
         )
         return {
             "schema_version": "answer_context.v1",
@@ -215,6 +223,7 @@ class AnswerContext:
             "missing_required_roles": list(self.missing_required_roles),
             "bundle_risk_reason_codes": list(self.bundle_risk_reason_codes),
             "risk_reason_codes": list(risk_reason_codes),
+            "inspection_flags": list(inspection_flags),
             "fallback_reason": self.fallback_reason,
             "item_ids": [
                 memory.item_id
@@ -769,6 +778,9 @@ def answer_context_metrics(
         "primary_risk_reason_counts": _int_mapping(
             primary.get("risk_reason_counts")
         ),
+        "primary_inspection_flag_counts": _int_mapping(
+            primary.get("inspection_flag_counts")
+        ),
         "primary_total_backfilled_low_answerability_count": (
             _positive_int(primary.get("total_backfilled_low_answerability_count"))
             or 0
@@ -1064,6 +1076,7 @@ def _answer_context_cutoff_metrics(
     missing_required_role_counts: Counter[str] = Counter()
     bundle_risk_reason_counts: Counter[str] = Counter()
     risk_reason_counts: Counter[str] = Counter()
+    inspection_flag_counts: Counter[str] = Counter()
     incomplete_role_requirement_count = 0
     missing_context_count = 0
 
@@ -1339,6 +1352,7 @@ def _answer_context_cutoff_metrics(
             _string_tuple(context.get("bundle_risk_reason_codes"))
         )
         risk_reason_counts.update(_string_tuple(context.get("risk_reason_codes")))
+        inspection_flag_counts.update(_string_tuple(context.get("inspection_flags")))
 
     total = len(cutoff_payloads)
     evidence_bundle_count = source_counts.get("evidence_bundle", 0)
@@ -1640,6 +1654,7 @@ def _answer_context_cutoff_metrics(
         ),
         "bundle_risk_reason_counts": dict(sorted(bundle_risk_reason_counts.items())),
         "risk_reason_counts": dict(sorted(risk_reason_counts.items())),
+        "inspection_flag_counts": dict(sorted(inspection_flag_counts.items())),
     }
 
 

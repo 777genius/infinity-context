@@ -83,6 +83,32 @@ def test_llm_memory_line_renders_backfill_skip_diagnostics() -> None:
     assert "backfill_skipped=risky:1,source:2,role:3" in line
 
 
+def test_llm_memory_line_renders_favorite_typed_relation_support() -> None:
+    line = _render_memory_evidence_line(
+        RetrievedMemory(
+            text="D1:3 Alex: My favorite color is blue.",
+            rank=1,
+            source_refs=("D1:3",),
+            metadata={
+                "answer_context_role": "favorite_support",
+                "answer_context_bundle_preference_support_count": 1,
+                "answer_context_bundle_favorite_support_count": 1,
+                "answer_context_bundle_typed_relation_support_count": 2,
+                "answer_context_bundle_typed_relation_support_counts": {
+                    "favorite_support": 1,
+                    "health_support": 1,
+                },
+            },
+        ),
+        index=1,
+    )
+
+    assert (
+        "bundle_support=preference:1,favorite:1,typed_relation:2,"
+        "favorite_support:1,health_support:1"
+    ) in line
+
+
 def test_llm_memory_line_merges_bundle_and_item_risk_reasons() -> None:
     line = _render_memory_evidence_line(
         RetrievedMemory(

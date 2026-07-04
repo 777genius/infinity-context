@@ -7,6 +7,9 @@ from collections.abc import Mapping, Sequence
 
 from infinity_context_server.memory_comparison_quality_accessors import avg as _avg
 from infinity_context_server.memory_comparison_quality_accessors import (
+    bundle_complete as _bundle_complete,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
     bundle_planner as _bundle_planner,
 )
 from infinity_context_server.memory_comparison_quality_accessors import (
@@ -83,6 +86,9 @@ def bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, obj
     weak_support_bundle_count = 0
     weak_support_medium_or_high_count = 0
     weak_samples: list[dict[str, object]] = []
+    confidence_gap_counts: Counter[str] = Counter()
+    confidence_gap_bundle_count = 0
+    confidence_gap_samples: list[dict[str, object]] = []
 
     for item in items:
         planner = _bundle_planner(item)
@@ -236,6 +242,24 @@ def bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, obj
             weak_support_bundle_count += 1
             if band in {"medium", "high"}:
                 weak_support_medium_or_high_count += 1
+        confidence_gap_reasons = _confidence_gap_reasons(
+            item,
+            band=band,
+            weak_support_reasons=weak_support_reasons,
+        )
+        if confidence_gap_reasons:
+            confidence_gap_bundle_count += 1
+            confidence_gap_counts.update(confidence_gap_reasons)
+            if len(confidence_gap_samples) < 10:
+                confidence_gap_samples.append(
+                    _confidence_gap_sample(
+                        item,
+                        quality,
+                        confidence_gap_reasons=confidence_gap_reasons,
+                        weak_support_reasons=weak_support_reasons,
+                        extra_reason_codes=derived_risk_reasons,
+                    )
+                )
         if len(weak_samples) < 10 and (
             band in {"none", "low"}
             or bool(weak_support_reasons)
@@ -450,12 +474,15 @@ def bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, obj
         "confidence_band_counts": dict(sorted(band_counts.items())),
         "weak_support_bundle_count": weak_support_bundle_count,
         "weak_support_reason_counts": dict(sorted(weak_support_reason_counts.items())),
+        "confidence_gap_bundle_count": confidence_gap_bundle_count,
+        "confidence_gap_counts": dict(sorted(confidence_gap_counts.items())),
         "risk_reason_counts": {
             reason: count
             for reason, count in sorted(reason_counts.items())
             if reason.startswith("risk:")
         },
         "top_reason_counts": _top_counts(reason_counts),
+        "confidence_gap_samples": confidence_gap_samples,
         "weak_samples": weak_samples,
     }
 
@@ -478,8 +505,17 @@ def bundle_quality_failure_breakdown(
             expected_case_count - medium_or_high_count,
         ),
         "weak_bundle_count": weak_count,
+        "confidence_gap_bundle_count": (
+            _positive_int(bundle_quality.get("confidence_gap_bundle_count")) or 0
+        ),
+        "confidence_gap_counts": _count_mapping(
+            bundle_quality.get("confidence_gap_counts")
+        ),
         "risk_reason_counts": _count_mapping(bundle_quality.get("risk_reason_counts")),
         "top_reason_counts": _count_mapping(bundle_quality.get("top_reason_counts")),
+        "confidence_gap_samples": list(
+            _sequence(bundle_quality.get("confidence_gap_samples"))
+        )[:5],
         "weak_samples": list(_sequence(bundle_quality.get("weak_samples")))[:5],
     }
 
@@ -672,3 +708,52 @@ def _bundle_quality_sample(
             _positive_int(quality.get("conflict_or_stale_count")) or 0
         ),
     }
+
+
+def _confidence_gap_reasons(
+    item: Mapping[str, object],
+    *,
+    band: str,
+    weak_support_reasons: Sequence[str],
+) -> tuple[str, ...]:
+    bundle_complete = _bundle_complete(item)
+    if band in {"medium", "high"}:
+        reasons: list[str] = []
+        if not bundle_complete:
+            reasons.append("medium_or_high_incomplete_bundle")
+        if weak_support_reasons:
+            reasons.append("medium_or_high_weak_support")
+        return tuple(reasons)
+    if band in {"none", "low"} and bundle_complete and not weak_support_reasons:
+        return ("low_confidence_complete_bundle",)
+    return ()
+
+
+def _confidence_gap_sample(
+    item: Mapping[str, object],
+    quality: Mapping[str, object],
+    *,
+    confidence_gap_reasons: Sequence[str],
+    weak_support_reasons: Sequence[str],
+    extra_reason_codes: Sequence[str],
+) -> dict[str, object]:
+    bundle = _mapping(item.get("evidence_bundle"))
+    retrieval_quality = _mapping(item.get("retrieval_quality"))
+    sample = _bundle_quality_sample(
+        item,
+        quality,
+        extra_reason_codes=extra_reason_codes,
+    )
+    sample.update(
+        {
+            "bundle_complete": _bundle_complete(item),
+            "item_count": _positive_int(bundle.get("item_count")) or 0,
+            "confidence_gap_reasons": tuple(confidence_gap_reasons),
+            "weak_support_reasons": tuple(weak_support_reasons),
+            "covered_evidence_terms": _str_tuple(bundle.get("covered_evidence_terms")),
+            "missing_evidence_terms": _str_tuple(
+                retrieval_quality.get("missing_evidence_terms")
+            ),
+        }
+    )
+    return sample

@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import re
 from collections import defaultdict
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
+
+_TURN_REF_RE = re.compile(r"\bD(?P<source>\d+):(?P<turn>\d+)\b")
 
 
 def failure_diagnostics(evaluation: Mapping[str, object]) -> dict[str, object]:
@@ -67,6 +70,11 @@ def failure_diagnostics(evaluation: Mapping[str, object]) -> dict[str, object]:
         "missing_evidence_terms": _str_tuple(
             retrieval_quality.get("missing_evidence_terms")
         ),
+        "missing_evidence_source_locality": _missing_evidence_source_locality(
+            _str_tuple(retrieval_quality.get("missing_evidence_terms")),
+            retrieval_results=_retrieval_results(evaluation),
+            bundle_items=bundle_items,
+        ),
         "partial_expected_support": _partial_support(
             _metric_value(retrieval_quality, "expected_term_recall")
         ),
@@ -127,6 +135,24 @@ def failure_diagnostic_reason_codes(
         reason_codes.append("missing_expected_terms")
     if _str_tuple(retrieval_quality.get("missing_evidence_terms")):
         reason_codes.append("missing_evidence_refs")
+    missing_evidence_locality = _mapping(
+        diagnostics.get("missing_evidence_source_locality")
+    )
+    if (_positive_int(missing_evidence_locality.get("missing_turn_ref_count")) or 0) > 0:
+        if (
+            _positive_int(missing_evidence_locality.get("source_absent_count")) or 0
+        ) > 0:
+            reason_codes.append("missing_evidence_source_absent")
+        if (
+            _positive_int(missing_evidence_locality.get("near_retrieved_window_count"))
+            or 0
+        ) > 0:
+            reason_codes.append("missing_evidence_source_window_miss")
+        elif (
+            _positive_int(missing_evidence_locality.get("same_source_missing_count"))
+            or 0
+        ) > 0:
+            reason_codes.append("missing_evidence_same_source_miss")
     evidence_recall = _metric_value(retrieval_quality, "evidence_term_recall")
     if 0 < evidence_recall < 1.0:
         reason_codes.append("partial_evidence_ref_support")
@@ -178,6 +204,111 @@ def _result_retrieval_sources(result: Mapping[str, object]) -> tuple[str, ...]:
 
 def _bundle_items(bundle: Mapping[str, object]) -> tuple[Mapping[str, object], ...]:
     return tuple(item for item in _sequence(bundle.get("items")) if isinstance(item, Mapping))
+
+
+def _missing_evidence_source_locality(
+    missing_evidence_terms: Sequence[str],
+    *,
+    retrieval_results: Sequence[Mapping[str, object]],
+    bundle_items: Sequence[Mapping[str, object]],
+) -> dict[str, object]:
+    missing_refs = _turn_refs(missing_evidence_terms)
+    retrieval_turns = _source_turns(
+        source_ref
+        for result in retrieval_results
+        for source_ref in _str_tuple(result.get("source_refs"))
+    )
+    bundle_turns = _source_turns(
+        source_ref
+        for item in bundle_items
+        for source_ref in _str_tuple(item.get("source_refs"))
+    )
+    windows = [
+        _missing_ref_window(ref, retrieval_turns=retrieval_turns, bundle_turns=bundle_turns)
+        for ref in missing_refs
+    ]
+    same_source_missing_count = sum(
+        1 for window in windows if window["retrieved_same_source"] is True
+    )
+    near_retrieved_window_count = sum(
+        1
+        for window in windows
+        if (
+            isinstance(window.get("nearest_retrieved_turn_distance"), int)
+            and int(window["nearest_retrieved_turn_distance"]) <= 2
+        )
+    )
+    return {
+        "schema_version": "missing_evidence_source_locality.v1",
+        "missing_turn_ref_count": len(missing_refs),
+        "retrieved_source_ids": sorted(retrieval_turns),
+        "bundle_source_ids": sorted(bundle_turns),
+        "same_source_missing_count": same_source_missing_count,
+        "near_retrieved_window_count": near_retrieved_window_count,
+        "source_absent_count": len(missing_refs) - same_source_missing_count,
+        "missing_ref_windows": windows[:8],
+    }
+
+
+def _missing_ref_window(
+    ref: tuple[str, int],
+    *,
+    retrieval_turns: Mapping[str, tuple[int, ...]],
+    bundle_turns: Mapping[str, tuple[int, ...]],
+) -> dict[str, object]:
+    source_id, turn = ref
+    nearest_retrieved = _nearest_turn(source_id, turn, retrieval_turns)
+    nearest_bundle = _nearest_turn(source_id, turn, bundle_turns)
+    window: dict[str, object] = {
+        "ref": f"{source_id}:{turn}",
+        "source_id": source_id,
+        "retrieved_same_source": source_id in retrieval_turns,
+        "bundle_same_source": source_id in bundle_turns,
+    }
+    if nearest_retrieved is not None:
+        nearest_turn, distance = nearest_retrieved
+        window["nearest_retrieved_turn_ref"] = f"{source_id}:{nearest_turn}"
+        window["nearest_retrieved_turn_distance"] = distance
+    if nearest_bundle is not None:
+        nearest_turn, distance = nearest_bundle
+        window["nearest_bundle_turn_ref"] = f"{source_id}:{nearest_turn}"
+        window["nearest_bundle_turn_distance"] = distance
+    return window
+
+
+def _nearest_turn(
+    source_id: str,
+    turn: int,
+    source_turns: Mapping[str, tuple[int, ...]],
+) -> tuple[int, int] | None:
+    turns = source_turns.get(source_id)
+    if not turns:
+        return None
+    nearest = min(turns, key=lambda candidate: (abs(candidate - turn), candidate))
+    return nearest, abs(nearest - turn)
+
+
+def _source_turns(values: Iterable[str]) -> dict[str, tuple[int, ...]]:
+    turns_by_source: dict[str, set[int]] = defaultdict(set)
+    for source_id, turn in _turn_refs(values):
+        turns_by_source[source_id].add(turn)
+    return {
+        source_id: tuple(sorted(turns))
+        for source_id, turns in sorted(turns_by_source.items())
+    }
+
+
+def _turn_refs(values: Iterable[str]) -> tuple[tuple[str, int], ...]:
+    refs: list[tuple[str, int]] = []
+    seen: set[tuple[str, int]] = set()
+    for value in values:
+        for match in _TURN_REF_RE.finditer(str(value)):
+            ref = (f"D{match.group('source')}", int(match.group("turn")))
+            if ref in seen:
+                continue
+            refs.append(ref)
+            seen.add(ref)
+    return tuple(refs)
 
 
 def _partial_support(value: float) -> bool:

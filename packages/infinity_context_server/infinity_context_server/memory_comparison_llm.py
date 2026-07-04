@@ -411,14 +411,41 @@ def _bundle_support_counts(metadata: Mapping[str, object]) -> tuple[str, ...]:
     )
     if preference is not None:
         counts.append(f"preference:{preference}")
+    favorite = _positive_int(
+        metadata.get("answer_context_bundle_favorite_support_count")
+    )
+    if favorite is not None:
+        counts.append(f"favorite:{favorite}")
     visual = _positive_int(
         metadata.get("answer_context_bundle_visual_support_count")
     )
     if visual is not None:
         counts.append(f"visual:{visual}")
+    typed_relation = _positive_int(
+        metadata.get("answer_context_bundle_typed_relation_support_count")
+    )
+    if typed_relation is not None:
+        counts.append(f"typed_relation:{typed_relation}")
+    typed_relation_counts = _typed_relation_support_counts(metadata)
+    counts.extend(typed_relation_counts)
     contrast = _positive_int(metadata.get("answer_context_bundle_contrast_count"))
     if contrast is not None:
         counts.append(f"contrast:{contrast}")
+    return tuple(counts)
+
+
+def _typed_relation_support_counts(
+    metadata: Mapping[str, object],
+) -> tuple[str, ...]:
+    raw_counts = metadata.get("answer_context_bundle_typed_relation_support_counts")
+    if not isinstance(raw_counts, Mapping):
+        return ()
+    counts: list[str] = []
+    for role, value in sorted(raw_counts.items()):
+        role_name = str(role).strip()
+        count = _positive_int(value)
+        if role_name and count is not None:
+            counts.append(f"{role_name}:{count}")
     return tuple(counts)
 
 

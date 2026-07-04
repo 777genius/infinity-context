@@ -237,6 +237,21 @@ def _root_cause_tags(failure: Mapping[str, object]) -> tuple[str, ...]:
         tags.append("retrieval:partial_expected_term_support")
     if "missing_evidence_refs" in reason_codes:
         tags.append("evidence:missing_refs")
+        missing_locality = _mapping(
+            diagnostics.get("missing_evidence_source_locality")
+        )
+        if (
+            _positive_int(missing_locality.get("source_absent_count")) or 0
+        ) > 0:
+            tags.append("evidence:missing_source_absent")
+        if (
+            _positive_int(missing_locality.get("near_retrieved_window_count")) or 0
+        ) > 0:
+            tags.append("evidence:source_window_miss")
+        elif (
+            _positive_int(missing_locality.get("same_source_missing_count")) or 0
+        ) > 0:
+            tags.append("evidence:same_source_miss")
     elif "partial_evidence_ref_support" in reason_codes:
         tags.append("evidence:partial_refs")
     for role in _strings(bundle.get("missing_required_roles")):
@@ -280,12 +295,49 @@ def _root_cause_example(
     missing_evidence_refs = _missing_evidence_refs(failure)
     if missing_evidence_refs:
         payload["missing_evidence_ref_count"] = len(missing_evidence_refs)
+    missing_locality = _missing_evidence_source_locality_summary(failure)
+    if missing_locality:
+        payload["missing_evidence_source_locality"] = missing_locality
     return payload
+
+
+def _missing_evidence_source_locality_summary(
+    failure: Mapping[str, object],
+) -> dict[str, int] | None:
+    locality = _mapping(
+        _mapping(failure.get("diagnostics")).get("missing_evidence_source_locality")
+    )
+    if not locality:
+        return None
+    summary = {
+        "missing_turn_ref_count": _positive_int(locality.get("missing_turn_ref_count"))
+        or 0,
+        "same_source_missing_count": _positive_int(
+            locality.get("same_source_missing_count")
+        )
+        or 0,
+        "near_retrieved_window_count": _positive_int(
+            locality.get("near_retrieved_window_count")
+        )
+        or 0,
+        "source_absent_count": _positive_int(locality.get("source_absent_count")) or 0,
+    }
+    return summary if any(summary.values()) else None
 
 
 def _normalize_tag_value(value: object) -> str:
     normalized = str(value or "unknown").strip().lower().replace(" ", "_")
     return normalized or "unknown"
+
+
+def _positive_int(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        parsed = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
 
 
 def _filter_failures(

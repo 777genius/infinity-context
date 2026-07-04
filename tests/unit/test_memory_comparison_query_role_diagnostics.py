@@ -318,6 +318,35 @@ def test_query_role_effectiveness_reports_required_role_candidate_query_gaps() -
         "temporal_support": 1
     }
     assert table["missing_required_evidence_roles"] == ["temporal_support"]
+    assert table["required_role_coverage_gap_count"] == 1
+    assert table["required_role_coverage_gap_counts"] == {
+        "candidate_query": 1,
+        "missing_required_evidence": 1,
+        "selected_evidence_query": 1,
+    }
+    assert table["required_role_coverage_gap_samples"] == [
+        {
+            "case_id": "required-role-gap",
+            "group": "",
+            "required_role": "temporal_support",
+            "gap_reasons": [
+                "candidate_query",
+                "selected_evidence_query",
+                "missing_required_evidence",
+            ],
+            "required_query_family": "temporal_support",
+            "required_selected_query_families": [
+                "expanded_focus",
+                "temporal_support",
+            ],
+            "candidate_query_role_families": [
+                "location_support",
+                "relation_compact",
+            ],
+            "selected_query_role_families": [],
+            "selected_evidence_query_role_families": [],
+        }
+    ]
 
     breakdown = fast_gate_metrics((item,), expected_case_count=1)[
         "query_role_gap_breakdown"
@@ -334,6 +363,14 @@ def test_query_role_effectiveness_reports_required_role_candidate_query_gaps() -
         "temporal_support"
     ]
     assert breakdown["missing_required_evidence_roles"] == ["temporal_support"]
+    assert breakdown["required_role_coverage_gap_counts"] == {
+        "candidate_query": 1,
+        "missing_required_evidence": 1,
+        "selected_evidence_query": 1,
+    }
+    assert breakdown["required_role_coverage_gap_samples"] == (
+        table["required_role_coverage_gap_samples"]
+    )
 
 
 def test_query_role_effectiveness_reports_required_role_selected_query_gaps() -> None:
@@ -384,6 +421,24 @@ def test_query_role_effectiveness_reports_required_role_selected_query_gaps() ->
     assert table["required_roles_without_selected_queries"] == [
         "temporal_support"
     ]
+    assert table["required_role_coverage_gap_count"] == 1
+    assert table["required_role_coverage_gap_counts"] == {"selected_query": 1}
+    assert table["required_role_coverage_gap_samples"] == [
+        {
+            "case_id": "required-selected-query-gap",
+            "group": "",
+            "required_role": "temporal_support",
+            "gap_reasons": ["selected_query"],
+            "required_query_family": "temporal_support",
+            "required_selected_query_families": [
+                "expanded_focus",
+                "temporal_support",
+            ],
+            "candidate_query_role_families": ["temporal_support"],
+            "selected_query_role_families": ["base_query"],
+            "selected_evidence_query_role_families": ["temporal_support"],
+        }
+    ]
 
     breakdown = fast_gate_metrics((item,), expected_case_count=1)[
         "query_role_gap_breakdown"
@@ -394,6 +449,8 @@ def test_query_role_effectiveness_reports_required_role_selected_query_gaps() ->
     assert breakdown["required_roles_without_selected_queries"] == [
         "temporal_support"
     ]
+    assert breakdown["required_role_coverage_gap_count"] == 1
+    assert breakdown["required_role_coverage_gap_counts"] == {"selected_query": 1}
 
 
 def test_query_role_effectiveness_distinguishes_unrelated_selected_evidence_queries() -> None:
@@ -482,6 +539,24 @@ def test_query_role_effectiveness_distinguishes_unrelated_selected_evidence_quer
     assert table["required_roles_without_selected_evidence_queries"] == [
         "temporal_support"
     ]
+    assert table["required_role_coverage_gap_count"] == 1
+    assert table["required_role_coverage_gap_counts"] == {
+        "selected_evidence_query": 1
+    }
+    assert table["required_role_coverage_gap_samples"][0] == {
+        "case_id": "unrelated-selected-query-role",
+        "group": "",
+        "required_role": "temporal_support",
+        "gap_reasons": ["selected_evidence_query"],
+        "required_query_family": "temporal_support",
+        "required_selected_query_families": [
+            "expanded_focus",
+            "temporal_support",
+        ],
+        "candidate_query_role_families": ["temporal_support"],
+        "selected_query_role_families": ["temporal_support"],
+        "selected_evidence_query_role_families": [],
+    }
 
     breakdown = fast_gate_metrics(
         (unrelated_item, covered_item),
@@ -496,6 +571,12 @@ def test_query_role_effectiveness_distinguishes_unrelated_selected_evidence_quer
     assert breakdown["required_roles_without_selected_evidence_queries"] == [
         "temporal_support"
     ]
+    assert breakdown["required_role_coverage_gap_counts"] == {
+        "selected_evidence_query": 1
+    }
+    assert breakdown["required_role_coverage_gap_samples"] == (
+        table["required_role_coverage_gap_samples"]
+    )
 
 
 def test_query_role_effectiveness_accepts_compact_query_for_profile_required_role() -> None:

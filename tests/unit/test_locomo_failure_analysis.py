@@ -263,6 +263,56 @@ def test_locomo_failure_analysis_groups_root_cause_tags_from_diagnostics() -> No
     ]
 
 
+def test_locomo_failure_analysis_tags_missing_evidence_source_locality() -> None:
+    report = {
+        "failures": [
+            {
+                "case_id": "window-miss",
+                "capability": "locomo_category_2",
+                "reason": "expected_terms_missing",
+                "diagnostic_reason_codes": ["missing_evidence_refs"],
+                "diagnostics": {
+                    "missing_evidence_terms": ["D1:9"],
+                    "missing_evidence_source_locality": {
+                        "missing_turn_ref_count": 1,
+                        "same_source_missing_count": 1,
+                        "near_retrieved_window_count": 1,
+                        "source_absent_count": 0,
+                    },
+                },
+            },
+            {
+                "case_id": "source-absent",
+                "capability": "locomo_category_2",
+                "reason": "expected_terms_missing",
+                "diagnostic_reason_codes": ["missing_evidence_refs"],
+                "diagnostics": {
+                    "missing_evidence_terms": ["D7:2"],
+                    "missing_evidence_source_locality": {
+                        "missing_turn_ref_count": 1,
+                        "same_source_missing_count": 0,
+                        "near_retrieved_window_count": 0,
+                        "source_absent_count": 1,
+                    },
+                },
+            },
+        ]
+    }
+
+    summary = _summary(_failures(report), top=10)
+
+    assert summary["root_cause_tag_count"]["evidence:source_window_miss"] == 1
+    assert summary["root_cause_tag_count"]["evidence:missing_source_absent"] == 1
+    assert summary["root_cause_examples"]["evidence:missing_refs"][0][
+        "missing_evidence_source_locality"
+    ] == {
+        "missing_turn_ref_count": 1,
+        "same_source_missing_count": 1,
+        "near_retrieved_window_count": 1,
+        "source_absent_count": 0,
+    }
+
+
 def test_locomo_failure_analysis_limit_makes_small_canary_args(tmp_path) -> None:
     report = {
         "failures": [

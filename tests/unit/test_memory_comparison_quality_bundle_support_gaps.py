@@ -197,6 +197,132 @@ def test_quality_diagnostics_marks_noisy_complete_bundle_as_weak_support() -> No
     ]
 
 
+def test_quality_diagnostics_reports_confidence_gap_samples() -> None:
+    items = (
+        _item(
+            case_id="medium-incomplete",
+            retrieval_quality={"missing_evidence_terms": ["D1:2"]},
+            evidence_bundle={
+                "bundle_complete": False,
+                "item_count": 1,
+                "primary_evidence_count": 1,
+                "supporting_evidence_count": 0,
+                "covered_evidence_terms": ["D1:1"],
+                "bundle_planner": {
+                    "bundle_quality": _bundle_quality(
+                        confidence_score=0.71,
+                        confidence_band="medium",
+                        reason_codes=("has_primary_evidence",),
+                        selected_item_count=1,
+                        primary_count=1,
+                        supporting_count=0,
+                    )
+                },
+                "items": [
+                    {
+                        "role": "primary",
+                        "source_refs": ["D1:1"],
+                        "focused_evidence_score": 1.0,
+                    }
+                ],
+            },
+        ),
+        _item(
+            case_id="high-role-label-only",
+            evidence_bundle={
+                "bundle_complete": True,
+                "item_count": 2,
+                "primary_evidence_count": 1,
+                "supporting_evidence_count": 1,
+                "covered_evidence_terms": ["D2:1"],
+                "bundle_planner": {
+                    "bundle_quality": _bundle_quality(
+                        confidence_score=0.84,
+                        confidence_band="high",
+                        reason_codes=(
+                            "has_primary_evidence",
+                            "has_preference_support_evidence",
+                        ),
+                        selected_item_count=2,
+                        primary_count=1,
+                        supporting_count=1,
+                        preference_support_count=1,
+                    )
+                },
+                "items": [
+                    {
+                        "role": "primary",
+                        "source_refs": ["D2:1"],
+                        "focused_evidence_score": 1.0,
+                    },
+                    {
+                        "role": "preference_support",
+                        "planner_reason_codes": ["role:preference_support"],
+                        "answerability_score": 0.8,
+                    },
+                ],
+            },
+        ),
+        _item(
+            case_id="low-complete",
+            evidence_bundle={
+                "bundle_complete": True,
+                "item_count": 1,
+                "primary_evidence_count": 1,
+                "supporting_evidence_count": 0,
+                "covered_evidence_terms": ["D3:1"],
+                "bundle_planner": {
+                    "bundle_quality": _bundle_quality(
+                        confidence_score=0.32,
+                        confidence_band="low",
+                        reason_codes=("risk:low_primary_count",),
+                        selected_item_count=1,
+                        primary_count=1,
+                        supporting_count=0,
+                    )
+                },
+                "items": [
+                    {
+                        "role": "primary",
+                        "source_refs": ["D3:1"],
+                        "focused_evidence_score": 1.0,
+                    }
+                ],
+            },
+        ),
+    )
+    diagnostics = quality_diagnostics(items)
+
+    table = diagnostics["bundle_quality_table"]
+    breakdown = fast_gate_metrics(
+        items,
+        expected_case_count=3,
+    )["bundle_quality_failure_breakdown"]
+
+    assert table["confidence_gap_bundle_count"] == 3
+    assert table["confidence_gap_counts"] == {
+        "low_confidence_complete_bundle": 1,
+        "medium_or_high_incomplete_bundle": 1,
+        "medium_or_high_weak_support": 1,
+    }
+    assert table["confidence_gap_samples"][0]["case_id"] == "medium-incomplete"
+    assert table["confidence_gap_samples"][0]["bundle_complete"] is False
+    assert table["confidence_gap_samples"][0]["missing_evidence_terms"] == ("D1:2",)
+    assert table["confidence_gap_samples"][1]["case_id"] == "high-role-label-only"
+    assert table["confidence_gap_samples"][1]["weak_support_reasons"] == (
+        "role_label_only_support",
+    )
+    assert table["confidence_gap_samples"][2]["confidence_gap_reasons"] == (
+        "low_confidence_complete_bundle",
+    )
+    assert breakdown["confidence_gap_bundle_count"] == 3
+    assert breakdown["confidence_gap_counts"] == {
+        "low_confidence_complete_bundle": 1,
+        "medium_or_high_incomplete_bundle": 1,
+        "medium_or_high_weak_support": 1,
+    }
+
+
 def test_fast_gate_metrics_rejects_unrelated_relation_as_inference_support() -> None:
     gate = fast_gate_metrics(
         (

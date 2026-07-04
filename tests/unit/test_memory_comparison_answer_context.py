@@ -738,6 +738,50 @@ def test_answer_context_merges_role_completion_from_bundle_and_planner() -> None
     ]
 
 
+def test_answer_context_surfaces_inspection_flags_for_weak_bundle() -> None:
+    memories = (
+        RetrievedMemory(
+            text="primary evidence",
+            rank=1,
+            item_id="primary",
+            source_refs=("D1:1",),
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "role_requirement_complete": False,
+            "missing_required_roles": ["contrast"],
+            "bundle_planner": {
+                "bundle_quality": {
+                    "confidence_score": 0.42,
+                    "confidence_band": "low",
+                    "source_type_diversity": 1,
+                },
+            },
+            "items": [
+                {
+                    "id": "primary",
+                    "retrieval_order": 1,
+                    "role": "primary",
+                    "answerability_score": 0.4,
+                    "source_locality_score": 0.3,
+                }
+            ],
+        },
+        cutoff=1,
+    )
+
+    assert context.to_diagnostics()["inspection_flags"] == [
+        "missing_required_roles",
+        "low_bundle_confidence",
+        "weak_bundle_source_support",
+        "low_context_answerability",
+        "weak_context_source_locality",
+    ]
+
+
 def test_answer_context_matches_source_turn_dedupe_key_without_retrieval_order() -> None:
     memories = (
         RetrievedMemory(text="noise", rank=1),
@@ -2773,6 +2817,11 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
                                 "risk:skipped_redundant_role_backfill",
                                 "risk:skipped_target_limit_backfill",
                             ],
+                            "inspection_flags": [
+                                "missing_required_roles",
+                                "low_answerability_backfill",
+                                "weak_source_locality_backfill",
+                            ],
                         },
                     }
                 },
@@ -2794,6 +2843,7 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
                             "skipped_bundle_item_count": 0,
                             "skipped_duplicate_source_bundle_item_count": 0,
                             "skipped_noisy_overlap_bundle_item_count": 0,
+                            "inspection_flags": ["retrieval_slice_fallback"],
                         },
                     }
                 },
@@ -2833,6 +2883,12 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
         "risk:skipped_redundant_role_backfill": 1,
         "risk:skipped_redundant_source_backfill": 1,
         "risk:skipped_target_limit_backfill": 1,
+    }
+    assert metrics["primary_inspection_flag_counts"] == {
+        "low_answerability_backfill": 1,
+        "missing_required_roles": 1,
+        "retrieval_slice_fallback": 1,
+        "weak_source_locality_backfill": 1,
     }
     assert metrics["primary_total_backfilled_low_answerability_count"] == 1
     assert metrics["primary_total_backfilled_precise_source_overlap_count"] == 1
@@ -3051,4 +3107,10 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
         "risk:skipped_redundant_role_backfill": 1,
         "risk:skipped_redundant_source_backfill": 1,
         "risk:skipped_target_limit_backfill": 1,
+    }
+    assert primary["inspection_flag_counts"] == {
+        "low_answerability_backfill": 1,
+        "missing_required_roles": 1,
+        "retrieval_slice_fallback": 1,
+        "weak_source_locality_backfill": 1,
     }

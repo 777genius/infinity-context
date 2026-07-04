@@ -41,6 +41,8 @@ from infinity_context_server.memory_comparison_quality_support import (
 )
 
 _TYPED_RELATION_SUPPORT_ROLES = frozenset(_typed_relation_support_roles())
+_REQUIRED_ROLE_COVERAGE_SAMPLE_LIMIT = 10
+_REQUIRED_ROLE_FAMILY_SAMPLE_LIMIT = 8
 
 _PROFILE_SUPPORT_ROLES = frozenset(
     {
@@ -90,6 +92,9 @@ def query_role_effectiveness_table(
     missing_required_role_candidate_query_counts: Counter[str] = Counter()
     missing_required_role_selected_query_counts: Counter[str] = Counter()
     missing_required_role_selected_evidence_query_counts: Counter[str] = Counter()
+    required_role_coverage_gap_counts: Counter[str] = Counter()
+    required_role_coverage_gap_count = 0
+    required_role_coverage_gap_samples: list[dict[str, object]] = []
     candidate_answerability_scores: dict[str, list[float]] = defaultdict(list)
     selected_answerability_scores: dict[str, list[float]] = defaultdict(list)
     candidate_source_locality_scores: dict[str, list[float]] = defaultdict(list)
@@ -137,16 +142,20 @@ def query_role_effectiveness_table(
 
         bundle = _mapping(item.get("evidence_bundle"))
         required_roles = _required_evidence_roles(item)
+        required_role_set = set(required_roles)
         missing_required_roles = _str_tuple(bundle.get("missing_required_roles"))
+        missing_required_role_set = set(missing_required_roles)
         selected_query_role_families = _selected_query_role_families(item)
         for role in required_roles:
             required_evidence_role_counts[role] += 1
             required_family = _required_evidence_role_query_family(role)
+            gap_reasons: list[str] = []
             if (
                 required_family
                 and required_family not in item_candidate_role_families
             ):
                 missing_required_role_candidate_query_counts[role] += 1
+                gap_reasons.append("candidate_query")
             required_selected_families = (
                 _required_evidence_role_selected_query_families(role)
             )
@@ -158,6 +167,7 @@ def query_role_effectiveness_table(
                 )
             ):
                 missing_required_role_selected_query_counts[role] += 1
+                gap_reasons.append("selected_query")
             selected_evidence_query_families = (
                 _selected_evidence_query_families_for_required_role(item, role)
             )
@@ -168,8 +178,43 @@ def query_role_effectiveness_table(
                     required_role_selected_evidence_query_counts[role] += 1
                 else:
                     missing_required_role_selected_evidence_query_counts[role] += 1
+                    gap_reasons.append("selected_evidence_query")
+            if role in missing_required_role_set:
+                gap_reasons.append("missing_required_evidence")
+            if gap_reasons:
+                required_role_coverage_gap_count += 1
+                required_role_coverage_gap_counts.update(gap_reasons)
+                _append_required_role_coverage_gap_sample(
+                    required_role_coverage_gap_samples,
+                    item=item,
+                    role=role,
+                    gap_reasons=gap_reasons,
+                    required_query_family=required_family,
+                    required_selected_query_families=required_selected_families,
+                    candidate_role_families=item_candidate_role_families,
+                    selected_query_role_families=selected_query_role_families,
+                    selected_evidence_query_families=selected_evidence_query_families,
+                )
         for role in missing_required_roles:
             missing_required_evidence_role_counts[role] += 1
+            if role not in required_role_set:
+                required_role_coverage_gap_count += 1
+                required_role_coverage_gap_counts["missing_required_evidence"] += 1
+                _append_required_role_coverage_gap_sample(
+                    required_role_coverage_gap_samples,
+                    item=item,
+                    role=role,
+                    gap_reasons=["missing_required_evidence"],
+                    required_query_family=_required_evidence_role_query_family(role),
+                    required_selected_query_families=(
+                        _required_evidence_role_selected_query_families(role)
+                    ),
+                    candidate_role_families=item_candidate_role_families,
+                    selected_query_role_families=selected_query_role_families,
+                    selected_evidence_query_families=(
+                        _selected_evidence_query_families_for_required_role(item, role)
+                    ),
+                )
 
         for bundle_item in _bundle_items(bundle):
             query_roles = _str_tuple(bundle_item.get("query_roles"))
@@ -304,6 +349,11 @@ def query_role_effectiveness_table(
         "missing_required_role_selected_evidence_query_counts": dict(
             sorted(missing_required_role_selected_evidence_query_counts.items())
         ),
+        "required_role_coverage_gap_count": required_role_coverage_gap_count,
+        "required_role_coverage_gap_counts": dict(
+            sorted(required_role_coverage_gap_counts.items())
+        ),
+        "required_role_coverage_gap_samples": required_role_coverage_gap_samples,
         "required_roles_without_candidate_queries": [
             role
             for role in sorted(required_evidence_role_counts)
@@ -386,6 +436,50 @@ def _query_role_families(query_role: str) -> tuple[str, ...]:
 
 def _query_role_family(query_role: str) -> str:
     return _query_role_families(query_role)[0]
+
+
+def _append_required_role_coverage_gap_sample(
+    samples: list[dict[str, object]],
+    *,
+    item: Mapping[str, object],
+    role: str,
+    gap_reasons: Sequence[str],
+    required_query_family: str,
+    required_selected_query_families: Sequence[str],
+    candidate_role_families: set[str],
+    selected_query_role_families: set[str],
+    selected_evidence_query_families: set[str],
+) -> None:
+    if len(samples) >= _REQUIRED_ROLE_COVERAGE_SAMPLE_LIMIT:
+        return
+    sample: dict[str, object] = {
+        "case_id": str(item.get("case_id") or ""),
+        "group": str(item.get("group") or ""),
+        "required_role": role,
+        "gap_reasons": list(dict.fromkeys(gap_reasons)),
+    }
+    if required_query_family:
+        sample["required_query_family"] = required_query_family
+    if required_selected_query_families:
+        sample["required_selected_query_families"] = _bounded_sorted_strings(
+            required_selected_query_families
+        )
+    sample["candidate_query_role_families"] = _bounded_sorted_strings(
+        candidate_role_families
+    )
+    sample["selected_query_role_families"] = _bounded_sorted_strings(
+        selected_query_role_families
+    )
+    sample["selected_evidence_query_role_families"] = _bounded_sorted_strings(
+        selected_evidence_query_families
+    )
+    samples.append(sample)
+
+
+def _bounded_sorted_strings(values: Sequence[str] | set[str]) -> list[str]:
+    return sorted(str(value) for value in values if str(value).strip())[
+        :_REQUIRED_ROLE_FAMILY_SAMPLE_LIMIT
+    ]
 
 
 def _required_evidence_roles(item: Mapping[str, object]) -> tuple[str, ...]:
