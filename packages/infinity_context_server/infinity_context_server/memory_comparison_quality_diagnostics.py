@@ -287,9 +287,6 @@ def fast_gate_metrics(
             bundle_complete_count,
             expected_case_count,
         ),
-        "query_role_gaps_clear": _zero_gate(
-            _positive_int(query_role_gap_breakdown.get("role_gap_count")) or 0
-        ),
         "lifted_answerability_gaps_clear": _zero_gate(
             _positive_int(
                 answerability_gap_breakdown.get("lifted_gap_candidate_count")

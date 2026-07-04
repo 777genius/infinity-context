@@ -1106,6 +1106,10 @@ def test_answer_context_respects_cutoff_and_falls_back_to_raw_slice() -> None:
     assert context.source == "retrieval_slice"
     assert context.fallback_reason == "no_bundle_items_within_cutoff"
     assert context.skipped_bundle_item_count == 1
+    assert context.memories[0].metadata["answer_context_retrieval_order"] == 1
+    assert context.memories[0].metadata["answer_context_fallback_reason"] == (
+        "no_bundle_items_within_cutoff"
+    )
 
 
 def test_answer_context_backfill_prefers_local_role_evidence_over_summary() -> None:

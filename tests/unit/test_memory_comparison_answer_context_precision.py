@@ -285,6 +285,68 @@ def test_answer_context_backfill_keeps_compacted_fusion_source_refs_local() -> N
     assert "D2:13" not in context.memories[1].source_refs
 
 
+def test_answer_context_fallback_preserves_prompt_provenance() -> None:
+    memories = (
+        RetrievedMemory(
+            text="D3:4 Morgan: The workshop helped me understand the process.",
+            rank=1,
+            item_id="workshop-turn",
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "source_type": "raw_turn",
+                        "source_types": ["raw_turn"],
+                        "retrieval_sources": ["keyword_source_sibling_chunks"],
+                        "query_roles": ["event_support"],
+                        "relation_category_hits": ["participation_event"],
+                        "entity_hits": ["morgan"],
+                        "speaker_hits": ["morgan"],
+                        "answerability_score": 0.84,
+                        "source_locality_score": 0.92,
+                    }
+                }
+            },
+        ),
+        RetrievedMemory(
+            text="D3:5 Morgan: The follow-up appointment is next week.",
+            rank=2,
+            item_id="followup-turn",
+            source_refs=("D3:5",),
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(memories, {"items": []}, cutoff=2)
+
+    assert [memory.item_id for memory in context.memories] == [
+        "workshop-turn",
+        "followup-turn",
+    ]
+    assert context.memories[0].source_refs == ("source_turn_refs:D3:4",)
+    assert context.memories[0].metadata["answer_context_role"] == "retrieval_slice"
+    assert context.memories[0].metadata["answer_context_retrieval_order"] == 1
+    assert context.memories[0].metadata["answer_context_fallback_reason"] == (
+        "empty_bundle"
+    )
+    assert context.memories[0].metadata["answer_context_reason_codes"] == (
+        "retrieval_slice_fallback",
+        "empty_bundle",
+    )
+    assert context.memories[0].metadata["answer_context_query_roles"] == (
+        "event_support",
+    )
+    assert context.memories[0].metadata[
+        "answer_context_relation_category_hits"
+    ] == ("participation_event",)
+    assert context.memories[0].metadata["answer_context_retrieval_sources"] == (
+        "keyword_source_sibling_chunks",
+    )
+    assert context.memories[0].metadata["answer_context_answerability_score"] == 0.84
+    assert context.memories[0].metadata["answer_context_source_locality_score"] == 0.92
+    assert context.memories[1].source_refs == ("D3:5",)
+    assert context.memories[1].metadata["answer_context_retrieval_order"] == 2
+    assert context.to_diagnostics()["retrieval_orders"] == [1, 2]
+
+
 def test_answer_context_backfill_keeps_precise_sibling_after_compacted_primary() -> None:
     memories = (
         RetrievedMemory(

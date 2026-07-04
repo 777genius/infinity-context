@@ -9,6 +9,9 @@ from dataclasses import dataclass, field
 from infinity_context_server.memory_comparison_answer_context_backfill import (
     backfill_incomplete_bundle_context,
 )
+from infinity_context_server.memory_comparison_answer_context_retrieval_slice import (
+    retrieval_slice_answer_context,
+)
 from infinity_context_server.memory_comparison_candidate_risks import (
     candidate_features as _candidate_features,
 )
@@ -218,7 +221,10 @@ def answer_context_from_evidence_bundle(
     bundle_items = _bundle_items(evidence_bundle)
     if not bundle_items:
         return AnswerContext(
-            memories=raw_slice,
+            memories=retrieval_slice_answer_context(
+                raw_slice,
+                fallback_reason="empty_bundle",
+            ),
             source="retrieval_slice",
             fallback_reason="empty_bundle",
         )
@@ -296,7 +302,10 @@ def answer_context_from_evidence_bundle(
 
     if not selected:
         return AnswerContext(
-            memories=raw_slice,
+            memories=retrieval_slice_answer_context(
+                raw_slice,
+                fallback_reason="no_bundle_items_within_cutoff",
+            ),
             source="retrieval_slice",
             fallback_reason="no_bundle_items_within_cutoff",
             skipped_bundle_item_count=skipped,
