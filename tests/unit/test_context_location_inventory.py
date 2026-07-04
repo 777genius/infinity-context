@@ -172,6 +172,33 @@ def test_location_inventory_treats_mountain_landmark_visual_turn_as_travel_place
     assert candidates[ordered[0]].item_id == "mountain_photo"
 
 
+def test_event_place_query_prefers_named_location_over_wrong_venue() -> None:
+    exact_location = _answer_support_item(
+        "exact_location",
+        "D7:4 Riley: I attended the concert in Rome last Friday.",
+        source_id="locomo:conv-fixture:session_7:D7:4:turn",
+    )
+    wrong_venue = _answer_support_item(
+        "wrong_venue",
+        "D8:4 Riley: I attended the concert at the Rialto Theater in Milan.",
+        source_id="locomo:conv-fixture:session_8:D8:4:turn",
+    )
+
+    candidates = _answer_support_diversity_candidates(
+        [wrong_venue, exact_location],
+        query="Where did Riley attend the concert in Rome?",
+    )
+    ordered = _ordered_answer_support_families_for_query(
+        candidates,
+        query="Where did Riley attend the concert in Rome?",
+    )
+
+    assert [candidates[family].item_id for family in ordered] == [
+        "exact_location",
+        "wrong_venue",
+    ]
+
+
 def _expansion_query(plan: QueryExpansionPlan, reason: str) -> str:
     for expansion in plan.expansions:
         if expansion.reason == reason:

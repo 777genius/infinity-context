@@ -317,14 +317,17 @@ _QUERY_DESTINATION_REASON_SCOPE = frozenset(
     }
 )
 _DESTINATION_QUERY_INTENT_RE = re.compile(
-    r"\b(?:during|visit|visiting|travel|trip|stay|staying|study\s+abroad|"
-    r"semester|locations?|places?|recommend|enjoy)\b",
+    r"\b(?:where|during|visit|visiting|travel|trip|stay|staying|study\s+abroad|"
+    r"semester|locations?|places?|recommend|enjoy|attend(?:ed|ing)?|"
+    r"concert|conference|event|venue|ceremony|reception|workshop)\b",
     re.IGNORECASE,
 )
 _DESTINATION_ANCHOR_TEXT_RE = re.compile(
     r"\b(?:visit(?:ed|ing)?|travel(?:ed|led|ing)|trip|stay(?:ed|ing)?|"
     r"study\s+abroad|semester|off\s+to|going\s+to|headed\s+to|accepted\s+"
-    r"(?:into|to)|applied\s+for|live\s+in|living\s+in|moved\s+to)\b|"
+    r"(?:into|to)|applied\s+for|live\s+in|living\s+in|moved\s+to|"
+    r"attend(?:ed|ing)?|concert|conference|event|venue|ceremony|reception|"
+    r"workshop)\b|"
     r"\btravel(?:ed|led|ing)\b",
     re.IGNORECASE,
 )
