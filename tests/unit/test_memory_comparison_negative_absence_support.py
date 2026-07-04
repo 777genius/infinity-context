@@ -110,6 +110,52 @@ def test_evidence_bundle_requires_negative_support_for_no_longer_question() -> N
     assert items_by_id["no-longer-evidence"]["role"] == "negative_support"
 
 
+def test_negative_absence_support_accepts_has_no_evidence() -> None:
+    case = _case(
+        case_id="has-no-provider-bundle",
+        question="Which Atlas provider has no valid API key?",
+        expected_terms=("LocalAI",),
+        answer="LocalAI",
+    )
+    memories, _metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (
+            RetrievedMemory(
+                item_id="positive-topic",
+                rank=1,
+                score=0.0,
+                text=(
+                    "session_1 turn D1:1 date: 10:00 am "
+                    "D1:1 Atlas lists LocalAI as a provider."
+                ),
+                source_refs=("D1:1",),
+            ),
+            RetrievedMemory(
+                item_id="has-no-evidence",
+                rank=2,
+                score=0.0,
+                text=(
+                    "session_1 turn D1:2 date: 10:05 am "
+                    "D1:2 LocalAI has no valid API key for Atlas."
+                ),
+                source_refs=("D1:2",),
+            ),
+        ),
+    )
+
+    bundle = evidence_bundle(case, memories)
+
+    assert memories[0].item_id == "has-no-evidence"
+    assert "negative_support" in bundle["required_roles"]
+    assert "negative_support" in bundle["satisfied_required_roles"]
+    items_by_id = {item["id"]: item for item in bundle["items"]}
+    assert items_by_id["has-no-evidence"]["negation_surface"] is True
+    assert (
+        bundle["bundle_planner"]["bundle_quality"]["negative_absence_support_count"]
+        == 1
+    )
+
+
 def _case(
     *,
     case_id: str,

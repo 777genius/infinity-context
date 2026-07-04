@@ -2340,6 +2340,9 @@ def _bundle_quality_diagnostics(
             "typed_relation_support_counts": {},
             "partial_required_role_support_count": 0,
             "partial_required_role_support_counts": {},
+            "participant_grounding_blocked_required_role_count": 0,
+            "participant_grounding_blocked_required_role_counts": {},
+            "participant_grounding_blocked_required_role_samples": [],
             "location_relation_category_hit_count": 0,
             "source_proximity_support_count": 0,
             "source_chain_proximity_support_count": 0,
@@ -2520,6 +2523,17 @@ def _bundle_quality_diagnostics(
     partial_required_role_support_count = sum(
         partial_required_role_support_counts.values()
     )
+    participant_grounding_blocked_required_role_counts = Counter(
+        role
+        for role in missing_roles
+        if role in _PARTICIPANT_SENSITIVE_REQUIRED_ROLES
+        for item in items
+        if _item_can_satisfy_required_role(item, role)
+        and not _item_has_requested_participant_grounding(item, items)
+    )
+    participant_grounding_blocked_required_role_count = sum(
+        participant_grounding_blocked_required_role_counts.values()
+    )
     location_relation_category_hit_count = sum(
         1
         for item in items
@@ -2669,6 +2683,9 @@ def _bundle_quality_diagnostics(
             partial_required_role_support_counts=(
                 partial_required_role_support_counts
             ),
+            participant_grounding_blocked_required_role_count=(
+                participant_grounding_blocked_required_role_count
+            ),
             location_relation_category_hit_count=location_relation_category_hit_count,
             source_proximity_support_count=source_proximity_support_count,
             source_chain_proximity_support_count=(
@@ -2745,6 +2762,18 @@ def _bundle_quality_diagnostics(
         "partial_required_role_support_count": partial_required_role_support_count,
         "partial_required_role_support_counts": dict(
             sorted(partial_required_role_support_counts.items())
+        ),
+        "participant_grounding_blocked_required_role_count": (
+            participant_grounding_blocked_required_role_count
+        ),
+        "participant_grounding_blocked_required_role_counts": dict(
+            sorted(participant_grounding_blocked_required_role_counts.items())
+        ),
+        "participant_grounding_blocked_required_role_samples": (
+            _participant_grounding_blocked_required_role_samples(
+                items,
+                missing_required_roles=missing_roles,
+            )
         ),
         "location_relation_category_hit_count": (
             location_relation_category_hit_count
@@ -2912,6 +2941,43 @@ def _weak_source_locality_samples(
                 "turn_refs_sample": _source_turn_ref_strings_sample(item.candidate),
             }
         )
+    return samples
+
+
+def _participant_grounding_blocked_required_role_samples(
+    items: Sequence[PlannedEvidenceItem],
+    *,
+    missing_required_roles: Sequence[str],
+) -> list[dict[str, object]]:
+    requested_terms = _selected_primary_person_grounding_terms(items)
+    if not requested_terms:
+        return []
+    samples: list[dict[str, object]] = []
+    for role in missing_required_roles:
+        if role not in _PARTICIPANT_SENSITIVE_REQUIRED_ROLES:
+            continue
+        for item in items:
+            if not _item_can_satisfy_required_role(item, role):
+                continue
+            if _item_has_requested_participant_grounding(item, items):
+                continue
+            samples.append(
+                {
+                    "id": item.candidate.item_id,
+                    "role": item.role,
+                    "required_role": role,
+                    "requested_person_terms": list(requested_terms),
+                    "candidate_person_terms": list(
+                        _candidate_person_grounding_terms(item.candidate)
+                    ),
+                    "relation_hits": list(item.candidate.relation_hits),
+                    "relation_category_hits": list(
+                        item.candidate.relation_category_hits
+                    ),
+                }
+            )
+            if len(samples) >= _SOURCE_DIAGNOSTIC_SAMPLE_LIMIT:
+                return samples
     return samples
 
 
@@ -3116,6 +3182,7 @@ def _bundle_quality_reason_codes(
     visual_support_count: int,
     typed_relation_support_counts: Mapping[str, int],
     partial_required_role_support_counts: Mapping[str, int],
+    participant_grounding_blocked_required_role_count: int,
     location_relation_category_hit_count: int,
     source_proximity_support_count: int,
     source_chain_proximity_support_count: int,
@@ -3202,6 +3269,8 @@ def _bundle_quality_reason_codes(
             for role, count in sorted(partial_required_role_support_counts.items())
             if count > 0
         )
+    if participant_grounding_blocked_required_role_count:
+        reasons.append("risk:participant_grounding_mismatch")
     if location_relation_category_hit_count:
         reasons.append("has_location_relation_category_evidence")
     if source_proximity_support_count:

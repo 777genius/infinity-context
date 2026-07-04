@@ -895,6 +895,55 @@ def test_fast_gate_metrics_accepts_planned_preference_relation_support() -> None
     ]
 
 
+def test_fast_gate_metrics_rejects_stale_only_preference_support() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="stale-only-preference",
+                group="single-hop",
+                retrieval=_retrieval_payload(
+                    evidence_need=("preference",),
+                    bundle_evidence_roles=("primary", "preference_support"),
+                    relation_categories=("preference",),
+                    entities=("melanie",),
+                    policy_score=0.0,
+                ),
+                evidence_bundle={
+                    "bundle_complete": False,
+                    "item_count": 1,
+                    "primary_evidence_count": 1,
+                    "supporting_evidence_count": 0,
+                    "query_support_term_recall": 0.5,
+                    "covered_evidence_terms": [],
+                    "items": [
+                        {
+                            "role": "preference_support",
+                            "retrieval_order": 1,
+                            "focused_evidence_score": 1.0,
+                            "entity_hits": ["melanie"],
+                            "relation_category_hits": ["preference"],
+                            "stale_surface": True,
+                            "planner_reason_codes": [
+                                "preference_relation_category_hits",
+                                "stale_surface",
+                            ],
+                        }
+                    ],
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    breakdown = gate["bundle_gap_breakdown"]
+
+    assert breakdown["reason_counts"]["missing_preference_support"] == 1
+    assert breakdown["evidence_need_gap_reason_counts"] == {
+        "missing_preference_support": 1
+    }
+    assert "missing_preference_support" in breakdown["samples"][0]["reasons"]
+
+
 def test_fast_gate_metrics_reports_missing_location_support_gap() -> None:
     gate = fast_gate_metrics(
         (

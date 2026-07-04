@@ -1992,6 +1992,68 @@ def _compact_backend_diagnostics(
             if bool(_mapping(retrieval.get("metadata")).get("limited_by_http_api_caps"))
         ),
         "retrieval_source_counts": _retrieval_source_counts(items),
+        "evidence_bundle_coverage": _compact_evidence_bundle_coverage(items),
+    }
+
+
+def _compact_evidence_bundle_coverage(
+    items: Sequence[Mapping[str, object]],
+) -> dict[str, object]:
+    bundles = [
+        _mapping(item.get("evidence_bundle"))
+        for item in items
+        if _mapping(item.get("evidence_bundle"))
+    ]
+    complete_count = sum(1 for bundle in bundles if bundle.get("bundle_complete") is True)
+    evidence_term_count = sum(
+        _positive_int(bundle.get("evidence_term_count")) or 0 for bundle in bundles
+    )
+    covered_evidence_term_count = sum(
+        len(_str_tuple(bundle.get("covered_evidence_terms"))) for bundle in bundles
+    )
+    incomplete_samples: list[dict[str, object]] = []
+    for item in items:
+        bundle = _mapping(item.get("evidence_bundle"))
+        if not bundle or bundle.get("bundle_complete") is True:
+            continue
+        if len(incomplete_samples) >= 5:
+            break
+        quality = _mapping(item.get("retrieval_quality"))
+        incomplete_samples.append(
+            {
+                "case_id": str(item.get("case_id") or ""),
+                "group": str(item.get("group") or ""),
+                "item_count": _positive_int(bundle.get("item_count")) or 0,
+                "evidence_term_recall": round(
+                    _metric_value(bundle, "evidence_term_recall"),
+                    4,
+                ),
+                "missing_evidence_terms": list(
+                    _str_tuple(quality.get("missing_evidence_terms"))[:8]
+                ),
+                "missing_expected_terms": list(
+                    _str_tuple(quality.get("missing_terms"))[:8]
+                ),
+            }
+        )
+    return {
+        "schema_version": "compact_evidence_bundle_coverage.v1",
+        "bundle_count": len(bundles),
+        "bundle_complete_count": complete_count,
+        "bundle_incomplete_count": len(bundles) - complete_count,
+        "bundle_completion_rate": _ratio(complete_count, len(bundles)),
+        "avg_bundle_item_count": _avg(
+            _metric_value(bundle, "item_count") for bundle in bundles
+        ),
+        "avg_evidence_term_recall": _avg(
+            _metric_value(bundle, "evidence_term_recall") for bundle in bundles
+        ),
+        "avg_query_support_term_recall": _avg(
+            _metric_value(bundle, "query_support_term_recall") for bundle in bundles
+        ),
+        "evidence_term_count": evidence_term_count,
+        "covered_evidence_term_count": covered_evidence_term_count,
+        "incomplete_samples": incomplete_samples,
     }
 
 

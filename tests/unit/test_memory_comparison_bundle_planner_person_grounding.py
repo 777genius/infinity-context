@@ -232,7 +232,24 @@ def test_event_support_with_only_event_anchor_does_not_satisfy_person_request() 
     ]
     assert plan.satisfied_required_roles == ("primary",)
     assert plan.missing_required_roles == ("event_support",)
-    assert plan.to_diagnostics()["bundle_quality"]["event_support_count"] == 0
+    quality = plan.to_diagnostics()["bundle_quality"]
+    assert quality["event_support_count"] == 0
+    assert quality["participant_grounding_blocked_required_role_count"] == 1
+    assert quality["participant_grounding_blocked_required_role_counts"] == {
+        "event_support": 1
+    }
+    assert quality["participant_grounding_blocked_required_role_samples"] == [
+        {
+            "id": "event-only",
+            "role": "event_support",
+            "required_role": "event_support",
+            "requested_person_terms": ["caroline"],
+            "candidate_person_terms": ["charity race"],
+            "relation_hits": ["registered", "race"],
+            "relation_category_hits": ["participation_event"],
+        }
+    ]
+    assert "risk:participant_grounding_mismatch" in quality["reason_codes"]
 
 
 def _candidate(

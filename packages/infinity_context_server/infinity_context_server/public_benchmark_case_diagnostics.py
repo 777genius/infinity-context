@@ -129,6 +129,7 @@ def _item_source_ref_evidence_parts(item: Mapping[str, object]) -> list[str]:
             if not isinstance(citation, Mapping):
                 continue
             parts.extend(_source_ref_evidence_parts(citation.get("source")))
+            parts.extend(_source_ref_evidence_parts(citation))
     return parts
 
 

@@ -66,9 +66,13 @@ _FIRST_PERSON_PROFILE_RELATION_RE = re.compile(
     r"parent|parents|partner|roommate|sibling|sister|son|spouse|wife)\b",
     re.IGNORECASE,
 )
+_FIRST_PERSON_PROFILE_RELATION_CATEGORIES = frozenset(
+    {"alias_profile", "status_profile"}
+)
 _NEGATION_SURFACE_RE = re.compile(
-    r"\b(?:no longer|not|never|without|didn't|doesn't|don't|hadn't|wasn't|"
-    r"isn't|won't|can't|couldn't)\b",
+    r"\b(?:no longer|not yet|not|never|none|nobody|no one|without|missing|"
+    r"absent|(?:has|have|had|with|there is|there are)\s+no|didn't|doesn't|"
+    r"don't|hadn't|wasn't|isn't|won't|can't|couldn't)\b",
     re.IGNORECASE,
 )
 _CURRENTNESS_SURFACE_RE = re.compile(
@@ -189,6 +193,8 @@ class CandidateEvidenceFeatures:
     relation_hits: tuple[str, ...]
     relation_categories: tuple[str, ...]
     relation_category_hits: tuple[str, ...]
+    relation_target_specificity_reason_codes: tuple[str, ...]
+    other_speaker_profile_relation_categories: tuple[str, ...]
     relation_category_coverage_ratio: float
     covered_answer_unit_shapes: tuple[str, ...]
     exact_count_evidence: bool
@@ -278,6 +284,12 @@ class CandidateEvidenceFeatures:
             "relation_coverage_ratio": round(self.relation_coverage_ratio, 6),
             "relation_categories": list(self.relation_categories),
             "relation_category_hits": list(self.relation_category_hits),
+            "relation_target_specificity_reason_codes": list(
+                self.relation_target_specificity_reason_codes
+            ),
+            "other_speaker_profile_relation_categories": list(
+                self.other_speaker_profile_relation_categories
+            ),
             "relation_category_coverage_ratio": round(
                 self.relation_category_coverage_ratio,
                 6,
@@ -350,6 +362,20 @@ def build_candidate_evidence_features(
         query_terms=query_terms,
         entities=entities,
         memory_text=text,
+    )
+    relation_target_specificity_reasons = _relation_target_specificity_reason_codes(
+        memory_terms,
+        relation_category_terms or {},
+        entities=entities,
+        memory_text=text,
+    )
+    other_speaker_profile_relation_categories = (
+        _other_speaker_profile_relation_categories(
+            relation_category_terms or {},
+            entities=entities,
+            memory_text=text,
+            relation_category_hits=relation_category_hits,
+        )
     )
     high_signal_hit_count = sum(
         1 for term in relation_hits if term in high_signal_relation_terms
@@ -443,6 +469,12 @@ def build_candidate_evidence_features(
         relation_hits=relation_hits,
         relation_categories=relation_categories,
         relation_category_hits=relation_category_hits,
+        relation_target_specificity_reason_codes=(
+            relation_target_specificity_reasons
+        ),
+        other_speaker_profile_relation_categories=(
+            other_speaker_profile_relation_categories
+        ),
         relation_category_coverage_ratio=_ratio(
             len(relation_category_hits),
             len(relation_category_terms or {}),
@@ -636,17 +668,7 @@ def _relation_category_hits(
     hits: list[str] = []
     query_term_set = set(query_terms)
     for category, terms in relation_category_terms.items():
-        term_values = tuple(
-            dict.fromkeys(
-                value
-                for term in terms
-                for value in (
-                    str(term).casefold().strip(),
-                    *_normalized_terms(str(term)),
-                )
-                if value
-            )
-        )
+        term_values = _relation_term_values(terms)
         typed_support = typed_relation_category_support(
             str(category),
             memory_terms,
@@ -673,6 +695,94 @@ def _relation_category_hits(
         if any(term in memory_terms for term in terms_to_match):
             hits.append(str(category))
     return tuple(dict.fromkeys(hits))
+
+
+def _relation_target_specificity_reason_codes(
+    memory_terms: set[str],
+    relation_category_terms: Mapping[str, Sequence[str]],
+    *,
+    entities: Sequence[str],
+    memory_text: str = "",
+) -> tuple[str, ...]:
+    reasons: list[str] = []
+    for category, terms in relation_category_terms.items():
+        typed_support = typed_relation_category_support(
+            str(category),
+            memory_terms,
+            memory_text=memory_text,
+        )
+        if typed_support is not True:
+            continue
+        term_values = _relation_term_values(terms)
+        if not _typed_category_has_query_grounding(
+            category=str(category),
+            memory_terms=memory_terms,
+            term_values=term_values,
+            memory_text=memory_text,
+        ):
+            continue
+        if not _typed_category_has_target_grounding(
+            category=str(category),
+            entities=entities,
+            term_values=term_values,
+            memory_text=memory_text,
+        ):
+            reasons.append(f"target_mismatch:{category}")
+    return tuple(dict.fromkeys(reasons))
+
+
+def _relation_term_values(terms: Sequence[str]) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            value
+            for term in terms
+            for value in (
+                str(term).casefold().strip(),
+                *_normalized_terms(str(term)),
+            )
+            if value
+        )
+    )
+
+
+def _other_speaker_profile_relation_categories(
+    relation_category_terms: Mapping[str, Sequence[str]],
+    *,
+    entities: Sequence[str],
+    memory_text: str = "",
+    relation_category_hits: Sequence[str],
+) -> tuple[str, ...]:
+    if not entities or not memory_text:
+        return ()
+    query_entities = tuple(
+        dict.fromkeys(
+            entity.casefold().strip()
+            for entity in entities
+            if entity.casefold().strip()
+        )
+    )
+    hit_set = set(relation_category_hits)
+    categories: list[str] = []
+    for category, terms in relation_category_terms.items():
+        category_name = str(category)
+        if (
+            category_name not in _FIRST_PERSON_PROFILE_RELATION_CATEGORIES
+            or category_name in hit_set
+        ):
+            continue
+        term_values = _relation_term_values(terms)
+        if any(
+            _first_person_profile_relation_belongs_to_other_speaker(
+                category=category_name,
+                memory_text=memory_text,
+                clause=clause,
+                query_entities=query_entities,
+            )
+            for clause in _relation_clauses(memory_text, term_values)
+        ):
+            categories.append(category_name)
+    return tuple(dict.fromkeys(categories))
+
 
 
 def _typed_category_has_query_grounding(
@@ -787,7 +897,7 @@ def _first_person_profile_relation_belongs_to_other_speaker(
     clause: str,
     query_entities: Sequence[str],
 ) -> bool:
-    if category not in {"alias_profile", "status_profile"}:
+    if category not in _FIRST_PERSON_PROFILE_RELATION_CATEGORIES:
         return False
     if _FIRST_PERSON_PROFILE_RELATION_RE.search(clause) is None:
         return False

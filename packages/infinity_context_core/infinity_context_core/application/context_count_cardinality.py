@@ -33,6 +33,15 @@ _COUNT_LABEL_VALUE_RE = re.compile(
     rf".{{0,32}}(?:{_CARDINALITY_VALUE})",
     re.IGNORECASE | re.DOTALL,
 )
+_BOTH_PAIR_RE = re.compile(
+    r"\bboth\s+"
+    r"(?!before\b|after\b|during\b)"
+    r"[A-Za-z][A-Za-z'_-]{1,40}(?:\s+[A-Za-z][A-Za-z'_-]{1,40}){0,3}"
+    r"\s+and\s+"
+    r"(?!before\b|after\b|during\b|then\b)"
+    r"[A-Za-z][A-Za-z'_-]{1,40}(?:\s+[A-Za-z][A-Za-z'_-]{1,40}){0,3}\b",
+    re.IGNORECASE,
+)
 
 
 def has_exact_count_cardinality_evidence(text: str) -> bool:
@@ -48,4 +57,5 @@ def has_exact_count_cardinality_evidence(text: str) -> bool:
         or _COUNT_TIMES_RE.search(text)
         or has_standalone_count_adverb
         or _COUNT_LABEL_VALUE_RE.search(text)
+        or _BOTH_PAIR_RE.search(text)
     )

@@ -168,6 +168,9 @@ def test_quality_diagnostics_reports_intents_policies_bundle_gaps_and_leakage() 
                             "broad_turn_refs",
                             "broad_summary_locality_cap",
                         ],
+                        "relation_target_specificity_reason_codes": [
+                            "target_mismatch:status_profile"
+                        ],
                         "answerability_score": 0.42,
                         "answerability_reason_codes": ["low_answerability"],
                     },
@@ -322,6 +325,9 @@ def test_quality_diagnostics_reports_intents_policies_bundle_gaps_and_leakage() 
         "temporal": 1,
     }
     assert feature_table["relation_category_hit_counts"] == {"preference": 1}
+    assert feature_table["relation_target_specificity_reason_counts"] == {
+        "target_mismatch:status_profile": 1
+    }
     assert feature_table["surface_counts"]["currentness_surface"] == 1
     assert feature_table["source_type_counts"] == {
         "chunk": 2,
@@ -747,16 +753,28 @@ def test_quality_diagnostics_reports_source_ref_provenance_table() -> None:
     assert table["retrieval_candidate_count"] == 2
     assert table["retrieval_source_ref_candidate_count"] == 1
     assert table["retrieval_source_ref_count"] == 2
+    assert table["retrieval_source_ref_shape_counts"] == {
+        "locomo_turn_ref": 1,
+        "opaque_source_ref": 1,
+    }
     assert table["retrieval_source_refless_candidate_count"] == 1
     assert table["retrieval_source_ref_coverage_rate"] == 0.5
     assert table["fused_candidate_count"] == 1
     assert table["fused_source_ref_candidate_count"] == 1
     assert table["fused_source_ref_count"] == 2
+    assert table["fused_source_ref_shape_counts"] == {
+        "locomo_turn_ref": 1,
+        "opaque_source_ref": 1,
+    }
     assert table["fused_ref_rescue_candidate_count"] == 1
     assert table["fused_ref_added_count"] == 1
     assert table["selected_bundle_item_count"] == 2
     assert table["selected_bundle_source_ref_item_count"] == 1
     assert table["selected_bundle_source_ref_count"] == 2
+    assert table["selected_bundle_source_ref_shape_counts"] == {
+        "locomo_turn_ref": 1,
+        "opaque_source_ref": 1,
+    }
     assert table["selected_bundle_source_refless_item_count"] == 1
     assert table["selected_bundle_source_ref_coverage_rate"] == 0.5
     assert table["source_refless_selected_samples"] == [
@@ -899,9 +917,19 @@ def test_quality_diagnostics_normalizes_fusion_canonical_source_refs() -> None:
     table = diagnostics["source_ref_provenance_table"]
     assert table["retrieval_source_ref_candidate_count"] == 1
     assert table["retrieval_source_ref_count"] == 2
+    assert table["retrieval_source_ref_shape_counts"] == {
+        "locomo_session_turn_identity": 1,
+        "locomo_turn_identity": 1,
+    }
     assert table["fused_source_ref_count"] == 1
+    assert table["fused_source_ref_shape_counts"] == {
+        "locomo_embedded_turn_ref": 1,
+    }
     assert table["fused_ref_added_count"] == 1
     assert table["selected_bundle_source_ref_count"] == 1
+    assert table["selected_bundle_source_ref_shape_counts"] == {
+        "locomo_turn_identity": 1,
+    }
     assert table["selected_bundle_source_refless_item_count"] == 0
 
 
@@ -2192,6 +2220,58 @@ def test_fast_gate_metrics_reports_answerability_gap_breakdown() -> None:
     ]
 
 
+def test_fast_gate_metrics_reports_low_answerability_without_missing_evidence_gap() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="low-answerability-lifted",
+                group="single-hop",
+                retrieval=_retrieval_payload(
+                    evidence_need=("single_fact",),
+                    policy_score=0.12,
+                    item_id="generic-candidate",
+                    candidate_features={
+                        "answerability_score": 0.41,
+                        "answerability_reason_codes": [
+                            "low_answerability",
+                            "generic_measured_answerability",
+                        ],
+                        "query_roles": ["primary"],
+                    },
+                ),
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    breakdown = gate["answerability_gap_breakdown"]
+
+    assert breakdown["gap_candidate_count"] == 0
+    assert breakdown["low_answerability_candidate_count"] == 1
+    assert breakdown["low_answerability_case_count"] == 1
+    assert breakdown["lifted_low_answerability_candidate_count"] == 1
+    assert breakdown["lifted_low_answerability_case_count"] == 1
+    assert breakdown["low_answerability_samples"] == [
+        {
+            "case_id": "low-answerability-lifted",
+            "group": "single-hop",
+            "memory_id": "generic-candidate",
+            "rank": 1,
+            "lifted": True,
+            "positive_policy_score": 0.12,
+            "answerability_score": 0.41,
+            "answerability_reason_codes": [
+                "low_answerability",
+                "generic_measured_answerability",
+            ],
+            "answerability_reason_count": 2,
+            "relation_categories": [],
+            "relation_category_hits": [],
+            "query_roles": ["primary"],
+        }
+    ]
+
+
 def test_fast_gate_metrics_bounds_answerability_gap_reason_code_samples() -> None:
     long_reason = "unsupported_memory_answer_" + ("x" * 160)
     gate = fast_gate_metrics(
@@ -3351,10 +3431,18 @@ def test_fast_gate_metrics_reports_source_ref_provenance() -> None:
     assert provenance["schema_version"] == "source_ref_provenance.v1"
     assert provenance["retrieval_candidate_count"] == 2
     assert provenance["retrieval_source_refless_candidate_count"] == 1
+    assert provenance["retrieval_source_ref_shape_counts"] == {
+        "locomo_turn_ref": 1,
+        "opaque_source_ref": 1,
+    }
     assert provenance["fused_ref_rescue_candidate_count"] == 1
     assert provenance["fused_ref_added_count"] == 1
     assert provenance["selected_bundle_item_count"] == 2
     assert provenance["selected_bundle_source_refless_item_count"] == 1
+    assert provenance["selected_bundle_source_ref_shape_counts"] == {
+        "locomo_turn_ref": 1,
+        "opaque_source_ref": 1,
+    }
     assert provenance["source_refless_selected_samples"] == [
         {
             "case_id": "missing-ref",
@@ -3882,6 +3970,46 @@ def test_quality_diagnostics_reports_evidence_role_query_family_gap() -> None:
             "selected_query_count": 1,
         }
     ]
+
+
+def test_query_plan_integrity_counts_role_family_lists_without_count_maps() -> None:
+    query_plan = {
+        "schema_version": "query_plan.v2",
+        "selected_query_count": 2,
+        "dropped_query_count": 0,
+        "selected_roles": ["original_question", "value_support"],
+        "dropped_roles": [],
+        "recommended_role_families": ["base_query", "value_support"],
+        "role_families": ["base_query", "value_support"],
+        "selected_role_families": ["base_query", "value_support"],
+        "dropped_role_families": [],
+        "missing_recommended_role_families": [],
+        "fanout_integrity": {"bounded": True},
+    }
+    item = _item(
+        case_id="role-family-list-only",
+        group="single-hop",
+        retrieval=_retrieval_payload(
+            evidence_need=("value_support",),
+            bundle_evidence_roles=("primary", "value_support"),
+            policy_score=0.0,
+            query_plan=query_plan,
+        ),
+    )
+
+    diagnostics = quality_diagnostics((item,))
+    table = diagnostics["query_plan_integrity_table"]
+
+    assert table["role_family_counts"] == {
+        "base_query": 1,
+        "value_support": 1,
+    }
+    assert table["selected_role_family_counts"] == {
+        "base_query": 1,
+        "value_support": 1,
+    }
+    assert table["missing_evidence_role_query_family_total"] == 0
+    assert table["plan_gap_case_count"] == 0
 
 
 def test_quality_diagnostics_accepts_relation_compact_for_profile_support_roles() -> None:

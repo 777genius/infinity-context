@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
 
@@ -160,9 +161,21 @@ from infinity_context_server.memory_comparison_quality_rerank_gaps import (
 from infinity_context_server.memory_comparison_quality_selected_weakness import (
     selected_evidence_weakness_breakdown as _selected_evidence_weakness_breakdown,
 )
+from infinity_context_server.memory_comparison_temporal_grounding import (
+    temporal_grounding_table as _temporal_grounding_table,
+)
 
 _ANSWERABILITY_GAP_REASON_LIMIT = 6
 _ANSWERABILITY_GAP_TEXT_VALUE_LIMIT = 120
+_LOCOMO_TURN_REF_RE = re.compile(r"\bD\d+:\d+\b")
+_LOCOMO_SESSION_TURN_IDENTITY_RE = re.compile(
+    r"^source_session_turn_refs:session_\d+:D\d+:\d+$",
+    re.IGNORECASE,
+)
+_LOCOMO_TURN_IDENTITY_RE = re.compile(
+    r"^source_turn_refs:D\d+:\d+$",
+    re.IGNORECASE,
+)
 
 
 def evidence_ref_rank_gate_metrics(
@@ -230,6 +243,7 @@ def quality_diagnostics(items: Sequence[Mapping[str, object]]) -> dict[str, obje
         "evidence_feature_table": _evidence_feature_table(items),
         "source_ref_provenance_table": _source_ref_provenance_table(items),
         "answer_context_provenance_table": _answer_context_provenance_table(items),
+        "temporal_grounding_table": _temporal_grounding_table(items),
         "query_role_effectiveness_table": _query_role_effectiveness_table(items),
         "query_plan_integrity_table": _query_plan_integrity_table(items),
         "risk_flag_table": _risk_flag_table(items),
@@ -630,9 +644,14 @@ def _answerability_gap_breakdown(
     lifted_category_counts: Counter[str] = Counter()
     case_ids: set[str] = set()
     lifted_case_ids: set[str] = set()
+    low_answerability_case_ids: set[str] = set()
+    lifted_low_answerability_case_ids: set[str] = set()
     candidate_count = 0
     lifted_candidate_count = 0
+    low_answerability_candidate_count = 0
+    lifted_low_answerability_candidate_count = 0
     samples: list[dict[str, object]] = []
+    low_answerability_samples: list[dict[str, object]] = []
     for item in items:
         case_id = str(item.get("case_id") or "")
         group = str(item.get("group") or "")
@@ -649,10 +668,53 @@ def _answerability_gap_breakdown(
                 for reason in answerability_reason_codes
                 if reason.startswith("missing_") and reason.endswith("_evidence")
             )
-            if not reasons:
-                continue
             diagnostics = _memory_diagnostics(memory)
             lifted = _candidate_lifted(diagnostics)
+            answerability_score = _metric_value(features, "answerability_score")
+            low_answerability = _is_measured_low_answerability(answerability_score)
+            if low_answerability:
+                low_answerability_candidate_count += 1
+                if case_id:
+                    low_answerability_case_ids.add(case_id)
+                    if lifted:
+                        lifted_low_answerability_case_ids.add(case_id)
+                if lifted:
+                    lifted_low_answerability_candidate_count += 1
+                if len(low_answerability_samples) < 10:
+                    low_answerability_samples.append(
+                        {
+                            "case_id": case_id,
+                            "group": group,
+                            "memory_id": _memory_id(memory),
+                            "rank": _positive_int(memory.get("rank")),
+                            "lifted": lifted,
+                            "positive_policy_score": round(
+                                _positive_policy_score(diagnostics),
+                                6,
+                            ),
+                            "answerability_score": round(answerability_score, 6),
+                            "answerability_reason_codes": [
+                                _compact_answerability_gap_text(reason)
+                                for reason in answerability_reason_codes[
+                                    :_ANSWERABILITY_GAP_REASON_LIMIT
+                                ]
+                            ],
+                            "answerability_reason_count": (
+                                len(answerability_reason_codes)
+                            ),
+                            "relation_categories": list(
+                                _str_tuple(features.get("relation_categories"))
+                            ),
+                            "relation_category_hits": list(
+                                _str_tuple(features.get("relation_category_hits"))
+                            ),
+                            "query_roles": list(
+                                _str_tuple(features.get("query_roles"))
+                            ),
+                        }
+                    )
+            if not reasons:
+                continue
             candidate_count += 1
             if case_id:
                 case_ids.add(case_id)
@@ -689,7 +751,7 @@ def _answerability_gap_breakdown(
                             6,
                         ),
                         "answerability_score": round(
-                            _metric_value(features, "answerability_score"),
+                            answerability_score,
                             6,
                         ),
                         "source_locality_score": round(
@@ -711,11 +773,20 @@ def _answerability_gap_breakdown(
         "gap_case_count": len(case_ids),
         "lifted_gap_candidate_count": lifted_candidate_count,
         "lifted_gap_case_count": len(lifted_case_ids),
+        "low_answerability_candidate_count": low_answerability_candidate_count,
+        "low_answerability_case_count": len(low_answerability_case_ids),
+        "lifted_low_answerability_candidate_count": (
+            lifted_low_answerability_candidate_count
+        ),
+        "lifted_low_answerability_case_count": (
+            len(lifted_low_answerability_case_ids)
+        ),
         "reason_counts": dict(sorted(reason_counts.items())),
         "lifted_reason_counts": dict(sorted(lifted_reason_counts.items())),
         "category_counts": dict(sorted(category_counts.items())),
         "lifted_category_counts": dict(sorted(lifted_category_counts.items())),
         "samples": samples,
+        "low_answerability_samples": low_answerability_samples,
     }
 
 
@@ -772,6 +843,7 @@ def _evidence_feature_table(items: Sequence[Mapping[str, object]]) -> dict[str, 
     query_role_counts: Counter[str] = Counter()
     relation_category_counts: Counter[str] = Counter()
     relation_category_hit_counts: Counter[str] = Counter()
+    relation_target_specificity_reason_counts: Counter[str] = Counter()
     answerability_reason_counts: Counter[str] = Counter()
     source_locality_reason_counts: Counter[str] = Counter()
     time_intent_kind_counts: Counter[str] = Counter()
@@ -795,6 +867,9 @@ def _evidence_feature_table(items: Sequence[Mapping[str, object]]) -> dict[str, 
         relation_category_counts.update(_str_tuple(features.get("relation_categories")))
         relation_category_hit_counts.update(
             _str_tuple(features.get("relation_category_hits"))
+        )
+        relation_target_specificity_reason_counts.update(
+            _str_tuple(features.get("relation_target_specificity_reason_codes"))
         )
         answerability_reason_counts.update(
             _str_tuple(features.get("answerability_reason_codes"))
@@ -859,6 +934,9 @@ def _evidence_feature_table(items: Sequence[Mapping[str, object]]) -> dict[str, 
         "relation_category_hit_counts": dict(
             sorted(relation_category_hit_counts.items())
         ),
+        "relation_target_specificity_reason_counts": dict(
+            sorted(relation_target_specificity_reason_counts.items())
+        ),
         "answerability_reason_counts": dict(sorted(answerability_reason_counts.items())),
         "source_locality_reason_counts": dict(
             sorted(source_locality_reason_counts.items())
@@ -885,6 +963,9 @@ def _source_ref_provenance_table(
     fused_source_ref_count = 0
     fused_ref_rescue_candidate_count = 0
     fused_ref_added_count = 0
+    retrieval_source_ref_shape_counts: Counter[str] = Counter()
+    fused_source_ref_shape_counts: Counter[str] = Counter()
+    selected_bundle_source_ref_shape_counts: Counter[str] = Counter()
     selected_bundle_item_count = 0
     selected_bundle_source_ref_item_count = 0
     selected_bundle_source_ref_count = 0
@@ -900,12 +981,18 @@ def _source_ref_provenance_table(
             if memory_refs:
                 retrieval_source_ref_candidate_count += 1
                 retrieval_source_ref_count += len(memory_refs)
+                retrieval_source_ref_shape_counts.update(
+                    _source_ref_shape(ref) for ref in memory_refs
+                )
 
             fusion_refs = _fusion_source_refs(memory)
             if fusion_refs:
                 fused_candidate_count += 1
                 fused_source_ref_candidate_count += 1
                 fused_source_ref_count += len(fusion_refs)
+                fused_source_ref_shape_counts.update(
+                    _source_ref_shape(ref) for ref in fusion_refs
+                )
                 added_refs = tuple(
                     ref for ref in fusion_refs if ref not in direct_memory_refs
                 )
@@ -921,6 +1008,9 @@ def _source_ref_provenance_table(
             if source_refs:
                 selected_bundle_source_ref_item_count += 1
                 selected_bundle_source_ref_count += len(source_refs)
+                selected_bundle_source_ref_shape_counts.update(
+                    _source_ref_shape(ref) for ref in source_refs
+                )
                 continue
             if len(source_refless_selected_samples) < 10:
                 source_refless_selected_samples.append(
@@ -945,6 +1035,9 @@ def _source_ref_provenance_table(
         "retrieval_candidate_count": retrieval_candidate_count,
         "retrieval_source_ref_candidate_count": retrieval_source_ref_candidate_count,
         "retrieval_source_ref_count": retrieval_source_ref_count,
+        "retrieval_source_ref_shape_counts": dict(
+            sorted(retrieval_source_ref_shape_counts.items())
+        ),
         "retrieval_source_refless_candidate_count": (
             retrieval_candidate_count - retrieval_source_ref_candidate_count
         ),
@@ -955,11 +1048,17 @@ def _source_ref_provenance_table(
         "fused_candidate_count": fused_candidate_count,
         "fused_source_ref_candidate_count": fused_source_ref_candidate_count,
         "fused_source_ref_count": fused_source_ref_count,
+        "fused_source_ref_shape_counts": dict(
+            sorted(fused_source_ref_shape_counts.items())
+        ),
         "fused_ref_rescue_candidate_count": fused_ref_rescue_candidate_count,
         "fused_ref_added_count": fused_ref_added_count,
         "selected_bundle_item_count": selected_bundle_item_count,
         "selected_bundle_source_ref_item_count": selected_bundle_source_ref_item_count,
         "selected_bundle_source_ref_count": selected_bundle_source_ref_count,
+        "selected_bundle_source_ref_shape_counts": dict(
+            sorted(selected_bundle_source_ref_shape_counts.items())
+        ),
         "selected_bundle_source_refless_item_count": (
             selected_bundle_item_count - selected_bundle_source_ref_item_count
         ),
@@ -969,6 +1068,21 @@ def _source_ref_provenance_table(
         ),
         "source_refless_selected_samples": source_refless_selected_samples,
     }
+
+
+def _source_ref_shape(source_ref: str) -> str:
+    value = str(source_ref or "").strip()
+    if not value:
+        return "empty_source_ref"
+    if _LOCOMO_SESSION_TURN_IDENTITY_RE.fullmatch(value):
+        return "locomo_session_turn_identity"
+    if _LOCOMO_TURN_IDENTITY_RE.fullmatch(value):
+        return "locomo_turn_identity"
+    if _LOCOMO_TURN_REF_RE.fullmatch(value):
+        return "locomo_turn_ref"
+    if _LOCOMO_TURN_REF_RE.search(value):
+        return "locomo_embedded_turn_ref"
+    return "opaque_source_ref"
 
 
 def _answer_context_provenance_table(
@@ -1764,12 +1878,23 @@ def _query_plan_integrity_table(
             query_plan.get("missing_recommended_role_families")
         )
         missing_recommended_counts.update(missing_recommended)
-        role_family_counts.update(_count_mapping(query_plan.get("role_family_counts")))
+        role_family_counts.update(
+            _count_mapping_or_values(
+                query_plan.get("role_family_counts"),
+                query_plan.get("role_families"),
+            )
+        )
         selected_family_counts.update(
-            _count_mapping(query_plan.get("selected_role_family_counts"))
+            _count_mapping_or_values(
+                query_plan.get("selected_role_family_counts"),
+                query_plan.get("selected_role_families"),
+            )
         )
         dropped_family_counts.update(
-            _count_mapping(query_plan.get("dropped_role_family_counts"))
+            _count_mapping_or_values(
+                query_plan.get("dropped_role_family_counts"),
+                query_plan.get("dropped_role_families"),
+            )
         )
         selected_type_counts.update(
             _count_mapping(query_plan.get("selected_type_counts"))
@@ -1968,6 +2093,16 @@ def _required_evidence_roles(item: Mapping[str, object]) -> tuple[str, ...]:
             )
         )
     )
+
+
+def _count_mapping_or_values(
+    count_value: object,
+    sequence_value: object,
+) -> Mapping[str, int]:
+    counts = _count_mapping(count_value)
+    if counts:
+        return counts
+    return Counter(_str_tuple(sequence_value))
 
 
 def _diagnostic_query_payloads(

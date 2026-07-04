@@ -1771,7 +1771,8 @@ def test_memory_comparison_evidence_bundle_prefers_focused_primary_turn(
     )
 
     bundle = result["evaluations"][0]["evidence_bundle"]
-    assert bundle["bundle_complete"] is True
+    assert bundle["role_requirement_complete"] is False
+    assert bundle["missing_required_roles"] == ["bridge"]
     assert bundle["items"][0]["id"] == "focused-turn"
     assert bundle["items"][0]["focused_evidence_score"] > 0
     assert bundle["items"][0]["retrieval_order"] == 2
@@ -1958,9 +1959,39 @@ def test_memory_comparison_compact_report_omits_heavy_evaluations(
     assert result["diagnostics"]["backend_summaries"]["memo-stack"][
         "retrieval_source_counts"
     ] == {"postgres_facts": 2}
+    coverage = result["diagnostics"]["backend_summaries"]["memo-stack"][
+        "evidence_bundle_coverage"
+    ]
+    assert coverage["schema_version"] == "compact_evidence_bundle_coverage.v1"
+    assert coverage["bundle_count"] == 2
+    assert coverage["bundle_complete_count"] == 0
+    assert coverage["bundle_incomplete_count"] == 2
+    assert coverage["bundle_completion_rate"] == 0.0
+    assert coverage["avg_bundle_item_count"] == 0.5
+    assert coverage["incomplete_samples"][0] == {
+        "case_id": passing.case_id,
+        "group": "single-hop",
+        "item_count": 0,
+        "evidence_term_recall": 0.0,
+        "missing_evidence_terms": [],
+        "missing_expected_terms": [],
+    }
+    assert coverage["incomplete_samples"][1] == (
+        {
+            "case_id": failing.case_id,
+            "group": "single-hop",
+            "item_count": 1,
+            "evidence_term_recall": 0.0,
+            "missing_evidence_terms": [],
+            "missing_expected_terms": ["red folder"],
+        }
+    )
     written = json.loads(report.read_text(encoding="utf-8"))
     assert written["evaluations"] == []
     assert written["metadata"]["report_mode"] == "compact"
+    assert written["diagnostics"]["backend_summaries"]["memo-stack"][
+        "evidence_bundle_coverage"
+    ] == coverage
 
 
 def test_memory_comparison_compact_report_preserves_setup_failures(

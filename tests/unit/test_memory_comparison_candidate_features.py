@@ -399,6 +399,46 @@ def test_candidate_features_ground_partner_status_relation_evidence() -> None:
     assert grounded_status.answerability_score > generic_mention.answerability_score
 
 
+def test_candidate_features_report_other_speaker_alias_relation() -> None:
+    features = build_candidate_evidence_features(
+        RetrievedMemory(
+            item_id="other-speaker-alias",
+            rank=1,
+            text=(
+                "session_1 turn D1:1 date: 10:00 am "
+                "D1:1 Maria: Alex mentioned my nickname Sunshine."
+            ),
+            source_refs=("D1:1",),
+        ),
+        memory_terms={"maria", "alex", "mention", "nickname", "sunshine"},
+        query_terms=("alex", "nickname"),
+        relation_terms=("nickname",),
+        relation_variant_terms=("alias", "name"),
+        relation_category_terms={"alias_profile": ("nickname", "alias", "name")},
+        entities=("alex",),
+        entity_hits=("alex",),
+        speaker_hits=(),
+        high_signal_relation_terms={"nickname", "alias"},
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+
+    assert features.relation_category_hits == ()
+    assert features.other_speaker_profile_relation_categories == ("alias_profile",)
+    assert "missing_alias_profile_evidence" in features.answerability_reason_codes
+    diagnostics = features.to_diagnostics()
+    assert diagnostics["other_speaker_profile_relation_categories"] == [
+        "alias_profile"
+    ]
+
+
 def test_candidate_features_ground_person_role_relation_evidence() -> None:
     generic_mention = build_candidate_evidence_features(
         RetrievedMemory(
@@ -820,12 +860,19 @@ def test_candidate_features_do_not_ground_status_relation_to_wrong_target() -> N
     )
 
     assert wrong_target.relation_category_hits == ()
+    assert wrong_target.relation_target_specificity_reason_codes == (
+        "target_mismatch:status_profile",
+    )
     assert (
         "missing_status_profile_evidence"
         in wrong_target.answerability_reason_codes
     )
     assert matching_target.relation_category_hits == ("status_profile",)
+    assert matching_target.relation_target_specificity_reason_codes == ()
     assert matching_target.answerability_score > wrong_target.answerability_score
+    assert wrong_target.to_diagnostics()[
+        "relation_target_specificity_reason_codes"
+    ] == ["target_mismatch:status_profile"]
 
 
 def test_candidate_features_detect_directed_communication_surface() -> None:

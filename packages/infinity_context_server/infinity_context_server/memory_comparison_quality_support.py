@@ -368,6 +368,7 @@ def bundle_has_preference_support(
         bool(
             _passes_support_quality(item)
             and _passes_person_grounding(item, require_grounding=require_grounding)
+            and not _bundle_item_has_stale_only_surface(item)
             and (
                 "preference" in _str_tuple(item.get("relation_category_hits"))
                 or "favorite_preference"
@@ -380,6 +381,16 @@ def bundle_has_preference_support(
         )
         for item in _bundle_items(bundle)
     )
+
+
+def _bundle_item_has_stale_only_surface(item: Mapping[str, object]) -> bool:
+    reasons = _str_tuple(item.get("planner_reason_codes"))
+    has_stale = bool(item.get("stale_surface") or "stale_surface" in reasons)
+    has_currentness = bool(
+        item.get("currentness_surface") or "currentness_surface" in reasons
+    )
+    has_contrast = bool(item.get("contrast_surface") or "contrast_surface" in reasons)
+    return has_stale and not (has_currentness or has_contrast)
 
 
 def bundle_has_emotion_response_support(
