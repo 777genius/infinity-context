@@ -142,6 +142,77 @@ def test_frustration_surface_without_context_is_not_causal_evidence() -> None:
     assert "missing_causal_evidence" in features.answerability_reason_codes
 
 
+def test_due_to_surface_counts_as_causal_candidate_evidence() -> None:
+    features = build_candidate_evidence_features(
+        RetrievedMemory(
+            item_id="due-to-turn",
+            rank=1,
+            text=(
+                "D1:4 Jon: Jon is starting his own dance studio due to "
+                "his passion for dancing."
+            ),
+            source_refs=("D1:4",),
+        ),
+        memory_terms={"jon", "start", "studio", "due", "passion", "dancing"},
+        query_terms=("jon", "reason", "start", "studio"),
+        relation_terms=("reason",),
+        relation_variant_terms=("because", "cause", "caus", "explain"),
+        relation_category_terms={
+            "causal": ("reason", "because", "cause", "caus", "explain")
+        },
+        entities=("jon",),
+        entity_hits=("jon",),
+        speaker_hits=("jon",),
+        high_signal_relation_terms={"because", "cause"},
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+
+    assert features.relation_category_hits == ("causal",)
+    assert "causal_evidence" in features.answerability_reason_codes
+
+
+def test_due_date_surface_without_explanation_is_not_causal_evidence() -> None:
+    features = build_candidate_evidence_features(
+        RetrievedMemory(
+            item_id="due-date-turn",
+            rank=1,
+            text="D1:4 Jon: The studio rent due date is Friday.",
+            source_refs=("D1:4",),
+        ),
+        memory_terms={"jon", "studio", "rent", "due", "date", "friday"},
+        query_terms=("jon", "reason", "start", "studio"),
+        relation_terms=("reason",),
+        relation_variant_terms=("because", "cause", "caus", "explain"),
+        relation_category_terms={
+            "causal": ("reason", "because", "cause", "caus", "explain")
+        },
+        entities=("jon",),
+        entity_hits=("jon",),
+        speaker_hits=("jon",),
+        high_signal_relation_terms={"because", "cause"},
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+
+    assert features.relation_category_hits == ()
+    assert "missing_causal_evidence" in features.answerability_reason_codes
+
+
 def test_prompt_surface_without_context_is_not_causal_evidence() -> None:
     features = build_candidate_evidence_features(
         RetrievedMemory(

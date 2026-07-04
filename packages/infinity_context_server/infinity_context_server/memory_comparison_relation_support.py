@@ -68,6 +68,8 @@ def typed_relation_category_support(
             memory_terms,
             memory_text=memory_text,
         )
+    if category == "causal":
+        return _has_causal_support(memory_terms, memory_text=memory_text)
     check = _TYPED_SUPPORT_CHECKS.get(category)
     if check is None:
         return None
@@ -1189,7 +1191,24 @@ def _exchange_action_family(action: str) -> str:
     return ""
 
 
-def _has_causal_support(memory_terms: set[str]) -> bool:
+_CAUSAL_EXPLANATION_SURFACE_RE = re.compile(
+    r"\b(?:due\s+to|thanks\s+to|as\s+a\s+result\s+of|because\s+of)\b|"
+    r"\b(?:made|make|makes)\s+"
+    r"(?:me|him|her|them|us|you)\s+"
+    r"(?:care|caring|decide|feel|realize|start|think|want)\b|"
+    r"\bled\s+(?:me|him|her|them|us|you)\s+to\b|"
+    r"\bso\s+(?:i|he|she|they|we|it|[A-Z][a-zA-Z0-9_-]{1,40})\s+"
+    r"(?:began|became|care|cared|chose|could|decided|felt|joined|"
+    r"left|looked|moved|started|wanted)\b",
+    re.IGNORECASE,
+)
+
+
+def _has_causal_support(
+    memory_terms: set[str],
+    *,
+    memory_text: str = "",
+) -> bool:
     direct_cause = {
         "because",
         "caus",
@@ -1313,6 +1332,7 @@ def _has_causal_support(memory_terms: set[str]) -> bool:
     } & memory_terms
     return bool(
         direct_cause
+        or _CAUSAL_EXPLANATION_SURFACE_RE.search(memory_text)
         or (decision_surface and causal_context)
         or (reason_surface and causal_context)
         or (contextual_cause_surface and causal_context)
@@ -1916,7 +1936,6 @@ _TYPED_SUPPORT_CHECKS: dict[str, Callable[[set[str]], bool]] = {
     "activity": _has_activity_support,
     "age_profile": _has_age_profile_support,
     "alias_profile": _has_alias_profile_support,
-    "causal": _has_causal_support,
     "commitment_profile": _has_commitment_profile_support,
     "contact_profile": _has_contact_profile_support,
     "contrast": _has_contrast_support,

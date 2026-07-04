@@ -389,6 +389,14 @@ def normalized_terms(text: str) -> tuple[str, ...]:
 def question_phrase_terms(text: str) -> tuple[str, ...]:
     terms: list[str] = []
     if re.search(
+        r"\b(?:explanation|explain(?:ed|s|ing)?)\b.{0,60}\b"
+        r"(?:for|why|because|cause|caused|reason)\b|"
+        r"\bwhy\b.{0,60}\b(?:explanation|explain(?:ed|s|ing)?)\b",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        terms.append("reason")
+    if re.search(
         r"\bwhat\s+caused\b|\b(?:because|due\s+to|as\s+a\s+result(?:\s+of)?)\b",
         text,
         flags=re.IGNORECASE,

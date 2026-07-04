@@ -27,6 +27,25 @@ def test_reason_question_gets_causal_support_without_why_marker() -> None:
     assert any("alex reason because cause caus decision explain" in q for q in queries)
 
 
+def test_explanation_question_gets_causal_support_terms() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="explanation-causal-support",
+        question="What explanation did Alex give for leaving?",
+        expected_terms=("family",),
+        metadata={"category": 4},
+    )
+
+    queries, metadata = decomposed_search_queries(case)
+    profile = metadata["query_profile"]
+
+    assert "reason" in profile["relation_terms"]
+    assert "causal" in profile["relation_categories"]
+    assert "causal_support" in profile["evidence_need"]
+    assert "causal_support" in metadata["query_plan"]["selected_roles"]
+    assert any("alex give reason motivation because cause" in query for query in queries)
+
+
 def test_motivation_noun_gets_causal_support_terms() -> None:
     case = PublicBenchmarkCase(
         benchmark="locomo",
