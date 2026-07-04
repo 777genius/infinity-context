@@ -6,6 +6,9 @@ from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
 
 from infinity_context_server.memory_comparison_answer_context_risks import (
+    context_risk_reason_codes as _context_risk_reason_codes,
+)
+from infinity_context_server.memory_comparison_answer_context_risks import (
     is_measured_low_answerability as _is_measured_low_answerability,
 )
 from infinity_context_server.memory_comparison_answer_context_risks import (
@@ -1409,7 +1412,39 @@ def _answer_context_provenance_table(
                     backfilled_missing_required_role_counts.update(
                         missing_required_roles
                     )
-            risk_reasons = _str_tuple(context.get("risk_reason_codes"))
+            risk_reasons = _answer_context_risk_reasons(
+                context,
+                skipped_duplicate_source_bundle_item_count=(
+                    context_skipped_duplicate_source_bundle_item_count
+                ),
+                skipped_noisy_overlap_bundle_item_count=(
+                    context_skipped_noisy_overlap_bundle_item_count
+                ),
+                backfilled_retrieval_item_count=context_backfilled_count,
+                skipped_redundant_risky_backfill_count=(
+                    context_skipped_redundant_risky_backfill_count
+                ),
+                skipped_redundant_source_backfill_count=(
+                    context_skipped_redundant_source_backfill_count
+                ),
+                skipped_redundant_role_backfill_count=(
+                    context_skipped_redundant_role_backfill_count
+                ),
+                backfill_risk_stats={
+                    "backfilled_broad_summary_count": (
+                        context_backfilled_broad_summary_count
+                    ),
+                    "backfilled_conflict_or_stale_count": (
+                        context_backfilled_conflict_or_stale_count
+                    ),
+                    "backfilled_low_answerability_count": (
+                        context_backfilled_low_answerability_count
+                    ),
+                    "backfilled_weak_source_locality_count": (
+                        context_backfilled_weak_source_locality_count
+                    ),
+                },
+            )
             risk_reason_counts.update(risk_reasons)
             memory_count += context_memory_count
             source_ref_count += context_source_ref_count
@@ -1842,6 +1877,43 @@ def _answer_context_provenance_table(
         "source_refless_context_samples": source_refless_context_samples,
         "mixed_source_context_samples": mixed_source_context_samples,
     }
+
+
+def _answer_context_risk_reasons(
+    context: Mapping[str, object],
+    *,
+    skipped_duplicate_source_bundle_item_count: int,
+    skipped_noisy_overlap_bundle_item_count: int,
+    backfilled_retrieval_item_count: int,
+    skipped_redundant_risky_backfill_count: int,
+    skipped_redundant_source_backfill_count: int,
+    skipped_redundant_role_backfill_count: int,
+    backfill_risk_stats: Mapping[str, object],
+) -> tuple[str, ...]:
+    explicit = _str_tuple(context.get("risk_reason_codes"))
+    if explicit:
+        return explicit
+    return _context_risk_reason_codes(
+        bundle_risk_reason_codes=_str_tuple(context.get("bundle_risk_reason_codes")),
+        skipped_duplicate_source_bundle_item_count=(
+            skipped_duplicate_source_bundle_item_count
+        ),
+        skipped_noisy_overlap_bundle_item_count=(
+            skipped_noisy_overlap_bundle_item_count
+        ),
+        backfilled_retrieval_item_count=backfilled_retrieval_item_count,
+        skipped_redundant_risky_backfill_count=(
+            skipped_redundant_risky_backfill_count
+        ),
+        skipped_redundant_source_backfill_count=(
+            skipped_redundant_source_backfill_count
+        ),
+        skipped_redundant_role_backfill_count=(
+            skipped_redundant_role_backfill_count
+        ),
+        backfill_risk_stats=backfill_risk_stats,
+        memory_metadata=(),
+    )
 
 
 def _answer_contexts(

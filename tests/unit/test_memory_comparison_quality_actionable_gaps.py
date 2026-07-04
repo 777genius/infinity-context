@@ -306,3 +306,74 @@ def test_actionable_gap_summary_caps_ranked_gaps_and_sample_case_ids() -> None:
         "case-4",
         "case-5",
     ]
+
+
+def test_actionable_gap_summary_caps_query_plan_actionable_samples() -> None:
+    long_text = "x" * 200
+    samples = [
+        {
+            "case_id": f"case-{index}-{long_text}",
+            "group": f"group-{long_text}",
+            "gap_reasons": ("missing_evidence_role_query_family",),
+            "missing_evidence_role_query_families": ("favorite_support",),
+            "selected_role_families": tuple(
+                f"family-{family_index}-{long_text}" for family_index in range(7)
+            ),
+            "required_evidence_roles": (
+                "primary",
+                "favorite_support",
+                f"oversized-{long_text}",
+            ),
+            "selected_query_count": index,
+        }
+        for index in range(1, 8)
+    ]
+    summary = actionable_gap_summary(
+        evaluation_count=7,
+        expected_case_count=7,
+        failed_gates=("query_plan_evidence_roles_clear",),
+        query_overlap_count=0,
+        profile_overlap_count=0,
+        intent_overlap_count=0,
+        ref_gate={},
+        bundle_quality_failure_breakdown={},
+        bundle_gap_breakdown={},
+        answerability_gap_breakdown={},
+        selected_evidence_weakness={},
+        query_role_gap_breakdown={},
+        query_plan_gap_breakdown={
+            "missing_evidence_role_query_family_counts": {"favorite_support": 7},
+            "gap_reason_counts": {"missing_evidence_role_query_family": 7},
+            "missing_evidence_role_query_family_details": {
+                "favorite_support": {
+                    "accepted_query_families": (
+                        "relation_compact",
+                        "expanded_focus",
+                    )
+                }
+            },
+            "samples": samples,
+        },
+        source_ref_provenance={},
+    )
+
+    role_gap = next(
+        gap
+        for gap in summary["ranked_gaps"]
+        if gap["source_metric"]
+        == (
+            "query_plan_gap_breakdown."
+            "missing_evidence_role_query_family_counts"
+        )
+    )
+
+    assert len(role_gap["sample_case_ids"]) == 5
+    assert all(len(case_id) <= 128 for case_id in role_gap["sample_case_ids"])
+    assert len(role_gap["samples"]) == 3
+    assert role_gap["samples"][0]["case_id"].endswith("...")
+    assert role_gap["samples"][0]["group"].endswith("...")
+    assert len(role_gap["samples"][0]["selected_role_families"]) == 5
+    assert all(
+        len(value) <= 128
+        for value in role_gap["samples"][0]["selected_role_families"]
+    )

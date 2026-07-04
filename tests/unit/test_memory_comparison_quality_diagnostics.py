@@ -1186,6 +1186,61 @@ def test_quality_diagnostics_reports_answer_context_provenance_table() -> None:
     ]
 
 
+def test_quality_diagnostics_derives_answer_context_risk_reasons_from_counts() -> None:
+    diagnostics = quality_diagnostics(
+        (
+            _item(
+                case_id="legacy-context",
+                cutoff_results={
+                    "3": {
+                        "answer_context": {
+                            "source": "evidence_bundle",
+                            "memory_count": 2,
+                            "bundle_risk_reason_codes": [
+                                "risk:missing_required_role",
+                            ],
+                            "backfilled_retrieval_item_count": 1,
+                            "skipped_duplicate_source_bundle_item_count": 1,
+                            "skipped_noisy_overlap_bundle_item_count": 1,
+                            "skipped_redundant_risky_backfill_count": 1,
+                            "skipped_redundant_source_backfill_count": 1,
+                            "skipped_redundant_role_backfill_count": 1,
+                            "backfilled_broad_summary_count": 1,
+                            "backfilled_conflict_or_stale_count": 1,
+                            "backfilled_low_answerability_count": 1,
+                            "backfilled_weak_source_locality_count": 1,
+                        }
+                    }
+                },
+            ),
+        )
+    )
+
+    table = diagnostics["answer_context_provenance_table"]
+    expected_reasons = [
+        "risk:missing_required_role",
+        "risk:skipped_duplicate_source_bundle_item",
+        "risk:skipped_noisy_overlap_bundle_item",
+        "risk:retrieval_backfill",
+        "risk:backfilled_broad_summary",
+        "risk:backfilled_conflict_or_stale",
+        "risk:backfilled_low_answerability",
+        "risk:backfilled_weak_source_locality",
+        "risk:skipped_redundant_risky_backfill",
+        "risk:skipped_redundant_source_backfill",
+        "risk:skipped_redundant_role_backfill",
+    ]
+    assert table["risk_reason_counts"] == {
+        reason: 1 for reason in expected_reasons
+    }
+    assert table["backfilled_context_samples"][0]["risk_reason_codes"] == (
+        expected_reasons
+    )
+    assert table["backfill_skip_context_samples"][0]["risk_reason_codes"] == (
+        expected_reasons
+    )
+
+
 def test_quality_diagnostics_does_not_flag_missing_bridge_when_bridge_is_present() -> None:
     diagnostics = quality_diagnostics(
         (
@@ -3233,6 +3288,16 @@ def test_fast_gate_metrics_reports_answer_context_provenance() -> None:
     assert provenance["missing_required_role_total"] == 1
     assert provenance["missing_required_role_counts"] == {"visual": 1}
     assert provenance["backfilled_missing_required_role_counts"] == {"visual": 1}
+    expected_risk_reason_codes = [
+        "risk:skipped_duplicate_source_bundle_item",
+        "risk:skipped_noisy_overlap_bundle_item",
+        "risk:retrieval_backfill",
+        "risk:backfilled_broad_summary",
+        "risk:backfilled_conflict_or_stale",
+        "risk:skipped_redundant_risky_backfill",
+        "risk:skipped_redundant_source_backfill",
+        "risk:skipped_redundant_role_backfill",
+    ]
     assert provenance["backfilled_context_samples"] == [
         {
             "case_id": "weak-context",
@@ -3254,6 +3319,7 @@ def test_fast_gate_metrics_reports_answer_context_provenance() -> None:
             "backfilled_chained_source_proximity_support_count": 1,
             "backfilled_source_proximity_closest_distance": 1,
             "missing_required_roles": ["visual"],
+            "risk_reason_codes": expected_risk_reason_codes,
         }
     ]
     assert provenance["backfill_skip_context_samples"] == [
@@ -3267,6 +3333,7 @@ def test_fast_gate_metrics_reports_answer_context_provenance() -> None:
             "skipped_redundant_source_backfill_count": 1,
             "skipped_redundant_role_backfill_count": 1,
             "missing_required_roles": ["visual"],
+            "risk_reason_codes": expected_risk_reason_codes,
         }
     ]
     assert provenance["duplicate_source_bundle_skip_context_samples"] == [
@@ -3278,6 +3345,7 @@ def test_fast_gate_metrics_reports_answer_context_provenance() -> None:
             "skipped_duplicate_source_bundle_item_count": 1,
             "source_ref_count": 0,
             "source_ref_item_count": 0,
+            "risk_reason_codes": expected_risk_reason_codes,
         }
     ]
     assert provenance["noisy_overlap_bundle_skip_context_samples"] == [
@@ -3289,6 +3357,7 @@ def test_fast_gate_metrics_reports_answer_context_provenance() -> None:
             "skipped_noisy_overlap_bundle_item_count": 1,
             "source_ref_count": 0,
             "source_ref_item_count": 0,
+            "risk_reason_codes": expected_risk_reason_codes,
         }
     ]
     assert provenance["source_refless_context_samples"] == [

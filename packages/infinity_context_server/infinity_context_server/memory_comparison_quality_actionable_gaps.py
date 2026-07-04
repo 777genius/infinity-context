@@ -23,6 +23,9 @@ from infinity_context_server.memory_comparison_quality_accessors import (
 
 _MAX_RANKED_GAPS = 10
 _MAX_SAMPLE_CASE_IDS = 5
+_MAX_QUERY_PLAN_ACTIONABLE_SAMPLES = 3
+_MAX_QUERY_PLAN_ACTIONABLE_SAMPLE_VALUES = 5
+_MAX_QUERY_PLAN_ACTIONABLE_SAMPLE_TEXT = 128
 
 
 def actionable_gap_summary(
@@ -300,6 +303,10 @@ def _append_query_plan_missing_role_family_gaps(
             str(family),
             key="missing_evidence_role_query_families",
         )
+        compact_samples = _compact_query_plan_actionable_samples(
+            matched_samples,
+            limit=_MAX_SAMPLE_CASE_IDS,
+        )
         _append_actionable_gap(
             gaps,
             evaluation_count=evaluation_count,
@@ -313,8 +320,8 @@ def _append_query_plan_missing_role_family_gaps(
             ),
             action=action,
             evidence=evidence,
-            samples=matched_samples,
-            sample_payloads=_compact_query_plan_actionable_samples(matched_samples),
+            samples=compact_samples,
+            sample_payloads=compact_samples,
         )
 
 
@@ -332,6 +339,10 @@ def _append_query_plan_reason_gaps(
             str(reason),
             key="gap_reasons",
         )
+        compact_samples = _compact_query_plan_actionable_samples(
+            matched_samples,
+            limit=_MAX_SAMPLE_CASE_IDS,
+        )
         _append_actionable_gap(
             gaps,
             evaluation_count=evaluation_count,
@@ -341,8 +352,8 @@ def _append_query_plan_reason_gaps(
             failed_gate=failed_gate,
             source_metric="query_plan_gap_breakdown.gap_reason_counts",
             action=_query_plan_reason_action(str(reason)),
-            samples=matched_samples,
-            sample_payloads=_compact_query_plan_actionable_samples(matched_samples),
+            samples=compact_samples,
+            sample_payloads=compact_samples,
         )
 
 
@@ -649,12 +660,14 @@ def _query_plan_samples_for_gap(
 
 def _compact_query_plan_actionable_samples(
     samples: Sequence[Mapping[str, object]],
+    *,
+    limit: int = _MAX_QUERY_PLAN_ACTIONABLE_SAMPLES,
 ) -> tuple[dict[str, object], ...]:
     compact_samples: list[dict[str, object]] = []
     for sample in samples:
         compact: dict[str, object] = {}
         for key in ("case_id", "group"):
-            value = str(sample.get(key) or "").strip()
+            value = _compact_query_plan_sample_text(sample.get(key))
             if value:
                 compact[key] = value
         for key in (
@@ -668,9 +681,16 @@ def _compact_query_plan_actionable_samples(
             "replaced_type_limit_roles",
             "type_limit_replacement_roles",
         ):
-            values = _str_tuple(sample.get(key))
+            values = tuple(
+                value
+                for value in (
+                    _compact_query_plan_sample_text(raw_value)
+                    for raw_value in _str_tuple(sample.get(key))
+                )
+                if value
+            )
             if values:
-                compact[key] = list(values[:5])
+                compact[key] = list(values[:_MAX_QUERY_PLAN_ACTIONABLE_SAMPLE_VALUES])
         for key in (
             "selected_query_count",
             "dropped_query_count",
@@ -684,9 +704,16 @@ def _compact_query_plan_actionable_samples(
                 compact[key] = True
         if compact:
             compact_samples.append(compact)
-        if len(compact_samples) >= 3:
+        if len(compact_samples) >= limit:
             break
     return tuple(compact_samples)
+
+
+def _compact_query_plan_sample_text(value: object) -> str:
+    text = str(value or "").strip()
+    if len(text) <= _MAX_QUERY_PLAN_ACTIONABLE_SAMPLE_TEXT:
+        return text
+    return f"{text[: _MAX_QUERY_PLAN_ACTIONABLE_SAMPLE_TEXT - 3]}..."
 
 
 def _query_plan_reason_action(reason: str) -> str:
