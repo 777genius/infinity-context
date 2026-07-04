@@ -32,6 +32,7 @@ _MAX_RERANK_SIGNAL_ACTIONABLE_SAMPLES = 3
 _MAX_RERANK_SIGNAL_ACTIONABLE_SAMPLE_VALUES = 5
 _MAX_EVIDENCE_RECALL_ACTIONABLE_SAMPLES = 3
 _MAX_EVIDENCE_RECALL_ACTIONABLE_SAMPLE_VALUES = 5
+_MAX_ANSWER_CONTEXT_ACTIONABLE_SAMPLES = 3
 
 
 def actionable_gap_summary(
@@ -650,6 +651,9 @@ def _append_answer_context_provenance_gap(
         _positive_int(answer_context_provenance.get("source_refless_item_count"))
         or 0
     )
+    source_refless_samples = _compact_answer_context_actionable_samples(
+        _sequence(answer_context_provenance.get("source_refless_context_samples"))
+    )
     _append_actionable_gap(
         gaps,
         evaluation_count=evaluation_count,
@@ -675,9 +679,8 @@ def _append_answer_context_provenance_gap(
                 answer_context_provenance.get("source_counts")
             ),
         },
-        samples=_sequence(
-            answer_context_provenance.get("source_refless_context_samples")
-        ),
+        samples=source_refless_samples,
+        sample_payloads=source_refless_samples,
     )
 
 
@@ -1084,6 +1087,35 @@ def _compact_rerank_signal_actionable_samples(
         if compact:
             compact_samples.append(compact)
         if len(compact_samples) >= _MAX_RERANK_SIGNAL_ACTIONABLE_SAMPLES:
+            break
+    return tuple(compact_samples)
+
+
+def _compact_answer_context_actionable_samples(
+    samples: Sequence[object],
+) -> tuple[dict[str, object], ...]:
+    compact_samples: list[dict[str, object]] = []
+    for raw_sample in samples:
+        sample = _mapping(raw_sample)
+        if not sample:
+            continue
+        compact: dict[str, object] = {}
+        for key in ("case_id", "cutoff", "source", "fallback_reason"):
+            value = _compact_query_plan_sample_text(sample.get(key))
+            if value:
+                compact[key] = value
+        for key in (
+            "memory_count",
+            "source_ref_count",
+            "source_ref_item_count",
+            "source_refless_item_count",
+        ):
+            value = _positive_int(sample.get(key)) or 0
+            if value:
+                compact[key] = value
+        if compact:
+            compact_samples.append(compact)
+        if len(compact_samples) >= _MAX_ANSWER_CONTEXT_ACTIONABLE_SAMPLES:
             break
     return tuple(compact_samples)
 

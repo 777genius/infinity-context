@@ -391,6 +391,69 @@ def test_actionable_summary_reports_answer_context_provenance_gap() -> None:
         "source_ref_item_coverage_rate": 0.0,
         "source_counts": {"evidence_bundle": 1},
     }
+    assert gap["samples"] == [
+        {
+            "case_id": "prompt-provenance-gap",
+            "cutoff": "200",
+            "source": "evidence_bundle",
+            "memory_count": 2,
+            "source_refless_item_count": 2,
+        }
+    ]
+
+
+def test_actionable_summary_bounds_answer_context_provenance_samples() -> None:
+    long_value = "x" * 200
+    summary = actionable_gap_summary(
+        evaluation_count=4,
+        expected_case_count=4,
+        failed_gates=(),
+        query_overlap_count=0,
+        profile_overlap_count=0,
+        intent_overlap_count=0,
+        answer_context_provenance={
+            "source_refless_context_count": 4,
+            "source_refless_item_count": 4,
+            "source_ref_item_coverage_rate": 0.25,
+            "source_counts": {"evidence_bundle": 4},
+            "source_refless_context_samples": [
+                {
+                    "case_id": f"case-{index}-{long_value}",
+                    "cutoff": "200",
+                    "source": "evidence_bundle",
+                    "memory_count": index,
+                    "source_ref_count": 1,
+                    "source_ref_item_count": 1,
+                    "source_refless_item_count": 1,
+                    "fallback_reason": f"fallback-{long_value}",
+                    "raw_provider_payload": "excluded",
+                    "memory_text": "excluded",
+                }
+                for index in range(1, 5)
+            ],
+        },
+    )
+
+    gap = summary["top_gap"]
+    assert isinstance(gap, dict)
+    assert gap["sample_case_ids"] == [
+        f"case-1-{long_value[:118]}...",
+        f"case-2-{long_value[:118]}...",
+        f"case-3-{long_value[:118]}...",
+    ]
+    assert len(gap["samples"]) == 3
+    assert gap["samples"][0] == {
+        "case_id": f"case-1-{long_value[:118]}...",
+        "cutoff": "200",
+        "source": "evidence_bundle",
+        "fallback_reason": f"fallback-{long_value[:116]}...",
+        "memory_count": 1,
+        "source_ref_count": 1,
+        "source_ref_item_count": 1,
+        "source_refless_item_count": 1,
+    }
+    assert "raw_provider_payload" not in gap["samples"][0]
+    assert "memory_text" not in gap["samples"][0]
 
 
 def test_fast_gate_actionable_summary_reports_rerank_selection_conflicts() -> None:
