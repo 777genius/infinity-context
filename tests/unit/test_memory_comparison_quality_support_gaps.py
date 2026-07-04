@@ -2528,6 +2528,64 @@ def test_fast_gate_metrics_does_not_require_unpromoted_typed_relation_category()
     assert "missing_support_goal_support" not in breakdown["reason_counts"]
 
 
+def test_fast_gate_metrics_surfaces_selected_evidence_weakness() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="weak-selected-evidence",
+                group="single-hop",
+                evidence_bundle={
+                    "bundle_complete": True,
+                    "item_count": 2,
+                    "primary_evidence_count": 1,
+                    "supporting_evidence_count": 1,
+                    "items": [
+                        {
+                            "id": "low-answerability",
+                            "role": "primary",
+                            "retrieval_order": 1,
+                            "answerability_score": 0.42,
+                            "source_locality_score": 0.7,
+                            "source_refs": ["D1:1"],
+                        },
+                        {
+                            "id": "weak-locality",
+                            "role": "supporting",
+                            "retrieval_order": 2,
+                            "answerability_score": 0.72,
+                            "source_locality_score": 0.3,
+                            "source_refs": ["D1:2"],
+                        },
+                        {
+                            "id": "unmeasured",
+                            "role": "supporting",
+                            "retrieval_order": 3,
+                            "answerability_score": 0.0,
+                            "source_locality_score": 0.0,
+                        },
+                    ],
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    weakness = gate["selected_evidence_weakness"]
+
+    assert gate["passed"] is False
+    assert "selected_low_answerability_clear" in gate["failed_gates"]
+    assert "selected_weak_source_locality_clear" in gate["failed_gates"]
+    assert weakness["weak_case_count"] == 1
+    assert weakness["low_answerability_item_count"] == 1
+    assert weakness["weak_source_locality_item_count"] == 1
+    assert weakness["reason_counts"] == {
+        "selected_low_answerability": 1,
+        "selected_weak_source_locality": 1,
+    }
+    assert weakness["role_counts"] == {"primary": 1, "supporting": 1}
+    assert weakness["samples"][0]["source_refs"] == ["D1:1"]
+
+
 def _item(
     *,
     case_id: str,

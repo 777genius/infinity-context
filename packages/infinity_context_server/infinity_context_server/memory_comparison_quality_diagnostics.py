@@ -262,6 +262,7 @@ def fast_gate_metrics(
     source_ref_provenance = _source_ref_provenance_table(items)
     answer_context_provenance = _answer_context_provenance_table(items)
     answerability_gap_breakdown = _answerability_gap_breakdown(items)
+    selected_evidence_weakness = _selected_evidence_weakness_breakdown(items)
     candidate_fusion = _candidate_fusion_table(items)
     rerank_signal_gaps = _rerank_signal_gap_breakdown(items)
     query_role_gap_breakdown = _query_role_gap_breakdown(query_role_effectiveness)
@@ -313,6 +314,18 @@ def fast_gate_metrics(
             )
             or 0
         ),
+        "selected_low_answerability_clear": _zero_gate(
+            _positive_int(
+                selected_evidence_weakness.get("low_answerability_item_count")
+            )
+            or 0
+        ),
+        "selected_weak_source_locality_clear": _zero_gate(
+            _positive_int(
+                selected_evidence_weakness.get("weak_source_locality_item_count")
+            )
+            or 0
+        ),
     }
     if bundle_quality_count:
         gates["bundle_quality_present"] = _min_gate(
@@ -347,6 +360,7 @@ def fast_gate_metrics(
         "bundle_source_proximity": _bundle_source_proximity_summary(bundle_quality),
         "bundle_gap_breakdown": _bundle_gap_breakdown(bundle_incomplete),
         "answerability_gap_breakdown": answerability_gap_breakdown,
+        "selected_evidence_weakness": selected_evidence_weakness,
         "query_role_gap_breakdown": query_role_gap_breakdown,
         "query_plan_gap_breakdown": query_plan_gap_breakdown,
         "source_ref_provenance": source_ref_provenance,
@@ -657,6 +671,80 @@ def _answerability_gap_breakdown(
         "lifted_reason_counts": dict(sorted(lifted_reason_counts.items())),
         "category_counts": dict(sorted(category_counts.items())),
         "lifted_category_counts": dict(sorted(lifted_category_counts.items())),
+        "samples": samples,
+    }
+
+
+def _selected_evidence_weakness_breakdown(
+    items: Sequence[Mapping[str, object]],
+) -> dict[str, object]:
+    low_answerability_case_ids: set[str] = set()
+    weak_source_locality_case_ids: set[str] = set()
+    role_counts: Counter[str] = Counter()
+    reason_counts: Counter[str] = Counter()
+    low_answerability_item_count = 0
+    weak_source_locality_item_count = 0
+    samples: list[dict[str, object]] = []
+
+    for item in items:
+        if item.get("scored") is not True:
+            continue
+        case_id = str(item.get("case_id") or "")
+        group = str(item.get("group") or "")
+        for bundle_item in _bundle_items(_mapping(item.get("evidence_bundle"))):
+            reasons: list[str] = []
+            answerability_score = _metric_value(bundle_item, "answerability_score")
+            source_locality_score = _metric_value(bundle_item, "source_locality_score")
+            if _is_measured_low_answerability(answerability_score):
+                low_answerability_item_count += 1
+                if case_id:
+                    low_answerability_case_ids.add(case_id)
+                reasons.append("selected_low_answerability")
+            if _is_measured_weak_source_locality(source_locality_score):
+                weak_source_locality_item_count += 1
+                if case_id:
+                    weak_source_locality_case_ids.add(case_id)
+                reasons.append("selected_weak_source_locality")
+            if not reasons:
+                continue
+            role = str(bundle_item.get("role") or "unknown").strip() or "unknown"
+            role_counts[role] += 1
+            reason_counts.update(reasons)
+            if len(samples) < 10:
+                samples.append(
+                    {
+                        "case_id": case_id,
+                        "group": group,
+                        "item_id": str(
+                            bundle_item.get("id")
+                            or bundle_item.get("item_id")
+                            or ""
+                        ),
+                        "role": role,
+                        "retrieval_order": (
+                            _positive_int(bundle_item.get("retrieval_order"))
+                            or _positive_int(bundle_item.get("rank"))
+                            or 0
+                        ),
+                        "reasons": reasons,
+                        "answerability_score": round(answerability_score, 6),
+                        "source_locality_score": round(source_locality_score, 6),
+                        "source_refs": list(
+                            _source_refs_from_bundle_item(bundle_item)
+                        )[:5],
+                    }
+                )
+
+    weak_case_ids = low_answerability_case_ids | weak_source_locality_case_ids
+    return {
+        "schema_version": "selected_evidence_weakness.v1",
+        "weak_case_count": len(weak_case_ids),
+        "low_answerability_case_count": len(low_answerability_case_ids),
+        "weak_source_locality_case_count": len(weak_source_locality_case_ids),
+        "low_answerability_item_count": low_answerability_item_count,
+        "weak_source_locality_item_count": weak_source_locality_item_count,
+        "reason_counts": dict(sorted(reason_counts.items())),
+        "role_counts": dict(sorted(role_counts.items())),
         "samples": samples,
     }
 
@@ -2135,6 +2223,10 @@ def _zero_gate(actual: int) -> dict[str, object]:
 
 def _is_measured_low_answerability(score: float) -> bool:
     return 0 < score < 0.55
+
+
+def _is_measured_weak_source_locality(score: float) -> bool:
+    return 0 < score < 0.45
 
 
 def _overlap_samples(
