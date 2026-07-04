@@ -307,13 +307,15 @@ def _primary_signal(
     expected_hits: Sequence[str] = (),
     evidence_hits: Sequence[str] = (),
 ) -> bool:
-    if len(support_hits) >= 2:
-        return True
     answerability_score = _float_value(features.get("answerability_score"))
     source_locality_score = _float_value(features.get("source_locality_score"))
-    if answerability_score > 0 and answerability_score < 0.75:
+    if _is_measured_low_answerability(answerability_score):
         return False
     if _is_measured_weak_source_locality(source_locality_score):
+        return False
+    if len(support_hits) >= 2:
+        return True
+    if answerability_score > 0 and answerability_score < 0.75:
         return False
     relation_grounded = bool(
         _string_sequence(features.get("relation_hits"))

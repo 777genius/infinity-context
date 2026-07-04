@@ -151,6 +151,56 @@ def test_evidence_bundle_rejects_measured_weak_static_primary_signal() -> None:
     assert bundle["satisfied_required_roles"] == []
 
 
+def test_evidence_bundle_does_not_promote_low_answerability_lexical_hits_to_primary() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:lexical-low-answerability",
+        question="What did Morgan choose for the garden project?",
+        expected_terms=("blue tiles",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={
+            "category": 4,
+            "answer_preview": "blue tiles",
+            "evidence_terms": ("D5:1",),
+        },
+    )
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text=(
+                    "D5:1 Morgan talked about the garden project and needed "
+                    "to choose materials."
+                ),
+                rank=1,
+                item_id="lexical-low-answerability",
+                source_refs=("D5:1",),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.31,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "entity_hits": ["morgan"],
+                            "speaker_hits": ["morgan"],
+                            "relation_hits": ["garden", "project", "choose"],
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+        ),
+    )
+
+    assert bundle["candidate_item_count"] == 1
+    assert bundle["primary_evidence_count"] == 0
+    assert bundle["bundle_complete"] is False
+    assert bundle["satisfied_required_roles"] == []
+    assert bundle["missing_required_roles"] == ["primary"]
+    assert bundle["items"][0]["role"] == "supporting"
+
+
 def test_evidence_bundle_requires_location_support_for_location_queries() -> None:
     case = PublicBenchmarkCase(
         benchmark="locomo",
