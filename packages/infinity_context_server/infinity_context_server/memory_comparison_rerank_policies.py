@@ -912,6 +912,8 @@ def _typed_temporal_boost(features: RerankPolicyFeatures) -> tuple[float, str]:
     if time_kind == "relative_time":
         if features.has_relative_time_surface:
             return 0.08, "relative_temporal_evidence"
+        if features.has_explicit_time_content_surface:
+            return 0.08, "relative_temporal_explicit_answer_evidence"
         return (0.03, "relative_temporal_evidence_partial") if generic_temporal else (
             0.0,
             "missing_relative_temporal_evidence",

@@ -516,6 +516,60 @@ def test_rerank_policy_prefers_typed_duration_temporal_evidence() -> None:
     assert duration.boost > generic_temporal.boost
 
 
+def test_rerank_policy_treats_explicit_date_as_relative_answer_evidence() -> None:
+    explicit_date = score_benchmark_rerank_candidate(
+        _features(
+            overlap_terms=("morgan", "hike"),
+            entity_hits=("morgan",),
+            speaker_hits=("morgan",),
+            relation_hits=("hike",),
+            relation_terms=("hike", "friend"),
+            is_temporal_query=True,
+            time_intent_kind="relative_time",
+            has_temporal_surface=True,
+            has_explicit_time_content_surface=True,
+            query_roles=("relative_temporal_support",),
+            direct_speaker_turn=True,
+            source_locality_score=1.0,
+            source_ref_count=1,
+            turn_ref_count=1,
+        )
+    )
+    generic_temporal = score_benchmark_rerank_candidate(
+        _features(
+            overlap_terms=("morgan", "hike"),
+            entity_hits=("morgan",),
+            speaker_hits=("morgan",),
+            relation_hits=("hike",),
+            relation_terms=("hike", "friend"),
+            is_temporal_query=True,
+            time_intent_kind="relative_time",
+            has_temporal_surface=True,
+            query_roles=("relative_temporal_support",),
+            direct_speaker_turn=True,
+            source_locality_score=1.0,
+            source_ref_count=1,
+            turn_ref_count=1,
+        )
+    )
+
+    explicit_signals = explicit_date.signals["score_signals"]
+    generic_signals = generic_temporal.signals["score_signals"]
+    explicit_policy = explicit_date.signals["policy_contributions"]
+
+    assert explicit_signals["benchmark_temporal_text_boost"] == 0.08
+    assert explicit_signals["benchmark_temporal_role_support_boost"] == 0.055
+    assert explicit_signals["benchmark_typed_temporal_reason"] == (
+        "relative_temporal_explicit_answer_evidence"
+    )
+    assert generic_signals["benchmark_temporal_text_boost"] == 0.0
+    assert generic_signals["benchmark_temporal_role_support_boost"] == 0.0
+    assert "relative_temporal_explicit_answer_evidence" in explicit_policy[
+        "reason_codes_by_policy"
+    ]["TemporalPolicy"]
+    assert explicit_date.boost > generic_temporal.boost
+
+
 def test_rerank_policy_rejects_stale_only_current_state_temporal_support() -> None:
     stale = score_benchmark_rerank_candidate(
         _features(

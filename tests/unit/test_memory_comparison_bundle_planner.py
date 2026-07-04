@@ -1239,6 +1239,52 @@ def test_evidence_bundle_planner_rejects_metadata_only_explicit_time_completion(
     assert temporal_item.candidate.item_id == "content-time"
 
 
+def test_evidence_bundle_planner_requires_answer_evidence_for_relative_time() -> None:
+    primary = _candidate(
+        item_id="primary",
+        covered_expected_terms=("hike",),
+        primary_signal=True,
+    )
+    generic_temporal_surface = _candidate(
+        item_id="generic-temporal-surface",
+        dedupe_key="refs:D2:1",
+        time_intent_kind="relative_time",
+        has_temporal_surface=True,
+        query_support_terms=("hike", "friends"),
+        entity_hits=("morgan",),
+        source_locality_score=0.9,
+        answerability_score=0.76,
+    )
+    explicit_answer_time = _candidate(
+        item_id="explicit-answer-time",
+        dedupe_key="refs:D2:2",
+        time_intent_kind="relative_time",
+        has_temporal_surface=True,
+        has_explicit_time_content_surface=True,
+        query_support_terms=("friday", "hike"),
+        entity_hits=("morgan",),
+        source_locality_score=0.9,
+        answerability_score=0.86,
+    )
+
+    incomplete = EvidenceBundlePlanner().plan(
+        (primary, generic_temporal_surface),
+        case_group="temporal",
+        required_roles=("primary", "temporal_support"),
+    )
+    complete = EvidenceBundlePlanner().plan(
+        (primary, generic_temporal_surface, explicit_answer_time),
+        case_group="temporal",
+        required_roles=("primary", "temporal_support"),
+    )
+
+    assert incomplete.satisfied_required_roles == ("primary",)
+    assert incomplete.missing_required_roles == ("temporal_support",)
+    assert complete.satisfied_required_roles == ("primary", "temporal_support")
+    temporal_item = next(item for item in complete.items if item.role == "temporal_support")
+    assert temporal_item.candidate.item_id == "explicit-answer-time"
+
+
 def test_evidence_bundle_planner_repairs_missing_required_role_selection() -> None:
     primary = _candidate(
         item_id="primary",

@@ -1124,6 +1124,8 @@ def _temporal_intent_answerability(
     if time_intent_kind == "relative_time":
         if has_relative_time_surface:
             return 1.0, "relative_temporal_evidence"
+        if has_explicit_time_content_surface:
+            return 1.0, "relative_temporal_explicit_answer_evidence"
         return (0.5, "relative_temporal_evidence_partial") if generic_temporal else (
             0.0,
             "missing_relative_temporal_evidence",

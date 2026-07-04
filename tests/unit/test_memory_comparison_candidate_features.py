@@ -1993,6 +1993,72 @@ def test_candidate_features_score_weekend_relative_time_evidence() -> None:
     assert "relative_temporal_evidence" in features.answerability_reason_codes
 
 
+def test_candidate_features_score_explicit_date_as_relative_time_answer() -> None:
+    explicit_date = build_candidate_evidence_features(
+        RetrievedMemory(
+            item_id="friday-hike",
+            rank=1,
+            text="D6:4 Morgan: I am hiking with friends on Friday.",
+            source_refs=("D6:4",),
+        ),
+        memory_terms={"morgan", "hiking", "friends", "friday"},
+        query_terms=("morgan", "this", "weekend"),
+        relation_terms=("hiking",),
+        relation_variant_terms=("friends",),
+        entities=("morgan",),
+        entity_hits=("morgan",),
+        speaker_hits=("morgan",),
+        high_signal_relation_terms={"hiking"},
+        is_temporal_query=True,
+        time_intent_kind="relative_time",
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=True,
+        has_sequence_surface=True,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+    generic_temporal = build_candidate_evidence_features(
+        RetrievedMemory(
+            item_id="generic-weekend",
+            rank=2,
+            text="D6:5 Morgan: I am hiking with friends soon.",
+            source_refs=("D6:5",),
+        ),
+        memory_terms={"morgan", "hiking", "friends", "soon"},
+        query_terms=("morgan", "this", "weekend"),
+        relation_terms=("hiking",),
+        relation_variant_terms=("friends",),
+        entities=("morgan",),
+        entity_hits=("morgan",),
+        speaker_hits=("morgan",),
+        high_signal_relation_terms={"hiking"},
+        is_temporal_query=True,
+        time_intent_kind="relative_time",
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=True,
+        has_sequence_surface=True,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+
+    assert explicit_date.has_explicit_time_content_surface is True
+    assert explicit_date.has_relative_time_surface is False
+    assert (
+        "relative_temporal_explicit_answer_evidence"
+        in explicit_date.answerability_reason_codes
+    )
+    assert "missing_relative_temporal_evidence" in (
+        generic_temporal.answerability_reason_codes
+    )
+    assert explicit_date.answerability_score > generic_temporal.answerability_score
+
+
 def test_candidate_features_score_during_event_temporal_evidence() -> None:
     no_temporal_content = build_candidate_evidence_features(
         RetrievedMemory(

@@ -1227,7 +1227,7 @@ def _candidate_has_temporal_support(candidate: EvidenceBundleCandidate) -> bool:
         return bool(
             candidate.has_relative_time_surface
             or candidate.currentness_surface
-            or candidate.has_temporal_surface
+            or candidate.has_explicit_time_content_surface
         )
     return bool(
         candidate.has_temporal_surface
