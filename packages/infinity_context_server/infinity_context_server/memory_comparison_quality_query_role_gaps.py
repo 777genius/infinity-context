@@ -594,10 +594,12 @@ def _sample_gap_reasons(
 def _selected_bundle_roles(item: Mapping[str, object]) -> tuple[str, ...]:
     bundle = _mapping(item.get("evidence_bundle"))
     return tuple(
-        dict.fromkeys(
-            role
-            for bundle_item in _bundle_items(bundle)
-            for role in _str_tuple(bundle_item.get("role"))
+        sorted(
+            {
+                role
+                for bundle_item in _bundle_items(bundle)
+                for role in _str_tuple(bundle_item.get("role"))
+            }
         )
     )
 
@@ -605,10 +607,12 @@ def _selected_bundle_roles(item: Mapping[str, object]) -> tuple[str, ...]:
 def _selected_bundle_query_roles(item: Mapping[str, object]) -> tuple[str, ...]:
     bundle = _mapping(item.get("evidence_bundle"))
     return tuple(
-        dict.fromkeys(
-            role
-            for bundle_item in _bundle_items(bundle)
-            for role in _str_tuple(bundle_item.get("query_roles"))
+        sorted(
+            {
+                role
+                for bundle_item in _bundle_items(bundle)
+                for role in _str_tuple(bundle_item.get("query_roles"))
+            }
         )
     )
 

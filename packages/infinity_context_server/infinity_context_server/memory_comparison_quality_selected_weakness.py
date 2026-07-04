@@ -219,12 +219,17 @@ def _selected_evidence_weakness_sample(
     source_locality_score: float,
 ) -> dict[str, object]:
     source_refs = _source_refs_from_bundle_item(bundle_item)
+    compact_query_roles = _compact_sample_values(query_roles)
+    compact_source_refs = _compact_sample_values(source_refs)
     sample: dict[str, object] = {
         "case_id": case_id,
         "group": group,
         "item_id": str(bundle_item.get("id") or bundle_item.get("item_id") or ""),
         "role": role,
-        "query_roles": list(query_roles)[:_SELECTED_WEAKNESS_QUERY_ROLE_LIMIT],
+        "query_roles": list(compact_query_roles)[
+            :_SELECTED_WEAKNESS_QUERY_ROLE_LIMIT
+        ],
+        "query_role_count": len(compact_query_roles),
         "retrieval_order": (
             _positive_int(bundle_item.get("retrieval_order"))
             or _positive_int(bundle_item.get("rank"))
@@ -243,34 +248,39 @@ def _selected_evidence_weakness_sample(
             or "conflict_or_stale" in planner_reasons
             or "risk:conflict_or_stale" in risk_reasons
         ),
-        "source_refs": list(source_refs)[:_SELECTED_WEAKNESS_SOURCE_REF_LIMIT],
-        "source_ref_count": len(source_refs),
+        "source_refs": list(compact_source_refs)[
+            :_SELECTED_WEAKNESS_SOURCE_REF_LIMIT
+        ],
+        "source_ref_count": len(compact_source_refs),
     }
     _add_compact_sample_list(
         sample,
         "risk_reason_codes",
         risk_reasons,
         limit=_SELECTED_WEAKNESS_REASON_LIMIT,
+        count_key="risk_reason_count",
     )
     _add_compact_sample_list(
         sample,
         "planner_reason_codes",
         planner_reasons,
         limit=_SELECTED_WEAKNESS_REASON_LIMIT,
+        count_key="planner_reason_count",
     )
-    for key in (
-        "answerability_reason_codes",
-        "source_locality_reason_codes",
-        "retrieval_sources",
-        "source_types",
-        "relation_categories",
-        "relation_category_hits",
+    for key, count_key in (
+        ("answerability_reason_codes", "answerability_reason_count"),
+        ("source_locality_reason_codes", "source_locality_reason_count"),
+        ("retrieval_sources", "retrieval_source_count"),
+        ("source_types", "source_type_count"),
+        ("relation_categories", "relation_category_count"),
+        ("relation_category_hits", "relation_category_hit_count"),
     ):
         _add_compact_sample_list(
             sample,
             key,
             _str_tuple(bundle_item.get(key)),
             limit=_SELECTED_WEAKNESS_REASON_LIMIT,
+            count_key=count_key,
         )
     for key in ("source_type", "stale_reason", "conflict_reason"):
         value = str(bundle_item.get(key) or "").strip()
@@ -284,10 +294,10 @@ def _selected_evidence_risk_reasons(
 ) -> tuple[str, ...]:
     return tuple(
         dict.fromkeys(
-            reason
+            stripped
             for source in sources
             for reason in source
-            if reason.startswith("risk:")
+            if (stripped := reason.strip()).startswith("risk:")
         )
     )
 
@@ -298,7 +308,17 @@ def _add_compact_sample_list(
     values: Sequence[str],
     *,
     limit: int,
+    count_key: str | None = None,
 ) -> None:
-    compact = tuple(dict.fromkeys(value for value in values if value.strip()))[:limit]
-    if compact:
-        sample[key] = list(compact)
+    compact = _compact_sample_values(values)
+    if not compact:
+        return
+    sample[key] = list(compact[:limit])
+    if count_key:
+        sample[count_key] = len(compact)
+
+
+def _compact_sample_values(values: Sequence[str]) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(stripped for value in values if (stripped := value.strip()))
+    )

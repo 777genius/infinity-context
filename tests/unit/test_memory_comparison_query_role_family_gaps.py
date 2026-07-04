@@ -129,6 +129,42 @@ def test_query_role_gap_samples_use_deterministic_roles_and_families() -> None:
     assert samples[2]["gap_reasons"] == ["not_selected", "not_lifted"]
 
 
+def test_query_role_gap_samples_sort_selected_bundle_role_lists() -> None:
+    item = {
+        "case_id": "deterministic-selected-role-lists",
+        "group": "single-hop",
+        "retrieval": {
+            "results": [
+                _memory(
+                    "temporal",
+                    query_roles=("temporal_support",),
+                ),
+            ],
+        },
+        "evidence_bundle": {
+            "items": [
+                {
+                    "id": "selected-z",
+                    "role": "z_support",
+                    "query_roles": ("z_query",),
+                },
+                {
+                    "id": "selected-a",
+                    "role": "a_support",
+                    "query_roles": ("a_query",),
+                },
+            ]
+        },
+    }
+
+    sample = fast_gate_metrics((item,), expected_case_count=1)[
+        "query_role_gap_breakdown"
+    ]["samples"][0]
+
+    assert sample["selected_bundle_roles"] == ["a_support", "z_support"]
+    assert sample["selected_bundle_query_roles"] == ["a_query", "z_query"]
+
+
 def test_query_role_gap_breakdown_uses_fusion_selected_evidence_role_families() -> None:
     item = {
         "case_id": "fusion-selected-role-family",

@@ -2649,8 +2649,27 @@ def test_fast_gate_metrics_caps_selected_low_answerability_samples() -> None:
         "low-4",
     ]
     assert len(samples[0]["query_roles"]) == 6
+    assert samples[0]["query_role_count"] == 8
     assert len(samples[0]["source_refs"]) == 5
     assert samples[0]["source_ref_count"] == 7
+    assert samples[0]["risk_reason_codes"] == [
+        "risk:reason-0",
+        "risk:reason-1",
+        "risk:reason-2",
+        "risk:reason-3",
+        "risk:reason-4",
+        "risk:reason-5",
+    ]
+    assert samples[0]["risk_reason_count"] == 8
+    assert samples[0]["planner_reason_codes"] == [
+        "planner-reason-0",
+        "planner-reason-1",
+        "planner-reason-2",
+        "planner-reason-3",
+        "planner-reason-4",
+        "planner-reason-5",
+    ]
+    assert samples[0]["planner_reason_count"] == 8
 
 
 def _weak_item(index: int) -> dict[str, object]:
@@ -2661,6 +2680,14 @@ def _weak_item(index: int) -> dict[str, object]:
         "answerability_score": 0.42,
         "source_locality_score": 0.8,
         "source_refs": [f"D{index}:{ref_index}" for ref_index in range(1, 8)],
+        "risk_reason_codes": [
+            " risk:reason-0 ",
+            *[f"risk:reason-{reason_index}" for reason_index in range(8)],
+        ],
+        "planner_reason_codes": [
+            " planner-reason-0 ",
+            *[f"planner-reason-{reason_index}" for reason_index in range(8)],
+        ],
     }
 
 
