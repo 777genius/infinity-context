@@ -236,6 +236,63 @@ def test_context_requirement_boost_prefers_requested_dollar_unit() -> None:
     ]
 
 
+def test_context_requirement_penalizes_nearby_wrong_unit_for_price_query() -> None:
+    query = "What was the deposit amount for Mia's ceramics class?"
+    nearby_wrong_unit = _item(
+        "nearby_wrong_unit",
+        score=0.722,
+        text="Mia spent 45 minutes at the ceramics class after paying the deposit.",
+    )
+    exact_price = _item(
+        "exact_price",
+        score=0.7,
+        text="Mia said the ceramics class deposit was $45.",
+    )
+
+    boosted = apply_context_requirement_boosts(
+        (nearby_wrong_unit, exact_price),
+        query=query,
+        query_anchor_intent=build_query_anchor_intent(query),
+        max_boost=0.04,
+    )
+    by_id = {item.item_id: item for item in boosted}
+
+    assert by_id["exact_price"].score > by_id["nearby_wrong_unit"].score
+    assert "quantity_dollar" in by_id["exact_price"].diagnostics["provenance"][
+        "context_requirement_matched_answer_shapes"
+    ]
+    assert by_id["nearby_wrong_unit"].diagnostics["score_signals"][
+        "context_requirement_typed_answer_unit_mismatch_penalty"
+    ] > 0
+    assert by_id["nearby_wrong_unit"].diagnostics["provenance"][
+        "context_requirement_mismatched_answer_unit_shapes"
+    ] == ["duration_minute"]
+
+
+def test_context_requirement_does_not_penalize_exact_unit_with_nearby_number() -> None:
+    query = "What was the deposit amount for Mia's ceramics class?"
+    exact_price_with_context = _item(
+        "exact_price_with_context",
+        score=0.7,
+        text="Mia paid the $45 ceramics deposit 20 minutes before registration closed.",
+    )
+
+    (boosted,) = apply_context_requirement_boosts(
+        (exact_price_with_context,),
+        query=query,
+        query_anchor_intent=build_query_anchor_intent(query),
+        max_boost=0.04,
+    )
+
+    assert "quantity_dollar" in boosted.diagnostics["provenance"][
+        "context_requirement_matched_answer_shapes"
+    ]
+    assert (
+        "context_requirement_typed_answer_unit_mismatch_penalty"
+        not in boosted.diagnostics["score_signals"]
+    )
+
+
 def test_context_requirement_coverage_keeps_who_is_summary_out_of_list_shape() -> None:
     query = "Who is Alex?"
 

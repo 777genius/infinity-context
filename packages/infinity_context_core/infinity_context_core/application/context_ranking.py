@@ -220,6 +220,7 @@ _CONTEXT_REQUIREMENT_FEATURE_BOOST = 0.014
 _CONTEXT_REQUIREMENT_ANSWER_SHAPE_BOOST = 0.012
 _CONTEXT_REQUIREMENT_EXACT_COUNT_CARDINALITY_BOOST = 0.008
 _CONTEXT_REQUIREMENT_TYPED_ANSWER_UNIT_BOOST = 0.018
+_CONTEXT_REQUIREMENT_TYPED_ANSWER_UNIT_MISMATCH_PENALTY = 0.012
 _GENERIC_BOOSTABLE_ANSWER_SHAPES = frozenset((
     "causal",
     "choice",
@@ -1641,9 +1642,11 @@ def _with_context_requirement_boost(
         requested_features,
         coverage.get("covered_evidence_features"),
     )
+    covered_answer_shape_value = coverage.get("covered_answer_shapes")
+    covered_answer_shapes = _coverage_value_set(covered_answer_shape_value)
     matched_answer_shapes = _sorted_coverage_matches(
         requested_answer_shapes,
-        coverage.get("covered_answer_shapes"),
+        covered_answer_shape_value,
     )
     score_boosted_answer_shapes = tuple(
         shape for shape in matched_answer_shapes if shape in _GENERIC_BOOSTABLE_ANSWER_SHAPES
@@ -1651,10 +1654,19 @@ def _with_context_requirement_boost(
     typed_unit_answer_shapes = tuple(
         shape for shape in matched_answer_shapes if is_typed_answer_unit_shape(shape)
     )
+    typed_unit_mismatch_shapes = _typed_answer_unit_mismatch_shapes(
+        requested_answer_shapes=requested_answer_shapes,
+        covered_answer_shapes=covered_answer_shapes,
+    )
     exact_count_cardinality_boost = (
         _CONTEXT_REQUIREMENT_EXACT_COUNT_CARDINALITY_BOOST
         if "count" in score_boosted_answer_shapes
         and has_exact_count_cardinality_evidence(normalized_item.text)
+        else 0.0
+    )
+    typed_unit_mismatch_penalty = (
+        _CONTEXT_REQUIREMENT_TYPED_ANSWER_UNIT_MISMATCH_PENALTY
+        if typed_unit_mismatch_shapes
         else 0.0
     )
     raw_boost = (
@@ -1666,7 +1678,7 @@ def _with_context_requirement_boost(
         + len(typed_unit_answer_shapes) * _CONTEXT_REQUIREMENT_TYPED_ANSWER_UNIT_BOOST
     )
     boost = min(max_boost, round(raw_boost, 4))
-    if boost <= 0:
+    if boost <= 0 and typed_unit_mismatch_penalty <= 0:
         return item
     diagnostics = normalize_context_diagnostics(normalized_item.diagnostics)
     diagnostics["context_requirement_reason"] = "explicit query requirement matched item evidence"
@@ -1678,6 +1690,9 @@ def _with_context_requirement_boost(
         "context_requirement_matched_feature_count": len(matched_features),
         "context_requirement_matched_answer_shape_count": len(score_boosted_answer_shapes),
         "context_requirement_matched_typed_answer_unit_count": len(typed_unit_answer_shapes),
+        "context_requirement_typed_answer_unit_mismatch_count": len(
+            typed_unit_mismatch_shapes
+        ),
         **(
             {
                 "context_requirement_exact_count_cardinality_boost": (
@@ -1697,6 +1712,15 @@ def _with_context_requirement_boost(
             if typed_unit_answer_shapes
             else {}
         ),
+        **(
+            {
+                "context_requirement_typed_answer_unit_mismatch_penalty": (
+                    typed_unit_mismatch_penalty
+                )
+            }
+            if typed_unit_mismatch_penalty > 0
+            else {}
+        ),
     }
     diagnostics["provenance"] = {
         **safe_diagnostic_mapping(diagnostics.get("provenance")),
@@ -1705,16 +1729,43 @@ def _with_context_requirement_boost(
         "context_requirement_matched_modalities": list(matched_modalities),
         "context_requirement_matched_evidence_features": list(matched_features),
         "context_requirement_matched_answer_shapes": list(matched_answer_shapes),
+        "context_requirement_mismatched_answer_unit_shapes": list(
+            typed_unit_mismatch_shapes
+        ),
     }
     return replace(
         normalized_item,
-        score=min(0.99, round(normalized_item.score + boost, 4)),
+        score=min(
+            0.99,
+            max(
+                0.0,
+                round(normalized_item.score + boost - typed_unit_mismatch_penalty, 4),
+            ),
+        ),
         diagnostics=normalize_context_diagnostics(diagnostics),
     )
 
 
 def _context_requirement_boost_already_applied(item: ContextItem) -> bool:
     return _provenance_flag_is_true(item.diagnostics, "context_requirement_boost_applied")
+
+
+def _typed_answer_unit_mismatch_shapes(
+    *,
+    requested_answer_shapes: frozenset[str],
+    covered_answer_shapes: frozenset[str],
+) -> tuple[str, ...]:
+    requested_units = frozenset(
+        shape for shape in requested_answer_shapes if is_typed_answer_unit_shape(shape)
+    )
+    if not requested_units:
+        return ()
+    covered_units = frozenset(
+        shape for shape in covered_answer_shapes if is_typed_answer_unit_shape(shape)
+    )
+    if not covered_units or requested_units & covered_units:
+        return ()
+    return tuple(sorted(covered_units))
 
 
 def _with_deterministic_rerank_adjustment(
