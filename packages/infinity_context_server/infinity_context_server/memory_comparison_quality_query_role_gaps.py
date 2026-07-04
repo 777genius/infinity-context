@@ -574,6 +574,10 @@ def _query_role_gap_samples(
         group = str(item.get("group") or "")
         selected_roles = _selected_bundle_roles(item)
         selected_query_roles = _selected_bundle_query_roles(item)
+        selected_role_families = _query_role_families_for_roles(selected_roles)
+        selected_query_role_families = _query_role_families_for_roles(
+            selected_query_roles
+        )
         retrieval = _mapping(item.get("retrieval"))
         for memory in _sequence(retrieval.get("results")):
             if not isinstance(memory, Mapping):
@@ -630,10 +634,20 @@ def _query_role_gap_samples(
                         :_QUERY_ROLE_GAP_SELECTED_LIST_LIMIT
                     ],
                     "selected_bundle_role_count": len(selected_roles),
+                    "selected_bundle_role_families": list(selected_role_families)[
+                        :_QUERY_ROLE_GAP_SELECTED_LIST_LIMIT
+                    ],
+                    "selected_bundle_role_family_count": len(selected_role_families),
                     "selected_bundle_query_roles": list(selected_query_roles)[
                         :_QUERY_ROLE_GAP_SELECTED_LIST_LIMIT
                     ],
                     "selected_bundle_query_role_count": len(selected_query_roles),
+                    "selected_bundle_query_role_families": list(
+                        selected_query_role_families
+                    )[:_QUERY_ROLE_GAP_SELECTED_LIST_LIMIT],
+                    "selected_bundle_query_role_family_count": len(
+                        selected_query_role_families
+                    ),
                 }
                 _add_query_role_gap_sample_list(
                     sample,
@@ -709,6 +723,9 @@ def _add_fusion_evidence_selection_sample_fields(
         sample["fusion_selected_evidence_query_role"] = _compact_sample_text(
             selected_evidence_query_role
         )
+        sample["fusion_selected_evidence_query_role_families"] = _sample_value_list(
+            _query_role_families_for_roles((selected_evidence_query_role,))
+        )
     _add_query_role_gap_sample_list(
         sample,
         "fusion_evidence_selection_reason_codes",
@@ -781,6 +798,18 @@ def _selected_bundle_query_roles(item: Mapping[str, object]) -> tuple[str, ...]:
                 role
                 for bundle_item in _bundle_items(bundle)
                 for role in _str_tuple(bundle_item.get("query_roles"))
+            }
+        )
+    )
+
+
+def _query_role_families_for_roles(roles: Sequence[str]) -> tuple[str, ...]:
+    return tuple(
+        sorted(
+            {
+                family
+                for role in roles
+                for family in _query_role_families(role)
             }
         )
     )

@@ -164,7 +164,11 @@ def test_query_role_gap_samples_sort_selected_bundle_role_lists() -> None:
     ]["samples"][0]
 
     assert sample["selected_bundle_roles"] == ["a_support", "z_support"]
+    assert sample["selected_bundle_role_families"] == ["a_support", "z_support"]
+    assert sample["selected_bundle_role_family_count"] == 2
     assert sample["selected_bundle_query_roles"] == ["a_query", "z_query"]
+    assert sample["selected_bundle_query_role_families"] == ["a_query", "z_query"]
+    assert sample["selected_bundle_query_role_family_count"] == 2
 
 
 def test_query_role_gap_samples_match_positive_signal_lifted_candidates() -> None:
@@ -285,6 +289,10 @@ def test_query_role_gap_samples_include_fusion_selected_evidence_role() -> None:
 
     assert sample["fusion_score_winner_query_role"] == "original_question"
     assert sample["fusion_selected_evidence_query_role"] == "location_support"
+    assert sample["fusion_selected_evidence_query_role_families"] == [
+        "location_support",
+        "relation_compact",
+    ]
     assert sample["fusion_evidence_selection_reason_codes"] == [
         "lower_score_within_band",
         "focused_query_role",
@@ -418,6 +426,14 @@ def test_query_role_gap_breakdown_reports_bundle_role_without_query_tag() -> Non
         "not_selected",
         "selected_bundle_role_not_query_tagged",
     ]
+    sample = breakdown["samples"][0]
+    assert sample["selected_bundle_role_families"] == [
+        "location_support",
+        "relation_compact",
+    ]
+    assert sample["selected_bundle_role_family_count"] == 2
+    assert sample["selected_bundle_query_role_families"] == []
+    assert sample["selected_bundle_query_role_family_count"] == 0
 
 
 def test_query_role_family_gap_ignores_exact_role_loss_when_family_selected() -> None:
