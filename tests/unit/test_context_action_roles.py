@@ -85,6 +85,34 @@ def test_action_role_matches_named_owner_responsibility() -> None:
     assert mismatch.reason == "action_role_owner_mismatch"
 
 
+def test_action_role_owner_uses_embedded_subject_not_dialogue_speaker() -> None:
+    matched = action_role_rerank_signal(
+        query="Is Alex responsible for the Atlas invoice?",
+        text="D3:4 Maria: Alex is responsible for the Atlas invoice follow-up.",
+    )
+    reported = action_role_rerank_signal(
+        query="Is Alex responsible for the Atlas invoice?",
+        text="D3:4 Maria said Alex is responsible for the Atlas invoice follow-up.",
+    )
+    mismatch = action_role_rerank_signal(
+        query="Is Alex responsible for the Atlas invoice?",
+        text="D3:4 Maria is responsible for the Atlas invoice follow-up.",
+    )
+    direct_owner_title = action_role_rerank_signal(
+        query="Is Alex responsible for the Atlas invoice?",
+        text="Project Atlas invoice owner Alex approved the renewal follow-up.",
+    )
+
+    assert matched.boost > 0
+    assert matched.reason == "action_role_owner_match"
+    assert reported.boost > 0
+    assert reported.reason == "action_role_owner_match"
+    assert direct_owner_title.boost > 0
+    assert direct_owner_title.reason == "action_role_owner_match"
+    assert mismatch.penalty > 0
+    assert mismatch.reason == "action_role_owner_mismatch"
+
+
 def test_action_role_extracts_recommender_from_suggestion_source_query() -> None:
     matched = action_role_rerank_signal(
         query="What book did Melanie read from Caroline's suggestion?",

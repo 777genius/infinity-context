@@ -1107,9 +1107,18 @@ def _owner_responsibility_signal(
 
 def _owner_labels_in_text(text: str) -> frozenset[str]:
     labels: set[str] = set()
+    for match in re.finditer(
+        rf"(?=(?P<label>{_LABEL_RE})\b(?P<gap>.{{0,80}}?)\b"
+        rf"(?:owns?|owner|responsible)\b)",
+        text,
+        flags=re.IGNORECASE | re.DOTALL,
+    ):
+        label = _clean_label(match.group("label"))
+        if label and not _owner_gap_crosses_person_or_speaker(match.group("gap")):
+            labels.add(label)
     for pattern in (
-        rf"(?P<label>{_LABEL_RE})\b.{{0,80}}\b(?:owns?|owner|responsible)\b",
-        rf"\b(?:owner|responsible)\b.{{0,80}}\b(?P<label>{_LABEL_RE})\b",
+        rf"\b(?:owner|responsible)\s+(?P<label>{_LABEL_RE})\b",
+        rf"\b(?:owner|responsible)\b.{{0,80}}\b(?:is|was|:|-|to)\s+(?P<label>{_LABEL_RE})\b",
         rf"\bassigned\s+to\s+(?P<label>{_LABEL_RE})\b",
     ):
         for match in re.finditer(pattern, text, flags=re.IGNORECASE | re.DOTALL):
@@ -1117,6 +1126,10 @@ def _owner_labels_in_text(text: str) -> frozenset[str]:
             if label:
                 labels.add(label)
     return frozenset(labels)
+
+
+def _owner_gap_crosses_person_or_speaker(gap: str) -> bool:
+    return ":" in gap or bool(re.search(rf"\b{_LABEL_RE}\b", gap))
 
 
 def _has_support_presence_for_recipient(text: str, *, recipient: str) -> bool:

@@ -10218,6 +10218,41 @@ def test_deterministic_rerank_prefers_named_responsible_owner() -> None:
     )
 
 
+def test_deterministic_rerank_prefers_embedded_responsible_owner_over_speaker() -> None:
+    query = "Is Alex responsible for the Atlas invoice?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    alex_owner = _item(
+        "reported_alex_owner",
+        score=0.7,
+        retrieval_source="keyword_chunks",
+        text="D3:4 Maria: Alex is responsible for the Atlas invoice follow-up.",
+    )
+    maria_owner = _item(
+        "maria_owner",
+        score=0.72,
+        retrieval_source="keyword_chunks",
+        text="D3:4 Maria is responsible for the Atlas invoice follow-up.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (alex_owner, maria_owner),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+
+    assert reranked[0].item_id == "reported_alex_owner"
+    assert (
+        "action_role_owner_match"
+        in reranked[0].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+    assert (
+        "action_role_owner_mismatch"
+        in reranked[1].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+
+
 def test_deterministic_rerank_uses_recommendation_recipient_role() -> None:
     query = "Who recommended Becoming Nicole to Melanie?"
     plan = build_query_expansion_plan(query)
