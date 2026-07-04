@@ -1956,11 +1956,22 @@ def _closest_turn_ref_distance(
         abs(comparison_ref[2] - candidate_ref[2])
         for comparison_ref in comparison_turn_refs
         for candidate_ref in candidate_turn_refs
-        if comparison_ref[:2] == candidate_ref[:2]
+        if _turn_refs_same_source(comparison_ref, candidate_ref)
     ]
     if not distances:
         return None
     return min(distances)
+
+
+def _turn_refs_same_source(
+    left: tuple[str, int, int],
+    right: tuple[str, int, int],
+) -> bool:
+    left_session, left_dialogue, _ = left
+    right_session, right_dialogue, _ = right
+    return left_dialogue == right_dialogue and (
+        left_session == right_session or not left_session or not right_session
+    )
 
 
 def _max_item_drop_counts(

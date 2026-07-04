@@ -133,7 +133,10 @@ def _has_distinct_source_window_alternative(
         ):
             continue
         source_groups = set(_candidate_source_groups(item.candidate))
-        if source_groups and not source_groups.issubset(selected_source_groups):
+        if source_groups and any(
+            not _source_group_is_covered(source_group, selected_source_groups)
+            for source_group in source_groups
+        ):
             return True
     return False
 
@@ -181,11 +184,32 @@ def _closest_turn_ref_distance(
         abs(comparison_ref[2] - candidate_ref[2])
         for comparison_ref in comparison_turn_refs
         for candidate_ref in candidate_turn_refs
-        if comparison_ref[:2] == candidate_ref[:2]
+        if _source_groups_compatible(comparison_ref[:2], candidate_ref[:2])
     ]
     if not distances:
         return None
     return min(distances)
+
+
+def _source_group_is_covered(
+    source_group: tuple[str, int],
+    selected_source_groups: set[tuple[str, int]],
+) -> bool:
+    return any(
+        _source_groups_compatible(source_group, selected_source_group)
+        for selected_source_group in selected_source_groups
+    )
+
+
+def _source_groups_compatible(
+    left: tuple[str, int],
+    right: tuple[str, int],
+) -> bool:
+    left_session, left_dialogue = left
+    right_session, right_dialogue = right
+    return left_dialogue == right_dialogue and (
+        left_session == right_session or not left_session or not right_session
+    )
 
 
 def _candidate_turn_refs(candidate: Any) -> tuple[tuple[str, int, int], ...]:

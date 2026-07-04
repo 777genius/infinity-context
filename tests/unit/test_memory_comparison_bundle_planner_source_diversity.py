@@ -135,6 +135,110 @@ def test_evidence_bundle_planner_prefers_distinct_source_for_equivalent_support(
     assert diagnostics["bundle_quality"]["source_identity_support_item_count"] == 2
 
 
+def test_evidence_bundle_planner_matches_qualified_and_unqualified_source_windows() -> None:
+    primary = _candidate(
+        item_id="primary",
+        covered_evidence_terms=("venue",),
+        primary_signal=True,
+        source_refs=("D4:10",),
+    )
+    qualified_same_window = _candidate(
+        item_id="qualified-same-window",
+        retrieval_order=2,
+        dedupe_key="source_session_turn_refs:session_1:D4:11",
+        query_support_terms=("venue",),
+        source_refs=("locomo:conversation:session_1:D4:11:turn",),
+        focused_evidence_score=0.0,
+        direct_speaker_turn=False,
+        answerability_score=0.94,
+        bundle_strength_score=10.0,
+    )
+    distinct_source = _candidate(
+        item_id="distinct-source",
+        retrieval_order=3,
+        dedupe_key="refs:D8:5",
+        query_support_terms=("venue",),
+        source_refs=("D8:5",),
+        answerability_score=0.8,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, qualified_same_window, distinct_source),
+        case_group="single",
+    )
+
+    assert [item.candidate.item_id for item in plan.items] == [
+        "primary",
+        "distinct-source",
+    ]
+    diagnostics = plan.to_diagnostics()
+    assert diagnostics["dropped_diversity_count"] == 1
+    assert diagnostics["bundle_quality"]["source_proximity_closest_distance"] is None
+
+
+def test_evidence_bundle_planner_reports_mixed_source_window_proximity() -> None:
+    primary = _candidate(
+        item_id="primary",
+        covered_evidence_terms=("venue",),
+        primary_signal=True,
+        source_refs=("D4:10",),
+    )
+    qualified_same_window = _candidate(
+        item_id="qualified-same-window",
+        retrieval_order=2,
+        dedupe_key="source_session_turn_refs:session_1:D4:11",
+        query_support_terms=("venue",),
+        source_refs=("locomo:conversation:session_1:D4:11:turn",),
+        answerability_score=0.94,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, qualified_same_window),
+        case_group="single",
+    )
+
+    assert [item.candidate.item_id for item in plan.items] == [
+        "primary",
+        "qualified-same-window",
+    ]
+    assert plan.to_diagnostics()["bundle_quality"][
+        "source_proximity_closest_distance"
+    ] == 1
+
+
+def test_evidence_bundle_planner_keeps_different_qualified_sessions_distinct() -> None:
+    primary = _candidate(
+        item_id="primary",
+        covered_evidence_terms=("venue",),
+        primary_signal=True,
+        source_refs=("locomo:conversation:session_1:D4:10:turn",),
+    )
+    other_session = _candidate(
+        item_id="other-session",
+        retrieval_order=2,
+        dedupe_key="source_session_turn_refs:session_2:D4:11",
+        query_support_terms=("venue",),
+        source_refs=("locomo:conversation:session_2:D4:11:turn",),
+        focused_evidence_score=0.0,
+        direct_speaker_turn=False,
+        answerability_score=0.94,
+        bundle_strength_score=10.0,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, other_session),
+        case_group="single",
+    )
+
+    assert [item.candidate.item_id for item in plan.items] == [
+        "primary",
+        "other-session",
+    ]
+    diagnostics = plan.to_diagnostics()
+    assert diagnostics["dropped_diversity_count"] == 0
+    assert diagnostics["bundle_quality"]["source_proximity_closest_distance"] is None
+
+
 def test_evidence_bundle_planner_keeps_local_window_with_unique_support() -> None:
     primary = _candidate(
         item_id="primary",
