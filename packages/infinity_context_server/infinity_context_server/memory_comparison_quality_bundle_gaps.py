@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from collections import Counter
-from collections.abc import Mapping, Sequence
+import re
+from collections import Counter, defaultdict
+from collections.abc import Iterable, Mapping, Sequence
 
 from infinity_context_server.memory_comparison_quality_accessors import (
     bundle_complete as _bundle_complete,
@@ -13,6 +14,12 @@ from infinity_context_server.memory_comparison_quality_accessors import (
 )
 from infinity_context_server.memory_comparison_quality_accessors import (
     count_mapping as _count_mapping,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    direct_source_refs_from_memory as _direct_source_refs_from_memory,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    fusion_source_refs as _fusion_source_refs,
 )
 from infinity_context_server.memory_comparison_quality_accessors import (
     mapping as _mapping,
@@ -28,6 +35,9 @@ from infinity_context_server.memory_comparison_quality_accessors import (
     retrieval_metadata as _retrieval_metadata,
 )
 from infinity_context_server.memory_comparison_quality_accessors import (
+    retrieval_results as _retrieval_results,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
     selected_measured_source_locality_score as _selected_measured_source_locality_score,
 )
 from infinity_context_server.memory_comparison_quality_accessors import (
@@ -35,6 +45,9 @@ from infinity_context_server.memory_comparison_quality_accessors import (
 )
 from infinity_context_server.memory_comparison_quality_accessors import (
     sequence as _sequence,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    source_refs_from_bundle_item as _source_refs_from_bundle_item,
 )
 from infinity_context_server.memory_comparison_quality_accessors import (
     str_tuple as _str_tuple,
@@ -179,6 +192,12 @@ _EVIDENCE_NEED_GAP_REASONS = frozenset(
 )
 _COVERAGE_GAP_LIMIT = 5
 _WEAK_PROVENANCE_LIMIT = 5
+_SOURCE_LOCALITY_SAMPLE_LIMIT = 5
+_SOURCE_LOCALITY_WINDOW_LIMIT = 3
+_TURN_REF_RE = re.compile(
+    r"\b(?:(?P<session>session_\d+):)?D(?P<source>\d+):(?P<turn>\d+)\b",
+    re.IGNORECASE,
+)
 
 
 def bundle_incomplete_diagnostics(
@@ -197,6 +216,7 @@ def bundle_incomplete_diagnostics(
         item_reasons = _bundle_incomplete_reasons(item)
         reasons.update(item_reasons)
         if len(samples) < 10:
+            missing_source_locality = _missing_evidence_source_locality(item, bundle)
             samples.append(
                 {
                     "case_id": str(item.get("case_id") or ""),
@@ -222,6 +242,15 @@ def bundle_incomplete_diagnostics(
                         _mapping(item.get("retrieval_quality")).get(
                             "missing_evidence_terms"
                         )
+                    ),
+                    **(
+                        {
+                            "missing_evidence_source_locality": (
+                                missing_source_locality
+                            )
+                        }
+                        if missing_source_locality
+                        else {}
                     ),
                 }
             )
@@ -323,6 +352,9 @@ def _coverage_gap_rows(
                 "case_rate": _ratio(count, evaluation_count),
                 "action": _coverage_gap_action(reason),
                 "sample_case_ids": _sample_case_ids_for_reason(samples, reason),
+                "source_window_locality_samples": (
+                    _source_window_locality_samples_for_reason(samples, reason)
+                ),
             }
         )
     return rows
@@ -486,6 +518,171 @@ def _sample_case_ids(samples: Sequence[object]) -> list[str]:
         if len(case_ids) >= 5:
             break
     return case_ids
+
+
+def _source_window_locality_samples_for_reason(
+    samples: Sequence[object],
+    reason: str,
+) -> list[dict[str, object]]:
+    locality_samples: list[dict[str, object]] = []
+    for sample in samples:
+        payload = _mapping(sample)
+        if reason not in _str_tuple(payload.get("reasons")):
+            continue
+        locality = _mapping(payload.get("missing_evidence_source_locality"))
+        if not locality:
+            continue
+        locality_samples.append(
+            {
+                "case_id": str(payload.get("case_id") or ""),
+                "missing_turn_ref_count": (
+                    _positive_int(locality.get("missing_turn_ref_count")) or 0
+                ),
+                "same_source_missing_count": (
+                    _positive_int(locality.get("same_source_missing_count")) or 0
+                ),
+                "near_retrieved_window_count": (
+                    _positive_int(locality.get("near_retrieved_window_count")) or 0
+                ),
+                "source_absent_count": (
+                    _positive_int(locality.get("source_absent_count")) or 0
+                ),
+                "missing_ref_windows": list(
+                    _sequence(locality.get("missing_ref_windows"))
+                )[:_SOURCE_LOCALITY_WINDOW_LIMIT],
+            }
+        )
+        if len(locality_samples) >= _SOURCE_LOCALITY_SAMPLE_LIMIT:
+            break
+    return locality_samples
+
+
+def _missing_evidence_source_locality(
+    item: Mapping[str, object],
+    bundle: Mapping[str, object],
+) -> dict[str, object]:
+    missing_refs = _turn_refs(
+        _str_tuple(
+            _mapping(item.get("retrieval_quality")).get("missing_evidence_terms")
+        )
+    )
+    if not missing_refs:
+        return {}
+    retrieval_turns = _source_turns(
+        source_ref
+        for memory in _retrieval_results((item,))
+        for source_ref in _safe_memory_source_refs(memory)
+    )
+    bundle_turns = _source_turns(
+        source_ref
+        for bundle_item in _bundle_items(bundle)
+        for source_ref in _source_refs_from_bundle_item(bundle_item)
+    )
+    windows = [
+        _missing_ref_window(
+            ref,
+            retrieval_turns=retrieval_turns,
+            bundle_turns=bundle_turns,
+        )
+        for ref in missing_refs
+    ]
+    same_source_missing_count = sum(
+        1 for window in windows if window["retrieved_same_source"] is True
+    )
+    near_retrieved_window_count = sum(
+        1
+        for window in windows
+        if (
+            isinstance(window.get("nearest_retrieved_turn_distance"), int)
+            and int(window["nearest_retrieved_turn_distance"]) <= 2
+        )
+    )
+    return {
+        "schema_version": "missing_evidence_source_locality.v1",
+        "missing_turn_ref_count": len(missing_refs),
+        "retrieved_source_id_count": len(retrieval_turns),
+        "bundle_source_id_count": len(bundle_turns),
+        "same_source_missing_count": same_source_missing_count,
+        "near_retrieved_window_count": near_retrieved_window_count,
+        "source_absent_count": len(missing_refs) - same_source_missing_count,
+        "missing_ref_windows": windows[:_SOURCE_LOCALITY_WINDOW_LIMIT],
+    }
+
+
+def _missing_ref_window(
+    ref: tuple[str, int],
+    *,
+    retrieval_turns: Mapping[str, tuple[int, ...]],
+    bundle_turns: Mapping[str, tuple[int, ...]],
+) -> dict[str, object]:
+    source_id, turn = ref
+    nearest_retrieved = _nearest_turn(source_id, turn, retrieval_turns)
+    nearest_bundle = _nearest_turn(source_id, turn, bundle_turns)
+    window: dict[str, object] = {
+        "ref": f"{source_id}:{turn}",
+        "source_id": source_id,
+        "retrieved_same_source": source_id in retrieval_turns,
+        "bundle_same_source": source_id in bundle_turns,
+    }
+    if nearest_retrieved is not None:
+        nearest_turn, distance = nearest_retrieved
+        window["nearest_retrieved_turn_ref"] = f"{source_id}:{nearest_turn}"
+        window["nearest_retrieved_turn_distance"] = distance
+    if nearest_bundle is not None:
+        nearest_turn, distance = nearest_bundle
+        window["nearest_bundle_turn_ref"] = f"{source_id}:{nearest_turn}"
+        window["nearest_bundle_turn_distance"] = distance
+    return window
+
+
+def _safe_memory_source_refs(memory: Mapping[str, object]) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            (
+                *_direct_source_refs_from_memory(memory),
+                *_fusion_source_refs(memory),
+            )
+        )
+    )
+
+
+def _nearest_turn(
+    source_id: str,
+    turn: int,
+    source_turns: Mapping[str, tuple[int, ...]],
+) -> tuple[int, int] | None:
+    turns = source_turns.get(source_id)
+    if not turns:
+        return None
+    nearest = min(turns, key=lambda candidate: (abs(candidate - turn), candidate))
+    return nearest, abs(nearest - turn)
+
+
+def _source_turns(values: Iterable[str]) -> dict[str, tuple[int, ...]]:
+    turns_by_source: dict[str, set[int]] = defaultdict(set)
+    for source_id, turn in _turn_refs(values):
+        turns_by_source[source_id].add(turn)
+    return {
+        source_id: tuple(sorted(turns))
+        for source_id, turns in sorted(turns_by_source.items())
+    }
+
+
+def _turn_refs(values: Iterable[str]) -> tuple[tuple[str, int], ...]:
+    refs: list[tuple[str, int]] = []
+    seen: set[tuple[str, int]] = set()
+    for value in values:
+        for match in _TURN_REF_RE.finditer(str(value)):
+            source_id = f"D{match.group('source')}"
+            session_id = str(match.group("session") or "").strip().lower()
+            if session_id:
+                source_id = f"{session_id}:{source_id}"
+            ref = (source_id, int(match.group("turn")))
+            if ref in seen:
+                continue
+            seen.add(ref)
+            refs.append(ref)
+    return tuple(refs)
 
 
 def _bundle_incomplete_reasons(item: Mapping[str, object]) -> tuple[str, ...]:
