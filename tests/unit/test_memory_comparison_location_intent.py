@@ -290,6 +290,71 @@ def test_event_location_rerank_boosts_venue_evidence_over_generic_event() -> Non
     assert venue_signals["benchmark_location_support_boost"] > 0
 
 
+def test_wedding_venue_query_gets_location_support_without_answer_leakage() -> None:
+    case = _case(
+        "What type of venue did John and his girlfriend choose for their wedding ceremony?"
+    )
+
+    intent = query_retrieval_intent(case)
+    queries, diagnostics = decomposed_search_queries(case)
+    profile = intent.to_query_profile()
+
+    assert "venue" in profile["relation_terms"]
+    assert "location_transition" in profile["relation_categories"]
+    assert "location_support" in profile["evidence_need"]
+    assert "location_support" in diagnostics["query_plan"]["selected_roles"]
+    assert any(
+        "john venue place location event wedding ceremony" in query for query in queries
+    )
+    assert intent.to_diagnostics()["uses_ground_truth"] is False
+    assert "barn" not in str(intent.to_diagnostics()).casefold()
+
+
+def test_wedding_venue_rerank_boosts_ceremony_place_evidence() -> None:
+    case = _case(
+        "What type of venue did John and his girlfriend choose for their wedding ceremony?"
+    )
+    venue_evidence = RetrievedMemory(
+        item_id="wedding-venue",
+        rank=2,
+        score=0.5,
+        text=(
+            "D4:6 John: My girlfriend and I chose a rustic barn "
+            "for our wedding ceremony."
+        ),
+        source_refs=("D4:6",),
+        metadata={"item_type": "raw_turn"},
+    )
+    generic_wedding = RetrievedMemory(
+        item_id="generic-wedding",
+        rank=1,
+        score=0.55,
+        text="D4:5 John: My girlfriend and I talked about the wedding ceremony.",
+        source_refs=("D4:5",),
+        metadata={"item_type": "raw_turn"},
+    )
+
+    reranked, _diagnostics = benchmark_rerank_memories(
+        case,
+        (generic_wedding, venue_evidence),
+    )
+
+    assert reranked[0].item_id == "wedding-venue"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    venue_features = diagnostics_by_id["wedding-venue"][
+        "benchmark_candidate_features"
+    ]
+    generic_features = diagnostics_by_id["generic-wedding"][
+        "benchmark_candidate_features"
+    ]
+    venue_signals = diagnostics_by_id["wedding-venue"]["score_signals"]
+    assert venue_features["relation_category_hits"] == ["location_transition"]
+    assert generic_features["relation_category_hits"] == []
+    assert venue_signals["benchmark_location_support_boost"] > 0
+
+
 def test_non_place_work_question_does_not_get_location_support() -> None:
     case = _case("What field was Alex working in?")
 

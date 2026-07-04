@@ -248,6 +248,7 @@ _RELATION_QUERY_TERMS = {
     "think",
     "told",
     "travel",
+    "venue",
     "vehicle",
     "visit",
     "want",

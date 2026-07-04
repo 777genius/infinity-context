@@ -1438,6 +1438,17 @@ def _location_support_query_terms(
             "museum",
             "theater",
         )
+    elif "venue" in relation_term_set:
+        location_first_terms = (
+            "venue",
+            "place",
+            "location",
+            "event",
+            "wedding",
+            "ceremony",
+            "reception",
+            "hall",
+        )
     elif {"origin", "from"} & relation_term_set:
         location_first_terms = ("origin", "home", "city", "country", "grew", "born")
         return tuple(

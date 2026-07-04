@@ -1467,13 +1467,25 @@ _WORKPLACE_LOCATION_SURFACE_RE = re.compile(
     r"downtown|midtown|uptown)",
 )
 _EVENT_VENUE_LOCATION_SURFACE_RE = re.compile(
-    r"(?i:\b(?:attend|attended|attending|event|concert|conference|meet|met|"
-    r"meeting|show|visit|visited|workshop)\b)"
+    r"(?i:\b(?:attend|attended|attending|book|booked|choose|chose|chosen|"
+    r"event|concert|conference|meet|met|meeting|show|visit|visited|"
+    r"wedding|ceremony|reception|workshop)\b)"
     r"[^.?!\n]{0,100}(?i:\b(?:at|in|near|around)\s+)"
     r"(?i:(?:a\s+|an\s+|the\s+)?)"
     r"(?:[A-Z][a-zA-Z0-9_-]+(?:\s+[A-Z][a-zA-Z0-9_-]+){0,3}|"
-    r"(?i:auditorium|cafe|center|centre|gallery|hall|library|museum|park|"
-    r"restaurant|school|studio|theater|theatre|venue))\b",
+    r"(?i:auditorium|barn|cafe|center|centre|chapel|church|gallery|garden|"
+    r"hall|library|museum|park|restaurant|school|studio|theater|theatre|venue))\b",
+)
+_WEDDING_VENUE_LOCATION_SURFACE_RE = re.compile(
+    r"(?i:\b(?:book|booked|choose|chose|chosen|pick|picked|select|selected)\b)"
+    r"[^.?!\n]{0,100}"
+    r"(?i:\b(?:auditorium|barn|chapel|church|gallery|garden|hall|hotel|"
+    r"museum|park|restaurant|theater|theatre|venue)\b)"
+    r"[^.?!\n]{0,100}(?i:\b(?:wedding|ceremony|reception)\b)"
+    r"|(?i:\b(?:wedding|ceremony|reception)\b)"
+    r"[^.?!\n]{0,100}"
+    r"(?i:\b(?:auditorium|barn|chapel|church|gallery|garden|hall|hotel|"
+    r"museum|park|restaurant|theater|theatre|venue)\b)",
 )
 
 
@@ -1565,6 +1577,7 @@ def _has_location_transition_support(
         or _CAMPING_LOCATION_SURFACE_RE.search(memory_text)
         or _WORKPLACE_LOCATION_SURFACE_RE.search(memory_text)
         or _EVENT_VENUE_LOCATION_SURFACE_RE.search(memory_text)
+        or _WEDDING_VENUE_LOCATION_SURFACE_RE.search(memory_text)
         or (travel_surface and travel_context)
     )
 

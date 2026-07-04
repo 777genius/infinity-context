@@ -810,6 +810,7 @@ def _has_location_transition_intent(
         "employment",
         "travel",
         "trip",
+        "venue",
         "visit",
         "stay",
         "attend",
@@ -852,7 +853,8 @@ def _has_location_transition_intent(
     return bool(
         re.search(
             r"\b(?:where|which\s+(?:city|country|place)|from|origin|"
-            r"what\s+(?:place|venue)|home\s+country|hometown|born|raised|"
+            r"what\s+(?:type\s+of\s+|kind\s+of\s+)?(?:place|venue)|"
+            r"home\s+country|hometown|born|raised|"
             r"childhood|originally|relocat(?:e|ed|ion)|"
             r"current\s+(?:city|home|location))\b",
             normalized,
@@ -2547,6 +2549,7 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "stay",
                 "travel",
                 "trip",
+                "venue",
                 "visit",
             }
         ),
@@ -2586,6 +2589,7 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "traveling",
                 "trip",
                 "venue",
+                "wedding",
                 "visited",
                 "visiting",
                 "work",
