@@ -360,6 +360,44 @@ def test_rerank_policy_allows_answerability_for_grounded_typed_category() -> Non
     ]
 
 
+def test_rerank_policy_caps_missing_action_event_evidence() -> None:
+    score = score_benchmark_rerank_candidate(
+        _features(
+            overlap_terms=("caroline", "notebook"),
+            entity_hits=("caroline",),
+            speaker_hits=("caroline",),
+            relation_hits=("notebook", "desk", "planning", "class"),
+            relation_terms=("brought", "notebook"),
+            relation_categories=("action_event",),
+            relation_category_hits=(),
+            query_has_entities=True,
+            evidence_need=("action_support",),
+            query_roles=("action_support",),
+            direct_speaker_turn=True,
+            focused_turn_boost=0.12,
+            source_locality_score=1.0,
+            source_ref_count=1,
+            turn_ref_count=1,
+            answerability_score=0.74,
+            answerability_reason_codes=(
+                "entity_satisfied",
+                "relation_partial",
+                "direct_provenance",
+                "intent_partial",
+                "missing_action_event_evidence",
+                "medium_answerability",
+            ),
+        )
+    )
+
+    signals = score.signals["score_signals"]
+    assert signals["benchmark_answerability_boost_eligible"] is False
+    assert score.boost == 0.4
+    assert signals["benchmark_provenance_safety_reason_codes"] == [
+        "missing_action_event_evidence_cap"
+    ]
+
+
 def test_rerank_policy_reports_contrast_and_currentness_support() -> None:
     score = score_benchmark_rerank_candidate(
         BenchmarkRerankFeatures(

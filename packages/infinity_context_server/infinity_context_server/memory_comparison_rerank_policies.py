@@ -1074,6 +1074,7 @@ _TYPED_RELATION_SUPPORT_ROLE_CATEGORIES = {
 
 _MISSING_REQUIRED_ANSWER_EVIDENCE_REASONS = frozenset(
     {
+        "missing_action_event_evidence",
         "missing_activity_evidence",
         "missing_activity_profile_evidence",
         "missing_age_profile_evidence",

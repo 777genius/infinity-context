@@ -404,6 +404,7 @@ def _provenance_safety_cap(
         caps.append((0.28, "stale_only_current_state_cap"))
     answerability_reasons = set(features.answerability_reason_codes)
     missing_evidence_caps = {
+        "missing_action_event_evidence": 0.4,
         "missing_causal_evidence": 0.4,
         "missing_contrast_evidence": 0.4,
         "missing_registration_event_evidence": 0.4,

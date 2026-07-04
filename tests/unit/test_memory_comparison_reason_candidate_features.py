@@ -174,3 +174,35 @@ def test_prompt_surface_without_context_is_not_causal_evidence() -> None:
 
     assert features.relation_category_hits == ()
     assert "missing_causal_evidence" in features.answerability_reason_codes
+
+
+def test_action_query_without_action_event_surface_marks_missing_evidence() -> None:
+    features = build_candidate_evidence_features(
+        RetrievedMemory(
+            item_id="notebook-topic-turn",
+            rank=1,
+            text="D1:3 Caroline: The notebook is on my desk.",
+            source_refs=("D1:3",),
+        ),
+        memory_terms={"caroline", "notebook", "desk"},
+        query_terms=("caroline", "brought", "notebook"),
+        relation_terms=("brought", "notebook"),
+        relation_variant_terms=("brought", "notebook", "prepared"),
+        relation_category_terms={"action_event": ("brought", "notebook")},
+        entities=("caroline",),
+        entity_hits=("caroline",),
+        speaker_hits=("caroline",),
+        high_signal_relation_terms={"notebook"},
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+
+    assert features.relation_category_hits == ()
+    assert "missing_action_event_evidence" in features.answerability_reason_codes

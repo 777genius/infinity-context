@@ -123,6 +123,7 @@ _LIST_ITEM_SPLIT_RE = re.compile(
     re.IGNORECASE,
 )
 _INTENT_RELATION_CATEGORY_ORDER = (
+    "action_event",
     "causal",
     "contrast",
     "registration_event",
