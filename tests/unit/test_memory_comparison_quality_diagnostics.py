@@ -1241,6 +1241,42 @@ def test_quality_diagnostics_derives_answer_context_risk_reasons_from_counts() -
     )
 
 
+def test_quality_diagnostics_merges_explicit_and_derived_answer_context_risks() -> None:
+    diagnostics = quality_diagnostics(
+        (
+            _item(
+                case_id="partial-context",
+                cutoff_results={
+                    "3": {
+                        "answer_context": {
+                            "source": "evidence_bundle",
+                            "memory_count": 2,
+                            "risk_reason_codes": ["risk:item_specific"],
+                            "backfilled_retrieval_item_count": 1,
+                            "skipped_duplicate_source_bundle_item_count": 1,
+                            "backfilled_low_answerability_count": 1,
+                        }
+                    }
+                },
+            ),
+        )
+    )
+
+    table = diagnostics["answer_context_provenance_table"]
+    expected_reasons = [
+        "risk:item_specific",
+        "risk:skipped_duplicate_source_bundle_item",
+        "risk:retrieval_backfill",
+        "risk:backfilled_low_answerability",
+    ]
+    assert table["risk_reason_counts"] == {
+        reason: 1 for reason in expected_reasons
+    }
+    assert table["backfilled_context_samples"][0]["risk_reason_codes"] == (
+        expected_reasons
+    )
+
+
 def test_quality_diagnostics_does_not_flag_missing_bridge_when_bridge_is_present() -> None:
     diagnostics = quality_diagnostics(
         (

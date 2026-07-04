@@ -11,6 +11,9 @@ from infinity_context_server.memory_comparison_answer_context_risks import (
 from infinity_context_server.memory_comparison_answer_context_risks import (
     is_measured_low_answerability as _is_measured_low_answerability,
 )
+from infinity_context_server.memory_comparison_answer_context_risks import (
+    merge_risk_reason_codes as _merge_risk_reason_codes,
+)
 from infinity_context_server.memory_comparison_candidate_risks import (
     payload_has_broad_summary,
     payload_has_conflict_or_stale,
@@ -1628,9 +1631,7 @@ def _answer_context_risk_reasons(
     backfill_risk_stats: Mapping[str, object],
 ) -> tuple[str, ...]:
     explicit = _str_tuple(context.get("risk_reason_codes"))
-    if explicit:
-        return explicit
-    return _context_risk_reason_codes(
+    derived = _context_risk_reason_codes(
         bundle_risk_reason_codes=_str_tuple(context.get("bundle_risk_reason_codes")),
         skipped_duplicate_source_bundle_item_count=(
             skipped_duplicate_source_bundle_item_count
@@ -1651,6 +1652,7 @@ def _answer_context_risk_reasons(
         backfill_risk_stats=backfill_risk_stats,
         memory_metadata=(),
     )
+    return _merge_risk_reason_codes(explicit, derived)
 
 
 def _answer_contexts(
