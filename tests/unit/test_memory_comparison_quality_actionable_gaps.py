@@ -11,6 +11,7 @@ from tests.unit.test_memory_comparison_quality_diagnostics import (
     _bundle_quality,
     _fast_gate_bundle,
     _item,
+    _rerank_candidate_payload,
     _retrieval_payload,
 )
 
@@ -298,6 +299,119 @@ def test_actionable_summary_reports_answer_context_provenance_gap() -> None:
         "source_ref_item_coverage_rate": 0.0,
         "source_counts": {"evidence_bundle": 1},
     }
+
+
+def test_fast_gate_actionable_summary_reports_rerank_selection_conflicts() -> None:
+    long_value = "x" * 200
+    retrieval = _retrieval_payload(
+        evidence_need=("single_fact",),
+        policy_score=0.0,
+    )
+    retrieval["results"] = [
+        _rerank_candidate_payload(
+            item_id=f"unselected-positive-{long_value}",
+            rank=1,
+            score=0.91,
+            policy_score=0.12,
+            score_signals={
+                f"benchmark_signal_{index}_{long_value}": index / 100
+                for index in range(1, 7)
+            }
+            | {"benchmark_effective_boost_cap": 0.16},
+            candidate_features={
+                "answerability_score": 0.88,
+                "source_locality_score": 0.81,
+                "source_type": "raw_turn",
+                "query_roles": tuple(
+                    f"role-{index}-{long_value}" for index in range(1, 7)
+                ),
+                "relation_category_hits": ("preference",),
+            },
+        ),
+        _rerank_candidate_payload(
+            item_id="selected-weak",
+            rank=2,
+            score=0.74,
+            policy_score=0.0,
+            score_signals={"benchmark_rank_penalty": -0.04},
+            candidate_features={
+                "answerability_score": 0.9,
+                "source_locality_score": 0.9,
+            },
+        ),
+    ]
+    item = _item(
+        case_id="rerank-action-gap",
+        evidence_bundle={
+            "bundle_complete": True,
+            "evidence_term_count": 1,
+            "covered_evidence_terms": ["D1:1"],
+            "items": [
+                {
+                    "id": "selected-weak",
+                    "role": "supporting",
+                    "retrieval_order": 1,
+                    "covered_evidence_terms": ["D1:1"],
+                    "focused_evidence_score": 1.0,
+                    "source_refs": ["D1:1"],
+                    "answerability_score": 0.9,
+                    "source_locality_score": 0.9,
+                    "query_roles": ["supporting"],
+                    "planner_reason_codes": ["fallback_selection"],
+                }
+            ],
+        },
+        retrieval=retrieval,
+    )
+
+    gate = fast_gate_metrics((item,), expected_case_count=1)
+    summary = gate["actionable_gap_summary"]
+    gap = next(
+        gap
+        for gap in summary["ranked_gaps"]
+        if gap["category"] == "rerank_signal_selection"
+    )
+
+    assert gap["gap"] == "selection_conflict"
+    assert gap["severity"] == "diagnostic"
+    assert gap["impact_count"] == 1
+    assert gap["source_metric"] == (
+        "rerank_signal_gap_breakdown.selection_conflict_case_count"
+    )
+    assert gap["sample_case_ids"] == ["rerank-action-gap"]
+    assert gap["evidence"]["selection_conflict_pair_count"] == 1
+    assert len(gap["evidence"]["positive_unselected_signal_counts"]) == 5
+    assert gap["evidence"]["selected_without_positive_reason_counts"] == {
+        "no_positive_rerank_signal": 1
+    }
+    samples = gap["samples"]
+    assert len(samples) == 1
+    assert samples[0] == {
+        "case_id": "rerank-action-gap",
+        "group": "multi-hop",
+        "positive_unselected_candidate_count": 1,
+        "selected_without_positive_rerank_count": 1,
+        "positive_unselected_signal_counts": {
+            "benchmark_effective_boost_cap": 1,
+            f"benchmark_signal_1_{long_value[:106]}...": 1,
+            f"benchmark_signal_2_{long_value[:106]}...": 1,
+            f"benchmark_signal_3_{long_value[:106]}...": 1,
+            f"benchmark_signal_4_{long_value[:106]}...": 1,
+        },
+        "positive_unselected_candidate_ids": [
+            f"unselected-positive-{long_value[:105]}..."
+        ],
+        "selected_without_positive_items": [
+            {
+                "item_id": "selected-weak",
+                "reason": "no_positive_rerank_signal",
+                "role": "supporting",
+                "matched_retrieval_candidate": True,
+            }
+        ],
+    }
+    assert len(samples[0]["positive_unselected_signal_counts"]) == 5
+    assert len(samples[0]["positive_unselected_candidate_ids"][0]) <= 128
 
 
 def test_actionable_gap_summary_uses_stable_tie_breaks_and_gap_schema() -> None:

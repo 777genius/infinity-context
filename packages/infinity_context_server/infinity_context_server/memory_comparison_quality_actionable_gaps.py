@@ -28,6 +28,8 @@ _MAX_QUERY_PLAN_ACTIONABLE_SAMPLE_VALUES = 5
 _MAX_QUERY_PLAN_ACTIONABLE_SAMPLE_TEXT = 128
 _MAX_SELECTED_EVIDENCE_ACTIONABLE_SAMPLES = 3
 _MAX_SELECTED_EVIDENCE_ACTIONABLE_SAMPLE_VALUES = 5
+_MAX_RERANK_SIGNAL_ACTIONABLE_SAMPLES = 3
+_MAX_RERANK_SIGNAL_ACTIONABLE_SAMPLE_VALUES = 5
 
 
 def actionable_gap_summary(
@@ -45,6 +47,7 @@ def actionable_gap_summary(
     selected_evidence_weakness: Mapping[str, object] | None = None,
     query_role_gap_breakdown: Mapping[str, object] | None = None,
     query_plan_gap_breakdown: Mapping[str, object] | None = None,
+    rerank_signal_gap_breakdown: Mapping[str, object] | None = None,
     source_ref_provenance: Mapping[str, object] | None = None,
     answer_context_provenance: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
@@ -56,6 +59,7 @@ def actionable_gap_summary(
     selected_evidence_weakness = _mapping(selected_evidence_weakness)
     query_role_gap_breakdown = _mapping(query_role_gap_breakdown)
     query_plan_gap_breakdown = _mapping(query_plan_gap_breakdown)
+    rerank_signal_gap_breakdown = _mapping(rerank_signal_gap_breakdown)
     source_ref_provenance = _mapping(source_ref_provenance)
     answer_context_provenance = _mapping(answer_context_provenance)
     gaps: list[dict[str, object]] = []
@@ -109,6 +113,11 @@ def actionable_gap_summary(
         gaps,
         evaluation_count=evaluation_count,
         breakdown=query_role_gap_breakdown,
+    )
+    _append_rerank_signal_gaps(
+        gaps,
+        evaluation_count=evaluation_count,
+        breakdown=rerank_signal_gap_breakdown,
     )
     _append_observed_ref_rank_gaps(
         gaps,
@@ -448,6 +457,46 @@ def _append_query_leakage_gaps(
                 "and retrieval intent."
             ),
         )
+
+
+def _append_rerank_signal_gaps(
+    gaps: list[dict[str, object]],
+    *,
+    evaluation_count: int,
+    breakdown: Mapping[str, object],
+) -> None:
+    conflict_samples = _compact_rerank_signal_actionable_samples(
+        _sequence(breakdown.get("selection_conflict_samples"))
+    )
+    _append_actionable_gap(
+        gaps,
+        evaluation_count=evaluation_count,
+        category="rerank_signal_selection",
+        gap="selection_conflict",
+        impact_count=(
+            _positive_int(breakdown.get("selection_conflict_case_count")) or 0
+        ),
+        source_metric="rerank_signal_gap_breakdown.selection_conflict_case_count",
+        action=(
+            "Inspect cases where positively reranked candidates were not selected "
+            "while selected evidence lacked positive rerank support."
+        ),
+        evidence={
+            "selection_conflict_pair_count": (
+                _positive_int(breakdown.get("selection_conflict_pair_count")) or 0
+            ),
+            "positive_unselected_signal_counts": _compact_rerank_signal_mapping(
+                _count_mapping(
+                    breakdown.get("selection_conflict_positive_signal_counts")
+                )
+            ),
+            "selected_without_positive_reason_counts": _compact_rerank_signal_mapping(
+                _count_mapping(breakdown.get("selected_without_positive_reason_counts"))
+            ),
+        },
+        samples=conflict_samples,
+        sample_payloads=conflict_samples,
+    )
 
 
 def _append_observed_ref_rank_gaps(
@@ -834,6 +883,112 @@ def _compact_selected_evidence_actionable_samples(
         if len(compact_samples) >= _MAX_SELECTED_EVIDENCE_ACTIONABLE_SAMPLES:
             break
     return tuple(compact_samples)
+
+
+def _compact_rerank_signal_actionable_samples(
+    samples: Sequence[object],
+) -> tuple[dict[str, object], ...]:
+    compact_samples: list[dict[str, object]] = []
+    for raw_sample in samples:
+        sample = _mapping(raw_sample)
+        if not sample:
+            continue
+        compact: dict[str, object] = {}
+        for key in ("case_id", "group"):
+            value = _compact_query_plan_sample_text(sample.get(key))
+            if value:
+                compact[key] = value
+        for key in (
+            "positive_unselected_candidate_count",
+            "selected_without_positive_rerank_count",
+        ):
+            value = _positive_int(sample.get(key)) or 0
+            if value:
+                compact[key] = value
+        signal_counts = _compact_rerank_signal_mapping(
+            _mapping(sample.get("positive_unselected_signal_counts"))
+        )
+        if signal_counts:
+            compact["positive_unselected_signal_counts"] = signal_counts
+        candidate_ids = _compact_rerank_signal_item_ids(
+            _sequence(sample.get("positive_unselected_candidates"))
+        )
+        if candidate_ids:
+            compact["positive_unselected_candidate_ids"] = candidate_ids
+        selected_items = _compact_rerank_signal_selected_samples(
+            _sequence(sample.get("selected_without_positive_items"))
+        )
+        if selected_items:
+            compact["selected_without_positive_items"] = selected_items
+        if compact:
+            compact_samples.append(compact)
+        if len(compact_samples) >= _MAX_RERANK_SIGNAL_ACTIONABLE_SAMPLES:
+            break
+    return tuple(compact_samples)
+
+
+def _compact_rerank_signal_item_ids(
+    samples: Sequence[object],
+) -> list[str]:
+    item_ids: list[str] = []
+    for raw_sample in samples:
+        sample = _mapping(raw_sample)
+        if not sample:
+            continue
+        item_id = _compact_query_plan_sample_text(sample.get("item_id"))
+        if item_id:
+            item_ids.append(item_id)
+        if len(item_ids) >= _MAX_RERANK_SIGNAL_ACTIONABLE_SAMPLE_VALUES:
+            break
+    return item_ids
+
+
+def _compact_rerank_signal_selected_samples(
+    samples: Sequence[object],
+) -> list[dict[str, object]]:
+    compact_samples: list[dict[str, object]] = []
+    for raw_sample in samples:
+        sample = _mapping(raw_sample)
+        if not sample:
+            continue
+        compact: dict[str, object] = {}
+        for key in ("item_id", "reason", "role"):
+            value = _compact_query_plan_sample_text(sample.get(key))
+            if value:
+                compact[key] = value
+        if "matched_retrieval_candidate" in sample:
+            compact["matched_retrieval_candidate"] = (
+                sample.get("matched_retrieval_candidate") is True
+            )
+        if compact:
+            compact_samples.append(compact)
+        if len(compact_samples) >= _MAX_RERANK_SIGNAL_ACTIONABLE_SAMPLE_VALUES:
+            break
+    return compact_samples
+
+
+def _compact_rerank_signal_mapping(
+    values: Mapping[str, object],
+) -> dict[str, object]:
+    compact: dict[str, object] = {}
+    for key, raw_value in sorted(values.items()):
+        compact_key = _compact_query_plan_sample_text(key)
+        if not compact_key:
+            continue
+        if isinstance(raw_value, bool):
+            if raw_value:
+                compact[compact_key] = True
+        elif isinstance(raw_value, int):
+            compact[compact_key] = raw_value
+        elif isinstance(raw_value, float):
+            compact[compact_key] = round(float(raw_value), 6)
+        else:
+            compact_value = _compact_query_plan_sample_text(raw_value)
+            if compact_value:
+                compact[compact_key] = compact_value
+        if len(compact) >= _MAX_RERANK_SIGNAL_ACTIONABLE_SAMPLE_VALUES:
+            break
+    return compact
 
 
 def _compact_query_plan_sample_text(value: object) -> str:

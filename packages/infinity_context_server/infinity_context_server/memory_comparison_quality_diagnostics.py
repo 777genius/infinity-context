@@ -446,6 +446,7 @@ def fast_gate_metrics(
             selected_evidence_weakness=selected_evidence_weakness,
             query_role_gap_breakdown=query_role_gap_breakdown,
             query_plan_gap_breakdown=query_plan_gap_breakdown,
+            rerank_signal_gap_breakdown=rerank_signal_gaps,
             source_ref_provenance=source_ref_provenance,
             answer_context_provenance=answer_context_provenance,
         ),
