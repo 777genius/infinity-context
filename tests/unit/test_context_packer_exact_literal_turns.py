@@ -193,6 +193,114 @@ def test_exact_literal_candidates_preserve_attributed_progress_reply() -> None:
     assert "D2:1" not in candidates[0].text
 
 
+def test_exact_literal_candidates_focus_who_said_quoted_text() -> None:
+    source_group = ContextItem(
+        item_id="store_progress_group",
+        item_type="chunk",
+        text=(
+            "D2:1 Riley: I finally found a better place for the shop. "
+            "D2:2 Morgan: Wow, Riley! You found the perfect spot for your store. "
+            "Way to go, hard work is paying off. "
+            "D2:3 Riley: Thanks, I am relieved."
+        ),
+        score=0.99,
+        source_refs=(
+            SourceRef(
+                source_type="locomo_turn",
+                source_id="locomo:conv-fixture:session_2:D2:1:turn",
+            ),
+            SourceRef(
+                source_type="locomo_turn",
+                source_id="locomo:conv-fixture:session_2:D2:2:turn",
+            ),
+            SourceRef(
+                source_type="locomo_turn",
+                source_id="locomo:conv-fixture:session_2:D2:3:turn",
+            ),
+        ),
+        diagnostics={"score_signals": {"query_expansion_reason": "original_query"}},
+    )
+
+    candidates = exact_literal_turn_candidates(
+        [source_group],
+        query='Who said "hard work is paying off"?',
+    )
+
+    assert len(candidates) == 1
+    assert candidates[0].source_refs[0].source_id.endswith(":D2:2:turn")
+    assert candidates[0].text.startswith("D2:2 Morgan:")
+    assert "D2:1" not in candidates[0].text
+    assert candidates[0].diagnostics["score_signals"]["exact_literal_turn"] == 1
+    assert (
+        candidates[0].diagnostics["score_signals"]["quote_attribution_exact_turn"]
+        == 1
+    )
+
+
+def test_exact_literal_candidates_require_specific_unquoted_quote_attribution() -> None:
+    project_turn = _turn_item(
+        "project_turn",
+        "D5:7 Alex: Project Atlas billing call is still waiting on invoices.",
+        "locomo:conv-fixture:session_5:D5:7:turn",
+    )
+
+    candidates = exact_literal_turn_candidates(
+        [project_turn],
+        query="Who said Project Atlas?",
+    )
+
+    assert candidates == ()
+
+
+def test_exact_literal_candidates_do_not_lift_non_attribution_quoted_text() -> None:
+    project_turn = _turn_item(
+        "project_turn",
+        "D5:7 Alex: Project Atlas billing call is still waiting on invoices.",
+        "locomo:conv-fixture:session_5:D5:7:turn",
+    )
+
+    candidates = exact_literal_turn_candidates(
+        [project_turn],
+        query='What changed after "Project Atlas billing call"?',
+    )
+
+    assert candidates == ()
+
+
+def test_context_packer_preserves_who_said_source_window_over_noise() -> None:
+    noisy_turns = tuple(
+        _turn_item(
+            f"noise_{index}",
+            (
+                f"D{index}:1 Riley: The store project has invoices, planning, "
+                "new shelves, and several updates about the perfect location."
+            ),
+            f"locomo:conv-fixture:session_{index}:D{index}:1:turn",
+            score=1.0,
+        )
+        for index in range(3, 8)
+    )
+    quoted_turn = _turn_item(
+        "quoted_turn",
+        "D2:2 Morgan: Way to go, hard work is paying off.",
+        "locomo:conv-fixture:session_2:D2:2:turn",
+        score=0.2,
+    )
+
+    result = ContextPacker().pack(
+        bundle_id="ctx_who_said_quote_source_window",
+        items=(*noisy_turns, quoted_turn),
+        token_budget=120,
+        query='Who said "hard work is paying off"?',
+        max_rendered_chars=500,
+    )
+
+    selected_source_ids = {
+        str(ref.source_id) for item in result.bundle.items for ref in item.source_refs
+    }
+    assert "locomo:conv-fixture:session_2:D2:2:turn" in selected_source_ids
+
+
 def test_exact_literal_candidates_skip_marker_header_when_focusing_group() -> None:
     source_group = ContextItem(
         item_id="festival_group_header",

@@ -17,6 +17,44 @@ _MAX_EXACT_LITERAL_TURN_ITEMS_PER_RULE = 2
 _MAX_CITY_LOCATION_LITERAL_TURN_ITEMS = 4
 _CITY_LOCATION_RULE_INDEX = 8
 _DIALOGUE_MARKER_RE = re.compile(r"\bD\d+:\d+\b")
+_QUOTED_QUERY_TEXT_RE = re.compile(
+    r"[\"'“”‘’](?P<quote>[^\"'“”‘’]{4,160})[\"'“”‘’]"
+)
+_WHO_SAID_QUERY_RE = re.compile(
+    r"\b(?:who|which\s+(?:speaker|source|person))\s+"
+    r"(?:was\s+the\s+one\s+who\s+)?"
+    r"(?:said|says|say|mentioned|mentions|mention|told|wrote|sent|texted)\b"
+    r"(?P<phrase>[^?]{0,180})",
+    re.IGNORECASE | re.DOTALL,
+)
+_QUOTE_ATTRIBUTION_REQUEST_RE = re.compile(
+    r"\b(?:who|which\s+(?:speaker|source|person)|source\s+speaker|"
+    r"source\s+attribution|quote\s+attribution|citation)\b",
+    re.IGNORECASE,
+)
+_QUOTE_ATTRIBUTION_STOP_WORDS = frozenset(
+    {
+        "about",
+        "did",
+        "does",
+        "exactly",
+        "mention",
+        "mentioned",
+        "say",
+        "said",
+        "says",
+        "speaker",
+        "source",
+        "that",
+        "the",
+        "what",
+        "which",
+        "who",
+    }
+)
+_QUOTE_ATTRIBUTION_TOKEN_RE = re.compile(
+    r"[A-Za-zА-Яа-яЁё0-9][A-Za-zА-Яа-яЁё0-9'’-]*"
+)
 
 _EXACT_LITERAL_TURN_RULES: tuple[tuple[re.Pattern[str], re.Pattern[str]], ...] = (
     (
@@ -190,6 +228,7 @@ def exact_literal_turn_candidates(
     query: str,
 ) -> tuple[ContextItem, ...]:
     ranked: list[tuple[tuple[object, ...], ContextItem]] = []
+    ranked.extend(_quote_attribution_literal_turn_candidates(items, query=query))
     for rule_index, (query_re, text_re) in enumerate(_EXACT_LITERAL_TURN_RULES):
         if query_re.search(query) is None:
             continue
@@ -237,6 +276,158 @@ def exact_literal_turn_candidates(
         selected_keys.add(selection_key)
         selected_by_rule[rule_index] = selected_by_rule.get(rule_index, 0) + 1
     return tuple(selected_items)
+
+
+def _quote_attribution_literal_turn_candidates(
+    items: list[ContextItem],
+    *,
+    query: str,
+) -> tuple[tuple[tuple[object, ...], ContextItem], ...]:
+    phrase = _quote_attribution_phrase(query)
+    if not phrase:
+        return ()
+    ranked: list[tuple[tuple[object, ...], ContextItem]] = []
+    for item in items:
+        if not _has_any_exact_turn_source_ref(item):
+            continue
+        for ref in _exact_turn_refs(item):
+            focused_text = _focused_turn_text(
+                text=item.text,
+                source_id=str(ref.source_id),
+            )
+            if not _quote_attribution_phrase_matches(focused_text, phrase):
+                continue
+            candidate = _literal_turn_candidate(
+                item,
+                ref=ref,
+                focused_text=focused_text,
+                extra_score_signals={"quote_attribution_exact_turn": 1},
+            )
+            ranked.append(
+                (
+                    (
+                        -1,
+                        -_quote_attribution_distinctive_hit_count(
+                            focused_text,
+                            phrase,
+                        ),
+                        context_rank_key(candidate),
+                    ),
+                    candidate,
+                )
+            )
+    return tuple(ranked)
+
+
+def _quote_attribution_phrase(query: str) -> str:
+    quote_match = _QUOTED_QUERY_TEXT_RE.search(query)
+    if quote_match is not None:
+        if _QUOTE_ATTRIBUTION_REQUEST_RE.search(query) is None:
+            return ""
+        phrase = quote_match.group("quote").strip()
+        if _quote_attribution_phrase_is_specific(phrase, quoted=True):
+            return phrase
+        return ""
+    who_said_match = _WHO_SAID_QUERY_RE.search(query)
+    if who_said_match is None:
+        return ""
+    phrase = re.sub(
+        r"^\s+(?:that|this|the\s+phrase|the\s+quote)\b[:\s,]*",
+        "",
+        who_said_match.group("phrase"),
+        flags=re.IGNORECASE,
+    ).strip(" \t\r\n?.!,:;\"'“”‘’")
+    if _quote_attribution_phrase_is_specific(phrase, quoted=False):
+        return phrase
+    return ""
+
+
+def _quote_attribution_phrase_is_specific(phrase: str, *, quoted: bool) -> bool:
+    distinctive = _quote_attribution_distinctive_terms(phrase)
+    if quoted:
+        return len(distinctive) >= 2 or len(_quote_attribution_tokens(phrase)) >= 3
+    return len(distinctive) >= 4
+
+
+def _quote_attribution_phrase_matches(text: str, phrase: str) -> bool:
+    phrase_terms = _quote_attribution_distinctive_terms(phrase)
+    if not phrase_terms:
+        return False
+    text_terms = _quote_attribution_tokens(text)
+    if _contains_ordered_terms(text_terms, phrase_terms, max_gap=3):
+        return True
+    return _normalized_quote_text(phrase) in _normalized_quote_text(text)
+
+
+def _quote_attribution_distinctive_hit_count(text: str, phrase: str) -> int:
+    text_terms = set(_quote_attribution_tokens(text))
+    return sum(
+        1
+        for term in _quote_attribution_distinctive_terms(phrase)
+        if term in text_terms
+    )
+
+
+def _quote_attribution_distinctive_terms(text: str) -> tuple[str, ...]:
+    return tuple(
+        term
+        for term in _quote_attribution_tokens(text)
+        if len(term) >= 3 and term not in _QUOTE_ATTRIBUTION_STOP_WORDS
+    )
+
+
+def _quote_attribution_tokens(text: str) -> tuple[str, ...]:
+    return tuple(
+        token.casefold()
+        for token in _QUOTE_ATTRIBUTION_TOKEN_RE.findall(text or "")
+    )
+
+
+def _contains_ordered_terms(
+    text_terms: tuple[str, ...],
+    phrase_terms: tuple[str, ...],
+    *,
+    max_gap: int,
+) -> bool:
+    if not phrase_terms:
+        return False
+    start_indexes = (
+        index for index, term in enumerate(text_terms) if term == phrase_terms[0]
+    )
+    for start_index in start_indexes:
+        position = start_index
+        matched = True
+        for phrase_term in phrase_terms[1:]:
+            next_position = _next_term_position(
+                text_terms,
+                phrase_term,
+                start=position + 1,
+                stop=position + max_gap + 2,
+            )
+            if next_position is None:
+                matched = False
+                break
+            position = next_position
+        if matched:
+            return True
+    return False
+
+
+def _next_term_position(
+    terms: tuple[str, ...],
+    target: str,
+    *,
+    start: int,
+    stop: int,
+) -> int | None:
+    for index in range(start, min(stop, len(terms))):
+        if terms[index] == target:
+            return index
+    return None
+
+
+def _normalized_quote_text(text: str) -> str:
+    return " ".join(_quote_attribution_tokens(text))
 
 
 def _exact_literal_turn_rule_limit(rule_index: int) -> int:
@@ -399,13 +590,17 @@ def _literal_turn_candidate(
     *,
     ref: SourceRef,
     focused_text: str,
+    extra_score_signals: dict[str, object] | None = None,
 ) -> ContextItem:
     return replace(
         item,
         item_id=f"{item.item_id}:literal_exact:{_safe_source_id_suffix(str(ref.source_id))}",
         text=focused_text,
         source_refs=(ref,),
-        diagnostics=_literal_turn_diagnostics(item),
+        diagnostics=_literal_turn_diagnostics(
+            item,
+            extra_score_signals=extra_score_signals,
+        ),
     )
 
 
@@ -458,10 +653,16 @@ def _candidate_selection_key(item: ContextItem) -> str:
     return f"{item.item_id}\n{item.text}".casefold()
 
 
-def _literal_turn_diagnostics(item: ContextItem) -> dict[str, object]:
+def _literal_turn_diagnostics(
+    item: ContextItem,
+    *,
+    extra_score_signals: dict[str, object] | None = None,
+) -> dict[str, object]:
     diagnostics = dict(item.diagnostics or {})
     score_signals = diagnostics.get("score_signals")
     score_signal_dict = dict(score_signals) if isinstance(score_signals, dict) else {}
     score_signal_dict["exact_literal_turn"] = 1
+    if extra_score_signals:
+        score_signal_dict.update(extra_score_signals)
     diagnostics["score_signals"] = score_signal_dict
     return diagnostics
