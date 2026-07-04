@@ -49,6 +49,7 @@ _FOCUSED_QUERY_ROLE_SCORES = {
     "exchange_support": 0.05,
     "symbolic_meaning_support": 0.05,
     "preference_support": 0.045,
+    "favorite_support": 0.045,
     "causal_support": 0.04,
     "inference_support": 0.04,
     "visual_support": 0.05,

@@ -578,6 +578,50 @@ def test_candidate_fusion_prefers_typed_relation_support_evidence() -> None:
     assert fusion["selected_evidence_query_role"] == "exchange_support"
 
 
+def test_candidate_fusion_treats_favorite_support_as_focused_evidence() -> None:
+    generic_hit = RetrievedMemory(
+        item_id="favorite-evidence",
+        rank=1,
+        score=0.82,
+        text="D7:4 Morgan discussed books and weekend plans.",
+        source_refs=("D7:4",),
+        metadata={
+            "item_type": "raw_turn",
+            "diagnostics": {"retrieval_sources": ["semantic_chunks"]},
+        },
+    )
+    favorite_hit = RetrievedMemory(
+        item_id="favorite-evidence",
+        rank=2,
+        score=0.81,
+        text="D7:4 Morgan said their favorite book is The Left Hand of Darkness.",
+        source_refs=("D7:4",),
+        metadata={
+            "item_type": "raw_turn",
+            "diagnostics": {"retrieval_sources": ["raw_turns"]},
+        },
+    )
+
+    fused, diagnostics = fuse_query_results(
+        (("original", (generic_hit,)), ("favorite", (favorite_hit,))),
+        query_roles=("original_question", "favorite_support"),
+    )
+
+    assert len(fused) == 1
+    assert diagnostics["focused_query_evidence_selection_count"] == 1
+    assert diagnostics["selected_evidence_query_role_counts"] == {
+        "favorite_support": 1
+    }
+    assert fused[0].text == favorite_hit.text
+    fusion = fused[0].metadata["diagnostics"]["benchmark_candidate_fusion"]
+    assert fusion["score_winner_query_role"] == "original_question"
+    assert fusion["selected_evidence_query_role"] == "favorite_support"
+    assert fusion["evidence_selection_reason_codes"] == [
+        "lower_score_within_band",
+        "focused_query_role",
+    ]
+
+
 def test_candidate_fusion_keeps_broad_source_ref_sets_separate() -> None:
     summary = RetrievedMemory(
         item_id="summary",
