@@ -948,6 +948,17 @@ def test_quality_diagnostics_reports_answer_context_provenance_table() -> None:
                             "backfilled_chained_source_proximity_support_count": 1,
                             "backfilled_source_proximity_closest_distance": 2,
                             "missing_required_roles": ["contrast"],
+                            "risk_reason_codes": [
+                                "risk:skipped_duplicate_source_bundle_item",
+                                "risk:skipped_noisy_overlap_bundle_item",
+                                "risk:retrieval_backfill",
+                                "risk:backfilled_broad_summary",
+                                "risk:backfilled_low_answerability",
+                                "risk:backfilled_weak_source_locality",
+                                "risk:skipped_redundant_risky_backfill",
+                                "risk:skipped_redundant_source_backfill",
+                                "risk:skipped_redundant_role_backfill",
+                            ],
                         }
                     }
                 },
@@ -1036,6 +1047,17 @@ def test_quality_diagnostics_reports_answer_context_provenance_table() -> None:
     assert table["missing_required_role_total"] == 1
     assert table["missing_required_role_counts"] == {"contrast": 1}
     assert table["backfilled_missing_required_role_counts"] == {"contrast": 1}
+    assert table["risk_reason_counts"] == {
+        "risk:backfilled_broad_summary": 1,
+        "risk:backfilled_low_answerability": 1,
+        "risk:backfilled_weak_source_locality": 1,
+        "risk:retrieval_backfill": 1,
+        "risk:skipped_duplicate_source_bundle_item": 1,
+        "risk:skipped_noisy_overlap_bundle_item": 1,
+        "risk:skipped_redundant_risky_backfill": 1,
+        "risk:skipped_redundant_role_backfill": 1,
+        "risk:skipped_redundant_source_backfill": 1,
+    }
     assert table["backfilled_context_samples"] == [
         {
             "case_id": "bundle-context",
@@ -1059,6 +1081,17 @@ def test_quality_diagnostics_reports_answer_context_provenance_table() -> None:
             "backfilled_chained_source_proximity_support_count": 1,
             "backfilled_source_proximity_closest_distance": 2,
             "missing_required_roles": ["contrast"],
+            "risk_reason_codes": [
+                "risk:skipped_duplicate_source_bundle_item",
+                "risk:skipped_noisy_overlap_bundle_item",
+                "risk:retrieval_backfill",
+                "risk:backfilled_broad_summary",
+                "risk:backfilled_low_answerability",
+                "risk:backfilled_weak_source_locality",
+                "risk:skipped_redundant_risky_backfill",
+                "risk:skipped_redundant_source_backfill",
+                "risk:skipped_redundant_role_backfill",
+            ],
         }
     ]
     assert table["backfill_skip_context_samples"] == [
@@ -1072,6 +1105,17 @@ def test_quality_diagnostics_reports_answer_context_provenance_table() -> None:
             "skipped_redundant_source_backfill_count": 1,
             "skipped_redundant_role_backfill_count": 1,
             "missing_required_roles": ["contrast"],
+            "risk_reason_codes": [
+                "risk:skipped_duplicate_source_bundle_item",
+                "risk:skipped_noisy_overlap_bundle_item",
+                "risk:retrieval_backfill",
+                "risk:backfilled_broad_summary",
+                "risk:backfilled_low_answerability",
+                "risk:backfilled_weak_source_locality",
+                "risk:skipped_redundant_risky_backfill",
+                "risk:skipped_redundant_source_backfill",
+                "risk:skipped_redundant_role_backfill",
+            ],
         }
     ]
     assert table["duplicate_source_bundle_skip_context_samples"] == [
@@ -1083,6 +1127,17 @@ def test_quality_diagnostics_reports_answer_context_provenance_table() -> None:
             "skipped_duplicate_source_bundle_item_count": 1,
             "source_ref_count": 3,
             "source_ref_item_count": 2,
+            "risk_reason_codes": [
+                "risk:skipped_duplicate_source_bundle_item",
+                "risk:skipped_noisy_overlap_bundle_item",
+                "risk:retrieval_backfill",
+                "risk:backfilled_broad_summary",
+                "risk:backfilled_low_answerability",
+                "risk:backfilled_weak_source_locality",
+                "risk:skipped_redundant_risky_backfill",
+                "risk:skipped_redundant_source_backfill",
+                "risk:skipped_redundant_role_backfill",
+            ],
         }
     ]
     assert table["noisy_overlap_bundle_skip_context_samples"] == [
@@ -1094,6 +1149,17 @@ def test_quality_diagnostics_reports_answer_context_provenance_table() -> None:
             "skipped_noisy_overlap_bundle_item_count": 1,
             "source_ref_count": 3,
             "source_ref_item_count": 2,
+            "risk_reason_codes": [
+                "risk:skipped_duplicate_source_bundle_item",
+                "risk:skipped_noisy_overlap_bundle_item",
+                "risk:retrieval_backfill",
+                "risk:backfilled_broad_summary",
+                "risk:backfilled_low_answerability",
+                "risk:backfilled_weak_source_locality",
+                "risk:skipped_redundant_risky_backfill",
+                "risk:skipped_redundant_source_backfill",
+                "risk:skipped_redundant_role_backfill",
+            ],
         }
     ]
     assert table["source_refless_context_samples"] == [

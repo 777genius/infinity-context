@@ -697,6 +697,9 @@ def _selected_evidence_weakness_breakdown(
     weak_source_locality_case_ids: set[str] = set()
     broad_summary_case_ids: set[str] = set()
     conflict_or_stale_case_ids: set[str] = set()
+    group_case_ids: dict[str, set[str]] = defaultdict(set)
+    reason_group_counts: dict[str, Counter[str]] = defaultdict(Counter)
+    group_counts: Counter[str] = Counter()
     role_counts: Counter[str] = Counter()
     query_role_counts: Counter[str] = Counter()
     low_answerability_query_role_counts: Counter[str] = Counter()
@@ -746,6 +749,12 @@ def _selected_evidence_weakness_breakdown(
                 reasons.append("selected_conflict_or_stale")
             if not reasons:
                 continue
+            group_label = group or "unknown"
+            if case_id:
+                group_case_ids[group_label].add(case_id)
+            group_counts[group_label] += 1
+            for reason in reasons:
+                reason_group_counts[reason][group_label] += 1
             role = str(bundle_item.get("role") or "unknown").strip() or "unknown"
             query_roles = _str_tuple(bundle_item.get("query_roles"))
             role_counts[role] += 1
@@ -807,6 +816,14 @@ def _selected_evidence_weakness_breakdown(
         "broad_summary_item_count": broad_summary_item_count,
         "conflict_or_stale_item_count": conflict_or_stale_item_count,
         "reason_counts": dict(sorted(reason_counts.items())),
+        "group_counts": dict(sorted(group_counts.items())),
+        "group_case_counts": {
+            group: len(case_ids) for group, case_ids in sorted(group_case_ids.items())
+        },
+        "reason_group_counts": {
+            reason: dict(sorted(group_counts.items()))
+            for reason, group_counts in sorted(reason_group_counts.items())
+        },
         "role_counts": dict(sorted(role_counts.items())),
         "query_role_counts": dict(sorted(query_role_counts.items())),
         "low_answerability_query_role_counts": dict(
@@ -1174,6 +1191,7 @@ def _answer_context_provenance_table(
     fallback_reason_counts: Counter[str] = Counter()
     missing_required_role_counts: Counter[str] = Counter()
     backfilled_missing_required_role_counts: Counter[str] = Counter()
+    risk_reason_counts: Counter[str] = Counter()
     missing_required_role_context_count = 0
     source_refless_context_samples: list[dict[str, object]] = []
     backfilled_context_samples: list[dict[str, object]] = []
@@ -1333,6 +1351,8 @@ def _answer_context_provenance_table(
                     backfilled_missing_required_role_counts.update(
                         missing_required_roles
                     )
+            risk_reasons = _str_tuple(context.get("risk_reason_codes"))
+            risk_reason_counts.update(risk_reasons)
             memory_count += context_memory_count
             source_ref_count += context_source_ref_count
             source_ref_item_count += context_source_ref_item_count
@@ -1415,6 +1435,11 @@ def _answer_context_provenance_table(
                         ),
                         "source_ref_count": context_source_ref_count,
                         "source_ref_item_count": context_source_ref_item_count,
+                        **(
+                            {"risk_reason_codes": list(risk_reasons)}
+                            if risk_reasons
+                            else {}
+                        ),
                     }
                 )
             if (
@@ -1432,6 +1457,11 @@ def _answer_context_provenance_table(
                         ),
                         "source_ref_count": context_source_ref_count,
                         "source_ref_item_count": context_source_ref_item_count,
+                        **(
+                            {"risk_reason_codes": list(risk_reasons)}
+                            if risk_reasons
+                            else {}
+                        ),
                     }
                 )
             if (
@@ -1457,6 +1487,11 @@ def _answer_context_provenance_table(
                             context_skipped_redundant_role_backfill_count
                         ),
                         "missing_required_roles": list(missing_required_roles),
+                        **(
+                            {"risk_reason_codes": list(risk_reasons)}
+                            if risk_reasons
+                            else {}
+                        ),
                     }
                 )
             if context_backfilled_count > 0 and len(backfilled_context_samples) < 10:
@@ -1531,6 +1566,11 @@ def _answer_context_provenance_table(
                             context_backfilled_source_proximity_closest_distance
                         ),
                         "missing_required_roles": list(missing_required_roles),
+                        **(
+                            {"risk_reason_codes": list(risk_reasons)}
+                            if risk_reasons
+                            else {}
+                        ),
                     }
                 )
             if context_source_refless_item_count > 0 and len(
@@ -1732,6 +1772,7 @@ def _answer_context_provenance_table(
         "backfilled_missing_required_role_counts": _top_counts(
             backfilled_missing_required_role_counts
         ),
+        "risk_reason_counts": _top_counts(risk_reason_counts),
         "backfilled_context_samples": backfilled_context_samples,
         "backfill_skip_context_samples": backfill_skip_context_samples,
         "duplicate_source_bundle_skip_context_samples": (

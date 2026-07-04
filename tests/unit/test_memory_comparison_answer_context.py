@@ -445,6 +445,12 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
             "risk:missing_required_role",
             "risk:missing_required_contrast",
         ],
+        "risk_reason_codes": [
+            "risk:diffuse_source_refs",
+            "risk:missing_required_role",
+            "risk:missing_required_contrast",
+            "risk:retrieval_backfill",
+        ],
         "fallback_reason": None,
         "item_ids": ["primary", "bridge", "contrast-support"],
         "retrieval_orders": [3, 2, 4],
@@ -1070,8 +1076,14 @@ def test_answer_context_skips_noisy_overlapping_bundle_summary() -> None:
     assert context.memories[0].metadata[
         "answer_context_skipped_noisy_overlap_bundle_item_count"
     ] == 1
+    assert context.memories[0].metadata["answer_context_risk_reason_codes"] == (
+        "risk:skipped_noisy_overlap_bundle_item",
+    )
     assert context.skipped_duplicate_source_bundle_item_count == 0
     assert context.skipped_noisy_overlap_bundle_item_count == 1
+    assert context.to_diagnostics()["risk_reason_codes"] == [
+        "risk:skipped_noisy_overlap_bundle_item",
+    ]
 
 
 def test_answer_context_skips_noisy_summary_even_when_ranked_first() -> None:
@@ -1882,6 +1894,16 @@ def test_answer_context_diagnostics_bucket_weak_backfill_by_missing_role() -> No
     assert diagnostics["backfilled_weak_source_locality_role_counts"] == {
         "status_support": 1
     }
+    assert context.memories[1].metadata["answer_context_risk_reason_codes"] == (
+        "risk:retrieval_backfill",
+        "risk:backfilled_low_answerability",
+        "risk:backfilled_weak_source_locality",
+    )
+    assert diagnostics["risk_reason_codes"] == [
+        "risk:retrieval_backfill",
+        "risk:backfilled_low_answerability",
+        "risk:backfilled_weak_source_locality",
+    ]
 
 
 def test_answer_context_backfill_prefers_source_proximate_role_evidence() -> None:
@@ -2537,6 +2559,18 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
                                 "risk:missing_required_role",
                                 "risk:missing_required_contrast",
                             ],
+                            "risk_reason_codes": [
+                                "risk:missing_required_role",
+                                "risk:missing_required_contrast",
+                                "risk:skipped_duplicate_source_bundle_item",
+                                "risk:skipped_noisy_overlap_bundle_item",
+                                "risk:retrieval_backfill",
+                                "risk:backfilled_low_answerability",
+                                "risk:backfilled_weak_source_locality",
+                                "risk:skipped_redundant_risky_backfill",
+                                "risk:skipped_redundant_source_backfill",
+                                "risk:skipped_redundant_role_backfill",
+                            ],
                         },
                     }
                 },
@@ -2583,6 +2617,18 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
     assert metrics["primary_avg_skipped_duplicate_source_bundle_item_count"] == 0.5
     assert metrics["primary_total_skipped_noisy_overlap_bundle_item_count"] == 1
     assert metrics["primary_avg_skipped_noisy_overlap_bundle_item_count"] == 0.5
+    assert metrics["primary_risk_reason_counts"] == {
+        "risk:backfilled_low_answerability": 1,
+        "risk:backfilled_weak_source_locality": 1,
+        "risk:missing_required_contrast": 1,
+        "risk:missing_required_role": 1,
+        "risk:retrieval_backfill": 1,
+        "risk:skipped_duplicate_source_bundle_item": 1,
+        "risk:skipped_noisy_overlap_bundle_item": 1,
+        "risk:skipped_redundant_risky_backfill": 1,
+        "risk:skipped_redundant_role_backfill": 1,
+        "risk:skipped_redundant_source_backfill": 1,
+    }
     assert metrics["primary_total_backfilled_low_answerability_count"] == 1
     assert metrics["primary_total_backfilled_precise_source_overlap_count"] == 1
     assert metrics["primary_avg_backfilled_precise_source_overlap_count"] == 0.5
@@ -2785,4 +2831,16 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
     assert primary["bundle_risk_reason_counts"] == {
         "risk:missing_required_contrast": 1,
         "risk:missing_required_role": 1,
+    }
+    assert primary["risk_reason_counts"] == {
+        "risk:backfilled_low_answerability": 1,
+        "risk:backfilled_weak_source_locality": 1,
+        "risk:missing_required_contrast": 1,
+        "risk:missing_required_role": 1,
+        "risk:retrieval_backfill": 1,
+        "risk:skipped_duplicate_source_bundle_item": 1,
+        "risk:skipped_noisy_overlap_bundle_item": 1,
+        "risk:skipped_redundant_risky_backfill": 1,
+        "risk:skipped_redundant_role_backfill": 1,
+        "risk:skipped_redundant_source_backfill": 1,
     }

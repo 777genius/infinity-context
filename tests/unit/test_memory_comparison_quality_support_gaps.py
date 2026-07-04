@@ -2625,6 +2625,72 @@ def test_fast_gate_metrics_surfaces_selected_evidence_weakness() -> None:
     assert weakness["samples"][3]["conflict_or_stale"] is True
 
 
+def test_fast_gate_metrics_clusters_selected_evidence_weakness_by_group() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="temporal-low-answerability",
+                group="temporal",
+                evidence_bundle={
+                    "bundle_complete": True,
+                    "items": [
+                        {
+                            "id": "temporal-weak",
+                            "role": "primary",
+                            "query_roles": ["temporal_anchor"],
+                            "answerability_score": 0.45,
+                            "source_locality_score": 0.82,
+                        },
+                    ],
+                },
+            ),
+            _item(
+                case_id="open-domain-low-answerability",
+                group="open-domain",
+                evidence_bundle={
+                    "bundle_complete": True,
+                    "items": [
+                        {
+                            "id": "open-domain-weak",
+                            "role": "primary",
+                            "query_roles": ["original_question"],
+                            "answerability_score": 0.46,
+                            "source_locality_score": 0.8,
+                        },
+                    ],
+                },
+            ),
+            _item(
+                case_id="open-domain-locality",
+                group="open-domain",
+                evidence_bundle={
+                    "bundle_complete": True,
+                    "items": [
+                        {
+                            "id": "open-domain-locality",
+                            "role": "supporting",
+                            "query_roles": ["location_support"],
+                            "answerability_score": 0.72,
+                            "source_locality_score": 0.35,
+                        },
+                    ],
+                },
+            ),
+        ),
+        expected_case_count=3,
+    )
+
+    weakness = gate["selected_evidence_weakness"]
+
+    assert weakness["weak_case_count"] == 3
+    assert weakness["group_counts"] == {"open-domain": 2, "temporal": 1}
+    assert weakness["group_case_counts"] == {"open-domain": 2, "temporal": 1}
+    assert weakness["reason_group_counts"] == {
+        "selected_low_answerability": {"open-domain": 1, "temporal": 1},
+        "selected_weak_source_locality": {"open-domain": 1},
+    }
+
+
 def _item(
     *,
     case_id: str,

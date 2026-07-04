@@ -719,6 +719,10 @@ def _with_retrieval_backfill_metadata(
             reason_codes.append("chained_source_proximity_support")
             metadata["answer_context_backfill_chained_source_proximity"] = True
     metadata["answer_context_reason_codes"] = tuple(reason_codes)
+    _add_answer_context_risk_codes(
+        metadata,
+        _backfill_risk_reason_codes(memory, features),
+    )
     _add_backfill_feature_metadata(metadata, features, missing_roles=missing_roles)
     return RetrievedMemory(
         text=memory.text,
@@ -729,6 +733,38 @@ def _with_retrieval_backfill_metadata(
         source_refs=_memory_source_refs(memory),
         metadata=metadata,
     )
+
+
+def _backfill_risk_reason_codes(
+    memory: RetrievedMemory,
+    features: Mapping[str, object],
+) -> tuple[str, ...]:
+    codes = ["risk:retrieval_backfill"]
+    if memory_has_broad_summary(memory, features):
+        codes.append("risk:backfilled_broad_summary")
+    if memory_has_conflict_or_stale(memory, features):
+        codes.append("risk:backfilled_conflict_or_stale")
+    if _is_measured_low_answerability(features.get("answerability_score")):
+        codes.append("risk:backfilled_low_answerability")
+    if _is_measured_weak_source_locality(features.get("source_locality_score")):
+        codes.append("risk:backfilled_weak_source_locality")
+    return tuple(codes)
+
+
+def _add_answer_context_risk_codes(
+    metadata: dict[str, object],
+    codes: Sequence[str],
+) -> None:
+    merged = tuple(
+        dict.fromkeys(
+            (
+                *_string_tuple(metadata.get("answer_context_risk_reason_codes")),
+                *(code for code in codes if str(code).strip()),
+            )
+        )
+    )
+    if merged:
+        metadata["answer_context_risk_reason_codes"] = merged
 
 
 def _add_backfill_feature_metadata(
