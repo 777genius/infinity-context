@@ -21,6 +21,7 @@ _NOT_BLOCKED_TEXT_RE = re.compile(
 )
 _NEGATIVE_PREFERENCE_QUERY_RE = re.compile(
     r"\b(?:not\s+(?:like|likes|liked|interested|eat|eats|enjoy|enjoys|want|wants)|"
+    r"didn'?t\s+(?:like|eat|enjoy|want)|"
     r"doesn'?t\s+(?:like|eat|enjoy|want)|does\s+not\s+(?:like|eat|enjoy|want)|"
     r"would\s+not\s+(?:like|eat|enjoy|want)|never\s+(?:eat|eats|like|likes)|"
     r"dislikes?|disliked|hates?|hated|avoid|avoids|avoided|allergic)\b",
@@ -33,6 +34,7 @@ _NEGATIVE_EATING_QUERY_RE = re.compile(
 )
 _NEGATIVE_PREFERENCE_TEXT_RE = re.compile(
     r"\b(?:not\s+(?:like|likes|liked|interested|eat|eats|enjoy|enjoys|want|wants)|"
+    r"didn'?t\s+(?:like|eat|enjoy|want)|"
     r"doesn'?t\s+(?:like|eat|enjoy|want)|does\s+not\s+(?:like|eat|enjoy|want)|"
     r"would\s+not\s+(?:like|eat|enjoy|want)|never\s+(?:eat|eats|like|likes)|"
     r"dislikes?|hates?|avoids?|allergic|cannot\s+eat|can'?t\s+eat)\b",
