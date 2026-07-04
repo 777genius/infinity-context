@@ -83,6 +83,7 @@ def query_role_effectiveness_table(
     required_evidence_role_counts: Counter[str] = Counter()
     missing_required_evidence_role_counts: Counter[str] = Counter()
     missing_required_role_candidate_query_counts: Counter[str] = Counter()
+    missing_required_role_selected_query_counts: Counter[str] = Counter()
     candidate_answerability_scores: dict[str, list[float]] = defaultdict(list)
     selected_answerability_scores: dict[str, list[float]] = defaultdict(list)
     candidate_source_locality_scores: dict[str, list[float]] = defaultdict(list)
@@ -128,6 +129,7 @@ def query_role_effectiveness_table(
         bundle = _mapping(item.get("evidence_bundle"))
         required_roles = _required_evidence_roles(item)
         missing_required_roles = _str_tuple(bundle.get("missing_required_roles"))
+        selected_query_role_families = _selected_query_role_families(item)
         for role in required_roles:
             required_evidence_role_counts[role] += 1
             required_family = _required_evidence_role_query_family(role)
@@ -136,6 +138,17 @@ def query_role_effectiveness_table(
                 and required_family not in item_candidate_role_families
             ):
                 missing_required_role_candidate_query_counts[role] += 1
+            required_selected_families = (
+                _required_evidence_role_selected_query_families(role)
+            )
+            if (
+                required_selected_families
+                and selected_query_role_families
+                and not selected_query_role_families.intersection(
+                    required_selected_families
+                )
+            ):
+                missing_required_role_selected_query_counts[role] += 1
         for role in missing_required_roles:
             missing_required_evidence_role_counts[role] += 1
 
@@ -232,10 +245,18 @@ def query_role_effectiveness_table(
         "missing_required_role_candidate_query_counts": dict(
             sorted(missing_required_role_candidate_query_counts.items())
         ),
+        "missing_required_role_selected_query_counts": dict(
+            sorted(missing_required_role_selected_query_counts.items())
+        ),
         "required_roles_without_candidate_queries": [
             role
             for role in sorted(required_evidence_role_counts)
             if missing_required_role_candidate_query_counts[role] > 0
+        ],
+        "required_roles_without_selected_queries": [
+            role
+            for role in sorted(required_evidence_role_counts)
+            if missing_required_role_selected_query_counts[role] > 0
         ],
         "missing_required_evidence_roles": [
             role
@@ -309,6 +330,16 @@ def _required_evidence_roles(item: Mapping[str, object]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(role for role in roles if role.strip()))
 
 
+def _selected_query_role_families(item: Mapping[str, object]) -> set[str]:
+    metadata = _mapping(_mapping(item.get("retrieval")).get("metadata"))
+    families: set[str] = set()
+    for key in ("query_decomposition", "query_expansion", "benchmark_rerank"):
+        payload = _mapping(metadata.get(key))
+        query_plan = _mapping(payload.get("query_plan"))
+        families.update(_str_tuple(query_plan.get("selected_role_families")))
+    return families
+
+
 def _required_evidence_role_query_family(role: str) -> str:
     normalized = str(role or "").strip()
     if not normalized or normalized == "primary":
@@ -345,6 +376,61 @@ def _required_evidence_role_query_family(role: str) -> str:
     }:
         return "relation_compact"
     return _query_role_family(normalized)
+
+
+def _required_evidence_role_selected_query_families(role: str) -> tuple[str, ...]:
+    normalized = str(role or "").strip()
+    if not normalized or normalized == "primary":
+        return ()
+    if normalized in _PROFILE_SUPPORT_ROLES:
+        return ("relation_compact", "expanded_focus")
+    return {
+        "bridge": ("multi_hop", "relation_compact", "expanded_focus"),
+        "multi_hop_bridge": ("multi_hop", "relation_compact", "expanded_focus"),
+        "multi_hop_support": ("multi_hop", "relation_compact", "expanded_focus"),
+        "location": ("location_support", "relation_compact", "expanded_focus"),
+        "location_support": (
+            "location_support",
+            "relation_compact",
+            "expanded_focus",
+        ),
+        "contrast": ("contrast_support", "relation_compact", "expanded_focus"),
+        "contrast_support": (
+            "contrast_support",
+            "relation_compact",
+            "expanded_focus",
+        ),
+        "visual": ("visual_support", "expanded_focus", "relation_compact"),
+        "visual_support": (
+            "visual_support",
+            "expanded_focus",
+            "relation_compact",
+        ),
+        "count_support": ("count_support", "expanded_focus"),
+        "list_support": ("list_support", "expanded_focus"),
+        "value_support": ("value_support", "expanded_focus"),
+        "temporal_support": ("temporal_support", "expanded_focus"),
+        "visual_temporal_support": ("temporal_support", "expanded_focus"),
+        "temporal_sequence_support": ("temporal_support", "expanded_focus"),
+        "compact_relation": ("relation_compact", "expanded_focus"),
+        "causal_support": ("multi_hop", "relation_compact", "expanded_focus"),
+        "communication_support": ("relation_compact", "expanded_focus"),
+        "event_support": ("relation_compact", "expanded_focus"),
+        "exchange_support": ("relation_compact", "expanded_focus"),
+        "emotion_response_support": ("relation_compact", "expanded_focus"),
+        "favorite_support": ("relation_compact", "expanded_focus"),
+        "symbolic_meaning_support": ("relation_compact", "expanded_focus"),
+        "inference_support": (
+            "relation_compact",
+            "expanded_focus",
+            "base_query",
+        ),
+        "preference_support": (
+            "relation_compact",
+            "expanded_focus",
+            "base_query",
+        ),
+    }.get(normalized, (_query_role_family(normalized),))
 
 
 def _query_role_stat_payload(

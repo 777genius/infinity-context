@@ -220,6 +220,66 @@ def test_query_role_effectiveness_reports_required_role_candidate_query_gaps() -
     assert breakdown["missing_required_evidence_roles"] == ["temporal_support"]
 
 
+def test_query_role_effectiveness_reports_required_role_selected_query_gaps() -> None:
+    item = {
+        "case_id": "required-selected-query-gap",
+        "retrieval": {
+            "metadata": {
+                "query_decomposition": {
+                    "query_plan": {
+                        "schema_version": "query_plan.v2",
+                        "selected_role_families": ["base_query"],
+                    },
+                    "query_profile": {
+                        "bundle_evidence_roles": [
+                            "primary",
+                            "temporal_support",
+                        ],
+                    },
+                },
+            },
+            "results": [
+                _memory("temporal", query_roles=("temporal_support",)),
+            ],
+        },
+        "evidence_bundle": {
+            "required_roles": [
+                "primary",
+                "temporal_support",
+            ],
+            "items": [
+                {
+                    "id": "temporal",
+                    "role": "temporal_support",
+                    "query_roles": ["temporal_support"],
+                }
+            ],
+        },
+    }
+
+    diagnostics = quality_diagnostics((item,))
+    table = diagnostics["query_role_effectiveness_table"]
+
+    assert table["missing_required_role_candidate_query_counts"] == {}
+    assert table["required_roles_without_candidate_queries"] == []
+    assert table["missing_required_role_selected_query_counts"] == {
+        "temporal_support": 1
+    }
+    assert table["required_roles_without_selected_queries"] == [
+        "temporal_support"
+    ]
+
+    breakdown = fast_gate_metrics((item,), expected_case_count=1)[
+        "query_role_gap_breakdown"
+    ]
+    assert breakdown["missing_required_role_selected_query_counts"] == {
+        "temporal_support": 1
+    }
+    assert breakdown["required_roles_without_selected_queries"] == [
+        "temporal_support"
+    ]
+
+
 def test_query_role_effectiveness_accepts_compact_query_for_profile_required_role() -> None:
     diagnostics = quality_diagnostics(
         (

@@ -694,6 +694,9 @@ def _query_role_gap_breakdown(
     missing_required_role_candidate_query_counts = _count_mapping(
         query_role_effectiveness.get("missing_required_role_candidate_query_counts")
     )
+    missing_required_role_selected_query_counts = _count_mapping(
+        query_role_effectiveness.get("missing_required_role_selected_query_counts")
+    )
     candidate_roles = sorted(
         role for role, count in candidate_role_counts.items() if count > 0
     )
@@ -830,12 +833,22 @@ def _query_role_gap_breakdown(
         "missing_required_role_candidate_query_counts": (
             missing_required_role_candidate_query_counts
         ),
+        "missing_required_role_selected_query_counts": (
+            missing_required_role_selected_query_counts
+        ),
         "required_roles_without_candidate_queries": [
             role
             for role in _str_tuple(
                 query_role_effectiveness.get("required_roles_without_candidate_queries")
             )
             if missing_required_role_candidate_query_counts.get(role, 0) > 0
+        ],
+        "required_roles_without_selected_queries": [
+            role
+            for role in _str_tuple(
+                query_role_effectiveness.get("required_roles_without_selected_queries")
+            )
+            if missing_required_role_selected_query_counts.get(role, 0) > 0
         ],
         "missing_required_evidence_roles": [
             role
