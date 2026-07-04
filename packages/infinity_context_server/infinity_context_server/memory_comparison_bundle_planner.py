@@ -69,6 +69,9 @@ _PREDICATE_REQUIRED_ROLES = frozenset(
     }
 )
 _NEGATIVE_ABSENCE_ROLES = frozenset({"absence_support", "negative_support"})
+_PARTICIPANT_SENSITIVE_REQUIRED_ROLES = frozenset(
+    {"activity_support", "event_support", "location_support"}
+)
 _TYPED_TEMPORAL_SUPPORT_ROLES = frozenset(
     {
         "duration_temporal_support",
@@ -865,7 +868,8 @@ def _satisfied_required_roles(
             satisfied.add(role)
             continue
         if role == "location_support" and any(
-            _candidate_has_location_support(item.candidate) for item in selected
+            _item_can_satisfy_required_role_in_selection(item, role, selected)
+            for item in selected
         ):
             satisfied.add(role)
         if role == "value_support" and any(
@@ -899,7 +903,8 @@ def _satisfied_required_roles(
         ):
             satisfied.add(role)
         if role == "event_support" and any(
-            _candidate_has_event_support(item.candidate) for item in selected
+            _item_can_satisfy_required_role_in_selection(item, role, selected)
+            for item in selected
         ):
             satisfied.add(role)
         if role == "communication_support" and any(
@@ -919,7 +924,7 @@ def _satisfied_required_roles(
         ):
             satisfied.add(role)
         if role in _TYPED_RELATION_SUPPORT_CATEGORIES and any(
-            _candidate_has_typed_relation_support(item.candidate, role)
+            _item_can_satisfy_required_role_in_selection(item, role, selected)
             for item in selected
         ):
             satisfied.add(role)
@@ -1001,7 +1006,7 @@ def _best_required_role_candidate(
         item
         for item in planned
         if id(item) not in selected_ids
-        and _item_can_satisfy_required_role(item, role)
+        and _item_can_satisfy_required_role_in_selection(item, role, selected)
     ]
     if not candidates:
         return None
@@ -1019,7 +1024,11 @@ def _replaceable_item_index(
     replaceable = [
         (index, item)
         for index, item in enumerate(selected)
-        if not _selected_required_roles(item, required_roles=required_roles)
+        if not _selected_required_roles(
+            item,
+            required_roles=required_roles,
+            selected=selected,
+        )
     ]
     if not replaceable:
         return None
@@ -1033,12 +1042,25 @@ def _selected_required_roles(
     item: PlannedEvidenceItem,
     *,
     required_roles: Sequence[str],
+    selected: Sequence[PlannedEvidenceItem] = (),
 ) -> tuple[str, ...]:
     return tuple(
         role
         for role in required_roles
-        if _item_can_satisfy_required_role(item, role)
+        if _item_can_satisfy_required_role_in_selection(item, role, selected)
     )
+
+
+def _item_can_satisfy_required_role_in_selection(
+    item: PlannedEvidenceItem,
+    role: str,
+    selected: Sequence[PlannedEvidenceItem],
+) -> bool:
+    if not _item_can_satisfy_required_role(item, role):
+        return False
+    if role not in _PARTICIPANT_SENSITIVE_REQUIRED_ROLES:
+        return True
+    return _item_has_requested_participant_grounding(item, selected)
 
 
 def _item_can_satisfy_required_role(
@@ -1084,6 +1106,31 @@ def _item_can_satisfy_required_role(
     if role in _TYPED_RELATION_SUPPORT_CATEGORIES:
         return _candidate_has_typed_relation_support(item.candidate, role)
     return item.role == role
+
+
+def _item_has_requested_participant_grounding(
+    item: PlannedEvidenceItem,
+    selected: Sequence[PlannedEvidenceItem],
+) -> bool:
+    candidate = item.candidate
+    if not candidate.query_has_entities:
+        return True
+    requested_terms = _selected_primary_person_grounding_terms(selected)
+    if not requested_terms:
+        return True
+    candidate_terms = set(_candidate_person_grounding_terms(candidate))
+    return bool(candidate_terms.intersection(requested_terms))
+
+
+def _selected_primary_person_grounding_terms(
+    selected: Sequence[PlannedEvidenceItem],
+) -> frozenset[str]:
+    return frozenset(
+        term
+        for item in selected
+        if item.role == "primary"
+        for term in _candidate_person_grounding_terms(item.candidate)
+    )
 
 
 def _required_role_candidate_sort_key(
@@ -2198,12 +2245,30 @@ def _bundle_quality_diagnostics(
     communication_support_count = sum(
         1 for item in items if item.role == "communication_support"
     )
-    event_support_count = sum(1 for item in items if item.role == "event_support")
+    event_support_count = sum(
+        1
+        for item in items
+        if item.role == "event_support"
+        and _item_can_satisfy_required_role_in_selection(
+            item,
+            "event_support",
+            items,
+        )
+    )
     exchange_support_count = sum(1 for item in items if item.role == "exchange_support")
     inference_support_count = sum(
         1 for item in items if item.role == "inference_support"
     )
-    location_support_count = sum(1 for item in items if item.role == "location_support")
+    location_support_count = sum(
+        1
+        for item in items
+        if item.role == "location_support"
+        and _item_can_satisfy_required_role_in_selection(
+            item,
+            "location_support",
+            items,
+        )
+    )
     emotion_response_support_count = sum(
         1 for item in items if item.role == "emotion_response_support"
     )
@@ -2216,7 +2281,10 @@ def _bundle_quality_diagnostics(
     favorite_support_count = sum(1 for item in items if item.role == "favorite_support")
     visual_support_count = sum(1 for item in items if item.role == "visual_support")
     typed_relation_support_counts = Counter(
-        item.role for item in items if item.role in _TYPED_RELATION_SUPPORT_CATEGORIES
+        item.role
+        for item in items
+        if item.role in _TYPED_RELATION_SUPPORT_CATEGORIES
+        and _item_can_satisfy_required_role_in_selection(item, item.role, items)
     )
     typed_relation_support_count = sum(typed_relation_support_counts.values())
     typed_relation_quality_count = (
@@ -2226,7 +2294,7 @@ def _bundle_quality_diagnostics(
         role
         for role in missing_roles
         for item in items
-        if _item_has_partial_required_role_support(item, role)
+        if _item_has_partial_required_role_support(item, role, items)
     )
     partial_required_role_support_count = sum(
         partial_required_role_support_counts.values()
@@ -2855,12 +2923,17 @@ def _bundle_quality_reason_codes(
 def _item_has_partial_required_role_support(
     item: PlannedEvidenceItem,
     role: str,
+    selected: Sequence[PlannedEvidenceItem] = (),
 ) -> bool:
     return has_partial_required_role_support(
         item.candidate,
         item_role=item.role,
         role=role,
-        complete_support=_item_can_satisfy_required_role(item, role),
+        complete_support=_item_can_satisfy_required_role_in_selection(
+            item,
+            role,
+            selected,
+        ),
         typed_relation_support_categories=_TYPED_RELATION_SUPPORT_CATEGORIES,
     )
 

@@ -95,6 +95,146 @@ def test_evidence_bundle_planner_rejects_person_only_temporal_support() -> None:
     assert complete.satisfied_required_roles == ("primary", "temporal_support")
 
 
+def test_event_location_activity_support_must_match_selected_person() -> None:
+    primary = _candidate(
+        item_id="primary",
+        covered_evidence_terms=("D1:10",),
+        primary_signal=True,
+        entity_hits=("caroline",),
+        speaker_hits=("caroline",),
+        query_has_entities=True,
+        answerability_score=0.9,
+    )
+    wrong_event_place = _candidate(
+        item_id="wrong-event-place",
+        query_support_terms=("charity", "race"),
+        relation_hits=("registered", "race"),
+        relation_category_hits=("participation_event",),
+        entity_hits=("harbor hall",),
+        query_has_entities=True,
+        answerability_score=0.88,
+    )
+    grounded_event_place = _candidate(
+        item_id="grounded-event-place",
+        query_support_terms=("caroline", "charity", "race"),
+        relation_hits=("registered", "race"),
+        relation_category_hits=("participation_event",),
+        entity_hits=("caroline",),
+        query_has_entities=True,
+        answerability_score=0.76,
+    )
+    wrong_location = _candidate(
+        item_id="wrong-location",
+        query_support_terms=("studio", "moved"),
+        relation_hits=("moved", "studio"),
+        relation_category_hits=("location_transition",),
+        entity_hits=("north studio",),
+        query_has_entities=True,
+        answerability_score=0.88,
+    )
+    grounded_location = _candidate(
+        item_id="grounded-location",
+        query_support_terms=("caroline", "studio", "moved"),
+        relation_hits=("moved", "studio"),
+        relation_category_hits=("location_transition",),
+        entity_hits=("caroline",),
+        query_has_entities=True,
+        answerability_score=0.76,
+    )
+    wrong_activity = _candidate(
+        item_id="wrong-activity",
+        query_support_terms=("painting",),
+        relation_hits=("painting",),
+        relation_category_hits=("activity_profile",),
+        entity_hits=("community studio",),
+        query_has_entities=True,
+        answerability_score=0.88,
+    )
+    grounded_activity = _candidate(
+        item_id="grounded-activity",
+        query_support_terms=("caroline", "painting"),
+        relation_hits=("painting",),
+        relation_category_hits=("activity_profile",),
+        entity_hits=("caroline",),
+        query_has_entities=True,
+        answerability_score=0.76,
+    )
+
+    event_plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, wrong_event_place, grounded_event_place),
+        case_group="single",
+        required_roles=("primary", "event_support"),
+    )
+    location_plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, wrong_location, grounded_location),
+        case_group="single",
+        required_roles=("primary", "location_support"),
+    )
+    activity_plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, wrong_activity, grounded_activity),
+        case_group="single",
+        required_roles=("primary", "activity_support"),
+    )
+
+    assert [item.candidate.item_id for item in event_plan.items] == [
+        "primary",
+        "grounded-event-place",
+    ]
+    assert event_plan.satisfied_required_roles == ("primary", "event_support")
+    assert event_plan.to_diagnostics()["bundle_quality"]["event_support_count"] == 1
+    assert [item.candidate.item_id for item in location_plan.items] == [
+        "primary",
+        "grounded-location",
+    ]
+    assert location_plan.satisfied_required_roles == ("primary", "location_support")
+    assert location_plan.to_diagnostics()["bundle_quality"][
+        "location_support_count"
+    ] == 1
+    assert [item.candidate.item_id for item in activity_plan.items] == [
+        "primary",
+        "grounded-activity",
+    ]
+    assert activity_plan.satisfied_required_roles == ("primary", "activity_support")
+    assert activity_plan.to_diagnostics()["bundle_quality"][
+        "typed_relation_support_counts"
+    ] == {"activity_support": 1}
+
+
+def test_event_support_with_only_event_anchor_does_not_satisfy_person_request() -> None:
+    primary = _candidate(
+        item_id="primary",
+        covered_evidence_terms=("D1:10",),
+        primary_signal=True,
+        entity_hits=("caroline",),
+        speaker_hits=("caroline",),
+        query_has_entities=True,
+        answerability_score=0.9,
+    )
+    event_only = _candidate(
+        item_id="event-only",
+        query_support_terms=("charity", "race"),
+        relation_hits=("registered", "race"),
+        relation_category_hits=("participation_event",),
+        entity_hits=("charity race",),
+        query_has_entities=True,
+        answerability_score=0.88,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, event_only),
+        case_group="single",
+        required_roles=("primary", "event_support"),
+    )
+
+    assert [item.candidate.item_id for item in plan.items] == [
+        "primary",
+        "event-only",
+    ]
+    assert plan.satisfied_required_roles == ("primary",)
+    assert plan.missing_required_roles == ("event_support",)
+    assert plan.to_diagnostics()["bundle_quality"]["event_support_count"] == 0
+
+
 def _candidate(
     *,
     item_id: str,
@@ -106,6 +246,7 @@ def _candidate(
     entity_hits: tuple[str, ...] = (),
     speaker_hits: tuple[str, ...] = (),
     relation_hits: tuple[str, ...] = (),
+    relation_category_hits: tuple[str, ...] = (),
     query_has_entities: bool = False,
 ) -> EvidenceBundleCandidate:
     return EvidenceBundleCandidate(
@@ -125,5 +266,6 @@ def _candidate(
         entity_hits=entity_hits,
         speaker_hits=speaker_hits,
         relation_hits=relation_hits,
+        relation_category_hits=relation_category_hits,
         query_has_entities=query_has_entities,
     )
