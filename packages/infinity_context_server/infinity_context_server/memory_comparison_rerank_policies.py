@@ -59,6 +59,40 @@ class RerankPolicyFeatures(Protocol):
     current_state_query: bool
 
 
+_COUNT_LIST_GENERIC_RELATION_TERMS = frozenset(
+    {
+        "amount",
+        "count",
+        "counts",
+        "have",
+        "had",
+        "has",
+        "how",
+        "include",
+        "included",
+        "includes",
+        "including",
+        "item",
+        "items",
+        "list",
+        "many",
+        "much",
+        "name",
+        "named",
+        "names",
+        "number",
+        "numbers",
+        "quantity",
+        "thing",
+        "things",
+        "time",
+        "times",
+        "total",
+        "totals",
+    }
+)
+
+
 @dataclass(frozen=True)
 class RerankPolicyContribution:
     """One bounded policy contribution with diagnostics."""
@@ -691,22 +725,29 @@ class CountListAnswerShapePolicy:
         count_needed = "count_support" in evidence_needs
         list_needed = "list_support" in evidence_needs
         multi_item_evidence = features.list_item_count >= 2
+        subject_grounded = _has_count_list_subject_grounding(features)
         count_evidence_boost = (
             0.09
             if count_needed
             and features.exact_count_evidence
             and grounded
+            and subject_grounded
             and precise_provenance
             else 0.06
             if count_needed
             and multi_item_evidence
             and grounded
+            and subject_grounded
             and precise_provenance
             else 0.0
         )
         list_evidence_boost = (
             0.09
-            if list_needed and multi_item_evidence and grounded and precise_provenance
+            if list_needed
+            and multi_item_evidence
+            and grounded
+            and subject_grounded
+            and precise_provenance
             else 0.0
         )
         role_boost = (
@@ -730,6 +771,7 @@ class CountListAnswerShapePolicy:
                 "benchmark_exact_count_evidence": features.exact_count_evidence,
                 "benchmark_list_item_count": features.list_item_count,
                 "benchmark_count_list_answer_grounded": grounded,
+                "benchmark_count_list_subject_grounded": subject_grounded,
                 "benchmark_count_list_precise_provenance": precise_provenance,
             },
             reason_codes=(
@@ -738,6 +780,28 @@ class CountListAnswerShapePolicy:
                 *_reason_codes(("count_list_query_role_support", role_boost)),
             ),
         )
+
+
+def _has_count_list_subject_grounding(features: RerankPolicyFeatures) -> bool:
+    if not features.query_has_entities:
+        return True
+    if features.high_signal_relation_hit_count > 0:
+        return True
+    relation_hits = {
+        hit.casefold()
+        for hit in features.relation_hits
+        if hit.casefold() not in _COUNT_LIST_GENERIC_RELATION_TERMS
+    }
+    if relation_hits:
+        return True
+    entity_hits = {hit.casefold() for hit in (*features.entity_hits, *features.speaker_hits)}
+    target_overlap = {
+        term.casefold()
+        for term in features.overlap_terms
+        if term.casefold() not in _COUNT_LIST_GENERIC_RELATION_TERMS
+        and term.casefold() not in entity_hits
+    }
+    return bool(target_overlap)
 
 
 class TypedRelationSupportPolicy:

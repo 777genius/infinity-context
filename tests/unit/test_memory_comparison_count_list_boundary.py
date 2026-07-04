@@ -88,6 +88,53 @@ def test_list_rerank_prefers_multi_item_evidence_over_single_mention() -> None:
     assert candidate_features["list_item_count"] == 3
 
 
+def test_list_rerank_does_not_boost_wrong_list_subject_over_exact_evidence() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="list-dogs-wrong-subject",
+        question="What are the names of Mia's dogs?",
+        expected_terms=("Max",),
+        metadata={"category": 4},
+    )
+    wrong_subject_list = RetrievedMemory(
+        item_id="cat-list",
+        rank=1,
+        score=0.55,
+        text="D2:3 Mia: My cats are Olive and Bean.",
+        source_refs=("D2:3",),
+        metadata={
+            "item_type": "raw_turn",
+            "diagnostics": {"benchmark_query_roles": ["list_support"]},
+        },
+    )
+    exact_subject_list = RetrievedMemory(
+        item_id="dog-list",
+        rank=2,
+        score=0.5,
+        text="D2:4 Mia: My dogs are Max, Luna, and Pip.",
+        source_refs=("D2:4",),
+        metadata={
+            "item_type": "raw_turn",
+            "diagnostics": {"benchmark_query_roles": ["list_support"]},
+        },
+    )
+
+    reranked, _diagnostics = benchmark_rerank_memories(
+        case,
+        (wrong_subject_list, exact_subject_list),
+    )
+    by_id = {memory.item_id: memory for memory in reranked}
+
+    assert reranked[0].item_id == "dog-list"
+    wrong_signals = by_id["cat-list"].metadata["diagnostics"]["score_signals"]
+    exact_signals = by_id["dog-list"].metadata["diagnostics"]["score_signals"]
+    assert wrong_signals["benchmark_list_answer_shape_boost"] == 0
+    assert wrong_signals["benchmark_count_list_query_role_boost"] == 0
+    assert wrong_signals["benchmark_count_list_subject_grounded"] is False
+    assert exact_signals["benchmark_list_answer_shape_boost"] > 0
+    assert exact_signals["benchmark_count_list_subject_grounded"] is True
+
+
 def test_count_rerank_prefers_explicit_count_or_multi_item_evidence() -> None:
     case = PublicBenchmarkCase(
         benchmark="locomo",
@@ -126,6 +173,53 @@ def test_count_rerank_prefers_explicit_count_or_multi_item_evidence() -> None:
     score_signals = by_id["dog-count"].metadata["diagnostics"]["score_signals"]
     assert score_signals["benchmark_count_answer_shape_boost"] > 0
     assert score_signals["benchmark_exact_count_evidence"] is True
+
+
+def test_count_rerank_does_not_boost_wrong_count_subject_over_exact_evidence() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="count-dogs-wrong-subject",
+        question="How many dogs does Mia have?",
+        expected_terms=("three",),
+        metadata={"category": 4},
+    )
+    wrong_subject_count = RetrievedMemory(
+        item_id="cat-count",
+        rank=1,
+        score=0.55,
+        text="D2:3 Mia: I have two cats: Olive and Bean.",
+        source_refs=("D2:3",),
+        metadata={
+            "item_type": "raw_turn",
+            "diagnostics": {"benchmark_query_roles": ["count_support"]},
+        },
+    )
+    exact_subject_count = RetrievedMemory(
+        item_id="dog-count",
+        rank=2,
+        score=0.5,
+        text="D2:4 Mia: I have three dogs: Max, Luna, and Pip.",
+        source_refs=("D2:4",),
+        metadata={
+            "item_type": "raw_turn",
+            "diagnostics": {"benchmark_query_roles": ["count_support"]},
+        },
+    )
+
+    reranked, _diagnostics = benchmark_rerank_memories(
+        case,
+        (wrong_subject_count, exact_subject_count),
+    )
+    by_id = {memory.item_id: memory for memory in reranked}
+
+    assert reranked[0].item_id == "dog-count"
+    wrong_signals = by_id["cat-count"].metadata["diagnostics"]["score_signals"]
+    exact_signals = by_id["dog-count"].metadata["diagnostics"]["score_signals"]
+    assert wrong_signals["benchmark_count_answer_shape_boost"] == 0
+    assert wrong_signals["benchmark_count_list_query_role_boost"] == 0
+    assert wrong_signals["benchmark_count_list_subject_grounded"] is False
+    assert exact_signals["benchmark_count_answer_shape_boost"] > 0
+    assert exact_signals["benchmark_count_list_subject_grounded"] is True
 
 
 def test_count_rerank_uses_standalone_times_count_without_article_false_positive() -> None:
