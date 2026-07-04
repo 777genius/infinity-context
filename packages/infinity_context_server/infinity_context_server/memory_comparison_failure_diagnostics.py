@@ -6,6 +6,13 @@ import re
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 
+from infinity_context_server.memory_comparison_quality_accessors import (
+    source_refs_from_bundle_item as _source_refs_from_bundle_item,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    source_refs_from_memory as _source_refs_from_memory,
+)
+
 _TURN_REF_RE = re.compile(
     r"\b(?:(?P<session>session_\d+):)?D(?P<source>\d+):(?P<turn>\d+)\b",
     re.IGNORECASE,
@@ -30,7 +37,7 @@ def failure_diagnostics(evaluation: Mapping[str, object]) -> dict[str, object]:
         dict.fromkeys(
             source_ref
             for item in _retrieval_results(evaluation)
-            for source_ref in _str_tuple(item.get("source_refs"))
+            for source_ref in _result_source_refs(item)
         )
     )
     missing_required_roles = tuple(
@@ -328,12 +335,12 @@ def _missing_evidence_source_locality(
     retrieval_turns = _source_turns(
         source_ref
         for result in retrieval_results
-        for source_ref in _str_tuple(result.get("source_refs"))
+        for source_ref in _result_source_refs(result)
     )
     bundle_turns = _source_turns(
         source_ref
         for item in bundle_items
-        for source_ref in _str_tuple(item.get("source_refs"))
+        for source_ref in _bundle_item_source_refs(item)
     )
     windows = [
         _missing_ref_window(ref, retrieval_turns=retrieval_turns, bundle_turns=bundle_turns)
@@ -468,14 +475,14 @@ def _selected_bundle_source_ref_stats(
     *,
     bundle_quality: Mapping[str, object],
 ) -> dict[str, object]:
-    item_ref_counts = [len(_str_tuple(item.get("source_refs"))) for item in bundle_items]
+    item_ref_counts = [len(_bundle_item_source_refs(item)) for item in bundle_items]
     source_ref_item_count = sum(1 for count in item_ref_counts if count > 0)
     source_ref_count = len(
         tuple(
             dict.fromkeys(
                 source_ref
                 for item in bundle_items
-                for source_ref in _str_tuple(item.get("source_refs"))
+                for source_ref in _bundle_item_source_refs(item)
             )
         )
     )
@@ -507,6 +514,14 @@ def _selected_bundle_source_ref_stats(
             len(bundle_items) or source_ref_item_count + source_refless_item_count,
         ),
     }
+
+
+def _result_source_refs(result: Mapping[str, object]) -> tuple[str, ...]:
+    return _str_tuple(result.get("source_refs")) or _source_refs_from_memory(result)
+
+
+def _bundle_item_source_refs(item: Mapping[str, object]) -> tuple[str, ...]:
+    return _str_tuple(item.get("source_refs")) or _source_refs_from_bundle_item(item)
 
 
 def _is_measured_low_answerability(score: float) -> bool:
