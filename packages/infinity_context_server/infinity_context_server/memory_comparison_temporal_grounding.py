@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 import re
+from collections import Counter
 from collections.abc import Mapping, Sequence
 
+from infinity_context_server.memory_comparison_candidate_risks import (
+    payload_has_broad_summary,
+    payload_has_conflict_or_stale,
+)
 from infinity_context_server.memory_comparison_quality_accessors import (
     bundle_items as _bundle_items,
 )
@@ -129,8 +134,16 @@ def temporal_grounding_table(items: Sequence[Mapping[str, object]]) -> dict[str,
     selected_missing_source_window_count = 0
     gap_case_ids: set[str] = set()
     source_window_gap_case_ids: set[str] = set()
+    issue_case_ids: set[str] = set()
+    issue_reason_counts: Counter[str] = Counter()
+    issue_item_count = 0
+    missing_issue_count = 0
+    weak_issue_count = 0
+    conflict_issue_count = 0
+    strong_grounding_count = 0
     samples: list[dict[str, object]] = []
     source_window_samples: list[dict[str, object]] = []
+    issue_samples: list[dict[str, object]] = []
 
     for item in items:
         if not _has_temporal_intent(item):
@@ -166,6 +179,38 @@ def temporal_grounding_table(items: Sequence[Mapping[str, object]]) -> dict[str,
             selected_date_count += int(signals["date"])
             selected_range_count += int(signals["range"])
             selected_order_count += int(signals["temporal_order"])
+            issue_reasons = _temporal_grounding_issue_reasons(
+                bundle_item,
+                signals=signals,
+                has_source_window=has_source_window,
+            )
+            if issue_reasons:
+                issue_item_count += 1
+                issue_reason_counts.update(issue_reasons)
+                missing_issue_count += int(
+                    any(reason.startswith("missing_") for reason in issue_reasons)
+                )
+                weak_issue_count += int(
+                    any(reason.startswith("weak_") for reason in issue_reasons)
+                )
+                conflict_issue_count += int(
+                    "conflicting_or_stale" in issue_reasons
+                )
+                if case_id:
+                    issue_case_ids.add(case_id)
+                if len(issue_samples) < _MAX_SAMPLES:
+                    issue_samples.append(
+                        _temporal_grounding_issue_sample(
+                            item,
+                            bundle_item,
+                            source_refs,
+                            signals=signals,
+                            has_source_window=has_source_window,
+                            reasons=issue_reasons,
+                        )
+                    )
+            else:
+                strong_grounding_count += 1
             if signals["session_boundary"] or signals["date"] or signals["range"]:
                 continue
             selected_ungrounded_count += 1
@@ -195,6 +240,16 @@ def temporal_grounding_table(items: Sequence[Mapping[str, object]]) -> dict[str,
         "selected_missing_source_window_item_count": selected_missing_source_window_count,
         "selected_source_window_gap_case_count": len(source_window_gap_case_ids),
         "selected_source_window_gap_samples": source_window_samples,
+        "selected_strong_temporal_grounding_item_count": strong_grounding_count,
+        "selected_temporal_grounding_issue_item_count": issue_item_count,
+        "selected_temporal_grounding_issue_case_count": len(issue_case_ids),
+        "selected_missing_temporal_grounding_issue_item_count": missing_issue_count,
+        "selected_weak_temporal_grounding_issue_item_count": weak_issue_count,
+        "selected_conflicting_temporal_grounding_issue_item_count": conflict_issue_count,
+        "selected_temporal_grounding_issue_reason_counts": dict(
+            sorted(issue_reason_counts.items())
+        ),
+        "selected_temporal_grounding_issue_samples": issue_samples,
     }
 
 
@@ -297,6 +352,70 @@ def _bundle_item_grounding_signals(item: Mapping[str, object]) -> dict[str, bool
     return _grounding_signal_payload(text, date=date, range_grounded=range_grounded)
 
 
+def _temporal_grounding_issue_reasons(
+    item: Mapping[str, object],
+    *,
+    signals: Mapping[str, bool],
+    has_source_window: bool,
+) -> tuple[str, ...]:
+    reasons: list[str] = []
+    has_session_boundary = bool(signals.get("session_boundary"))
+    has_date_or_range = bool(signals.get("date") or signals.get("range"))
+    if not has_source_window:
+        reasons.append("missing_source_window")
+    if not has_session_boundary:
+        reasons.append("missing_session_boundary")
+    if not has_date_or_range:
+        reasons.append("missing_date_or_range")
+    if not has_session_boundary and not has_date_or_range:
+        reasons.append("missing_temporal_grounding")
+    if has_source_window and not has_date_or_range:
+        reasons.append("weak_source_window_without_date_or_range")
+    if has_session_boundary and not has_date_or_range:
+        reasons.append("weak_session_boundary_without_date_or_range")
+    if has_date_or_range and not has_session_boundary:
+        reasons.append("weak_date_or_range_without_session_boundary")
+    if _bundle_item_has_conflict_or_stale(item):
+        reasons.append("conflicting_or_stale")
+    if _bundle_item_has_broad_summary(item):
+        reasons.append("weak_broad_summary")
+    return tuple(reasons)
+
+
+def _bundle_item_has_conflict_or_stale(item: Mapping[str, object]) -> bool:
+    features = _candidate_features(item)
+    diagnostics = _memory_diagnostics(item)
+    reason_codes = (
+        *_str_tuple(item.get("reason_codes")),
+        *_str_tuple(item.get("answerability_reason_codes")),
+        *_str_tuple(item.get("source_locality_reason_codes")),
+        *_str_tuple(diagnostics.get("reason_codes")),
+    )
+    return (
+        item.get("conflict_or_stale") is True
+        or payload_has_conflict_or_stale(item, features)
+        or bool(item.get("stale_reason"))
+        or bool(_positive_int(item.get("conflict_count")))
+        or any(
+            "conflict_or_stale" in reason or "stale" in reason
+            for reason in reason_codes
+        )
+    )
+
+
+def _bundle_item_has_broad_summary(item: Mapping[str, object]) -> bool:
+    features = _candidate_features(item)
+    reason_codes = (
+        *_str_tuple(item.get("reason_codes")),
+        *_str_tuple(item.get("source_locality_reason_codes")),
+    )
+    return (
+        item.get("broad_summary") is True
+        or payload_has_broad_summary(item, features)
+        or any("broad_summary" in reason for reason in reason_codes)
+    )
+
+
 def _grounding_signal_payload(
     text: str,
     *,
@@ -350,6 +469,16 @@ def _has_range_text(text: str) -> bool:
     return bool(_RANGE_TEXT_RE.search(text))
 
 
+def _positive_int(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        parsed = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
 def _grounding_gap_sample(
     item: Mapping[str, object],
     bundle_item: Mapping[str, object],
@@ -390,4 +519,34 @@ def _source_window_gap_sample(
         "query_roles": list(_str_tuple(bundle_item.get("query_roles"))),
         "source_refs": list(source_refs[:_MAX_SAMPLE_REFS]),
         "missing_source_window": True,
+    }
+
+
+def _temporal_grounding_issue_sample(
+    item: Mapping[str, object],
+    bundle_item: Mapping[str, object],
+    source_refs: Sequence[str],
+    *,
+    signals: Mapping[str, bool],
+    has_source_window: bool,
+    reasons: Sequence[str],
+) -> dict[str, object]:
+    return {
+        "case_id": str(item.get("case_id") or ""),
+        "group": str(item.get("group") or ""),
+        "item_id": str(
+            bundle_item.get("id")
+            or bundle_item.get("item_id")
+            or _memory_id(bundle_item)
+        ),
+        "role": str(bundle_item.get("role") or ""),
+        "query_roles": list(_str_tuple(bundle_item.get("query_roles"))),
+        "source_refs": list(source_refs[:_MAX_SAMPLE_REFS]),
+        "issue_reasons": list(reasons),
+        "grounding_signals": {
+            "source_window": has_source_window,
+            "session_boundary": bool(signals.get("session_boundary")),
+            "date_or_range": bool(signals.get("date") or signals.get("range")),
+            "temporal_order": bool(signals.get("temporal_order")),
+        },
     }

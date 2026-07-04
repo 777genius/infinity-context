@@ -191,3 +191,142 @@ def test_temporal_grounding_reports_source_window_audit_gap_separately() -> None
             "missing_source_window": True,
         }
     ]
+
+
+def test_temporal_grounding_summarizes_missing_weak_and_conflicting_issues() -> None:
+    diagnostics = quality_diagnostics(
+        (
+            _item(
+                case_id="temporal-issues",
+                group="temporal",
+                retrieval=_retrieval_payload(
+                    evidence_need=("temporal_support",),
+                    bundle_evidence_roles=("primary", "temporal_sequence_support"),
+                    relation_categories=("temporal",),
+                    policy_score=0.0,
+                    candidate_features={
+                        "query_roles": ["temporal_sequence_support"],
+                        "time_intent_kind": "temporal_sequence",
+                    },
+                ),
+                evidence_bundle={
+                    "items": [
+                        {
+                            "id": "strong",
+                            "role": "temporal_sequence_support",
+                            "query_roles": ["temporal_sequence_support"],
+                            "source_refs": [
+                                "locomo:conv-1:session_4:D4:3:turn"
+                            ],
+                            "text": "session_4 date: 9 October, 2022",
+                        },
+                        {
+                            "id": "weak-source-window-only",
+                            "role": "temporal_sequence_support",
+                            "query_roles": ["temporal_sequence_support"],
+                            "source_refs": [
+                                "locomo:conv-1:session_5:D5:2:turn"
+                            ],
+                        },
+                        {
+                            "id": "conflicting",
+                            "role": "temporal_sequence_support",
+                            "query_roles": ["temporal_sequence_support"],
+                            "source_refs": [
+                                "locomo:conv-1:session_6:D6:4:turn"
+                            ],
+                            "text": "session_6 date: 10 October, 2022",
+                            "metadata": {
+                                "diagnostics": {"stale_reason": "superseded"}
+                            },
+                        },
+                        {
+                            "id": "missing",
+                            "role": "temporal_sequence_support",
+                            "query_roles": ["temporal_sequence_support"],
+                        },
+                    ]
+                },
+            ),
+        )
+    )
+
+    table = diagnostics["temporal_grounding_table"]
+
+    assert table["selected_strong_temporal_grounding_item_count"] == 1
+    assert table["selected_temporal_grounding_issue_item_count"] == 3
+    assert table["selected_temporal_grounding_issue_case_count"] == 1
+    assert table["selected_missing_temporal_grounding_issue_item_count"] == 2
+    assert table["selected_weak_temporal_grounding_issue_item_count"] == 1
+    assert table["selected_conflicting_temporal_grounding_issue_item_count"] == 1
+    assert table["selected_temporal_grounding_issue_reason_counts"] == {
+        "conflicting_or_stale": 1,
+        "missing_date_or_range": 2,
+        "missing_session_boundary": 1,
+        "missing_source_window": 1,
+        "missing_temporal_grounding": 1,
+        "weak_session_boundary_without_date_or_range": 1,
+        "weak_source_window_without_date_or_range": 1,
+    }
+    assert table["selected_temporal_grounding_issue_samples"] == [
+        {
+            "case_id": "temporal-issues",
+            "group": "temporal",
+            "item_id": "weak-source-window-only",
+            "role": "temporal_sequence_support",
+            "query_roles": ["temporal_sequence_support"],
+            "source_refs": [
+                "source_session_turn_refs:session_5:D5:2",
+                "source_turn_refs:D5:2",
+            ],
+            "issue_reasons": [
+                "missing_date_or_range",
+                "weak_source_window_without_date_or_range",
+                "weak_session_boundary_without_date_or_range",
+            ],
+            "grounding_signals": {
+                "source_window": True,
+                "session_boundary": True,
+                "date_or_range": False,
+                "temporal_order": True,
+            },
+        },
+        {
+            "case_id": "temporal-issues",
+            "group": "temporal",
+            "item_id": "conflicting",
+            "role": "temporal_sequence_support",
+            "query_roles": ["temporal_sequence_support"],
+            "source_refs": [
+                "source_session_turn_refs:session_6:D6:4",
+                "source_turn_refs:D6:4",
+            ],
+            "issue_reasons": ["conflicting_or_stale"],
+            "grounding_signals": {
+                "source_window": True,
+                "session_boundary": True,
+                "date_or_range": True,
+                "temporal_order": True,
+            },
+        },
+        {
+            "case_id": "temporal-issues",
+            "group": "temporal",
+            "item_id": "missing",
+            "role": "temporal_sequence_support",
+            "query_roles": ["temporal_sequence_support"],
+            "source_refs": [],
+            "issue_reasons": [
+                "missing_source_window",
+                "missing_session_boundary",
+                "missing_date_or_range",
+                "missing_temporal_grounding",
+            ],
+            "grounding_signals": {
+                "source_window": False,
+                "session_boundary": False,
+                "date_or_range": False,
+                "temporal_order": False,
+            },
+        },
+    ]
