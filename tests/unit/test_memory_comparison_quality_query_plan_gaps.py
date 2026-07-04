@@ -141,6 +141,71 @@ def test_query_plan_gap_breakdown_caps_samples_deterministically() -> None:
     ]
 
 
+def test_query_plan_gap_breakdown_reports_gap_reason_details() -> None:
+    samples = (
+        {
+            "case_id": "role-gap-1",
+            "group": "temporal",
+            "gap_reasons": (
+                "missing_evidence_role_query_family",
+                "dropped_queries",
+            ),
+            "missing_evidence_role_query_families": ("temporal_support",),
+        },
+        {
+            "case_id": "fanout-gap-1",
+            "group": "multi-hop",
+            "gap_reasons": ("fanout_limit_hit", "dropped_queries"),
+        },
+        {
+            "case_id": "role-gap-2",
+            "group": "location",
+            "gap_reasons": ("missing_evidence_role_query_family",),
+            "missing_evidence_role_query_families": ("location",),
+        },
+    )
+
+    breakdown = query_plan_gap_breakdown(
+        {
+            "plan_count": 3,
+            "plan_gap_case_count": 3,
+            "gap_reason_counts": {
+                "dropped_queries": 2,
+                "fanout_limit_hit": 1,
+                "missing_evidence_role_query_family": 2,
+            },
+            "missing_evidence_role_query_family_total": 2,
+            "missing_evidence_role_query_family_counts": {
+                "location": 1,
+                "temporal_support": 1,
+            },
+            "samples": samples,
+        }
+    )
+
+    assert list(breakdown["gap_reason_details"]) == [
+        "dropped_queries",
+        "missing_evidence_role_query_family",
+        "fanout_limit_hit",
+    ]
+    assert breakdown["gap_reason_details"]["dropped_queries"] == {
+        "reason": "dropped_queries",
+        "reason_label": "dropped queries",
+        "impact_count": 2,
+        "action": (
+            "Inspect dropped role families and fanout limits for query-plan "
+            "coverage loss."
+        ),
+        "sample_case_ids": ["role-gap-1", "fanout-gap-1"],
+    }
+    assert breakdown["gap_reason_details"][
+        "missing_evidence_role_query_family"
+    ]["sample_case_ids"] == ["role-gap-1", "role-gap-2"]
+    assert breakdown["gap_reason_details"]["fanout_limit_hit"][
+        "sample_case_ids"
+    ] == ["fanout-gap-1"]
+
+
 def test_query_plan_gap_breakdown_compact_samples_cap_text_payloads() -> None:
     long_text = "x" * 200
     samples = tuple(

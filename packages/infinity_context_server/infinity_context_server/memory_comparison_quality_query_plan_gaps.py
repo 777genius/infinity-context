@@ -45,6 +45,33 @@ _QUERY_PLAN_GAP_SAMPLE_LIMIT = 5
 _COMPACT_SAMPLE_VALUE_LIMIT = 5
 _COMPACT_SAMPLE_TEXT_LIMIT = 128
 
+_GAP_REASON_ACTIONS = {
+    "dropped_queries": (
+        "Inspect dropped role families and fanout limits for query-plan coverage "
+        "loss."
+    ),
+    "empty_query_candidate": (
+        "Inspect empty query candidates and the role templates that produced them."
+    ),
+    "fanout_limit_hit": (
+        "Inspect query-plan fanout caps for cases that hit the fanout limit."
+    ),
+    "missing_evidence_role_query_family": (
+        "Inspect missing evidence-role query families and add accepted query "
+        "family coverage."
+    ),
+    "missing_recommended_role_family": (
+        "Inspect missing recommended role families and add or preserve their "
+        "query coverage."
+    ),
+    "type_limit_hit": (
+        "Inspect query-plan type limits for cases that hit the type cap."
+    ),
+    "type_limit_replacement": (
+        "Inspect replaced type-limit roles and confirm replacement coverage."
+    ),
+}
+
 _BRIDGE_QUERY_FAMILIES = ("multi_hop", "relation_compact", "expanded_focus")
 _LOCATION_QUERY_FAMILIES = (
     "location_support",
@@ -104,6 +131,7 @@ def query_plan_gap_breakdown(
     samples = list(_sequence(query_plan_integrity.get("samples")))[
         :_QUERY_PLAN_GAP_SAMPLE_LIMIT
     ]
+    gap_reason_counts = _count_mapping(query_plan_integrity.get("gap_reason_counts"))
     missing_evidence_role_counts = _count_mapping(
         query_plan_integrity.get("missing_evidence_role_query_family_counts")
     )
@@ -134,8 +162,10 @@ def query_plan_gap_breakdown(
             _positive_int(query_plan_integrity.get("empty_query_candidate_count"))
             or 0
         ),
-        "gap_reason_counts": _count_mapping(
-            query_plan_integrity.get("gap_reason_counts")
+        "gap_reason_counts": gap_reason_counts,
+        "gap_reason_details": _gap_reason_details(
+            gap_reason_counts,
+            samples=samples,
         ),
         "missing_recommended_role_family_counts": _count_mapping(
             query_plan_integrity.get("missing_recommended_role_family_counts")
@@ -222,6 +252,33 @@ def _missing_evidence_role_query_family_details(
     return details
 
 
+def _gap_reason_details(
+    gap_reason_counts: Mapping[str, int],
+    *,
+    samples: Sequence[object],
+) -> dict[str, dict[str, object]]:
+    details: dict[str, dict[str, object]] = {}
+    sorted_counts = sorted(
+        gap_reason_counts.items(),
+        key=lambda pair: (-pair[1], pair[0]),
+    )
+    for reason, count in sorted_counts:
+        matching_samples = [
+            sample
+            for sample in samples
+            if isinstance(sample, Mapping)
+            and reason in _str_tuple(sample.get("gap_reasons"))
+        ]
+        details[reason] = {
+            "reason": reason,
+            "reason_label": _role_family_label(reason),
+            "impact_count": count,
+            "action": _gap_reason_action(reason),
+            "sample_case_ids": _sample_case_ids(matching_samples),
+        }
+    return details
+
+
 def _compact_query_plan_gap_sample(sample: Mapping[str, object]) -> dict[str, object]:
     compact: dict[str, object] = {
         "case_id": _compact_sample_text(sample.get("case_id")),
@@ -290,6 +347,13 @@ def _missing_evidence_role_query_family_action(
         f"Add query-plan coverage for the {role_label} role family or map it "
         "to an accepted query family."
     )
+
+
+def _gap_reason_action(reason: str) -> str:
+    reason_key = str(reason or "").strip()
+    if reason_key in _GAP_REASON_ACTIONS:
+        return _GAP_REASON_ACTIONS[reason_key]
+    return f"Inspect query-plan cases reporting the {reason_key} gap reason."
 
 
 def _family_text(families: Sequence[str]) -> str:
