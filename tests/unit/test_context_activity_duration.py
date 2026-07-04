@@ -28,6 +28,22 @@ def test_query_decomposition_adds_activity_duration_query() -> None:
     assert "started in began in" in duration.query
 
 
+def test_query_decomposition_adds_how_many_units_activity_duration_query() -> None:
+    plan = build_query_decomposition_plan(
+        "How many years has Maria volunteered at the shelter?"
+    )
+
+    duration = next(
+        item
+        for item in plan.decompositions
+        if item.reason == "decomposition_activity_duration"
+    )
+
+    assert duration.query.casefold().startswith("maria ")
+    assert "volunteer" in duration.query.casefold()
+    assert "duration since for years months" in duration.query
+
+
 def test_query_decomposition_adds_russian_activity_duration_query() -> None:
     plan = build_query_decomposition_plan("Как долго Мария волонтерит в приюте?")
 
@@ -93,6 +109,37 @@ def test_deterministic_rerank_prefers_activity_duration_evidence() -> None:
     assert (
         "activity_duration_weak_evidence"
         in by_id["shelter_topic"].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+
+
+def test_deterministic_rerank_accepts_qualitative_duration_evidence() -> None:
+    query = "How many months has Lina been taking pottery classes?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    exact = _item(
+        "taking_for_few_months",
+        score=0.72,
+        text="D4:1 Lina has been taking pottery classes for a few months.",
+    )
+    topic_only = _item(
+        "pottery_topic",
+        score=0.755,
+        text="D2:3 Lina takes pottery classes and enjoys the clay work.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (topic_only, exact),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert by_id["taking_for_few_months"].score > by_id["pottery_topic"].score
+    assert (
+        "activity_duration_exact_evidence"
+        in by_id["taking_for_few_months"]
+        .diagnostics["provenance"]["deterministic_rerank_reasons"]
     )
 
 

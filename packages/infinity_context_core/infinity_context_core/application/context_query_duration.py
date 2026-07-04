@@ -68,6 +68,12 @@ _ACTIVITY_STATE_TERMS = frozenset(
         "practiced",
         "run",
         "running",
+        "study",
+        "studied",
+        "studying",
+        "take",
+        "takes",
+        "taking",
         "train",
         "trained",
         "use",
@@ -133,6 +139,11 @@ def requests_activity_duration_context(
         or {"как", "долго"}.issubset(tokens)
         or "duration" in tokens
         or ("since" in tokens and bool(tokens & _ACTIVITY_STATE_TERMS))
+        or (
+            {"how", "many"}.issubset(tokens)
+            and bool(tokens & _DURATION_UNIT_TERMS)
+            and bool(tokens & _ACTIVITY_STATE_TERMS)
+        )
         or (
             "сколько" in tokens
             and bool(tokens & _DURATION_UNIT_TERMS)

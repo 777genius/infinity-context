@@ -49,6 +49,22 @@ def test_query_decomposition_carries_activity_terms_for_frequency_questions() ->
         assert "every few" in recurrence.query
 
 
+def test_query_decomposition_carries_lesson_terms_for_frequency_questions() -> None:
+    plan = build_query_decomposition_plan(
+        "How often does Tim take piano lessons?"
+    )
+
+    recurrence = next(
+        item
+        for item in plan.decompositions
+        if item.reason == "decomposition_frequency_recurrence"
+    )
+
+    assert "lessons" in recurrence.query.casefold()
+    assert "every two" in recurrence.query
+    assert "biweekly" in recurrence.query
+
+
 def test_query_decomposition_adds_russian_frequency_recurrence_query() -> None:
     plan = build_query_decomposition_plan("Как часто Мария волонтерит в приюте?")
 
@@ -219,6 +235,36 @@ def test_deterministic_rerank_treats_weekend_cadence_as_frequency_evidence() -> 
         not in by_id["recurring"].diagnostics["provenance"][
             "deterministic_rerank_reasons"
         ]
+    )
+
+
+def test_deterministic_rerank_treats_every_two_weeks_as_frequency_evidence() -> None:
+    query = "How often does Tim take piano lessons?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    recurring = _item(
+        "recurring",
+        score=0.70,
+        text="D4:1 Tim takes piano lessons every two weeks.",
+    )
+    one_time = _item(
+        "one_time",
+        score=0.755,
+        text="D2:3 Tim took one piano lesson once for orientation.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (one_time, recurring),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert by_id["recurring"].score > by_id["one_time"].score
+    assert (
+        "frequency_recurrence_exact_evidence"
+        in by_id["recurring"].diagnostics["provenance"]["deterministic_rerank_reasons"]
     )
 
 

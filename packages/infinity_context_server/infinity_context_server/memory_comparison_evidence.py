@@ -30,8 +30,13 @@ _BROAD_EVIDENCE_SURFACE_RE = re.compile(
     re.IGNORECASE,
 )
 _DURATION_EVIDENCE_RE = re.compile(
-    r"\b(?:\d+\s*(?:days?|weeks?|months?|years?)|"
-    r"for\s+\d+\s*(?:days?|weeks?|months?|years?))\b",
+    r"\b(?:(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s*"
+    r"(?:days?|weeks?|months?|years?|decades?)|"
+    r"for\s+(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|"
+    r"a|an|few|a\s+few|several|many|a\s+couple\s+of|couple\s+of)\s*"
+    r"(?:days?|weeks?|months?|years?|decades?)|"
+    r"since\s+(?:(?:19|20)\d{2}|last\s+"
+    r"(?:year|month|week|spring|summer|fall|autumn|winter)))\b",
     re.IGNORECASE,
 )
 _TEMPORAL_EVIDENCE_RE = re.compile(

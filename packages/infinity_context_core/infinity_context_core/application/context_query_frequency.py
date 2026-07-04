@@ -10,7 +10,13 @@ _FREQUENCY_PROMPT_TERMS = frozenset(
         "frequently",
         "frequency",
         "often",
+        "periodically",
+        "recur",
+        "recurs",
         "recurring",
+        "repeat",
+        "repeated",
+        "repeats",
         "regular",
         "regularly",
         "routine",
@@ -25,9 +31,11 @@ _FREQUENCY_PROMPT_TERMS = frozenset(
 _FREQUENCY_UNIT_TERMS = frozenset(
     {
         "annually",
+        "biweekly",
         "daily",
         "day",
         "days",
+        "fortnightly",
         "monthly",
         "month",
         "months",
@@ -69,13 +77,21 @@ _FREQUENCY_EVENT_TERMS = frozenset(
         "called",
         "checkup",
         "checkups",
+        "church",
+        "class",
+        "classes",
+        "coffee",
         "chat",
         "chatted",
+        "dance",
+        "dancing",
         "exercise",
         "exercises",
         "go",
         "goes",
         "library",
+        "lesson",
+        "lessons",
         "meet",
         "meeting",
         "met",
@@ -92,6 +108,8 @@ _FREQUENCY_EVENT_TERMS = frozenset(
         "sunsets",
         "talk",
         "talked",
+        "take",
+        "takes",
         "train",
         "trains",
         "visit",
@@ -168,8 +186,8 @@ def frequency_recurrence_tail(variants: frozenset[str]) -> str:
             (
                 "frequency recurrence cadence regular regularly often routine every "
                 "each daily weekly monthly yearly weekend weekdays every other "
-                "every few once twice three "
-                "times per week per month"
+                "every few every two biweekly fortnightly once twice three "
+                "times per week per month couple times"
             ),
         )
         if part

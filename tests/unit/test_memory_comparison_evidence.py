@@ -557,6 +557,53 @@ def test_evidence_bundle_preserves_typed_temporal_feature_provenance() -> None:
     assert bundle["role_requirement_complete"] is True
 
 
+def test_evidence_bundle_preserves_qualitative_duration_feature_provenance() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:qualitative-duration",
+        question="How many months has Lina been taking pottery classes?",
+        expected_terms=("a few months",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={"category": 2},
+    )
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text="D2:4 Lina: I have been taking pottery classes for a few months.",
+                rank=1,
+                item_id="qualitative-duration-evidence",
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.88,
+                            "answerability_reason_codes": [
+                                "duration_temporal_evidence",
+                                "high_answerability",
+                            ],
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "entity_hits": ["lina"],
+                            "speaker_hits": ["lina"],
+                            "relation_hits": ["taking", "pottery", "class"],
+                            "time_intent_kind": "duration",
+                            "has_duration_surface": True,
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+        ),
+    )
+
+    item = bundle["items"][0]
+    assert item["id"] == "qualitative-duration-evidence"
+    assert item["has_duration_surface"] is True
+    assert "duration_temporal_evidence" in item["answerability_reason_codes"]
+    assert "temporal_support" not in bundle["missing_required_roles"]
+
+
 def test_evidence_bundle_detects_daypart_relative_temporal_text_fallback() -> None:
     case = PublicBenchmarkCase(
         benchmark="locomo",

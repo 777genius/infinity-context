@@ -88,10 +88,14 @@ _NUMBER_WORD_RE = (
 )
 _DURATION_EVIDENCE_RE = re.compile(
     rf"\b(?:(?:\d+|{_NUMBER_WORD_RE})\s+"
-    r"(?:days?|weeks?|months?|years?)|"
+    r"(?:days?|weeks?|months?|years?|decades?)|"
     rf"(?:for|over|about|around|nearly|almost|roughly|approximately)\s+"
-    rf"(?:\d+|{_NUMBER_WORD_RE})\s*(?:days?|weeks?|months?|years?)|"
-    r"since\s+(?:19|20)\d{2})\b",
+    rf"(?:\d+|{_NUMBER_WORD_RE}|a|an|few|a\s+few|several|many|a\s+couple\s+of|"
+    rf"couple\s+of)\s*(?:days?|weeks?|months?|years?|decades?)|"
+    r"since\s+(?:(?:19|20)\d{2}|last\s+"
+    r"(?:year|month|week|spring|summer|fall|autumn|winter))|"
+    r"(?:started|began)\s+\w+\s+(?:(?:in|around)\s+(?:19|20)\d{2}|"
+    rf"(?:\d+|{_NUMBER_WORD_RE})\s+(?:days?|weeks?|months?|years?)\s+ago))\b",
     re.IGNORECASE,
 )
 _RELATIVE_TIME_EVIDENCE_RE = re.compile(

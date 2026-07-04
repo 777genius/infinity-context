@@ -1894,6 +1894,38 @@ def test_candidate_features_score_typed_duration_temporal_evidence() -> None:
     assert duration.to_diagnostics()["time_intent_kind"] == "duration"
 
 
+def test_candidate_features_count_qualitative_duration_surfaces() -> None:
+    qualitative = build_candidate_evidence_features(
+        RetrievedMemory(
+            item_id="taking-classes-duration",
+            rank=1,
+            text="D2:4 Lina: I have been taking pottery classes for a few months.",
+            source_refs=("D2:4",),
+        ),
+        memory_terms={"lina", "taking", "pottery", "class", "few", "month"},
+        query_terms=("lina", "pottery", "class"),
+        relation_terms=("pottery", "class"),
+        relation_variant_terms=("taking",),
+        entities=("lina",),
+        entity_hits=("lina",),
+        speaker_hits=("lina",),
+        high_signal_relation_terms={"taking"},
+        is_temporal_query=True,
+        time_intent_kind="duration",
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=True,
+        has_sequence_surface=True,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+
+    assert qualitative.has_duration_surface is True
+    assert "duration_temporal_evidence" in qualitative.answerability_reason_codes
+
+
 def test_candidate_features_do_not_count_metadata_date_as_temporal_answer() -> None:
     metadata_only = build_candidate_evidence_features(
         RetrievedMemory(
