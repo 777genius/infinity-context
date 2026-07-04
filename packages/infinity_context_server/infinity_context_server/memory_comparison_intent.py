@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 
@@ -469,7 +470,10 @@ def infer_evidence_need(
     relation_set = set(relation_terms)
     answer_unit_set = set(answer_unit_shapes)
     count_intent = _has_count_intent(question) and benchmark_category != 3
-    list_intent = _has_list_intent(question)
+    list_intent = _has_list_intent(question) and not _is_kinship_status_lookup(
+        question,
+        relation_terms,
+    )
     direct_emotion_response = _has_direct_emotion_response_intent(
         question=question,
         relation_terms=relation_terms,
@@ -761,6 +765,39 @@ def _has_list_intent(question: str) -> bool:
             r"\bwho\s+(?:are|were)\b",
             normalized,
         )
+    )
+
+
+def _is_kinship_status_lookup(
+    question: str,
+    relation_terms: Sequence[str],
+) -> bool:
+    normalized = " ".join(str(question or "").casefold().split())
+    if not re.search(r"\bwho\s+(?:are|were)\b", normalized):
+        return False
+    if re.search(r"\b(?:list|names?|items?)\b", normalized):
+        return False
+    return bool(
+        {
+            "brother",
+            "child",
+            "children",
+            "cousin",
+            "daughter",
+            "father",
+            "grandfather",
+            "grandmother",
+            "husband",
+            "kid",
+            "mother",
+            "parent",
+            "sibling",
+            "sister",
+            "son",
+            "spouse",
+            "wife",
+        }
+        & set(relation_terms)
     )
 
 

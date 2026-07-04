@@ -1595,7 +1595,25 @@ def _selection_has_bridge_support(selected: Sequence[PlannedEvidenceItem]) -> bo
         return False
     if not any(item.role == "primary" for item in selected):
         return False
-    return any(_candidate_has_bridge_grounding(item.candidate) for item in selected)
+    if any(_candidate_has_bridge_grounding(item.candidate) for item in selected):
+        return True
+    return any(_candidate_has_distinct_multi_hop_support(item) for item in selected)
+
+
+def _candidate_has_distinct_multi_hop_support(item: PlannedEvidenceItem) -> bool:
+    if item.role == "primary":
+        return False
+    candidate = item.candidate
+    if candidate.conflict_or_stale or candidate.broad_summary:
+        return False
+    if candidate.covered_evidence_terms or candidate.covered_expected_terms:
+        return True
+    if _candidate_has_measured_weak_source_locality(candidate):
+        return False
+    if _is_measured_low_answerability(candidate.answerability_score):
+        return False
+    support_terms = tuple(dict.fromkeys(candidate.query_support_terms))
+    return bool(candidate.focused_evidence_score > 0 and len(support_terms) >= 2)
 
 
 def _primary_candidate_eligible(candidate: EvidenceBundleCandidate) -> bool:

@@ -1734,6 +1734,16 @@ def _benchmark_rerank_sort_key(memory: RetrievedMemory) -> tuple[float, float, f
             "benchmark_roadtrip_incident_boost",
             "benchmark_destress_running_shape_boost",
             "benchmark_outdoor_park_preference_boost",
+            "benchmark_activity_coverage_shape_boost",
+            "benchmark_adoption_reaction_boost",
+            "benchmark_birthday_memory_boost",
+            "benchmark_bookshelf_collection_boost",
+            "benchmark_career_contrast_shape_boost",
+            "benchmark_excited_outcome_boost",
+            "benchmark_friend_duration_boost",
+            "benchmark_kids_preference_shape_boost",
+            "benchmark_personality_trait_shape_boost",
+            "benchmark_realization_self_care_boost",
         )
     )
     return (-memory.score, -focused_support_boost, -visual_boost, memory.rank)

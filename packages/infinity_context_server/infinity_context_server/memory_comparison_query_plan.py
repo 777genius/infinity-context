@@ -95,7 +95,11 @@ class QueryPlan:
         missing_recommended_families = tuple(
             family
             for family in self.recommended_role_families
-            if family not in set(selected_role_families)
+            if not _selected_satisfies_recommended_family(
+                self.selected,
+                selected_role_families=selected_role_families,
+                family=family,
+            )
         )
         return {
             "schema_version": "query_plan.v2",
@@ -487,6 +491,28 @@ def _role_families(role: str) -> tuple[str, ...]:
     if role.startswith("multi_hop"):
         return ("multi_hop",)
     return (role or "unknown",)
+
+
+def _selected_satisfies_recommended_family(
+    selected: Sequence[QueryPlanCandidate],
+    *,
+    selected_role_families: Sequence[str],
+    family: str,
+) -> bool:
+    if family in set(selected_role_families):
+        return True
+    if family != "causal_support":
+        return False
+    return any(
+        candidate.role == "multi_hop_bridge"
+        and _query_has_causal_support_terms(candidate.query)
+        for candidate in selected
+    )
+
+
+def _query_has_causal_support_terms(query: str) -> bool:
+    query_terms = set(str(query or "").casefold().split())
+    return bool({"because", "cause", "caus", "decision", "reason", "value"} & query_terms)
 
 
 def _query_token_count(candidate: QueryPlanCandidate) -> int:

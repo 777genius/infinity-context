@@ -26,6 +26,9 @@ from infinity_context_server.memory_comparison_relation_support import (
     has_vehicle_model_surface,
     typed_relation_category_support,
 )
+from infinity_context_server.memory_comparison_rerank_text import (
+    normalized_terms as _normalized_terms,
+)
 
 _TURN_REF_RE = re.compile(r"\bD\d+:\d+\b")
 _TURN_REF_PARTS_RE = re.compile(r"\bD(?P<dialogue>\d+):(?P<turn>\d+)\b")
@@ -553,7 +556,17 @@ def _relation_category_hits(
     hits: list[str] = []
     query_term_set = set(query_terms)
     for category, terms in relation_category_terms.items():
-        term_values = tuple(str(term) for term in terms if str(term).strip())
+        term_values = tuple(
+            dict.fromkeys(
+                value
+                for term in terms
+                for value in (
+                    str(term).casefold().strip(),
+                    *_normalized_terms(str(term)),
+                )
+                if value
+            )
+        )
         typed_support = typed_relation_category_support(
             str(category),
             memory_terms,
@@ -664,6 +677,12 @@ def _typed_category_has_target_grounding(
             query_entities=query_entities,
         ):
             return True
+        if _direct_speaker_clause_covers_query_entities(
+            memory_text=memory_text,
+            clause=clause,
+            query_entities=query_entities,
+        ):
+            return True
 
     return not any(_has_competing_named_target(clause) for clause in relation_clauses)
 
@@ -699,6 +718,30 @@ def _first_person_speaker_clause_covers_query_entities(
     query_entities: Sequence[str],
 ) -> bool:
     if _FIRST_PERSON_SURFACE_RE.search(clause) is None:
+        return False
+    speaker = _direct_turn_speaker(memory_text)
+    if not speaker:
+        return False
+    speaker_entities = tuple(
+        entity for entity in query_entities if _entity_surface_matches(speaker, entity)
+    )
+    if not speaker_entities:
+        return False
+    speaker_entity_set = set(speaker_entities)
+    return all(
+        _contains_entity_surface(clause, entity)
+        for entity in query_entities
+        if entity not in speaker_entity_set
+    )
+
+
+def _direct_speaker_clause_covers_query_entities(
+    *,
+    memory_text: str,
+    clause: str,
+    query_entities: Sequence[str],
+) -> bool:
+    if _has_competing_named_target(clause):
         return False
     speaker = _direct_turn_speaker(memory_text)
     if not speaker:
@@ -753,7 +796,26 @@ def _entity_surface_matches(surface: str, entity: str) -> bool:
 
 def _has_competing_named_target(clause: str) -> bool:
     content = _evidence_content_text(clause)
-    return re.search(r"\b[A-Z][a-zA-Z0-9_-]{1,40}(?:'s)?\b", content) is not None
+    return any(
+        match.group(0).casefold().removesuffix("'s")
+        not in {
+            "he",
+            "her",
+            "hers",
+            "him",
+            "his",
+            "i",
+            "it",
+            "loved",
+            "she",
+            "the",
+            "they",
+            "them",
+            "we",
+            "yep",
+        }
+        for match in re.finditer(r"\b[A-Z][a-zA-Z0-9_-]{1,40}(?:'s)?\b", content)
+    )
 
 
 def _answerability(
