@@ -21,6 +21,8 @@ _TURN_REF_RE = re.compile(
     re.IGNORECASE,
 )
 _MAX_TEMPORAL_GROUNDING_ISSUE_SAMPLES = 5
+_MAX_MISSING_EVIDENCE_SOURCE_IDS = 12
+_MAX_MISSING_EVIDENCE_REF_WINDOWS = 8
 _SAFE_SOURCE_IDENTITY_REF_RE = re.compile(
     r"^(?:(?P<turn_prefix>source_turn_refs):(?P<turn_ref>D\d+:\d+)|"
     r"(?P<session_prefix>source_session_turn_refs):(?P<session>session_\d+):"
@@ -466,6 +468,8 @@ def _missing_evidence_source_locality(
         _missing_ref_window(ref, retrieval_turns=retrieval_turns, bundle_turns=bundle_turns)
         for ref in missing_refs
     ]
+    retrieved_source_ids = sorted(retrieval_turns)
+    bundle_source_ids = sorted(bundle_turns)
     same_source_missing_count = sum(
         1 for window in windows if window["retrieved_same_source"] is True
     )
@@ -483,13 +487,20 @@ def _missing_evidence_source_locality(
     return {
         "schema_version": "missing_evidence_source_locality.v1",
         "missing_turn_ref_count": len(missing_refs),
-        "retrieved_source_ids": sorted(retrieval_turns),
-        "bundle_source_ids": sorted(bundle_turns),
+        "retrieved_source_id_count": len(retrieved_source_ids),
+        "retrieved_source_ids": retrieved_source_ids[:_MAX_MISSING_EVIDENCE_SOURCE_IDS],
+        "bundle_source_id_count": len(bundle_source_ids),
+        "bundle_source_ids": bundle_source_ids[:_MAX_MISSING_EVIDENCE_SOURCE_IDS],
         "same_source_missing_count": same_source_missing_count,
         "near_retrieved_window_count": near_retrieved_window_count,
         "source_absent_count": len(missing_refs) - same_source_missing_count,
         "cause_counts": dict(sorted(cause_counts.items())),
-        "missing_ref_windows": windows[:8],
+        "missing_ref_window_count": len(windows),
+        "missing_ref_window_omitted_count": max(
+            0,
+            len(windows) - _MAX_MISSING_EVIDENCE_REF_WINDOWS,
+        ),
+        "missing_ref_windows": windows[:_MAX_MISSING_EVIDENCE_REF_WINDOWS],
     }
 
 

@@ -113,12 +113,16 @@ def test_failure_diagnostics_report_structured_failure_reasons() -> None:
     assert diagnostics["missing_evidence_source_locality"] == {
         "schema_version": "missing_evidence_source_locality.v1",
         "missing_turn_ref_count": 1,
+        "retrieved_source_id_count": 1,
         "retrieved_source_ids": ["D1"],
+        "bundle_source_id_count": 1,
         "bundle_source_ids": ["D1"],
         "same_source_missing_count": 1,
         "near_retrieved_window_count": 1,
         "source_absent_count": 0,
         "cause_counts": {"near_retrieved_window": 1},
+        "missing_ref_window_count": 1,
+        "missing_ref_window_omitted_count": 0,
         "missing_ref_windows": [
             {
                 "ref": "D1:3",
@@ -394,12 +398,16 @@ def test_failure_diagnostics_counts_source_identity_refs_as_provenance() -> None
     assert diagnostics["missing_evidence_source_locality"] == {
         "schema_version": "missing_evidence_source_locality.v1",
         "missing_turn_ref_count": 1,
+        "retrieved_source_id_count": 1,
         "retrieved_source_ids": ["D4"],
+        "bundle_source_id_count": 1,
         "bundle_source_ids": ["D4"],
         "same_source_missing_count": 1,
         "near_retrieved_window_count": 1,
         "source_absent_count": 0,
         "cause_counts": {"near_retrieved_window": 1},
+        "missing_ref_window_count": 1,
+        "missing_ref_window_omitted_count": 0,
         "missing_ref_windows": [
             {
                 "ref": "D4:3",
@@ -491,12 +499,16 @@ def test_failure_diagnostics_reports_missing_evidence_source_absence() -> None:
     assert diagnostics["missing_evidence_source_locality"] == {
         "schema_version": "missing_evidence_source_locality.v1",
         "missing_turn_ref_count": 1,
+        "retrieved_source_id_count": 2,
         "retrieved_source_ids": ["session_1:D1", "session_2:D2"],
+        "bundle_source_id_count": 1,
         "bundle_source_ids": ["D1"],
         "same_source_missing_count": 0,
         "near_retrieved_window_count": 0,
         "source_absent_count": 1,
         "cause_counts": {"source_absent": 1},
+        "missing_ref_window_count": 1,
+        "missing_ref_window_omitted_count": 0,
         "missing_ref_windows": [
             {
                 "ref": "D3:2",
@@ -583,12 +595,16 @@ def test_failure_diagnostics_keeps_session_scoped_missing_evidence_sources() -> 
     assert diagnostics["missing_evidence_source_locality"] == {
         "schema_version": "missing_evidence_source_locality.v1",
         "missing_turn_ref_count": 2,
+        "retrieved_source_id_count": 1,
         "retrieved_source_ids": ["session_2:D4"],
+        "bundle_source_id_count": 0,
         "bundle_source_ids": [],
         "same_source_missing_count": 0,
         "near_retrieved_window_count": 0,
         "source_absent_count": 2,
         "cause_counts": {"source_absent": 2},
+        "missing_ref_window_count": 2,
+        "missing_ref_window_omitted_count": 0,
         "missing_ref_windows": [
             {
                 "ref": "session_1:D4:12",
@@ -608,6 +624,47 @@ def test_failure_diagnostics_keeps_session_scoped_missing_evidence_sources() -> 
     }
     assert "missing_evidence_source_absent" in reasons
     assert "missing_evidence_source_window_miss" not in reasons
+
+
+def test_failure_diagnostics_bounds_missing_evidence_source_samples_with_counts() -> None:
+    evaluation = {
+        "retrieval": {
+            "total_results": 20,
+            "results": [
+                {"source_refs": [f"D{index}:1"]}
+                for index in range(1, 21)
+            ],
+        },
+        "retrieval_quality": {
+            "expected_term_recall": 0.5,
+            "evidence_term_recall": 0.0,
+            "missing_evidence_terms": [
+                f"D{index}:3"
+                for index in range(1, 12)
+            ],
+        },
+        "evidence_bundle": {
+            "bundle_complete": False,
+            "items": [
+                {"role": "primary", "source_refs": [f"D{index}:1"]}
+                for index in range(1, 16)
+            ],
+        },
+        "generation": {},
+        "judgment": {},
+    }
+
+    diagnostics = failure_diagnostics(evaluation)
+
+    locality = diagnostics["missing_evidence_source_locality"]
+    assert locality["retrieved_source_id_count"] == 20
+    assert len(locality["retrieved_source_ids"]) == 12
+    assert locality["bundle_source_id_count"] == 15
+    assert len(locality["bundle_source_ids"]) == 12
+    assert locality["missing_ref_window_count"] == 11
+    assert locality["missing_ref_window_omitted_count"] == 3
+    assert len(locality["missing_ref_windows"]) == 8
+    assert locality["cause_counts"] == {"near_retrieved_window": 11}
 
 
 def test_failure_diagnostics_report_primary_answer_context_support_gaps() -> None:
