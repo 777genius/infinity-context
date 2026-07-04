@@ -346,17 +346,21 @@ def test_query_expansion_covers_person_relation_inventory_questions() -> None:
 def test_query_expansion_covers_person_team_membership_questions() -> None:
     team = build_query_expansion_plan("What team is Alice on?")
     club = build_query_expansion_plan("Which club is Alice Chen in?")
+    class_plan = build_query_expansion_plan("What class is Alice Chen in?")
     belongs = build_query_expansion_plan("Which club does Alice Chen belong to?")
     member = build_query_expansion_plan("What group is Alice Chen a member of?")
 
-    for plan in (team, club, belongs, member):
-        assert "team club group member membership" in _expansion_query(
-            plan,
-            "person_team_membership_bridge",
-        )
+    for plan in (team, club, class_plan, belongs, member):
+        expansion_query = _expansion_query(plan, "person_team_membership_bridge")
+        assert "team club group member membership" in expansion_query
+        assert "class course" in expansion_query
 
     assert "Alice" in _expansion_query(team, "person_team_membership_bridge")
     assert "Alice Chen" in _expansion_query(club, "person_team_membership_bridge")
+    assert "Alice Chen" in _expansion_query(
+        class_plan,
+        "person_team_membership_bridge",
+    )
     assert "Alice Chen" in _expansion_query(belongs, "person_team_membership_bridge")
     assert "Alice Chen" in _expansion_query(member, "person_team_membership_bridge")
 

@@ -32,8 +32,8 @@ _PERSON_RELATION_INVENTORY_EXPANSION = (
     "linked associated relationship relation works with worked with knows met evidence"
 )
 _PERSON_TEAM_MEMBERSHIP_EXPANSION = (
-    "team club group member membership teammates team members joined part of "
-    "belongs to roster crew organization people evidence"
+    "team club group member membership class course teammates team members joined "
+    "part of belongs to roster crew organization people evidence"
 )
 _RU_ENTITY_RELATION_INVENTORY_EXPANSION = (
     "люди участники контакты стейкхолдеры заинтересованные ответственные владельцы "
@@ -138,13 +138,13 @@ _PERSON_RELATION_INVENTORY_QUERY_RE = re.compile(
     re.IGNORECASE,
 )
 _PERSON_TEAM_MEMBERSHIP_QUERY_RE = re.compile(
-    rf"\b(?:what|which)\s+(?:team|club|group)\s+(?:is|was)\s+"
+    rf"\b(?:what|which)\s+(?:team|club|group|class)\s+(?:is|was)\s+"
     rf"{_ENTITY_LABEL_RE}\s+(?:on|in|part\s+of)\b|"
-    rf"\b(?:what|which)\s+(?:team|club|group)\s+(?:does|did)\s+"
+    rf"\b(?:what|which)\s+(?:team|club|group|class)\s+(?:does|did)\s+"
     rf"{_ENTITY_LABEL_RE}\s+(?:belong\s+to|join)\b|"
-    rf"\b(?:what|which)\s+(?:team|club|group)\s+(?:is|was)\s+"
+    rf"\b(?:what|which)\s+(?:team|club|group|class)\s+(?:is|was)\s+"
     rf"{_ENTITY_LABEL_RE}\s+(?:a\s+)?member\s+of\b|"
-    rf"\bwhat\s+{_ENTITY_LABEL_RE}(?:'s|s')?\s+(?:team|club|group)\b",
+    rf"\bwhat\s+{_ENTITY_LABEL_RE}(?:'s|s')?\s+(?:team|club|group|class)\b",
     re.IGNORECASE,
 )
 _RU_PERSON_RELATION_INVENTORY_QUERY_RE = re.compile(

@@ -17,6 +17,7 @@ class TeamMembershipKind(Enum):
     TEAM = "team"
     CLUB = "club"
     GROUP = "group"
+    CLASS = "class"
 
 
 class PersonTeamMembershipSignal(NamedTuple):
@@ -38,20 +39,20 @@ _LABEL_RE = (
 _DIALOGUE_SPEAKER_RE = re.compile(rf"\bD\d+:\d+\s+(?P<speaker>{_LABEL_RE}):")
 _LABEL_TOKEN_RE = re.compile(rf"\b{_LABEL_RE}\b")
 _TEAM_QUERY_RE = re.compile(
-    rf"(?i:\bwhat\s+)(?P<kind>team|club|group)\s+"
+    rf"(?i:\bwhat\s+)(?P<kind>team|club|group|class)\s+"
     rf"(?i:(?:is|was)\s+)(?P<person>{_LABEL_RE})\s+"
     rf"(?i:(?:on|in|part\s+of)\b)|"
-    rf"(?i:\bwhich\s+)(?P<which_kind>team|club|group)\s+"
+    rf"(?i:\bwhich\s+)(?P<which_kind>team|club|group|class)\s+"
     rf"(?i:(?:is|was)\s+)(?P<which_person>{_LABEL_RE})\s+"
     rf"(?i:(?:on|in|part\s+of)\b)|"
-    rf"(?i:\b(?:what|which)\s+)(?P<belongs_kind>team|club|group)\s+"
+    rf"(?i:\b(?:what|which)\s+)(?P<belongs_kind>team|club|group|class)\s+"
     rf"(?i:(?:does|did)\s+)(?P<belongs_person>{_LABEL_RE})\s+"
     rf"(?i:(?:belong\s+to|join)\b)|"
-    rf"(?i:\b(?:what|which)\s+)(?P<member_kind>team|club|group)\s+"
+    rf"(?i:\b(?:what|which)\s+)(?P<member_kind>team|club|group|class)\s+"
     rf"(?i:(?:is|was)\s+)(?P<member_person>{_LABEL_RE})\s+"
     rf"(?i:(?:a\s+)?member\s+of\b)|"
     rf"(?i:\bwhat\s+)(?P<person_possessive>{_LABEL_RE})(?:'s|s')?\s+"
-    rf"(?P<possessive_kind>team|club|group)\b",
+    rf"(?P<possessive_kind>team|club|group|class)\b",
 )
 _TEAM_CUE_RE = re.compile(
     r"\b(?:team|club|group|teammates?|team\s+members?|member\s+of|"
@@ -60,6 +61,11 @@ _TEAM_CUE_RE = re.compile(
 )
 _CLUB_CUE_RE = re.compile(
     r"\b(?:club|group|member\s+of|part\s+of|belongs?\s+to|joined|in\s+the\s+club)\b",
+    re.IGNORECASE,
+)
+_CLASS_CUE_RE = re.compile(
+    r"\b(?:class|classes|course|courses|member\s+of|part\s+of|joined|"
+    r"enrolled|signed\s+up|taking|in\s+the\s+class)\b",
     re.IGNORECASE,
 )
 _QUERY_LABEL_STOP_WORDS = frozenset({"what", "which"})
@@ -124,6 +130,8 @@ def _person_team_query(query: str) -> _PersonTeamQuery | None:
 
 def _team_kind(value: str) -> TeamMembershipKind:
     normalized = value.casefold()
+    if normalized == "class":
+        return TeamMembershipKind.CLASS
     if normalized == "club":
         return TeamMembershipKind.CLUB
     if normalized == "group":
@@ -132,6 +140,8 @@ def _team_kind(value: str) -> TeamMembershipKind:
 
 
 def _membership_cue(kind: TeamMembershipKind) -> re.Pattern[str]:
+    if kind is TeamMembershipKind.CLASS:
+        return _CLASS_CUE_RE
     if kind in {TeamMembershipKind.CLUB, TeamMembershipKind.GROUP}:
         return _CLUB_CUE_RE
     return _TEAM_CUE_RE

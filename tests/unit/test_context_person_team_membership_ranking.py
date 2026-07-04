@@ -52,6 +52,26 @@ def test_person_team_membership_signal_matches_member_of_question() -> None:
     assert signal.reason == "person_team_membership_match"
 
 
+def test_person_team_membership_signal_matches_class_question() -> None:
+    signal = person_team_membership_signal(
+        query="What class is Alice Chen in?",
+        text="D5:6 Alice: I signed up for the pottery class this spring.",
+    )
+
+    assert signal.boost > 0
+    assert signal.reason == "person_team_membership_match"
+
+
+def test_person_team_membership_signal_penalizes_other_person_class() -> None:
+    signal = person_team_membership_signal(
+        query="What class is Alice Chen in?",
+        text="D5:6 Ben: I signed up for the pottery class this spring.",
+    )
+
+    assert signal.penalty > 0
+    assert signal.reason == "person_team_membership_other_person"
+
+
 def test_deterministic_rerank_prefers_named_person_team_membership() -> None:
     query = "What team is Alice Chen on?"
     plan = build_query_expansion_plan(query)
@@ -102,6 +122,39 @@ def test_deterministic_rerank_prefers_named_person_club_membership() -> None:
 
     reranked = apply_deterministic_rerank_adjustments(
         (alice_club, ben_club),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+
+    assert reranked[0].score > reranked[1].score
+    assert (
+        "person_team_membership_match"
+        in reranked[0].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+    assert (
+        "person_team_membership_other_person"
+        in reranked[1].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+
+
+def test_deterministic_rerank_prefers_named_person_class_membership() -> None:
+    query = "What class is Alice Chen in?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    alice_class = _item(
+        "alice_class",
+        score=0.7,
+        text="D5:6 Alice: I signed up for the pottery class this spring.",
+    )
+    ben_class = _item(
+        "ben_class",
+        score=0.72,
+        text="D5:7 Ben: I signed up for the pottery class this spring.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (alice_class, ben_class),
         query=query,
         plan=plan,
         query_anchor_intent=intent,
