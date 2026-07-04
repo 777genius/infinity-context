@@ -1151,10 +1151,55 @@ def test_candidate_features_use_text_turn_refs_for_dedupe_when_source_refs_are_g
     assert features.turn_ref_count == 1
     assert features.duplicate_key == "source_refs:locomo-conv-5"
     assert features.source_ref_dedupe_key == "source_turn_refs:D5:7"
+    assert features.source_identity_audit_gap_codes == (
+        "generic_source_refs_with_text_turn_identity",
+    )
     assert (
         features.to_diagnostics()["source_ref_dedupe_key"]
         == "source_turn_refs:D5:7"
     )
+    assert features.to_diagnostics()["source_identity_audit_gap_codes"] == [
+        "generic_source_refs_with_text_turn_identity"
+    ]
+
+
+def test_candidate_features_report_missing_source_refs_text_identity_gap() -> None:
+    memory = RetrievedMemory(
+        item_id="fact-without-provenance",
+        rank=1,
+        text="D5:7 Caroline: The support group meets on Thursday evenings.",
+        metadata={"item_type": "fact"},
+    )
+
+    features = build_candidate_evidence_features(
+        memory,
+        memory_terms={"caroline", "support", "group", "thursday"},
+        query_terms=("caroline", "support", "group"),
+        relation_terms=("support",),
+        relation_variant_terms=("group",),
+        entities=("caroline",),
+        entity_hits=("caroline",),
+        speaker_hits=("caroline",),
+        high_signal_relation_terms={"support"},
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+
+    assert features.source_ref_count == 0
+    assert features.source_ref_dedupe_key == "source_turn_refs:D5:7"
+    assert features.source_identity_audit_gap_codes == (
+        "missing_source_refs_with_text_turn_identity",
+    )
+    assert features.to_diagnostics()["source_identity_audit_gap_codes"] == [
+        "missing_source_refs_with_text_turn_identity"
+    ]
 
 
 def test_candidate_features_use_source_ref_turns_for_locality_and_dedupe() -> None:
@@ -1431,6 +1476,10 @@ def test_candidate_features_do_not_treat_text_session_turns_as_proximate() -> No
     assert features.source_ref_dedupe_key == (
         "source_session_turn_refs:session_11:D1:9|session_1:D1:8"
     )
+    assert features.source_identity_audit_gap_codes == (
+        "missing_source_refs_with_text_turn_identity",
+        "cross_session_text_identity",
+    )
 
 
 def test_candidate_features_keep_cross_session_source_refs_dedupe_qualified() -> None:
@@ -1469,6 +1518,9 @@ def test_candidate_features_keep_cross_session_source_refs_dedupe_qualified() ->
     assert features.source_turn_span == 0
     assert features.source_ref_dedupe_key == (
         "source_session_turn_refs:session_11:D1:9|session_1:D1:8"
+    )
+    assert features.source_identity_audit_gap_codes == (
+        "cross_session_source_identity",
     )
 
 

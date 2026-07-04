@@ -32,6 +32,9 @@ from infinity_context_server.memory_comparison_relation_support import (
 from infinity_context_server.memory_comparison_rerank_text import (
     normalized_terms as _normalized_terms,
 )
+from infinity_context_server.memory_comparison_source_identity import (
+    source_identity_audit_gap_codes as _source_identity_audit_gap_codes,
+)
 
 _TURN_REF_RE = re.compile(r"\bD\d+:\d+\b")
 _TURN_REF_PARTS_RE = re.compile(r"\bD(?P<dialogue>\d+):(?P<turn>\d+)\b")
@@ -238,6 +241,7 @@ class CandidateEvidenceFeatures:
     bridge_query_hit: bool
     duplicate_key: str
     source_ref_dedupe_key: str
+    source_identity_audit_gap_codes: tuple[str, ...]
     conflict_or_stale: bool
     negation_surface: bool
     currentness_surface: bool
@@ -276,6 +280,9 @@ class CandidateEvidenceFeatures:
             "bridge_query_hit": self.bridge_query_hit,
             "duplicate_key": self.duplicate_key,
             "source_ref_dedupe_key": self.source_ref_dedupe_key,
+            "source_identity_audit_gap_codes": list(
+                self.source_identity_audit_gap_codes
+            ),
             "conflict_or_stale": self.conflict_or_stale,
             "negation_surface": self.negation_surface,
             "currentness_surface": self.currentness_surface,
@@ -535,6 +542,10 @@ def build_candidate_evidence_features(
             source_refs,
             text_turn_refs=text_turn_refs,
             text_session_turn_refs=text_session_turn_refs,
+        ),
+        source_identity_audit_gap_codes=_source_identity_audit_gap_codes(
+            source_refs=source_refs,
+            text=text,
         ),
         conflict_or_stale=conflict_or_stale,
         negation_surface=contrast_features["negation_surface"],

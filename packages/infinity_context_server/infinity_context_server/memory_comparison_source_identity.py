@@ -72,31 +72,82 @@ def source_identity_refs_from_source_refs(
     include_exact_turn_refs: bool = False,
 ) -> tuple[str, ...]:
     refs = tuple(str(ref).strip() for ref in source_refs if str(ref).strip())
-    session_turn_refs = tuple(
-        dict.fromkeys(
-            f"session_{match.group('session')}:{match.group('turn_ref')}"
-            for source_ref in refs
-            if (match := _SOURCE_SESSION_TURN_RE.search(source_ref))
-        )
-    )
+    session_turn_refs = _source_session_turn_refs(refs)
     if 0 < len(session_turn_refs) <= 3:
         return _session_identity_refs(session_turn_refs)
-    turn_refs = tuple(
-        dict.fromkeys(
-            ref
-            for source_ref in refs
-            if include_exact_turn_refs or _TURN_REF_RE.fullmatch(source_ref) is None
-            for ref in _TURN_REF_RE.findall(source_ref)
-        )
+    turn_refs = _source_turn_refs(
+        refs,
+        include_exact_turn_refs=include_exact_turn_refs,
     )
     if not 0 < len(turn_refs) <= 3:
         return ()
     return tuple(f"source_turn_refs:{ref}" for ref in sorted(turn_refs))
 
 
+def source_identity_audit_gap_codes(
+    *,
+    source_refs: Sequence[str],
+    text: str,
+) -> tuple[str, ...]:
+    refs = tuple(str(ref).strip() for ref in source_refs if str(ref).strip())
+    source_turn_refs = _source_turn_refs(refs, include_exact_turn_refs=True)
+    source_session_turn_refs = _source_session_turn_refs(refs)
+    text_session_turn_refs = _session_turn_refs_from_text(text)
+    text_turn_refs = tuple(dict.fromkeys(_TURN_REF_RE.findall(text or "")))
+    has_text_turn_identity = bool(text_session_turn_refs or text_turn_refs)
+
+    gap_codes: list[str] = []
+    if not refs:
+        gap_codes.append(
+            "missing_source_refs_with_text_turn_identity"
+            if has_text_turn_identity
+            else "missing_source_refs"
+        )
+    elif not source_turn_refs:
+        gap_codes.append(
+            "generic_source_refs_with_text_turn_identity"
+            if has_text_turn_identity
+            else "source_refs_without_turn_identity"
+        )
+    if len(source_turn_refs) > 3:
+        gap_codes.append("broad_source_turn_identity")
+    elif not source_turn_refs and len(text_turn_refs) > 3:
+        gap_codes.append("broad_text_turn_identity")
+    if _session_count(source_session_turn_refs) > 1:
+        gap_codes.append("cross_session_source_identity")
+    elif not source_session_turn_refs and _session_count(text_session_turn_refs) > 1:
+        gap_codes.append("cross_session_text_identity")
+    return tuple(dict.fromkeys(gap_codes))
+
+
 def _split_identity_refs(value: str) -> tuple[str, ...]:
     return tuple(
         dict.fromkeys(ref.strip() for ref in value.split("|") if ref.strip())
+    )
+
+
+def _source_turn_refs(
+    source_refs: Sequence[str],
+    *,
+    include_exact_turn_refs: bool,
+) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            ref
+            for source_ref in source_refs
+            if include_exact_turn_refs or _TURN_REF_RE.fullmatch(source_ref) is None
+            for ref in _TURN_REF_RE.findall(source_ref)
+        )
+    )
+
+
+def _source_session_turn_refs(source_refs: Sequence[str]) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            f"session_{match.group('session')}:{match.group('turn_ref')}"
+            for source_ref in source_refs
+            if (match := _SOURCE_SESSION_TURN_RE.search(source_ref))
+        )
     )
 
 
