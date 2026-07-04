@@ -2,8 +2,10 @@ from infinity_context_core.application.context_query_intent import build_query_a
 from infinity_context_core.application.dto import ContextItem
 from infinity_context_core.application.use_cases.build_context import (
     _apply_explicit_requirement_guard,
+    _exact_turn_source_ref_hydration_request_plan,
     _exact_turn_source_ref_hydration_requests,
     _restore_exact_source_sibling_answer_evidence_items,
+    _should_use_exact_source_ref_hydration_item,
 )
 from infinity_context_core.domain.entities import SourceRef
 
@@ -1059,6 +1061,84 @@ def test_exact_turn_hydration_skips_existing_body_but_allows_previous_context() 
             "activity_competition_evidence_bridge"
         )
     }
+
+
+def test_exact_turn_hydration_drops_unanswerable_next_response_continuation() -> None:
+    question_turn = _item(
+        "place_question",
+        "D4:2 Mira: Where did you go?",
+        deterministic_reasons=(),
+        source_refs=(
+            SourceRef(
+                source_type="locomo_turn",
+                source_id="locomo:conv-fixture:session_4:D4:2:turn",
+            ),
+        ),
+        diagnostics={
+            "retrieval_source": "keyword_source_sibling_chunks",
+            "retrieval_sources": ["keyword_source_sibling_chunks"],
+            "score_signals": {
+                "source_sibling_answer_evidence": 1,
+                "query_expansion_reason": "trip_destination_bridge",
+            },
+        },
+    )
+
+    request_plan = _exact_turn_source_ref_hydration_request_plan((question_turn,))
+    requested_source_id = "locomo:conv-fixture:session_4:D4:3:turn"
+
+    assert requested_source_id in request_plan.next_answer_source_ids
+    assert not _should_use_exact_source_ref_hydration_item(
+        source_id=requested_source_id,
+        request_plan=request_plan,
+        answer_evidence=False,
+        text="D4:3 Rowan: Anyway, I started painting again.",
+    )
+    assert _should_use_exact_source_ref_hydration_item(
+        source_id=requested_source_id,
+        request_plan=request_plan,
+        answer_evidence=True,
+        text="D4:3 Rowan: I went to Chicago for the weekend.",
+    )
+
+
+def test_exact_turn_hydration_requires_previous_context_question_or_request() -> None:
+    answer_turn = _item(
+        "anaphoric_answer",
+        "D2:9 Morgan: Yes, they are.",
+        deterministic_reasons=(),
+        source_refs=(
+            SourceRef(
+                source_type="locomo_turn",
+                source_id="locomo:conv-fixture:session_2:D2:9:turn",
+            ),
+        ),
+        diagnostics={
+            "retrieval_source": "keyword_source_sibling_chunks",
+            "retrieval_sources": ["keyword_source_sibling_chunks"],
+            "score_signals": {
+                "source_sibling_answer_evidence": 1,
+                "query_expansion_reason": "activity_competition_evidence_bridge",
+            },
+        },
+    )
+
+    request_plan = _exact_turn_source_ref_hydration_request_plan((answer_turn,))
+    requested_source_id = "locomo:conv-fixture:session_2:D2:8:turn"
+
+    assert requested_source_id in request_plan.previous_question_source_ids
+    assert not _should_use_exact_source_ref_hydration_item(
+        source_id=requested_source_id,
+        request_plan=request_plan,
+        answer_evidence=False,
+        text="D2:8 Riley: I watched those dancers perform yesterday.",
+    )
+    assert _should_use_exact_source_ref_hydration_item(
+        source_id=requested_source_id,
+        request_plan=request_plan,
+        answer_evidence=False,
+        text="D2:8 Riley: Are they yours at the festival?",
+    )
 
 
 def test_restore_exact_source_sibling_answer_evidence_derives_country_destination_marker() -> None:

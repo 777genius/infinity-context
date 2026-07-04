@@ -109,7 +109,7 @@ from infinity_context_core.application.context_source_sibling_answer_evidence_re
     _focused_exact_source_repair_text,
     _pre_pack_candidate_source_ref_diagnostics,
     _restore_exact_source_sibling_answer_evidence_items,
-    _source_sibling_answer_continuation_hydration_requests,
+    _source_sibling_answer_continuation_hydration_request_items,
     _source_sibling_answer_evidence_stage_diagnostics,
 )
 from infinity_context_core.application.context_source_sibling_place_evidence import (
@@ -235,6 +235,15 @@ _MAX_AGGREGATION_KEYWORD_ITEMS = 20
 _MAX_EXACT_SOURCE_SIBLING_ANSWER_EVIDENCE_REPAIRS = 48
 _STRICT_QUERY_TOKEN_RE = re.compile(r"\w+", re.UNICODE)
 _DIALOGUE_MARKER_RE = re.compile(r"\bD\d+:\d+\b")
+_QUESTION_OR_REQUEST_TURN_RE = re.compile(
+    r"\?|"
+    r"\b(?:who|what|where|when|why|how|which)\b|"
+    r"\b(?:can|could|would|will|do|does|did|is|are|was|were|have|has|had)\s+"
+    r"(?:you|they|these|those|it|that|he|she|we|i)\b|"
+    r"\b(?:tell\s+me|show\s+me|let\s+me\s+know|any\s+"
+    r"(?:pointers?|recommendations?|suggestions?))\b",
+    re.IGNORECASE,
+)
 _COUNT_AGGREGATION_QUERY_RE = re.compile(
     r"\b(how many|number of|count|total)\b",
     re.IGNORECASE,
@@ -312,6 +321,12 @@ _LIST_SOURCE_SIBLING_DEEP_REASONS = _EXTRA_INVENTORY_PROMPT_REASONS | frozenset(
 _ScoredKeywordPromptItem = tuple[int, int, int, float, float, int, str, ContextItem]
 _SOURCE_GROUP_SUFFIXES = frozenset({"events", "observation", "summary"})
 
+
+@dataclass(frozen=True)
+class _ExactTurnHydrationRequestPlan:
+    reason_by_id: Mapping[str, str]
+    next_answer_source_ids: frozenset[str]
+    previous_question_source_ids: frozenset[str]
 
 
 @dataclass(frozen=True)
@@ -1549,7 +1564,8 @@ class BuildContextUseCase:
         source_items: tuple[ContextItem, ...],
         query_relevance_cache: dict[str, tuple[str, str, QueryRelevance]],
     ) -> tuple[tuple[ContextItem, ...], dict[str, object]]:
-        source_reason_by_id = _exact_turn_source_ref_hydration_requests(source_items)
+        request_plan = _exact_turn_source_ref_hydration_request_plan(source_items)
+        source_reason_by_id = request_plan.reason_by_id
         source_ids = tuple(source_reason_by_id)[:_MAX_EXACT_SOURCE_SIBLING_ANSWER_EVIDENCE_REPAIRS]
         diagnostics: dict[str, object] = {
             "exact_source_ref_hydration_requested": len(source_ids),
@@ -1605,6 +1621,13 @@ class BuildContextUseCase:
                 expansion_reason=reason,
                 text=chunk_text,
             )
+            if not _should_use_exact_source_ref_hydration_item(
+                source_id=source_id,
+                request_plan=request_plan,
+                answer_evidence=answer_evidence,
+                text=chunk_text,
+            ):
+                continue
             item = _chunk_context_item(
                 chunk=chunk,
                 text=chunk_text,
@@ -2403,6 +2426,12 @@ def _dedupe_chunks_by_id(chunks: tuple[MemoryChunk, ...]) -> tuple[MemoryChunk, 
 def _exact_turn_source_ref_hydration_requests(
     items: tuple[ContextItem, ...],
 ) -> dict[str, str]:
+    return dict(_exact_turn_source_ref_hydration_request_plan(items).reason_by_id)
+
+
+def _exact_turn_source_ref_hydration_request_plan(
+    items: tuple[ContextItem, ...],
+) -> _ExactTurnHydrationRequestPlan:
     hydrated_source_ids = _exact_turn_source_ids_with_body(items)
     request_entries: list[tuple[int, int, int, str, str]] = []
     for item_index, item in enumerate(items):
@@ -2440,12 +2469,54 @@ def _exact_turn_source_ref_hydration_requests(
     requests: dict[str, str] = {}
     for _, _, _, source_id, reason in sorted(request_entries):
         requests.setdefault(source_id, reason)
-    for source_id, reason in _source_sibling_answer_continuation_hydration_requests(
+    continuation_requests = _source_sibling_answer_continuation_hydration_request_items(
         items,
         existing_source_ids=hydrated_source_ids,
-    ).items():
-        requests.setdefault(source_id, reason)
-    return requests
+    )
+    next_answer_source_ids: set[str] = set()
+    previous_question_source_ids: set[str] = set()
+    for source_id, (reason, request_kind) in continuation_requests.items():
+        if source_id in requests:
+            continue
+        requests[source_id] = reason
+        if request_kind == "next_answer":
+            next_answer_source_ids.add(source_id)
+        elif request_kind == "previous_question":
+            previous_question_source_ids.add(source_id)
+    return _ExactTurnHydrationRequestPlan(
+        reason_by_id=requests,
+        next_answer_source_ids=frozenset(next_answer_source_ids),
+        previous_question_source_ids=frozenset(previous_question_source_ids),
+    )
+
+
+def _should_use_exact_source_ref_hydration_item(
+    *,
+    source_id: str,
+    request_plan: _ExactTurnHydrationRequestPlan,
+    answer_evidence: bool,
+    text: str,
+) -> bool:
+    if source_id in request_plan.next_answer_source_ids:
+        return answer_evidence
+    if source_id in request_plan.previous_question_source_ids:
+        return _is_question_or_request_dialogue_turn(text)
+    return True
+
+
+def _is_question_or_request_dialogue_turn(text: str) -> bool:
+    body = _dialogue_turn_body(text)
+    return _QUESTION_OR_REQUEST_TURN_RE.search(body) is not None
+
+
+def _dialogue_turn_body(text: str) -> str:
+    marker_match = _DIALOGUE_MARKER_RE.search(text)
+    if marker_match is not None:
+        text = text[marker_match.end() :]
+    speaker_match = re.match(r"\s*[^:\n]{1,48}:\s*", text)
+    if speaker_match is not None:
+        text = text[speaker_match.end() :]
+    return text.strip()
 
 
 def _exact_turn_source_ids_with_body(items: tuple[ContextItem, ...]) -> frozenset[str]:

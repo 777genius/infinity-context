@@ -1450,7 +1450,24 @@ def _source_sibling_answer_continuation_hydration_requests(
     *,
     existing_source_ids: frozenset[str],
 ) -> dict[str, str]:
+    return {
+        source_id: reason
+        for source_id, (reason, _) in (
+            _source_sibling_answer_continuation_hydration_request_items(
+                items,
+                existing_source_ids=existing_source_ids,
+            )
+        ).items()
+    }
+
+
+def _source_sibling_answer_continuation_hydration_request_items(
+    items: tuple[ContextItem, ...],
+    *,
+    existing_source_ids: frozenset[str],
+) -> dict[str, tuple[str, str]]:
     requests: dict[str, str] = {}
+    request_kinds: dict[str, str] = {}
     existing = _focused_existing_continuation_source_ids(
         items,
         source_ids=existing_source_ids,
@@ -1479,14 +1496,19 @@ def _source_sibling_answer_continuation_hydration_requests(
                         previous_source_id,
                         previous_reason.replace("-", "_"),
                     )
+                    request_kinds.setdefault(previous_source_id, "previous_question")
                     existing.add(previous_source_id)
             if reason:
                 source_id = _next_dialogue_turn_source_id(source_ref_id)
                 if not source_id or source_id in existing:
                     continue
                 requests.setdefault(source_id, reason.replace("-", "_"))
+                request_kinds.setdefault(source_id, "next_answer")
                 existing.add(source_id)
-    return requests
+    return {
+        source_id: (reason, request_kinds.get(source_id, "source_ref"))
+        for source_id, reason in requests.items()
+    }
 
 
 def _focused_continuation_item(item: ContextItem, *, source_id: str) -> ContextItem:
