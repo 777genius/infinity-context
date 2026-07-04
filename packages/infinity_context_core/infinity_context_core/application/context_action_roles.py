@@ -49,7 +49,7 @@ _QUESTION_ACTION_RE = re.compile(
 )
 _WHO_TO_ACTION_RE = re.compile(
     rf"\bwho\s+(?P<verb>{_ACTION_VERB_RE})\b"
-    rf"(?P<object>.{{0,120}}?)\b(?:to|for)\s+"
+    rf"(?P<object>.{{0,120}}?)\b(?P<prep>to|for)\s+"
     rf"(?P<recipient>{_QUERY_LABEL_RE})\b",
     re.IGNORECASE,
 )
@@ -393,6 +393,31 @@ _ACTION_CONTEXT_STOP_WORDS = frozenset(
         "со",
     }
 )
+_NON_RECIPIENT_ACTION_OBJECT_WORDS = frozenset(
+    {
+        "advice",
+        "approval",
+        "assistance",
+        "book",
+        "bring",
+        "buy",
+        "call",
+        "email",
+        "feedback",
+        "file",
+        "help",
+        "join",
+        "make",
+        "permission",
+        "review",
+        "schedule",
+        "send",
+        "share",
+        "submit",
+        "support",
+        "write",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -487,6 +512,14 @@ def _action_role_query(query: str) -> _ActionRoleQuery | None:
         if match is not None:
             verb_key = _canonical_verb_key(match.group("verb"))
             if pattern is _RU_WHO_OBJECT_TO_ACTION_RE and verb_key != "introduce":
+                continue
+            if (
+                pattern is _WHO_TO_ACTION_RE
+                and _who_to_action_match_targets_non_recipient(
+                    match,
+                    verb_key=verb_key,
+                )
+            ):
                 continue
             recipient = _clean_label(match.group("recipient"))
             object_label = _object_label_in_text(match.group("object") or "")
@@ -707,6 +740,21 @@ def _action_role_query(query: str) -> _ActionRoleQuery | None:
         actor_label=actor,
         recipient_label=recipient,
     )
+
+
+def _who_to_action_match_targets_non_recipient(
+    match: re.Match[str],
+    *,
+    verb_key: str,
+) -> bool:
+    if verb_key not in _DIRECT_RECIPIENT_VERBS:
+        return False
+    if (match.groupdict().get("prep") or "").casefold() not in {"to", "for"}:
+        return False
+    if not _object_label_in_text(match.group("object") or ""):
+        return False
+    recipient = (match.group("recipient") or "").casefold()
+    return recipient in _NON_RECIPIENT_ACTION_OBJECT_WORDS
 
 
 def _actor_action_signal(

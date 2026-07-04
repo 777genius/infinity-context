@@ -225,6 +225,54 @@ def test_deterministic_rerank_prefers_passive_requested_recipient_evidence() -> 
     )
 
 
+def test_deterministic_rerank_does_not_treat_action_object_as_recipient() -> None:
+    cases = (
+        (
+            "Who asked Maria to send the Atlas invoice?",
+            "Alex asked Maria to send the Atlas invoice after the call.",
+            "Maria asked Alex to send the Atlas invoice after the call.",
+        ),
+        (
+            "Who told Maria to send the Atlas invoice?",
+            "Alex told Maria to send the Atlas invoice after the call.",
+            "Maria told Alex to send the Atlas invoice after the call.",
+        ),
+        (
+            "Who asked Maria for help with the Atlas invoice?",
+            "Alex asked Maria for help with the Atlas invoice after the call.",
+            "Maria asked Alex for help with the Atlas invoice after the call.",
+        ),
+    )
+
+    for index, (query, correct_text, reversed_text) in enumerate(cases):
+        plan = build_query_expansion_plan(query)
+        intent = build_query_anchor_intent(query)
+        correct = _item(f"correct_{index}", score=0.7, text=correct_text)
+        reversed_roles = _item(f"reversed_{index}", score=0.72, text=reversed_text)
+
+        reranked = apply_deterministic_rerank_adjustments(
+            (reversed_roles, correct),
+            query=query,
+            plan=plan,
+            query_anchor_intent=intent,
+        )
+        by_id = {item.item_id: item for item in reranked}
+
+        assert by_id[f"correct_{index}"].score > by_id[f"reversed_{index}"].score
+        assert (
+            "action_role_recipient_match"
+            in by_id[f"correct_{index}"].diagnostics["provenance"][
+                "deterministic_rerank_reasons"
+            ]
+        )
+        assert (
+            "action_role_recipient_mismatch"
+            in by_id[f"reversed_{index}"].diagnostics["provenance"][
+                "deterministic_rerank_reasons"
+            ]
+        )
+
+
 def test_deterministic_rerank_uses_russian_whose_advice_recipient() -> None:
     query = "По чьему совету Мелани прочитала Becoming Nicole?"
     plan = build_query_expansion_plan(query)
