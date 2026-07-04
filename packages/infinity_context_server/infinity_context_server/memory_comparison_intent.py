@@ -1286,7 +1286,18 @@ def _has_communication_intent(
 ) -> bool:
     relation_set = set(relation_terms)
     if (
-        {"advise", "ask", "recommend", "request", "suggest", "tell", "told"}
+        {
+            "advise",
+            "ask",
+            "invit",
+            "invitation",
+            "invite",
+            "recommend",
+            "request",
+            "suggest",
+            "tell",
+            "told",
+        }
         & relation_set
     ):
         return True
@@ -2619,6 +2630,9 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "chat",
                 "discus",
                 "discuss",
+                "invit",
+                "invitation",
+                "invite",
                 "message",
                 "messag",
                 "mention",
@@ -2644,6 +2658,11 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "discuss",
                 "discussed",
                 "discussion",
+                "invit",
+                "invitation",
+                "invite",
+                "invited",
+                "inviting",
                 "mention",
                 "mentioned",
                 "messag",

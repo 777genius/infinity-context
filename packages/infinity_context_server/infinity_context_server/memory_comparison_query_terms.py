@@ -1184,6 +1184,11 @@ def _communication_support_query_terms(
         "conversation",
         "discuss",
         "discussed",
+        "invit",
+        "invitation",
+        "invite",
+        "invited",
+        "inviting",
         "message",
         "messag",
         "messaged",
@@ -1236,6 +1241,10 @@ def _communication_support_query_terms(
         )
     if "ask" in relation_term_set:
         allowed_communication_terms.update(("ask", "asked", "request"))
+    if relation_term_set & {"invit", "invitation", "invite"}:
+        allowed_communication_terms.update(
+            ("ask", "asked", "invit", "invitation", "invite", "invited", "inviting")
+        )
     if relation_term_set & {"recommend", "suggest"}:
         allowed_communication_terms.update(
             ("advise", "recommend", "recommended", "suggest", "suggested", "told")
@@ -1883,6 +1892,9 @@ def _relation_query_terms(
         "tell",
         "text",
         "told",
+        "invit",
+        "invitation",
+        "invite",
     } & relation_term_set:
         if relation_term_set & {"call", "message", "messag", "send", "sent", "text"}:
             priority_variant_order.extend(
@@ -1897,6 +1909,9 @@ def _relation_query_terms(
         if relation_term_set & {"ask", "request"}:
             priority_variant_order.extend(("asked", "request"))
             priority_surface_terms.add("asked")
+        if relation_term_set & {"invit", "invitation", "invite"}:
+            priority_variant_order.extend(("invited", "invitation", "invite", "asked"))
+            priority_surface_terms.update(("invited", "invitation", "invite"))
         if relation_term_set & {"advise", "recommend", "suggest"}:
             priority_variant_order.extend(
                 ("advised", "recommended", "suggested", "told")

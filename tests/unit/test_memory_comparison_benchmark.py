@@ -15518,6 +15518,32 @@ def test_benchmark_rerank_prefers_support_motivation_turn() -> None:
     assert signals["benchmark_focused_turn_boost"] > 0
 
 
+def test_decomposed_search_queries_use_invitation_communication_terms() -> None:
+    case = _case(
+        case_id="conv-26:qa:invite-target",
+        question="Who did Caroline invite to the adoption agency meeting?",
+        expected_terms=("Melanie",),
+        answer="Melanie",
+        category=1,
+    )
+
+    queries, metadata = rerank_module.decomposed_search_queries(case)
+
+    assert metadata["query_profile"]["relation_terms"] == (
+        "invite",
+        "adoption",
+        "agency",
+        "meet",
+    )
+    assert "communication" in metadata["query_profile"]["evidence_need"]
+    assert metadata["query_plan"]["selected_roles"] == [
+        "original_question",
+        "expanded_focus",
+        "communication_support",
+    ]
+    assert queries[2] == "caroline invite adoption agency meet invit invitation ask adopt"
+
+
 def test_benchmark_rerank_prefers_direct_research_goal_turn() -> None:
     case = _case(
         case_id="conv-26:qa:4",
