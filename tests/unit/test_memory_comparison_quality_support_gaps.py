@@ -801,6 +801,98 @@ def test_fast_gate_metrics_reads_support_need_from_query_expansion_intent() -> N
     }
 
 
+def test_fast_gate_metrics_rejects_weak_preference_flag_without_relation() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="weak-preference-flag",
+                group="single-hop",
+                retrieval=_retrieval_payload(
+                    evidence_need=("preference",),
+                    bundle_evidence_roles=("primary", "preference_support"),
+                    relation_categories=("preference",),
+                    entities=("melanie",),
+                    policy_score=0.0,
+                ),
+                evidence_bundle={
+                    "bundle_complete": False,
+                    "item_count": 1,
+                    "primary_evidence_count": 1,
+                    "supporting_evidence_count": 0,
+                    "query_support_term_recall": 0.5,
+                    "covered_evidence_terms": [],
+                    "items": [
+                        {
+                            "role": "supporting",
+                            "retrieval_order": 1,
+                            "focused_evidence_score": 1.0,
+                            "entity_hits": ["melanie"],
+                            "has_preference_evidence": True,
+                            "planner_reason_codes": ["role:supporting"],
+                        }
+                    ],
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    breakdown = gate["bundle_gap_breakdown"]
+
+    assert breakdown["reason_counts"]["missing_preference_support"] == 1
+    assert breakdown["evidence_need_gap_reason_counts"] == {
+        "missing_preference_support": 1
+    }
+
+
+def test_fast_gate_metrics_accepts_planned_preference_relation_support() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="valid-preference-relation",
+                group="single-hop",
+                retrieval=_retrieval_payload(
+                    evidence_need=("preference",),
+                    bundle_evidence_roles=("primary", "preference_support"),
+                    relation_categories=("preference",),
+                    entities=("melanie",),
+                    policy_score=0.0,
+                ),
+                evidence_bundle={
+                    "bundle_complete": False,
+                    "item_count": 1,
+                    "primary_evidence_count": 1,
+                    "supporting_evidence_count": 0,
+                    "query_support_term_recall": 0.5,
+                    "covered_evidence_terms": [],
+                    "items": [
+                        {
+                            "role": "preference_support",
+                            "retrieval_order": 1,
+                            "focused_evidence_score": 1.0,
+                            "entity_hits": ["melanie"],
+                            "has_preference_evidence": True,
+                            "relation_category_hits": ["preference"],
+                            "planner_reason_codes": [
+                                "preference_support",
+                                "preference_relation_category_hits",
+                            ],
+                        }
+                    ],
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    breakdown = gate["bundle_gap_breakdown"]
+
+    assert "missing_preference_support" not in breakdown["reason_counts"]
+    assert "missing_preference_support" not in breakdown[
+        "evidence_need_gap_reason_counts"
+    ]
+
+
 def test_fast_gate_metrics_reports_missing_location_support_gap() -> None:
     gate = fast_gate_metrics(
         (

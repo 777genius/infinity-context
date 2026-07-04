@@ -348,9 +348,12 @@ def bundle_has_preference_support(
             _passes_support_quality(item)
             and _passes_person_grounding(item, require_grounding=require_grounding)
             and (
-                item.get("has_preference_evidence") is True
-                or "preference" in _str_tuple(item.get("relation_category_hits"))
+                "preference" in _str_tuple(item.get("relation_category_hits"))
+                or "favorite_preference"
+                in _str_tuple(item.get("relation_category_hits"))
                 or "preference_evidence"
+                in _str_tuple(item.get("planner_reason_codes"))
+                or "preference_relation_category_hits"
                 in _str_tuple(item.get("planner_reason_codes"))
             )
         )
