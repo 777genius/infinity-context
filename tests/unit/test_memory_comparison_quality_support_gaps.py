@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from infinity_context_server.memory_comparison_quality_diagnostics import (
     fast_gate_metrics,
 )
@@ -2722,6 +2724,35 @@ def test_fast_gate_metrics_caps_selected_evidence_weakness_sample_values() -> No
         assert sample[key].endswith("...")
     assert sample["query_role_count"] == 1
     assert sample["source_ref_count"] == 1
+
+
+def test_fast_gate_metrics_keeps_selected_evidence_sample_metrics_json_safe() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="non-finite-selected-metrics",
+                evidence_bundle={
+                    "bundle_complete": True,
+                    "items": [
+                        {
+                            "id": "non-finite",
+                            "role": "supporting",
+                            "answerability_score": "nan",
+                            "source_locality_score": "inf",
+                            "broad_summary": True,
+                        }
+                    ],
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    sample = gate["selected_evidence_weakness"]["broad_summary_samples"][0]
+
+    assert sample["answerability_score"] == 0.0
+    assert sample["source_locality_score"] == 0.0
+    json.dumps(sample, allow_nan=False)
 
 
 def _weak_item(index: int) -> dict[str, object]:

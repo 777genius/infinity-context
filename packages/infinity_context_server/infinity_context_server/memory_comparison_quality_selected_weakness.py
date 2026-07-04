@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
+from math import isfinite
 
 from infinity_context_server.memory_comparison_answer_context_risks import (
     is_measured_low_answerability as _is_measured_low_answerability,
@@ -239,8 +240,8 @@ def _selected_evidence_weakness_sample(
             or 0
         ),
         "reasons": list(reasons),
-        "answerability_score": round(answerability_score, 6),
-        "source_locality_score": round(source_locality_score, 6),
+        "answerability_score": _sample_metric_value(answerability_score),
+        "source_locality_score": _sample_metric_value(source_locality_score),
         "broad_summary": (
             bundle_item.get("broad_summary") is True
             or "broad_summary" in planner_reasons
@@ -329,6 +330,12 @@ def _compact_sample_values(values: Sequence[str]) -> tuple[str, ...]:
 
 def _sample_value_list(values: Sequence[str]) -> list[str]:
     return [_compact_sample_text(value) for value in values]
+
+
+def _sample_metric_value(value: float) -> float:
+    if not isfinite(value):
+        return 0.0
+    return round(value, 6)
 
 
 def _compact_sample_text(value: str) -> str:

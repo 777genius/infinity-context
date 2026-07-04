@@ -39,7 +39,8 @@ def backfill_risk_reason_codes(
         codes.append("risk:backfilled_low_answerability")
     if is_measured_weak_source_locality(features.get("source_locality_score")):
         codes.append("risk:backfilled_weak_source_locality")
-    return tuple(codes)
+    codes.extend(_risk_reason_codes(features.get("risk_reason_codes")))
+    return merge_risk_reason_codes(codes)
 
 
 def context_risk_reason_codes(
@@ -177,4 +178,12 @@ def _string_tuple(value: object) -> tuple[str, ...]:
         str(item).strip()
         for item in value
         if str(item).strip()
+    )
+
+
+def _risk_reason_codes(value: object) -> tuple[str, ...]:
+    return tuple(
+        code
+        for code in _string_tuple(value)
+        if code.startswith("risk:")
     )

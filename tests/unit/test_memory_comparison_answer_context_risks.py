@@ -111,6 +111,7 @@ def test_backfill_risk_reason_codes_propagate_candidate_risks() -> None:
             "conflict_or_stale": True,
             "answerability_score": 0.54,
             "source_locality_score": 0.44,
+            "risk_reason_codes": ("risk:candidate_specific", "not_a_risk"),
         },
     )
 
@@ -120,4 +121,5 @@ def test_backfill_risk_reason_codes_propagate_candidate_risks() -> None:
         "risk:backfilled_conflict_or_stale",
         "risk:backfilled_low_answerability",
         "risk:backfilled_weak_source_locality",
+        "risk:candidate_specific",
     )

@@ -124,6 +124,10 @@ def test_answer_context_keeps_scalar_bundle_risk_reason_through_skip_and_backfil
                         "source_locality_score": 0.9,
                         "relation_category_hits": ["contrast"],
                         "query_roles": ["contrast"],
+                        "risk_reason_codes": [
+                            "risk:backfill_candidate_specific",
+                            "not_a_risk",
+                        ],
                     }
                 }
             },
@@ -165,12 +169,18 @@ def test_answer_context_keeps_scalar_bundle_risk_reason_through_skip_and_backfil
     )
     assert context.skipped_duplicate_source_bundle_item_count == 1
     assert context.backfilled_retrieval_item_count == 1
+    assert context.memories[1].metadata["answer_context_risk_reason_codes"] == (
+        "risk:retrieval_backfill",
+        "risk:backfill_candidate_specific",
+        "risk:skipped_duplicate_source_bundle_item",
+    )
     assert context.to_diagnostics()["risk_reason_codes"] == [
         "risk:provenance_gap",
         "risk:missing_required_role",
         "risk:missing_required_contrast",
         "risk:skipped_duplicate_source_bundle_item",
         "risk:retrieval_backfill",
+        "risk:backfill_candidate_specific",
     ]
 
 
