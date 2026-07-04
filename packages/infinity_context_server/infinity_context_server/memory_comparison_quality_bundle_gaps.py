@@ -12,6 +12,9 @@ from infinity_context_server.memory_comparison_quality_accessors import (
     bundle_items as _bundle_items,
 )
 from infinity_context_server.memory_comparison_quality_accessors import (
+    count_mapping as _count_mapping,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
     mapping as _mapping,
 )
 from infinity_context_server.memory_comparison_quality_accessors import (
@@ -20,6 +23,7 @@ from infinity_context_server.memory_comparison_quality_accessors import (
 from infinity_context_server.memory_comparison_quality_accessors import (
     positive_int as _positive_int,
 )
+from infinity_context_server.memory_comparison_quality_accessors import ratio as _ratio
 from infinity_context_server.memory_comparison_quality_accessors import (
     retrieval_metadata as _retrieval_metadata,
 )
@@ -173,6 +177,8 @@ _EVIDENCE_NEED_GAP_REASONS = frozenset(
         ),
     }
 )
+_COVERAGE_GAP_LIMIT = 5
+_WEAK_PROVENANCE_LIMIT = 5
 
 
 def bundle_incomplete_diagnostics(
@@ -255,6 +261,231 @@ def bundle_gap_breakdown(bundle_incomplete: Mapping[str, object]) -> dict[str, o
         ),
         "samples": list(_sequence(bundle_incomplete.get("samples")))[:5],
     }
+
+
+def evidence_bundle_gap_report(
+    *,
+    evaluation_count: int,
+    bundle_gap_breakdown: Mapping[str, object],
+    source_ref_provenance: Mapping[str, object],
+    answer_context_provenance: Mapping[str, object],
+) -> dict[str, object]:
+    """Compact evidence bundle coverage and provenance gaps for LoCoMo triage."""
+    evaluation_count = max(0, evaluation_count)
+    reason_counts = _count_mapping(bundle_gap_breakdown.get("reason_counts"))
+    coverage_gaps = _coverage_gap_rows(
+        reason_counts,
+        evaluation_count=evaluation_count,
+        samples=_sequence(bundle_gap_breakdown.get("samples")),
+    )
+    weak_provenance = _weak_provenance_rows(
+        source_ref_provenance,
+        answer_context_provenance,
+    )
+    status = "gaps_found" if coverage_gaps or weak_provenance else "no_observed_gaps"
+    return {
+        "schema_version": "evidence_bundle_gap_report.v1",
+        "status": status,
+        "evaluation_count": evaluation_count,
+        "incomplete_case_count": (
+            _positive_int(bundle_gap_breakdown.get("incomplete_case_count")) or 0
+        ),
+        "coverage_gap_reason_total": (
+            _positive_int(bundle_gap_breakdown.get("reason_total")) or 0
+        ),
+        "coverage_gap_count": len(coverage_gaps),
+        "weak_provenance_signal_count": len(weak_provenance),
+        "top_coverage_gaps": coverage_gaps,
+        "weak_provenance_signals": weak_provenance,
+        "top_action": (
+            str((coverage_gaps or weak_provenance)[0].get("action") or "")
+            if (coverage_gaps or weak_provenance)
+            else ""
+        ),
+    }
+
+
+def _coverage_gap_rows(
+    reason_counts: Mapping[str, int],
+    *,
+    evaluation_count: int,
+    samples: Sequence[object],
+) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for reason, count in sorted(
+        reason_counts.items(),
+        key=lambda pair: (-int(pair[1]), str(pair[0])),
+    )[:_COVERAGE_GAP_LIMIT]:
+        rows.append(
+            {
+                "reason": reason,
+                "count": count,
+                "case_rate": _ratio(count, evaluation_count),
+                "action": _coverage_gap_action(reason),
+                "sample_case_ids": _sample_case_ids_for_reason(samples, reason),
+            }
+        )
+    return rows
+
+
+def _weak_provenance_rows(
+    source_ref_provenance: Mapping[str, object],
+    answer_context_provenance: Mapping[str, object],
+) -> list[dict[str, object]]:
+    signals = (
+        _weak_provenance_signal(
+            name="selected_bundle_source_refless_items",
+            count=(
+                _positive_int(
+                    source_ref_provenance.get(
+                        "selected_bundle_source_refless_item_count"
+                    )
+                )
+                or 0
+            ),
+            denominator=(
+                _positive_int(source_ref_provenance.get("selected_bundle_item_count"))
+                or 0
+            ),
+            action="Attach canonical source_refs to selected bundle evidence.",
+            samples=_sequence(
+                source_ref_provenance.get("source_refless_selected_samples")
+            ),
+        ),
+        _weak_provenance_signal(
+            name="answer_context_source_refless_items",
+            count=(
+                _positive_int(answer_context_provenance.get("source_refless_item_count"))
+                or 0
+            ),
+            denominator=(
+                _positive_int(answer_context_provenance.get("memory_count")) or 0
+            ),
+            action="Keep answer context evidence tied to source-bearing bundle items.",
+            samples=_sequence(
+                answer_context_provenance.get("source_refless_context_samples")
+            ),
+        ),
+        _weak_provenance_signal(
+            name="mixed_source_answer_contexts",
+            count=(
+                _positive_int(answer_context_provenance.get("mixed_source_context_count"))
+                or 0
+            ),
+            denominator=(
+                _positive_int(answer_context_provenance.get("context_count")) or 0
+            ),
+            action="Avoid mixing source-backed and source-less context items.",
+            samples=_sequence(
+                answer_context_provenance.get("mixed_source_context_samples")
+            ),
+        ),
+        _weak_provenance_signal(
+            name="backfilled_answer_contexts",
+            count=(
+                _positive_int(answer_context_provenance.get("backfilled_context_count"))
+                or 0
+            ),
+            denominator=(
+                _positive_int(answer_context_provenance.get("context_count")) or 0
+            ),
+            action="Prefer complete evidence bundles before answer-context backfill.",
+            samples=_sequence(
+                answer_context_provenance.get("backfilled_context_samples")
+            ),
+        ),
+        _weak_provenance_signal(
+            name="missing_required_role_contexts",
+            count=(
+                _positive_int(
+                    answer_context_provenance.get("missing_required_role_context_count")
+                )
+                or 0
+            ),
+            denominator=(
+                _positive_int(answer_context_provenance.get("context_count")) or 0
+            ),
+            action="Repair bundle role coverage before rendering answer context.",
+            samples=_sequence(
+                answer_context_provenance.get("backfill_skip_context_samples")
+            ),
+            evidence={
+                "role_counts": _count_mapping(
+                    answer_context_provenance.get("missing_required_role_counts")
+                )
+            },
+        ),
+    )
+    return [
+        signal
+        for signal in sorted(
+            (signal for signal in signals if signal["count"] > 0),
+            key=lambda payload: (-int(payload["count"]), str(payload["name"])),
+        )[:_WEAK_PROVENANCE_LIMIT]
+    ]
+
+
+def _weak_provenance_signal(
+    *,
+    name: str,
+    count: int,
+    denominator: int,
+    action: str,
+    samples: Sequence[object],
+    evidence: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    signal: dict[str, object] = {
+        "name": name,
+        "count": count,
+        "rate": _ratio(count, denominator),
+        "action": action,
+        "sample_case_ids": _sample_case_ids(samples),
+    }
+    if evidence:
+        signal["evidence"] = dict(evidence)
+    return signal
+
+
+def _coverage_gap_action(reason: str) -> str:
+    if reason == "no_bundle_items":
+        return "Inspect bundle selection before answer-context fallback."
+    if reason == "missing_primary":
+        return "Select one direct primary evidence item for each scored case."
+    if reason == "missing_supporting":
+        return "Add supporting evidence for multi-fact or role-specific questions."
+    if reason == "missing_evidence_refs":
+        return "Verify evidence-term coverage for expected LoCoMo turn refs."
+    if reason == "no_focused_evidence":
+        return "Prefer focused turn evidence over broad or generic bundle items."
+    if reason == "weak_source_locality":
+        return "Prefer localized source-turn evidence over distant summaries."
+    if reason.startswith("missing_required_"):
+        return "Add role-specific evidence selection for required bundle roles."
+    if reason.startswith("missing_"):
+        return "Add evidence selection for this missing coverage role."
+    return "Review bundle planner coverage for this gap reason."
+
+
+def _sample_case_ids_for_reason(
+    samples: Sequence[object],
+    reason: str,
+) -> list[str]:
+    return _sample_case_ids(
+        sample
+        for sample in samples
+        if reason in _str_tuple(_mapping(sample).get("reasons"))
+    )
+
+
+def _sample_case_ids(samples: Sequence[object]) -> list[str]:
+    case_ids: list[str] = []
+    for sample in samples:
+        case_id = str(_mapping(sample).get("case_id") or "").strip()
+        if case_id and case_id not in case_ids:
+            case_ids.append(case_id)
+        if len(case_ids) >= 5:
+            break
+    return case_ids
 
 
 def _bundle_incomplete_reasons(item: Mapping[str, object]) -> tuple[str, ...]:

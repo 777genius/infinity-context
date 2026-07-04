@@ -122,6 +122,9 @@ from infinity_context_server.memory_comparison_quality_bundle_gaps import (
 from infinity_context_server.memory_comparison_quality_bundle_gaps import (
     bundle_incomplete_diagnostics as _bundle_incomplete_diagnostics,
 )
+from infinity_context_server.memory_comparison_quality_bundle_gaps import (
+    evidence_bundle_gap_report as _evidence_bundle_gap_report,
+)
 from infinity_context_server.memory_comparison_quality_bundle_table import (
     bundle_quality_failure_breakdown as _bundle_quality_failure_breakdown,
 )
@@ -233,16 +236,26 @@ def evidence_ref_rank_gate_metrics(
 
 
 def quality_diagnostics(items: Sequence[Mapping[str, object]]) -> dict[str, object]:
+    bundle_incomplete = _bundle_incomplete_diagnostics(items)
+    bundle_gap_breakdown = _bundle_gap_breakdown(bundle_incomplete)
+    source_ref_provenance = _source_ref_provenance_table(items)
+    answer_context_provenance = _answer_context_provenance_table(items)
     return {
         "schema_version": "quality_diagnostics.v2",
         "evaluation_count": len(items),
         "per_intent": _per_intent_metrics(items),
-        "bundle_incomplete": _bundle_incomplete_diagnostics(items),
+        "bundle_incomplete": bundle_incomplete,
+        "evidence_bundle_gap_report": _evidence_bundle_gap_report(
+            evaluation_count=sum(1 for item in items if item.get("scored") is True),
+            bundle_gap_breakdown=bundle_gap_breakdown,
+            source_ref_provenance=source_ref_provenance,
+            answer_context_provenance=answer_context_provenance,
+        ),
         "bundle_quality_table": _bundle_quality_table(items),
         "policy_contribution_table": _policy_contribution_table(items),
         "evidence_feature_table": _evidence_feature_table(items),
-        "source_ref_provenance_table": _source_ref_provenance_table(items),
-        "answer_context_provenance_table": _answer_context_provenance_table(items),
+        "source_ref_provenance_table": source_ref_provenance,
+        "answer_context_provenance_table": answer_context_provenance,
         "temporal_grounding_table": _temporal_grounding_table(items),
         "query_role_effectiveness_table": _query_role_effectiveness_table(items),
         "query_plan_integrity_table": _query_plan_integrity_table(items),
@@ -391,6 +404,12 @@ def fast_gate_metrics(
         "bundle_source_identity": _bundle_source_identity_summary(bundle_quality),
         "bundle_source_proximity": _bundle_source_proximity_summary(bundle_quality),
         "bundle_gap_breakdown": bundle_gap_breakdown,
+        "evidence_bundle_gap_report": _evidence_bundle_gap_report(
+            evaluation_count=scored_count,
+            bundle_gap_breakdown=bundle_gap_breakdown,
+            source_ref_provenance=source_ref_provenance,
+            answer_context_provenance=answer_context_provenance,
+        ),
         "answerability_gap_breakdown": answerability_gap_breakdown,
         "selected_evidence_weakness": selected_evidence_weakness,
         "query_role_gap_breakdown": query_role_gap_breakdown,
