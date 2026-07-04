@@ -888,6 +888,77 @@ def test_temporal_query_boosts_matching_after_event_direction() -> None:
     )
 
 
+def test_temporal_query_prefers_ordered_afterward_evidence_over_unordered_mentions() -> None:
+    intent = build_temporal_query_intent(
+        "What did Jordan realize after the neighborhood event?"
+    )
+    ordered = _item(
+        "ordered",
+        score=0.7,
+        retrieval_source="canonical_anchors",
+        fact_status="active",
+        text=(
+            "Jordan finished the neighborhood event. Afterward, he realized he "
+            "missed training with the team."
+        ),
+    )
+    unordered = _item(
+        "unordered",
+        score=0.72,
+        retrieval_source="canonical_anchors",
+        fact_status="active",
+        text=(
+            "Jordan mentioned the neighborhood event and also realized he missed "
+            "training with the team."
+        ),
+    )
+
+    boosted = apply_temporal_query_intent_boosts((unordered, ordered), intent=intent)
+    by_id = {item.item_id: item for item in boosted}
+
+    assert intent.after_event is True
+    assert intent.event_sequence_terms == ("neighborhood",)
+    assert by_id["ordered"].score > by_id["unordered"].score
+    assert by_id["ordered"].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for after-event sequence and item matches direction"
+    )
+    assert by_id["unordered"].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for after-event sequence and item only matches the event boundary"
+    )
+
+
+def test_temporal_query_does_not_stitch_unrelated_after_marker_to_event_mentions() -> None:
+    intent = build_temporal_query_intent("What did Alex decide after the Atlas call?")
+    ordered = _item(
+        "ordered",
+        score=0.7,
+        retrieval_source="canonical_anchors",
+        fact_status="active",
+        text="After the Atlas call, Alex decided to wait for invoice approval.",
+    )
+    unrelated_after = _item(
+        "unrelated_after",
+        score=0.72,
+        retrieval_source="canonical_anchors",
+        fact_status="active",
+        text=(
+            "After dinner, Alex discussed the Atlas call and decided to wait "
+            "for invoice approval."
+        ),
+    )
+
+    boosted = apply_temporal_query_intent_boosts((unrelated_after, ordered), intent=intent)
+    by_id = {item.item_id: item for item in boosted}
+
+    assert by_id["ordered"].score > by_id["unrelated_after"].score
+    assert by_id["ordered"].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for after-event sequence and item matches direction"
+    )
+    assert by_id["unrelated_after"].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for after-event sequence and item only matches the event boundary"
+    )
+
+
 def test_temporal_query_requires_same_event_identity_for_direction_boost() -> None:
     intent = build_temporal_query_intent("What did Alex decide after the Atlas call?")
     atlas = _item(

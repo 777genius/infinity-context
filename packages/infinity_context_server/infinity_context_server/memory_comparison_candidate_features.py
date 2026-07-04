@@ -193,6 +193,7 @@ class CandidateEvidenceFeatures:
     covered_answer_unit_shapes: tuple[str, ...]
     exact_count_evidence: bool
     list_item_count: int
+    list_items: tuple[str, ...]
     entity_hits: tuple[str, ...]
     speaker_hits: tuple[str, ...]
     relation_coverage_ratio: float
@@ -284,6 +285,7 @@ class CandidateEvidenceFeatures:
             "covered_answer_unit_shapes": list(self.covered_answer_unit_shapes),
             "exact_count_evidence": self.exact_count_evidence,
             "list_item_count": self.list_item_count,
+            "list_items": list(self.list_items),
             "high_signal_relation_hit_count": self.high_signal_relation_hit_count,
             "communication_direction_grounded": self.communication_direction_grounded,
             "communication_direction_ungrounded": self.communication_direction_ungrounded,
@@ -357,7 +359,8 @@ def build_candidate_evidence_features(
     answer_unit_shapes = covered_answer_unit_shapes(text)
     content_text = _evidence_content_text(text)
     exact_count_evidence = has_exact_count_cardinality_evidence(content_text)
-    list_item_count = _list_item_count(content_text)
+    list_items = _list_items(content_text)
+    list_item_count = len(list_items)
     source_refs = tuple(str(ref) for ref in memory.source_refs if str(ref).strip())
     text_turn_refs = tuple(dict.fromkeys(_TURN_REF_RE.findall(text)))
     text_session_turn_refs = _text_session_turn_refs(text)
@@ -447,6 +450,7 @@ def build_candidate_evidence_features(
         covered_answer_unit_shapes=answer_unit_shapes,
         exact_count_evidence=exact_count_evidence,
         list_item_count=list_item_count,
+        list_items=list_items,
         entity_hits=tuple(entity_hits),
         speaker_hits=tuple(speaker_hits),
         relation_coverage_ratio=_ratio(
@@ -573,20 +577,36 @@ def _evidence_content_text(text: str) -> str:
 
 
 def _list_item_count(text: str) -> int:
+    return len(_list_items(text))
+
+
+def _list_items(text: str) -> tuple[str, ...]:
     candidates: list[str] = []
     if match := _LIST_ITEM_INTRO_RE.search(text):
         candidates.append(match.group("items"))
-    elif "," in text and re.search(r"\b(?:and|plus|as\s+well\s+as)\b", text, re.IGNORECASE):
+    elif "," in text and re.search(
+        r"\b(?:and|plus|as\s+well\s+as)\b",
+        text,
+        re.IGNORECASE,
+    ):
         candidates.append(text)
-    counts = tuple(_split_list_item_count(candidate) for candidate in candidates)
-    return max(counts, default=0)
+    item_sets = tuple(_split_list_items(candidate) for candidate in candidates)
+    return max(item_sets, key=len, default=())
 
 
 def _split_list_item_count(text: str) -> int:
+    return len(_split_list_items(text))
+
+
+def _split_list_items(text: str) -> tuple[str, ...]:
     sentence = re.split(r"[.\n]", text.strip(), maxsplit=1)[0]
-    parts = tuple(_normalized_list_item(part) for part in _LIST_ITEM_SPLIT_RE.split(sentence))
+    if ":" in sentence:
+        sentence = sentence.rsplit(":", maxsplit=1)[-1]
+    parts = tuple(
+        _normalized_list_item(part) for part in _LIST_ITEM_SPLIT_RE.split(sentence)
+    )
     unique_parts = tuple(dict.fromkeys(part for part in parts if part))
-    return len(unique_parts) if len(unique_parts) >= 2 else 0
+    return unique_parts if len(unique_parts) >= 2 else ()
 
 
 def _normalized_list_item(value: str) -> str:

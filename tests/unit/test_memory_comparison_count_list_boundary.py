@@ -86,6 +86,7 @@ def test_list_rerank_prefers_multi_item_evidence_over_single_mention() -> None:
         "benchmark_candidate_features"
     ]
     assert candidate_features["list_item_count"] == 3
+    assert candidate_features["list_items"] == ["max", "luna", "pip"]
 
 
 def test_list_rerank_does_not_boost_wrong_list_subject_over_exact_evidence() -> None:
@@ -295,6 +296,7 @@ def test_list_evidence_satisfies_required_bundle_role() -> None:
                             "query_has_entities": True,
                             "source_type": "raw_turn",
                             "list_item_count": 3,
+                            "list_items": ["max", "luna", "pip"],
                         }
                     },
                 },
@@ -306,6 +308,7 @@ def test_list_evidence_satisfies_required_bundle_role() -> None:
     assert bundle["satisfied_required_roles"] == ["primary", "list_support"]
     assert bundle["bundle_planner"]["role_counts"] == {"primary": 1}
     assert bundle["items"][0]["list_item_count"] == 3
+    assert bundle["items"][0]["list_items"] == ["max", "luna", "pip"]
 
 
 def test_which_list_evidence_with_possession_satisfies_required_bundle_role() -> None:

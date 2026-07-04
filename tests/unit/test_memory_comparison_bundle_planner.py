@@ -848,6 +848,156 @@ def test_evidence_bundle_planner_requires_grounded_list_answer_unit_support() ->
     }
 
 
+def test_evidence_bundle_planner_keeps_grounded_list_item_coverage() -> None:
+    primary = _candidate(
+        item_id="primary",
+        covered_expected_terms=("crafts",),
+        primary_signal=True,
+        source_refs=("D1:4",),
+        direct_speaker_turn=True,
+        focused_evidence_score=1.0,
+        answerability_score=0.9,
+        source_locality_score=1.0,
+    )
+    first_list = _candidate(
+        item_id="first-list",
+        dedupe_key="refs:D1:5",
+        source_refs=("D1:5",),
+        query_support_terms=("crafts", "names"),
+        list_item_count=2,
+        list_items=("pottery", "bookbinding"),
+        entity_hits=("mia",),
+        speaker_hits=("mia",),
+        query_has_entities=True,
+        direct_speaker_turn=True,
+        answerability_score=0.86,
+        source_locality_score=1.0,
+    )
+    extending_list = _candidate(
+        item_id="extending-list",
+        dedupe_key="refs:D1:6",
+        source_refs=("D1:6",),
+        query_support_terms=("crafts", "names"),
+        list_item_count=2,
+        list_items=("bookbinding", "embroidery"),
+        entity_hits=("mia",),
+        speaker_hits=("mia",),
+        query_has_entities=True,
+        direct_speaker_turn=True,
+        answerability_score=0.84,
+        source_locality_score=1.0,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=3).plan(
+        (primary, first_list, extending_list),
+        case_group="single",
+        required_roles=("primary", "list_support"),
+    )
+
+    assert [item.candidate.item_id for item in plan.items] == [
+        "primary",
+        "first-list",
+        "extending-list",
+    ]
+    assert {
+        item
+        for planned in plan.items
+        for item in planned.to_payload()["list_items"]
+    } == {"pottery", "bookbinding", "embroidery"}
+    assert plan.satisfied_required_roles == ("primary", "list_support")
+
+
+def test_evidence_bundle_planner_drops_duplicate_list_item_only_support() -> None:
+    primary = _candidate(
+        item_id="primary",
+        covered_expected_terms=("crafts",),
+        primary_signal=True,
+        source_refs=("D1:4",),
+        direct_speaker_turn=True,
+        focused_evidence_score=1.0,
+        answerability_score=0.9,
+        source_locality_score=1.0,
+    )
+    complete_list = _candidate(
+        item_id="complete-list",
+        dedupe_key="refs:D1:5",
+        source_refs=("D1:5",),
+        query_support_terms=("crafts", "names"),
+        list_item_count=3,
+        list_items=("pottery", "bookbinding", "embroidery"),
+        entity_hits=("mia",),
+        speaker_hits=("mia",),
+        query_has_entities=True,
+        direct_speaker_turn=True,
+        answerability_score=0.86,
+        source_locality_score=1.0,
+    )
+    duplicate_list = _candidate(
+        item_id="duplicate-list",
+        dedupe_key="refs:D1:6",
+        source_refs=("D1:6",),
+        query_support_terms=("crafts", "names"),
+        list_item_count=2,
+        list_items=("bookbinding", "embroidery"),
+        entity_hits=("mia",),
+        speaker_hits=("mia",),
+        query_has_entities=True,
+        direct_speaker_turn=True,
+        answerability_score=0.84,
+        source_locality_score=1.0,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=3).plan(
+        (primary, complete_list, duplicate_list),
+        case_group="single",
+        required_roles=("primary", "list_support"),
+    )
+
+    assert [item.candidate.item_id for item in plan.items] == [
+        "primary",
+        "complete-list",
+    ]
+
+
+def test_evidence_bundle_planner_rejects_unrelated_list_items() -> None:
+    primary = _candidate(
+        item_id="primary",
+        covered_expected_terms=("crafts",),
+        primary_signal=True,
+        source_refs=("D1:4",),
+        direct_speaker_turn=True,
+        focused_evidence_score=1.0,
+        answerability_score=0.9,
+        source_locality_score=1.0,
+    )
+    unrelated_same_topic = _candidate(
+        item_id="unrelated-list",
+        dedupe_key="refs:D8:10",
+        source_refs=("D8:10",),
+        query_support_terms=("crafts", "names"),
+        list_item_count=2,
+        list_items=("knitting", "weaving"),
+        query_has_entities=True,
+        answerability_score=0.85,
+        source_locality_score=1.0,
+    )
+
+    plan = EvidenceBundlePlanner().plan(
+        (primary, unrelated_same_topic),
+        case_group="single",
+        required_roles=("primary", "list_support"),
+    )
+
+    assert plan.satisfied_required_roles == ("primary",)
+    assert plan.missing_required_roles == ("list_support",)
+    assert {
+        item.candidate.item_id: item.role for item in plan.items
+    } == {
+        "primary": "primary",
+        "unrelated-list": "supporting",
+    }
+
+
 def test_evidence_bundle_planner_rejects_broad_location_support_role() -> None:
     primary = _candidate(
         item_id="primary",
@@ -3444,6 +3594,7 @@ def test_evidence_bundle_quality_penalizes_missing_required_roles() -> None:
     supporting = _candidate(
         item_id="supporting",
         dedupe_key="refs:D1:2",
+        covered_evidence_terms=("D1:2",),
         query_support_terms=("career", "plan"),
         source_refs=("D1:2",),
         source_type="chunk",
@@ -3493,6 +3644,84 @@ def test_evidence_bundle_planner_reports_low_confidence_broad_bundle() -> None:
     assert "risk:low_answerability" in quality["reason_codes"]
     assert "risk:broad_summary" in quality["reason_codes"]
     assert "risk:all_broad_summary" in quality["reason_codes"]
+
+
+def test_evidence_bundle_quality_penalizes_generic_measured_answerability() -> None:
+    generic_primary = _candidate(
+        item_id="generic-primary",
+        query_support_terms=("caroline", "agency", "support"),
+        primary_signal=True,
+        source_refs=("D1:4",),
+        source_type="chunk",
+        answerability_score=0.9,
+    )
+    generic_support = _candidate(
+        item_id="generic-support",
+        dedupe_key="refs:D1:5",
+        query_support_terms=("adoption", "family", "decision"),
+        source_refs=("D1:5",),
+        source_type="chunk",
+        answerability_score=0.82,
+    )
+
+    plan = EvidenceBundlePlanner().plan(
+        (generic_primary, generic_support),
+        case_group="single",
+    )
+
+    quality = plan.to_diagnostics()["bundle_quality"]
+    assert quality["generic_measured_answerability_count"] == 2
+    assert quality["low_answerability_count"] == 0
+    assert quality["source_ref_support_item_count"] == 0
+    assert quality["risk_penalty"] == 0.22
+    assert quality["confidence_band"] == "low"
+    assert "high_answerability" in quality["reason_codes"]
+    assert "risk:generic_measured_answerability" in quality["reason_codes"]
+    assert "risk:all_generic_measured_answerability" in quality["reason_codes"]
+
+
+def test_evidence_bundle_quality_keeps_grounded_measured_answerability() -> None:
+    grounded_primary = _candidate(
+        item_id="grounded-primary",
+        covered_evidence_terms=("D1:4",),
+        query_support_terms=("caroline", "agency", "support"),
+        primary_signal=True,
+        source_refs=("D1:4",),
+        source_type="raw_turn",
+        retrieval_sources=("raw_turns",),
+        focused_evidence_score=1.0,
+        direct_speaker_turn=True,
+        relation_hits=("choose", "agency", "support"),
+        entity_hits=("caroline",),
+        query_has_entities=True,
+        answerability_score=0.9,
+    )
+    grounded_support = _candidate(
+        item_id="grounded-support",
+        dedupe_key="refs:D1:5",
+        query_support_terms=("family", "decision"),
+        source_refs=("D1:5",),
+        source_type="chunk",
+        retrieval_sources=("semantic_chunks",),
+        focused_evidence_score=1.0,
+        relation_hits=("family", "support"),
+        entity_hits=("caroline",),
+        query_has_entities=True,
+        answerability_score=0.82,
+    )
+
+    plan = EvidenceBundlePlanner().plan(
+        (grounded_primary, grounded_support),
+        case_group="single",
+    )
+
+    quality = plan.to_diagnostics()["bundle_quality"]
+    assert quality["generic_measured_answerability_count"] == 0
+    assert quality["risk_penalty"] == 0.0
+    assert quality["source_ref_support_item_count"] == 2
+    assert quality["confidence_band"] == "high"
+    assert "risk:generic_measured_answerability" not in quality["reason_codes"]
+    assert "risk:all_generic_measured_answerability" not in quality["reason_codes"]
 
 
 def test_evidence_bundle_quality_does_not_penalize_unmeasured_answerability() -> None:
@@ -3955,6 +4184,7 @@ def _candidate(
     covered_answer_unit_shapes: tuple[str, ...] = (),
     exact_count_evidence: bool = False,
     list_item_count: int = 0,
+    list_items: tuple[str, ...] = (),
 ) -> EvidenceBundleCandidate:
     return EvidenceBundleCandidate(
         rank=rank,
@@ -4003,4 +4233,5 @@ def _candidate(
         covered_answer_unit_shapes=covered_answer_unit_shapes,
         exact_count_evidence=exact_count_evidence,
         list_item_count=list_item_count,
+        list_items=list_items,
     )

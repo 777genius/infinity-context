@@ -24,6 +24,11 @@ class _OwnerObjectQuery:
     object_term: str
 
 
+@dataclass(frozen=True)
+class _PronounObjectRelation:
+    antecedent_labels: tuple[str, ...]
+
+
 _LABEL_RE = (
     r"[A-ZА-ЯЁ][A-Za-zА-Яа-яЁё._-]{1,39}"
     r"(?:\s+[A-ZА-ЯЁ][A-Za-zА-Яа-яЁё._-]{1,39}){0,2}"
@@ -66,6 +71,8 @@ _QUERY_LABEL_STOP_WORDS = frozenset(
         "does",
         "has",
         "have",
+        "her",
+        "his",
         "what",
         "when",
         "where",
@@ -73,6 +80,7 @@ _QUERY_LABEL_STOP_WORDS = frozenset(
         "who",
         "whose",
         "why",
+        "their",
     }
 )
 _OBJECT_NORMALIZATIONS = {
@@ -91,7 +99,7 @@ _OBJECT_NORMALIZATIONS = {
     "tickets": "ticket",
 }
 _SELF_POSSESSIVE_RE = re.compile(r"\b(?:my|our)\b", re.IGNORECASE)
-_THIRD_PERSON_POSSESSIVE_RE = re.compile(r"\b(?:her|his|their)\b", re.IGNORECASE)
+_THIRD_PERSON_POSSESSIVE_OBJECT_RE = r"\b(?P<pronoun>her|his|their)\s+(?:\w+\s+){0,3}"
 _OWNER_RELATION_RE = re.compile(
     r"\b(?:has|have|had|owns?|owned|uses?|used|keeps?|kept|got|adopt(?:ed|s)?|"
     r"named|called|taking|took|attends?|attended|work(?:s|ed|ing)?\s+on|"
@@ -183,6 +191,12 @@ def _text_has_other_owner_object(
             return True
         if _has_other_named_possessive(sentence, owner_query.owner_label, object_pattern):
             return True
+        if _has_other_pronoun_object_relation(
+            sentence,
+            owner_query=owner_query,
+            object_pattern=object_pattern,
+        ):
+            return True
     return False
 
 
@@ -210,13 +224,21 @@ def _has_named_owner_object_relation(
         re.IGNORECASE,
     ):
         return True
-    if re.search(
-        rf"{owner_pattern}\b(?=.{{0,120}}{object_pattern.pattern})"
-        rf"(?=.{{0,120}}{_THIRD_PERSON_POSSESSIVE_RE.pattern})",
+    if _has_owner_pronoun_object_relation(
         sentence,
-        re.IGNORECASE | re.DOTALL,
+        owner_query=owner_query,
+        object_pattern=object_pattern,
     ):
         return True
+    if (
+        _has_other_named_possessive(sentence, owner_query.owner_label, object_pattern)
+        or _has_other_pronoun_object_relation(
+            sentence,
+            owner_query=owner_query,
+            object_pattern=object_pattern,
+        )
+    ):
+        return False
     return bool(
         re.search(
             rf"{owner_pattern}\b(?=.{{0,120}}{object_pattern.pattern})"
@@ -225,6 +247,80 @@ def _has_named_owner_object_relation(
             re.IGNORECASE | re.DOTALL,
         )
     )
+
+
+def _has_owner_pronoun_object_relation(
+    sentence: str,
+    *,
+    owner_query: _OwnerObjectQuery,
+    object_pattern: re.Pattern[str],
+) -> bool:
+    for relation in _pronoun_object_relations(sentence, object_pattern):
+        if any(
+            person_labels_match(label, owner_query.owner_label)
+            for label in relation.antecedent_labels
+        ):
+            return True
+    return False
+
+
+def _has_other_pronoun_object_relation(
+    sentence: str,
+    *,
+    owner_query: _OwnerObjectQuery,
+    object_pattern: re.Pattern[str],
+) -> bool:
+    for relation in _pronoun_object_relations(sentence, object_pattern):
+        if relation.antecedent_labels and not any(
+            person_labels_match(label, owner_query.owner_label)
+            for label in relation.antecedent_labels
+        ):
+            return True
+    return False
+
+
+def _pronoun_object_relations(
+    sentence: str,
+    object_pattern: re.Pattern[str],
+) -> tuple[_PronounObjectRelation, ...]:
+    relations: list[_PronounObjectRelation] = []
+    mention_pattern = re.compile(
+        rf"{_THIRD_PERSON_POSSESSIVE_OBJECT_RE}{object_pattern.pattern}",
+        re.IGNORECASE,
+    )
+    for match in mention_pattern.finditer(sentence):
+        pronoun = match.group("pronoun").casefold()
+        labels = _nearby_pronoun_antecedent_labels(sentence, match.start(), pronoun)
+        if labels:
+            relations.append(_PronounObjectRelation(antecedent_labels=labels))
+    return tuple(relations)
+
+
+def _nearby_pronoun_antecedent_labels(
+    sentence: str,
+    pronoun_start: int,
+    pronoun: str,
+) -> tuple[str, ...]:
+    labels = _preceding_non_speaker_labels(sentence, pronoun_start)
+    if not labels:
+        return ()
+    if pronoun == "their":
+        return labels[-2:]
+    return (labels[-1],)
+
+
+def _preceding_non_speaker_labels(sentence: str, end: int) -> tuple[str, ...]:
+    labels: list[str] = []
+    prefix = sentence[:end]
+    for label_match in _LABEL_TOKEN_RE.finditer(prefix):
+        label = _clean_label(label_match.group(0))
+        if not label or label.casefold() in _QUERY_LABEL_STOP_WORDS:
+            continue
+        tail = prefix[label_match.end() : label_match.end() + 1]
+        if tail == ":":
+            continue
+        labels.append(label)
+    return tuple(labels)
 
 
 def _has_self_object_relation(sentence: str, object_pattern: re.Pattern[str]) -> bool:
@@ -266,6 +362,8 @@ def _has_other_named_possessive(
 ) -> bool:
     for label_match in _LABEL_TOKEN_RE.finditer(sentence):
         label = label_match.group(0)
+        if label.casefold() in _QUERY_LABEL_STOP_WORDS:
+            continue
         if person_labels_match(label, owner_label):
             continue
         label_end = label_match.end()

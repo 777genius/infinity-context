@@ -142,6 +142,7 @@ class EvidenceBundleCandidate:
     covered_answer_unit_shapes: tuple[str, ...] = ()
     exact_count_evidence: bool = False
     list_item_count: int = 0
+    list_items: tuple[str, ...] = ()
     entity_hits: tuple[str, ...] = ()
     speaker_hits: tuple[str, ...] = ()
     query_has_entities: bool = False
@@ -195,6 +196,7 @@ class PlannedEvidenceItem:
             ),
             "exact_count_evidence": self.candidate.exact_count_evidence,
             "list_item_count": self.candidate.list_item_count,
+            "list_items": list(self.candidate.list_items),
             "source_locality_score": round(self.candidate.source_locality_score, 6),
             "negation_surface": self.candidate.negation_surface,
             "currentness_surface": self.candidate.currentness_surface,
@@ -545,6 +547,7 @@ class EvidenceBundlePlanner:
         selected_source_ref_keys: set[str] = set()
         covered_terms: set[str] = set()
         covered_support_terms: set[str] = set()
+        covered_list_items: set[str] = set()
         dropped_diversity_count = 0
         dropped_source_type_diversity_count = 0
         dropped_retrieval_source_diversity_count = 0
@@ -559,6 +562,7 @@ class EvidenceBundlePlanner:
                     item,
                     covered_terms=covered_terms,
                     covered_support_terms=covered_support_terms,
+                    covered_list_items=covered_list_items,
                     selected=selected,
                 )
             )
@@ -573,6 +577,10 @@ class EvidenceBundlePlanner:
                 item.candidate.query_support_terms
             ).issubset(covered_support_terms)
             adds_answer_support = adds_required_terms or adds_query_support_terms
+            adds_list_items = bool(
+                _candidate_list_items(item.candidate).difference(covered_list_items)
+            )
+            adds_answer_support = adds_answer_support or adds_list_items
             source_ref_overlap_full = bool(source_ref_keys) and set(
                 source_ref_keys
             ).issubset(selected_source_ref_keys)
@@ -583,6 +591,13 @@ class EvidenceBundlePlanner:
                 source_ref_overlap_any
                 and _candidate_has_noisy_source_overlap_risk(item.candidate)
                 and not adds_required_terms
+            )
+            redundant_list_items = (
+                item.role in {"count_support", "list_support", "supporting"}
+                and bool(_candidate_list_items(item.candidate))
+                and not adds_list_items
+                and not adds_required_terms
+                and not adds_query_support_terms
             )
             redundant_source_window = is_redundant_source_window_filler(
                 item,
@@ -607,19 +622,27 @@ class EvidenceBundlePlanner:
                 for source in retrieval_source_keys
             )
             diversity_exempt = item.role in _DIVERSITY_EXEMPT_ROLES
-            if (
-                not diversity_exempt
-                and source_type_diversity_full
-                and not adds_answer_support
-            ) or (
-                not diversity_exempt
-                and retrieval_source_diversity_full
-                and not adds_answer_support
-            ) or (
-                source_ref_overlap_full
-                and not adds_required_terms
-                and not adds_query_support_terms
-            ) or noisy_source_overlap or redundant_source_window:
+            should_drop = (
+                (
+                    not diversity_exempt
+                    and source_type_diversity_full
+                    and not adds_answer_support
+                )
+                or (
+                    not diversity_exempt
+                    and retrieval_source_diversity_full
+                    and not adds_answer_support
+                )
+                or (
+                    source_ref_overlap_full
+                    and not adds_required_terms
+                    and not adds_query_support_terms
+                )
+                or noisy_source_overlap
+                or redundant_source_window
+                or redundant_list_items
+            )
+            if should_drop:
                 dropped_diversity_count += 1
                 if source_type_diversity_full and not diversity_exempt:
                     dropped_source_type_diversity_count += 1
@@ -649,6 +672,7 @@ class EvidenceBundlePlanner:
             selected_source_ref_keys.update(source_ref_keys)
             covered_terms.update(item.candidate.required_terms)
             covered_support_terms.update(item.candidate.query_support_terms)
+            covered_list_items.update(_candidate_list_items(item.candidate))
         if remaining:
             (
                 max_dropped_count,
@@ -1423,6 +1447,12 @@ def _candidate_has_list_support(candidate: EvidenceBundleCandidate) -> bool:
     return candidate.list_item_count >= 2
 
 
+def _candidate_list_items(candidate: EvidenceBundleCandidate) -> frozenset[str]:
+    return frozenset(
+        item.strip().casefold() for item in candidate.list_items if item.strip()
+    )
+
+
 def _candidate_has_answer_unit_support_grounding(
     candidate: EvidenceBundleCandidate,
 ) -> bool:
@@ -2018,15 +2048,20 @@ def _planned_coverage_sort_key(
     *,
     covered_terms: set[str],
     covered_support_terms: set[str],
+    covered_list_items: set[str] | None = None,
     selected: Sequence[PlannedEvidenceItem] = (),
 ) -> tuple[float, ...]:
     required_gain = len(item.candidate.required_terms.difference(covered_terms))
     support_gain = len(
         set(item.candidate.query_support_terms).difference(covered_support_terms)
     )
+    list_item_gain = len(
+        _candidate_list_items(item.candidate).difference(covered_list_items or set())
+    )
     return (
         _role_order(item),
         -float(required_gain),
+        -float(list_item_gain),
         *_source_overlap_selection_sort_key(item, selected),
         *_source_ref_compactness_selection_sort_key(item),
         float(_answer_evidence_sort_bucket(item.candidate)),
@@ -2275,6 +2310,7 @@ def _bundle_quality_diagnostics(
             "source_type_support_diversity": 0,
             "retrieval_source_support_diversity": 0,
             "low_answerability_count": 0,
+            "generic_measured_answerability_count": 0,
             "measured_answerability_count": 0,
             "unmeasured_answerability_count": 0,
             "average_measured_answerability_score": 0.0,
@@ -2383,6 +2419,11 @@ def _bundle_quality_diagnostics(
     max_answerability = max(answerability_scores)
     low_answerability_count = sum(
         _is_measured_low_answerability(score) for score in answerability_scores
+    )
+    generic_measured_answerability_count = sum(
+        1
+        for item in items
+        if _candidate_has_generic_measured_answerability(item.candidate)
     )
     unmeasured_answerability_count = sum(
         1 for score in answerability_scores if score <= 0
@@ -2554,9 +2595,15 @@ def _bundle_quality_diagnostics(
     risk_penalty = min(
         0.48,
         (0.08 * low_answerability_count)
+        + (0.07 * generic_measured_answerability_count)
         + (0.05 * broad_summary_count)
         + (0.04 * diffuse_source_ref_count)
         + (0.08 * conflict_or_stale_count)
+        + (
+            0.08
+            if generic_measured_answerability_count == len(items)
+            else 0.0
+        )
         + (0.08 if broad_summary_count == len(items) else 0.0)
         + (0.08 if conflict_or_stale_count == len(items) else 0.0)
         + min(0.3, 0.18 * len(missing_roles)),
@@ -2588,6 +2635,9 @@ def _bundle_quality_diagnostics(
             retrieval_source_support_diversity=len(retrieval_source_supports),
             max_answerability=max_answerability,
             low_answerability_count=low_answerability_count,
+            generic_measured_answerability_count=(
+                generic_measured_answerability_count
+            ),
             bridge_count=bridge_count,
             distinct_person_grounding_count=distinct_person_grounding_count,
             causal_support_count=causal_support_count,
@@ -2645,6 +2695,9 @@ def _bundle_quality_diagnostics(
         ),
         "max_answerability_score": round(max_answerability, 6),
         "low_answerability_count": low_answerability_count,
+        "generic_measured_answerability_count": (
+            generic_measured_answerability_count
+        ),
         "measured_answerability_count": len(measured_answerability_scores),
         "unmeasured_answerability_count": unmeasured_answerability_count,
         "average_measured_source_locality_score": round(
@@ -2840,6 +2893,16 @@ def _candidate_has_source_identity_quality_support(
     return _candidate_has_source_identity_grounding(candidate)
 
 
+def _candidate_has_generic_measured_answerability(
+    candidate: EvidenceBundleCandidate,
+) -> bool:
+    if _is_measured_low_answerability(candidate.answerability_score):
+        return False
+    if candidate.answerability_score <= 0:
+        return False
+    return not _candidate_has_source_identity_grounding(candidate)
+
+
 def _candidate_has_source_identity_grounding(
     candidate: EvidenceBundleCandidate,
 ) -> bool:
@@ -2966,6 +3029,7 @@ def _bundle_quality_reason_codes(
     retrieval_source_support_diversity: int,
     max_answerability: float,
     low_answerability_count: int,
+    generic_measured_answerability_count: int,
     bridge_count: int,
     distinct_person_grounding_count: int,
     causal_support_count: int,
@@ -3019,6 +3083,13 @@ def _bundle_quality_reason_codes(
         reasons.append("medium_answerability")
     if low_answerability_count:
         reasons.append("risk:low_answerability")
+    if generic_measured_answerability_count:
+        reasons.append("risk:generic_measured_answerability")
+    if (
+        selected_item_count
+        and generic_measured_answerability_count == selected_item_count
+    ):
+        reasons.append("risk:all_generic_measured_answerability")
     if bridge_count:
         reasons.append("has_bridge_evidence")
     if distinct_person_grounding_count >= 2:

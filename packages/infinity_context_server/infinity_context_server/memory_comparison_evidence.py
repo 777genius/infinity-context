@@ -224,6 +224,7 @@ def evidence_bundle(
                 ),
                 exact_count_evidence=_bool_value(features.get("exact_count_evidence")),
                 list_item_count=_int_value(features.get("list_item_count")),
+                list_items=_string_sequence(features.get("list_items")),
                 entity_hits=_string_sequence(features.get("entity_hits")),
                 speaker_hits=_string_sequence(features.get("speaker_hits")),
                 query_has_entities=_bool_value(features.get("query_has_entities")),

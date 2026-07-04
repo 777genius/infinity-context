@@ -225,7 +225,19 @@ _CHANGE_TERMS = frozenset(
         "поменялось",
     }
 )
-_AFTER_TERMS = frozenset({"after", "following", "later", "после", "позже", "затем"})
+_AFTER_TERMS = frozenset(
+    {
+        "after",
+        "afterward",
+        "afterwards",
+        "following",
+        "later",
+        "subsequently",
+        "после",
+        "позже",
+        "затем",
+    }
+)
 _BEFORE_TERMS = frozenset({"before", "earlier", "prior", "до", "перед", "раньше"})
 _DURING_TERMS = frozenset({"during", "while"})
 _EVENT_SEQUENCE_CONTEXT_TERMS = frozenset(
@@ -242,6 +254,8 @@ _EVENT_SEQUENCE_CONTEXT_TERMS = frozenset(
         "messaged",
         "messaging",
         "meetup",
+        "event",
+        "events",
         "review",
         "roadtrip",
         "speak",
@@ -326,9 +340,25 @@ _SINCE_EVENT_RE = re.compile(
     r"\b(?:с\s+момента|сразу\s+после|прямо\s+после)\b",
     re.IGNORECASE,
 )
+_AFTER_EVENT_RE = re.compile(
+    r"\b(?:since|right\s+after|immediately\s+after|shortly\s+after|after|following)\b|"
+    r"\b(?:с\s+момента|сразу\s+после|прямо\s+после|после)\b",
+    re.IGNORECASE,
+)
+_POST_EVENT_RE = re.compile(
+    r"\b(?:afterward|afterwards|later|subsequently)\b|"
+    r"\b(?:затем|позже)\b",
+    re.IGNORECASE,
+)
 _UNTIL_EVENT_RE = re.compile(
     r"\b(?:until|up\s+to|right\s+before|immediately\s+before|shortly\s+before)\b|"
     r"\b(?:вплоть\s+до|сразу\s+до|прямо\s+перед)\b",
+    re.IGNORECASE,
+)
+_BEFORE_EVENT_RE = re.compile(
+    r"\b(?:until|up\s+to|right\s+before|immediately\s+before|shortly\s+before|"
+    r"before|prior\s+to)\b|"
+    r"\b(?:вплоть\s+до|сразу\s+до|прямо\s+перед|перед|раньше|до)\b",
     re.IGNORECASE,
 )
 _DURING_EVENT_RE = re.compile(
@@ -914,16 +944,34 @@ def _event_sequence_direction_boost(*, intent: TemporalQueryIntent, text: str) -
         intent,
     )
     has_same_event = _event_sequence_terms_match(text, intent.event_sequence_terms)
+    has_after_ordered_event = _event_sequence_direction_matches_event(
+        text,
+        event_terms=intent.event_sequence_terms,
+        direction="after",
+        fallback=has_after and has_same_event,
+    )
+    has_before_ordered_event = _event_sequence_direction_matches_event(
+        text,
+        event_terms=intent.event_sequence_terms,
+        direction="before",
+        fallback=has_before and has_same_event,
+    )
     if intent.after_event:
-        if has_after and has_same_event:
+        if has_after_ordered_event:
             return 0.026
-        if has_before and has_same_event and not intent.requests_change:
+        if has_before_ordered_event and not intent.requests_change:
             return -0.024
     if intent.before_event:
-        if has_before and has_same_event:
+        if has_before_ordered_event:
             return 0.026
-        if has_after and has_same_event and not intent.requests_change:
+        if has_after_ordered_event and not intent.requests_change:
             return -0.024
+    if (
+        has_same_event
+        and intent.event_sequence_terms
+        and _has_event_sequence_boundary_surface(text)
+    ):
+        return -0.012
     return 0.0
 
 
@@ -964,12 +1012,19 @@ def _event_sequence_direction_reason(*, intent: TemporalQueryIntent, boost: floa
     direction = "after" if intent.after_event else "before"
     if boost > 0:
         return f"query asks for {direction}-event sequence and item matches direction"
+    if boost == -0.012:
+        return (
+            f"query asks for {direction}-event sequence and item only matches "
+            "the event boundary"
+        )
     return f"query asks for {direction}-event sequence and item conflicts with direction"
 
 
 def _event_sequence_direction_code(*, intent: TemporalQueryIntent, boost: float) -> str:
     direction = "after" if intent.after_event else "before"
     suffix = "match" if boost > 0 else "conflict"
+    if boost == -0.012:
+        suffix = "unordered_boundary"
     return f"{direction}_event_sequence_{suffix}"
 
 
@@ -1009,6 +1064,62 @@ def _event_sequence_terms_match(text: str, event_terms: tuple[str, ...]) -> bool
         if not variants.intersection(term.variants):
             return False
     return True
+
+
+def _event_sequence_direction_matches_event(
+    text: str,
+    *,
+    event_terms: tuple[str, ...],
+    direction: str,
+    fallback: bool,
+) -> bool:
+    if not fallback:
+        return False
+    if not event_terms:
+        return True
+    if direction == "after":
+        return _event_terms_follow_marker(text, event_terms, _AFTER_EVENT_RE) or (
+            _event_terms_precede_marker(text, event_terms, _POST_EVENT_RE)
+        )
+    return _event_terms_follow_marker(text, event_terms, _BEFORE_EVENT_RE)
+
+
+def _has_event_sequence_boundary_surface(text: str) -> bool:
+    variants = _query_variant_set(text)
+    return bool(variants.intersection(_EVENT_SEQUENCE_CONTEXT_TERMS))
+
+
+def _event_terms_follow_marker(
+    text: str,
+    event_terms: tuple[str, ...],
+    marker_re: re.Pattern[str],
+) -> bool:
+    for match in marker_re.finditer(text):
+        span = _marker_clause_span(text, match=match, max_chars=140)
+        if _event_sequence_terms_match(span, event_terms):
+            return True
+    return False
+
+
+def _event_terms_precede_marker(
+    text: str,
+    event_terms: tuple[str, ...],
+    marker_re: re.Pattern[str],
+) -> bool:
+    for match in marker_re.finditer(text):
+        span = text[max(0, match.start() - 140) : match.end()]
+        if _event_sequence_terms_match(span, event_terms):
+            return True
+    return False
+
+
+def _marker_clause_span(text: str, *, match: re.Match[str], max_chars: int) -> str:
+    span_end = min(len(text), match.end() + max_chars)
+    marker_tail = text[match.end() : span_end]
+    delimiter_match = re.search(r"[,.;:!?\n]", marker_tail)
+    if delimiter_match is not None:
+        span_end = match.end() + delimiter_match.start() + 1
+    return text[match.start() : span_end]
 
 
 def _has_after_event_context(text: str, variants: frozenset[str]) -> bool:
