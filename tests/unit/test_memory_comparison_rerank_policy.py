@@ -1798,6 +1798,56 @@ def test_rerank_policy_does_not_cap_exact_count_by_adjacent_missing_roles() -> N
     assert score.boost == 0.46
 
 
+def test_rerank_policy_boosts_source_grounded_answer_context() -> None:
+    score = score_benchmark_rerank_candidate(
+        _features(
+            overlap_terms=("alex", "denver"),
+            entity_hits=("alex",),
+            relation_hits=("mentioned", "move"),
+            relation_terms=("mention", "move"),
+            query_has_entities=True,
+            source_grounding_query=True,
+            direct_speaker_turn=True,
+            source_locality_score=1.0,
+            source_ref_count=1,
+            turn_ref_count=1,
+        )
+    )
+
+    signals = score.signals["score_signals"]
+
+    assert signals["benchmark_source_grounding_query"] is True
+    assert signals["benchmark_source_grounding_evidence"] is True
+    assert signals["benchmark_source_grounding_boost"] == 0.11
+    assert score.boost >= 0.28
+
+
+def test_rerank_policy_caps_plausible_answer_without_requested_source_grounding() -> None:
+    score = score_benchmark_rerank_candidate(
+        _features(
+            overlap_terms=("alex", "denver"),
+            entity_hits=("alex",),
+            relation_hits=("move",),
+            relation_terms=("move",),
+            query_has_entities=True,
+            source_grounding_query=True,
+            direct_speaker_turn=False,
+            source_locality_score=0.0,
+            source_ref_count=0,
+            turn_ref_count=0,
+        )
+    )
+
+    signals = score.signals["score_signals"]
+
+    assert signals["benchmark_source_grounding_evidence"] is False
+    assert signals["benchmark_source_grounding_ungrounded_penalty"] == -0.08
+    assert signals["benchmark_effective_boost_cap"] == 0.18
+    assert "missing_source_grounding_cap" in signals[
+        "benchmark_provenance_safety_reason_codes"
+    ]
+
+
 def _features(**overrides: object) -> BenchmarkRerankFeatures:
     values = {
         "overlap_terms": (),

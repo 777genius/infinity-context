@@ -94,6 +94,7 @@ from infinity_context_core.application.context_polarity_rerank import (
     absence_contrast_signal,
     absence_negation_signal,
     negative_preference_signal,
+    schedule_change_signal,
     status_polarity_signal,
 )
 from infinity_context_core.application.context_possession_source import (
@@ -145,11 +146,17 @@ from infinity_context_core.application.context_relevance import (
 from infinity_context_core.application.context_requirement_coverage import (
     context_requirement_coverage,
 )
+from infinity_context_core.application.context_source_grounding import (
+    source_grounding_signal,
+)
 from infinity_context_core.application.context_speaker_attribution import (
     speaker_attribution_signal,
 )
 from infinity_context_core.application.context_speaker_disambiguation import (
     apply_attributed_speaker_exact_name_disambiguation,
+)
+from infinity_context_core.application.context_temporal_answer_grounding import (
+    temporal_answer_grounding,
 )
 from infinity_context_core.application.context_temporal_metadata import (
     temporal_hint_code_from_metadata,
@@ -409,28 +416,14 @@ _EVENT_PARTICIPATION_QUERY_RE = re.compile(
 )
 _EVENT_TERM_QUERY_RE = re.compile(r"\b(events?|parade|conference|group|program)\b", re.IGNORECASE)
 _TEMPORAL_ANSWER_QUERY_RE = re.compile(
-    r"\b(?:when|what\s+date|what\s+day|which\s+day|how\s+long)\b|"
+    r"\b(?:when|what\s+date|which\s+date|what\s+day|which\s+day|"
+    r"what\s+month|which\s+month|what\s+time|which\s+time|exact\s+time|"
+    r"how\s+long)\b|"
+    r"\b(?:before|after)\b|"
+    r"\b(?:next|last|previous|prior)\s+"
+    r"(?:time|day|week|month|year|night|weekend|meeting|call|conversation|"
+    r"chat|session|event)\b|"
     r"\b(?:когда|какая\s+дата|в\s+какой\s+день|какого\s+числа|как\s+долго)\b",
-    re.IGNORECASE,
-)
-_TEMPORAL_ANSWER_EVIDENCE_RE = re.compile(
-    r"\b(?:session_\d+\s+date|date:|today|yesterday|tomorrow|recently|ago|"
-    r"last\s+(?:week|month|year|night|weekend|monday|tuesday|wednesday|thursday|"
-    r"friday|saturday|sunday)|"
-    r"next\s+(?:week|month|year|monday|tuesday|wednesday|thursday|friday|saturday|"
-    r"sunday)|"
-    r"monday|tuesday|wednesday|thursday|friday|saturday|sunday|"
-    r"сегодня|вчера|завтра|неделю\s+назад|месяц\s+назад|год\s+назад|"
-    r"прошл\w+\s+(?:недел\w+|месяц\w+|год\w+|ноч\w+)|"
-    r"следующ\w+\s+(?:недел\w+|месяц\w+|год\w+))\b|"
-    r"\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}[./]\d{1,2}[./]\d{2,4}\b|"
-    r"\b\d{1,2}:\d{2}(?::\d{2})?\s*(?:am|pm)?\b|"
-    r"\b\d{1,2}\s+(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|"
-    r"jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|"
-    r"nov(?:ember)?|dec(?:ember)?)(?:,?\s+\d{2,4})?\b|"
-    r"\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"
-    r"jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|"
-    r"dec(?:ember)?)\s+\d{1,2}(?:,?\s+\d{2,4})?\b",
     re.IGNORECASE,
 )
 _MISSED_EVENT_TEXT_RE = re.compile(r"\bmissed\s+(?:it|the|that)?\b", re.IGNORECASE)
@@ -2049,10 +2042,24 @@ def _deterministic_rerank_signals(
     if speaker_penalty > 0:
         penalty += speaker_penalty
         reasons.append(speaker_reason)
+    source_grounding_boost, source_grounding_penalty, source_grounding_reason = (
+        source_grounding_signal(
+            query=query,
+            text=item.text,
+            source_refs=item.source_refs,
+        )
+    )
+    if source_grounding_boost > 0:
+        boost += source_grounding_boost
+        reasons.append(source_grounding_reason)
+    if source_grounding_penalty > 0:
+        penalty += source_grounding_penalty
+        reasons.append(source_grounding_reason)
     if (
         answer_shape_boost > 0
         and owner_penalty <= 0
         and speaker_penalty <= 0
+        and source_grounding_penalty <= 0
         and not anchor_conflict
     ):
         boost += answer_shape_boost
@@ -2111,6 +2118,16 @@ def _deterministic_rerank_signals(
     if absence_penalty > 0:
         penalty += absence_penalty
         reasons.append(absence_reason)
+    schedule_boost, schedule_penalty, schedule_reason = schedule_change_signal(
+        query=query,
+        text=item.text,
+    )
+    if schedule_boost > 0:
+        boost += schedule_boost
+        reasons.append(schedule_reason)
+    if schedule_penalty > 0:
+        penalty += schedule_penalty
+        reasons.append(schedule_reason)
     named_preference_signal = named_person_preference_signal(
         query=query,
         text=item.text,
@@ -3187,8 +3204,11 @@ def _temporal_answer_signal(
         and not _is_item_purchase_temporal_answer_evidence(query_reason=query_reason, item=item)
     ):
         return 0.0, 0.012, "temporal_answer_evidence_missing"
-    if _item_has_temporal_answer_evidence(item):
+    grounding = temporal_answer_grounding(query, item)
+    if grounding.grounded:
         return 0.026, 0.0, "temporal_answer_evidence"
+    if grounding.ungrounded:
+        return 0.0, 0.03, "temporal_answer_ungrounded_evidence"
     return 0.0, 0.012, "temporal_answer_evidence_missing"
 
 
@@ -3200,32 +3220,6 @@ def _is_item_purchase_temporal_answer_evidence(
     if query_reason != "item_purchase_bridge":
         return False
     return has_item_purchase_object_evidence(item.text)
-
-
-def _item_has_temporal_answer_evidence(item: ContextItem) -> bool:
-    diagnostics = normalize_context_diagnostics(item.diagnostics)
-    provenance = safe_diagnostic_mapping(diagnostics.get("provenance"))
-    for metadata in (diagnostics, provenance):
-        if any(
-            metadata.get(key)
-            for key in (
-                "temporal_hint_code",
-                "event_temporal_hint_code",
-                "event_valid_from",
-                "event_valid_to",
-                "valid_from",
-                "valid_to",
-            )
-        ):
-            return True
-    if any(
-        ref.time_start_ms is not None
-        or ref.time_end_ms is not None
-        or _TEMPORAL_ANSWER_EVIDENCE_RE.search(ref.quote_preview or "")
-        for ref in item.source_refs
-    ):
-        return True
-    return bool(_TEMPORAL_ANSWER_EVIDENCE_RE.search(item.text))
 
 
 def _event_participation_mismatch(*, query: str, text: str) -> bool:

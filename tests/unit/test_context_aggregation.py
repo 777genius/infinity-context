@@ -316,6 +316,8 @@ def test_keyword_aggregation_query_kind_handles_inventory_list_queries() -> None
         "Who has Maria met and helped while volunteering?",
         "What martial arts has John done?",
         "Where has Maria made friends?",
+        "List all shelters where Maria volunteers.",
+        "Name both people Maria worked with at the shelter.",
     ]
 
     for query in cases:
@@ -347,10 +349,15 @@ def test_inventory_answer_slots_detect_who_people_list_names() -> None:
         query="Who has Maria met and helped while volunteering?",
         text="D2:1 She met Alex at the shelter.",
     )
+    list_slots = aggregation_answer_slots(
+        query="Name both people Maria worked with at the shelter.",
+        text="D2:1 Maria worked with Alex. D11:10 Maria worked with Priya.",
+    )
 
     assert slots == frozenset({"person:alex", "person:priya"})
     assert support_slots == frozenset()
     assert pronoun_slots == frozenset({"person:alex"})
+    assert list_slots == frozenset({"person:alex", "person:priya"})
 
 
 def test_keyword_aggregation_source_kind_prefers_observation_over_raw_session() -> None:

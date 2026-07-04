@@ -1603,6 +1603,17 @@ def test_source_sibling_answer_evidence_rejects_temporal_query_without_time_sign
     )
 
 
+def test_source_sibling_answer_evidence_rejects_unrelated_temporal_turn() -> None:
+    assert not source_sibling_answer_evidence(
+        expansion_query="When did Melanie go to the museum?",
+        expansion_reason="original_query",
+        text=(
+            "D6:3 Morgan: Yesterday I watched a documentary.\n"
+            "D6:4 Melanie: I took the kids to the museum and they enjoyed it."
+        ),
+    )
+
+
 def test_distant_source_sibling_rank_accepts_generic_list_slot_evidence() -> None:
     seed = _chunk(
         chunk_id="seed",

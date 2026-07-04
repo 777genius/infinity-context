@@ -9,6 +9,9 @@ from dataclasses import replace
 from infinity_context_core.application.context_answer_unit_shapes import (
     requested_answer_unit_shapes as _requested_answer_unit_shapes,
 )
+from infinity_context_core.application.context_source_grounding import (
+    is_source_grounding_query as _is_source_grounding_query,
+)
 
 from infinity_context_server.memory_comparison_candidate_features import (
     build_candidate_evidence_features,
@@ -2129,6 +2132,7 @@ def _query_profile_for_rerank(
         **profile,
         "current_state_query": current_state_query,
         "comparative_option_preference_query": comparative_option_preference,
+        "source_grounding_query": _is_source_grounding_query(case.question),
     }
 
 
@@ -3033,6 +3037,7 @@ def _benchmark_rerank_boost(
                 _string_sequence(profile.get("temporal_terms"))
             ),
             current_state_query=bool(profile.get("current_state_query")),
+            source_grounding_query=bool(profile.get("source_grounding_query")),
         )
     )
     return score.boost, {

@@ -9,6 +9,9 @@ from infinity_context_core.application.context_aggregation_answer_slots import (
     aggregation_answer_slot_count,
     aggregation_answer_slots,
 )
+from infinity_context_core.application.context_aggregation_subject import (
+    aggregation_subject_grounding,
+)
 from infinity_context_core.application.context_diagnostics import (
     safe_diagnostic_mapping,
     safe_score_signals,
@@ -644,6 +647,12 @@ _AGGREGATION_LIST_QUERY_RE = re.compile(
     r"\b(?:what|which|where)\b(?=.{0,80}\b(?:items?|things?|countries|places|"
     r"types?|kinds?|events?|activities|bands?|artists?|shelters?|causes?|people|"
     r"foods?|recipes?|meals?|dishes?|desserts?|baked\s+goods?)\b)|"
+    r"\b(?:list|name|show)\b(?=.{0,100}\b(?:all|both|items?|things?|countries|places|"
+    r"types?|kinds?|events?|activities|bands?|artists?|shelters?|causes?|people|"
+    r"foods?|recipes?|meals?|dishes?|desserts?|baked\s+goods?)\b)|"
+    r"\b(?:all|both)\b(?=.{0,100}\b(?:items?|things?|countries|places|types?|"
+    r"kinds?|events?|activities|bands?|artists?|shelters?|causes?|people|"
+    r"foods?|recipes?|meals?|dishes?|desserts?|baked\s+goods?)\b)|"
     r"\bwho\b(?=.{0,120}\b(?:friends?|people|person|volunteer(?:s|ed|ing)?|"
     r"met|helped|worked\s+with|customers?|clients?|colleagues?|teammates?)\b)|"
     r"\b(?:какие|какой|где|кого|кому)\b",
@@ -739,6 +748,13 @@ _RELATIONSHIP_ORIGIN_WEAK_RE = re.compile(
 _STATE_TRANSITION_PAIR_RE = re.compile(
     r"\b(?:changed|updated|switched|migrated|transitioned|replaced)\b"
     r"(?=.{0,120}\bfrom\b)(?=.{0,160}\bto\b)|"
+    r"\b(?:current|active|latest|selected|chosen|provider|tool|model|plan|"
+    r"policy|source|decision)\b(?=.{0,160}\bnot\b.{0,80}\bbut\b)|"
+    r"\bnot\b(?=.{0,80}\bbut\b)(?=.{0,160}\b(?:current|active|latest|"
+    r"selected|chosen|provider|tool|model|plan|policy|source|decision)\b)|"
+    r"\b(?:cancell?ed|rescheduled|postponed|moved|delayed)\b"
+    r"(?=.{0,140}\b(?:to|for|until|from|after|instead|new|now|current|"
+    r"latest|date|time|day|week|month|meeting|call|demo|event|plan)\b)|"
     r"\bfrom\b(?=.{0,120}\bto\b)(?=.{0,180}\b(?:current|new|active|final|"
     r"replacement|provider|tool|model|plan|policy|source)\b)|"
     r"\b(?:replaced|superseded|took\s+over)\b(?=.{0,120}\b(?:by|with|current|"
@@ -757,7 +773,8 @@ _STATE_TRANSITION_PAIR_RE = re.compile(
 )
 _STATE_TRANSITION_MARKER_RE = re.compile(
     r"\b(?:changed|updated|switched|migrated|transitioned|replaced|superseded|"
-    r"current|active|new|old|previous|stale|deprecated|no\s+longer|now)\b|"
+    r"current|active|new|old|previous|stale|deprecated|no\s+longer|now|"
+    r"cancell?ed|rescheduled|postponed|moved|delayed)\b|"
     r"\b(?:изменил\w*|изменилось|обновил\w*|смени\w*|переш[её]л\w*|"
     r"мигрировал\w*|заменил\w*|заменен\w*|заменён\w*|текущ\w*|"
     r"актуальн\w*|нов\w*|стар\w*|предыдущ\w*|устаревш\w*|теперь|сейчас)\b",
@@ -788,6 +805,19 @@ _CURRENT_STATE_QUERY_RE = re.compile(
     r"\b(?:актуальн\w*|текущ\w*|финальн\w*|окончательн\w*|"
     r"выбранн\w*|рекомендованн\w*)\b",
     re.IGNORECASE,
+)
+_CONTRASTIVE_CORRECTION_RE = re.compile(
+    r"\b(?:provider|tool|model|plan|policy|decision|source|option|choice|"
+    r"date|time|meeting|call|demo|event)\b(?=.{0,160}\bnot\b.{0,80}\bbut\b)|"
+    r"\bnot\b(?=.{0,80}\bbut\b)(?=.{0,160}\b(?:provider|tool|model|plan|"
+    r"policy|decision|source|option|choice|date|time|meeting|call|demo|event)\b)|"
+    r"\b(?:provider|tool|model|plan|policy|decision|source|option|choice|"
+    r"date|time|meeting|call|demo|event)\b(?=.{0,160}\b(?:instead\s+of|"
+    r"rather\s+than)\b)|"
+    r"\b(?:instead\s+of|rather\s+than)\b(?=.{0,160}\b(?:provider|tool|model|"
+    r"plan|policy|decision|source|option|choice|date|time|meeting|call|demo|"
+    r"event)\b)",
+    re.IGNORECASE | re.DOTALL,
 )
 _STALE_STATE_QUERY_RE = re.compile(
     r"\b(?:no\s+longer\s+(?:valid|current|active|used?|using)|not\s+current|"
@@ -1001,6 +1031,12 @@ def aggregation_evidence_rerank_signal(
         return DomainRerankSignal()
     is_list_query = _is_aggregation_list_query(query)
     answer_slot_count = len(aggregation_answer_slots(query=query, text=item.text))
+    if _has_aggregation_subject_mismatch(
+        query=query,
+        item=item,
+        answer_slot_count=answer_slot_count,
+    ):
+        return DomainRerankSignal(penalty=0.072, reason="aggregation_subject_mismatch")
     if answer_slot_count >= 2:
         if is_list_query:
             return DomainRerankSignal(
@@ -2136,7 +2172,10 @@ def has_current_state_correction_evidence(text: str) -> bool:
     has_current_state = _CURRENT_STATE_EXACT_RE.search(text) is not None
     has_stale_context = _STALE_STATE_EXACT_RE.search(text) is not None
     has_transition = _STATE_TRANSITION_PAIR_RE.search(text) is not None
-    return has_current_state and (has_stale_context or has_transition)
+    has_contrastive_correction = _CONTRASTIVE_CORRECTION_RE.search(text) is not None
+    return (has_current_state and (has_stale_context or has_transition)) or (
+        has_contrastive_correction and (has_stale_context or has_transition)
+    )
 
 
 def _is_age_birthday_candidate(*, query_reason: str, item: ContextItem) -> bool:
@@ -2275,6 +2314,34 @@ def _is_aggregation_query(query: str) -> bool:
 
 def _is_aggregation_list_query(query: str) -> bool:
     return _AGGREGATION_LIST_QUERY_RE.search(query) is not None
+
+
+def _has_aggregation_subject_mismatch(
+    *,
+    query: str,
+    item: ContextItem,
+    answer_slot_count: int,
+) -> bool:
+    if not (
+        _is_aggregation_context_item(item)
+        or _AGGREGATION_NUMERIC_ANSWER_RE.search(item.text) is not None
+        or _list_evidence_looks_multi_value(item.text)
+        or answer_slot_count > 0
+    ):
+        return False
+    grounding = aggregation_subject_grounding(query=query, text=item.text)
+    if (
+        grounding.query_person_count
+        and not grounding.matched_person_count
+        and grounding.text_person_count
+    ):
+        return True
+    if answer_slot_count > 0:
+        return False
+    return (
+        grounding.query_subject_term_count > 0
+        and grounding.matched_subject_term_count == 0
+    )
 
 
 def _is_aggregation_context_item(item: ContextItem) -> bool:

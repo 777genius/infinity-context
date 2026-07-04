@@ -126,6 +126,21 @@ _ABSENCE_TEXT_RE = re.compile(
     r"(?:happen|occur|show\s+up)|missed|skipped|sat\s+out)\b",
     re.IGNORECASE,
 )
+_SCHEDULE_CHANGE_QUERY_RE = re.compile(
+    r"\b(?:cancell?ed|rescheduled|postponed|moved|delayed|"
+    r"no\s+longer\s+happening)\b",
+    re.IGNORECASE,
+)
+_SCHEDULE_CHANGE_TEXT_RE = re.compile(
+    r"\b(?:cancell?ed|rescheduled|postponed|moved|delayed|"
+    r"no\s+longer\s+happening|called\s+off|pushed\s+(?:back|out))\b",
+    re.IGNORECASE,
+)
+_SCHEDULE_STILL_ACTIVE_TEXT_RE = re.compile(
+    r"\b(?:still\s+on|still\s+happening|happening\s+as\s+planned|"
+    r"scheduled|planned|on\s+the\s+calendar|set\s+for)\b",
+    re.IGNORECASE,
+)
 _PRESENCE_TEXT_RE = re.compile(
     r"\b(?:included|present|there|available|happened|occurred|showed\s+up|"
     r"attended|went|brought|had|contained|joined|visited|came)\b",
@@ -256,6 +271,16 @@ def absence_negation_signal(*, query: str, text: str) -> tuple[float, float, str
         return 0.0, 0.036, "absence_negation_unrelated_absence"
     if context_matched and _has_positive_action_or_presence(text):
         return 0.0, 0.04, "absence_negation_positive_conflict"
+    return 0.0, 0.0, ""
+
+
+def schedule_change_signal(*, query: str, text: str) -> tuple[float, float, str]:
+    if _SCHEDULE_CHANGE_QUERY_RE.search(query) is None:
+        return 0.0, 0.0, ""
+    if _SCHEDULE_CHANGE_TEXT_RE.search(text) is not None:
+        return 0.04, 0.0, "schedule_change_match"
+    if _SCHEDULE_STILL_ACTIVE_TEXT_RE.search(text) is not None:
+        return 0.0, 0.03, "schedule_change_active_conflict"
     return 0.0, 0.0, ""
 
 

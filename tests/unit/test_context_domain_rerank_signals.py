@@ -796,6 +796,22 @@ def test_aggregation_signal_prefers_multi_evidence_count_context() -> None:
     assert weak_signal.reason == "aggregation_single_evidence_noise"
 
 
+def test_aggregation_signal_penalizes_count_for_different_subject() -> None:
+    wrong_subject = _item(
+        "children_count",
+        text="D6:1 Melanie said she has three children.",
+        query_expansion_reason="beach_count_activity_bridge",
+    )
+
+    signal = aggregation_evidence_rerank_signal(
+        query="How many times has Melanie gone to the beach in 2023?",
+        item=wrong_subject,
+    )
+
+    assert signal.penalty > 0
+    assert signal.reason == "aggregation_subject_mismatch"
+
+
 def test_aggregation_signal_prefers_multi_evidence_list_context() -> None:
     aggregation = _item(
         "shelter_aggregation",
@@ -833,6 +849,28 @@ def test_aggregation_signal_prefers_multi_evidence_list_context() -> None:
     assert incomplete_signal.penalty > 0
     assert incomplete_signal.reason == "aggregation_list_single_evidence_incomplete"
     assert unopposed_signal == type(unopposed_signal)()
+
+
+def test_aggregation_signal_penalizes_list_for_different_named_subject() -> None:
+    wrong_person = _item(
+        "caroline_shelters",
+        text=(
+            "D2:1 Caroline volunteers at the homeless shelter. "
+            "D11:10 Caroline also started volunteering at the dog shelter."
+        ),
+        query_expansion_reason="decomposition_inventory_list",
+        retrieval_source="keyword_aggregation_chunks",
+        source_ref_count=2,
+    )
+
+    signal = aggregation_evidence_rerank_signal(
+        query="List all shelters where Maria volunteers.",
+        item=wrong_person,
+        has_multi_evidence_competitor=True,
+    )
+
+    assert signal.penalty > 0
+    assert signal.reason == "aggregation_subject_mismatch"
 
 
 def test_aggregation_signal_keeps_single_multi_value_list_evidence() -> None:

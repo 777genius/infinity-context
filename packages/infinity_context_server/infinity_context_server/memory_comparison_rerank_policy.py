@@ -63,6 +63,7 @@ class BenchmarkRerankFeatures:
     has_temporal_sequence_surface: bool = False
     temporal_sequence_direction: str = ""
     covered_answer_unit_shapes: tuple[str, ...] = ()
+    source_grounding_query: bool = False
 
 
 @dataclass(frozen=True)
@@ -95,6 +96,10 @@ def score_benchmark_rerank_candidate(
     answerability_boost = _float_signal(
         score_signals,
         "benchmark_answerability_boost",
+    )
+    source_grounding_boost = _float_signal(
+        score_signals,
+        "benchmark_source_grounding_boost",
     )
     speaker_grounding_boost = _float_signal(
         score_signals,
@@ -163,6 +168,7 @@ def score_benchmark_rerank_candidate(
         preference_boost=preference_boost,
         visual_boost=visual_boost,
         answerability_boost=answerability_boost,
+        source_grounding_boost=source_grounding_boost,
         speaker_grounding_boost=speaker_grounding_boost,
         temporal_role_support_boost=temporal_role_support_boost,
         contrast_support_boost=contrast_support_boost,
@@ -257,6 +263,7 @@ def _boost_cap(
     preference_boost: float,
     visual_boost: float,
     answerability_boost: float,
+    source_grounding_boost: float,
     speaker_grounding_boost: float,
     temporal_role_support_boost: float,
     contrast_support_boost: float,
@@ -343,6 +350,8 @@ def _boost_cap(
         return 0.46
     if typed_relation_support_boost > 0:
         return 0.46
+    if source_grounding_boost > 0:
+        return 0.46
     if speaker_grounding_boost > 0:
         return 0.4
     if answerability_boost > 0:
@@ -361,6 +370,7 @@ def _boost_cap(
         or value_answer_shape_boost > 0
         or count_list_answer_shape_boost > 0
         or typed_relation_support_boost > 0
+        or source_grounding_boost > 0
     ):
         return 0.38
     return 0.28
@@ -482,6 +492,11 @@ def _provenance_safety_cap(
             caps.append((cap, f"{reason}_cap"))
     if features.conflict_or_stale and not _has_contrast_grounding(score_signals):
         caps.append((0.22, "unsupported_stale_evidence_cap"))
+    if features.source_grounding_query and not _bool_signal(
+        score_signals,
+        "benchmark_source_grounding_evidence",
+    ):
+        caps.append((0.18, "missing_source_grounding_cap"))
     if not caps:
         return None, ()
     safety_cap = min(cap for cap, _reason in caps)

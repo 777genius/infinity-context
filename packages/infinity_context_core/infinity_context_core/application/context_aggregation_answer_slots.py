@@ -6,7 +6,10 @@ import re
 
 _PERSON_LIST_QUERY_RE = re.compile(
     r"\bwho\b(?=.{0,120}\b(?:friends?|people|person|volunteer(?:s|ed|ing)?|"
-    r"met|helped|worked\s+with|customers?|clients?|colleagues?|teammates?)\b)",
+    r"met|helped|worked\s+with|customers?|clients?|colleagues?|teammates?)\b)|"
+    r"\b(?:list|name|show)\b(?=.{0,120}\b(?:all|both|friends?|people|person|"
+    r"volunteer(?:s|ed|ing)?|met|helped|worked\s+with|customers?|clients?|"
+    r"colleagues?|teammates?)\b)",
     re.IGNORECASE | re.DOTALL,
 )
 _PERSON_NAME_RE = re.compile(

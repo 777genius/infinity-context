@@ -57,6 +57,7 @@ class RerankPolicyFeatures(Protocol):
     query_roles: tuple[str, ...]
     temporal_query_terms: tuple[str, ...]
     current_state_query: bool
+    source_grounding_query: bool
 
 
 _COUNT_LIST_GENERIC_RELATION_TERMS = frozenset(
@@ -494,6 +495,46 @@ class EvidenceBundlePolicy:
                     f"evidence_shape:{key}"
                     for key, value in shape_boosts.items()
                     if value > 0
+                ),
+            ),
+        )
+
+
+class SourceGroundingPolicy:
+    name = "SourceGroundingPolicy"
+
+    def score(self, features: RerankPolicyFeatures) -> RerankPolicyContribution:
+        grounded = _source_grounding_evidence_grounded(features)
+        plausible_ungrounded = _source_grounding_plausible_but_ungrounded(
+            features,
+            grounded=grounded,
+        )
+        evidence_boost = (
+            0.11
+            if features.source_grounding_query and grounded and features.direct_speaker_turn
+            else 0.075
+            if features.source_grounding_query and grounded
+            else 0.0
+        )
+        ungrounded_penalty = -0.08 if plausible_ungrounded else 0.0
+        return RerankPolicyContribution(
+            policy=self.name,
+            score=evidence_boost + ungrounded_penalty,
+            signals={
+                "benchmark_source_grounding_query": features.source_grounding_query,
+                "benchmark_source_grounding_evidence": grounded,
+                "benchmark_source_grounding_boost": round(evidence_boost, 6),
+                "benchmark_source_grounding_ungrounded_penalty": round(
+                    ungrounded_penalty,
+                    6,
+                ),
+            },
+            reason_codes=(
+                *_reason_codes(("source_grounding_evidence", evidence_boost)),
+                *(
+                    ("source_grounding_plausible_ungrounded",)
+                    if ungrounded_penalty < 0
+                    else ()
                 ),
             ),
         )
@@ -997,6 +1038,54 @@ def _visual_evidence_grounded(features: RerankPolicyFeatures) -> bool:
         features.direct_speaker_turn
         or features.source_ref_count > 0
         or features.turn_ref_count > 0
+    )
+
+
+def _source_grounding_evidence_grounded(features: RerankPolicyFeatures) -> bool:
+    if not features.source_grounding_query:
+        return False
+    if features.broad_summary:
+        return False
+    if _has_measured_locality_below(features, 0.65):
+        return False
+    if not (
+        features.direct_speaker_turn
+        or features.turn_ref_count > 0
+        or features.source_ref_count > 0
+    ):
+        return False
+    if features.query_has_entities and not (features.entity_hits or features.speaker_hits):
+        return False
+    return bool(
+        features.speaker_hits
+        or features.relation_hits
+        or features.relation_category_hits
+        or features.covered_answer_unit_shapes
+        or len(features.overlap_terms) >= 2
+    )
+
+
+def _source_grounding_plausible_but_ungrounded(
+    features: RerankPolicyFeatures,
+    *,
+    grounded: bool,
+) -> bool:
+    if not features.source_grounding_query or grounded:
+        return False
+    if features.broad_summary:
+        return True
+    plausible_answer = bool(
+        features.entity_hits
+        or features.speaker_hits
+        or features.relation_hits
+        or len(features.overlap_terms) >= 2
+    )
+    if not plausible_answer:
+        return False
+    return bool(
+        not features.direct_speaker_turn
+        or _has_measured_locality_below(features, 0.65)
+        or (features.source_ref_count == 0 and features.turn_ref_count == 0)
     )
 
 
@@ -1571,6 +1660,7 @@ _DEFAULT_POLICIES: tuple[RerankPolicy, ...] = (
     PreferenceIntentPolicy(),
     FocusedTurnPolicy(),
     EvidenceBundlePolicy(),
+    SourceGroundingPolicy(),
     AnswerabilityPolicy(),
     MultiHopPolicy(),
     ContrastIntentPolicy(),

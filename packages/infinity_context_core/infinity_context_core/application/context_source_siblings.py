@@ -57,6 +57,9 @@ from infinity_context_core.application.context_source_sibling_place_evidence imp
     is_query_destination_source_sibling_anchor,
     is_themed_location_source_sibling_answer_evidence,
 )
+from infinity_context_core.application.context_temporal_answer_grounding import (
+    has_grounded_temporal_text_answer_evidence,
+)
 from infinity_context_core.application.context_travel_hobby_writing_evidence import (
     TRAVEL_HOBBY_WRITING_REASON,
     is_travel_hobby_writing_source_sibling_answer_evidence,
@@ -1825,6 +1828,8 @@ def _is_temporal_source_sibling_strong(*, expansion_query: str, text: str) -> bo
     return (
         _TEMPORAL_QUESTION_SOURCE_SIBLING_QUERY_RE.search(expansion_query) is not None
         and _TEMPORAL_DIRECT_SOURCE_SIBLING_RE.search(text) is not None
+        and _query_person_matches_text(expansion_query=expansion_query, text=text)
+        and has_grounded_temporal_text_answer_evidence(query=expansion_query, text=text)
     )
 
 
