@@ -152,3 +152,64 @@ def test_list_evidence_satisfies_required_bundle_role() -> None:
     assert bundle["satisfied_required_roles"] == ["primary", "list_support"]
     assert bundle["bundle_planner"]["role_counts"] == {"primary": 1}
     assert bundle["items"][0]["list_item_count"] == 3
+
+
+def test_count_list_query_roles_without_cardinality_do_not_complete_roles() -> None:
+    cases = (
+        (
+            PublicBenchmarkCase(
+                benchmark="locomo",
+                case_id="count-role-needs-grounding",
+                question="How many dogs does Mia have?",
+                expected_terms=("three",),
+                metadata={"category": 4},
+            ),
+            "count_support",
+            "count_support",
+        ),
+        (
+            PublicBenchmarkCase(
+                benchmark="locomo",
+                case_id="list-role-needs-grounding",
+                question="What are the names of Mia's dogs?",
+                expected_terms=("Max",),
+                metadata={"category": 4},
+            ),
+            "list_support",
+            "list_support",
+        ),
+    )
+
+    for case, query_role, required_role in cases:
+        generic_role_memory = RetrievedMemory(
+            item_id=f"generic-{query_role}",
+            rank=1,
+            score=0.55,
+            text="D2:3 Mia: I took Max to the dog park after work.",
+            source_refs=("D2:3",),
+            metadata={
+                "item_type": "raw_turn",
+                "diagnostics": {"benchmark_query_roles": [query_role]},
+            },
+        )
+
+        reranked, _diagnostics = benchmark_rerank_memories(
+            case,
+            (generic_role_memory,),
+        )
+        reranked_memory = reranked[0]
+        score_signals = reranked_memory.metadata["diagnostics"]["score_signals"]
+        candidate_features = reranked_memory.metadata["diagnostics"][
+            "benchmark_candidate_features"
+        ]
+        bundle = evidence_bundle(case, (reranked_memory,))
+
+        assert candidate_features["query_roles"] == [query_role]
+        assert candidate_features["exact_count_evidence"] is False
+        assert candidate_features["list_item_count"] == 0
+        assert score_signals["benchmark_count_answer_shape_boost"] == 0
+        assert score_signals["benchmark_list_answer_shape_boost"] == 0
+        assert score_signals["benchmark_count_list_query_role_boost"] == 0
+        assert required_role not in bundle["satisfied_required_roles"]
+        assert required_role in bundle["missing_required_roles"]
+        assert bundle["bundle_complete"] is False
