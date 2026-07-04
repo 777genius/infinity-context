@@ -415,6 +415,7 @@ def fast_gate_metrics(
             query_role_gap_breakdown=query_role_gap_breakdown,
             query_plan_gap_breakdown=query_plan_gap_breakdown,
             source_ref_provenance=source_ref_provenance,
+            answer_context_provenance=answer_context_provenance,
         ),
         "gates": gates,
     }

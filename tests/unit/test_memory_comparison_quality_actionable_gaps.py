@@ -251,6 +251,54 @@ def test_fast_gate_metrics_actionable_summary_explains_query_plan_role_gap() -> 
     assert reason_gap["samples"] == role_gap["samples"]
 
 
+def test_actionable_summary_reports_answer_context_provenance_gap() -> None:
+    bundle = _fast_gate_bundle(
+        1,
+        bundle_quality=_bundle_quality(
+            confidence_score=0.76,
+            confidence_band="high",
+            reason_codes=("has_primary_evidence", "high_answerability"),
+            selected_item_count=1,
+            primary_count=1,
+        ),
+    )
+    bundle["items"][0]["source_refs"] = ["D1:1"]
+    item = _item(
+        case_id="prompt-provenance-gap",
+        evidence_bundle=bundle,
+        cutoff_results={
+            "200": {
+                "answer_context": {
+                    "source": "evidence_bundle",
+                    "memory_count": 2,
+                    "source_ref_count": 0,
+                    "source_ref_item_count": 0,
+                    "source_refless_item_count": 2,
+                }
+            }
+        },
+    )
+
+    gate = fast_gate_metrics((item,), expected_case_count=1)
+    summary = gate["actionable_gap_summary"]
+    gap = next(
+        gap
+        for gap in summary["ranked_gaps"]
+        if gap["category"] == "answer_context_provenance"
+    )
+
+    assert gate["passed"] is True
+    assert gap["gap"] == "answer_context_missing_source_refs"
+    assert gap["impact_count"] == 2
+    assert gap["source_metric"] == "answer_context_provenance.source_refless_item_count"
+    assert gap["severity"] == "diagnostic"
+    assert gap["sample_case_ids"] == ["prompt-provenance-gap"]
+    assert gap["evidence"] == {
+        "source_refless_context_count": 1,
+        "source_ref_item_coverage_rate": 0.0,
+        "source_counts": {"evidence_bundle": 1},
+    }
+
 
 def test_actionable_gap_summary_uses_stable_tie_breaks_and_gap_schema() -> None:
     summary = actionable_gap_summary(

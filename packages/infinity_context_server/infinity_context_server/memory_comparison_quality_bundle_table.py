@@ -620,6 +620,7 @@ def _bundle_quality_sample(
     reason_codes = tuple(
         dict.fromkeys((*_str_tuple(quality.get("reason_codes")), *extra_reason_codes))
     )
+    weak_evidence_reasons = _weak_evidence_reasons(quality, reason_codes=reason_codes)
     return {
         "case_id": str(item.get("case_id") or ""),
         "group": str(item.get("group") or ""),
@@ -627,6 +628,8 @@ def _bundle_quality_sample(
         "confidence_band": str(quality.get("confidence_band") or "unknown"),
         "risk_penalty": round(_metric_value(quality, "risk_penalty"), 6),
         "reason_codes": reason_codes,
+        "weak_evidence_reasons": weak_evidence_reasons,
+        "weak_evidence_summary": _weak_evidence_summary(weak_evidence_reasons),
         "selected_item_count": _positive_int(quality.get("selected_item_count")) or 0,
         "primary_count": _positive_int(quality.get("primary_count")) or 0,
         "supporting_count": _positive_int(quality.get("supporting_count")) or 0,
@@ -708,6 +711,44 @@ def _bundle_quality_sample(
             _positive_int(quality.get("conflict_or_stale_count")) or 0
         ),
     }
+
+
+def _weak_evidence_reasons(
+    quality: Mapping[str, object],
+    *,
+    reason_codes: Sequence[str],
+) -> tuple[str, ...]:
+    reasons: list[str] = []
+    band = str(quality.get("confidence_band") or "").strip().lower()
+    if band in {"none", "low"}:
+        reasons.append(f"{band}_confidence")
+    for reason in reason_codes:
+        reason_text = str(reason or "").strip()
+        if reason_text.startswith("risk:"):
+            reasons.append(reason_text.removeprefix("risk:"))
+    selected_count = _positive_int(quality.get("selected_item_count")) or 0
+    if selected_count <= 0:
+        reasons.append("empty_bundle")
+    else:
+        if (_positive_int(quality.get("primary_count")) or 0) <= 0:
+            reasons.append("missing_primary")
+        if (_positive_int(quality.get("supporting_count")) or 0) <= 0:
+            reasons.append("missing_support")
+        if (_positive_int(quality.get("source_ref_item_count")) or 0) <= 0:
+            reasons.append("missing_source_refs")
+    for count_key, reason in (
+        ("low_answerability_count", "low_answerability"),
+        ("broad_summary_count", "broad_summary"),
+        ("conflict_or_stale_count", "conflict_or_stale"),
+    ):
+        if (_positive_int(quality.get(count_key)) or 0) > 0:
+            reasons.append(reason)
+    return tuple(dict.fromkeys(reasons))
+
+
+def _weak_evidence_summary(reasons: Sequence[str]) -> str:
+    labels = [str(reason).replace("_", " ") for reason in reasons[:5]]
+    return "; ".join(labels)
 
 
 def _confidence_gap_reasons(

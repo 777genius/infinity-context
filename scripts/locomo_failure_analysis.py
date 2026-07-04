@@ -254,6 +254,10 @@ def _root_cause_tags(failure: Mapping[str, object]) -> tuple[str, ...]:
             tags.append("evidence:same_source_miss")
     elif "partial_evidence_ref_support" in reason_codes:
         tags.append("evidence:partial_refs")
+    if "selected_low_answerability_evidence" in reason_codes:
+        tags.append("evidence:selected_low_answerability")
+    if "selected_weak_source_locality_evidence" in reason_codes:
+        tags.append("evidence:selected_weak_source_locality")
     if "selected_bundle_source_refless_evidence" in reason_codes:
         tags.append("evidence:selected_bundle_source_refless")
     if "answer_context_fallback" in reason_codes:
@@ -310,6 +314,9 @@ def _root_cause_example(
     missing_locality = _missing_evidence_source_locality_summary(failure)
     if missing_locality:
         payload["missing_evidence_source_locality"] = missing_locality
+    selected_weakness = _selected_evidence_weakness_summary(failure)
+    if selected_weakness:
+        payload["selected_evidence_weakness"] = selected_weakness
     answer_context = _answer_context_summary(failure)
     if answer_context:
         payload["answer_context"] = answer_context
@@ -368,6 +375,23 @@ def _answer_context_summary(failure: Mapping[str, object]) -> dict[str, object] 
     if risk_reasons:
         summary["risk_reason_codes"] = list(risk_reasons)
     return summary
+
+
+def _selected_evidence_weakness_summary(
+    failure: Mapping[str, object],
+) -> dict[str, int] | None:
+    bundle = _mapping(_mapping(failure.get("diagnostics")).get("bundle"))
+    summary = {
+        "selected_low_answerability_count": _positive_int(
+            bundle.get("selected_low_answerability_count")
+        )
+        or 0,
+        "selected_weak_source_locality_count": _positive_int(
+            bundle.get("selected_weak_source_locality_count")
+        )
+        or 0,
+    }
+    return summary if any(summary.values()) else None
 
 
 def _normalize_tag_value(value: object) -> str:

@@ -46,6 +46,7 @@ def actionable_gap_summary(
     query_role_gap_breakdown: Mapping[str, object] | None = None,
     query_plan_gap_breakdown: Mapping[str, object] | None = None,
     source_ref_provenance: Mapping[str, object] | None = None,
+    answer_context_provenance: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     failed_gate_set = set(failed_gates)
     ref_gate = _mapping(ref_gate)
@@ -56,6 +57,7 @@ def actionable_gap_summary(
     query_role_gap_breakdown = _mapping(query_role_gap_breakdown)
     query_plan_gap_breakdown = _mapping(query_plan_gap_breakdown)
     source_ref_provenance = _mapping(source_ref_provenance)
+    answer_context_provenance = _mapping(answer_context_provenance)
     gaps: list[dict[str, object]] = []
     _append_bundle_quality_gaps(
         gaps,
@@ -118,6 +120,11 @@ def actionable_gap_summary(
         gaps,
         evaluation_count=evaluation_count,
         source_ref_provenance=source_ref_provenance,
+    )
+    _append_answer_context_provenance_gap(
+        gaps,
+        evaluation_count=evaluation_count,
+        answer_context_provenance=answer_context_provenance,
     )
     ranked = _rank_actionable_gaps(gaps)
     return {
@@ -510,6 +517,47 @@ def _append_source_ref_gap(
     )
 
 
+def _append_answer_context_provenance_gap(
+    gaps: list[dict[str, object]],
+    *,
+    evaluation_count: int,
+    answer_context_provenance: Mapping[str, object],
+) -> None:
+    source_refless_item_count = (
+        _positive_int(answer_context_provenance.get("source_refless_item_count"))
+        or 0
+    )
+    _append_actionable_gap(
+        gaps,
+        evaluation_count=evaluation_count,
+        category="answer_context_provenance",
+        gap="answer_context_missing_source_refs",
+        impact_count=source_refless_item_count,
+        source_metric="answer_context_provenance.source_refless_item_count",
+        action=(
+            "Keep source refs when selected evidence is rendered into answer "
+            "context so prompt evidence remains auditable."
+        ),
+        evidence={
+            "source_refless_context_count": (
+                _positive_int(
+                    answer_context_provenance.get("source_refless_context_count")
+                )
+                or 0
+            ),
+            "source_ref_item_coverage_rate": _number(
+                answer_context_provenance.get("source_ref_item_coverage_rate")
+            ),
+            "source_counts": _count_mapping(
+                answer_context_provenance.get("source_counts")
+            ),
+        },
+        samples=_sequence(
+            answer_context_provenance.get("source_refless_context_samples")
+        ),
+    )
+
+
 def _append_counted_gap_map(
     gaps: list[dict[str, object]],
     *,
@@ -624,6 +672,15 @@ def _sample_case_ids(samples: Sequence[object]) -> list[str]:
         if len(case_ids) >= _MAX_SAMPLE_CASE_IDS:
             break
     return case_ids
+
+
+def _number(value: object) -> float:
+    if isinstance(value, bool):
+        return 0.0
+    try:
+        return round(float(value), 6)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _action_for_gap(category: str, gap: str, *, default: str) -> str:

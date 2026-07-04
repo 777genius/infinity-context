@@ -393,6 +393,59 @@ def test_locomo_failure_analysis_tags_answer_context_gaps() -> None:
     ]
 
 
+def test_locomo_failure_analysis_tags_selected_evidence_weakness() -> None:
+    report = {
+        "failures": [
+            {
+                "case_id": "weak-selected-evidence",
+                "capability": "locomo_category_2",
+                "reason": "expected_terms_missing",
+                "diagnostic_reason_codes": [
+                    "selected_low_answerability_evidence",
+                    "selected_weak_source_locality_evidence",
+                ],
+                "diagnostics": {
+                    "bundle": {
+                        "selected_low_answerability_count": 2,
+                        "selected_weak_source_locality_count": 1,
+                    }
+                },
+            }
+        ]
+    }
+
+    summary = _summary(_failures(report), top=10)
+
+    assert summary["primary_root_cause_count"] == {
+        "evidence:selected_low_answerability": 1
+    }
+    assert summary["root_cause_tag_count"][
+        "evidence:selected_low_answerability"
+    ] == 1
+    assert summary["root_cause_tag_count"][
+        "evidence:selected_weak_source_locality"
+    ] == 1
+    assert summary["root_cause_examples"]["evidence:selected_low_answerability"] == [
+        {
+            "case_id": "weak-selected-evidence",
+            "capability": "locomo_category_2",
+            "reason": "expected_terms_missing",
+            "root_cause_tags": [
+                "evidence:selected_low_answerability",
+                "evidence:selected_weak_source_locality",
+            ],
+            "diagnostic_reason_codes": [
+                "selected_low_answerability_evidence",
+                "selected_weak_source_locality_evidence",
+            ],
+            "selected_evidence_weakness": {
+                "selected_low_answerability_count": 2,
+                "selected_weak_source_locality_count": 1,
+            },
+        }
+    ]
+
+
 def test_locomo_failure_analysis_limit_makes_small_canary_args(tmp_path) -> None:
     report = {
         "failures": [

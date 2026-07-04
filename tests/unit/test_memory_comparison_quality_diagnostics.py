@@ -1821,6 +1821,41 @@ def test_quality_diagnostics_reports_empty_bundle_quality_table() -> None:
     assert table["weak_samples"] == []
 
 
+def test_quality_diagnostics_reports_concise_weak_evidence_summary() -> None:
+    diagnostics = quality_diagnostics(
+        (
+            _item(
+                case_id="weak-low-confidence",
+                evidence_bundle={
+                    "bundle_planner": {
+                        "bundle_quality": _bundle_quality(
+                            confidence_score=0.31,
+                            confidence_band="low",
+                            selected_item_count=1,
+                            low_answerability_count=1,
+                        ),
+                    },
+                },
+            ),
+        )
+    )
+
+    sample = diagnostics["bundle_quality_table"]["weak_samples"][0]
+
+    assert sample["reason_codes"] == ()
+    assert sample["weak_evidence_reasons"] == (
+        "low_confidence",
+        "missing_primary",
+        "missing_support",
+        "missing_source_refs",
+        "low_answerability",
+    )
+    assert sample["weak_evidence_summary"] == (
+        "low confidence; missing primary; missing support; missing source refs; "
+        "low answerability"
+    )
+
+
 def test_quality_diagnostics_reports_measured_bundle_score_averages() -> None:
     diagnostics = quality_diagnostics(
         (
