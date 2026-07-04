@@ -58,6 +58,9 @@ class RerankPolicyFeatures(Protocol):
     temporal_query_terms: tuple[str, ...]
     current_state_query: bool
     source_grounding_query: bool
+    source_grounding_support: bool
+    source_grounding_support_reason: str
+    source_grounding_quote_relevant: bool
 
 
 _COUNT_LIST_GENERIC_RELATION_TERMS = frozenset(
@@ -523,6 +526,15 @@ class SourceGroundingPolicy:
             signals={
                 "benchmark_source_grounding_query": features.source_grounding_query,
                 "benchmark_source_grounding_evidence": grounded,
+                "benchmark_source_grounding_support": (
+                    features.source_grounding_support
+                ),
+                "benchmark_source_grounding_support_reason": (
+                    features.source_grounding_support_reason
+                ),
+                "benchmark_source_grounding_quote_relevant": (
+                    features.source_grounding_quote_relevant
+                ),
                 "benchmark_source_grounding_boost": round(evidence_boost, 6),
                 "benchmark_source_grounding_ungrounded_penalty": round(
                     ungrounded_penalty,
@@ -1044,9 +1056,14 @@ def _visual_evidence_grounded(features: RerankPolicyFeatures) -> bool:
 def _source_grounding_evidence_grounded(features: RerankPolicyFeatures) -> bool:
     if not features.source_grounding_query:
         return False
+    if not features.source_grounding_support:
+        return False
     if features.broad_summary:
         return False
-    if _has_measured_locality_below(features, 0.65):
+    if (
+        _has_measured_locality_below(features, 0.65)
+        and not features.source_grounding_quote_relevant
+    ):
         return False
     if not (
         features.direct_speaker_turn

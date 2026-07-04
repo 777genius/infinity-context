@@ -64,6 +64,9 @@ class BenchmarkRerankFeatures:
     temporal_sequence_direction: str = ""
     covered_answer_unit_shapes: tuple[str, ...] = ()
     source_grounding_query: bool = False
+    source_grounding_support: bool = False
+    source_grounding_support_reason: str = ""
+    source_grounding_quote_relevant: bool = False
 
 
 @dataclass(frozen=True)

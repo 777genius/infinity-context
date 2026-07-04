@@ -2995,6 +2995,124 @@ def test_evidence_bundle_planner_completes_required_bridge_with_grounded_relatio
     assert diagnostics["bundle_quality"]["bridge_count"] == 1
 
 
+def test_evidence_bundle_planner_rejects_diffuse_same_entity_bridge() -> None:
+    primary = _candidate(
+        item_id="primary",
+        covered_evidence_terms=("D1:1",),
+        primary_signal=True,
+    )
+    stitched_bridge = _candidate(
+        item_id="stitched-same-entity",
+        dedupe_key="refs:D2:8|D9:31",
+        query_support_terms=("caroline", "agency", "support"),
+        relation_hits=("agency", "support"),
+        entity_hits=("caroline",),
+        source_refs=("D2:8", "D9:31"),
+        source_locality_score=0.65,
+        answerability_score=0.8,
+        query_roles=("multi_hop_bridge",),
+        bridge_query_hit=True,
+    )
+
+    plan = EvidenceBundlePlanner().plan(
+        (primary, stitched_bridge),
+        case_group="multi-hop",
+        required_roles=("primary", "bridge"),
+    )
+
+    assert [item.role for item in plan.items] == ["primary", "entity_disambiguation"]
+    assert plan.satisfied_required_roles == ("primary",)
+    assert plan.missing_required_roles == ("bridge",)
+    diagnostics = plan.to_diagnostics()
+    assert diagnostics["role_requirement_complete"] is False
+    assert diagnostics["bundle_quality"]["bridge_count"] == 0
+    assert diagnostics["bundle_quality"]["diffuse_source_ref_count"] == 1
+
+
+def test_evidence_bundle_planner_rejects_focused_but_diffuse_bridge_completion() -> None:
+    primary = _candidate(
+        item_id="primary",
+        covered_evidence_terms=("D1:1",),
+        primary_signal=True,
+    )
+    focused_stitched_bridge = _candidate(
+        item_id="focused-stitched-same-entity",
+        dedupe_key="refs:D2:8|D9:31",
+        query_support_terms=("caroline", "agency", "support"),
+        focused_evidence_score=1.0,
+        relation_hits=("agency", "support"),
+        entity_hits=("caroline",),
+        source_refs=("D2:8", "D9:31"),
+        source_locality_score=0.65,
+        answerability_score=0.8,
+        query_roles=("multi_hop_bridge",),
+        bridge_query_hit=True,
+    )
+
+    plan = EvidenceBundlePlanner().plan(
+        (primary, focused_stitched_bridge),
+        case_group="multi-hop",
+        required_roles=("primary", "bridge"),
+    )
+
+    assert plan.satisfied_required_roles == ("primary",)
+    assert plan.missing_required_roles == ("bridge",)
+    diagnostics = plan.to_diagnostics()
+    assert diagnostics["role_requirement_complete"] is False
+    assert diagnostics["bundle_quality"]["bridge_count"] == 0
+    assert diagnostics["bundle_quality"]["diffuse_source_ref_count"] == 1
+
+
+def test_evidence_bundle_planner_prefers_contiguous_bridge_over_diffuse_entity_match() -> None:
+    primary = _candidate(
+        item_id="primary",
+        covered_evidence_terms=("D1:1",),
+        primary_signal=True,
+    )
+    diffuse_entity_match = _candidate(
+        item_id="diffuse-entity-match",
+        dedupe_key="refs:D2:8|D9:31",
+        query_support_terms=("caroline", "agency", "support"),
+        relation_hits=("agency", "support"),
+        entity_hits=("caroline",),
+        source_refs=("D2:8", "D9:31"),
+        source_locality_score=0.65,
+        answerability_score=0.8,
+        bundle_strength_score=9.0,
+        query_roles=("multi_hop_bridge",),
+        bridge_query_hit=True,
+    )
+    contiguous_bridge = _candidate(
+        item_id="contiguous-bridge",
+        dedupe_key="refs:D2:8|D2:9",
+        query_support_terms=("caroline", "agency", "support"),
+        relation_hits=("agency", "support"),
+        entity_hits=("caroline",),
+        source_refs=("D2:8", "D2:9"),
+        source_locality_score=0.95,
+        answerability_score=0.8,
+        bundle_strength_score=1.0,
+        query_roles=("multi_hop_bridge",),
+        bridge_query_hit=True,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, diffuse_entity_match, contiguous_bridge),
+        case_group="multi-hop",
+        required_roles=("primary", "bridge"),
+    )
+
+    assert [item.candidate.item_id for item in plan.items] == [
+        "primary",
+        "contiguous-bridge",
+    ]
+    assert [item.role for item in plan.items] == ["primary", "bridge"]
+    assert plan.satisfied_required_roles == ("primary", "bridge")
+    diagnostics = plan.to_diagnostics()
+    assert diagnostics["role_requirement_complete"] is True
+    assert diagnostics["bundle_quality"]["bridge_count"] == 1
+
+
 def test_evidence_bundle_planner_does_not_complete_bridge_from_primary_only() -> None:
     primary = _candidate(
         item_id="primary",

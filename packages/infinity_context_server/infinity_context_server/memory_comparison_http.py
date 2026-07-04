@@ -450,6 +450,11 @@ def _infinity_context_memories(raw_items: object) -> list[RetrievedMemory]:
                     **temporal_metadata,
                     "item_type": item.get("item_type"),
                     "diagnostics": _item_diagnostics(item),
+                    "source_ref_payloads": [
+                        dict(ref)
+                        for ref in source_ref_payloads
+                        if isinstance(ref, Mapping)
+                    ],
                     "source_ref_time_start_ms": list(time_start_ms),
                     "has_temporal_source_ref": bool(
                         time_start_ms or temporal_metadata

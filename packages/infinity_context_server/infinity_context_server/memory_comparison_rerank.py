@@ -12,6 +12,10 @@ from infinity_context_core.application.context_answer_unit_shapes import (
 from infinity_context_core.application.context_source_grounding import (
     is_source_grounding_query as _is_source_grounding_query,
 )
+from infinity_context_core.application.context_source_grounding import (
+    source_grounding_evidence as _source_grounding_evidence,
+)
+from infinity_context_core.domain.entities import SourceRef
 
 from infinity_context_server.memory_comparison_candidate_features import (
     build_candidate_evidence_features,
@@ -1785,7 +1789,11 @@ def benchmark_rerank_memories(
     reranked: list[RetrievedMemory] = []
     boosts: list[float] = []
     for memory in memories:
-        reranked_memory, boost = _with_benchmark_rerank_boost(memory, profile)
+        reranked_memory, boost = _with_benchmark_rerank_boost(
+            memory,
+            profile,
+            question=str(case.question or ""),
+        )
         reranked.append(reranked_memory)
         if boost > 0:
             boosts.append(boost)
@@ -2881,8 +2889,10 @@ def _span_overlaps(
 def _with_benchmark_rerank_boost(
     memory: RetrievedMemory,
     profile: Mapping[str, object],
+    *,
+    question: str,
 ) -> tuple[RetrievedMemory, float]:
-    boost, signals = _benchmark_rerank_boost(memory, profile)
+    boost, signals = _benchmark_rerank_boost(memory, profile, question=question)
     if boost <= 0:
         return memory, 0.0
 
@@ -2913,6 +2923,8 @@ def _with_benchmark_rerank_boost(
 def _benchmark_rerank_boost(
     memory: RetrievedMemory,
     profile: Mapping[str, object],
+    *,
+    question: str = "",
 ) -> tuple[float, dict[str, object]]:
     memory_terms = set(_normalized_terms(memory.text))
     query_terms = tuple(_string_sequence(profile.get("lexical_terms")))
@@ -2973,6 +2985,10 @@ def _benchmark_rerank_boost(
         focused_turn_boost=candidate_features.focused_turn_score,
         relation_category_hits=candidate_features.relation_category_hits,
         direct_speaker_turn=candidate_features.direct_speaker_turn,
+    )
+    source_grounding = _memory_source_grounding_evidence(
+        question=question,
+        memory=memory,
     )
     score = score_benchmark_rerank_candidate(
         BenchmarkRerankFeatures(
@@ -3038,12 +3054,75 @@ def _benchmark_rerank_boost(
             ),
             current_state_query=bool(profile.get("current_state_query")),
             source_grounding_query=bool(profile.get("source_grounding_query")),
+            source_grounding_support=source_grounding.grounded,
+            source_grounding_support_reason=source_grounding.reason,
+            source_grounding_quote_relevant=source_grounding.quote_relevant,
         )
     )
     return score.boost, {
         **score.signals,
         "candidate_features": candidate_features.to_diagnostics(),
     }
+
+
+def _memory_source_grounding_evidence(
+    *,
+    question: str,
+    memory: RetrievedMemory,
+):
+    return _source_grounding_evidence(
+        query=question,
+        text=memory.text,
+        source_refs=_memory_source_refs_for_grounding(memory),
+    )
+
+
+def _memory_source_refs_for_grounding(memory: RetrievedMemory) -> tuple[SourceRef, ...]:
+    refs: list[SourceRef] = []
+    for index, raw_ref in enumerate(memory.source_refs):
+        ref_text = str(raw_ref or "").strip()
+        if not ref_text:
+            continue
+        refs.append(
+            SourceRef(
+                source_type="benchmark",
+                source_id=ref_text,
+                chunk_id=str(index),
+            )
+        )
+    for raw_ref in _metadata_source_ref_payloads(memory.metadata):
+        source_id = _mapping_text(raw_ref, "source_id", "source_external_id", "id")
+        if not source_id:
+            continue
+        refs.append(
+            SourceRef(
+                source_type=_mapping_text(raw_ref, "source_type") or "benchmark",
+                source_id=source_id,
+                chunk_id=_mapping_text(raw_ref, "chunk_id"),
+                quote_preview=_mapping_text(raw_ref, "quote_preview"),
+            )
+        )
+    return tuple(refs)
+
+
+def _metadata_source_ref_payloads(
+    metadata: Mapping[str, object],
+) -> tuple[Mapping[str, object], ...]:
+    refs = metadata.get("source_refs") or metadata.get("source_ref_payloads")
+    if not isinstance(refs, Sequence) or isinstance(refs, str | bytes):
+        nested = metadata.get("metadata")
+        if isinstance(nested, Mapping):
+            return _metadata_source_ref_payloads(nested)
+        return ()
+    return tuple(ref for ref in refs if isinstance(ref, Mapping))
+
+
+def _mapping_text(mapping: Mapping[str, object], *keys: str) -> str:
+    for key in keys:
+        value = mapping.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
 
 
 def _relation_category_terms(

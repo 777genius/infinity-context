@@ -22,6 +22,7 @@ from infinity_context_core.application.context_political_inference import (
 )
 from infinity_context_core.application.context_preference_inference import (
     preference_inference_signal,
+    preference_polarity_conflict_signal,
 )
 from infinity_context_core.application.context_query_support_role import (
     support_role_query_variants,
@@ -656,6 +657,18 @@ _CAUSAL_TEXT_RE = re.compile(
     r"ощущени\w+\s+принадлежност\w*)\b",
     re.IGNORECASE,
 )
+_PREFERENCE_REASON_QUERY_RE = re.compile(
+    r"\b(?:why|reason)\b(?=[^?.!]{0,160}\b(?:likes?|loves?|enjoys?|prefers?|"
+    r"favorite|favourite|interested|avoids?|dislikes?|hates?|not\s+(?:like|"
+    r"enjoy|prefer|want)|not\s+interested)\b)",
+    re.IGNORECASE | re.DOTALL,
+)
+_PREFERENCE_REASON_TEXT_RE = re.compile(
+    r"\b(?:likes?|loves?|enjoys?|prefers?|favorite|favourite|interested|"
+    r"avoids?|dislikes?|hates?|not\s+(?:like|enjoy|prefer|want)|"
+    r"not\s+interested)\b",
+    re.IGNORECASE,
+)
 _CAUSAL_EFFECT_TERMS = frozenset(
     {
         "accepted",
@@ -735,6 +748,18 @@ def answer_evidence_rerank_signal(*, query: str, text: str) -> AnswerEvidenceSig
     """Score answer evidence fit without treating retrieved text as truth."""
 
     if _requests_causal_answer(query):
+        preference_conflict_signal = preference_polarity_conflict_signal(
+            query=query,
+            text=text,
+        )
+        if preference_conflict_signal.reason:
+            return preference_conflict_signal
+        preference_reason_signal = _preference_reason_grounding_signal(
+            query=query,
+            text=text,
+        )
+        if preference_reason_signal.reason:
+            return preference_reason_signal
         return _causal_answer_signal(query=query, text=text)
     social_education_signal = social_education_inference_signal(query=query, text=text)
     if social_education_signal.reason:
@@ -757,6 +782,9 @@ def answer_evidence_rerank_signal(*, query: str, text: str) -> AnswerEvidenceSig
     )
     if allergy_condition_signal.reason:
         return allergy_condition_signal
+    preference_signal = preference_inference_signal(query=query, text=text)
+    if preference_signal.reason:
+        return preference_signal
     if not _requests_inference(query):
         if _requests_career_inference(query):
             return _career_inference_signal(query=query, text=text)
@@ -767,9 +795,6 @@ def answer_evidence_rerank_signal(*, query: str, text: str) -> AnswerEvidenceSig
             return support_role_signal
     if _requests_career_inference(query):
         return _career_inference_signal(query=query, text=text)
-    preference_signal = preference_inference_signal(query=query, text=text)
-    if preference_signal.reason:
-        return preference_signal
     if _requests_willingness_inference(query):
         return _willingness_inference_signal(query=query, text=text)
     if _requests_children_books_inference(query):
@@ -993,6 +1018,40 @@ def _causal_answer_signal(*, query: str, text: str) -> AnswerEvidenceSignal:
             reason="causal_answer_missing_reason_signal",
         )
     return AnswerEvidenceSignal()
+
+
+def _preference_reason_grounding_signal(*, query: str, text: str) -> AnswerEvidenceSignal:
+    if _PREFERENCE_REASON_QUERY_RE.search(query) is None:
+        return AnswerEvidenceSignal()
+    if _CAUSAL_TEXT_RE.search(text) is None:
+        return AnswerEvidenceSignal()
+    query_tokens = _term_set(query)
+    salient_terms = _causal_salient_terms(query_tokens)
+    if not salient_terms:
+        return AnswerEvidenceSignal()
+    for sentence in _sentences(text):
+        sentence_tokens = _term_set(sentence)
+        if (
+            _CAUSAL_TEXT_RE.search(sentence) is not None
+            and _PREFERENCE_REASON_TEXT_RE.search(sentence) is not None
+            and salient_terms & sentence_tokens
+        ):
+            return AnswerEvidenceSignal()
+    text_tokens = _term_set(text)
+    if _PREFERENCE_REASON_TEXT_RE.search(text) is not None and salient_terms & text_tokens:
+        return AnswerEvidenceSignal(
+            penalty=0.026,
+            reason="causal_answer_unrelated_reason_signal",
+        )
+    return AnswerEvidenceSignal()
+
+
+def _sentences(text: str) -> tuple[str, ...]:
+    return tuple(
+        sentence.strip()
+        for sentence in re.split(r"(?<=[.!?])\s+", text)
+        if sentence.strip()
+    )
 
 
 def _requests_career_inference(query: str) -> bool:

@@ -1807,6 +1807,8 @@ def test_rerank_policy_boosts_source_grounded_answer_context() -> None:
             relation_terms=("mention", "move"),
             query_has_entities=True,
             source_grounding_query=True,
+            source_grounding_support=True,
+            source_grounding_support_reason="source_grounding_match",
             direct_speaker_turn=True,
             source_locality_score=1.0,
             source_ref_count=1,
@@ -1820,6 +1822,32 @@ def test_rerank_policy_boosts_source_grounded_answer_context() -> None:
     assert signals["benchmark_source_grounding_evidence"] is True
     assert signals["benchmark_source_grounding_boost"] == 0.11
     assert score.boost >= 0.28
+
+
+def test_rerank_policy_accepts_relevant_source_quote_as_grounding() -> None:
+    score = score_benchmark_rerank_candidate(
+        _features(
+            overlap_terms=("alex", "denver"),
+            entity_hits=("alex",),
+            relation_hits=("move",),
+            relation_terms=("move",),
+            query_has_entities=True,
+            source_grounding_query=True,
+            source_grounding_support=True,
+            source_grounding_support_reason="source_grounding_match",
+            source_grounding_quote_relevant=True,
+            source_locality_score=0.45,
+            source_ref_count=1,
+        )
+    )
+
+    signals = score.signals["score_signals"]
+
+    assert signals["benchmark_source_grounding_evidence"] is True
+    assert signals["benchmark_source_grounding_boost"] == 0.075
+    assert "missing_source_grounding_cap" not in signals[
+        "benchmark_provenance_safety_reason_codes"
+    ]
 
 
 def test_rerank_policy_caps_plausible_answer_without_requested_source_grounding() -> None:

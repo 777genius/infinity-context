@@ -34,6 +34,38 @@ def test_source_grounding_signal_requires_answer_context_and_source_anchor() -> 
     ) == (0.0, 0.0, "")
 
 
+def test_source_grounding_signal_uses_relevant_source_quotes() -> None:
+    query = "Which source supports that Alex moved to Denver?"
+
+    assert source_grounding_signal(
+        query=query,
+        text="Alex moved to Denver after the promotion.",
+        source_refs=(
+            SourceRef(
+                source_type="document",
+                source_id="profile-note",
+                quote_preview="Jamie said Alex moved to Denver after the promotion.",
+            ),
+        ),
+    ) == (0.016, 0.0, "source_grounding_match")
+
+
+def test_source_grounding_signal_penalizes_unrelated_source_quotes() -> None:
+    query = "Which source supports that Alex moved to Denver?"
+
+    assert source_grounding_signal(
+        query=query,
+        text="Alex moved to Denver after the promotion.",
+        source_refs=(
+            SourceRef(
+                source_type="document",
+                source_id="profile-note",
+                quote_preview="Jamie said the promotion timing was complicated.",
+            ),
+        ),
+    ) == (0.0, 0.018, "source_grounding_unrelated_quote")
+
+
 def test_deterministic_rerank_prefers_source_grounded_dialogue_support() -> None:
     query = "Which dialogue supports that Alex moved to Denver?"
     plan = build_query_expansion_plan(query)
@@ -96,3 +128,11 @@ def _item(
             "provenance": {"retrieval_sources": ["keyword_chunks"]},
         },
     )
+
+
+def test_source_grounding_signal_ignores_plain_conversation_topic_query() -> None:
+    assert source_grounding_signal(
+        query="What was the conversation with Maria about?",
+        text="Alex talked with Maria about Project Atlas.",
+        source_refs=(),
+    ) == (0.0, 0.0, "")

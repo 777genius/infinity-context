@@ -824,6 +824,8 @@ def _candidate_has_bridge_grounding(candidate: EvidenceBundleCandidate) -> bool:
         return False
     if not _candidate_has_bridge_support_surface(candidate):
         return False
+    if not _candidate_has_local_bridge_grounding(candidate):
+        return False
     return bool(
         _candidate_has_relation_grounding(candidate)
         and _candidate_has_person_grounding(candidate)
@@ -848,6 +850,15 @@ def _candidate_has_bridge_query_provenance(
         candidate.bridge_query_hit
         or "multi_hop_bridge" in set(candidate.query_roles)
     )
+
+
+def _candidate_has_local_bridge_grounding(
+    candidate: EvidenceBundleCandidate,
+) -> bool:
+    turn_refs = _candidate_turn_refs(candidate)
+    if not turn_refs:
+        return True
+    return not _candidate_has_diffuse_source_refs(candidate)
 
 
 def _required_role_values(required_roles: Sequence[str]) -> tuple[str, ...]:
@@ -1666,6 +1677,8 @@ def _candidate_has_distinct_multi_hop_support(item: PlannedEvidenceItem) -> bool
         return False
     if _is_measured_low_answerability(candidate.answerability_score):
         return False
+    if not _candidate_has_local_bridge_grounding(candidate):
+        return False
     support_terms = tuple(dict.fromkeys(candidate.query_support_terms))
     return bool(
         candidate.focused_evidence_score > 0 and len(support_terms) >= 2
@@ -1725,6 +1738,7 @@ def _candidate_has_source_chain_multi_hop_support(
     return bool(
         support_terms
         and _candidate_has_source_identity_quality_support(candidate)
+        and _candidate_has_local_bridge_grounding(candidate)
         and _candidate_has_relation_grounding(candidate)
         and _candidate_has_person_grounding(candidate)
     )

@@ -41,3 +41,89 @@ def test_benchmark_rerank_prefers_source_grounded_dialogue_evidence() -> None:
     grounded_signals = reranked[0].metadata["diagnostics"]["score_signals"]
     assert grounded_signals["benchmark_source_grounding_evidence"] is True
     assert grounded_signals["benchmark_source_grounding_boost"] > 0
+
+
+def test_benchmark_rerank_does_not_boost_generic_source_ref_for_dialogue_support() -> None:
+    case = SimpleNamespace(
+        question="Which dialogue supports Alex's move to Denver?",
+        metadata={"category": 4},
+    )
+    generic_source = RetrievedMemory(
+        item_id="generic-source",
+        rank=1,
+        score=0.05,
+        text="Alex moved to Denver after the promotion.",
+        source_refs=("document:profile-note",),
+    )
+    grounded_source = RetrievedMemory(
+        item_id="grounded-source",
+        rank=2,
+        score=0.0,
+        text="D1:2 Jamie: Alex moved to Denver after the promotion.",
+        source_refs=("locomo:conv-26:session_1:D1:2:turn",),
+    )
+
+    reranked, _ = benchmark_rerank_memories(case, (generic_source, grounded_source))
+
+    assert [memory.item_id for memory in reranked] == [
+        "grounded-source",
+        "generic-source",
+    ]
+    generic_signals = reranked[1].metadata["diagnostics"]["score_signals"]
+    assert generic_signals["benchmark_source_grounding_evidence"] is False
+    assert generic_signals["benchmark_source_grounding_boost"] == 0.0
+    assert generic_signals["benchmark_source_grounding_ungrounded_penalty"] == -0.08
+
+
+def test_benchmark_rerank_penalizes_unrelated_source_quote() -> None:
+    case = SimpleNamespace(
+        question="Which source supports Alex's move to Denver?",
+        metadata={"category": 4},
+    )
+    unrelated_quote = RetrievedMemory(
+        item_id="unrelated-quote",
+        rank=1,
+        score=0.05,
+        text="Alex moved to Denver after the promotion.",
+        source_refs=("document:profile-note",),
+        metadata={
+            "source_refs": [
+                {
+                    "source_type": "document",
+                    "source_id": "document:profile-note",
+                    "quote_preview": "Jamie said the promotion timing was complicated.",
+                }
+            ]
+        },
+    )
+    relevant_quote = RetrievedMemory(
+        item_id="relevant-quote",
+        rank=2,
+        score=0.0,
+        text="Alex moved to Denver after the promotion.",
+        source_refs=("document:profile-note-2",),
+        metadata={
+            "source_refs": [
+                {
+                    "source_type": "document",
+                    "source_id": "document:profile-note-2",
+                    "quote_preview": "Jamie said Alex moved to Denver after the promotion.",
+                }
+            ]
+        },
+    )
+
+    reranked, _ = benchmark_rerank_memories(case, (unrelated_quote, relevant_quote))
+
+    assert [memory.item_id for memory in reranked] == [
+        "relevant-quote",
+        "unrelated-quote",
+    ]
+    unrelated_signals = reranked[1].metadata["diagnostics"]["score_signals"]
+    relevant_signals = reranked[0].metadata["diagnostics"]["score_signals"]
+    assert unrelated_signals["benchmark_source_grounding_support_reason"] == (
+        "source_grounding_unrelated_quote"
+    )
+    assert unrelated_signals["benchmark_source_grounding_boost"] == 0.0
+    assert relevant_signals["benchmark_source_grounding_evidence"] is True
+    assert relevant_signals["benchmark_source_grounding_quote_relevant"] is True

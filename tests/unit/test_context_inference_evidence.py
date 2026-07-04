@@ -224,6 +224,97 @@ def test_inference_evidence_signal_boosts_generic_negative_preference_fit() -> N
     assert signal.reason == "inference_negative_preference_fit_evidence"
 
 
+def test_inference_evidence_signal_penalizes_negated_current_positive_preference() -> None:
+    signal = inference_evidence_rerank_signal(
+        query="What food does Riley like?",
+        text="Riley does not like spicy noodles because they are too hot.",
+    )
+
+    assert signal.boost == 0
+    assert signal.penalty > 0
+    assert signal.reason == "inference_negative_preference_conflict"
+
+
+def test_inference_evidence_signal_penalizes_not_interested_current_preference() -> None:
+    signal = inference_evidence_rerank_signal(
+        query="Which hobby does Riley enjoy?",
+        text="Riley is not interested in pottery because the studio feels too crowded.",
+    )
+
+    assert signal.boost == 0
+    assert signal.penalty > 0
+    assert signal.reason == "inference_negative_preference_conflict"
+
+
+def test_inference_evidence_signal_boosts_current_positive_preference() -> None:
+    signal = inference_evidence_rerank_signal(
+        query="What food does Riley like?",
+        text="Riley likes spicy noodles because they remind him of home.",
+    )
+
+    assert signal.boost > 0
+    assert signal.penalty == 0
+    assert signal.reason == "inference_preference_fit_evidence"
+
+
+def test_inference_evidence_signal_boosts_avoidance_preference_support() -> None:
+    signal = inference_evidence_rerank_signal(
+        query="What food does Riley avoid?",
+        text="Riley avoids spicy noodles because they are too hot.",
+    )
+
+    assert signal.boost > 0
+    assert signal.penalty == 0
+    assert signal.reason == "inference_negative_preference_fit_evidence"
+
+
+def test_inference_evidence_signal_penalizes_positive_text_for_avoidance_query() -> None:
+    signal = inference_evidence_rerank_signal(
+        query="What food does Riley avoid?",
+        text="Riley likes spicy noodles because they remind him of home.",
+    )
+
+    assert signal.boost == 0
+    assert signal.penalty > 0
+    assert signal.reason == "inference_positive_preference_conflict"
+
+
+def test_causal_preference_reason_rejects_opposite_polarity_snippet() -> None:
+    signal = inference_evidence_rerank_signal(
+        query="Why does Riley like spicy noodles?",
+        text="Riley does not like spicy noodles because they are too hot.",
+    )
+
+    assert signal.boost == 0
+    assert signal.penalty > 0
+    assert signal.reason == "inference_negative_preference_conflict"
+
+
+def test_causal_preference_reason_rejects_unrelated_reason_sentence() -> None:
+    signal = inference_evidence_rerank_signal(
+        query="Why does Riley like spicy noodles?",
+        text=(
+            "Riley likes spicy noodles. Alex left practice early because "
+            "the bus was late."
+        ),
+    )
+
+    assert signal.boost == 0
+    assert signal.penalty > 0
+    assert signal.reason == "causal_answer_unrelated_reason_signal"
+
+
+def test_causal_preference_reason_accepts_matching_positive_polarity() -> None:
+    signal = inference_evidence_rerank_signal(
+        query="Why does Riley like spicy noodles?",
+        text="Riley likes spicy noodles because they remind him of home.",
+    )
+
+    assert signal.boost > 0
+    assert signal.penalty == 0
+    assert signal.reason == "causal_answer_evidence"
+
+
 def test_inference_evidence_signal_boosts_comparison_preference_fit() -> None:
     signal = inference_evidence_rerank_signal(
         query="Would Melanie be more interested in a national park or a theme park?",
