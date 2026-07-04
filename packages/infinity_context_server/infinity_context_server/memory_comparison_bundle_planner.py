@@ -1290,21 +1290,38 @@ def _candidate_has_location_support(candidate: EvidenceBundleCandidate) -> bool:
 
 
 def _candidate_has_value_support(candidate: EvidenceBundleCandidate) -> bool:
-    if not _candidate_has_typed_relation_grounding(candidate):
+    if not _candidate_has_answer_unit_support_grounding(candidate):
         return False
     return "quantity_dollar" in set(candidate.covered_answer_unit_shapes)
 
 
 def _candidate_has_count_support(candidate: EvidenceBundleCandidate) -> bool:
-    if not _candidate_has_typed_relation_grounding(candidate):
+    if not _candidate_has_answer_unit_support_grounding(candidate):
         return False
     return candidate.exact_count_evidence or candidate.list_item_count >= 2
 
 
 def _candidate_has_list_support(candidate: EvidenceBundleCandidate) -> bool:
-    if not _candidate_has_typed_relation_grounding(candidate):
+    if not _candidate_has_answer_unit_support_grounding(candidate):
         return False
     return candidate.list_item_count >= 2
+
+
+def _candidate_has_answer_unit_support_grounding(
+    candidate: EvidenceBundleCandidate,
+) -> bool:
+    if not _candidate_has_typed_relation_grounding(candidate):
+        return False
+    return bool(
+        candidate.source_refs
+        or _candidate_turn_refs(candidate)
+        or candidate.direct_speaker_turn
+        or candidate.focused_evidence_score > 0
+        or candidate.relation_hits
+        or candidate.relation_category_hits
+        or candidate.entity_hits
+        or candidate.speaker_hits
+    )
 
 
 def _candidate_has_preference_support(candidate: EvidenceBundleCandidate) -> bool:
@@ -1740,6 +1757,9 @@ def _role_order(item: PlannedEvidenceItem) -> float:
         "relative_temporal_support": 3,
         "temporal_sequence_support": 3,
         "visual_temporal_support": 3,
+        "value_support": 3,
+        "count_support": 3,
+        "list_support": 3,
         "visual_support": 3,
         "causal_support": 4,
         "inference_support": 4,

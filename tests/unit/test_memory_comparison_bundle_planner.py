@@ -788,6 +788,66 @@ def test_evidence_bundle_planner_requires_grounded_location_support() -> None:
     ]
 
 
+def test_evidence_bundle_planner_requires_grounded_list_answer_unit_support() -> None:
+    primary = _candidate(
+        item_id="primary",
+        covered_expected_terms=("dogs",),
+        primary_signal=True,
+        source_refs=("D1:4",),
+        direct_speaker_turn=True,
+        focused_evidence_score=1.0,
+        answerability_score=0.9,
+        source_locality_score=1.0,
+    )
+    ungrounded_list_shape = _candidate(
+        item_id="ungrounded-list-shape",
+        dedupe_key="summary:list-shape",
+        query_support_terms=("dogs", "names"),
+        list_item_count=3,
+        answerability_score=0.9,
+        source_locality_score=0.9,
+        bundle_strength_score=10.0,
+    )
+    grounded_list_shape = _candidate(
+        item_id="grounded-list-shape",
+        dedupe_key="refs:D1:5",
+        source_refs=("D1:5",),
+        query_support_terms=("dogs", "names"),
+        list_item_count=3,
+        answerability_score=0.82,
+        source_locality_score=0.9,
+    )
+
+    incomplete = EvidenceBundlePlanner().plan(
+        (primary, ungrounded_list_shape),
+        case_group="single",
+        required_roles=("primary", "list_support"),
+    )
+    complete = EvidenceBundlePlanner().plan(
+        (primary, ungrounded_list_shape, grounded_list_shape),
+        case_group="single",
+        required_roles=("primary", "list_support"),
+    )
+
+    assert incomplete.satisfied_required_roles == ("primary",)
+    assert incomplete.missing_required_roles == ("list_support",)
+    assert {
+        item.candidate.item_id: item.role for item in incomplete.items
+    } == {
+        "primary": "primary",
+        "ungrounded-list-shape": "supporting",
+    }
+    assert complete.satisfied_required_roles == ("primary", "list_support")
+    assert complete.missing_required_roles == ()
+    assert {
+        item.candidate.item_id: item.role for item in complete.items
+    } == {
+        "primary": "primary",
+        "grounded-list-shape": "list_support",
+        "ungrounded-list-shape": "supporting",
+    }
+
+
 def test_evidence_bundle_planner_rejects_broad_location_support_role() -> None:
     primary = _candidate(
         item_id="primary",
@@ -3373,6 +3433,9 @@ def _candidate(
     has_visual_evidence: bool = False,
     query_roles: tuple[str, ...] = (),
     bridge_query_hit: bool = False,
+    covered_answer_unit_shapes: tuple[str, ...] = (),
+    exact_count_evidence: bool = False,
+    list_item_count: int = 0,
 ) -> EvidenceBundleCandidate:
     return EvidenceBundleCandidate(
         rank=rank,
@@ -3418,4 +3481,7 @@ def _candidate(
         has_visual_evidence=has_visual_evidence,
         query_roles=query_roles,
         bridge_query_hit=bridge_query_hit,
+        covered_answer_unit_shapes=covered_answer_unit_shapes,
+        exact_count_evidence=exact_count_evidence,
+        list_item_count=list_item_count,
     )
