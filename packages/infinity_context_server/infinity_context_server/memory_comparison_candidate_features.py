@@ -48,9 +48,19 @@ _TEXT_SESSION_DATE_TURN_RE = re.compile(
 _DIRECT_TURN_SPEAKER_RE = re.compile(
     r"\bD\d+:\d+\s+[A-Z][a-zA-Z0-9_-]{1,40}\s*:"
 )
+_DIRECT_TURN_SPEAKER_CAPTURE_RE = re.compile(
+    r"\bD\d+:\d+\s+(?P<speaker>[A-Z][a-zA-Z0-9_-]{1,40})\s*:"
+)
 _FIRST_PERSON_SURFACE_RE = re.compile(
     r"\b(?:I|I'm|I've|I'd|I'll|me|my|mine|we|we're|we've|we'd|we'll|"
     r"us|our|ours)\b",
+    re.IGNORECASE,
+)
+_FIRST_PERSON_PROFILE_RELATION_RE = re.compile(
+    r"\b(?:my|our)\s+"
+    r"(?:alias|boyfriend|brother|child|children|cousin|daughter|father|"
+    r"friend|girlfriend|husband|kid|kids|middle\s+name|mother|name|nickname|"
+    r"parent|parents|partner|roommate|sibling|sister|son|spouse|wife)\b",
     re.IGNORECASE,
 )
 _NEGATION_SURFACE_RE = re.compile(
@@ -582,6 +592,7 @@ def _relation_category_hits(
                 term_values=term_values,
                 memory_text=memory_text,
             ) and _typed_category_has_target_grounding(
+                category=str(category),
                 entities=entities,
                 term_values=term_values,
                 memory_text=memory_text,
@@ -651,6 +662,7 @@ def _has_named_school_surface(memory_text: str) -> bool:
 
 def _typed_category_has_target_grounding(
     *,
+    category: str,
     entities: Sequence[str],
     term_values: Sequence[str],
     memory_text: str = "",
@@ -671,7 +683,16 @@ def _typed_category_has_target_grounding(
     if not relation_clauses:
         return True
 
+    eligible_clauses: list[str] = []
     for clause in relation_clauses:
+        if _first_person_profile_relation_belongs_to_other_speaker(
+            category=category,
+            memory_text=memory_text,
+            clause=clause,
+            query_entities=query_entities,
+        ):
+            continue
+        eligible_clauses.append(clause)
         if _clause_covers_query_entities(clause, query_entities):
             return True
         if _first_person_speaker_clause_covers_query_entities(
@@ -687,7 +708,26 @@ def _typed_category_has_target_grounding(
         ):
             return True
 
-    return not any(_has_competing_named_target(clause) for clause in relation_clauses)
+    if not eligible_clauses:
+        return False
+    return not any(_has_competing_named_target(clause) for clause in eligible_clauses)
+
+
+def _first_person_profile_relation_belongs_to_other_speaker(
+    *,
+    category: str,
+    memory_text: str,
+    clause: str,
+    query_entities: Sequence[str],
+) -> bool:
+    if category not in {"alias_profile", "status_profile"}:
+        return False
+    if _FIRST_PERSON_PROFILE_RELATION_RE.search(clause) is None:
+        return False
+    speaker = _direct_turn_speaker_for_clause(memory_text, clause)
+    if not speaker:
+        return False
+    return not any(_entity_surface_matches(speaker, entity) for entity in query_entities)
 
 
 def _relation_clauses(memory_text: str, term_values: Sequence[str]) -> tuple[str, ...]:
@@ -722,7 +762,7 @@ def _first_person_speaker_clause_covers_query_entities(
 ) -> bool:
     if _FIRST_PERSON_SURFACE_RE.search(clause) is None:
         return False
-    speaker = _direct_turn_speaker(memory_text)
+    speaker = _direct_turn_speaker_for_clause(memory_text, clause)
     if not speaker:
         return False
     speaker_entities = tuple(
@@ -746,7 +786,7 @@ def _direct_speaker_clause_covers_query_entities(
 ) -> bool:
     if _has_competing_named_target(clause):
         return False
-    speaker = _direct_turn_speaker(memory_text)
+    speaker = _direct_turn_speaker_for_clause(memory_text, clause)
     if not speaker:
         return False
     speaker_entities = tuple(
@@ -763,11 +803,23 @@ def _direct_speaker_clause_covers_query_entities(
 
 
 def _direct_turn_speaker(memory_text: str) -> str:
-    match = re.search(
-        r"\bD\d+:\d+\s+(?P<speaker>[A-Z][a-zA-Z0-9_-]{1,40})\s*:",
-        memory_text,
-    )
+    match = _DIRECT_TURN_SPEAKER_CAPTURE_RE.search(memory_text)
     return match.group("speaker").casefold() if match else ""
+
+
+def _direct_turn_speaker_for_clause(memory_text: str, clause: str) -> str:
+    clause_text = clause.strip()
+    if not clause_text:
+        return _direct_turn_speaker(memory_text)
+    clause_index = memory_text.casefold().find(clause_text.casefold())
+    if clause_index < 0:
+        return _direct_turn_speaker(memory_text)
+    speaker = ""
+    for match in _DIRECT_TURN_SPEAKER_CAPTURE_RE.finditer(memory_text):
+        if match.start() > clause_index:
+            break
+        speaker = match.group("speaker").casefold()
+    return speaker
 
 
 def _contains_entity_surface(text: str, entity: str) -> bool:

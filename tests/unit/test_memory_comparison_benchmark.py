@@ -9124,6 +9124,59 @@ def test_benchmark_rerank_boosts_wife_name_status_evidence() -> None:
     )
 
 
+def test_benchmark_rerank_does_not_attach_other_speaker_my_wife_to_query_person() -> None:
+    case = _case(
+        case_id="status-profile-wife-name-other-speaker-guard",
+        question="What is Alex's wife's name?",
+        expected_terms=("Maria",),
+        answer="Maria",
+        category=4,
+    )
+    other_speaker_status = RetrievedMemory(
+        item_id="other-speaker-status",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Maria: Alex mentioned my wife Sarah during dinner."
+        ),
+        source_refs=("D1:1",),
+    )
+    query_person_status = RetrievedMemory(
+        item_id="query-person-status",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: Maria is my wife."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (other_speaker_status, query_person_status),
+    )
+
+    assert metadata["query_profile"]["evidence_need"] == ("status_profile",)
+    assert reranked[0].item_id == "query-person-status"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    assert diagnostics_by_id["query-person-status"]["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["status_profile"]
+    assert diagnostics_by_id["other-speaker-status"]["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert (
+        diagnostics_by_id["other-speaker-status"]["score_signals"][
+            "benchmark_typed_relation_support_boost"
+        ]
+        == 0
+    )
+
+
 def test_benchmark_rerank_boosts_extended_kinship_status_evidence() -> None:
     case = _case(
         case_id="status-profile-cousin-rerank",
@@ -14474,6 +14527,59 @@ def test_benchmark_rerank_boosts_go_by_alias_profile_evidence() -> None:
     ] == ["alias_support"]
     assert (
         topical_diagnostics["score_signals"]["benchmark_typed_relation_support_boost"]
+        == 0
+    )
+
+
+def test_benchmark_rerank_does_not_attach_other_speaker_my_alias_to_query_person() -> None:
+    case = _case(
+        case_id="alias-profile-other-speaker-guard",
+        question="What is Alex's nickname?",
+        expected_terms=("Ace",),
+        answer="Ace",
+        category=4,
+    )
+    other_speaker_alias = RetrievedMemory(
+        item_id="other-speaker-alias",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Maria: Alex mentioned my nickname Sunshine."
+        ),
+        source_refs=("D1:1",),
+    )
+    query_person_alias = RetrievedMemory(
+        item_id="query-person-alias",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: My nickname is Ace."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (other_speaker_alias, query_person_alias),
+    )
+
+    assert metadata["query_profile"]["evidence_need"] == ("alias_profile",)
+    assert reranked[0].item_id == "query-person-alias"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    assert diagnostics_by_id["query-person-alias"]["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == ["alias_profile"]
+    assert diagnostics_by_id["other-speaker-alias"]["benchmark_candidate_features"][
+        "relation_category_hits"
+    ] == []
+    assert (
+        diagnostics_by_id["other-speaker-alias"]["score_signals"][
+            "benchmark_typed_relation_support_boost"
+        ]
         == 0
     )
 
