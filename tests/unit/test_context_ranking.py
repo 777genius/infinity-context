@@ -8714,6 +8714,41 @@ def test_deterministic_rerank_prefers_negative_preference_match() -> None:
     )
 
 
+def test_deterministic_rerank_prefers_direct_dislike_evidence() -> None:
+    query = "What does Morgan dislike?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    negative = _item(
+        "negative",
+        score=0.7,
+        retrieval_source="keyword_chunks",
+        text="Morgan dislikes crowded theme parks.",
+    )
+    positive = _item(
+        "positive",
+        score=0.72,
+        retrieval_source="keyword_chunks",
+        text="Morgan likes theme parks and weekend rides.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (negative, positive),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+
+    assert reranked[0].score > reranked[1].score
+    assert (
+        "negative_preference_match"
+        in reranked[0].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+    assert (
+        "negative_preference_positive_conflict"
+        in reranked[1].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+
+
 def test_deterministic_rerank_prefers_cant_eat_negative_match() -> None:
     query = "Which foods can't Alex eat?"
     plan = build_query_expansion_plan(query)

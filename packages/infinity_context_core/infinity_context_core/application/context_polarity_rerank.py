@@ -23,7 +23,7 @@ _NEGATIVE_PREFERENCE_QUERY_RE = re.compile(
     r"\b(?:not\s+(?:like|likes|liked|interested|eat|eats|enjoy|enjoys|want|wants)|"
     r"doesn'?t\s+(?:like|eat|enjoy|want)|does\s+not\s+(?:like|eat|enjoy|want)|"
     r"would\s+not\s+(?:like|eat|enjoy|want)|never\s+(?:eat|eats|like|likes)|"
-    r"avoid|avoids|allergic)\b",
+    r"dislikes?|disliked|hates?|hated|avoid|avoids|avoided|allergic)\b",
     re.IGNORECASE,
 )
 _NEGATIVE_EATING_QUERY_RE = re.compile(
