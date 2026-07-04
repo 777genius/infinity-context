@@ -2025,6 +2025,7 @@ def _compact_fast_gate_summary(
     query_plan_gaps = _mapping(gate.get("query_plan_gap_breakdown"))
     bundle_gaps = _mapping(gate.get("bundle_gap_breakdown"))
     rerank_signal_gaps = _mapping(gate.get("rerank_signal_gap_breakdown"))
+    answer_context_gaps = _mapping(gate.get("answer_context_support_gap_summary"))
     actionable = _mapping(gate.get("actionable_gap_summary"))
     return {
         "schema_version": "compact_fast_gate_summary.v1",
@@ -2125,6 +2126,28 @@ def _compact_fast_gate_summary(
                 bundle_gaps.get("bridge_gap_reason_counts")
             ),
         },
+        "answer_context_support_gap_counts": {
+            "context_count": _positive_int(answer_context_gaps.get("context_count"))
+            or 0,
+            "support_gap_context_count": _positive_int(
+                answer_context_gaps.get("support_gap_context_count")
+            )
+            or 0,
+            "gap_reason_counts": _compact_count_mapping(
+                answer_context_gaps.get("gap_reason_counts")
+            ),
+            "missing_required_role_counts": _compact_count_mapping(
+                answer_context_gaps.get("missing_required_role_counts")
+            ),
+            "risk_reason_counts": _compact_count_mapping(
+                answer_context_gaps.get("risk_reason_counts")
+            ),
+        },
+        "answer_context_support_gap_samples": (
+            _compact_answer_context_support_gap_samples(
+                answer_context_gaps.get("samples")
+            )
+        ),
         "rerank_signal_gap_counts": {
             "candidate_count": _positive_int(rerank_signal_gaps.get("candidate_count"))
             or 0,
@@ -2172,6 +2195,50 @@ def _compact_fast_gate_summary(
             rerank_signal_gaps
         ),
     }
+
+
+def _compact_answer_context_support_gap_samples(
+    value: object,
+    *,
+    limit: int = 3,
+) -> list[dict[str, object]]:
+    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
+        return []
+    samples: list[dict[str, object]] = []
+    scalar_keys = (
+        "case_id",
+        "group",
+        "cutoff",
+        "source",
+        "memory_count",
+        "source_ref_item_count",
+        "source_refless_item_count",
+        "backfilled_retrieval_item_count",
+        "skipped_redundant_risky_backfill_count",
+        "avg_measured_answerability_score",
+        "avg_measured_source_locality_score",
+        "fallback_reason",
+    )
+    list_keys = ("gap_reasons", "missing_required_roles", "risk_reason_codes")
+    for raw_sample in value[:limit]:
+        sample = _mapping(raw_sample)
+        if not sample:
+            continue
+        compact = {
+            key: sample[key]
+            for key in scalar_keys
+            if isinstance(sample.get(key), str | int | float | bool)
+        }
+        compact.update(
+            {
+                key: list(_str_tuple(sample.get(key)))
+                for key in list_keys
+                if _str_tuple(sample.get(key))
+            }
+        )
+        if compact:
+            samples.append(compact)
+    return samples
 
 
 def _compact_rerank_signal_gap_samples(

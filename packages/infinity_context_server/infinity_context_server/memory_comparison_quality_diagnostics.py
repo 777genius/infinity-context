@@ -116,6 +116,9 @@ from infinity_context_server.memory_comparison_quality_accessors import (
 from infinity_context_server.memory_comparison_quality_actionable_gaps import (
     actionable_gap_summary as _actionable_gap_summary,
 )
+from infinity_context_server.memory_comparison_quality_answer_context_gaps import (
+    answer_context_support_gap_summary as _answer_context_support_gap_summary,
+)
 from infinity_context_server.memory_comparison_quality_bundle_gaps import (
     bundle_gap_breakdown as _bundle_gap_breakdown,
 )
@@ -256,6 +259,9 @@ def quality_diagnostics(items: Sequence[Mapping[str, object]]) -> dict[str, obje
         "evidence_feature_table": _evidence_feature_table(items),
         "source_ref_provenance_table": source_ref_provenance,
         "answer_context_provenance_table": answer_context_provenance,
+        "answer_context_support_gap_summary": _answer_context_support_gap_summary(
+            items
+        ),
         "temporal_grounding_table": _temporal_grounding_table(items),
         "query_role_effectiveness_table": _query_role_effectiveness_table(items),
         "query_plan_integrity_table": _query_plan_integrity_table(items),
@@ -288,6 +294,7 @@ def fast_gate_metrics(
     risk_flag_table = _risk_flag_table(items)
     source_ref_provenance = _source_ref_provenance_table(items)
     answer_context_provenance = _answer_context_provenance_table(items)
+    answer_context_support_gaps = _answer_context_support_gap_summary(items)
     answerability_gap_breakdown = _answerability_gap_breakdown(items)
     selected_evidence_weakness = _selected_evidence_weakness_breakdown(items)
     candidate_fusion = _candidate_fusion_table(items)
@@ -416,6 +423,7 @@ def fast_gate_metrics(
         "query_plan_gap_breakdown": query_plan_gap_breakdown,
         "source_ref_provenance": source_ref_provenance,
         "answer_context_provenance": answer_context_provenance,
+        "answer_context_support_gap_summary": answer_context_support_gaps,
         "candidate_fusion": candidate_fusion,
         "rerank_signal_gap_breakdown": rerank_signal_gaps,
         "risk_flag_table": risk_flag_table,

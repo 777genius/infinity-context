@@ -2179,7 +2179,29 @@ def test_compact_fast_gate_summary_surfaces_computed_gap_diagnostics() -> None:
                 }
             ],
         },
-        "cutoff_results": {},
+        "cutoff_results": {
+            "5": {
+                "answer_context": {
+                    "source": "evidence_bundle",
+                    "memory_count": 2,
+                    "source_ref_item_count": 0,
+                    "source_refless_item_count": 2,
+                    "bundle_confidence_score": 0.42,
+                    "bundle_confidence_band": "low",
+                    "bundle_source_ref_support_item_count": 0,
+                    "bundle_source_identity_support_item_count": 0,
+                    "avg_measured_answerability_score": 0.43,
+                    "avg_measured_source_locality_score": 0.41,
+                    "backfilled_low_answerability_count": 1,
+                    "skipped_redundant_risky_backfill_count": 1,
+                    "missing_required_roles": ["emotion_response_support"],
+                    "risk_reason_codes": [
+                        "risk:missing_required_role",
+                        "risk:backfilled_low_answerability",
+                    ],
+                }
+            }
+        },
     }
 
     summary = _compact_fast_gate_summary((item,))
@@ -2224,6 +2246,53 @@ def test_compact_fast_gate_summary_surfaces_computed_gap_diagnostics() -> None:
         }
     ]
     assert "text" not in weakness_samples["samples"][0]
+    assert summary["answer_context_support_gap_counts"] == {
+        "context_count": 1,
+        "support_gap_context_count": 1,
+        "gap_reason_counts": {
+            "low_answerability_backfill": 1,
+            "low_context_answerability": 1,
+            "missing_context_source_refs": 1,
+            "missing_required_roles": 1,
+            "skipped_redundant_risky_backfill": 1,
+            "weak_bundle_source_support": 1,
+            "weak_context_source_locality": 1,
+        },
+        "missing_required_role_counts": {"emotion_response_support": 1},
+        "risk_reason_counts": {
+            "risk:backfilled_low_answerability": 1,
+            "risk:missing_required_role": 1,
+        },
+    }
+    assert summary["answer_context_support_gap_samples"] == [
+        {
+            "case_id": "compact-fastgate-gap",
+            "group": "single-hop",
+            "cutoff": "5",
+            "source": "evidence_bundle",
+            "memory_count": 2,
+            "source_ref_item_count": 0,
+            "source_refless_item_count": 2,
+            "backfilled_retrieval_item_count": 0,
+            "skipped_redundant_risky_backfill_count": 1,
+            "avg_measured_answerability_score": 0.43,
+            "avg_measured_source_locality_score": 0.41,
+            "gap_reasons": [
+                "missing_context_source_refs",
+                "missing_required_roles",
+                "weak_bundle_source_support",
+                "low_answerability_backfill",
+                "low_context_answerability",
+                "weak_context_source_locality",
+                "skipped_redundant_risky_backfill",
+            ],
+            "missing_required_roles": ["emotion_response_support"],
+            "risk_reason_codes": [
+                "risk:missing_required_role",
+                "risk:backfilled_low_answerability",
+            ],
+        }
+    ]
     assert summary["rerank_signal_gap_counts"][
         "positive_unselected_candidate_count"
     ] == 1

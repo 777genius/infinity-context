@@ -1293,6 +1293,140 @@ def test_quality_diagnostics_derives_answer_context_risk_reasons_from_counts() -
     )
 
 
+def test_quality_diagnostics_reports_actionable_answer_context_support_gaps() -> None:
+    items = (
+        _item(
+            case_id="missing-support-context",
+            cutoff_results={
+                "5": {
+                    "answer_context": {
+                        "source": "evidence_bundle",
+                        "memory_count": 2,
+                        "source_ref_item_count": 0,
+                        "source_refless_item_count": 2,
+                        "bundle_confidence_score": 0.42,
+                        "bundle_confidence_band": "low",
+                        "bundle_source_ref_support_item_count": 0,
+                        "bundle_source_identity_support_item_count": 0,
+                        "avg_measured_answerability_score": 0.43,
+                        "avg_measured_source_locality_score": 0.41,
+                        "backfilled_low_answerability_count": 1,
+                        "skipped_redundant_risky_backfill_count": 1,
+                        "missing_required_roles": ["contrast", "temporal_support"],
+                        "risk_reason_codes": [
+                            "risk:missing_required_role",
+                            "risk:backfilled_low_answerability",
+                        ],
+                    }
+                }
+            },
+        ),
+        _item(
+            case_id="fallback-context",
+            cutoff_results={
+                "5": {
+                    "answer_context": {
+                        "source": "retrieval_slice",
+                        "fallback_reason": "empty_bundle",
+                        "memory_count": 1,
+                        "source_ref_item_count": 1,
+                        "source_refless_item_count": 1,
+                    }
+                }
+            },
+        ),
+        _item(
+            case_id="supported-context",
+            cutoff_results={
+                "5": {
+                    "answer_context": {
+                        "source": "evidence_bundle",
+                        "memory_count": 1,
+                        "source_ref_item_count": 1,
+                    }
+                }
+            },
+        ),
+    )
+
+    diagnostics = quality_diagnostics(items)
+    gate = fast_gate_metrics(items, expected_case_count=3)
+    summary = diagnostics["answer_context_support_gap_summary"]
+
+    assert gate["answer_context_support_gap_summary"] == summary
+    assert summary["schema_version"] == "answer_context_support_gaps.v1"
+    assert summary["context_count"] == 3
+    assert summary["support_gap_context_count"] == 2
+    assert summary["support_gap_context_rate"] == 0.6667
+    assert summary["gap_reason_counts"] == {
+        "low_answerability_backfill": 1,
+        "low_context_answerability": 1,
+        "missing_context_source_refs": 1,
+        "missing_required_roles": 1,
+        "partial_context_source_refs": 1,
+        "retrieval_slice_fallback": 1,
+        "skipped_redundant_risky_backfill": 1,
+        "weak_bundle_source_support": 1,
+        "weak_context_source_locality": 1,
+    }
+    assert summary["source_counts"] == {"evidence_bundle": 1, "retrieval_slice": 1}
+    assert summary["missing_required_role_counts"] == {
+        "contrast": 1,
+        "temporal_support": 1,
+    }
+    assert summary["risk_reason_counts"] == {
+        "risk:backfilled_low_answerability": 1,
+        "risk:missing_required_role": 1,
+    }
+    assert summary["samples"] == [
+        {
+            "case_id": "missing-support-context",
+            "group": "multi-hop",
+            "cutoff": "5",
+            "source": "evidence_bundle",
+            "gap_reasons": [
+                "missing_context_source_refs",
+                "missing_required_roles",
+                "weak_bundle_source_support",
+                "low_answerability_backfill",
+                "low_context_answerability",
+                "weak_context_source_locality",
+                "skipped_redundant_risky_backfill",
+            ],
+            "memory_count": 2,
+            "source_ref_item_count": 0,
+            "source_refless_item_count": 2,
+            "backfilled_retrieval_item_count": 0,
+            "skipped_redundant_risky_backfill_count": 1,
+            "avg_measured_answerability_score": 0.43,
+            "avg_measured_source_locality_score": 0.41,
+            "missing_required_roles": ["contrast", "temporal_support"],
+            "risk_reason_codes": [
+                "risk:missing_required_role",
+                "risk:backfilled_low_answerability",
+            ],
+        },
+        {
+            "case_id": "fallback-context",
+            "group": "multi-hop",
+            "cutoff": "5",
+            "source": "retrieval_slice",
+            "gap_reasons": [
+                "retrieval_slice_fallback",
+                "partial_context_source_refs",
+            ],
+            "memory_count": 1,
+            "source_ref_item_count": 1,
+            "source_refless_item_count": 1,
+            "backfilled_retrieval_item_count": 0,
+            "skipped_redundant_risky_backfill_count": 0,
+            "avg_measured_answerability_score": 0.0,
+            "avg_measured_source_locality_score": 0.0,
+            "fallback_reason": "empty_bundle",
+        },
+    ]
+
+
 def test_quality_diagnostics_merges_explicit_and_derived_answer_context_risks() -> None:
     diagnostics = quality_diagnostics(
         (
