@@ -112,6 +112,30 @@ def test_anchor_extraction_strips_question_modal_prefix_from_person() -> None:
     assert "would melanie" not in person_keys
 
 
+def test_anchor_extraction_keeps_full_question_modal_person_name() -> None:
+    anchors = extract_observed_anchors("Would Melanie Cooper be considered an ally?")
+
+    person_keys = {anchor.normalized_key for anchor in anchors if anchor.kind.value == "person"}
+    assert "melanie cooper" in person_keys
+    assert "melanie" not in person_keys
+    assert "cooper" not in person_keys
+
+    intent = build_query_anchor_intent("Would Melanie Cooper be considered an ally?")
+    assert intent.keys_for_kind(MemoryAnchorKind.PERSON) == frozenset({"melanie cooper"})
+
+
+def test_anchor_extraction_avoids_surname_only_modal_event_subject() -> None:
+    anchors = extract_observed_anchors("Should Alex Cooper join the robotics club?")
+
+    person_keys = {anchor.normalized_key for anchor in anchors if anchor.kind.value == "person"}
+    assert "alex cooper" in person_keys
+    assert "alex" not in person_keys
+    assert "cooper" not in person_keys
+
+    intent = build_query_anchor_intent("Should Alex Cooper join the robotics club?")
+    assert intent.keys_for_kind(MemoryAnchorKind.PERSON) == frozenset({"aleks cooper"})
+
+
 def test_anchor_extraction_ignores_russian_question_words_as_people() -> None:
     anchors = extract_observed_anchors("Что сказано про V1_DOCUMENT_SCOPE_MARKER?")
 

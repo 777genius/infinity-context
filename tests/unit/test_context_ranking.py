@@ -5375,6 +5375,49 @@ def test_query_anchor_intent_boost_prefers_matching_entity_evidence() -> None:
     ]
 
 
+def test_query_anchor_intent_boost_rejects_wrong_full_person_alias() -> None:
+    correct = _item(
+        "melanie_cooper",
+        score=0.7,
+        retrieval_source="keyword_chunks",
+        text="Melanie Cooper is supportive, encouraging, and helps Caroline feel accepted.",
+    )
+    wrong_same_given = _item(
+        "melanie_smith",
+        score=0.7,
+        retrieval_source="keyword_chunks",
+        text="Melanie Smith is supportive, encouraging, and helps people feel accepted.",
+    )
+    intent = build_query_anchor_intent("Would Melanie Cooper be considered an ally?")
+
+    boosted = apply_query_anchor_intent_boosts((wrong_same_given, correct), intent=intent)
+    by_id = {item.item_id: item for item in boosted}
+
+    assert by_id["melanie_cooper"].diagnostics["score_signals"][
+        "query_anchor_intent_boost"
+    ] > 0
+    assert "query_anchor_intent_boost" not in by_id["melanie_smith"].diagnostics[
+        "score_signals"
+    ]
+
+
+def test_query_anchor_intent_boost_keeps_first_name_alias_expansion() -> None:
+    fuller_name = _item(
+        "melanie_smith",
+        score=0.7,
+        retrieval_source="keyword_chunks",
+        text="Melanie Smith is supportive, encouraging, and helps people feel accepted.",
+    )
+    intent = build_query_anchor_intent("Would Melanie be considered an ally?")
+
+    (boosted,) = apply_query_anchor_intent_boosts((fuller_name,), intent=intent)
+
+    assert boosted.diagnostics["score_signals"]["query_anchor_intent_boost"] > 0
+    assert boosted.diagnostics["provenance"]["query_anchor_intent_reasons"] == [
+        "query_person_identity_match"
+    ]
+
+
 def test_query_anchor_intent_boost_rejects_wrong_person_same_project() -> None:
     wrong_person = _item(
         "wrong_person",
