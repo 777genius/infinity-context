@@ -341,7 +341,11 @@ def query_role_gap_breakdown(
             candidate_role_counts=candidate_role_counts,
         ),
         "role_gaps": role_gaps,
-        "samples": _query_role_gap_samples(items or (), role_gaps),
+        "samples": _query_role_gap_samples(
+            items or (),
+            role_gaps,
+            _mapping(role_family_gap_summary.get("role_family_gaps")),
+        ),
     }
 
 
@@ -489,12 +493,14 @@ def _typed_relation_roles_without_hits(
 def _query_role_gap_samples(
     items: Sequence[Mapping[str, object]],
     role_gaps: Mapping[str, Mapping[str, object]],
+    role_family_gaps: Mapping[str, Mapping[str, object]],
 ) -> list[dict[str, object]]:
-    if not role_gaps:
+    if not role_gaps and not role_family_gaps:
         return []
     samples: list[dict[str, object]] = []
     seen: set[tuple[str, str]] = set()
     gap_roles = set(role_gaps)
+    gap_families = set(role_family_gaps)
     for item in items:
         case_id = str(item.get("case_id") or "")
         group = str(item.get("group") or "")
@@ -507,8 +513,9 @@ def _query_role_gap_samples(
             features = _candidate_features(memory)
             candidate_roles = tuple(
                 role
-                for role in _str_tuple(features.get("query_roles"))
+                for role in sorted(_str_tuple(features.get("query_roles")))
                 if role in gap_roles
+                or set(_query_role_families(role)).intersection(gap_families)
             )
             if not candidate_roles:
                 continue
@@ -518,20 +525,22 @@ def _query_role_gap_samples(
                 if key in seen:
                     continue
                 seen.add(key)
+                query_role_families = _query_role_families(query_role)
+                gap_role_families = tuple(
+                    family for family in query_role_families if family in gap_families
+                )
                 samples.append(
                     {
                         "case_id": case_id,
                         "group": group,
                         "query_role": query_role,
-                        "query_role_families": list(
-                            _query_role_families(query_role)
-                        ),
-                        "gap_reasons": list(
-                            _str_tuple(
-                                _mapping(role_gaps.get(query_role)).get(
-                                    "gap_reasons"
-                                )
-                            )
+                        "query_role_families": list(query_role_families),
+                        "query_role_gap_families": list(gap_role_families),
+                        "gap_reasons": _sample_gap_reasons(
+                            query_role=query_role,
+                            role_gaps=role_gaps,
+                            gap_role_families=gap_role_families,
+                            role_family_gaps=role_family_gaps,
                         ),
                         "memory_id": _memory_id(memory),
                         "rank": _positive_int(memory.get("rank")) or 0,
@@ -560,6 +569,26 @@ def _query_role_gap_samples(
                 if len(samples) >= _QUERY_ROLE_GAP_SAMPLE_LIMIT:
                     return samples
     return samples
+
+
+def _sample_gap_reasons(
+    *,
+    query_role: str,
+    role_gaps: Mapping[str, Mapping[str, object]],
+    gap_role_families: Sequence[str],
+    role_family_gaps: Mapping[str, Mapping[str, object]],
+) -> list[str]:
+    reasons: list[str] = []
+    for reason in _str_tuple(_mapping(role_gaps.get(query_role)).get("gap_reasons")):
+        if reason not in reasons:
+            reasons.append(reason)
+    for family in gap_role_families:
+        for reason in _str_tuple(
+            _mapping(role_family_gaps.get(family)).get("gap_reasons")
+        ):
+            if reason not in reasons:
+                reasons.append(reason)
+    return reasons
 
 
 def _selected_bundle_roles(item: Mapping[str, object]) -> tuple[str, ...]:

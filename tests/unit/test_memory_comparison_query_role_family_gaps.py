@@ -86,6 +86,49 @@ def test_query_role_gap_breakdown_reports_multi_hop_bridge_family_loss() -> None
     }
 
 
+def test_query_role_gap_samples_use_deterministic_roles_and_families() -> None:
+    item = {
+        "case_id": "deterministic-role-samples",
+        "group": "single-hop",
+        "retrieval": {
+            "results": [
+                _memory(
+                    "mixed",
+                    query_roles=(
+                        "temporal_support",
+                        "visual_temporal_support",
+                        "contrast_support",
+                    ),
+                ),
+            ],
+        },
+        "evidence_bundle": {"items": []},
+    }
+
+    samples = fast_gate_metrics((item,), expected_case_count=1)[
+        "query_role_gap_breakdown"
+    ]["samples"]
+
+    assert [sample["query_role"] for sample in samples] == [
+        "contrast_support",
+        "temporal_support",
+        "visual_temporal_support",
+    ]
+    assert samples[0]["query_role_families"] == ["contrast_support"]
+    assert samples[0]["query_role_gap_families"] == ["contrast_support"]
+    assert samples[1]["query_role_families"] == ["temporal_support"]
+    assert samples[1]["query_role_gap_families"] == ["temporal_support"]
+    assert samples[2]["query_role_families"] == [
+        "visual_support",
+        "temporal_support",
+    ]
+    assert samples[2]["query_role_gap_families"] == [
+        "visual_support",
+        "temporal_support",
+    ]
+    assert samples[2]["gap_reasons"] == ["not_selected", "not_lifted"]
+
+
 def test_query_role_gap_breakdown_uses_fusion_selected_evidence_role_families() -> None:
     item = {
         "case_id": "fusion-selected-role-family",

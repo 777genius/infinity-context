@@ -122,6 +122,29 @@ def test_fast_gate_metrics_actionable_summary_is_empty_when_no_observed_gaps() -
     assert summary["gap_count"] == 0
 
 
+def test_actionable_gap_summary_accepts_missing_optional_sections() -> None:
+    summary = actionable_gap_summary(
+        evaluation_count=0,
+        expected_case_count=40,
+        failed_gates=("case_count",),
+        query_overlap_count=0,
+        profile_overlap_count=0,
+        intent_overlap_count=0,
+    )
+
+    assert summary == {
+        "schema_version": "actionable_gap_summary.v1",
+        "evaluation_count": 0,
+        "expected_case_count": 40,
+        "gap_count": 0,
+        "blocking_gap_count": 0,
+        "diagnostic_gap_count": 0,
+        "rank_basis": "observed_impact_desc_blocking_tie_break",
+        "top_gap": None,
+        "ranked_gaps": [],
+    }
+
+
 def test_fast_gate_metrics_actionable_summary_explains_query_plan_role_gap() -> None:
     bundle = _fast_gate_bundle(
         1,

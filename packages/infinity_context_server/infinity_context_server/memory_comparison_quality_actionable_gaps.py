@@ -36,16 +36,24 @@ def actionable_gap_summary(
     query_overlap_count: int,
     profile_overlap_count: int,
     intent_overlap_count: int,
-    ref_gate: Mapping[str, object],
-    bundle_quality_failure_breakdown: Mapping[str, object],
-    bundle_gap_breakdown: Mapping[str, object],
-    answerability_gap_breakdown: Mapping[str, object],
-    selected_evidence_weakness: Mapping[str, object],
-    query_role_gap_breakdown: Mapping[str, object],
-    query_plan_gap_breakdown: Mapping[str, object],
-    source_ref_provenance: Mapping[str, object],
+    ref_gate: Mapping[str, object] | None = None,
+    bundle_quality_failure_breakdown: Mapping[str, object] | None = None,
+    bundle_gap_breakdown: Mapping[str, object] | None = None,
+    answerability_gap_breakdown: Mapping[str, object] | None = None,
+    selected_evidence_weakness: Mapping[str, object] | None = None,
+    query_role_gap_breakdown: Mapping[str, object] | None = None,
+    query_plan_gap_breakdown: Mapping[str, object] | None = None,
+    source_ref_provenance: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     failed_gate_set = set(failed_gates)
+    ref_gate = _mapping(ref_gate)
+    bundle_quality_failure_breakdown = _mapping(bundle_quality_failure_breakdown)
+    bundle_gap_breakdown = _mapping(bundle_gap_breakdown)
+    answerability_gap_breakdown = _mapping(answerability_gap_breakdown)
+    selected_evidence_weakness = _mapping(selected_evidence_weakness)
+    query_role_gap_breakdown = _mapping(query_role_gap_breakdown)
+    query_plan_gap_breakdown = _mapping(query_plan_gap_breakdown)
+    source_ref_provenance = _mapping(source_ref_provenance)
     gaps: list[dict[str, object]] = []
     _append_bundle_quality_gaps(
         gaps,

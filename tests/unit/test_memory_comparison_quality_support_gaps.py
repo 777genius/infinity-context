@@ -2619,10 +2619,49 @@ def test_fast_gate_metrics_surfaces_selected_evidence_weakness() -> None:
     assert weakness["weak_source_locality_query_role_counts"] == {
         "location_support": 1
     }
+    assert weakness["low_answerability_samples"][0]["item_id"] == "low-answerability"
+    assert weakness["low_answerability_samples"][0]["source_refs"] == ["D1:1"]
     assert weakness["samples"][0]["query_roles"] == ["original_question"]
     assert weakness["samples"][0]["source_refs"] == ["D1:1"]
     assert weakness["samples"][2]["broad_summary"] is True
     assert weakness["samples"][3]["conflict_or_stale"] is True
+
+
+def test_fast_gate_metrics_caps_selected_low_answerability_samples() -> None:
+    gate = fast_gate_metrics(
+        tuple(
+            _item(
+                case_id=f"low-answerability-{index}",
+                evidence_bundle={"bundle_complete": True, "items": [_weak_item(index)]},
+            )
+            for index in range(7)
+        ),
+        expected_case_count=7,
+    )
+
+    samples = gate["selected_evidence_weakness"]["low_answerability_samples"]
+
+    assert [sample["item_id"] for sample in samples] == [
+        "low-0",
+        "low-1",
+        "low-2",
+        "low-3",
+        "low-4",
+    ]
+    assert len(samples[0]["query_roles"]) == 6
+    assert len(samples[0]["source_refs"]) == 5
+    assert samples[0]["source_ref_count"] == 7
+
+
+def _weak_item(index: int) -> dict[str, object]:
+    return {
+        "id": f"low-{index}",
+        "role": "primary",
+        "query_roles": [f"role-{role_index}" for role_index in range(8)],
+        "answerability_score": 0.42,
+        "source_locality_score": 0.8,
+        "source_refs": [f"D{index}:{ref_index}" for ref_index in range(1, 8)],
+    }
 
 
 def test_fast_gate_metrics_clusters_selected_evidence_weakness_by_group() -> None:
