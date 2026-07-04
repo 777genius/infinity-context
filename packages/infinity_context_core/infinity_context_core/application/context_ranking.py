@@ -153,6 +153,7 @@ from infinity_context_core.application.context_source_grounding import (
     source_grounding_signal,
 )
 from infinity_context_core.application.context_speaker_attribution import (
+    communication_direction_signal,
     speaker_attribution_signal,
 )
 from infinity_context_core.application.context_speaker_disambiguation import (
@@ -2064,11 +2065,24 @@ def _deterministic_rerank_signals(
     if source_grounding_penalty > 0:
         penalty += source_grounding_penalty
         reasons.append(source_grounding_reason)
+    communication_boost, communication_penalty, communication_reason = (
+        communication_direction_signal(
+            query=query,
+            text=item.text,
+        )
+    )
+    if communication_boost > 0:
+        boost += communication_boost
+        reasons.append(communication_reason)
+    if communication_penalty > 0:
+        penalty += communication_penalty
+        reasons.append(communication_reason)
     if (
         answer_shape_boost > 0
         and owner_penalty <= 0
         and speaker_penalty <= 0
         and source_grounding_penalty <= 0
+        and communication_penalty <= 0
         and not anchor_conflict
     ):
         boost += answer_shape_boost

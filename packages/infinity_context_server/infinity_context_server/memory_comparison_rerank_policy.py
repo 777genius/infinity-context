@@ -33,6 +33,9 @@ class BenchmarkRerankFeatures:
     relation_categories: tuple[str, ...] = ()
     relation_category_hits: tuple[str, ...] = ()
     relation_category_coverage_ratio: float = 0.0
+    communication_direction_grounded: bool = False
+    communication_direction_ungrounded: bool = False
+    communication_query_direction: str = ""
     exact_count_evidence: bool = False
     list_item_count: int = 0
     policy_boosts: Mapping[str, float] = field(default_factory=dict)
@@ -151,6 +154,10 @@ def score_benchmark_rerank_candidate(
         score_signals,
         "benchmark_focused_relation_density_boost",
     )
+    communication_direction_boost = _float_signal(
+        score_signals,
+        "benchmark_communication_direction_boost",
+    )
     relation_coverage_boost = _float_signal(
         score_signals,
         "benchmark_relation_coverage_boost",
@@ -161,6 +168,7 @@ def score_benchmark_rerank_candidate(
         features=features,
         focused_turn_boost=features.focused_turn_boost,
         focused_relation_density_boost=focused_relation_density_boost,
+        communication_direction_boost=communication_direction_boost,
         relation_coverage_boost=relation_coverage_boost,
         strong_relation_evidence=strong_relation_evidence,
         rich_direct_speaker_relation_evidence=rich_direct_speaker_relation_evidence,
@@ -256,6 +264,7 @@ def _boost_cap(
     features: BenchmarkRerankFeatures,
     focused_turn_boost: float,
     focused_relation_density_boost: float,
+    communication_direction_boost: float,
     relation_coverage_boost: float,
     strong_relation_evidence: bool,
     rich_direct_speaker_relation_evidence: bool,
@@ -314,6 +323,13 @@ def _boost_cap(
     ):
         return 0.62
     if (
+        communication_direction_boost > 0
+        and features.direct_speaker_turn
+        and features.source_locality_score >= 0.9
+        and not features.broad_summary
+    ):
+        return 0.62
+    if (
         typed_relation_support_boost > 0
         and features.direct_speaker_turn
         and features.relation_category_coverage_ratio >= 1.0
@@ -335,6 +351,8 @@ def _boost_cap(
         return 0.56
     if focused_turn_boost > 0:
         return 0.52
+    if communication_direction_boost > 0:
+        return 0.5
     if strong_relation_evidence:
         return 0.5
     if count_list_answer_shape_boost > 0:
@@ -374,6 +392,7 @@ def _boost_cap(
         or count_list_answer_shape_boost > 0
         or typed_relation_support_boost > 0
         or source_grounding_boost > 0
+        or communication_direction_boost > 0
     ):
         return 0.38
     return 0.28

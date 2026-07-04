@@ -21,6 +21,9 @@ class RerankPolicyFeatures(Protocol):
     list_item_count: int
     query_has_entities: bool
     high_signal_relation_hit_count: int
+    communication_direction_grounded: bool
+    communication_direction_ungrounded: bool
+    communication_query_direction: str
     is_temporal_query: bool
     time_intent_kind: str
     has_temporal_surface: bool
@@ -422,12 +425,20 @@ class FocusedTurnPolicy:
             if direct_speaker_relation_evidence
             else 0.0
         )
+        communication_direction_boost = (
+            0.09 if features.communication_direction_grounded else 0.0
+        )
+        communication_direction_penalty = (
+            -0.06 if features.communication_direction_ungrounded else 0.0
+        )
         return RerankPolicyContribution(
             policy=self.name,
             score=(
                 features.focused_turn_boost
                 + focused_density_boost
                 + direct_speaker_relation_boost
+                + communication_direction_boost
+                + communication_direction_penalty
             ),
             signals={
                 "benchmark_focused_turn_boost": round(
@@ -448,11 +459,33 @@ class FocusedTurnPolicy:
                 "benchmark_rich_direct_speaker_relation_evidence": (
                     rich_direct_speaker_relation_evidence
                 ),
+                "benchmark_communication_direction_boost": round(
+                    communication_direction_boost,
+                    6,
+                ),
+                "benchmark_communication_direction_penalty": round(
+                    communication_direction_penalty,
+                    6,
+                ),
+                "benchmark_communication_direction_grounded": (
+                    features.communication_direction_grounded
+                ),
+                "benchmark_communication_direction_ungrounded": (
+                    features.communication_direction_ungrounded
+                ),
+                "benchmark_communication_query_direction": (
+                    features.communication_query_direction
+                ),
             },
             reason_codes=_reason_codes(
                 ("focused_turn", features.focused_turn_boost),
                 ("focused_relation_density", focused_density_boost),
                 ("direct_speaker_relation", direct_speaker_relation_boost),
+                ("communication_direction_grounded", communication_direction_boost),
+                (
+                    "communication_direction_ungrounded",
+                    abs(communication_direction_penalty),
+                ),
             ),
         )
 

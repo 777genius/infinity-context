@@ -240,6 +240,8 @@ _RELATION_QUERY_TERMS = {
     "receive",
     "recommend",
     "register",
+    "remind",
+    "reminded",
     "reschedule",
     "request",
     "read",
@@ -271,6 +273,8 @@ _RELATION_QUERY_TERMS = {
     "vehicle",
     "visit",
     "want",
+    "warn",
+    "warned",
     "work",
 }
 _RELATION_QUERY_TERMS.update(
@@ -2138,6 +2142,7 @@ def _query_profile_for_rerank(
         profile = _without_contrast_requirement(profile)
     return {
         **profile,
+        "question": str(case.question or ""),
         "current_state_query": current_state_query,
         "comparative_option_preference_query": comparative_option_preference,
         "source_grounding_query": _is_source_grounding_query(case.question),
@@ -2972,6 +2977,7 @@ def _benchmark_rerank_boost(
         has_preference_evidence=_memory_has_preference_evidence(memory),
         has_visual_evidence=_memory_has_visual_evidence(memory),
         has_focused_turn_surface=_memory_has_focused_turn_surface(memory),
+        question=str(profile.get("question") or ""),
     )
     intent_policy_boosts = focused_intent_policy_boosts(
         memory_terms=set(candidate_features.memory_terms),
@@ -3005,6 +3011,15 @@ def _benchmark_rerank_boost(
             query_has_entities=candidate_features.query_has_entities,
             high_signal_relation_hit_count=(
                 candidate_features.high_signal_relation_hit_count
+            ),
+            communication_direction_grounded=(
+                candidate_features.communication_direction_grounded
+            ),
+            communication_direction_ungrounded=(
+                candidate_features.communication_direction_ungrounded
+            ),
+            communication_query_direction=(
+                candidate_features.communication_query_direction
             ),
             covered_answer_unit_shapes=candidate_features.covered_answer_unit_shapes,
             exact_count_evidence=candidate_features.exact_count_evidence,

@@ -13,6 +13,9 @@ from infinity_context_core.application.context_answer_unit_shapes import (
 from infinity_context_core.application.context_count_cardinality import (
     has_exact_count_cardinality_evidence,
 )
+from infinity_context_core.application.context_speaker_attribution import (
+    communication_direction_grounding,
+)
 
 from infinity_context_server.memory_comparison_candidate_risks import (
     memory_has_broad_summary,
@@ -194,6 +197,9 @@ class CandidateEvidenceFeatures:
     speaker_hits: tuple[str, ...]
     relation_coverage_ratio: float
     high_signal_relation_hit_count: int
+    communication_direction_grounded: bool
+    communication_direction_ungrounded: bool
+    communication_query_direction: str
     direct_speaker_turn: bool
     broad_summary: bool
     focused_turn_surface: bool
@@ -279,6 +285,9 @@ class CandidateEvidenceFeatures:
             "exact_count_evidence": self.exact_count_evidence,
             "list_item_count": self.list_item_count,
             "high_signal_relation_hit_count": self.high_signal_relation_hit_count,
+            "communication_direction_grounded": self.communication_direction_grounded,
+            "communication_direction_ungrounded": self.communication_direction_ungrounded,
+            "communication_query_direction": self.communication_query_direction,
             "overlap_terms": list(self.overlap_terms),
             "relation_hits": list(self.relation_hits),
             "entity_hits": list(self.entity_hits),
@@ -322,6 +331,7 @@ def build_candidate_evidence_features(
     has_focused_turn_surface: bool,
     is_contrast_query: bool = False,
     time_intent_kind: str = "",
+    question: str = "",
 ) -> CandidateEvidenceFeatures:
     overlap_terms = tuple(term for term in query_terms if term in memory_terms)
     relation_hits = tuple(
@@ -360,6 +370,10 @@ def build_candidate_evidence_features(
     )
     broad_summary = memory_has_broad_summary(memory)
     direct_speaker_turn = bool(_DIRECT_TURN_SPEAKER_RE.search(text)) and not broad_summary
+    communication_grounding = communication_direction_grounding(
+        query=question,
+        text=text,
+    )
     source_locality_score, source_locality_reasons = _source_locality(
         source_ref_count=len(source_refs),
         turn_ref_count=len(turn_refs),
@@ -440,6 +454,9 @@ def build_candidate_evidence_features(
             query_relation_surface_count,
         ),
         high_signal_relation_hit_count=high_signal_hit_count,
+        communication_direction_grounded=communication_grounding.grounded,
+        communication_direction_ungrounded=communication_grounding.ungrounded,
+        communication_query_direction=communication_grounding.query_direction,
         direct_speaker_turn=direct_speaker_turn,
         broad_summary=broad_summary,
         focused_turn_surface=has_focused_turn_surface,

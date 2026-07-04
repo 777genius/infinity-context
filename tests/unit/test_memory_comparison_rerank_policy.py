@@ -44,6 +44,68 @@ def test_rerank_policy_boosts_dense_focused_relation_evidence() -> None:
     ]
 
 
+def test_rerank_policy_boosts_communication_direction_grounding() -> None:
+    grounded = score_benchmark_rerank_candidate(
+        BenchmarkRerankFeatures(
+            overlap_terms=("alex", "told", "project"),
+            entity_hits=("alex",),
+            speaker_hits=(),
+            relation_hits=("told", "tell"),
+            relation_terms=("told",),
+            query_has_entities=True,
+            high_signal_relation_hit_count=0,
+            is_temporal_query=False,
+            has_temporal_surface=False,
+            has_sequence_surface=False,
+            is_preference_query=False,
+            has_preference_evidence=False,
+            has_visual_terms=False,
+            has_visual_evidence=False,
+            focused_turn_boost=0.08,
+            has_multi_hop_markers=False,
+            relation_categories=("communication",),
+            relation_category_hits=("communication",),
+            relation_category_coverage_ratio=1.0,
+            communication_direction_grounded=True,
+            communication_query_direction="ask_speaker",
+            direct_speaker_turn=True,
+            source_locality_score=1.0,
+        )
+    )
+    ungrounded = score_benchmark_rerank_candidate(
+        BenchmarkRerankFeatures(
+            overlap_terms=("alex", "project"),
+            entity_hits=("alex",),
+            speaker_hits=("alex",),
+            relation_hits=(),
+            relation_terms=("told",),
+            query_has_entities=True,
+            high_signal_relation_hit_count=0,
+            is_temporal_query=False,
+            has_temporal_surface=False,
+            has_sequence_surface=False,
+            is_preference_query=False,
+            has_preference_evidence=False,
+            has_visual_terms=False,
+            has_visual_evidence=False,
+            focused_turn_boost=0.0,
+            has_multi_hop_markers=False,
+            relation_categories=("communication",),
+            communication_direction_ungrounded=True,
+            communication_query_direction="ask_speaker",
+            direct_speaker_turn=True,
+            source_locality_score=1.0,
+        )
+    )
+
+    grounded_signals = grounded.signals["score_signals"]
+    ungrounded_signals = ungrounded.signals["score_signals"]
+    assert grounded_signals["benchmark_communication_direction_boost"] == 0.09
+    assert grounded_signals["benchmark_communication_direction_grounded"] is True
+    assert ungrounded_signals["benchmark_communication_direction_penalty"] == -0.06
+    assert grounded.boost > ungrounded.boost
+
+
 def test_rerank_policy_does_not_density_boost_broad_relation_summaries() -> None:
     score = score_benchmark_rerank_candidate(
         BenchmarkRerankFeatures(

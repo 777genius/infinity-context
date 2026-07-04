@@ -178,6 +178,44 @@ def test_deterministic_rerank_demotes_given_name_alias_when_exact_full_name_exis
     )
 
 
+def test_deterministic_rerank_prefers_who_told_directional_evidence() -> None:
+    query = "Who told Alex about the Project Atlas delay?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    directed_turn = _item(
+        "maria_told_alex",
+        score=0.7,
+        text="D3:4 Maria: I told Alex about the Project Atlas delay yesterday.",
+    )
+    name_only_turn = _item(
+        "alex_name_only",
+        score=0.73,
+        text="D3:5 Alex: Project Atlas had an invoice delay yesterday.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (name_only_turn, directed_turn),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert by_id["maria_told_alex"].score > by_id["alex_name_only"].score
+    assert (
+        "communication_direction_grounded"
+        in by_id["maria_told_alex"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+    assert (
+        "communication_direction_ungrounded"
+        in by_id["alex_name_only"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+
+
 def _item(item_id: str, *, score: float, text: str) -> ContextItem:
     return ContextItem(
         item_id=item_id,

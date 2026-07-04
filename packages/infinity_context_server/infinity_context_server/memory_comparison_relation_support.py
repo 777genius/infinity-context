@@ -1038,7 +1038,8 @@ _COMMUNICATION_RECIPIENT_RE = (
     r"yesterday)|[.?!,;:]|$))"
 )
 _DIRECTED_COMMUNICATION_SURFACE_RE = re.compile(
-    rf"\b(?:advised|asked|recommended|requested|suggested|told)\s+"
+    rf"\b(?:advised|asked|invited|recommended|reminded|requested|suggested|"
+    rf"told|warned)\s+"
     rf"(?:that\s+)?{_COMMUNICATION_RECIPIENT_RE}",
 )
 _CONVERSATION_COMMUNICATION_SURFACE_RE = re.compile(
@@ -1088,6 +1089,8 @@ def _has_communication_support(
         "mentioned",
         "recommend",
         "recommended",
+        "remind",
+        "reminded",
         "request",
         "requested",
         "say",
@@ -1102,6 +1105,8 @@ def _has_communication_support(
         "text",
         "texted",
         "told",
+        "warn",
+        "warned",
     } & memory_terms
     communication_context = {
         "about",

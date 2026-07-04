@@ -1000,6 +1000,68 @@ def test_candidate_features_detect_recipient_grounded_communication_surfaces(
     assert "communication_evidence" in features.answerability_reason_codes
 
 
+def test_candidate_features_mark_who_told_direction_grounding() -> None:
+    grounded = build_candidate_evidence_features(
+        RetrievedMemory(
+            item_id="grounded-message",
+            rank=1,
+            text="D2:4 Maria: I told Alex about the Project Atlas delay.",
+            source_refs=("D2:4",),
+        ),
+        memory_terms={"maria", "tell", "told", "alex", "project", "atlas", "delay"},
+        query_terms=("alex", "told"),
+        relation_terms=("told",),
+        relation_variant_terms=("tell", "said", "mention"),
+        relation_category_terms={"communication": ("told", "tell", "said", "mention")},
+        entities=("alex",),
+        entity_hits=("alex",),
+        speaker_hits=(),
+        high_signal_relation_terms=set(),
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+        question="Who told Alex about the Project Atlas delay?",
+    )
+    name_only = build_candidate_evidence_features(
+        RetrievedMemory(
+            item_id="name-only",
+            rank=2,
+            text="D2:5 Alex: Project Atlas had an invoice delay.",
+            source_refs=("D2:5",),
+        ),
+        memory_terms={"alex", "project", "atlas", "delay"},
+        query_terms=("alex", "told"),
+        relation_terms=("told",),
+        relation_variant_terms=("tell", "said", "mention"),
+        relation_category_terms={"communication": ("told", "tell", "said", "mention")},
+        entities=("alex",),
+        entity_hits=("alex",),
+        speaker_hits=("alex",),
+        high_signal_relation_terms=set(),
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+        question="Who told Alex about the Project Atlas delay?",
+    )
+
+    assert grounded.communication_direction_grounded is True
+    assert grounded.communication_query_direction == "ask_speaker"
+    assert name_only.communication_direction_ungrounded is True
+    assert grounded.to_diagnostics()["communication_direction_grounded"] is True
+
+
 def test_candidate_features_use_text_turn_refs_for_dedupe_when_source_refs_are_generic() -> None:
     memory = RetrievedMemory(
         item_id="fact-with-generic-provenance",

@@ -1293,10 +1293,14 @@ def _has_communication_intent(
             "invitation",
             "invite",
             "recommend",
+            "remind",
+            "reminded",
             "request",
             "suggest",
             "tell",
             "told",
+            "warn",
+            "warned",
         }
         & relation_set
     ):
@@ -2637,6 +2641,8 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "messag",
                 "mention",
                 "recommend",
+                "remind",
+                "reminded",
                 "request",
                 "say",
                 "said",
@@ -2645,6 +2651,8 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "tell",
                 "text",
                 "told",
+                "warn",
+                "warned",
             }
         ),
         "variants": frozenset(
@@ -2668,6 +2676,7 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "messag",
                 "messaged",
                 "recommend",
+                "reminded",
                 "request",
                 "requested",
                 "say",
@@ -2679,6 +2688,7 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "talked",
                 "texted",
                 "told",
+                "warned",
             }
         ),
         "markers": frozenset(),

@@ -1195,6 +1195,8 @@ def _communication_support_query_terms(
         "mention",
         "recommend",
         "recommended",
+        "remind",
+        "reminded",
         "request",
         "said",
         "send",
@@ -1207,6 +1209,8 @@ def _communication_support_query_terms(
         "text",
         "texted",
         "told",
+        "warn",
+        "warned",
     }
     allowed_communication_terms: set[str] = set()
     relation_term_set = set(relation_terms)
@@ -1245,6 +1249,10 @@ def _communication_support_query_terms(
         allowed_communication_terms.update(
             ("ask", "asked", "invit", "invitation", "invite", "invited", "inviting")
         )
+    if relation_term_set & {"remind", "reminded"}:
+        allowed_communication_terms.update(("remind", "reminded", "tell", "told"))
+    if relation_term_set & {"warn", "warned"}:
+        allowed_communication_terms.update(("warn", "warned", "tell", "told"))
     if relation_term_set & {"recommend", "suggest"}:
         allowed_communication_terms.update(
             ("advise", "recommend", "recommended", "suggest", "suggested", "told")
@@ -1895,6 +1903,10 @@ def _relation_query_terms(
         "invit",
         "invitation",
         "invite",
+        "remind",
+        "reminded",
+        "warn",
+        "warned",
     } & relation_term_set:
         if relation_term_set & {"call", "message", "messag", "send", "sent", "text"}:
             priority_variant_order.extend(
@@ -1912,6 +1924,12 @@ def _relation_query_terms(
         if relation_term_set & {"invit", "invitation", "invite"}:
             priority_variant_order.extend(("invited", "invitation", "invite", "asked"))
             priority_surface_terms.update(("invited", "invitation", "invite"))
+        if relation_term_set & {"remind", "reminded"}:
+            priority_variant_order.extend(("reminded", "reminder", "told"))
+            priority_surface_terms.update(("reminded", "reminder"))
+        if relation_term_set & {"warn", "warned"}:
+            priority_variant_order.extend(("warned", "told"))
+            priority_surface_terms.add("warned")
         if relation_term_set & {"advise", "recommend", "suggest"}:
             priority_variant_order.extend(
                 ("advised", "recommended", "suggested", "told")
