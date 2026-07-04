@@ -478,6 +478,84 @@ def test_rerank_policy_prefers_typed_duration_temporal_evidence() -> None:
     assert duration.boost > generic_temporal.boost
 
 
+def test_rerank_policy_rejects_stale_only_current_state_temporal_support() -> None:
+    stale = score_benchmark_rerank_candidate(
+        _features(
+            overlap_terms=("alex", "currently", "plan"),
+            entity_hits=("alex",),
+            speaker_hits=("alex",),
+            relation_hits=("plan", "move"),
+            relation_terms=("current", "plan", "move"),
+            high_signal_relation_hit_count=1,
+            is_temporal_query=True,
+            time_intent_kind="relative_time",
+            temporal_query_terms=("currently",),
+            current_state_query=True,
+            has_relative_time_surface=True,
+            stale_surface=True,
+            query_roles=("relative_temporal_support", "current_goal_support"),
+            evidence_need=("temporal_support", "current_goal"),
+            direct_speaker_turn=True,
+            source_locality_score=1.0,
+            source_ref_count=1,
+            turn_ref_count=1,
+            answerability_score=0.9,
+            answerability_reason_codes=(
+                "entity_satisfied",
+                "relation_satisfied",
+                "direct_provenance",
+                "high_answerability",
+            ),
+        )
+    )
+    current = score_benchmark_rerank_candidate(
+        _features(
+            overlap_terms=("alex", "currently", "plan"),
+            entity_hits=("alex",),
+            speaker_hits=("alex",),
+            relation_hits=("plan", "move"),
+            relation_terms=("current", "plan", "move"),
+            high_signal_relation_hit_count=1,
+            is_temporal_query=True,
+            time_intent_kind="relative_time",
+            temporal_query_terms=("currently",),
+            current_state_query=True,
+            currentness_surface=True,
+            query_roles=("relative_temporal_support", "current_goal_support"),
+            evidence_need=("temporal_support", "current_goal"),
+            direct_speaker_turn=True,
+            source_locality_score=1.0,
+            source_ref_count=1,
+            turn_ref_count=1,
+            answerability_score=0.9,
+            answerability_reason_codes=(
+                "entity_satisfied",
+                "relation_satisfied",
+                "direct_provenance",
+                "high_answerability",
+            ),
+        )
+    )
+
+    stale_signals = stale.signals["score_signals"]
+    current_signals = current.signals["score_signals"]
+
+    assert stale_signals["benchmark_current_state_query"] is True
+    assert stale_signals["benchmark_stale_only_current_state_evidence"] is True
+    assert stale_signals["benchmark_temporal_text_boost"] == 0.0
+    assert stale_signals["benchmark_temporal_role_support_boost"] == 0.0
+    assert stale_signals["benchmark_typed_temporal_reason"] == (
+        "stale_only_current_state_evidence"
+    )
+    assert stale_signals["benchmark_effective_boost_cap"] == 0.28
+    assert "stale_only_current_state_cap" in stale_signals[
+        "benchmark_provenance_safety_reason_codes"
+    ]
+    assert current_signals["benchmark_stale_only_current_state_evidence"] is False
+    assert current_signals["benchmark_currentness_support_boost"] == 0.04
+    assert current.boost > stale.boost
+
+
 def test_rerank_policy_caps_missing_typed_temporal_evidence() -> None:
     score = score_benchmark_rerank_candidate(
         _features(

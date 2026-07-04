@@ -448,6 +448,15 @@ _RELATIVE_TEMPORAL_QUERY_SURFACES = (
     "weekend",
     "week",
 )
+_CURRENT_STATE_QUERY_RE = re.compile(
+    r"\b(?:current(?:ly)?|now|these\s+days|lately|recent(?:ly)?|"
+    r"latest|newest|most\s+recent|last[-\s]+known)\b",
+    re.IGNORECASE,
+)
+_PREVIOUS_STATE_QUERY_RE = re.compile(
+    r"\b(?:previous|previously|former|formerly|used\s+to|before)\b",
+    re.IGNORECASE,
+)
 _VISUAL_QUERY_TERMS = (
     "image",
     "photo",
@@ -1670,7 +1679,10 @@ def benchmark_rerank_memories(
     memories: Sequence[RetrievedMemory],
 ) -> tuple[list[RetrievedMemory], dict[str, object]]:
     intent = _query_retrieval_intent(case)
-    profile = intent.to_query_profile()
+    profile = {
+        **intent.to_query_profile(),
+        "current_state_query": _has_current_state_query(case.question),
+    }
     if not memories or not profile["lexical_terms"]:
         return list(memories), {
             "applied": False,
@@ -2000,7 +2012,11 @@ def _query_retrieval_intent(case: PublicBenchmarkCase) -> RetrievalIntent:
 
 
 def _query_rerank_profile(case: PublicBenchmarkCase) -> dict[str, object]:
-    return _query_retrieval_intent(case).to_query_profile()
+    profile = _query_retrieval_intent(case).to_query_profile()
+    return {
+        **profile,
+        "current_state_query": _has_current_state_query(case.question),
+    }
 
 
 def _non_temporal_process_how_marker(question: str) -> bool:
@@ -2881,6 +2897,10 @@ def _benchmark_rerank_boost(
             answerability_reason_codes=candidate_features.answerability_reason_codes,
             evidence_need=tuple(_string_sequence(profile.get("evidence_need"))),
             query_roles=candidate_features.query_roles,
+            temporal_query_terms=tuple(
+                _string_sequence(profile.get("temporal_terms"))
+            ),
+            current_state_query=bool(profile.get("current_state_query")),
         )
     )
     return score.boost, {
@@ -2900,6 +2920,15 @@ def _relation_category_terms(
         for category, terms in raw_value.items()
         if str(category).strip()
     }
+
+
+def _has_current_state_query(question: str) -> bool:
+    normalized = " ".join(str(question or "").casefold().split())
+    return bool(
+        normalized
+        and _CURRENT_STATE_QUERY_RE.search(normalized)
+        and not _PREVIOUS_STATE_QUERY_RE.search(normalized)
+    )
 
 
 def _temporal_search_terms(

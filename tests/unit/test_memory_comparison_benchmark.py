@@ -15787,6 +15787,46 @@ def test_benchmark_rerank_prefers_focused_evidence_shapes(
         assert signals["benchmark_focused_turn_boost"] > 0
 
 
+def test_benchmark_rerank_demotes_stale_only_current_state_evidence() -> None:
+    case = _case(
+        case_id="conv-current-state:qa:1",
+        question="What is Alex currently planning?",
+        expected_terms=("denver",),
+        answer="Denver",
+        category=2,
+    )
+    stale_plan = RetrievedMemory(
+        item_id="stale-plan",
+        rank=1,
+        score=0.0,
+        text=(
+            "session_1 turn D1:1 date: 9:00 am "
+            "D1:1 Alex: Previously I planned to move to Seattle."
+        ),
+    )
+    current_plan = RetrievedMemory(
+        item_id="current-plan",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_4 turn D4:2 date: 4:00 pm "
+            "D4:2 Alex: I currently plan to move to Denver."
+        ),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (stale_plan, current_plan),
+    )
+
+    assert metadata["applied"] is True
+    assert [memory.item_id for memory in reranked] == ["current-plan", "stale-plan"]
+    stale_signals = reranked[1].metadata["diagnostics"]["score_signals"]
+    assert stale_signals["benchmark_current_state_query"] is True
+    assert stale_signals["benchmark_stale_only_current_state_evidence"] is True
+    assert stale_signals["benchmark_temporal_text_boost"] == 0.0
+
+
 def test_benchmark_rerank_matches_speaker_alias_without_expanding_query() -> None:
     case = _case(
         case_id="conv-26:qa:speaker-alias",

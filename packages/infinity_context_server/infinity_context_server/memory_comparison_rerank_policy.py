@@ -53,6 +53,8 @@ class BenchmarkRerankFeatures:
     answerability_reason_codes: tuple[str, ...] = ()
     evidence_need: tuple[str, ...] = ()
     query_roles: tuple[str, ...] = ()
+    temporal_query_terms: tuple[str, ...] = ()
+    current_state_query: bool = False
     time_intent_kind: str = ""
     has_duration_surface: bool = False
     has_relative_time_surface: bool = False
@@ -398,6 +400,8 @@ def _provenance_safety_cap(
         and not _has_role_specific_grounding(features, score_signals=score_signals)
     ):
         caps.append((0.26, "low_answerability_cap"))
+    if _stale_only_current_state_evidence(features):
+        caps.append((0.28, "stale_only_current_state_cap"))
     answerability_reasons = set(features.answerability_reason_codes)
     missing_evidence_caps = {
         "missing_causal_evidence": 0.4,
@@ -532,6 +536,14 @@ def _float_signal(signals: Mapping[str, object], key: str) -> float:
         return float(value)
     except (TypeError, ValueError):
         return 0.0
+
+
+def _stale_only_current_state_evidence(features: BenchmarkRerankFeatures) -> bool:
+    return bool(
+        features.current_state_query
+        and features.stale_surface
+        and not features.currentness_surface
+    )
 
 
 def _bool_signal(signals: Mapping[str, object], key: str) -> bool:

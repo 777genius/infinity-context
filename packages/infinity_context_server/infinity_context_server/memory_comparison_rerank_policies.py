@@ -54,6 +54,8 @@ class RerankPolicyFeatures(Protocol):
     answerability_reason_codes: tuple[str, ...]
     evidence_need: tuple[str, ...]
     query_roles: tuple[str, ...]
+    temporal_query_terms: tuple[str, ...]
+    current_state_query: bool
 
 
 @dataclass(frozen=True)
@@ -209,6 +211,7 @@ class TemporalPolicy:
     name = "TemporalPolicy"
 
     def score(self, features: RerankPolicyFeatures) -> RerankPolicyContribution:
+        stale_only_current_state = _stale_only_current_state_evidence(features)
         temporal_boost, temporal_reason = _typed_temporal_boost(features)
         sequence_boost = (
             0.055
@@ -239,6 +242,11 @@ class TemporalPolicy:
             signals={
                 "benchmark_time_intent_kind": features.time_intent_kind,
                 "benchmark_temporal_query_roles": list(features.query_roles),
+                "benchmark_temporal_query_terms": list(features.temporal_query_terms),
+                "benchmark_current_state_query": features.current_state_query,
+                "benchmark_stale_only_current_state_evidence": (
+                    stale_only_current_state
+                ),
                 "benchmark_temporal_text_boost": round(temporal_boost, 6),
                 "benchmark_temporal_sequence_boost": round(sequence_boost, 6),
                 "benchmark_currentness_support_boost": round(
@@ -890,6 +898,8 @@ def _rounded_boosts(boosts: Mapping[str, float]) -> dict[str, float]:
 def _typed_temporal_boost(features: RerankPolicyFeatures) -> tuple[float, str]:
     if not features.is_temporal_query:
         return 0.0, "not_temporal_query"
+    if _stale_only_current_state_evidence(features):
+        return 0.0, "stale_only_current_state_evidence"
     generic_temporal = _has_content_temporal_evidence(features)
     time_kind = features.time_intent_kind
     if time_kind == "duration":
@@ -928,6 +938,8 @@ def _typed_temporal_boost(features: RerankPolicyFeatures) -> tuple[float, str]:
 def _temporal_role_support_eligible(features: RerankPolicyFeatures) -> bool:
     if not features.is_temporal_query:
         return False
+    if _stale_only_current_state_evidence(features):
+        return False
     if not _has_temporal_query_role(features.query_roles):
         return False
     if not (
@@ -950,6 +962,14 @@ def _has_content_temporal_evidence(features: RerankPolicyFeatures) -> bool:
         or features.has_relative_time_surface
         or features.has_explicit_time_content_surface
         or features.has_temporal_sequence_surface
+    )
+
+
+def _stale_only_current_state_evidence(features: RerankPolicyFeatures) -> bool:
+    return bool(
+        features.current_state_query
+        and features.stale_surface
+        and not features.currentness_surface
     )
 
 
