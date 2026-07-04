@@ -42,6 +42,7 @@ def is_redundant_source_window_filler(
             selected,
             adds_query_support_terms=adds_query_support_terms,
             selection_would_fill_bundle=selection_would_fill_bundle,
+            source_proximity_window=source_proximity_window,
         )
         and not has_answer_evidence
         and not any(source_type_counts[key] == 0 for key in source_type_keys)
@@ -55,6 +56,7 @@ def is_redundant_source_window_filler(
             remaining,
             selected,
             query_support_terms=alternative_query_support_terms,
+            source_proximity_window=source_proximity_window,
         )
     )
 
@@ -66,6 +68,7 @@ def _has_redundant_query_support(
     *,
     adds_query_support_terms: bool,
     selection_would_fill_bundle: bool,
+    source_proximity_window: int,
 ) -> bool:
     if not adds_query_support_terms:
         return True
@@ -80,6 +83,7 @@ def _has_redundant_query_support(
         remaining,
         selected,
         query_support_terms=query_support_terms,
+        source_proximity_window=source_proximity_window,
     )
 
 
@@ -96,6 +100,7 @@ def _candidate_has_redundant_source_window(
     selected_turn_refs = tuple(
         turn_ref
         for item in selected
+        if item.role != "primary"
         if item.candidate.source_refs
         if _candidate_has_source_proximity_support(item.candidate)
         for turn_ref in _candidate_turn_refs(item.candidate)
@@ -113,6 +118,7 @@ def _has_distinct_source_window_alternative(
     remaining: Sequence[Any],
     selected: Sequence[Any],
     *,
+    source_proximity_window: int,
     query_support_terms: frozenset[str] = frozenset(),
 ) -> bool:
     selected_source_groups = {
@@ -136,6 +142,12 @@ def _has_distinct_source_window_alternative(
         if source_groups and any(
             not _source_group_is_covered(source_group, selected_source_groups)
             for source_group in source_groups
+        ):
+            return True
+        if source_groups and not _candidate_has_redundant_source_window(
+            item.candidate,
+            selected,
+            source_proximity_window=source_proximity_window,
         ):
             return True
     return False

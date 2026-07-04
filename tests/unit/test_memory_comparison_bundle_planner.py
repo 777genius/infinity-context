@@ -3308,6 +3308,67 @@ def test_evidence_bundle_planner_prefers_nearby_support_after_primary() -> None:
     assert quality["component_scores"]["source_proximity"] == 0.03
 
 
+def test_evidence_bundle_planner_uses_far_same_dialogue_as_distinct_window() -> None:
+    primary = _candidate(
+        item_id="primary",
+        retrieval_order=1,
+        dedupe_key="refs:D4:10",
+        covered_evidence_terms=("plan",),
+        primary_signal=True,
+        source_refs=("D4:10",),
+        focused_evidence_score=1.0,
+        direct_speaker_turn=True,
+        answerability_score=0.9,
+    )
+    near_support = _candidate(
+        item_id="near-support",
+        retrieval_order=2,
+        dedupe_key="refs:D4:11",
+        query_support_terms=("origin", "country"),
+        source_refs=("D4:11",),
+        answerability_score=0.82,
+        bundle_strength_score=3.0,
+    )
+    redundant_near_support = _candidate(
+        item_id="redundant-near-support",
+        retrieval_order=3,
+        dedupe_key="refs:D4:12",
+        query_support_terms=("origin", "country"),
+        source_refs=("D4:12",),
+        answerability_score=0.82,
+        bundle_strength_score=10.0,
+    )
+    far_same_dialogue_support = _candidate(
+        item_id="far-same-dialogue-support",
+        retrieval_order=4,
+        dedupe_key="refs:D4:30",
+        query_support_terms=("origin", "country"),
+        source_refs=("D4:30",),
+        answerability_score=0.82,
+        bundle_strength_score=1.0,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=3).plan(
+        (
+            primary,
+            near_support,
+            redundant_near_support,
+            far_same_dialogue_support,
+        ),
+        case_group="single",
+    )
+
+    selected_ids = [item.candidate.item_id for item in plan.items]
+
+    assert selected_ids == [
+        "primary",
+        "near-support",
+        "far-same-dialogue-support",
+    ]
+    assert "redundant-near-support" not in selected_ids
+    assert plan.dropped_diversity_count == 1
+
+
 def test_evidence_bundle_planner_prefers_relation_over_nearby_entity() -> None:
     primary = _candidate(
         item_id="primary",
