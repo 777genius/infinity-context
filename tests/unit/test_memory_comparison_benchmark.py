@@ -2003,6 +2003,23 @@ def test_memory_comparison_compact_report_omits_heavy_evaluations(
         "fast_gate_summary"
     ]
     assert fast_gate_summary["schema_version"] == "compact_fast_gate_summary.v1"
+    assert fast_gate_summary["source_schema_versions"] == {
+        ".": "fast_gate.v1",
+        "actionable_gap_summary": "actionable_gap_summary.v1",
+        "answer_context_support_gap_summary": "answer_context_support_gaps.v1",
+        "answer_context_provenance": "answer_context_provenance.v1",
+        "answerability_gap_breakdown": "answerability_gap_breakdown.v1",
+        "bundle_gap_breakdown": "bundle_gap_breakdown.v1",
+        "bundle_quality_failure_breakdown": "bundle_quality_failure_breakdown.v1",
+        "evidence_bundle_gap_report": "evidence_bundle_gap_report.v1",
+        "evidence_recall_gap_summary": "evidence_recall_gap_summary.v1",
+        "query_plan_gap_breakdown": "query_plan_gap_breakdown.v1",
+        "query_role_gap_breakdown": "query_role_gap_breakdown.v1",
+        "rerank_signal_gap_breakdown": "rerank_signal_gaps.v1",
+        "risk_flag_table": "retrieval_intent_risk_flags.v1",
+        "selected_evidence_weakness": "selected_evidence_weakness.v2",
+        "source_ref_provenance": "source_ref_provenance.v1",
+    }
     assert fast_gate_summary["ready_for_full_locomo"] is False
     assert "evidence_bundle_complete" in fast_gate_summary["failed_gates"]
     provenance_summary = result["diagnostics"]["failure_provenance_summary"]

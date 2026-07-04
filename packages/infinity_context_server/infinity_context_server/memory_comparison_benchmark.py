@@ -2110,6 +2110,7 @@ def _compact_fast_gate_summary(
     actionable = _mapping(gate.get("actionable_gap_summary"))
     return {
         "schema_version": "compact_fast_gate_summary.v1",
+        "source_schema_versions": _nested_schema_versions(gate),
         "ready_for_full_locomo": bool(gate.get("ready_for_full_locomo")),
         "failed_gates": list(_str_tuple(gate.get("failed_gates"))),
         "evaluation_count": _positive_int(gate.get("evaluation_count")) or 0,
@@ -2328,6 +2329,20 @@ def _compact_fast_gate_summary(
             rerank_signal_gaps
         ),
     }
+
+
+def _nested_schema_versions(payload: Mapping[str, object]) -> dict[str, str]:
+    versions: dict[str, str] = {}
+    root_version = str(payload.get("schema_version") or "").strip()
+    if root_version:
+        versions["."] = root_version
+    for key, value in sorted(payload.items()):
+        if not isinstance(value, Mapping):
+            continue
+        schema_version = str(value.get("schema_version") or "").strip()
+        if schema_version:
+            versions[str(key)] = schema_version
+    return versions
 
 
 def _compact_answerability_gap_samples(
