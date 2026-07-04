@@ -357,6 +357,9 @@ def _missing_evidence_source_locality(
             and int(window["nearest_retrieved_turn_distance"]) <= 2
         )
     )
+    cause_counts: dict[str, int] = defaultdict(int)
+    for window in windows:
+        cause_counts[str(window.get("cause") or "unknown")] += 1
     return {
         "schema_version": "missing_evidence_source_locality.v1",
         "missing_turn_ref_count": len(missing_refs),
@@ -365,6 +368,7 @@ def _missing_evidence_source_locality(
         "same_source_missing_count": same_source_missing_count,
         "near_retrieved_window_count": near_retrieved_window_count,
         "source_absent_count": len(missing_refs) - same_source_missing_count,
+        "cause_counts": dict(sorted(cause_counts.items())),
         "missing_ref_windows": windows[:8],
     }
 
@@ -392,6 +396,12 @@ def _missing_ref_window(
         nearest_turn, distance = nearest_bundle
         window["nearest_bundle_turn_ref"] = f"{source_id}:{nearest_turn}"
         window["nearest_bundle_turn_distance"] = distance
+    if nearest_retrieved is None:
+        window["cause"] = "source_absent"
+    elif nearest_retrieved[1] <= 2:
+        window["cause"] = "near_retrieved_window"
+    else:
+        window["cause"] = "same_source_miss"
     return window
 
 

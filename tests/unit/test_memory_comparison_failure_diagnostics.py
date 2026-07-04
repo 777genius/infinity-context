@@ -118,6 +118,7 @@ def test_failure_diagnostics_report_structured_failure_reasons() -> None:
         "same_source_missing_count": 1,
         "near_retrieved_window_count": 1,
         "source_absent_count": 0,
+        "cause_counts": {"near_retrieved_window": 1},
         "missing_ref_windows": [
             {
                 "ref": "D1:3",
@@ -128,6 +129,7 @@ def test_failure_diagnostics_report_structured_failure_reasons() -> None:
                 "nearest_retrieved_turn_distance": 1,
                 "nearest_bundle_turn_ref": "D1:2",
                 "nearest_bundle_turn_distance": 1,
+                "cause": "near_retrieved_window",
             }
         ],
     }
@@ -321,6 +323,7 @@ def test_failure_diagnostics_counts_source_identity_refs_as_provenance() -> None
         "same_source_missing_count": 1,
         "near_retrieved_window_count": 1,
         "source_absent_count": 0,
+        "cause_counts": {"near_retrieved_window": 1},
         "missing_ref_windows": [
             {
                 "ref": "D4:3",
@@ -331,6 +334,7 @@ def test_failure_diagnostics_counts_source_identity_refs_as_provenance() -> None
                 "nearest_retrieved_turn_distance": 1,
                 "nearest_bundle_turn_ref": "D4:2",
                 "nearest_bundle_turn_distance": 1,
+                "cause": "near_retrieved_window",
             }
         ],
     }
@@ -416,16 +420,64 @@ def test_failure_diagnostics_reports_missing_evidence_source_absence() -> None:
         "same_source_missing_count": 0,
         "near_retrieved_window_count": 0,
         "source_absent_count": 1,
+        "cause_counts": {"source_absent": 1},
         "missing_ref_windows": [
             {
                 "ref": "D3:2",
                 "source_id": "D3",
                 "retrieved_same_source": False,
                 "bundle_same_source": False,
+                "cause": "source_absent",
             }
         ],
     }
     assert "missing_evidence_source_absent" in reasons
+
+
+def test_failure_diagnostics_reports_same_source_far_turn_cause() -> None:
+    evaluation = {
+        "retrieval": {
+            "total_results": 1,
+            "results": [{"source_refs": ["D4:2"]}],
+        },
+        "retrieval_quality": {
+            "expected_term_recall": 0.5,
+            "evidence_term_recall": 0.0,
+            "missing_evidence_terms": ["D4:9"],
+        },
+        "evidence_bundle": {
+            "bundle_complete": False,
+            "items": [{"role": "primary", "source_refs": ["D4:2"]}],
+        },
+        "generation": {},
+        "judgment": {},
+    }
+
+    diagnostics = failure_diagnostics(evaluation)
+    reasons = failure_diagnostic_reason_codes(
+        evaluation,
+        score=0.0,
+        retrieval_recall=0.5,
+        diagnostics=diagnostics,
+    )
+
+    locality = diagnostics["missing_evidence_source_locality"]
+    assert locality["cause_counts"] == {"same_source_miss": 1}
+    assert locality["missing_ref_windows"] == [
+        {
+            "ref": "D4:9",
+            "source_id": "D4",
+            "retrieved_same_source": True,
+            "bundle_same_source": True,
+            "nearest_retrieved_turn_ref": "D4:2",
+            "nearest_retrieved_turn_distance": 7,
+            "nearest_bundle_turn_ref": "D4:2",
+            "nearest_bundle_turn_distance": 7,
+            "cause": "same_source_miss",
+        }
+    ]
+    assert "missing_evidence_same_source_miss" in reasons
+    assert "missing_evidence_source_window_miss" not in reasons
 
 
 def test_failure_diagnostics_keeps_session_scoped_missing_evidence_sources() -> None:
@@ -460,18 +512,21 @@ def test_failure_diagnostics_keeps_session_scoped_missing_evidence_sources() -> 
         "same_source_missing_count": 0,
         "near_retrieved_window_count": 0,
         "source_absent_count": 2,
+        "cause_counts": {"source_absent": 2},
         "missing_ref_windows": [
             {
                 "ref": "session_1:D4:12",
                 "source_id": "session_1:D4",
                 "retrieved_same_source": False,
                 "bundle_same_source": False,
+                "cause": "source_absent",
             },
             {
                 "ref": "D9:2",
                 "source_id": "D9",
                 "retrieved_same_source": False,
                 "bundle_same_source": False,
+                "cause": "source_absent",
             },
         ],
     }

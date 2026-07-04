@@ -135,6 +135,7 @@ def _summary(failures: Sequence[Mapping[str, object]], *, top: int) -> dict[str,
     primary_root_causes: Counter[str] = Counter()
     root_cause_tags: Counter[str] = Counter()
     root_cause_examples: dict[str, list[dict[str, object]]] = defaultdict(list)
+    provenance_gap_causes: Counter[str] = Counter()
     for failure in failures:
         capability = str(failure.get("capability") or failure.get("category") or "unknown")
         reason = str(failure.get("reason") or "unknown")
@@ -148,6 +149,7 @@ def _summary(failures: Sequence[Mapping[str, object]], *, top: int) -> dict[str,
         answer_shape_components.update(_answer_shape_components(failure))
         primary_root_causes[primary_root_cause] += 1
         root_cause_tags.update(root_tags)
+        provenance_gap_causes.update(_provenance_gap_cause_counts(failure))
         if len(root_cause_examples[primary_root_cause]) < 5:
             root_cause_examples[primary_root_cause].append(
                 _root_cause_example(failure, root_tags)
@@ -181,6 +183,7 @@ def _summary(failures: Sequence[Mapping[str, object]], *, top: int) -> dict[str,
         },
         "primary_root_cause_count": dict(primary_root_causes.most_common(top)),
         "root_cause_tag_count": dict(root_cause_tags.most_common(top)),
+        "provenance_gap_cause_count": dict(provenance_gap_causes.most_common(top)),
         "root_cause_examples": {
             root_cause: examples
             for root_cause, examples in sorted(root_cause_examples.items())
@@ -325,7 +328,7 @@ def _root_cause_example(
 
 def _missing_evidence_source_locality_summary(
     failure: Mapping[str, object],
-) -> dict[str, int] | None:
+) -> dict[str, object] | None:
     locality = _mapping(
         _mapping(failure.get("diagnostics")).get("missing_evidence_source_locality")
     )
@@ -344,7 +347,56 @@ def _missing_evidence_source_locality_summary(
         or 0,
         "source_absent_count": _positive_int(locality.get("source_absent_count")) or 0,
     }
+    cause_counts = _provenance_gap_cause_counts(failure)
+    if cause_counts:
+        summary["cause_counts"] = dict(cause_counts)
     return summary if any(summary.values()) else None
+
+
+def _provenance_gap_cause_counts(failure: Mapping[str, object]) -> Counter[str]:
+    locality = _mapping(
+        _mapping(failure.get("diagnostics")).get("missing_evidence_source_locality")
+    )
+    if not locality:
+        return Counter()
+    cause_counts = Counter(
+        {
+            str(cause): count
+            for cause, count in _count_mapping(locality.get("cause_counts")).items()
+            if count > 0
+        }
+    )
+    if cause_counts:
+        return cause_counts
+
+    source_absent_count = _positive_int(locality.get("source_absent_count")) or 0
+    near_retrieved_window_count = (
+        _positive_int(locality.get("near_retrieved_window_count")) or 0
+    )
+    same_source_count = _positive_int(locality.get("same_source_missing_count")) or 0
+    same_source_miss_count = max(same_source_count - near_retrieved_window_count, 0)
+    return Counter(
+        {
+            cause: count
+            for cause, count in {
+                "source_absent": source_absent_count,
+                "near_retrieved_window": near_retrieved_window_count,
+                "same_source_miss": same_source_miss_count,
+            }.items()
+            if count > 0
+        }
+    )
+
+
+def _count_mapping(value: object) -> dict[str, int]:
+    if not isinstance(value, Mapping):
+        return {}
+    counts: dict[str, int] = {}
+    for key, raw_count in value.items():
+        count = _positive_int(raw_count) or 0
+        if count > 0:
+            counts[str(key)] = count
+    return counts
 
 
 def _answer_context_summary(failure: Mapping[str, object]) -> dict[str, object] | None:

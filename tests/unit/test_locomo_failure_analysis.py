@@ -310,6 +310,10 @@ def test_locomo_failure_analysis_tags_missing_evidence_source_locality() -> None
 
     assert summary["root_cause_tag_count"]["evidence:source_window_miss"] == 1
     assert summary["root_cause_tag_count"]["evidence:missing_source_absent"] == 1
+    assert summary["provenance_gap_cause_count"] == {
+        "near_retrieved_window": 1,
+        "source_absent": 1,
+    }
     assert summary["root_cause_examples"]["evidence:missing_refs"][0][
         "missing_evidence_source_locality"
     ] == {
@@ -317,7 +321,38 @@ def test_locomo_failure_analysis_tags_missing_evidence_source_locality() -> None
         "same_source_missing_count": 1,
         "near_retrieved_window_count": 1,
         "source_absent_count": 0,
+        "cause_counts": {"near_retrieved_window": 1},
     }
+
+
+def test_locomo_failure_analysis_prefers_reported_provenance_gap_causes() -> None:
+    report = {
+        "failures": [
+            {
+                "case_id": "same-source-far",
+                "capability": "locomo_category_2",
+                "reason": "expected_terms_missing",
+                "diagnostic_reason_codes": ["missing_evidence_refs"],
+                "diagnostics": {
+                    "missing_evidence_terms": ["D4:9"],
+                    "missing_evidence_source_locality": {
+                        "missing_turn_ref_count": 1,
+                        "same_source_missing_count": 1,
+                        "near_retrieved_window_count": 0,
+                        "source_absent_count": 0,
+                        "cause_counts": {"same_source_miss": 1},
+                    },
+                },
+            }
+        ]
+    }
+
+    summary = _summary(_failures(report), top=10)
+
+    assert summary["provenance_gap_cause_count"] == {"same_source_miss": 1}
+    assert summary["root_cause_examples"]["evidence:missing_refs"][0][
+        "missing_evidence_source_locality"
+    ]["cause_counts"] == {"same_source_miss": 1}
 
 
 def test_locomo_failure_analysis_tags_answer_context_gaps() -> None:
