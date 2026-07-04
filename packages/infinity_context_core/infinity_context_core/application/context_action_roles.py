@@ -13,6 +13,7 @@ _ACTION_VERB_RE = (
     r"ask(?:ed|s|ing)?|assign(?:ed|s|ing)?|approv(?:e|ed|es|ing)|"
     r"call(?:ed|s|ing)?|message(?:d|s|ing)?|text(?:ed|s|ing)?|"
     r"help(?:ed|s|ing)?|assist(?:ed|s|ing)?|support(?:ed|s|ing)?|"
+    r"attend(?:ed|s|ing)?|participat(?:e|ed|es|ing)|"
     r"join(?:ed|s|ing)?|meet|met|visit(?:ed|s|ing)?|"
     r"introduc(?:e|ed|es|ing)|send|sent|give|gave|lend|lent|tell|told|"
     r"рекомендовал(?:а)?|порекомендовал(?:а)?|посоветовал(?:а)?|"
@@ -93,6 +94,10 @@ _WHO_DID_ACTOR_ACTION_WITH_QUERY_RE = re.compile(
 _WHO_ACTION_WITH_RECIPIENT_QUERY_RE = re.compile(
     rf"\bwho\s+(?P<verb>{_ACTION_VERB_RE})\b"
     rf"(?P<object>.{{0,120}}?)\bwith\s+(?P<recipient>{_QUERY_LABEL_RE})\b",
+    re.IGNORECASE | re.DOTALL,
+)
+_WHO_ACTOR_ACTION_QUERY_RE = re.compile(
+    rf"\bwho\s+(?P<verb>{_ACTION_VERB_RE})\b(?P<object>.{{0,160}})",
     re.IGNORECASE | re.DOTALL,
 )
 _TO_WHOM_DID_ACTOR_ACTION_QUERY_RE = re.compile(
@@ -263,11 +268,14 @@ _QUERY_LABEL_STOP_WORDS = frozenset(
         "whose",
         "anybody",
         "anyone",
+        "about",
         "buy",
         "people",
         "person",
         "eat",
         "follow",
+        "for",
+        "in",
         "listen",
         "last",
         "latest",
@@ -280,11 +288,14 @@ _QUERY_LABEL_STOP_WORDS = frozenset(
         "someone",
         "start",
         "take",
+        "that",
         "the",
+        "to",
         "try",
         "use",
         "visit",
         "watch",
+        "with",
         "что",
         "кто",
         "кого",
@@ -439,6 +450,7 @@ class _ActionRoleQuery:
     recipient_requested: bool = False
     source_requested: bool = False
     companion_requested: bool = False
+    actor_requested: bool = False
 
 
 def action_role_rerank_signal(*, query: str, text: str) -> ActionRoleRerankSignal:
@@ -459,6 +471,8 @@ def action_role_rerank_signal(*, query: str, text: str) -> ActionRoleRerankSigna
         return _companion_action_signal(role_query, text)
     if role_query.owner_requested:
         return _owner_responsibility_signal(role_query, text)
+    if role_query.actor_requested:
+        return _actor_evidence_signal(role_query, text)
     if role_query.actor_label:
         return _actor_action_signal(role_query, text)
     if role_query.recipient_label:
@@ -617,6 +631,20 @@ def _action_role_query(query: str) -> _ActionRoleQuery | None:
             if verb_key and recipient:
                 return _ActionRoleQuery(verb_key=verb_key, recipient_label=recipient)
 
+    match = _WHO_ACTOR_ACTION_QUERY_RE.search(query)
+    if match is not None:
+        verb_key = _canonical_verb_key(match.group("verb"))
+        context_terms = _action_context_terms(
+            match.groupdict().get("object") or "",
+            verb_key=verb_key,
+        )
+        if verb_key and context_terms:
+            return _ActionRoleQuery(
+                verb_key=verb_key,
+                context_terms=context_terms,
+                actor_requested=True,
+            )
+
     for pattern in (
         _SUGGESTION_SOURCE_QUERY_RE,
         _RECIPIENT_AFTER_ACTOR_RECOMMENDATION_QUERY_RE,
@@ -750,8 +778,6 @@ def _who_to_action_match_targets_non_recipient(
     if verb_key not in _DIRECT_RECIPIENT_VERBS:
         return False
     if (match.groupdict().get("prep") or "").casefold() not in {"to", "for"}:
-        return False
-    if not _object_label_in_text(match.group("object") or ""):
         return False
     recipient = (match.group("recipient") or "").casefold()
     return recipient in _NON_RECIPIENT_ACTION_OBJECT_WORDS
@@ -1001,6 +1027,22 @@ def _support_presence_signal(*, recipient: str, text: str) -> ActionRoleRerankSi
         return ActionRoleRerankSignal(
             penalty=_ACTION_ROLE_RECIPIENT_MISMATCH_PENALTY,
             reason="action_role_recipient_mismatch",
+        )
+    return ActionRoleRerankSignal()
+
+
+def _actor_evidence_signal(
+    role_query: _ActionRoleQuery,
+    text: str,
+) -> ActionRoleRerankSignal:
+    if _has_any_actor_action_with_context(
+        text,
+        verb_key=role_query.verb_key,
+        context_terms=role_query.context_terms,
+    ):
+        return ActionRoleRerankSignal(
+            boost=_ACTION_ROLE_REQUESTED_RECIPIENT_EVIDENCE_BOOST,
+            reason="action_role_actor_evidence",
         )
     return ActionRoleRerankSignal()
 
@@ -1344,6 +1386,31 @@ def _body_has_companion(body: str) -> bool:
             flags=re.IGNORECASE | re.DOTALL,
         )
     )
+
+
+def _has_any_actor_action_with_context(
+    text: str,
+    *,
+    verb_key: str,
+    context_terms: tuple[str, ...],
+) -> bool:
+    if not context_terms:
+        return False
+    pattern = re.compile(
+        rf"\b(?P<actor>{_LABEL_RE})\b(?P<gap>"
+        rf"\s+(?:\w+\s+){{0,3}}|:\s+(?:I|we)\s+(?:\w+\s+){{0,3}})"
+        rf"\b(?:{_verb_forms(verb_key)})\b(?P<body>.{{0,220}})",
+        re.IGNORECASE | re.DOTALL,
+    )
+    for match in pattern.finditer(text):
+        actor = _clean_label(match.group("actor"))
+        if not actor:
+            continue
+        if _action_gap_blocks_positive_match(match.group("gap")):
+            continue
+        if _context_terms_match(match.group("body"), context_terms):
+            return True
+    return False
 
 
 def _body_has_companion_label(body: str, *, participant: str) -> bool:
@@ -1942,6 +2009,8 @@ def _canonical_verb_key(value: str) -> str:
         return "approve"
     if token.startswith(("help", "assist", "support", "помог", "поддерж")):
         return "help"
+    if token.startswith(("attend", "participat")):
+        return "attend"
     if token.startswith("join"):
         return "join"
     if token in {"meet", "met"}:
@@ -2084,6 +2153,7 @@ def _verb_forms(verb_key: str) -> str:
             r"help(?:ed|s|ing)?|assist(?:ed|s|ing)?|support(?:ed|s|ing)?|"
             r"помог(?:ла|ли)?|поддержал(?:а|и)?"
         ),
+        "attend": r"attend(?:ed|s|ing)?|participat(?:e|ed|es|ing)",
         "join": r"join(?:ed|s|ing)?",
         "meet": r"meet|met",
         "message": r"message(?:d|s|ing)?|text(?:ed|s|ing)?",

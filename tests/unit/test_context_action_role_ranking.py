@@ -311,6 +311,44 @@ def test_deterministic_rerank_uses_russian_whose_advice_recipient() -> None:
     )
 
 
+def test_deterministic_rerank_prefers_exact_event_attendance_actor_evidence() -> None:
+    query = "Who attended the Atlas kickoff?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    correct = _item(
+        "maria_attended",
+        score=0.7,
+        text="D4:8 Maria: I attended the Atlas kickoff with Dana.",
+    )
+    related_mention = _item(
+        "alex_asked",
+        score=0.72,
+        text="D4:9 Alex asked Maria about the Atlas kickoff.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (related_mention, correct),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert by_id["maria_attended"].score > by_id["alex_asked"].score
+    assert (
+        "action_role_actor_evidence"
+        in by_id["maria_attended"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+    assert (
+        "action_role_actor_evidence"
+        not in by_id["alex_asked"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+
+
 def test_deterministic_rerank_prefers_actual_companion_over_mentioned_person() -> None:
     query = "Who visited Spain with Maria?"
     plan = build_query_expansion_plan(query)

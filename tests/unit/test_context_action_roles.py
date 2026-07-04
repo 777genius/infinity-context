@@ -822,6 +822,66 @@ def test_action_role_extracts_joined_participant_role() -> None:
     assert reversed_roles.reason == "action_role_recipient_mismatch"
 
 
+def test_action_role_extracts_actor_from_event_attendance_question() -> None:
+    matched = action_role_rerank_signal(
+        query="Who attended the Atlas kickoff?",
+        text="D4:8 Maria attended the Atlas kickoff with Dana.",
+    )
+    direct_speaker = action_role_rerank_signal(
+        query="Who attended the Atlas kickoff?",
+        text="D4:8 Maria: I attended the Atlas kickoff with Dana.",
+    )
+    related_mention = action_role_rerank_signal(
+        query="Who attended the Atlas kickoff?",
+        text="D4:8 Alex asked Maria about the Atlas kickoff.",
+    )
+
+    assert matched.boost > 0
+    assert matched.reason == "action_role_actor_evidence"
+    assert direct_speaker.boost > 0
+    assert direct_speaker.reason == "action_role_actor_evidence"
+    assert related_mention.boost == 0.0
+    assert related_mention.penalty == 0.0
+
+
+def test_action_role_extracts_actor_from_decision_question() -> None:
+    matched = action_role_rerank_signal(
+        query="Who decided to use the Atlas fallback?",
+        text="D4:8 Caroline decided to use the Atlas fallback during the event.",
+    )
+    direct_speaker = action_role_rerank_signal(
+        query="Who decided to use the Atlas fallback?",
+        text="D4:8 Caroline: I decided to use the Atlas fallback during the event.",
+    )
+    related_mention = action_role_rerank_signal(
+        query="Who decided to use the Atlas fallback?",
+        text="D4:8 Maria asked Caroline about the Atlas fallback during the event.",
+    )
+
+    assert matched.boost > 0
+    assert matched.reason == "action_role_actor_evidence"
+    assert direct_speaker.boost > 0
+    assert direct_speaker.reason == "action_role_actor_evidence"
+    assert related_mention.boost == 0.0
+    assert related_mention.penalty == 0.0
+
+
+def test_action_role_extracts_actor_from_promise_to_do_task_question() -> None:
+    matched = action_role_rerank_signal(
+        query="Who promised to send the Atlas invoice?",
+        text="D3:4 Alex promised to send the Atlas invoice after the call.",
+    )
+    related_request = action_role_rerank_signal(
+        query="Who promised to send the Atlas invoice?",
+        text="D3:4 Maria asked Alex to send the Atlas invoice after the call.",
+    )
+
+    assert matched.boost > 0
+    assert matched.reason == "action_role_actor_evidence"
+    assert related_request.boost == 0.0
+    assert related_request.penalty == 0.0
+
+
 def test_action_role_treats_met_as_reciprocal_participant_evidence() -> None:
     direct = action_role_rerank_signal(
         query="Who met Maria at the shelter?",
