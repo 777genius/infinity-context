@@ -35,6 +35,7 @@ from infinity_context_core.domain.entities import SourceRef
 _MAX_EXACT_SOURCE_SIBLING_ANSWER_EVIDENCE_REPAIRS = 48
 _DIALOGUE_MARKER_RE = re.compile(r"\bD\d+:\d+\b")
 _DIALOGUE_MARKER_ONLY_RE = re.compile(r"^(?:D\d+:\d+[\s,;.]*)+$")
+_SOURCE_GROUP_SUFFIXES = frozenset({"events", "observation", "summary"})
 
 
 def _provenance(diagnostics: dict[str, object]) -> dict[str, object]:
@@ -1478,37 +1479,88 @@ def _source_sibling_answer_continuation_hydration_request_items(
             source_ref_id = str(ref.source_id or "")
             if not source_ref_id:
                 continue
-            ref_item = _focused_continuation_item(item, source_id=source_ref_id)
-            reason = _source_sibling_answer_continuation_reason(
-                ref_item,
-                answer_evidence=answer_evidence,
-            )
-            previous_reason = _source_sibling_answer_previous_context_reason(
-                ref_item,
-                answer_evidence=answer_evidence,
-            )
-            if not reason and not previous_reason:
-                continue
-            if previous_reason:
-                previous_source_id = _previous_dialogue_turn_source_id(source_ref_id)
-                if previous_source_id and previous_source_id not in existing:
-                    requests.setdefault(
-                        previous_source_id,
-                        previous_reason.replace("-", "_"),
-                    )
-                    request_kinds.setdefault(previous_source_id, "previous_question")
-                    existing.add(previous_source_id)
-            if reason:
-                source_id = _next_dialogue_turn_source_id(source_ref_id)
-                if not source_id or source_id in existing:
+            for source_id in _continuation_source_ids_for_ref(
+                item,
+                source_id=source_ref_id,
+            ):
+                ref_item = _focused_continuation_item(item, source_id=source_id)
+                reason = _source_sibling_answer_continuation_reason(
+                    ref_item,
+                    answer_evidence=answer_evidence,
+                )
+                previous_reason = _source_sibling_answer_previous_context_reason(
+                    ref_item,
+                    answer_evidence=answer_evidence,
+                )
+                if not reason and not previous_reason:
                     continue
-                requests.setdefault(source_id, reason.replace("-", "_"))
-                request_kinds.setdefault(source_id, "next_answer")
-                existing.add(source_id)
+                if previous_reason:
+                    previous_source_id = _previous_dialogue_turn_source_id(source_id)
+                    if previous_source_id and previous_source_id not in existing:
+                        requests.setdefault(
+                            previous_source_id,
+                            previous_reason.replace("-", "_"),
+                        )
+                        request_kinds.setdefault(previous_source_id, "previous_question")
+                        existing.add(previous_source_id)
+                if reason:
+                    next_source_id = _next_dialogue_turn_source_id(source_id)
+                    if not next_source_id or next_source_id in existing:
+                        continue
+                    requests.setdefault(next_source_id, reason.replace("-", "_"))
+                    request_kinds.setdefault(next_source_id, "next_answer")
+                    existing.add(next_source_id)
     return {
         source_id: (reason, request_kinds.get(source_id, "source_ref"))
         for source_id, reason in requests.items()
     }
+
+
+def _continuation_source_ids_for_ref(
+    item: ContextItem,
+    *,
+    source_id: str,
+) -> tuple[str, ...]:
+    if source_id.casefold().endswith(":turn"):
+        return (source_id,)
+    source_group = _dialogue_source_group_from_source_id(source_id)
+    if not source_group:
+        return ()
+    source_ids: list[str] = []
+    seen: set[str] = set()
+    for marker in _DIALOGUE_MARKER_RE.findall(item.text):
+        if not _source_group_matches_dialogue_marker(source_group, marker=marker):
+            continue
+        turn_source_id = f"{source_group}:{marker}:turn"
+        if turn_source_id in seen:
+            continue
+        seen.add(turn_source_id)
+        source_ids.append(turn_source_id)
+    return tuple(source_ids)
+
+
+def _dialogue_source_group_from_source_id(source_id: str) -> str:
+    normalized = " ".join(str(source_id or "").split())
+    if not normalized:
+        return ""
+    parts = normalized.split(":")
+    if len(parts) >= 4 and parts[-1].casefold() in _SOURCE_GROUP_SUFFIXES:
+        group = ":".join(parts[:-1])
+        return group if _source_group_has_session_tail(group) else ""
+    return normalized if _source_group_has_session_tail(normalized) else ""
+
+
+def _source_group_has_session_tail(source_id: str) -> bool:
+    parts = source_id.split(":")
+    return bool(parts and re.fullmatch(r"session_\d+", parts[-1], re.IGNORECASE))
+
+
+def _source_group_matches_dialogue_marker(source_group: str, *, marker: str) -> bool:
+    group_parts = source_group.split(":")
+    marker_match = re.fullmatch(r"D(?P<session>\d+):\d+", marker, re.IGNORECASE)
+    if not group_parts or marker_match is None:
+        return False
+    return group_parts[-1].casefold() == f"session_{marker_match.group('session')}"
 
 
 def _focused_continuation_item(item: ContextItem, *, source_id: str) -> ContextItem:
@@ -1531,7 +1583,7 @@ def _focused_existing_continuation_source_ids(
     for item in items:
         for ref in item.source_refs:
             source_id = str(ref.source_id or "")
-            if source_id not in source_ids:
+            if source_id not in source_ids and not source_id.casefold().endswith(":turn"):
                 continue
             marker = _source_ref_dialogue_marker(ref)
             if marker and _dialogue_turn_marker_text_match(text=item.text, marker=marker):

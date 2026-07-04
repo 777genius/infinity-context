@@ -76,6 +76,48 @@ def test_broad_existing_chunk_does_not_block_focused_continuation_hydration() ->
     }
 
 
+def test_broad_session_chunk_question_requests_focused_next_answer_hydration() -> None:
+    broad_question_chunk = _answer_support_item(
+        "broad_visual_question",
+        (
+            "D2:7 Riley: Are they coming to dinner tonight?\n"
+            "D2:8 Riley: Wow, they look impressive. "
+            "Are they yours at the festival? They're so graceful."
+        ),
+        source_id="locomo:conv-fixture:session_2",
+        source_type="locomo_session",
+        reason="activity_competition_evidence_bridge",
+    )
+
+    requests = _source_sibling_answer_continuation_hydration_requests(
+        (broad_question_chunk,),
+        existing_source_ids=frozenset(),
+    )
+
+    assert requests == {
+        "locomo:conv-fixture:session_2:D2:9:turn": (
+            "activity_competition_evidence_bridge"
+        )
+    }
+
+
+def test_broad_session_chunk_does_not_derive_mismatched_dialogue_session() -> None:
+    mismatched_chunk = _answer_support_item(
+        "mismatched_visual_question",
+        "D2:8 Riley: Are they yours at the festival? They're so graceful.",
+        source_id="locomo:conv-fixture:session_3",
+        source_type="locomo_session",
+        reason="activity_competition_evidence_bridge",
+    )
+
+    requests = _source_sibling_answer_continuation_hydration_requests(
+        (mismatched_chunk,),
+        existing_source_ids=frozenset(),
+    )
+
+    assert requests == {}
+
+
 def test_existing_focused_turn_blocks_duplicate_continuation_hydration() -> None:
     question_turn = _answer_support_item(
         "visual_question",
@@ -258,6 +300,7 @@ def _answer_support_item(
     text: str,
     *,
     source_id: str,
+    source_type: str = "locomo_turn",
     reason: str,
     answer_evidence: bool = True,
 ) -> ContextItem:
@@ -271,7 +314,7 @@ def _answer_support_item(
         item_type="chunk",
         text=text,
         score=0.9,
-        source_refs=(SourceRef(source_type="locomo_turn", source_id=source_id),),
+        source_refs=(SourceRef(source_type=source_type, source_id=source_id),),
         diagnostics={
             "retrieval_source": "keyword_source_sibling_chunks",
             "retrieval_sources": ["keyword_source_sibling_chunks"],
