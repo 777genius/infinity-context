@@ -651,6 +651,30 @@ def test_failure_diagnostics_report_primary_answer_context_support_gaps() -> Non
                     "source_ref_count": 0,
                     "source_ref_item_count": 0,
                     "source_refless_item_count": 2,
+                    "source_identity_ref_count": 3,
+                    "source_identity_item_count": 2,
+                    "source_identity_refs": [
+                        "source_turn_refs:D1:2",
+                        "source_session_turn_refs:session_1:D1:3",
+                        "raw memory text should not pass through",
+                    ],
+                    "source_identity_items": [
+                        {
+                            "item_id": "fallback-a",
+                            "retrieval_order": 1,
+                            "source_identity_refs": [
+                                "source_turn_refs:D1:2",
+                                "provider payload should not pass through",
+                            ],
+                        },
+                        {
+                            "item_id": "fallback-b",
+                            "retrieval_order": 3,
+                            "source_identity_refs": [
+                                "source_session_turn_refs:session_1:D1:3",
+                            ],
+                        },
+                    ],
                     "source_ref_coverage_rate": 0.0,
                     "selected_bundle_item_count": 0,
                     "skipped_bundle_item_count": 2,
@@ -682,6 +706,26 @@ def test_failure_diagnostics_report_primary_answer_context_support_gaps() -> Non
         "source_ref_count": 0,
         "source_ref_item_count": 0,
         "source_refless_item_count": 2,
+        "source_identity_ref_count": 3,
+        "source_identity_item_count": 2,
+        "source_identity_refs": (
+            "source_turn_refs:D1:2",
+            "source_session_turn_refs:session_1:D1:3",
+        ),
+        "source_identity_items": (
+            {
+                "source_identity_refs": ("source_turn_refs:D1:2",),
+                "item_id": "fallback-a",
+                "retrieval_order": 1,
+            },
+            {
+                "source_identity_refs": (
+                    "source_session_turn_refs:session_1:D1:3",
+                ),
+                "item_id": "fallback-b",
+                "retrieval_order": 3,
+            },
+        ),
         "source_ref_coverage_rate": 0.0,
         "selected_bundle_item_count": 0,
         "skipped_bundle_item_count": 2,
@@ -697,3 +741,11 @@ def test_failure_diagnostics_report_primary_answer_context_support_gaps() -> Non
     assert "answer_context_missing_required_roles" in reasons
     assert "answer_context_backfilled_retrieval" in reasons
     assert "answer_context_risk_reasons_present" in reasons
+    rendered_source_identity = repr(
+        (
+            diagnostics["answer_context"]["source_identity_refs"],
+            diagnostics["answer_context"]["source_identity_items"],
+        )
+    )
+    assert "raw memory text should not pass through" not in rendered_source_identity
+    assert "provider payload should not pass through" not in rendered_source_identity

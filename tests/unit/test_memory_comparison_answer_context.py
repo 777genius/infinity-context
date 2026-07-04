@@ -558,6 +558,30 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
         "compacted_fusion_source_ref_original_count": 0,
         "compacted_fusion_source_ref_selected_count": 0,
         "compacted_fusion_source_ref_saved_count": 0,
+        "source_identity_ref_count": 3,
+        "source_identity_item_count": 3,
+        "source_identity_refs": [
+            "source_turn_refs:D4:5",
+            "source_turn_refs:D2:3",
+            "source_turn_refs:D5:8",
+        ],
+        "source_identity_items": [
+            {
+                "source_identity_refs": ["source_turn_refs:D4:5"],
+                "item_id": "primary",
+                "retrieval_order": 3,
+            },
+            {
+                "source_identity_refs": ["source_turn_refs:D2:3"],
+                "item_id": "bridge",
+                "retrieval_order": 2,
+            },
+            {
+                "source_identity_refs": ["source_turn_refs:D5:8"],
+                "item_id": "contrast-support",
+                "retrieval_order": 4,
+            },
+        ],
         "avg_answerability_score": 0.5967,
         "avg_measured_answerability_score": 0.895,
         "unmeasured_answerability_count": 1,
@@ -898,6 +922,66 @@ def test_answer_context_matches_canonical_source_ref_to_source_turn_key() -> Non
         "source_turn_refs:D4:2",
     )
     assert context.memories[0].metadata["answer_context_retrieval_order"] == 2
+
+
+def test_answer_context_reports_bounded_safe_source_identity_diagnostics() -> None:
+    memories = tuple(
+        RetrievedMemory(
+            text=(
+                f"private raw support note {index} session_1 D1:{index} "
+                "contains sk-test-secret"
+            ),
+            rank=index,
+            item_id=f"context-{index}",
+            source_refs=(
+                f"locomo:conv-private:session_1:D1:{index}:turn-secret-value",
+            ),
+        )
+        for index in range(1, 11)
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "items": [
+                {
+                    "id": f"context-{index}",
+                    "retrieval_order": index,
+                    "role": "supporting",
+                    "source_refs": [
+                        (
+                            "locomo:conv-private:session_1:"
+                            f"D1:{index}:turn-secret-value"
+                        )
+                    ],
+                }
+                for index in range(1, 11)
+            ]
+        },
+        cutoff=10,
+    )
+
+    diagnostics = context.to_diagnostics()
+    rendered = repr(
+        (
+            diagnostics["source_identity_refs"],
+            diagnostics["source_identity_items"],
+        )
+    )
+
+    assert diagnostics["source_identity_ref_count"] == 20
+    assert diagnostics["source_identity_item_count"] == 10
+    assert len(diagnostics["source_identity_refs"]) == 8
+    assert len(diagnostics["source_identity_items"]) == 8
+    assert all(
+        len(item["source_identity_refs"]) <= 4
+        for item in diagnostics["source_identity_items"]
+    )
+    assert "source_session_turn_refs:session_1:D1:1" in rendered
+    assert "source_turn_refs:D1:1" in rendered
+    assert "locomo:conv-private" not in rendered
+    assert "sk-test-secret" not in rendered
+    assert "private raw support note" not in rendered
 
 
 def test_answer_context_matches_session_qualified_turn_key() -> None:

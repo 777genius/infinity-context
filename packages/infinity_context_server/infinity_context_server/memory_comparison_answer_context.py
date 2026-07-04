@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -46,6 +47,15 @@ from infinity_context_server.memory_comparison_source_identity import (
 )
 
 _SOURCE_TURN_REF_PREFIXES = ("source_turn_refs:", "source_session_turn_refs:")
+_MAX_CONTEXT_SOURCE_IDENTITY_REFS = 8
+_MAX_CONTEXT_SOURCE_IDENTITY_REFS_PER_ITEM = 4
+_MAX_CONTEXT_SOURCE_IDENTITY_ITEMS = 8
+_SAFE_SOURCE_IDENTITY_REF_RE = re.compile(
+    r"^(?:(?P<turn_prefix>source_turn_refs):(?P<turn_ref>D\d+:\d+)|"
+    r"(?P<session_prefix>source_session_turn_refs):(?P<session>session_\d+):"
+    r"(?P<session_turn_ref>D\d+:\d+))$",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -109,6 +119,7 @@ class AnswerContext:
 
     def to_diagnostics(self) -> dict[str, object]:
         source_ref_stats = _source_ref_stats(self.memories)
+        source_identity_stats = _source_identity_stats(self.memories)
         backfill_risk_stats = _backfill_risk_stats(self.memories)
         quality_score_stats = _quality_score_stats(self.memories)
         risk_reason_codes = _answer_context_risk_reason_codes(
@@ -126,6 +137,7 @@ class AnswerContext:
             "source": self.source,
             "memory_count": len(self.memories),
             **source_ref_stats,
+            **source_identity_stats,
             **quality_score_stats,
             "selected_bundle_item_count": self.selected_bundle_item_count,
             "skipped_bundle_item_count": self.skipped_bundle_item_count,
@@ -2388,6 +2400,7 @@ def _bundle_item_has_noise_risk(memory: RetrievedMemory) -> bool:
         features,
     ) or memory_has_conflict_or_stale(memory, features)
 
+
 def _source_ref_stats(memories: Sequence[RetrievedMemory]) -> dict[str, object]:
     source_ref_counts = [len(_memory_source_refs(memory)) for memory in memories]
     source_ref_item_count = sum(1 for count in source_ref_counts if count > 0)
@@ -2413,6 +2426,66 @@ def _source_ref_stats(memories: Sequence[RetrievedMemory]) -> dict[str, object]:
             stats["saved_count"] for stats in compacted_stats
         ),
     }
+
+
+def _source_identity_stats(memories: Sequence[RetrievedMemory]) -> dict[str, object]:
+    source_identity_refs: list[str] = []
+    source_identity_items: list[dict[str, object]] = []
+    source_identity_item_count = 0
+    for memory in memories:
+        memory_refs = tuple(
+            dict.fromkeys(
+                ref
+                for raw_ref in _source_match_refs_from_memory(memory)
+                for ref in (_safe_source_identity_ref(raw_ref),)
+                if ref
+            )
+        )
+        if not memory_refs:
+            continue
+        source_identity_item_count += 1
+        source_identity_refs.extend(memory_refs)
+        if len(source_identity_items) >= _MAX_CONTEXT_SOURCE_IDENTITY_ITEMS:
+            continue
+        item: dict[str, object] = {
+            "source_identity_refs": list(
+                memory_refs[:_MAX_CONTEXT_SOURCE_IDENTITY_REFS_PER_ITEM]
+            )
+        }
+        item_id = str(memory.item_id or "").strip()
+        if item_id:
+            item["item_id"] = item_id
+        retrieval_order = _positive_int(
+            memory.metadata.get("answer_context_retrieval_order")
+        )
+        if retrieval_order is not None:
+            item["retrieval_order"] = retrieval_order
+        source_identity_items.append(item)
+
+    unique_refs = tuple(dict.fromkeys(source_identity_refs))
+    return {
+        "source_identity_ref_count": len(unique_refs),
+        "source_identity_item_count": source_identity_item_count,
+        "source_identity_refs": list(
+            unique_refs[:_MAX_CONTEXT_SOURCE_IDENTITY_REFS]
+        ),
+        "source_identity_items": source_identity_items,
+    }
+
+
+def _safe_source_identity_ref(value: object) -> str | None:
+    ref = str(value or "").strip()
+    if not ref or len(ref) > 80:
+        return None
+    match = _SAFE_SOURCE_IDENTITY_REF_RE.fullmatch(ref)
+    if match is None:
+        return None
+    if match.group("turn_ref"):
+        return f"source_turn_refs:{match.group('turn_ref').upper()}"
+    return (
+        "source_session_turn_refs:"
+        f"{match.group('session').lower()}:{match.group('session_turn_ref').upper()}"
+    )
 
 
 def _compacted_fusion_source_ref_stats(memory: RetrievedMemory) -> dict[str, int]:

@@ -21,6 +21,15 @@ _TURN_REF_RE = re.compile(
     re.IGNORECASE,
 )
 _MAX_TEMPORAL_GROUNDING_ISSUE_SAMPLES = 5
+_SAFE_SOURCE_IDENTITY_REF_RE = re.compile(
+    r"^(?:(?P<turn_prefix>source_turn_refs):(?P<turn_ref>D\d+:\d+)|"
+    r"(?P<session_prefix>source_session_turn_refs):(?P<session>session_\d+):"
+    r"(?P<session_turn_ref>D\d+:\d+))$",
+    re.IGNORECASE,
+)
+_MAX_ANSWER_CONTEXT_SOURCE_IDENTITY_REFS = 8
+_MAX_ANSWER_CONTEXT_SOURCE_IDENTITY_ITEMS = 8
+_MAX_ANSWER_CONTEXT_SOURCE_IDENTITY_REFS_PER_ITEM = 4
 
 
 def failure_diagnostics(evaluation: Mapping[str, object]) -> dict[str, object]:
@@ -292,6 +301,12 @@ def _answer_context_failure_summary(
             )
         )
     )
+    source_identity_refs = _safe_source_identity_refs(
+        context.get("source_identity_refs")
+    )
+    source_identity_items = _safe_source_identity_items(
+        context.get("source_identity_items")
+    )
     return {
         "present": True,
         "cutoff": cutoff,
@@ -303,6 +318,16 @@ def _answer_context_failure_summary(
         "source_refless_item_count": (
             _positive_int(context.get("source_refless_item_count")) or 0
         ),
+        "source_identity_ref_count": (
+            _positive_int(context.get("source_identity_ref_count"))
+            or len(source_identity_refs)
+        ),
+        "source_identity_item_count": (
+            _positive_int(context.get("source_identity_item_count"))
+            or len(source_identity_items)
+        ),
+        "source_identity_refs": source_identity_refs,
+        "source_identity_items": source_identity_items,
         "source_ref_coverage_rate": _metric_value(context, "source_ref_coverage_rate"),
         "selected_bundle_item_count": (
             _positive_int(context.get("selected_bundle_item_count")) or 0
@@ -328,6 +353,66 @@ def _answer_context_failure_summary(
             if order is not None
         )[:8],
     }
+
+
+def _safe_source_identity_refs(value: object, *, limit: int | None = None) -> tuple[str, ...]:
+    bounded_limit = limit or _MAX_ANSWER_CONTEXT_SOURCE_IDENTITY_REFS
+    refs = tuple(
+        dict.fromkeys(
+            ref
+            for raw_ref in _sequence(value)
+            for ref in (_safe_source_identity_ref(raw_ref),)
+            if ref
+        )
+    )
+    return refs[:bounded_limit]
+
+
+def _safe_source_identity_items(value: object) -> tuple[dict[str, object], ...]:
+    items: list[dict[str, object]] = []
+    for raw_item in _sequence(value):
+        item = _mapping(raw_item)
+        if not item:
+            continue
+        refs = _safe_source_identity_refs(
+            item.get("source_identity_refs"),
+            limit=_MAX_ANSWER_CONTEXT_SOURCE_IDENTITY_REFS_PER_ITEM,
+        )
+        if not refs:
+            continue
+        payload: dict[str, object] = {"source_identity_refs": refs}
+        item_id = _bounded_string(item.get("item_id"), limit=120)
+        if item_id:
+            payload["item_id"] = item_id
+        retrieval_order = _positive_int(item.get("retrieval_order"))
+        if retrieval_order is not None:
+            payload["retrieval_order"] = retrieval_order
+        items.append(payload)
+        if len(items) >= _MAX_ANSWER_CONTEXT_SOURCE_IDENTITY_ITEMS:
+            break
+    return tuple(items)
+
+
+def _safe_source_identity_ref(value: object) -> str | None:
+    ref = str(value or "").strip()
+    if not ref or len(ref) > 80:
+        return None
+    match = _SAFE_SOURCE_IDENTITY_REF_RE.fullmatch(ref)
+    if match is None:
+        return None
+    if match.group("turn_ref"):
+        return f"source_turn_refs:{match.group('turn_ref').upper()}"
+    return (
+        "source_session_turn_refs:"
+        f"{match.group('session').lower()}:{match.group('session_turn_ref').upper()}"
+    )
+
+
+def _bounded_string(value: object, *, limit: int) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    return text[:limit]
 
 
 def _retrieval_source_counts(evaluation: Mapping[str, object]) -> dict[str, int]:
