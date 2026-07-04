@@ -69,12 +69,28 @@ _PREDICATE_REQUIRED_ROLES = frozenset(
     }
 )
 _NEGATIVE_ABSENCE_ROLES = frozenset({"absence_support", "negative_support"})
+_TYPED_TEMPORAL_SUPPORT_ROLES = frozenset(
+    {
+        "duration_temporal_support",
+        "explicit_temporal_support",
+        "relative_temporal_support",
+        "temporal_sequence_support",
+        "visual_temporal_support",
+    }
+)
+_TEMPORAL_TIME_KIND_ROLES = {
+    "duration": "duration_temporal_support",
+    "explicit_time": "explicit_temporal_support",
+    "relative_time": "relative_temporal_support",
+    "temporal_sequence": "temporal_sequence_support",
+}
 _DIVERSITY_EXEMPT_ROLES = frozenset(
     {
         "bridge",
         "entity_disambiguation",
         "negative_support",
         "primary",
+        *_TYPED_TEMPORAL_SUPPORT_ROLES,
         *_PREDICATE_REQUIRED_ROLES,
     }
 )
@@ -730,6 +746,12 @@ def _role_for_candidate(
         and _candidate_has_causal_support(candidate)
     ):
         return "causal_support"
+    typed_temporal_role = _typed_temporal_role_for_candidate(
+        candidate,
+        required_roles=required_roles,
+    )
+    if typed_temporal_role:
+        return typed_temporal_role
     if (
         "value_support" in set(required_roles)
         and _candidate_has_value_support(candidate)
@@ -803,6 +825,12 @@ def _satisfied_required_roles(
     for role in required_roles:
         if role == "temporal_support" and any(
             _candidate_has_temporal_support(item.candidate) for item in selected
+        ):
+            satisfied.add(role)
+            continue
+        if role in _TYPED_TEMPORAL_SUPPORT_ROLES and any(
+            _candidate_has_typed_temporal_support(item.candidate, role)
+            for item in selected
         ):
             satisfied.add(role)
             continue
@@ -1005,6 +1033,8 @@ def _item_can_satisfy_required_role(
 ) -> bool:
     if role == "temporal_support":
         return _candidate_has_temporal_support(item.candidate)
+    if role in _TYPED_TEMPORAL_SUPPORT_ROLES:
+        return _candidate_has_typed_temporal_support(item.candidate, role)
     if role == "contrast":
         return _candidate_has_contrast_support(item.candidate)
     if role in _NEGATIVE_ABSENCE_ROLES:
@@ -1105,6 +1135,11 @@ def _replacement_role_order(item: PlannedEvidenceItem) -> float:
         "symbolic_meaning_support": 2,
         "preference_support": 2,
         "temporal_support": 2,
+        "duration_temporal_support": 2,
+        "explicit_temporal_support": 2,
+        "relative_temporal_support": 2,
+        "temporal_sequence_support": 2,
+        "visual_temporal_support": 2,
         "value_support": 2,
         "count_support": 2,
         "list_support": 2,
@@ -1142,6 +1177,32 @@ def _candidate_has_temporal_support(candidate: EvidenceBundleCandidate) -> bool:
         or candidate.has_temporal_sequence_surface
         or candidate.currentness_surface
     )
+
+
+def _typed_temporal_role_for_candidate(
+    candidate: EvidenceBundleCandidate,
+    *,
+    required_roles: Sequence[str],
+) -> str:
+    required_role_set = set(required_roles)
+    for role in sorted(_TYPED_TEMPORAL_SUPPORT_ROLES):
+        if role in required_role_set and _candidate_has_typed_temporal_support(
+            candidate,
+            role,
+        ):
+            return role
+    return ""
+
+
+def _candidate_has_typed_temporal_support(
+    candidate: EvidenceBundleCandidate,
+    role: str,
+) -> bool:
+    if not _candidate_has_temporal_support(candidate):
+        return False
+    if role == "visual_temporal_support":
+        return _candidate_has_visual_support(candidate)
+    return _TEMPORAL_TIME_KIND_ROLES.get(str(candidate.time_intent_kind or "")) == role
 
 
 def _candidate_has_temporal_grounding(candidate: EvidenceBundleCandidate) -> bool:
@@ -1607,6 +1668,9 @@ def _reason_codes(
         reasons.append(role)
         if candidate.relation_category_hits:
             reasons.append("typed_relation_category_hits")
+    if role in _TYPED_TEMPORAL_SUPPORT_ROLES:
+        reasons.append("temporal_support")
+        reasons.append(role)
     if candidate.focused_evidence_score > 0:
         reasons.append("focused_turn")
     if candidate.answerability_score >= 0.8:
@@ -1671,6 +1735,11 @@ def _role_order(item: PlannedEvidenceItem) -> float:
         "symbolic_meaning_support": 3,
         "preference_support": 3,
         "temporal_support": 3,
+        "duration_temporal_support": 3,
+        "explicit_temporal_support": 3,
+        "relative_temporal_support": 3,
+        "temporal_sequence_support": 3,
+        "visual_temporal_support": 3,
         "visual_support": 3,
         "causal_support": 4,
         "inference_support": 4,

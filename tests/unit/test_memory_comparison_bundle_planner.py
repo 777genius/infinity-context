@@ -960,6 +960,45 @@ def test_evidence_bundle_planner_requires_matching_temporal_evidence_type() -> N
     assert complete.missing_required_roles == ()
 
 
+def test_evidence_bundle_planner_preserves_required_typed_temporal_role() -> None:
+    primary = _candidate(
+        item_id="primary",
+        covered_expected_terms=("current friends",),
+        primary_signal=True,
+    )
+    duration = _candidate(
+        item_id="duration",
+        dedupe_key="refs:D2:2",
+        time_intent_kind="duration",
+        has_duration_surface=True,
+        query_support_terms=("known", "years"),
+        relation_hits=("known",),
+        entity_hits=("caroline",),
+        query_has_entities=True,
+        query_roles=("duration_temporal_support",),
+        source_locality_score=0.9,
+        answerability_score=0.8,
+    )
+
+    plan = EvidenceBundlePlanner().plan(
+        (primary, duration),
+        case_group="temporal",
+        required_roles=("primary", "duration_temporal_support"),
+    )
+
+    roles = {item.candidate.item_id: item.role for item in plan.items}
+    duration_payload = next(
+        item.to_payload() for item in plan.items if item.candidate.item_id == "duration"
+    )
+
+    assert roles["duration"] == "duration_temporal_support"
+    assert plan.satisfied_required_roles == ("primary", "duration_temporal_support")
+    assert plan.missing_required_roles == ()
+    assert plan.role_requirement_complete is True
+    assert "duration_temporal_support" in duration_payload["planner_reason_codes"]
+    assert plan.to_diagnostics()["role_counts"]["duration_temporal_support"] == 1
+
+
 def test_evidence_bundle_planner_rejects_weak_temporal_role_completion() -> None:
     primary = _candidate(
         item_id="primary",
