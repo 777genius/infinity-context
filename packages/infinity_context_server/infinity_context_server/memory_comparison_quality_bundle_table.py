@@ -63,6 +63,11 @@ def bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, obj
     source_type_support_diversities: list[int] = []
     retrieval_source_support_diversities: list[int] = []
     contrast_counts: list[int] = []
+    contrast_surface_counts: list[int] = []
+    negative_absence_support_counts: list[int] = []
+    negation_surface_counts: list[int] = []
+    currentness_surface_counts: list[int] = []
+    stale_surface_counts: list[int] = []
     selected_source_locality_scores: list[float] = []
     measured_selected_source_locality_scores: list[float] = []
     unmeasured_selected_source_locality_counts: list[int] = []
@@ -158,6 +163,21 @@ def bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, obj
             _positive_int(quality.get("source_ref_support_ref_count")) or 0
         )
         contrast_counts.append(_positive_int(quality.get("contrast_count")) or 0)
+        contrast_surface_counts.append(
+            _positive_int(quality.get("contrast_surface_count")) or 0
+        )
+        negative_absence_support_counts.append(
+            _positive_int(quality.get("negative_absence_support_count")) or 0
+        )
+        negation_surface_counts.append(
+            _positive_int(quality.get("negation_surface_count")) or 0
+        )
+        currentness_surface_counts.append(
+            _positive_int(quality.get("currentness_surface_count")) or 0
+        )
+        stale_surface_counts.append(
+            _positive_int(quality.get("stale_surface_count")) or 0
+        )
         if "average_selected_source_locality_score" in planner:
             selected_source_locality_scores.append(
                 _metric_value(planner, "average_selected_source_locality_score")
@@ -365,6 +385,33 @@ def bundle_quality_table(items: Sequence[Mapping[str, object]]) -> dict[str, obj
         "avg_contrast_count": _avg(contrast_counts),
         "total_contrast_count": sum(contrast_counts),
         "contrast_bundle_count": sum(1 for count in contrast_counts if count > 0),
+        "avg_contrast_surface_count": _avg(contrast_surface_counts),
+        "total_contrast_surface_count": sum(contrast_surface_counts),
+        "contrast_surface_bundle_count": sum(
+            1 for count in contrast_surface_counts if count > 0
+        ),
+        "avg_negative_absence_support_count": _avg(negative_absence_support_counts),
+        "total_negative_absence_support_count": sum(
+            negative_absence_support_counts
+        ),
+        "negative_absence_support_bundle_count": sum(
+            1 for count in negative_absence_support_counts if count > 0
+        ),
+        "avg_negation_surface_count": _avg(negation_surface_counts),
+        "total_negation_surface_count": sum(negation_surface_counts),
+        "negation_surface_bundle_count": sum(
+            1 for count in negation_surface_counts if count > 0
+        ),
+        "avg_currentness_surface_count": _avg(currentness_surface_counts),
+        "total_currentness_surface_count": sum(currentness_surface_counts),
+        "currentness_surface_bundle_count": sum(
+            1 for count in currentness_surface_counts if count > 0
+        ),
+        "avg_stale_surface_count": _avg(stale_surface_counts),
+        "total_stale_surface_count": sum(stale_surface_counts),
+        "stale_surface_bundle_count": sum(
+            1 for count in stale_surface_counts if count > 0
+        ),
         "avg_selected_source_locality_score": _avg(selected_source_locality_scores),
         "avg_measured_selected_source_locality_score": _avg(
             measured_selected_source_locality_scores

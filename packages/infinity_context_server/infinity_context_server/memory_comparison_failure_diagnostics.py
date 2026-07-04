@@ -97,7 +97,10 @@ def failure_diagnostics(evaluation: Mapping[str, object]) -> dict[str, object]:
                 bundle_quality=bundle_quality,
             ),
             "selected_weak_source_locality_count": (
-                _selected_weak_source_locality_count(bundle_items)
+                _selected_weak_source_locality_count(
+                    bundle_items,
+                    bundle_quality=bundle_quality,
+                )
             ),
             "reason_codes": _str_tuple(bundle_quality.get("reason_codes")),
         },
@@ -198,13 +201,18 @@ def _selected_low_answerability_count(
 
 def _selected_weak_source_locality_count(
     bundle_items: Sequence[Mapping[str, object]],
+    *,
+    bundle_quality: Mapping[str, object],
 ) -> int:
-    return sum(
+    counted_items = sum(
         1
         for item in bundle_items
         if _is_measured_weak_source_locality(
             _metric_value(item, "source_locality_score")
         )
+    )
+    return counted_items or int(
+        _metric_value(bundle_quality, "weak_source_locality_count")
     )
 
 

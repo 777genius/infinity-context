@@ -192,3 +192,39 @@ def test_failure_diagnostics_report_selected_answerability_and_locality_weakness
     assert diagnostics["bundle"]["selected_weak_source_locality_count"] == 1
     assert "selected_low_answerability_evidence" in reasons
     assert "selected_weak_source_locality_evidence" in reasons
+
+
+def test_failure_diagnostics_uses_bundle_quality_weak_locality_fallback() -> None:
+    evaluation = {
+        "retrieval": {"total_results": 1, "results": []},
+        "retrieval_quality": {
+            "expected_term_recall": 0.5,
+            "evidence_term_recall": 0.0,
+        },
+        "evidence_bundle": {
+            "bundle_complete": False,
+            "item_count": 1,
+            "items": [{"role": "supporting"}],
+            "bundle_planner": {
+                "bundle_quality": {
+                    "confidence_score": 0.2,
+                    "confidence_band": "low",
+                    "weak_source_locality_count": 1,
+                    "reason_codes": ["risk:weak_source_locality"],
+                }
+            },
+        },
+        "generation": {},
+        "judgment": {},
+    }
+
+    diagnostics = failure_diagnostics(evaluation)
+    reasons = failure_diagnostic_reason_codes(
+        evaluation,
+        score=0.0,
+        retrieval_recall=0.5,
+        diagnostics=diagnostics,
+    )
+
+    assert diagnostics["bundle"]["selected_weak_source_locality_count"] == 1
+    assert "selected_weak_source_locality_evidence" in reasons

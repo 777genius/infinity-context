@@ -9,9 +9,33 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
 from pathlib import Path
+
+_BOUNDED_LIST_COUNT_RE = re.compile(
+    r"\b(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\b"
+)
+_LIST_QUESTION_MARKERS = (
+    " activities",
+    " areas",
+    " books",
+    " cities",
+    " countries",
+    " events",
+    " friends",
+    " hobbies",
+    " items",
+    " people",
+    " places",
+    " projects",
+    " reasons",
+    " restaurants",
+    " songs",
+    " things",
+    " ways",
+)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -104,6 +128,7 @@ def _summary(failures: Sequence[Mapping[str, object]], *, top: int) -> dict[str,
     missing_evidence_ref_previews: Counter[str] = Counter()
     capability_reasons: dict[str, Counter[str]] = defaultdict(Counter)
     answer_shapes: Counter[str] = Counter()
+    answer_shape_components: Counter[str] = Counter()
     failure_patterns: Counter[tuple[str, str]] = Counter()
     query_patterns: Counter[str] = Counter()
     query_pattern_examples: dict[str, list[dict[str, str]]] = defaultdict(list)
@@ -120,6 +145,7 @@ def _summary(failures: Sequence[Mapping[str, object]], *, top: int) -> dict[str,
         reasons[reason] += 1
         capability_reasons[capability][reason] += 1
         answer_shapes[answer_shape] += 1
+        answer_shape_components.update(_answer_shape_components(failure))
         primary_root_causes[primary_root_cause] += 1
         root_cause_tags.update(root_tags)
         if len(root_cause_examples[primary_root_cause]) < 5:
@@ -148,6 +174,7 @@ def _summary(failures: Sequence[Mapping[str, object]], *, top: int) -> dict[str,
         "capability_failure_count": dict(capabilities.most_common()),
         "reason_count": dict(reasons.most_common()),
         "answer_shape_count": dict(answer_shapes.most_common()),
+        "answer_shape_component_count": dict(answer_shape_components.most_common()),
         "failure_pattern_count": {
             f"{capability}:{reason}": count
             for (capability, reason), count in failure_patterns.most_common(top)
@@ -323,24 +350,38 @@ def _answer_shape(failure: Mapping[str, object]) -> str:
     if question.startswith(("did ", "does ", "do ", "is ", "are ", "was ", "were ")):
         return "yes_no"
     if question.startswith(("what ", "which ")):
-        plural_markers = (
-            " activities",
-            " areas",
-            " books",
-            " cities",
-            " countries",
-            " events",
-            " hobbies",
-            " items",
-            " places",
-            " projects",
-            " things",
-            " ways",
-        )
-        if any(marker in question for marker in plural_markers):
+        if _question_requests_list(question):
             return "list"
         return "what"
+    if question.startswith(("who are ", "who were ", "who did ")):
+        return "list"
     return "unknown"
+
+
+def _answer_shape_components(failure: Mapping[str, object]) -> tuple[str, ...]:
+    primary = _answer_shape(failure)
+    question = _question_text(failure).casefold()
+    components = [primary]
+    if _question_requests_list(question) or question.startswith(
+        ("who are ", "who were ", "who did ")
+    ):
+        components.append("list")
+    if (
+        primary == "count"
+        or question.startswith(("how many", "number of", "count "))
+        or (
+            _question_requests_list(question)
+            and _BOUNDED_LIST_COUNT_RE.search(question[:120])
+        )
+    ):
+        components.append("count")
+    return tuple(dict.fromkeys(component for component in components if component))
+
+
+def _question_requests_list(question: str) -> bool:
+    return question.startswith(("what ", "which ")) and any(
+        marker in question for marker in _LIST_QUESTION_MARKERS
+    )
 
 
 def _query_patterns(failure: Mapping[str, object]) -> tuple[str, ...]:

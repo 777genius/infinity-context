@@ -931,12 +931,17 @@ def test_candidate_features_detect_directed_communication_surface() -> None:
         has_preference_evidence=False,
         has_visual_evidence=False,
         has_focused_turn_surface=True,
+        question="Who did Alex tell yesterday?",
     )
 
     assert topic_mention.relation_category_hits == ()
     assert directed_message.relation_category_hits == ("communication",)
     assert "communication_evidence" in directed_message.answerability_reason_codes
     assert directed_message.answerability_score > topic_mention.answerability_score
+    directed_diagnostics = directed_message.to_diagnostics()
+    assert directed_diagnostics["communication_direction_grounded"] is True
+    assert directed_diagnostics["communication_query_speaker"] == "Alex"
+    assert directed_diagnostics["communication_query_addressee"] == ""
 
 
 def test_candidate_features_do_not_ground_wrong_communication_action() -> None:
@@ -1105,8 +1110,12 @@ def test_candidate_features_mark_who_told_direction_grounding() -> None:
 
     assert grounded.communication_direction_grounded is True
     assert grounded.communication_query_direction == "ask_speaker"
+    assert grounded.communication_query_speaker == ""
+    assert grounded.communication_query_addressee == "Alex"
     assert name_only.communication_direction_ungrounded is True
-    assert grounded.to_diagnostics()["communication_direction_grounded"] is True
+    grounded_diagnostics = grounded.to_diagnostics()
+    assert grounded_diagnostics["communication_direction_grounded"] is True
+    assert grounded_diagnostics["communication_query_addressee"] == "Alex"
 
 
 def test_candidate_features_use_text_turn_refs_for_dedupe_when_source_refs_are_generic() -> None:

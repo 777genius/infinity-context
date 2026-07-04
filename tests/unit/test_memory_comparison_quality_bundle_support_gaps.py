@@ -28,6 +28,52 @@ def test_bundle_weak_support_reasons_marks_role_label_only_support() -> None:
     assert bundle_weak_support_reasons(bundle) == ("role_label_only_support",)
 
 
+def test_bundle_weak_support_reasons_marks_low_answerability_support() -> None:
+    bundle = {
+        "items": [
+            {
+                "role": "primary",
+                "covered_evidence_terms": ["D1:1"],
+                "focused_evidence_score": 1.0,
+            },
+            {
+                "role": "supporting",
+                "source_refs": ["D1:2"],
+                "answerability_score": 0.42,
+                "source_locality_score": 0.8,
+            },
+        ]
+    }
+
+    assert bundle_weak_support_reasons(bundle) == (
+        "weak_selected_support",
+        "low_answerability_support",
+    )
+
+
+def test_bundle_weak_support_reasons_marks_weak_source_locality_support() -> None:
+    bundle = {
+        "items": [
+            {
+                "role": "primary",
+                "covered_evidence_terms": ["D1:1"],
+                "focused_evidence_score": 1.0,
+            },
+            {
+                "role": "location_support",
+                "source_refs": ["D9:1", "D1:2"],
+                "answerability_score": 0.82,
+                "source_locality_score": 0.3,
+            },
+        ]
+    }
+
+    assert bundle_weak_support_reasons(bundle) == (
+        "weak_selected_support",
+        "weak_source_locality_support",
+    )
+
+
 def test_fast_gate_metrics_blocks_role_label_only_complete_bundle_quality() -> None:
     items = tuple(
         _item(
@@ -137,9 +183,16 @@ def test_quality_diagnostics_marks_noisy_complete_bundle_as_weak_support() -> No
     assert table["medium_or_high_bundle_count"] == 0
     assert table["confidence_band_counts"] == {"medium": 1}
     assert table["weak_support_bundle_count"] == 1
-    assert table["weak_support_reason_counts"] == {"all_selected_support_weak": 1}
+    assert table["weak_support_reason_counts"] == {
+        "all_selected_support_weak": 1,
+        "low_answerability_support": 1,
+    }
     assert table["risk_reason_counts"]["risk:all_selected_support_weak"] == 1
+    assert table["risk_reason_counts"]["risk:low_answerability_support"] == 1
     assert "risk:all_selected_support_weak" in table["weak_samples"][0][
+        "reason_codes"
+    ]
+    assert "risk:low_answerability_support" in table["weak_samples"][0][
         "reason_codes"
     ]
 

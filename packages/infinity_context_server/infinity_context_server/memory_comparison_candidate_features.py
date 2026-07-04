@@ -207,6 +207,8 @@ class CandidateEvidenceFeatures:
     communication_direction_grounded: bool
     communication_direction_ungrounded: bool
     communication_query_direction: str
+    communication_query_speaker: str
+    communication_query_addressee: str
     direct_speaker_turn: bool
     broad_summary: bool
     focused_turn_surface: bool
@@ -302,6 +304,8 @@ class CandidateEvidenceFeatures:
             "communication_direction_grounded": self.communication_direction_grounded,
             "communication_direction_ungrounded": self.communication_direction_ungrounded,
             "communication_query_direction": self.communication_query_direction,
+            "communication_query_speaker": self.communication_query_speaker,
+            "communication_query_addressee": self.communication_query_addressee,
             "overlap_terms": list(self.overlap_terms),
             "relation_hits": list(self.relation_hits),
             "entity_hits": list(self.entity_hits),
@@ -493,6 +497,8 @@ def build_candidate_evidence_features(
         communication_direction_grounded=communication_grounding.grounded,
         communication_direction_ungrounded=communication_grounding.ungrounded,
         communication_query_direction=communication_grounding.query_direction,
+        communication_query_speaker=communication_grounding.speaker,
+        communication_query_addressee=communication_grounding.addressee,
         direct_speaker_turn=direct_speaker_turn,
         broad_summary=broad_summary,
         focused_turn_surface=has_focused_turn_surface,

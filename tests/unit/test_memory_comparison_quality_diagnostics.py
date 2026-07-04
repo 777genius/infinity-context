@@ -105,13 +105,18 @@ def test_quality_diagnostics_reports_intents_policies_bundle_gaps_and_leakage() 
                             primary_count=1,
                             supporting_count=1,
                             bridge_count=1,
-                                causal_support_count=1,
-                                inference_support_count=1,
-                                location_support_count=1,
-                                emotion_response_support_count=1,
-                                preference_support_count=1,
-                                visual_support_count=1,
+                            causal_support_count=1,
+                            inference_support_count=1,
+                            location_support_count=1,
+                            emotion_response_support_count=1,
+                            preference_support_count=1,
+                            visual_support_count=1,
                             contrast_count=1,
+                            contrast_surface_count=1,
+                            negative_absence_support_count=1,
+                            negation_surface_count=1,
+                            currentness_surface_count=1,
+                            stale_surface_count=1,
                             location_relation_category_hit_count=1,
                             source_proximity_support_count=1,
                             source_ref_item_count=2,
@@ -199,6 +204,10 @@ def test_quality_diagnostics_reports_intents_policies_bundle_gaps_and_leakage() 
                             selected_item_count=1,
                             low_answerability_count=1,
                             broad_summary_count=1,
+                            contrast_surface_count=1,
+                            negation_surface_count=1,
+                            currentness_surface_count=1,
+                            stale_surface_count=1,
                         )
                     },
                     "items": [
@@ -267,6 +276,21 @@ def test_quality_diagnostics_reports_intents_policies_bundle_gaps_and_leakage() 
     assert bundle_quality["avg_contrast_count"] == 0.5
     assert bundle_quality["total_contrast_count"] == 1
     assert bundle_quality["contrast_bundle_count"] == 1
+    assert bundle_quality["avg_contrast_surface_count"] == 1.0
+    assert bundle_quality["total_contrast_surface_count"] == 2
+    assert bundle_quality["contrast_surface_bundle_count"] == 2
+    assert bundle_quality["avg_negative_absence_support_count"] == 0.5
+    assert bundle_quality["total_negative_absence_support_count"] == 1
+    assert bundle_quality["negative_absence_support_bundle_count"] == 1
+    assert bundle_quality["avg_negation_surface_count"] == 1.0
+    assert bundle_quality["total_negation_surface_count"] == 2
+    assert bundle_quality["negation_surface_bundle_count"] == 2
+    assert bundle_quality["avg_currentness_surface_count"] == 1.0
+    assert bundle_quality["total_currentness_surface_count"] == 2
+    assert bundle_quality["currentness_surface_bundle_count"] == 2
+    assert bundle_quality["avg_stale_surface_count"] == 1.0
+    assert bundle_quality["total_stale_surface_count"] == 2
+    assert bundle_quality["stale_surface_bundle_count"] == 2
     assert bundle_quality["total_location_relation_category_hit_count"] == 1
     assert bundle_quality["avg_source_proximity_support_count"] == 0.5
     assert bundle_quality["total_source_proximity_support_count"] == 1
@@ -4417,6 +4441,11 @@ def _bundle_quality(
     preference_support_count: int = 0,
     visual_support_count: int = 0,
     contrast_count: int = 0,
+    contrast_surface_count: int = 0,
+    negative_absence_support_count: int = 0,
+    negation_surface_count: int = 0,
+    currentness_surface_count: int = 0,
+    stale_surface_count: int = 0,
     location_relation_category_hit_count: int = 0,
     low_answerability_count: int = 0,
     average_measured_answerability_score: float = 0.0,
@@ -4458,6 +4487,11 @@ def _bundle_quality(
         "preference_support_count": preference_support_count,
         "visual_support_count": visual_support_count,
         "contrast_count": contrast_count,
+        "contrast_surface_count": contrast_surface_count,
+        "negative_absence_support_count": negative_absence_support_count,
+        "negation_surface_count": negation_surface_count,
+        "currentness_surface_count": currentness_surface_count,
+        "stale_surface_count": stale_surface_count,
         "location_relation_category_hit_count": location_relation_category_hit_count,
         "low_answerability_count": low_answerability_count,
         "average_measured_answerability_score": average_measured_answerability_score,

@@ -162,6 +162,30 @@ def test_locomo_failure_analysis_uses_question_preview_for_shapes_and_patterns()
     ]
 
 
+def test_locomo_failure_analysis_decomposes_bounded_list_answer_shape() -> None:
+    report = {
+        "failures": [
+            {
+                "case_id": "bounded-list",
+                "capability": "locomo_category_1",
+                "reason": "missing_expected_terms",
+                "question": "Which two friends joined Maria for dinner?",
+            },
+            {
+                "case_id": "who-list",
+                "capability": "locomo_category_1",
+                "reason": "missing_expected_terms",
+                "question": "Who were Maria's dinner guests?",
+            },
+        ]
+    }
+
+    summary = _summary(_failures(report), top=5)
+
+    assert summary["answer_shape_count"] == {"list": 2}
+    assert summary["answer_shape_component_count"] == {"list": 2, "count": 1}
+
+
 def test_locomo_failure_analysis_groups_root_cause_tags_from_diagnostics() -> None:
     report = {
         "failures": [

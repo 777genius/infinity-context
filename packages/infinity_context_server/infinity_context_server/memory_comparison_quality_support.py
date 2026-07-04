@@ -572,6 +572,8 @@ def bundle_weak_support_reasons(bundle: Mapping[str, object]) -> tuple[str, ...]
         reasons.append("all_selected_support_weak")
     elif weak_items:
         reasons.append("weak_selected_support")
+    for item in support_items:
+        reasons.extend(_support_quality_risk_reasons(item))
     if (
         support_items
         and any(_passes_support_quality(item) for item in support_items)
@@ -695,6 +697,17 @@ def _passes_support_quality(item: Mapping[str, object]) -> bool:
         or answerability_score <= 0
         or answerability_score >= 0.55
     )
+
+
+def _support_quality_risk_reasons(item: Mapping[str, object]) -> tuple[str, ...]:
+    reasons: list[str] = []
+    answerability_score = _float_value(item.get("answerability_score"))
+    if answerability_score is not None and 0 < answerability_score < 0.55:
+        reasons.append("low_answerability_support")
+    source_locality_score = _float_value(item.get("source_locality_score"))
+    if source_locality_score is not None and 0 < source_locality_score < 0.45:
+        reasons.append("weak_source_locality_support")
+    return tuple(reasons)
 
 
 def _is_support_role_item(item: Mapping[str, object]) -> bool:
