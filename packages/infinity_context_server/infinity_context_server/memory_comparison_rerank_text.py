@@ -133,6 +133,7 @@ QUERY_TOKEN_ALIASES = {
     "camp": ("camping",),
     "clas": ("class",),
     "counsel": ("counseling", "counselor"),
+    "cancell": ("cancel", "cancelled"),
     "dat": ("dating",),
     "decid": ("decide",),
     "destres": ("destress",),
@@ -168,6 +169,7 @@ QUERY_TOKEN_ALIASES = {
     "reliev": ("relieved",),
     "religiou": ("religious",),
     "relocat": ("relocated",),
+    "reschedul": ("reschedule", "rescheduled"),
     "statu": ("status",),
     "stres": ("stress",),
     "symboliz": ("symbolize", "symbol"),
@@ -531,6 +533,10 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
         r"\b(?:deadline|due\s+date|when\b.+\bdue|"
         r"what\b.+\b(?:task|todo|to-do)|"
         r"what\b.+\bpromise(?:d)?|"
+        r"(?:task|todo|to-do|plan|promise|deadline)\b.{0,80}\b"
+        r"(?:cancel(?:ed|led|s)?|reschedul(?:e|ed|es|ing)?)|"
+        r"(?:cancel(?:ed|led|s)?|reschedul(?:e|ed|es|ing)?)\b.{0,80}\b"
+        r"(?:task|todo|to-do|plan|promise|deadline)|"
         r"(?:need|needs|needed)\s+to\s+remember|"
         r"remember\s+to)\b",
         text,
@@ -540,6 +546,10 @@ def question_phrase_terms(text: str) -> tuple[str, ...]:
             terms.append("deadline")
         elif re.search(r"\bpromise(?:d)?\b", text, flags=re.IGNORECASE):
             terms.append("promise")
+        elif re.search(r"\bcancel(?:ed|led|s)?\b", text, flags=re.IGNORECASE):
+            terms.append("cancel")
+        elif re.search(r"\breschedul(?:e|ed|es|ing)?\b", text, flags=re.IGNORECASE):
+            terms.append("reschedule")
         elif re.search(r"\bremember\b", text, flags=re.IGNORECASE):
             terms.append("remember")
         else:

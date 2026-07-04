@@ -13054,6 +13054,60 @@ def test_benchmark_commitment_profile_ignores_remembered_story_wording() -> None
     assert "commitment_profile" not in intent.to_query_profile()["relation_categories"]
 
 
+def test_benchmark_rerank_prefers_current_cancelled_commitment_status() -> None:
+    case = _case(
+        case_id="commitment-status-current-cancelled",
+        question="Was Alex's plan canceled or rescheduled?",
+        expected_terms=("canceled", "rescheduled"),
+        answer="canceled and rescheduled",
+        category=4,
+    )
+    stale_plan = RetrievedMemory(
+        item_id="stale-plan",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex: I plan to call Maria on Friday."
+        ),
+        source_refs=("D1:1",),
+    )
+    current_status = RetrievedMemory(
+        item_id="current-status",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_2 turn D2:3 date: 10:15 am "
+            "D2:3 Alex: The plan was canceled and rescheduled for next week."
+        ),
+        source_refs=("D2:3",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (stale_plan, current_status),
+    )
+
+    assert metadata["applied"] is True
+    assert "commitment_profile" in metadata["query_profile"]["evidence_need"]
+    assert {"cancel", "reschedule"} <= set(metadata["query_profile"]["relation_terms"])
+    assert reranked[0].item_id == "current-status"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    current_diagnostics = diagnostics_by_id["current-status"]
+    stale_diagnostics = diagnostics_by_id["stale-plan"]
+    assert "commitment_profile" in current_diagnostics["benchmark_candidate_features"][
+        "relation_category_hits"
+    ]
+    assert {"cancel", "reschedule"} <= set(
+        current_diagnostics["benchmark_candidate_features"]["relation_hits"]
+    )
+    assert "partial_commitment_status_cap" in stale_diagnostics["score_signals"][
+        "benchmark_provenance_safety_reason_codes"
+    ]
+
+
 def test_query_decomposition_expands_diet_avoidance_queries() -> None:
     avoid_case = _case(
         case_id="diet-profile-avoidance",

@@ -1006,6 +1006,8 @@ def _has_current_goal_intent(
     normalized = " ".join(str(question or "").casefold().split())
     if re.search(r"\b(?:if|hadn t|had not)\b", normalized):
         return False
+    if re.search(r"\b(?:cancel(?:ed|led|s)?|reschedul(?:e|ed|es|ing)?)\b", normalized):
+        return False
     if "plan" in set(relation_terms) and re.search(
         r"\b(?:plan|plans|planned|planning)\b",
         normalized,
@@ -1486,7 +1488,14 @@ def _has_commitment_profile_intent(
     question: str,
     relation_terms: tuple[str, ...],
 ) -> bool:
-    if not {"deadline", "promise", "remember", "task"} & set(relation_terms):
+    if not {
+        "cancel",
+        "deadline",
+        "promise",
+        "remember",
+        "reschedule",
+        "task",
+    } & set(relation_terms):
         return False
     normalized_question = re.sub(r"[^0-9a-z]+", " ", question.casefold()).strip()
     if re.search(
@@ -1500,6 +1509,10 @@ def _has_commitment_profile_intent(
             r"\b(?:deadline|due\s+date|when\b.+\bdue|"
             r"what\b.+\b(?:task|todo|to do|to-do)|"
             r"what\b.+\bpromise(?:d)?|"
+            r"(?:task|todo|to do|to-do|plan|promise|deadline)\b.+"
+            r"\b(?:cancel(?:ed|led|s)?|reschedul(?:e|ed|es|ing)?)\b|"
+            r"(?:cancel(?:ed|led|s)?|reschedul(?:e|ed|es|ing)?)\b.+"
+            r"\b(?:task|todo|to do|to-do|plan|promise|deadline)\b|"
             r"(?:need|needs|needed)\s+to\s+remember|"
             r"remember\s+to)\b",
             normalized_question,
@@ -2315,10 +2328,15 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
         "evidence_need": "contact_profile",
     },
     "commitment_profile": {
-        "terms": frozenset({"deadline", "promise", "remember", "task"}),
+        "terms": frozenset(
+            {"cancel", "deadline", "promise", "remember", "reschedule", "task"}
+        ),
         "variants": frozenset(
             {
                 "bring",
+                "cancel",
+                "canceled",
+                "cancelled",
                 "commit",
                 "committed",
                 "complete",
@@ -2331,6 +2349,9 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "promised",
                 "remember",
                 "reminder",
+                "reschedule",
+                "rescheduled",
+                "status",
                 "task",
                 "to-do",
                 "todo",

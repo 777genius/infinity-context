@@ -662,7 +662,11 @@ _COMMITMENT_PROFILE_SURFACE_RE = re.compile(
     r"[a-zA-Z][a-zA-Z0-9_-]+\b"
     r"|\bremember\s+to\s+(?:bring|send|call|finish|complete|take)\b"
     r"|\b(?:promise|promised)\s+to\s+"
-    r"(?:bring|send|call|finish|complete|take|help)\b",
+    r"(?:bring|send|call|finish|complete|take|help)\b"
+    r"|\b(?:task|todo|to-do|plan|promise|deadline)\b.{0,80}\b"
+    r"(?:cancel(?:ed|led)?|reschedul(?:e|ed|ing)?|postponed|delayed)\b"
+    r"|\b(?:cancel(?:ed|led)?|reschedul(?:e|ed|ing)?|postponed|delayed)\b"
+    r".{0,80}\b(?:task|todo|to-do|plan|promise|deadline)\b",
     re.IGNORECASE,
 )
 
@@ -691,11 +695,35 @@ def _has_commitment_profile_support(
     task_surface = {"task", "todo", "to-do"} & memory_terms
     promise_surface = {"promise", "promised"} & memory_terms
     reminder_surface = {"remember", "reminder"} & memory_terms
+    status_transition_surface = {
+        "cancel",
+        "canceled",
+        "cancelled",
+        "cancell",
+        "delay",
+        "delayed",
+        "postpon",
+        "postpone",
+        "postponed",
+        "reschedul",
+        "reschedule",
+        "rescheduled",
+    } & memory_terms
+    commitment_object_surface = {
+        "deadline",
+        "plan",
+        "promise",
+        "promised",
+        "task",
+        "to-do",
+        "todo",
+    } & memory_terms
     return bool(
         deadline_surface
         or (task_surface and task_action)
         or (promise_surface and task_action)
         or (reminder_surface and task_action)
+        or (status_transition_surface and commitment_object_surface)
         or _COMMITMENT_PROFILE_SURFACE_RE.search(memory_text)
     )
 

@@ -426,6 +426,8 @@ def _provenance_safety_cap(
         caps.append((0.26, "low_answerability_cap"))
     if _stale_only_current_state_evidence(features):
         caps.append((0.28, "stale_only_current_state_cap"))
+    if _partial_commitment_status_evidence(features):
+        caps.append((0.24, "partial_commitment_status_cap"))
     answerability_reasons = set(features.answerability_reason_codes)
     missing_evidence_caps = {
         "missing_action_event_evidence": 0.4,
@@ -602,6 +604,16 @@ def _stale_only_current_state_evidence(features: BenchmarkRerankFeatures) -> boo
         and features.stale_surface
         and not features.currentness_surface
     )
+
+
+def _partial_commitment_status_evidence(features: BenchmarkRerankFeatures) -> bool:
+    if "commitment_profile" not in set(features.evidence_need):
+        return False
+    if not {"cancel", "reschedule"} & set(features.relation_terms):
+        return False
+    if {"cancel", "reschedule"} & set(features.relation_hits):
+        return False
+    return bool(features.relation_hits or features.relation_category_hits)
 
 
 def _bool_signal(signals: Mapping[str, object], key: str) -> bool:

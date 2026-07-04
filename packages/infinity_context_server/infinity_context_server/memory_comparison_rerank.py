@@ -149,6 +149,7 @@ _RELATION_QUERY_TERMS = {
     "brought",
     "camp",
     "call",
+    "cancel",
     "caus",
     "cause",
     "chat",
@@ -229,6 +230,7 @@ _RELATION_QUERY_TERMS = {
     "receive",
     "recommend",
     "register",
+    "reschedule",
     "request",
     "read",
     "religious",
@@ -2183,7 +2185,14 @@ def _filter_relation_terms_for_profile(
             normalized_question,
         ):
             continue
-        if term in {"deadline", "promise", "remember", "task"} and not (
+        if term in {
+            "cancel",
+            "deadline",
+            "promise",
+            "remember",
+            "reschedule",
+            "task",
+        } and not (
             _has_commitment_profile_question(normalized_question)
         ):
             continue
@@ -2341,6 +2350,10 @@ def _has_commitment_profile_question(normalized_question: str) -> bool:
             r"\b(?:deadline|due\s+date|when\b.+\bdue|"
             r"what\b.+\b(?:task|todo|to do|to-do)|"
             r"what\b.+\bpromise(?:d)?|"
+            r"(?:task|todo|to do|to-do|plan|promise|deadline)\b.+"
+            r"\b(?:cancel(?:ed|led|s)?|reschedul(?:e|ed|es|ing)?)\b|"
+            r"(?:cancel(?:ed|led|s)?|reschedul(?:e|ed|es|ing)?)\b.+"
+            r"\b(?:task|todo|to do|to-do|plan|promise|deadline)\b|"
             r"(?:need|needs|needed)\s+to\s+remember|"
             r"remember\s+to)\b",
             normalized_question,

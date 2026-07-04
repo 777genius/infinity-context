@@ -19,6 +19,8 @@ _HIGH_SIGNAL_RELATION_VARIANTS = {
     "awesome",
     "camping",
     "care",
+    "cancel",
+    "cancelled",
     "classical",
     "conservative",
     "brother",
@@ -50,6 +52,8 @@ _HIGH_SIGNAL_RELATION_VARIANTS = {
     "parent",
     "partner",
     "real",
+    "reschedule",
+    "rescheduled",
     "right",
     "rights",
     "self-care",
@@ -333,6 +337,9 @@ def _commitment_support_query_terms(
     }
     commitment_terms = {
         "bring",
+        "cancel",
+        "canceled",
+        "cancelled",
         "commit",
         "committed",
         "complete",
@@ -345,6 +352,8 @@ def _commitment_support_query_terms(
         "promised",
         "remember",
         "reminder",
+        "reschedule",
+        "rescheduled",
         "task",
         "to-do",
         "todo",
@@ -363,7 +372,15 @@ def _commitment_support_query_terms(
                 *(
                     term
                     for term in relation_terms
-                    if term in {"deadline", "promise", "remember", "task"}
+                    if term
+                    in {
+                        "cancel",
+                        "deadline",
+                        "promise",
+                        "remember",
+                        "reschedule",
+                        "task",
+                    }
                 ),
                 *(term for term in relation_variant_terms if term in commitment_terms),
                 *topical_terms[:4],
