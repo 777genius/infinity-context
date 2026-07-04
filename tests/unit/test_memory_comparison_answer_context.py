@@ -631,6 +631,7 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
             "risk:missing_required_contrast",
             "risk:retrieval_backfill",
         ],
+        "inspection_flags": ["missing_required_roles"],
         "fallback_reason": None,
         "item_ids": ["primary", "bridge", "contrast-support"],
         "retrieval_orders": [3, 2, 4],
@@ -2731,6 +2732,8 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
                             "source_refless_item_count": 0,
                             "source_ref_coverage_rate": 1.0,
                             "compacted_fusion_source_ref_item_count": 1,
+                            "compacted_fusion_source_ref_original_count": 4,
+                            "compacted_fusion_source_ref_selected_count": 1,
                             "compacted_fusion_source_ref_saved_count": 3,
                             "avg_answerability_score": 0.4,
                             "avg_measured_answerability_score": 0.8,
@@ -2918,6 +2921,8 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
     assert metrics["primary_min_backfilled_source_proximity_closest_distance"] == 2
     assert metrics["primary_avg_source_ref_coverage_rate"] == 0.5
     assert metrics["primary_total_compacted_fusion_source_ref_item_count"] == 1
+    assert metrics["primary_total_compacted_fusion_source_ref_original_count"] == 4
+    assert metrics["primary_total_compacted_fusion_source_ref_selected_count"] == 1
     assert metrics["primary_total_compacted_fusion_source_ref_saved_count"] == 3
     assert metrics["primary_avg_context_answerability_score"] == 0.2
     assert metrics["primary_avg_measured_context_answerability_score"] == 0.8
@@ -3080,6 +3085,10 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
     assert primary["avg_source_ref_coverage_rate"] == 0.5
     assert primary["avg_compacted_fusion_source_ref_item_count"] == 0.5
     assert primary["total_compacted_fusion_source_ref_item_count"] == 1
+    assert primary["avg_compacted_fusion_source_ref_original_count"] == 2.0
+    assert primary["total_compacted_fusion_source_ref_original_count"] == 4
+    assert primary["avg_compacted_fusion_source_ref_selected_count"] == 0.5
+    assert primary["total_compacted_fusion_source_ref_selected_count"] == 1
     assert primary["avg_compacted_fusion_source_ref_saved_count"] == 1.5
     assert primary["total_compacted_fusion_source_ref_saved_count"] == 3
     assert primary["avg_context_answerability_score"] == 0.2

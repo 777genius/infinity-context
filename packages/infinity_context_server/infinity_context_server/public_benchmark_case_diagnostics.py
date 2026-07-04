@@ -56,7 +56,11 @@ def case_evidence_refs(case: Any) -> tuple[str, ...]:
         evidence = metadata.get("evidence_terms")
     if not isinstance(evidence, Sequence) or isinstance(evidence, str | bytes):
         return ()
-    return tuple(str(value).strip()[:120] for value in evidence[:20] if str(value).strip())
+    return tuple(
+        str(value).strip()[:120]
+        for value in _flatten_scalar_values(evidence)[:20]
+        if str(value).strip()
+    )
 
 
 def case_evidence_ref_previews(
@@ -117,6 +121,17 @@ def _evidence_preview_lookup(value: object) -> dict[str, str]:
                 previews[ref] = text
         return previews
     return {}
+
+
+def _flatten_scalar_values(value: object) -> tuple[object, ...]:
+    if isinstance(value, Mapping):
+        return ()
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes):
+        flattened: list[object] = []
+        for item in value:
+            flattened.extend(_flatten_scalar_values(item))
+        return tuple(flattened)
+    return (value,) if value is not None else ()
 
 
 def _item_source_ref_evidence_parts(item: Mapping[str, object]) -> list[str]:

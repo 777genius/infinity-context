@@ -2048,7 +2048,20 @@ def test_compact_fast_gate_summary_surfaces_computed_gap_diagnostics() -> None:
                     "query_plan": base_only_plan,
                 }
             },
-            "results": [],
+            "results": [
+                {
+                    "id": "unselected-positive",
+                    "rank": 1,
+                    "score": 0.9,
+                    "metadata": {
+                        "diagnostics": {
+                            "score_signals": {
+                                "benchmark_effective_boost_cap": 0.16,
+                            },
+                        },
+                    },
+                }
+            ],
         },
         "evidence_bundle": {
             "bundle_complete": True,
@@ -2088,6 +2101,18 @@ def test_compact_fast_gate_summary_surfaces_computed_gap_diagnostics() -> None:
     assert summary["selected_evidence_weakness_counts"]["reason_counts"] == {
         "selected_low_answerability": 1,
         "selected_weak_source_locality": 1,
+    }
+    assert summary["rerank_signal_gap_counts"][
+        "positive_unselected_candidate_count"
+    ] == 1
+    assert summary["rerank_signal_gap_counts"][
+        "selected_without_positive_rerank_count"
+    ] == 1
+    signal_counts = summary["rerank_signal_gap_counts"][
+        "positive_unselected_signal_counts"
+    ]
+    assert signal_counts == {
+        "benchmark_effective_boost_cap": 1,
     }
     assert summary["top_gap"] is not None
 

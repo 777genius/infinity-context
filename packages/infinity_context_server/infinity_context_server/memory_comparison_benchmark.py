@@ -2005,6 +2005,7 @@ def _compact_fast_gate_summary(
     query_role_gaps = _mapping(gate.get("query_role_gap_breakdown"))
     query_plan_gaps = _mapping(gate.get("query_plan_gap_breakdown"))
     bundle_gaps = _mapping(gate.get("bundle_gap_breakdown"))
+    rerank_signal_gaps = _mapping(gate.get("rerank_signal_gap_breakdown"))
     actionable = _mapping(gate.get("actionable_gap_summary"))
     return {
         "schema_version": "compact_fast_gate_summary.v1",
@@ -2086,6 +2087,49 @@ def _compact_fast_gate_summary(
             "reason_counts": _compact_count_mapping(bundle_gaps.get("reason_counts")),
             "bridge_gap_reason_counts": _compact_count_mapping(
                 bundle_gaps.get("bridge_gap_reason_counts")
+            ),
+        },
+        "rerank_signal_gap_counts": {
+            "candidate_count": _positive_int(rerank_signal_gaps.get("candidate_count"))
+            or 0,
+            "selected_item_count": _positive_int(
+                rerank_signal_gaps.get("selected_item_count")
+            )
+            or 0,
+            "positive_rerank_candidate_count": _positive_int(
+                rerank_signal_gaps.get("positive_rerank_candidate_count")
+            )
+            or 0,
+            "positive_unselected_candidate_count": _positive_int(
+                rerank_signal_gaps.get("positive_unselected_candidate_count")
+            )
+            or 0,
+            "positive_unselected_case_count": _positive_int(
+                rerank_signal_gaps.get("positive_unselected_case_count")
+            )
+            or 0,
+            "selected_with_positive_rerank_count": _positive_int(
+                rerank_signal_gaps.get("selected_with_positive_rerank_count")
+            )
+            or 0,
+            "selected_without_positive_rerank_count": _positive_int(
+                rerank_signal_gaps.get("selected_without_positive_rerank_count")
+            )
+            or 0,
+            "selected_without_positive_rerank_case_count": _positive_int(
+                rerank_signal_gaps.get(
+                    "selected_without_positive_rerank_case_count"
+                )
+            )
+            or 0,
+            "positive_signal_counts": _compact_count_mapping(
+                rerank_signal_gaps.get("positive_signal_counts")
+            ),
+            "positive_unselected_signal_counts": _compact_count_mapping(
+                rerank_signal_gaps.get("positive_unselected_signal_counts")
+            ),
+            "selected_without_positive_reason_counts": _compact_count_mapping(
+                rerank_signal_gaps.get("selected_without_positive_reason_counts")
             ),
         },
     }

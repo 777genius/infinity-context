@@ -858,6 +858,18 @@ def answer_context_metrics(
             )
             or 0
         ),
+        "primary_total_compacted_fusion_source_ref_original_count": (
+            _positive_int(
+                primary.get("total_compacted_fusion_source_ref_original_count")
+            )
+            or 0
+        ),
+        "primary_total_compacted_fusion_source_ref_selected_count": (
+            _positive_int(
+                primary.get("total_compacted_fusion_source_ref_selected_count")
+            )
+            or 0
+        ),
         "primary_total_compacted_fusion_source_ref_saved_count": (
             _positive_int(
                 primary.get("total_compacted_fusion_source_ref_saved_count")
@@ -1034,6 +1046,8 @@ def _answer_context_cutoff_metrics(
     source_refless_item_counts: list[int] = []
     source_ref_coverage_rates: list[float] = []
     compacted_fusion_source_ref_item_counts: list[int] = []
+    compacted_fusion_source_ref_original_counts: list[int] = []
+    compacted_fusion_source_ref_selected_counts: list[int] = []
     compacted_fusion_source_ref_saved_counts: list[int] = []
     bundle_confidence_scores: list[float] = []
     bundle_confidence_band_counts: Counter[str] = Counter()
@@ -1196,6 +1210,18 @@ def _answer_context_cutoff_metrics(
         compacted_fusion_source_ref_item_counts.append(
             _positive_int(
                 context.get("compacted_fusion_source_ref_item_count")
+            )
+            or 0
+        )
+        compacted_fusion_source_ref_original_counts.append(
+            _positive_int(
+                context.get("compacted_fusion_source_ref_original_count")
+            )
+            or 0
+        )
+        compacted_fusion_source_ref_selected_counts.append(
+            _positive_int(
+                context.get("compacted_fusion_source_ref_selected_count")
             )
             or 0
         )
@@ -1468,6 +1494,18 @@ def _answer_context_cutoff_metrics(
         ),
         "total_compacted_fusion_source_ref_item_count": sum(
             compacted_fusion_source_ref_item_counts
+        ),
+        "avg_compacted_fusion_source_ref_original_count": _avg(
+            compacted_fusion_source_ref_original_counts
+        ),
+        "total_compacted_fusion_source_ref_original_count": sum(
+            compacted_fusion_source_ref_original_counts
+        ),
+        "avg_compacted_fusion_source_ref_selected_count": _avg(
+            compacted_fusion_source_ref_selected_counts
+        ),
+        "total_compacted_fusion_source_ref_selected_count": sum(
+            compacted_fusion_source_ref_selected_counts
         ),
         "avg_compacted_fusion_source_ref_saved_count": _avg(
             compacted_fusion_source_ref_saved_counts
