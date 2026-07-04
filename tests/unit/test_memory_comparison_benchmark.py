@@ -2404,6 +2404,110 @@ def test_compact_fast_gate_summary_surfaces_computed_gap_diagnostics() -> None:
     assert summary["top_gap"] is not None
 
 
+def test_compact_fast_gate_summary_surfaces_lifted_answerability_gaps() -> None:
+    item = {
+        "case_id": "locomo-lifted-answerability-gap",
+        "backend": "memo-stack",
+        "group": "open-domain",
+        "scored": True,
+        "judgment": {"score": 1.0},
+        "retrieval_quality": {"expected_term_recall": 1.0},
+        "retrieval": {
+            "results": [
+                {
+                    "id": "lifted-topic-candidate",
+                    "rank": 2,
+                    "score": 0.77,
+                    "metadata": {
+                        "diagnostics": {
+                            "benchmark_rerank_boosted": True,
+                            "score_signals": {"benchmark_relation_boost": 0.12},
+                            "benchmark_candidate_features": {
+                                "answerability_score": 0.35,
+                                "source_locality_score": 0.8,
+                                "answerability_reason_codes": [
+                                    "missing_health_evidence",
+                                    "low_answerability",
+                                ],
+                                "relation_categories": ["health"],
+                                "relation_category_hits": [],
+                                "query_roles": ["relation_compact"],
+                            },
+                            "benchmark_rerank_policy": {
+                                "contributions": [
+                                    {
+                                        "policy": "RelationPolicy",
+                                        "score": 0.12,
+                                        "reason_codes": ["relation_boost"],
+                                    }
+                                ]
+                            },
+                        }
+                    },
+                }
+            ],
+        },
+    }
+
+    summary = _compact_fast_gate_summary((item,))
+
+    assert "lifted_answerability_gaps_clear" in summary["failed_gates"]
+    assert summary["answerability_gap_counts"] == {
+        "gap_candidate_count": 1,
+        "gap_case_count": 1,
+        "lifted_gap_candidate_count": 1,
+        "lifted_gap_case_count": 1,
+        "low_answerability_candidate_count": 1,
+        "low_answerability_case_count": 1,
+        "lifted_low_answerability_candidate_count": 1,
+        "lifted_low_answerability_case_count": 1,
+        "reason_counts": {"missing_health_evidence": 1},
+        "lifted_reason_counts": {"missing_health_evidence": 1},
+        "category_counts": {"health": 1},
+        "lifted_category_counts": {"health": 1},
+    }
+    assert summary["answerability_gap_samples"] == {
+        "samples": [
+            {
+                "answerability_reason_count": 2,
+                "answerability_score": 0.35,
+                "case_id": "locomo-lifted-answerability-gap",
+                "group": "open-domain",
+                "lifted": True,
+                "memory_id": "lifted-topic-candidate",
+                "positive_policy_score": 0.12,
+                "rank": 2,
+                "source_locality_score": 0.8,
+                "answerability_reason_codes": [
+                    "missing_health_evidence",
+                    "low_answerability",
+                ],
+                "query_roles": ["relation_compact"],
+                "reasons": ["missing_health_evidence"],
+                "relation_categories": ["health"],
+            }
+        ],
+        "low_answerability_samples": [
+            {
+                "answerability_reason_count": 2,
+                "answerability_score": 0.35,
+                "case_id": "locomo-lifted-answerability-gap",
+                "group": "open-domain",
+                "lifted": True,
+                "memory_id": "lifted-topic-candidate",
+                "positive_policy_score": 0.12,
+                "rank": 2,
+                "answerability_reason_codes": [
+                    "missing_health_evidence",
+                    "low_answerability",
+                ],
+                "query_roles": ["relation_compact"],
+                "relation_categories": ["health"],
+            }
+        ],
+    }
+
+
 def test_memory_comparison_compact_report_preserves_setup_failures(
     tmp_path: Path,
 ) -> None:

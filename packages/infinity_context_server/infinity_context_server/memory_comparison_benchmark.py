@@ -2104,6 +2104,7 @@ def _compact_fast_gate_summary(
     query_role_gaps = _mapping(gate.get("query_role_gap_breakdown"))
     query_plan_gaps = _mapping(gate.get("query_plan_gap_breakdown"))
     bundle_gaps = _mapping(gate.get("bundle_gap_breakdown"))
+    answerability_gaps = _mapping(gate.get("answerability_gap_breakdown"))
     rerank_signal_gaps = _mapping(gate.get("rerank_signal_gap_breakdown"))
     answer_context_gaps = _mapping(gate.get("answer_context_support_gap_summary"))
     actionable = _mapping(gate.get("actionable_gap_summary"))
@@ -2206,6 +2207,58 @@ def _compact_fast_gate_summary(
                 bundle_gaps.get("bridge_gap_reason_counts")
             ),
         },
+        "answerability_gap_counts": {
+            "gap_candidate_count": _positive_int(
+                answerability_gaps.get("gap_candidate_count")
+            )
+            or 0,
+            "gap_case_count": _positive_int(answerability_gaps.get("gap_case_count"))
+            or 0,
+            "lifted_gap_candidate_count": _positive_int(
+                answerability_gaps.get("lifted_gap_candidate_count")
+            )
+            or 0,
+            "lifted_gap_case_count": _positive_int(
+                answerability_gaps.get("lifted_gap_case_count")
+            )
+            or 0,
+            "low_answerability_candidate_count": _positive_int(
+                answerability_gaps.get("low_answerability_candidate_count")
+            )
+            or 0,
+            "low_answerability_case_count": _positive_int(
+                answerability_gaps.get("low_answerability_case_count")
+            )
+            or 0,
+            "lifted_low_answerability_candidate_count": _positive_int(
+                answerability_gaps.get("lifted_low_answerability_candidate_count")
+            )
+            or 0,
+            "lifted_low_answerability_case_count": _positive_int(
+                answerability_gaps.get("lifted_low_answerability_case_count")
+            )
+            or 0,
+            "reason_counts": _compact_count_mapping(
+                answerability_gaps.get("reason_counts")
+            ),
+            "lifted_reason_counts": _compact_count_mapping(
+                answerability_gaps.get("lifted_reason_counts")
+            ),
+            "category_counts": _compact_count_mapping(
+                answerability_gaps.get("category_counts")
+            ),
+            "lifted_category_counts": _compact_count_mapping(
+                answerability_gaps.get("lifted_category_counts")
+            ),
+        },
+        "answerability_gap_samples": {
+            "samples": _compact_answerability_gap_samples(
+                answerability_gaps.get("samples")
+            ),
+            "low_answerability_samples": _compact_answerability_gap_samples(
+                answerability_gaps.get("low_answerability_samples")
+            ),
+        },
         "answer_context_support_gap_counts": {
             "context_count": _positive_int(answer_context_gaps.get("context_count"))
             or 0,
@@ -2275,6 +2328,52 @@ def _compact_fast_gate_summary(
             rerank_signal_gaps
         ),
     }
+
+
+def _compact_answerability_gap_samples(
+    value: object,
+    *,
+    limit: int = 3,
+) -> list[dict[str, object]]:
+    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
+        return []
+    samples: list[dict[str, object]] = []
+    scalar_keys = {
+        "answerability_reason_count",
+        "answerability_score",
+        "case_id",
+        "group",
+        "lifted",
+        "memory_id",
+        "positive_policy_score",
+        "rank",
+        "source_locality_score",
+    }
+    sequence_keys = {
+        "answerability_reason_codes",
+        "query_roles",
+        "reasons",
+        "relation_categories",
+        "relation_category_hits",
+    }
+    for raw_sample in value:
+        sample = _mapping(raw_sample)
+        if not sample:
+            continue
+        compact: dict[str, object] = {}
+        for key in sorted(scalar_keys):
+            if key in sample:
+                compact[key] = sample[key]
+        for key in sorted(sequence_keys):
+            if key in sample:
+                values = list(_str_tuple(sample.get(key))[:6])
+                if values:
+                    compact[key] = values
+        if compact:
+            samples.append(compact)
+        if len(samples) >= limit:
+            break
+    return samples
 
 
 def _compact_answer_context_support_gap_samples(
