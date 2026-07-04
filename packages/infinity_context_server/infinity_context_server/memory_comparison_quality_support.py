@@ -583,6 +583,48 @@ def bundle_weak_support_reasons(bundle: Mapping[str, object]) -> tuple[str, ...]
     return tuple(dict.fromkeys(reasons))
 
 
+def bundle_support_audit_items(
+    bundle: Mapping[str, object],
+    *,
+    limit: int = 5,
+) -> tuple[dict[str, object], ...]:
+    """Return redacted support item facts for diagnostics samples."""
+    if limit <= 0:
+        return ()
+    rows: list[dict[str, object]] = []
+    for index, item in enumerate(_bundle_items(bundle), start=1):
+        is_support = _is_support_role_item(item)
+        passes_quality = _passes_support_quality(item)
+        if not (is_support or not passes_quality):
+            continue
+        rows.append(
+            {
+                "item_index": index,
+                "role": str(item.get("role") or "").strip(),
+                "retrieval_order": _positive_int(item.get("retrieval_order")),
+                "support_quality_passed": passes_quality,
+                "support_risk_reasons": _support_quality_risk_reasons(item),
+                "has_substantive_support": _bundle_item_has_substantive_support(item),
+                "answerability_score": _float_value(item.get("answerability_score")),
+                "source_locality_score": _float_value(item.get("source_locality_score")),
+                "source_refs": _str_tuple(item.get("source_refs")),
+                "covered_evidence_terms": _str_tuple(
+                    item.get("covered_evidence_terms")
+                ),
+                "entity_hit_count": len(_str_tuple(item.get("entity_hits"))),
+                "speaker_hit_count": len(_str_tuple(item.get("speaker_hits"))),
+                "relation_hit_count": len(_str_tuple(item.get("relation_hits"))),
+                "relation_category_hits": _str_tuple(
+                    item.get("relation_category_hits")
+                ),
+                "planner_reason_codes": _str_tuple(item.get("planner_reason_codes")),
+            }
+        )
+        if len(rows) >= limit:
+            break
+    return tuple(rows)
+
+
 def _query_profile_and_intent(
     item: Mapping[str, object],
 ) -> tuple[Mapping[str, object], Mapping[str, object]]:

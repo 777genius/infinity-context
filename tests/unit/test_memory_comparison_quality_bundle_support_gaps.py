@@ -5,6 +5,7 @@ from infinity_context_server.memory_comparison_quality_diagnostics import (
     quality_diagnostics,
 )
 from infinity_context_server.memory_comparison_quality_support import (
+    bundle_support_audit_items,
     bundle_weak_support_reasons,
 )
 
@@ -26,6 +27,49 @@ def test_bundle_weak_support_reasons_marks_role_label_only_support() -> None:
     }
 
     assert bundle_weak_support_reasons(bundle) == ("role_label_only_support",)
+
+
+def test_bundle_support_audit_items_reports_redacted_support_facts() -> None:
+    bundle = {
+        "items": [
+            {
+                "role": "primary",
+                "source_refs": ["D1:1"],
+                "covered_evidence_terms": ["D1:1"],
+                "focused_evidence_score": 1.0,
+            },
+            {
+                "role": "preference_support",
+                "retrieval_order": 2,
+                "planner_reason_codes": ["role:preference_support"],
+                "answerability_score": 0.42,
+                "source_locality_score": 0.3,
+            },
+        ]
+    }
+
+    assert bundle_support_audit_items(bundle) == (
+        {
+            "item_index": 2,
+            "role": "preference_support",
+            "retrieval_order": 2,
+            "support_quality_passed": False,
+            "support_risk_reasons": (
+                "low_answerability_support",
+                "weak_source_locality_support",
+            ),
+            "has_substantive_support": False,
+            "answerability_score": 0.42,
+            "source_locality_score": 0.3,
+            "source_refs": (),
+            "covered_evidence_terms": (),
+            "entity_hit_count": 0,
+            "speaker_hit_count": 0,
+            "relation_hit_count": 0,
+            "relation_category_hits": (),
+            "planner_reason_codes": ("role:preference_support",),
+        },
+    )
 
 
 def test_bundle_weak_support_reasons_marks_low_answerability_support() -> None:
@@ -127,6 +171,25 @@ def test_fast_gate_metrics_blocks_role_label_only_complete_bundle_quality() -> N
     assert table["weak_support_reason_counts"] == {"role_label_only_support": 1}
     assert breakdown["risk_reason_counts"]["risk:role_label_only_support"] == 1
     assert breakdown["weak_samples"][0]["case_id"] == "case-1"
+    assert breakdown["weak_samples"][0]["support_audit_items"] == (
+        {
+            "item_index": 2,
+            "role": "preference_support",
+            "retrieval_order": 2,
+            "support_quality_passed": True,
+            "support_risk_reasons": (),
+            "has_substantive_support": False,
+            "answerability_score": None,
+            "source_locality_score": None,
+            "source_refs": (),
+            "covered_evidence_terms": (),
+            "entity_hit_count": 0,
+            "speaker_hit_count": 0,
+            "relation_hit_count": 0,
+            "relation_category_hits": (),
+            "planner_reason_codes": ("role:preference_support",),
+        },
+    )
     assert "risk:role_label_only_support" in breakdown["weak_samples"][0][
         "reason_codes"
     ]

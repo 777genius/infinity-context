@@ -34,6 +34,9 @@ from infinity_context_server.memory_comparison_quality_accessors import (
     top_counts as _top_counts,
 )
 from infinity_context_server.memory_comparison_quality_support import (
+    bundle_support_audit_items as _bundle_support_audit_items,
+)
+from infinity_context_server.memory_comparison_quality_support import (
     bundle_weak_support_reasons as _bundle_weak_support_reasons,
 )
 
@@ -617,6 +620,7 @@ def _bundle_quality_sample(
     *,
     extra_reason_codes: Sequence[str] = (),
 ) -> dict[str, object]:
+    bundle = _mapping(item.get("evidence_bundle"))
     reason_codes = tuple(
         dict.fromkeys((*_str_tuple(quality.get("reason_codes")), *extra_reason_codes))
     )
@@ -630,6 +634,7 @@ def _bundle_quality_sample(
         "reason_codes": reason_codes,
         "weak_evidence_reasons": weak_evidence_reasons,
         "weak_evidence_summary": _weak_evidence_summary(weak_evidence_reasons),
+        "support_audit_items": _bundle_support_audit_items(bundle),
         "selected_item_count": _positive_int(quality.get("selected_item_count")) or 0,
         "primary_count": _positive_int(quality.get("primary_count")) or 0,
         "supporting_count": _positive_int(quality.get("supporting_count")) or 0,
