@@ -593,6 +593,7 @@ class EvidenceBundlePlanner:
                 source_type_counts=source_type_counts,
                 retrieval_source_counts=retrieval_source_counts,
                 source_proximity_window=_SOURCE_PROXIMITY_WINDOW,
+                selection_would_fill_bundle=len(selected) + 1 >= self._max_items,
             )
             source_type_diversity_full = any(
                 source_type_counts[source_type] >= self._max_items_per_source_type

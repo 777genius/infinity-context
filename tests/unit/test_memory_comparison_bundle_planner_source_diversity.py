@@ -94,6 +94,84 @@ def test_evidence_bundle_planner_drops_primary_window_filler_for_distinct_source
     assert diagnostics["bundle_quality"]["source_identity_support_item_count"] == 2
 
 
+def test_evidence_bundle_planner_prefers_distinct_source_for_equivalent_support() -> None:
+    primary = _candidate(
+        item_id="primary",
+        covered_evidence_terms=("venue",),
+        primary_signal=True,
+        source_refs=("D4:10",),
+    )
+    redundant_local = _candidate(
+        item_id="redundant-local",
+        retrieval_order=2,
+        dedupe_key="refs:D4:11",
+        query_support_terms=("venue", "reservation"),
+        source_refs=("D4:11",),
+        focused_evidence_score=0.0,
+        direct_speaker_turn=False,
+        answerability_score=0.94,
+        bundle_strength_score=10.0,
+    )
+    distinct_source = _candidate(
+        item_id="distinct-source",
+        retrieval_order=3,
+        dedupe_key="refs:D8:5",
+        query_support_terms=("venue", "reservation"),
+        source_refs=("D8:5",),
+        answerability_score=0.8,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, redundant_local, distinct_source),
+        case_group="single",
+    )
+
+    assert [item.candidate.item_id for item in plan.items] == [
+        "primary",
+        "distinct-source",
+    ]
+    diagnostics = plan.to_diagnostics()
+    assert diagnostics["dropped_diversity_count"] == 1
+    assert diagnostics["bundle_quality"]["source_identity_support_item_count"] == 2
+
+
+def test_evidence_bundle_planner_keeps_local_window_with_unique_support() -> None:
+    primary = _candidate(
+        item_id="primary",
+        covered_evidence_terms=("venue",),
+        primary_signal=True,
+        source_refs=("D4:10",),
+    )
+    local_support = _candidate(
+        item_id="local-support",
+        retrieval_order=2,
+        dedupe_key="refs:D4:11",
+        query_support_terms=("venue", "reservation", "deposit"),
+        source_refs=("D4:11",),
+        answerability_score=0.94,
+        bundle_strength_score=10.0,
+    )
+    distinct_source = _candidate(
+        item_id="distinct-source",
+        retrieval_order=3,
+        dedupe_key="refs:D8:5",
+        query_support_terms=("venue", "reservation"),
+        source_refs=("D8:5",),
+        answerability_score=0.8,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, local_support, distinct_source),
+        case_group="single",
+    )
+
+    assert [item.candidate.item_id for item in plan.items] == [
+        "primary",
+        "local-support",
+    ]
+    assert plan.to_diagnostics()["dropped_diversity_count"] == 1
+
+
 def test_evidence_bundle_planner_keeps_required_role_over_redundant_window() -> None:
     primary = _candidate(
         item_id="primary",
@@ -158,6 +236,8 @@ def _candidate(
     speaker_hits: tuple[str, ...] = (),
     answerability_score: float = 0.0,
     bundle_strength_score: float = 1.0,
+    focused_evidence_score: float = 1.0,
+    direct_speaker_turn: bool = True,
 ) -> EvidenceBundleCandidate:
     return EvidenceBundleCandidate(
         rank=1,
@@ -168,11 +248,11 @@ def _candidate(
         query_support_terms=query_support_terms,
         query_support_score=0.0,
         bundle_strength_score=bundle_strength_score,
-        focused_evidence_score=1.0,
+        focused_evidence_score=focused_evidence_score,
         primary_signal=primary_signal,
         dedupe_key=dedupe_key or item_id,
         source_refs=source_refs,
-        direct_speaker_turn=True,
+        direct_speaker_turn=direct_speaker_turn,
         relation_hits=relation_hits,
         entity_hits=entity_hits,
         speaker_hits=speaker_hits,

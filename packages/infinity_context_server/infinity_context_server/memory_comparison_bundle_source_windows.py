@@ -25,12 +25,24 @@ def is_redundant_source_window_filler(
     source_type_counts: Counter[str],
     retrieval_source_counts: Counter[str],
     source_proximity_window: int,
+    selection_would_fill_bundle: bool = True,
 ) -> bool:
     candidate = item.candidate
+    alternative_query_support_terms = (
+        _candidate_query_support_terms(candidate)
+        if adds_query_support_terms and selection_would_fill_bundle
+        else frozenset()
+    )
     return bool(
         item.role == "supporting"
         and not adds_required_terms
-        and not adds_query_support_terms
+        and _has_redundant_query_support(
+            candidate,
+            remaining,
+            selected,
+            adds_query_support_terms=adds_query_support_terms,
+            selection_would_fill_bundle=selection_would_fill_bundle,
+        )
         and not has_answer_evidence
         and not any(source_type_counts[key] == 0 for key in source_type_keys)
         and not any(retrieval_source_counts[key] == 0 for key in retrieval_source_keys)
@@ -42,7 +54,32 @@ def is_redundant_source_window_filler(
         and _has_distinct_source_window_alternative(
             remaining,
             selected,
+            query_support_terms=alternative_query_support_terms,
         )
+    )
+
+
+def _has_redundant_query_support(
+    candidate: Any,
+    remaining: Sequence[Any],
+    selected: Sequence[Any],
+    *,
+    adds_query_support_terms: bool,
+    selection_would_fill_bundle: bool,
+) -> bool:
+    if not adds_query_support_terms:
+        return True
+    if not selection_would_fill_bundle:
+        return False
+    if _candidate_has_local_query_evidence(candidate):
+        return False
+    query_support_terms = _candidate_query_support_terms(candidate)
+    if not query_support_terms:
+        return True
+    return _has_distinct_source_window_alternative(
+        remaining,
+        selected,
+        query_support_terms=query_support_terms,
     )
 
 
@@ -75,6 +112,8 @@ def _candidate_has_redundant_source_window(
 def _has_distinct_source_window_alternative(
     remaining: Sequence[Any],
     selected: Sequence[Any],
+    *,
+    query_support_terms: frozenset[str] = frozenset(),
 ) -> bool:
     selected_source_groups = {
         source_group
@@ -89,10 +128,33 @@ def _has_distinct_source_window_alternative(
             continue
         if not _candidate_has_source_proximity_support(item.candidate):
             continue
+        if query_support_terms and not query_support_terms.issubset(
+            _candidate_query_support_terms(item.candidate)
+        ):
+            continue
         source_groups = set(_candidate_source_groups(item.candidate))
         if source_groups and not source_groups.issubset(selected_source_groups):
             return True
     return False
+
+
+def _candidate_query_support_terms(candidate: Any) -> frozenset[str]:
+    return frozenset(
+        str(term).strip().casefold()
+        for term in getattr(candidate, "query_support_terms", ())
+        if str(term).strip()
+    )
+
+
+def _candidate_has_local_query_evidence(candidate: Any) -> bool:
+    return bool(
+        getattr(candidate, "direct_speaker_turn", False)
+        or float(getattr(candidate, "focused_evidence_score", 0.0) or 0.0) > 0
+        or tuple(getattr(candidate, "relation_hits", ()))
+        or tuple(getattr(candidate, "relation_category_hits", ()))
+        or tuple(getattr(candidate, "entity_hits", ()))
+        or tuple(getattr(candidate, "speaker_hits", ()))
+    )
 
 
 def _candidate_has_source_proximity_support(candidate: Any) -> bool:
