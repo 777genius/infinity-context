@@ -324,6 +324,8 @@ def _boost_cap(
         return 0.52
     if strong_relation_evidence:
         return 0.5
+    if count_list_answer_shape_boost > 0:
+        return 0.46
     if rich_direct_speaker_relation_evidence:
         return 0.46
     if direct_speaker_relation_evidence:
@@ -335,8 +337,6 @@ def _boost_cap(
     if location_support_boost > 0:
         return 0.46
     if value_answer_shape_boost > 0:
-        return 0.46
-    if count_list_answer_shape_boost > 0:
         return 0.46
     if typed_relation_support_boost > 0:
         return 0.46
@@ -441,8 +441,18 @@ def _provenance_safety_cap(
         "missing_vehicle_profile_evidence": 0.4,
         "missing_visual_evidence": 0.4,
     }
+    count_list_answer_grounding = _has_count_list_answer_grounding(
+        features,
+        score_signals=score_signals,
+    )
     for reason, cap in missing_evidence_caps.items():
         if reason in answerability_reasons:
+            if count_list_answer_grounding and reason in {
+                "missing_activity_evidence",
+                "missing_participation_event_evidence",
+                "missing_temporal_evidence",
+            }:
+                continue
             caps.append((cap, f"{reason}_cap"))
     if features.conflict_or_stale and not _has_contrast_grounding(score_signals):
         caps.append((0.22, "unsupported_stale_evidence_cap"))
@@ -509,6 +519,29 @@ def _has_role_specific_grounding(
     ):
         return True
     return bool(_has_contrast_grounding(score_signals))
+
+
+def _has_count_list_answer_grounding(
+    features: BenchmarkRerankFeatures,
+    *,
+    score_signals: Mapping[str, object],
+) -> bool:
+    count_list_boost = _float_signal(
+        score_signals,
+        "benchmark_count_answer_shape_boost",
+    ) + _float_signal(score_signals, "benchmark_list_answer_shape_boost")
+    if count_list_boost <= 0:
+        return False
+    if features.broad_summary or features.conflict_or_stale:
+        return False
+    if features.query_has_entities and not (features.entity_hits or features.speaker_hits):
+        return False
+    if (
+        features.source_locality_score < 0.65
+        and not _has_unmeasured_source_ref_locality(features)
+    ):
+        return False
+    return features.exact_count_evidence or features.list_item_count >= 2
 
 
 def _has_unmeasured_source_ref_locality(features: BenchmarkRerankFeatures) -> bool:

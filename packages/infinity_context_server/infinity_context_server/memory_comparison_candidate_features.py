@@ -115,7 +115,8 @@ _TEMPORAL_SEQUENCE_EVIDENCE_RE = re.compile(
 )
 _LIST_ITEM_INTRO_RE = re.compile(
     r"\b(?:are|were|include|includes|including|included|such\s+as|"
-    r"names?\s+(?:are|were)|named|called|listed|list)\b[:\s]*(?P<items>.{0,180})",
+    r"names?\s+(?:are|were)|named|called|listed|list|"
+    r"has|have|had|owns?|owned)\b[:\s]*(?P<items>.{0,180})",
     re.IGNORECASE | re.DOTALL,
 )
 _LIST_ITEM_SPLIT_RE = re.compile(

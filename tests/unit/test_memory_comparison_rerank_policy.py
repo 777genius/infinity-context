@@ -1707,6 +1707,43 @@ def test_rerank_policy_rejects_broad_support_goal_category_without_grounding() -
     assert signals["benchmark_typed_relation_query_role_boost"] == 0.0
 
 
+def test_rerank_policy_does_not_cap_exact_count_by_adjacent_missing_roles() -> None:
+    score = score_benchmark_rerank_candidate(
+        _features(
+            overlap_terms=("mia", "visit", "dog", "park"),
+            entity_hits=("mia",),
+            speaker_hits=("mia",),
+            relation_hits=("visit", "park"),
+            relation_terms=("visit", "park"),
+            query_has_entities=True,
+            exact_count_evidence=True,
+            evidence_need=("count_support", "temporal_support", "activity_support"),
+            query_roles=("count_support",),
+            direct_speaker_turn=True,
+            source_locality_score=1.0,
+            source_ref_count=1,
+            turn_ref_count=1,
+            answerability_score=0.54,
+            answerability_reason_codes=(
+                "entity_satisfied",
+                "relation_partial",
+                "direct_provenance",
+                "intent_partial",
+                "missing_temporal_evidence",
+                "missing_activity_evidence",
+                "low_answerability",
+            ),
+        )
+    )
+
+    signals = score.signals["score_signals"]
+
+    assert signals["benchmark_count_answer_shape_boost"] == 0.09
+    assert signals["benchmark_effective_boost_cap"] == 0.46
+    assert signals["benchmark_provenance_safety_reason_codes"] == []
+    assert score.boost == 0.46
+
+
 def _features(**overrides: object) -> BenchmarkRerankFeatures:
     values = {
         "overlap_terms": (),

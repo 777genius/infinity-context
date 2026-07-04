@@ -784,6 +784,9 @@ def _has_list_intent(question: str) -> bool:
             r"\b(?:what|which)\s+(?:are|were)\s+(?:the\s+)?"
             r"(?:names?|items?|things?|activities|hobbies|books|songs|"
             r"movies|places|people|friends|pets|dogs|cats|children|kids)\b|"
+            r"\bwhich\s+(?:names?|items?|things?|activities|hobbies|books|"
+            r"songs|movies|places|people|friends|pets|dogs|cats|children|kids)\s+"
+            r"(?:do|does|did|has|have|had|is|are|was|were)\b|"
             r"\bwho\s+(?:are|were)\b",
             normalized,
         )

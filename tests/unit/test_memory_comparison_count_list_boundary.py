@@ -26,6 +26,23 @@ def test_list_question_decomposition_adds_list_support_query() -> None:
     assert any({"dogs", "names", "list", "items"} <= set(query.split()) for query in queries)
 
 
+def test_which_plural_question_decomposition_adds_list_support_query() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="which-dogs-support",
+        question="Which dogs does Mia have?",
+        expected_terms=("Max", "Luna"),
+        metadata={"category": 4},
+    )
+
+    queries, diagnostics = decomposed_search_queries(case)
+
+    assert "list_support" in diagnostics["query_profile"]["evidence_need"]
+    assert "list_support" in diagnostics["query_profile"]["bundle_evidence_roles"]
+    assert "list_support" in diagnostics["query_plan"]["selected_roles"]
+    assert any({"dogs", "list", "items"} <= set(query.split()) for query in queries)
+
+
 def test_list_rerank_prefers_multi_item_evidence_over_single_mention() -> None:
     case = PublicBenchmarkCase(
         benchmark="locomo",
@@ -111,6 +128,49 @@ def test_count_rerank_prefers_explicit_count_or_multi_item_evidence() -> None:
     assert score_signals["benchmark_exact_count_evidence"] is True
 
 
+def test_count_rerank_uses_standalone_times_count_without_article_false_positive() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="count-dog-park-rerank",
+        question="How many times did Mia visit the dog park?",
+        expected_terms=("twice",),
+        metadata={"category": 4},
+    )
+    generic_topic = RetrievedMemory(
+        item_id="generic-dog-park",
+        rank=1,
+        score=0.55,
+        text="D2:3 Mia: I visited a dog park after work.",
+        source_refs=("D2:3",),
+        metadata={
+            "item_type": "raw_turn",
+            "diagnostics": {"benchmark_query_roles": ["original_question"]},
+        },
+    )
+    exact_count = RetrievedMemory(
+        item_id="dog-park-count",
+        rank=2,
+        score=0.5,
+        text="D2:4 Mia: I visited the dog park twice.",
+        source_refs=("D2:4",),
+        metadata={
+            "item_type": "raw_turn",
+            "diagnostics": {"benchmark_query_roles": ["count_support"]},
+        },
+    )
+
+    reranked, _diagnostics = benchmark_rerank_memories(case, (generic_topic, exact_count))
+    by_id = {memory.item_id: memory for memory in reranked}
+
+    assert reranked[0].item_id == "dog-park-count"
+    assert by_id["generic-dog-park"].metadata["diagnostics"][
+        "benchmark_candidate_features"
+    ]["exact_count_evidence"] is False
+    exact_signals = by_id["dog-park-count"].metadata["diagnostics"]["score_signals"]
+    assert exact_signals["benchmark_exact_count_evidence"] is True
+    assert exact_signals["benchmark_count_answer_shape_boost"] > 0
+
+
 def test_list_evidence_satisfies_required_bundle_role() -> None:
     case = PublicBenchmarkCase(
         benchmark="locomo",
@@ -152,6 +212,48 @@ def test_list_evidence_satisfies_required_bundle_role() -> None:
     assert bundle["satisfied_required_roles"] == ["primary", "list_support"]
     assert bundle["bundle_planner"]["role_counts"] == {"primary": 1}
     assert bundle["items"][0]["list_item_count"] == 3
+
+
+def test_which_list_evidence_with_possession_satisfies_required_bundle_role() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="which-dogs-bundle",
+        question="Which dogs does Mia have?",
+        expected_terms=("Max", "Luna"),
+        metadata={"category": 4},
+    )
+
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                item_id="dog-possession-list",
+                rank=1,
+                score=0.6,
+                text="D2:4 Mia: I have Max and Luna.",
+                source_refs=("D2:4",),
+                metadata={
+                    "item_type": "raw_turn",
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.9,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "entity_hits": ["mia"],
+                            "speaker_hits": ["mia"],
+                            "query_has_entities": True,
+                            "source_type": "raw_turn",
+                            "list_item_count": 2,
+                        }
+                    },
+                },
+            ),
+        ),
+    )
+
+    assert bundle["required_roles"] == ["primary", "list_support"]
+    assert bundle["satisfied_required_roles"] == ["primary", "list_support"]
+    assert bundle["items"][0]["list_item_count"] == 2
 
 
 def test_count_list_query_roles_without_cardinality_do_not_complete_roles() -> None:
