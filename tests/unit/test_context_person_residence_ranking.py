@@ -21,12 +21,48 @@ def test_person_residence_signal_matches_named_person_residence() -> None:
     assert signal.reason == "person_residence_match"
 
 
+def test_person_residence_signal_matches_reported_named_person_residence() -> None:
+    signal = person_residence_signal(
+        query="Where does Alice Chen live?",
+        text="D2:6 Ben: Alice Chen lives in Portland now.",
+    )
+
+    assert signal.boost > 0
+    assert signal.penalty == 0
+    assert signal.reason == "person_residence_match"
+
+
 def test_person_residence_signal_penalizes_other_person_residence() -> None:
     signal = person_residence_signal(
         query="Where does Alice live?",
         text="D2:6 Ben: I live in Seattle now.",
     )
 
+    assert signal.penalty > 0
+    assert signal.reason == "person_residence_other_person"
+
+
+def test_person_residence_signal_penalizes_split_wrong_person_residence() -> None:
+    signal = person_residence_signal(
+        query="Where does Alice live?",
+        text=(
+            "D2:6 Alice: Seattle came up during planning. "
+            "D2:7 Ben: I live in Seattle now."
+        ),
+    )
+
+    assert signal.boost == 0
+    assert signal.penalty > 0
+    assert signal.reason == "person_residence_other_person"
+
+
+def test_person_residence_signal_penalizes_same_turn_other_person_residence() -> None:
+    signal = person_residence_signal(
+        query="Where does Alice live?",
+        text="D2:6 Alice: Ben lives in Seattle now.",
+    )
+
+    assert signal.boost == 0
     assert signal.penalty > 0
     assert signal.reason == "person_residence_other_person"
 
@@ -131,6 +167,43 @@ def test_deterministic_rerank_prefers_named_person_residence() -> None:
     assert (
         "person_residence_other_person"
         in reranked[1].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+
+
+def test_deterministic_rerank_penalizes_split_wrong_person_location_evidence() -> None:
+    query = "Where does Alice Chen live?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    alice_residence = _item(
+        "alice_residence",
+        score=0.7,
+        text="D2:6 Alice: I live in Portland now.",
+    )
+    split_wrong_person = _item(
+        "split_wrong_person",
+        score=0.73,
+        text=(
+            "D2:7 Alice: Seattle came up during planning. "
+            "D2:8 Ben: I live in Seattle now."
+        ),
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (split_wrong_person, alice_residence),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    ranked = sorted(reranked, key=context_rank_key)
+
+    assert ranked[0].item_id == "alice_residence"
+    assert (
+        "person_residence_match"
+        in ranked[0].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+    assert (
+        "person_residence_other_person"
+        in ranked[1].diagnostics["provenance"]["deterministic_rerank_reasons"]
     )
 
 

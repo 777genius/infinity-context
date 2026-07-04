@@ -25,6 +25,7 @@ _TEMPORAL_ANSWER_EVIDENCE_RE = re.compile(
     r"следующ\w+\s+(?:недел\w+|месяц\w+|год\w+))\b|"
     r"\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}[./]\d{1,2}[./]\d{2,4}\b|"
     r"\b\d{1,2}:\d{2}(?::\d{2})?\s*(?:am|pm)?\b|"
+    r"\b\d{1,2}\s*(?:am|pm)\b|"
     r"\b\d{1,2}\s+(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|"
     r"jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|"
     r"nov(?:ember)?|dec(?:ember)?)(?:,?\s+\d{2,4})?\b|"
@@ -89,18 +90,18 @@ def temporal_answer_grounding(query: str, item: ContextItem) -> TemporalAnswerGr
         grounded = grounded or _text_has_query_grounding(query=query, text=item.text)
     for ref in item.source_refs:
         ref_text = ref.quote_preview or ""
-        ref_has_temporal = (
-            ref.time_start_ms is not None
-            or ref.time_end_ms is not None
-            or _TEMPORAL_ANSWER_EVIDENCE_RE.search(ref_text) is not None
-        )
-        if not ref_has_temporal:
+        ref_text_grounding = temporal_text_answer_grounding(query=query, text=ref_text)
+        ref_has_media_time = ref.time_start_ms is not None or ref.time_end_ms is not None
+        if not ref_has_media_time and ref_text_grounding.missing:
             continue
         has_temporal_evidence = True
-        grounded = grounded or _text_has_query_grounding(
-            query=query,
-            text="\n".join(part for part in (ref_text, item.text) if part),
-        )
+        if ref_text_grounding.has_temporal_evidence:
+            grounded = grounded or ref_text_grounding.grounded
+        if ref_has_media_time:
+            grounded = grounded or _text_has_query_grounding(
+                query=query,
+                text="\n".join(part for part in (ref_text, item.text) if part),
+            )
     return TemporalAnswerGrounding(
         has_temporal_evidence=has_temporal_evidence,
         grounded=grounded,

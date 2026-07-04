@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 from typing import NamedTuple
@@ -32,12 +33,19 @@ class _PersonResidenceQuery:
     kind: PersonResidenceQueryKind
 
 
+@dataclass(frozen=True)
+class _LocalResidenceSegment:
+    body: str
+    speaker: str = ""
+
+
 _LABEL_RE = (
     r"[A-ZА-ЯЁ][A-Za-zА-Яа-яЁё._-]{1,39}"
     r"(?:\s+[A-ZА-ЯЁ][A-Za-zА-Яа-яЁё._-]{1,39}){0,2}"
 )
 _DIALOGUE_SPEAKER_RE = re.compile(rf"\bD\d+:\d+\s+(?P<speaker>{_LABEL_RE}):")
 _LABEL_TOKEN_RE = re.compile(rf"\b{_LABEL_RE}\b")
+_LOCAL_SEGMENT_SPLIT_RE = re.compile(r"(?<=[.!?;])\s+|[\n\r]+")
 _WHERE_LIVE_QUERY_RE = re.compile(
     rf"(?i:\bwhere\s+(?:does|do|did)\s+)(?P<person>{_LABEL_RE})"
     rf"(?i:\s+(?:live|lives|reside|resides|stay|stays)\b)|"
@@ -101,6 +109,18 @@ _ORIGIN_EVIDENCE_RE = re.compile(
     r"came\s+from|am\s+from|is\s+from|was\s+from)\b",
     re.IGNORECASE,
 )
+_FIRST_PERSON_RESIDENCE_EVIDENCE_RE = re.compile(
+    r"\b(?:i|we)\s+(?:"
+    r"live|lived|reside|resided|stay|stayed|"
+    r"moved|moving|relocated|relocating|settled|"
+    r"came\s+from|grew\s+up|was\s+born|am\s+from|"
+    r"am\s+originally\s+from|was\s+originally\s+from"
+    r")\b|"
+    r"\bi(?:'m| am)\s+(?:living|based|located|originally\s+from)\b|"
+    r"\bmy\s+(?:home|residence|hometown|birthplace|current\s+city|"
+    r"city|town|home\s+country)\b",
+    re.IGNORECASE,
+)
 _QUERY_LABEL_STOP_WORDS = frozenset({"what", "where"})
 
 
@@ -111,18 +131,19 @@ def person_residence_signal(*, query: str, text: str) -> PersonResidenceSignal:
     if residence_query is None:
         return PersonResidenceSignal()
     cue = _residence_cue(residence_query.kind)
-    if (
-        _text_mentions_person(residence_query.person_label, text)
-        and cue.search(text) is not None
+    if _has_person_grounded_residence_cue(
+        residence_query.person_label,
+        text,
+        cue=cue,
     ):
         return PersonResidenceSignal(boost=0.022, reason="person_residence_match")
-    if (
-        cue.search(text) is not None
-        and not _text_mentions_person(residence_query.person_label, text)
-        and _text_mentions_other_person(residence_query.person_label, text)
+    if _has_other_person_grounded_residence_cue(
+        residence_query.person_label,
+        text,
+        cue=cue,
     ):
         return PersonResidenceSignal(
-            penalty=0.022,
+            penalty=0.034,
             reason="person_residence_other_person",
         )
     return PersonResidenceSignal()
@@ -181,30 +202,196 @@ def _matched_person(match: re.Match[str]) -> str:
     return ""
 
 
-def _text_mentions_person(person: str, text: str) -> bool:
+def _has_person_grounded_residence_cue(
+    person: str,
+    text: str,
+    *,
+    cue: re.Pattern[str],
+) -> bool:
     return any(
-        person_labels_match(match.group("speaker"), person)
-        for match in _DIALOGUE_SPEAKER_RE.finditer(text)
-    ) or any(
-        person_labels_match(match.group(0), person)
-        for match in _LABEL_TOKEN_RE.finditer(text)
+        _segment_has_person_grounded_cue(person, segment, cue=cue)
+        for segment in _local_residence_segments(text)
     )
 
 
-def _text_mentions_other_person(person: str, text: str) -> bool:
-    for match in _DIALOGUE_SPEAKER_RE.finditer(text):
-        if person_labels_match(match.group("speaker"), person):
-            continue
+def _has_other_person_grounded_residence_cue(
+    person: str,
+    text: str,
+    *,
+    cue: re.Pattern[str],
+) -> bool:
+    return any(
+        _segment_has_other_person_grounded_cue(person, segment, cue=cue)
+        for segment in _local_residence_segments(text)
+    )
+
+
+def _segment_has_person_grounded_cue(
+    person: str,
+    segment: _LocalResidenceSegment,
+    *,
+    cue: re.Pattern[str],
+) -> bool:
+    if cue.search(segment.body) is None:
+        return False
+    if _body_has_person_grounded_cue(person, segment.body, cue=cue):
         return True
-    for match in _LABEL_TOKEN_RE.finditer(text):
-        label = match.group(0)
-        if person_labels_match(label, person):
-            continue
-        label_key = "".join(char for char in label.casefold() if char.isalnum())
-        if label_key.startswith("d") and label_key[1:].isdigit():
-            continue
+    if not segment.speaker or not person_labels_match(segment.speaker, person):
+        return False
+    if _FIRST_PERSON_RESIDENCE_EVIDENCE_RE.search(segment.body):
         return True
+    return not _body_mentions_other_person(person, segment.body)
+
+
+def _segment_has_other_person_grounded_cue(
+    person: str,
+    segment: _LocalResidenceSegment,
+    *,
+    cue: re.Pattern[str],
+) -> bool:
+    if cue.search(segment.body) is None:
+        return False
+    if _body_has_other_person_grounded_cue(person, segment.body, cue=cue):
+        return True
+    if not segment.speaker or person_labels_match(segment.speaker, person):
+        return False
+    if _body_has_person_grounded_cue(person, segment.body, cue=cue):
+        return False
+    return (
+        _FIRST_PERSON_RESIDENCE_EVIDENCE_RE.search(segment.body) is not None
+        or not _body_mentions_person(person, segment.body)
+    )
+
+
+def _body_has_person_grounded_cue(
+    person: str,
+    body: str,
+    *,
+    cue: re.Pattern[str],
+) -> bool:
+    return _body_has_label_grounded_cue(
+        body,
+        cue=cue,
+        matches_label=lambda label: person_labels_match(label, person),
+    )
+
+
+def _body_has_other_person_grounded_cue(
+    person: str,
+    body: str,
+    *,
+    cue: re.Pattern[str],
+) -> bool:
+    return _body_has_label_grounded_cue(
+        body,
+        cue=cue,
+        matches_label=lambda label: not person_labels_match(label, person),
+    )
+
+
+def _body_has_label_grounded_cue(
+    body: str,
+    *,
+    cue: re.Pattern[str],
+    matches_label: Callable[[str], bool],
+) -> bool:
+    label_matches = tuple(_LABEL_TOKEN_RE.finditer(body))
+    cue_matches = tuple(cue.finditer(body))
+    for label_match in label_matches:
+        label = label_match.group(0)
+        if _label_is_dialogue_marker(label) or not matches_label(label):
+            continue
+        for cue_match in cue_matches:
+            if cue_match.start() < label_match.end():
+                continue
+            if cue_match.start() - label_match.end() > 100:
+                continue
+            if _has_intervening_other_label(
+                label_matches,
+                start=label_match.end(),
+                end=cue_match.start(),
+                label=label,
+            ):
+                continue
+            return True
     return False
+
+
+def _has_intervening_other_label(
+    matches: tuple[re.Match[str], ...],
+    *,
+    start: int,
+    end: int,
+    label: str,
+) -> bool:
+    for match in matches:
+        if match.start() < start or match.start() >= end:
+            continue
+        candidate = match.group(0)
+        if _label_is_dialogue_marker(candidate):
+            continue
+        if not person_labels_match(candidate, label):
+            return True
+    return False
+
+
+def _local_residence_segments(text: str) -> tuple[_LocalResidenceSegment, ...]:
+    dialogue_matches = tuple(_DIALOGUE_SPEAKER_RE.finditer(text))
+    if not dialogue_matches:
+        return tuple(
+            _LocalResidenceSegment(body=segment)
+            for segment in _split_local_bodies(text)
+        )
+    segments: list[_LocalResidenceSegment] = []
+    if dialogue_matches[0].start() > 0:
+        segments.extend(
+            _LocalResidenceSegment(body=segment)
+            for segment in _split_local_bodies(text[: dialogue_matches[0].start()])
+        )
+    for index, match in enumerate(dialogue_matches):
+        end = (
+            dialogue_matches[index + 1].start()
+            if index + 1 < len(dialogue_matches)
+            else len(text)
+        )
+        speaker = match.group("speaker")
+        body = text[match.end() : end]
+        segments.extend(
+            _LocalResidenceSegment(body=segment, speaker=speaker)
+            for segment in _split_local_bodies(body)
+        )
+    return tuple(segments)
+
+
+def _split_local_bodies(text: str) -> tuple[str, ...]:
+    return tuple(
+        segment.strip(" \t:")
+        for segment in _LOCAL_SEGMENT_SPLIT_RE.split(text)
+        if segment.strip(" \t:")
+    )
+
+
+def _body_mentions_person(person: str, body: str) -> bool:
+    return any(
+        person_labels_match(match.group(0), person)
+        for match in _LABEL_TOKEN_RE.finditer(body)
+        if not _label_is_dialogue_marker(match.group(0))
+    )
+
+
+def _body_mentions_other_person(person: str, body: str) -> bool:
+    for match in _LABEL_TOKEN_RE.finditer(body):
+        label = match.group(0)
+        if _label_is_dialogue_marker(label):
+            continue
+        if not person_labels_match(label, person):
+            return True
+    return False
+
+
+def _label_is_dialogue_marker(label: str) -> bool:
+    label_key = "".join(char for char in label.casefold() if char.isalnum())
+    return label_key.startswith("d") and label_key[1:].isdigit()
 
 
 def _valid_label(label: str) -> bool:
