@@ -471,6 +471,29 @@ _MULTI_HOP_BRIDGE_MARKER_TERMS = {
     "compare": ("compare", "difference", "alternative", "more", "less"),
     "between": ("between", "difference", "alternative", "more", "less"),
 }
+_COMMONALITY_QUERY_RE = re.compile(
+    r"\b(?:both|common|connects?|mutual|overlap|same|shared|similar)\b|"
+    r"\bin\s+common\b",
+    re.IGNORECASE,
+)
+_COMMONALITY_SUPPORT_SURFACES = (
+    "common",
+    "shared",
+    "both",
+    "mutual",
+    "same",
+    "similar",
+    "overlap",
+    "connect",
+    "place",
+    "location",
+    "event",
+    "activity",
+    "preference",
+    "interest",
+    "hobby",
+    "topic",
+)
 
 
 def expanded_search_query(case: PublicBenchmarkCase) -> tuple[str, dict[str, object]]:
@@ -848,6 +871,33 @@ def decomposed_search_queries(
                 ),
             )
         )
+    commonality_query_terms = _commonality_support_query_terms(
+        question=original_query,
+        entities=entities,
+        entity_surfaces=entity_surfaces,
+        relation_terms=relation_terms,
+        relation_variant_terms=relation_variant_terms,
+        lexical_terms=lexical_terms,
+    )
+    if commonality_query_terms and len(entity_surfaces) >= 2:
+        query_candidates.append(
+            QueryPlanCandidate(
+                role="commonality_support",
+                query=" ".join(
+                    (
+                        *entity_surfaces,
+                        *_render_query_terms(commonality_query_terms[:12]),
+                    )
+                ),
+                priority=36,
+                query_type="lexical",
+                reason_codes=(
+                    "commonality_support",
+                    "shared_attribute_evidence",
+                    "question_only",
+                ),
+            )
+        )
     temporal_query_terms = (
         _temporal_search_terms(temporal_terms, temporal_surface_terms)
         if is_temporal_query
@@ -994,6 +1044,8 @@ def decomposed_search_queries(
     if any(candidate.role == "value_support" for candidate in query_candidates):
         extra_query_slots += 1
     if any(candidate.role == "contrast_support" for candidate in query_candidates):
+        extra_query_slots += 1
+    if any(candidate.role == "commonality_support" for candidate in query_candidates):
         extra_query_slots += 1
     has_temporal_support_query = any(
         candidate.role == "temporal_support"
@@ -1268,6 +1320,42 @@ def _value_support_query_terms(
     return tuple(dict.fromkeys(value_terms))
 
 
+def _commonality_support_query_terms(
+    *,
+    question: str,
+    entities: tuple[str, ...],
+    entity_surfaces: tuple[str, ...],
+    relation_terms: tuple[str, ...],
+    relation_variant_terms: tuple[str, ...],
+    lexical_terms: tuple[str, ...],
+) -> tuple[str, ...]:
+    if not _has_commonality_support_intent(question=question, entities=entities):
+        return ()
+    entity_tokens = {
+        token for surface in entity_surfaces for token in _normalized_terms(surface)
+    }
+    commonality_terms: list[str] = list(_COMMONALITY_SUPPORT_SURFACES)
+    commonality_terms.extend(
+        _relation_query_terms(relation_terms, relation_variant_terms)[:6]
+    )
+    commonality_terms.extend(
+        term
+        for term in lexical_terms
+        if term not in _QUERY_STOPWORDS
+        and term not in entity_tokens
+        and term not in commonality_terms
+    )
+    return tuple(dict.fromkeys(commonality_terms))
+
+
+def _has_commonality_support_intent(
+    *,
+    question: str,
+    entities: tuple[str, ...],
+) -> bool:
+    return len(entities) >= 2 and _COMMONALITY_QUERY_RE.search(question) is not None
+
+
 def _causal_compact_query_terms(
     *,
     lexical_terms: tuple[str, ...],
@@ -1353,6 +1441,11 @@ def _causal_compact_query_terms(
 
 def _recommended_query_role_families(intent: RetrievalIntent) -> tuple[str, ...]:
     families: list[str] = ["base_query"]
+    if _has_commonality_support_intent(
+        question=intent.question,
+        entities=intent.entity_names,
+    ):
+        families.append("commonality_support")
     if intent.relation_terms or intent.relation_variant_terms:
         families.append("relation_compact")
     if intent.visual_terms:

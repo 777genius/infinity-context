@@ -349,6 +349,7 @@ def _ordered_recommended_role_families(
 def _role_family_selection_priority(family: str) -> int:
     return {
         "base_query": 0,
+        "commonality_support": 1,
         "contrast_support": 1,
         "visual_support": 1,
         "count_support": 2,
@@ -436,6 +437,8 @@ def _best_candidate_for_role_family(
 def _role_families(role: str) -> tuple[str, ...]:
     if role in {"original_question", "fallback_original"}:
         return ("base_query",)
+    if role == "commonality_support":
+        return ("commonality_support",)
     if role == "expanded_focus":
         return ("expanded_focus",)
     if role == "compact_relation":

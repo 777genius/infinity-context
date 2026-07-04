@@ -414,6 +414,46 @@ def test_query_planner_maps_relation_support_roles_to_compact_family() -> None:
     assert diagnostics["missing_recommended_role_families"] == []
 
 
+def test_query_planner_preserves_commonality_support_family() -> None:
+    plan = QueryPlannerV2(max_queries=3).plan(
+        (
+            _candidate(
+                "original_question",
+                "What do Alex and Riley have in common?",
+                priority=0,
+                query_type="semantic",
+            ),
+            _candidate(
+                "expanded_focus",
+                "What do Alex and Riley have in common?\nSearch focus: entities",
+                priority=10,
+                query_type="semantic",
+            ),
+            _candidate(
+                "commonality_support",
+                "alex riley common shared both mutual place activity event",
+                priority=36,
+            ),
+        ),
+        fallback_query="What do Alex and Riley have in common?",
+        recommended_role_families=("base_query", "commonality_support"),
+    )
+
+    diagnostics = plan.to_diagnostics()
+
+    assert diagnostics["selected_roles"] == [
+        "original_question",
+        "expanded_focus",
+        "commonality_support",
+    ]
+    assert diagnostics["selected_role_families"] == [
+        "base_query",
+        "expanded_focus",
+        "commonality_support",
+    ]
+    assert diagnostics["missing_recommended_role_families"] == []
+
+
 def _candidate(
     role: str,
     query: str,
