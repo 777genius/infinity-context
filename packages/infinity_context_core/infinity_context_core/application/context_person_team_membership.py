@@ -30,6 +30,7 @@ class PersonTeamMembershipSignal(NamedTuple):
 class _PersonTeamQuery:
     person_label: str
     kind: TeamMembershipKind
+    requires_current: bool = False
 
 
 _LABEL_RE = (
@@ -38,6 +39,7 @@ _LABEL_RE = (
 )
 _DIALOGUE_SPEAKER_RE = re.compile(rf"\bD\d+:\d+\s+(?P<speaker>{_LABEL_RE}):")
 _LABEL_TOKEN_RE = re.compile(rf"\b{_LABEL_RE}\b")
+_SENTENCE_RE = re.compile(r"[^.?!;\n]+")
 _TEAM_QUERY_RE = re.compile(
     rf"(?i:\bwhat\s+)(?P<kind>team|club|group|class)\s+"
     rf"(?i:(?:is|was)\s+)(?P<person>{_LABEL_RE})\s+"
@@ -69,6 +71,17 @@ _CLASS_CUE_RE = re.compile(
     re.IGNORECASE,
 )
 _QUERY_LABEL_STOP_WORDS = frozenset({"what", "which"})
+_STALE_MEMBERSHIP_CUE_RE = re.compile(
+    r"\b(?:former|formerly|previously|used\s+to\s+be|used\s+to\s+belong\s+to|"
+    r"used\s+to\s+be\s+(?:on|in|part\s+of)|no\s+longer|not\s+anymore|"
+    r"left|quit|dropped\s+out\s+of|withdrew\s+from|graduated\s+from)\b",
+    re.IGNORECASE,
+)
+_PAST_MEMBERSHIP_QUERY_RE = re.compile(
+    r"\b(?:was|were|did|former|formerly|previously|used\s+to|no\s+longer|"
+    r"left|quit|dropped\s+out|withdrew|graduated)\b",
+    re.IGNORECASE,
+)
 
 
 def person_team_membership_signal(
@@ -82,10 +95,15 @@ def person_team_membership_signal(
     if team_query is None:
         return PersonTeamMembershipSignal()
     cue = _membership_cue(team_query.kind)
-    if _text_mentions_person(team_query.person_label, text) and cue.search(text) is not None:
+    if _text_has_membership_match(team_query, text, cue=cue):
         return PersonTeamMembershipSignal(
             boost=0.022,
             reason="person_team_membership_match",
+        )
+    if _text_has_stale_membership(team_query, text, cue=cue):
+        return PersonTeamMembershipSignal(
+            penalty=0.032,
+            reason="person_team_membership_stale_membership",
         )
     if (
         cue.search(text) is not None
@@ -125,7 +143,12 @@ def _person_team_query(query: str) -> _PersonTeamQuery | None:
     return _PersonTeamQuery(
         person_label=person,
         kind=_team_kind(raw_kind),
+        requires_current=_requires_current_membership_answer(query),
     )
+
+
+def _requires_current_membership_answer(query: str) -> bool:
+    return _PAST_MEMBERSHIP_QUERY_RE.search(query) is None
 
 
 def _team_kind(value: str) -> TeamMembershipKind:
@@ -145,6 +168,43 @@ def _membership_cue(kind: TeamMembershipKind) -> re.Pattern[str]:
     if kind in {TeamMembershipKind.CLUB, TeamMembershipKind.GROUP}:
         return _CLUB_CUE_RE
     return _TEAM_CUE_RE
+
+
+def _text_has_membership_match(
+    team_query: _PersonTeamQuery,
+    text: str,
+    *,
+    cue: re.Pattern[str],
+) -> bool:
+    for sentence_match in _SENTENCE_RE.finditer(text):
+        sentence = sentence_match.group(0)
+        if not _text_mentions_person(team_query.person_label, sentence):
+            continue
+        if cue.search(sentence) is None:
+            continue
+        if team_query.requires_current and _STALE_MEMBERSHIP_CUE_RE.search(sentence):
+            continue
+        return True
+    return False
+
+
+def _text_has_stale_membership(
+    team_query: _PersonTeamQuery,
+    text: str,
+    *,
+    cue: re.Pattern[str],
+) -> bool:
+    if not team_query.requires_current:
+        return False
+    for sentence_match in _SENTENCE_RE.finditer(text):
+        sentence = sentence_match.group(0)
+        if not _text_mentions_person(team_query.person_label, sentence):
+            continue
+        if cue.search(sentence) is None:
+            continue
+        if _STALE_MEMBERSHIP_CUE_RE.search(sentence) is not None:
+            return True
+    return False
 
 
 def _text_mentions_person(person: str, text: str) -> bool:
