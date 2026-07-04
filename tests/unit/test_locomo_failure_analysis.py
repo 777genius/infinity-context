@@ -481,6 +481,123 @@ def test_locomo_failure_analysis_tags_selected_evidence_weakness() -> None:
     ]
 
 
+def test_locomo_failure_analysis_summarizes_temporal_grounding_issue_causes() -> None:
+    report = {
+        "failures": [
+            {
+                "case_id": "temporal-gap",
+                "capability": "locomo_category_5",
+                "reason": "expected_terms_missing",
+                "diagnostic_reason_codes": [
+                    "selected_temporal_grounding_issues"
+                ],
+                "diagnostics": {
+                    "temporal_grounding": {
+                        "schema_version": "failure_temporal_grounding.v1",
+                        "temporal_case": True,
+                        "selected_item_count": 7,
+                        "strong_item_count": 0,
+                        "issue_item_count": 7,
+                        "issue_reason_counts": {
+                            "missing_source_window": 7,
+                            "missing_date_or_range": 7,
+                        },
+                        "issue_samples": [
+                            {
+                                "case_id": "temporal-gap",
+                                "group": "temporal",
+                                "item_id": f"temporal-gap-{index}",
+                                "role": "temporal_support",
+                                "query_roles": ["temporal_support"],
+                                "source_refs": [],
+                                "issue_reasons": [
+                                    "missing_source_window",
+                                    "missing_date_or_range",
+                                ],
+                                "grounding_signals": {
+                                    "source_window": False,
+                                    "session_boundary": False,
+                                    "date_or_range": False,
+                                    "temporal_order": False,
+                                },
+                                "text": "must not be copied",
+                            }
+                            for index in range(4)
+                        ],
+                    }
+                },
+            }
+        ]
+    }
+
+    summary = _summary(_failures(report), top=10)
+
+    assert summary["temporal_grounding_issue_reason_count"] == {
+        "missing_source_window": 7,
+        "missing_date_or_range": 7,
+    }
+    assert summary["root_cause_tag_count"]["temporal_grounding:issue"] == 1
+    assert (
+        summary["root_cause_tag_count"]["temporal_grounding:missing_source_window"]
+        == 1
+    )
+    assert summary["temporal_grounding_issue_examples"]["missing_source_window"] == [
+        {
+            "case_id": "temporal-gap",
+            "capability": "locomo_category_5",
+            "reason": "expected_terms_missing",
+            "issue_reason": "missing_source_window",
+            "issue_reason_count": 7,
+            "issue_samples": [
+                {
+                    "case_id": "temporal-gap",
+                    "group": "temporal",
+                    "item_id": "temporal-gap-0",
+                    "role": "temporal_support",
+                    "query_roles": ["temporal_support"],
+                    "source_refs": [],
+                    "issue_reasons": [
+                        "missing_source_window",
+                        "missing_date_or_range",
+                    ],
+                    "grounding_signals": {
+                        "source_window": False,
+                        "session_boundary": False,
+                        "date_or_range": False,
+                        "temporal_order": False,
+                    },
+                },
+                {
+                    "case_id": "temporal-gap",
+                    "group": "temporal",
+                    "item_id": "temporal-gap-1",
+                    "role": "temporal_support",
+                    "query_roles": ["temporal_support"],
+                    "source_refs": [],
+                    "issue_reasons": [
+                        "missing_source_window",
+                        "missing_date_or_range",
+                    ],
+                    "grounding_signals": {
+                        "source_window": False,
+                        "session_boundary": False,
+                        "date_or_range": False,
+                        "temporal_order": False,
+                    },
+                },
+            ],
+        }
+    ]
+    assert "text" not in summary["temporal_grounding_issue_examples"][
+        "missing_source_window"
+    ][0]["issue_samples"][0]
+    assert len(
+        summary["root_cause_examples"]["temporal_grounding:issue"][0][
+            "temporal_grounding"
+        ]["issue_samples"]
+    ) == 2
+
+
 def test_locomo_failure_analysis_limit_makes_small_canary_args(tmp_path) -> None:
     report = {
         "failures": [

@@ -12,11 +12,15 @@ from infinity_context_server.memory_comparison_quality_accessors import (
 from infinity_context_server.memory_comparison_quality_accessors import (
     source_refs_from_memory as _source_refs_from_memory,
 )
+from infinity_context_server.memory_comparison_temporal_grounding import (
+    temporal_grounding_table as _temporal_grounding_table,
+)
 
 _TURN_REF_RE = re.compile(
     r"\b(?:(?P<session>session_\d+):)?D(?P<source>\d+):(?P<turn>\d+)\b",
     re.IGNORECASE,
 )
+_MAX_TEMPORAL_GROUNDING_ISSUE_SAMPLES = 5
 
 
 def failure_diagnostics(evaluation: Mapping[str, object]) -> dict[str, object]:
@@ -129,6 +133,7 @@ def failure_diagnostics(evaluation: Mapping[str, object]) -> dict[str, object]:
             "reason_codes": _str_tuple(bundle_quality.get("reason_codes")),
         },
         "answer_context": _answer_context_failure_summary(answer_context),
+        "temporal_grounding": _temporal_grounding_failure_summary(evaluation),
     }
 
 
@@ -189,6 +194,11 @@ def failure_diagnostic_reason_codes(
         _positive_int(bundle.get("selected_bundle_source_refless_item_count")) or 0
     ) > 0:
         reason_codes.append("selected_bundle_source_refless_evidence")
+    temporal_grounding = _mapping(diagnostics.get("temporal_grounding"))
+    if (
+        _positive_int(temporal_grounding.get("issue_item_count")) or 0
+    ) > 0:
+        reason_codes.append("selected_temporal_grounding_issues")
     if any(
         str(reason).startswith("risk:")
         for reason in _str_tuple(bundle.get("reason_codes"))
@@ -217,6 +227,31 @@ def failure_diagnostic_reason_codes(
         if _str_tuple(answer_context.get("risk_reason_codes")):
             reason_codes.append("answer_context_risk_reasons_present")
     return list(dict.fromkeys(reason_codes or ["retrieval_or_judgment_failed"]))
+
+
+def _temporal_grounding_failure_summary(
+    evaluation: Mapping[str, object],
+) -> dict[str, object]:
+    table = _temporal_grounding_table((evaluation,))
+    return {
+        "schema_version": "failure_temporal_grounding.v1",
+        "temporal_case": _positive_int(table.get("temporal_case_count")) is not None,
+        "selected_item_count": _positive_int(table.get("selected_item_count")) or 0,
+        "strong_item_count": (
+            _positive_int(table.get("selected_strong_temporal_grounding_item_count"))
+            or 0
+        ),
+        "issue_item_count": (
+            _positive_int(table.get("selected_temporal_grounding_issue_item_count"))
+            or 0
+        ),
+        "issue_reason_counts": _mapping(
+            table.get("selected_temporal_grounding_issue_reason_counts")
+        ),
+        "issue_samples": list(
+            _sequence(table.get("selected_temporal_grounding_issue_samples"))
+        )[:_MAX_TEMPORAL_GROUNDING_ISSUE_SAMPLES],
+    }
 
 
 def _primary_answer_context(

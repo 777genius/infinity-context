@@ -269,6 +269,82 @@ def test_failure_diagnostics_reports_selected_bundle_source_ref_gaps() -> None:
     assert "selected_bundle_source_refless_evidence" in reasons
 
 
+def test_failure_diagnostics_reports_bounded_temporal_grounding_issue_summary() -> None:
+    evaluation = {
+        "case_id": "locomo:conv-1:qa:temporal",
+        "group": "temporal",
+        "retrieval": {
+            "metadata": {
+                "query_decomposition": {
+                    "query_profile": {"evidence_need": ["temporal_support"]}
+                }
+            },
+            "results": [],
+        },
+        "retrieval_quality": {
+            "expected_term_recall": 0.5,
+            "evidence_term_recall": 0.5,
+        },
+        "evidence_bundle": {
+            "bundle_complete": False,
+            "items": [
+                {
+                    "id": f"temporal-gap-{index}",
+                    "role": "temporal_support",
+                    "query_roles": ["temporal_support"],
+                }
+                for index in range(7)
+            ],
+        },
+        "generation": {},
+        "judgment": {},
+    }
+
+    diagnostics = failure_diagnostics(evaluation)
+    reasons = failure_diagnostic_reason_codes(
+        evaluation,
+        score=0.0,
+        retrieval_recall=0.5,
+        diagnostics=diagnostics,
+    )
+
+    temporal = diagnostics["temporal_grounding"]
+    assert temporal["schema_version"] == "failure_temporal_grounding.v1"
+    assert temporal["temporal_case"] is True
+    assert temporal["selected_item_count"] == 7
+    assert temporal["strong_item_count"] == 0
+    assert temporal["issue_item_count"] == 7
+    assert temporal["issue_reason_counts"] == {
+        "missing_date_or_range": 7,
+        "missing_session_boundary": 7,
+        "missing_source_window": 7,
+        "missing_temporal_grounding": 7,
+    }
+    assert len(temporal["issue_samples"]) == 5
+    assert temporal["issue_samples"][0] == {
+        "case_id": "locomo:conv-1:qa:temporal",
+        "group": "temporal",
+        "item_id": "temporal-gap-0",
+        "role": "temporal_support",
+        "query_roles": ["temporal_support"],
+        "source_refs": [],
+        "issue_reasons": [
+            "missing_source_window",
+            "missing_session_boundary",
+            "missing_date_or_range",
+            "missing_temporal_grounding",
+        ],
+        "grounding_signals": {
+            "source_window": False,
+            "session_boundary": False,
+            "date_or_range": False,
+            "temporal_order": False,
+        },
+    }
+    assert "text" not in temporal["issue_samples"][0]
+    assert "selected_temporal_grounding_issues" in reasons
+
+
 def test_failure_diagnostics_counts_source_identity_refs_as_provenance() -> None:
     evaluation = {
         "retrieval": {

@@ -36,6 +36,18 @@ _LIST_QUESTION_MARKERS = (
     " things",
     " ways",
 )
+_MAX_TEMPORAL_GROUNDING_EXAMPLES = 5
+_MAX_TEMPORAL_GROUNDING_SAMPLE_EXAMPLES = 2
+_TEMPORAL_GROUNDING_SAMPLE_KEYS = (
+    "case_id",
+    "group",
+    "item_id",
+    "role",
+    "query_roles",
+    "source_refs",
+    "issue_reasons",
+    "grounding_signals",
+)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -136,6 +148,10 @@ def _summary(failures: Sequence[Mapping[str, object]], *, top: int) -> dict[str,
     root_cause_tags: Counter[str] = Counter()
     root_cause_examples: dict[str, list[dict[str, object]]] = defaultdict(list)
     provenance_gap_causes: Counter[str] = Counter()
+    temporal_grounding_issue_reasons: Counter[str] = Counter()
+    temporal_grounding_issue_examples: dict[str, list[dict[str, object]]] = (
+        defaultdict(list)
+    )
     for failure in failures:
         capability = str(failure.get("capability") or failure.get("category") or "unknown")
         reason = str(failure.get("reason") or "unknown")
@@ -154,6 +170,12 @@ def _summary(failures: Sequence[Mapping[str, object]], *, top: int) -> dict[str,
             root_cause_examples[primary_root_cause].append(
                 _root_cause_example(failure, root_tags)
             )
+        temporal_counts = _temporal_grounding_issue_reason_counts(failure)
+        temporal_grounding_issue_reasons.update(temporal_counts)
+        for issue_reason in temporal_counts:
+            examples = temporal_grounding_issue_examples[issue_reason]
+            if len(examples) < _MAX_TEMPORAL_GROUNDING_EXAMPLES:
+                examples.append(_temporal_grounding_issue_example(failure, issue_reason))
         patterns = _query_patterns(failure)
         query_patterns.update(patterns)
         question = _question_text(failure)
@@ -188,6 +210,15 @@ def _summary(failures: Sequence[Mapping[str, object]], *, top: int) -> dict[str,
             root_cause: examples
             for root_cause, examples in sorted(root_cause_examples.items())
         },
+        "temporal_grounding_issue_reason_count": dict(
+            temporal_grounding_issue_reasons.most_common(top)
+        ),
+        "temporal_grounding_issue_examples": {
+            issue_reason: examples
+            for issue_reason, examples in sorted(
+                temporal_grounding_issue_examples.items()
+            )
+        },
         "query_pattern_count": dict(query_patterns.most_common(top)),
         "query_pattern_examples": {
             pattern: examples
@@ -213,6 +244,12 @@ def _strings(value: object) -> tuple[str, ...]:
 
 def _mapping(value: object) -> Mapping[str, object]:
     return value if isinstance(value, Mapping) else {}
+
+
+def _sequence(value: object) -> Sequence[object]:
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes):
+        return value
+    return ()
 
 
 def _missing_evidence_refs(failure: Mapping[str, object]) -> tuple[str, ...]:
@@ -263,6 +300,11 @@ def _root_cause_tags(failure: Mapping[str, object]) -> tuple[str, ...]:
         tags.append("evidence:selected_weak_source_locality")
     if "selected_bundle_source_refless_evidence" in reason_codes:
         tags.append("evidence:selected_bundle_source_refless")
+    temporal_grounding_counts = _temporal_grounding_issue_reason_counts(failure)
+    if temporal_grounding_counts:
+        tags.append("temporal_grounding:issue")
+    for reason in temporal_grounding_counts:
+        tags.append(f"temporal_grounding:{_normalize_tag_value(reason)}")
     if "answer_context_fallback" in reason_codes:
         tags.append("answer_context:fallback")
     if "answer_context_source_refless" in reason_codes:
@@ -323,6 +365,9 @@ def _root_cause_example(
     answer_context = _answer_context_summary(failure)
     if answer_context:
         payload["answer_context"] = answer_context
+    temporal_grounding = _temporal_grounding_summary(failure)
+    if temporal_grounding:
+        payload["temporal_grounding"] = temporal_grounding
     return payload
 
 
@@ -444,6 +489,89 @@ def _selected_evidence_weakness_summary(
         or 0,
     }
     return summary if any(summary.values()) else None
+
+
+def _temporal_grounding_summary(
+    failure: Mapping[str, object],
+) -> dict[str, object] | None:
+    temporal_grounding = _failure_temporal_grounding(failure)
+    if not temporal_grounding:
+        return None
+    issue_item_count = _positive_int(temporal_grounding.get("issue_item_count")) or 0
+    if issue_item_count <= 0:
+        return None
+    summary: dict[str, object] = {
+        "issue_item_count": issue_item_count,
+        "issue_reason_counts": dict(
+            sorted(_temporal_grounding_issue_reason_counts(failure).items())
+        ),
+    }
+    samples = _temporal_grounding_issue_samples(failure)
+    if samples:
+        summary["issue_samples"] = samples[:_MAX_TEMPORAL_GROUNDING_SAMPLE_EXAMPLES]
+    return summary
+
+
+def _temporal_grounding_issue_reason_counts(
+    failure: Mapping[str, object],
+) -> dict[str, int]:
+    counts = _mapping(_failure_temporal_grounding(failure).get("issue_reason_counts"))
+    return {
+        str(reason): count
+        for reason, raw_count in counts.items()
+        if (count := _positive_int(raw_count)) is not None
+    }
+
+
+def _temporal_grounding_issue_example(
+    failure: Mapping[str, object],
+    issue_reason: str,
+) -> dict[str, object]:
+    counts = _temporal_grounding_issue_reason_counts(failure)
+    payload: dict[str, object] = {
+        "case_id": str(failure.get("case_id") or ""),
+        "capability": str(
+            failure.get("capability") or failure.get("category") or "unknown"
+        ),
+        "reason": str(failure.get("reason") or "unknown"),
+        "issue_reason": issue_reason,
+        "issue_reason_count": counts.get(issue_reason, 0),
+    }
+    samples = _temporal_grounding_issue_samples(failure, issue_reason=issue_reason)
+    if samples:
+        payload["issue_samples"] = samples[
+            :_MAX_TEMPORAL_GROUNDING_SAMPLE_EXAMPLES
+        ]
+    return payload
+
+
+def _temporal_grounding_issue_samples(
+    failure: Mapping[str, object],
+    *,
+    issue_reason: str | None = None,
+) -> list[dict[str, object]]:
+    samples: list[dict[str, object]] = []
+    for raw_sample in _sequence(_failure_temporal_grounding(failure).get("issue_samples")):
+        sample = _mapping(raw_sample)
+        reasons = _strings(sample.get("issue_reasons"))
+        if issue_reason is not None and issue_reason not in reasons:
+            continue
+        samples.append(_safe_temporal_grounding_issue_sample(sample))
+    return samples
+
+
+def _safe_temporal_grounding_issue_sample(
+    sample: Mapping[str, object],
+) -> dict[str, object]:
+    return {
+        key: sample[key]
+        for key in _TEMPORAL_GROUNDING_SAMPLE_KEYS
+        if key in sample
+    }
+
+
+def _failure_temporal_grounding(failure: Mapping[str, object]) -> Mapping[str, object]:
+    return _mapping(_mapping(failure.get("diagnostics")).get("temporal_grounding"))
 
 
 def _normalize_tag_value(value: object) -> str:
