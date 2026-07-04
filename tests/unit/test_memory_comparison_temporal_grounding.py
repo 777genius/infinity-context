@@ -115,6 +115,9 @@ def test_quality_diagnostics_reports_temporal_grounding_gaps() -> None:
     assert table["selected_temporal_order_item_count"] == 1
     assert table["selected_ungrounded_temporal_item_count"] == 1
     assert table["selected_grounding_gap_case_count"] == 1
+    assert table["selected_source_window_item_count"] == 1
+    assert table["selected_missing_source_window_item_count"] == 1
+    assert table["selected_source_window_gap_case_count"] == 1
     assert table["selected_grounding_gap_samples"] == [
         {
             "case_id": "temporal-ungrounded",
@@ -124,5 +127,67 @@ def test_quality_diagnostics_reports_temporal_grounding_gaps() -> None:
             "query_roles": ["temporal_support"],
             "source_refs": [],
             "missing_grounding": ["session_boundary", "date_or_range"],
+        }
+    ]
+    assert table["selected_source_window_gap_samples"] == [
+        {
+            "case_id": "temporal-ungrounded",
+            "group": "temporal",
+            "item_id": "ungrounded",
+            "role": "temporal_support",
+            "query_roles": ["temporal_support"],
+            "source_refs": [],
+            "missing_source_window": True,
+        }
+    ]
+
+
+def test_temporal_grounding_reports_source_window_audit_gap_separately() -> None:
+    diagnostics = quality_diagnostics(
+        (
+            _item(
+                case_id="temporal-session-only",
+                group="temporal",
+                retrieval=_retrieval_payload(
+                    evidence_need=("temporal_support",),
+                    bundle_evidence_roles=("primary", "temporal_support"),
+                    relation_categories=("temporal",),
+                    policy_score=0.0,
+                    candidate_features={
+                        "query_roles": ["temporal_support"],
+                        "time_intent_kind": "temporal_lookup",
+                    },
+                ),
+                evidence_bundle={
+                    "items": [
+                        {
+                            "id": "session-only",
+                            "role": "temporal_support",
+                            "query_roles": ["temporal_support"],
+                            "source_refs": ["locomo:conv-1:session_4"],
+                            "text": "session_4 date: 9 October, 2022",
+                        }
+                    ]
+                },
+            ),
+        )
+    )
+
+    table = diagnostics["temporal_grounding_table"]
+
+    assert table["selected_ungrounded_temporal_item_count"] == 0
+    assert table["selected_grounding_gap_case_count"] == 0
+    assert table["selected_source_window_item_count"] == 0
+    assert table["selected_missing_source_window_item_count"] == 1
+    assert table["selected_source_window_gap_case_count"] == 1
+    assert table["selected_source_window_gap_samples"] == [
+        {
+            "case_id": "temporal-session-only",
+            "group": "temporal",
+            "item_id": "session-only",
+            "role": "temporal_support",
+            "query_roles": ["temporal_support"],
+            "source_refs": ["locomo:conv-1:session_4"],
+            "missing_source_window": True,
         }
     ]

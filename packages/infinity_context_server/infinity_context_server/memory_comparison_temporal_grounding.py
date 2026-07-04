@@ -43,6 +43,10 @@ _MAX_SAMPLES = 10
 _MAX_SAMPLE_REFS = 5
 _SESSION_RE = re.compile(r"\bsession[_ -]?\d+\b", re.IGNORECASE)
 _TURN_RE = re.compile(r"\bD\d+:\d+\b")
+_SOURCE_WINDOW_REF_RE = re.compile(
+    r"(?:^|:)session_\d+:D\d+:\d+\b|^source_(?:session_)?turn_refs:",
+    re.IGNORECASE,
+)
 _DATE_RE = re.compile(
     r"\b(?:\d{4}-\d{2}-\d{2}|\d{1,2}\s+"
     r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)"
@@ -121,8 +125,12 @@ def temporal_grounding_table(items: Sequence[Mapping[str, object]]) -> dict[str,
     selected_range_count = 0
     selected_order_count = 0
     selected_ungrounded_count = 0
+    selected_source_window_item_count = 0
+    selected_missing_source_window_count = 0
     gap_case_ids: set[str] = set()
+    source_window_gap_case_ids: set[str] = set()
     samples: list[dict[str, object]] = []
+    source_window_samples: list[dict[str, object]] = []
 
     for item in items:
         if not _has_temporal_intent(item):
@@ -142,6 +150,17 @@ def temporal_grounding_table(items: Sequence[Mapping[str, object]]) -> dict[str,
 
         for bundle_item in _bundle_items(_mapping(item.get("evidence_bundle"))):
             selected_item_count += 1
+            source_refs = _source_refs_from_bundle_item(bundle_item)
+            has_source_window = _has_source_window_ref(source_refs)
+            selected_source_window_item_count += int(has_source_window)
+            if not has_source_window:
+                selected_missing_source_window_count += 1
+                if case_id:
+                    source_window_gap_case_ids.add(case_id)
+                if len(source_window_samples) < _MAX_SAMPLES:
+                    source_window_samples.append(
+                        _source_window_gap_sample(item, bundle_item, source_refs)
+                    )
             signals = _bundle_item_grounding_signals(bundle_item)
             selected_session_boundary_count += int(signals["session_boundary"])
             selected_date_count += int(signals["date"])
@@ -172,6 +191,10 @@ def temporal_grounding_table(items: Sequence[Mapping[str, object]]) -> dict[str,
         "selected_ungrounded_temporal_item_count": selected_ungrounded_count,
         "selected_grounding_gap_case_count": len(gap_case_ids),
         "selected_grounding_gap_samples": samples,
+        "selected_source_window_item_count": selected_source_window_item_count,
+        "selected_missing_source_window_item_count": selected_missing_source_window_count,
+        "selected_source_window_gap_case_count": len(source_window_gap_case_ids),
+        "selected_source_window_gap_samples": source_window_samples,
     }
 
 
@@ -343,4 +366,28 @@ def _grounding_gap_sample(
         "query_roles": list(_str_tuple(bundle_item.get("query_roles"))),
         "source_refs": list(_source_refs_from_bundle_item(bundle_item)[:_MAX_SAMPLE_REFS]),
         "missing_grounding": ["session_boundary", "date_or_range"],
+    }
+
+
+def _has_source_window_ref(source_refs: Sequence[str]) -> bool:
+    return any(_SOURCE_WINDOW_REF_RE.search(ref) for ref in source_refs)
+
+
+def _source_window_gap_sample(
+    item: Mapping[str, object],
+    bundle_item: Mapping[str, object],
+    source_refs: Sequence[str],
+) -> dict[str, object]:
+    return {
+        "case_id": str(item.get("case_id") or ""),
+        "group": str(item.get("group") or ""),
+        "item_id": str(
+            bundle_item.get("id")
+            or bundle_item.get("item_id")
+            or _memory_id(bundle_item)
+        ),
+        "role": str(bundle_item.get("role") or ""),
+        "query_roles": list(_str_tuple(bundle_item.get("query_roles"))),
+        "source_refs": list(source_refs[:_MAX_SAMPLE_REFS]),
+        "missing_source_window": True,
     }

@@ -1624,6 +1624,12 @@ def test_quality_diagnostics_reports_rerank_signal_selection_gaps() -> None:
     assert gaps["selected_without_positive_penalty_signal_counts"] == {
         "benchmark_rank_penalty": 1
     }
+    assert gaps["selection_conflict_case_count"] == 1
+    assert gaps["selection_conflict_pair_count"] == 1
+    assert gaps["selection_conflict_positive_signal_counts"] == {
+        "benchmark_answerability_boost": 1,
+        "benchmark_effective_boost_cap": 1,
+    }
     assert gaps["positive_unselected_samples"] == [
         {
             "case_id": "rerank-gaps",
@@ -1665,6 +1671,22 @@ def test_quality_diagnostics_reports_rerank_signal_selection_gaps() -> None:
             "query_roles": ("supporting",),
             "planner_reason_codes": ("support_signal",),
             "penalty_signals": {"benchmark_rank_penalty": -0.03},
+        }
+    ]
+    assert gaps["selection_conflict_samples"] == [
+        {
+            "case_id": "rerank-gaps",
+            "group": "multi-hop",
+            "positive_unselected_candidate_count": 1,
+            "selected_without_positive_rerank_count": 1,
+            "positive_unselected_signal_counts": {
+                "benchmark_answerability_boost": 1,
+                "benchmark_effective_boost_cap": 1,
+            },
+            "positive_unselected_candidates": gaps["positive_unselected_samples"],
+            "selected_without_positive_items": gaps[
+                "selected_without_positive_samples"
+            ],
         }
     ]
 
@@ -1709,6 +1731,8 @@ def test_fast_gate_metrics_includes_rerank_signal_gap_breakdown() -> None:
     gaps = gate["rerank_signal_gap_breakdown"]
     assert gaps["positive_unselected_candidate_count"] == 1
     assert gaps["selected_without_positive_rerank_count"] == 1
+    assert gaps["selection_conflict_case_count"] == 1
+    assert gaps["selection_conflict_pair_count"] == 1
 
 
 def test_quality_diagnostics_treats_zero_answerability_as_unmeasured() -> None:

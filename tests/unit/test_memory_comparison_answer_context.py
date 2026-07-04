@@ -783,6 +783,49 @@ def test_answer_context_surfaces_inspection_flags_for_weak_bundle() -> None:
     ]
 
 
+def test_answer_context_flags_missing_source_ref_evidence_for_audit() -> None:
+    context = AnswerContext(
+        memories=(
+            RetrievedMemory(
+                text="retrieval summary without a source reference",
+                rank=1,
+            ),
+        ),
+        source="retrieval_slice",
+        fallback_reason="empty_bundle",
+    )
+
+    diagnostics = context.to_diagnostics()
+
+    assert diagnostics["source_ref_item_count"] == 0
+    assert diagnostics["inspection_flags"] == [
+        "retrieval_slice_fallback",
+        "missing_context_source_refs",
+    ]
+
+
+def test_answer_context_flags_partial_source_ref_evidence_for_audit() -> None:
+    context = AnswerContext(
+        memories=(
+            RetrievedMemory(
+                text="D1:1 Caroline named the support group.",
+                rank=1,
+                source_refs=("D1:1",),
+            ),
+            RetrievedMemory(
+                text="supporting summary without a source reference",
+                rank=2,
+            ),
+        ),
+        source="evidence_bundle",
+    )
+
+    diagnostics = context.to_diagnostics()
+
+    assert diagnostics["source_ref_item_count"] == 1
+    assert diagnostics["inspection_flags"] == ["partial_context_source_refs"]
+
+
 def test_answer_context_matches_source_turn_dedupe_key_without_retrieval_order() -> None:
     memories = (
         RetrievedMemory(text="noise", rank=1),

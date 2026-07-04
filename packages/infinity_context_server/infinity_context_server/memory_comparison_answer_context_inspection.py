@@ -17,12 +17,21 @@ if TYPE_CHECKING:
 def answer_context_inspection_flags(
     context: AnswerContext,
     *,
+    source_ref_stats: Mapping[str, object],
     backfill_risk_stats: Mapping[str, object],
     quality_score_stats: Mapping[str, object],
 ) -> tuple[str, ...]:
     flags: list[str] = []
     if context.fallback_reason:
         flags.append("retrieval_slice_fallback")
+    source_ref_item_count = _nonnegative_int(source_ref_stats.get("source_ref_item_count"))
+    source_refless_item_count = _nonnegative_int(
+        source_ref_stats.get("source_refless_item_count")
+    )
+    if context.memories and source_ref_item_count <= 0:
+        flags.append("missing_context_source_refs")
+    elif source_refless_item_count > 0:
+        flags.append("partial_context_source_refs")
     if context.role_requirement_complete is False or context.missing_required_roles:
         flags.append("missing_required_roles")
     if _has_low_bundle_confidence(context):
@@ -82,3 +91,13 @@ def _positive_int(value: object) -> int | None:
     except (TypeError, ValueError):
         return None
     return parsed if parsed > 0 else None
+
+
+def _nonnegative_int(value: object) -> int:
+    if isinstance(value, bool):
+        return 0
+    try:
+        parsed = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 0
+    return max(0, parsed)

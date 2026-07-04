@@ -117,6 +117,7 @@ class AnswerContext:
         )
         inspection_flags = _answer_context_inspection_flags(
             self,
+            source_ref_stats=source_ref_stats,
             backfill_risk_stats=backfill_risk_stats,
             quality_score_stats=quality_score_stats,
         )

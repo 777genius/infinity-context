@@ -68,8 +68,12 @@ def rerank_signal_gap_breakdown(
     positive_unselected_penalty_signal_counts: Counter[str] = Counter()
     selected_without_positive_reason_counts: Counter[str] = Counter()
     selected_without_positive_penalty_signal_counts: Counter[str] = Counter()
+    selection_conflict_case_count = 0
+    selection_conflict_pair_count = 0
+    selection_conflict_positive_signal_counts: Counter[str] = Counter()
     positive_unselected_samples: list[dict[str, object]] = []
     selected_without_positive_samples: list[dict[str, object]] = []
+    selection_conflict_samples: list[dict[str, object]] = []
 
     for item in items:
         case_id = str(item.get("case_id") or "")
@@ -82,6 +86,11 @@ def rerank_signal_gap_breakdown(
         selected_id_set = set(selected_ids)
         candidate_by_id: dict[str, Mapping[str, object]] = {}
         positive_candidate_ids: set[str] = set()
+        case_positive_unselected_count = 0
+        case_selected_without_positive_count = 0
+        case_positive_unselected_signal_counts: Counter[str] = Counter()
+        case_positive_unselected_samples: list[dict[str, object]] = []
+        case_selected_without_positive_samples: list[dict[str, object]] = []
 
         for memory in _sequence(_mapping(item.get("retrieval")).get("results")):
             if not isinstance(memory, Mapping):
@@ -108,19 +117,33 @@ def rerank_signal_gap_breakdown(
                 continue
 
             positive_unselected_candidate_count += 1
+            case_positive_unselected_count += 1
             if case_id:
                 positive_unselected_case_ids.add(case_id)
             positive_unselected_signal_counts.update(positive_signal_names)
+            case_positive_unselected_signal_counts.update(positive_signal_names)
             positive_unselected_cap_signal_counts.update(cap_signals.keys())
             positive_unselected_penalty_signal_counts.update(penalty_signals.keys())
-            if len(positive_unselected_samples) < 10:
-                positive_unselected_samples.append(
-                    _positive_unselected_rerank_sample(
-                        item,
-                        memory,
-                        selected_item_ids=selected_ids,
-                    )
+            positive_unselected_sample: dict[str, object] | None = None
+            if (
+                len(positive_unselected_samples) < 10
+                or len(case_positive_unselected_samples) < 3
+            ):
+                positive_unselected_sample = _positive_unselected_rerank_sample(
+                    item,
+                    memory,
+                    selected_item_ids=selected_ids,
                 )
+            if (
+                positive_unselected_sample is not None
+                and len(positive_unselected_samples) < 10
+            ):
+                positive_unselected_samples.append(positive_unselected_sample)
+            if (
+                positive_unselected_sample is not None
+                and len(case_positive_unselected_samples) < 3
+            ):
+                case_positive_unselected_samples.append(positive_unselected_sample)
 
         for selected_item in selected_items:
             selected_item_count += 1
@@ -133,6 +156,7 @@ def rerank_signal_gap_breakdown(
                 continue
 
             selected_without_positive_rerank_count += 1
+            case_selected_without_positive_count += 1
             if case_id:
                 selected_without_positive_case_ids.add(case_id)
             reason = (
@@ -150,14 +174,62 @@ def rerank_signal_gap_breakdown(
                         "penalty",
                     ).keys()
                 )
-            if len(selected_without_positive_samples) < 10:
-                selected_without_positive_samples.append(
+            selected_without_positive_sample: dict[str, object] | None = None
+            if (
+                len(selected_without_positive_samples) < 10
+                or len(case_selected_without_positive_samples) < 3
+            ):
+                selected_without_positive_sample = (
                     _selected_without_positive_rerank_sample(
                         item,
                         selected_item,
                         matched_memory=matched_memory,
                         reason=reason,
                     )
+                )
+            if (
+                selected_without_positive_sample is not None
+                and len(selected_without_positive_samples) < 10
+            ):
+                selected_without_positive_samples.append(selected_without_positive_sample)
+            if (
+                selected_without_positive_sample is not None
+                and len(case_selected_without_positive_samples) < 3
+            ):
+                case_selected_without_positive_samples.append(
+                    selected_without_positive_sample
+                )
+
+        if case_positive_unselected_count and case_selected_without_positive_count:
+            selection_conflict_case_count += 1
+            selection_conflict_pair_count += (
+                case_positive_unselected_count * case_selected_without_positive_count
+            )
+            selection_conflict_positive_signal_counts.update(
+                case_positive_unselected_signal_counts
+            )
+            if len(selection_conflict_samples) < 10:
+                selection_conflict_samples.append(
+                    {
+                        "case_id": case_id,
+                        "group": str(item.get("group") or ""),
+                        "positive_unselected_candidate_count": (
+                            case_positive_unselected_count
+                        ),
+                        "selected_without_positive_rerank_count": (
+                            case_selected_without_positive_count
+                        ),
+                        "positive_unselected_signal_counts": _top_counts(
+                            case_positive_unselected_signal_counts,
+                            limit=8,
+                        ),
+                        "positive_unselected_candidates": (
+                            case_positive_unselected_samples
+                        ),
+                        "selected_without_positive_items": (
+                            case_selected_without_positive_samples
+                        ),
+                    }
                 )
 
     return {
@@ -192,8 +264,14 @@ def rerank_signal_gap_breakdown(
         "selected_without_positive_penalty_signal_counts": _top_counts(
             selected_without_positive_penalty_signal_counts
         ),
+        "selection_conflict_case_count": selection_conflict_case_count,
+        "selection_conflict_pair_count": selection_conflict_pair_count,
+        "selection_conflict_positive_signal_counts": _top_counts(
+            selection_conflict_positive_signal_counts
+        ),
         "positive_unselected_samples": positive_unselected_samples,
         "selected_without_positive_samples": selected_without_positive_samples,
+        "selection_conflict_samples": selection_conflict_samples,
     }
 
 
