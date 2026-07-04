@@ -672,6 +672,71 @@ def test_rerank_policy_requires_grounded_preference_evidence() -> None:
     assert grounded.boost > broad.boost
 
 
+def test_rerank_policy_requires_reason_grounding_for_preference_reason_query() -> None:
+    generic_preference = score_benchmark_rerank_candidate(
+        _features(
+            overlap_terms=("alex", "prefer", "tea"),
+            entity_hits=("alex",),
+            speaker_hits=("alex",),
+            relation_hits=("prefer", "tea"),
+            relation_terms=("prefer", "cause"),
+            relation_categories=("preference", "causal"),
+            relation_category_hits=("preference",),
+            relation_category_coverage_ratio=0.5,
+            is_preference_query=True,
+            has_preference_evidence=True,
+            evidence_need=("preference", "causal_support"),
+            direct_speaker_turn=True,
+            source_locality_score=1.0,
+            answerability_score=0.74,
+            answerability_reason_codes=(
+                "preference_evidence",
+                "missing_causal_evidence",
+            ),
+        )
+    )
+    preference_reason = score_benchmark_rerank_candidate(
+        _features(
+            overlap_terms=("alex", "prefer", "tea"),
+            entity_hits=("alex",),
+            speaker_hits=("alex",),
+            relation_hits=("prefer", "tea", "because", "calmer"),
+            relation_terms=("prefer", "cause"),
+            relation_categories=("preference", "causal"),
+            relation_category_hits=("preference", "causal"),
+            relation_category_coverage_ratio=1.0,
+            high_signal_relation_hit_count=1,
+            is_preference_query=True,
+            has_preference_evidence=True,
+            evidence_need=("preference", "causal_support"),
+            query_roles=("preference_support", "causal_support"),
+            direct_speaker_turn=True,
+            source_locality_score=1.0,
+            answerability_score=0.9,
+            answerability_reason_codes=(
+                "preference_evidence",
+                "causal_evidence",
+                "high_answerability",
+            ),
+        )
+    )
+
+    generic_signals = generic_preference.signals["score_signals"]
+    reason_signals = preference_reason.signals["score_signals"]
+    reason_policy = preference_reason.signals["policy_contributions"]
+
+    assert generic_signals["benchmark_preference_evidence_boost"] == 0.0
+    assert generic_signals["benchmark_preference_reason_required"] is True
+    assert generic_signals["benchmark_preference_reason_grounded"] is False
+    assert reason_signals["benchmark_preference_evidence_boost"] == 0.12
+    assert reason_signals["benchmark_preference_reason_required"] is True
+    assert reason_signals["benchmark_preference_reason_grounded"] is True
+    assert "preference_reason_grounding" in reason_policy["reason_codes_by_policy"][
+        "PreferenceIntentPolicy"
+    ]
+    assert preference_reason.boost > generic_preference.boost
+
+
 def test_rerank_policy_allows_unmeasured_direct_preference_locality() -> None:
     score = score_benchmark_rerank_candidate(
         _features(

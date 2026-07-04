@@ -290,11 +290,14 @@ class PreferenceIntentPolicy:
 
     def score(self, features: RerankPolicyFeatures) -> RerankPolicyContribution:
         grounded = _preference_evidence_grounded(features)
+        reason_required = _preference_reason_required(features)
+        reason_grounded = _preference_reason_grounded(features)
         preference_boost = (
             0.12
             if features.is_preference_query
             and features.has_preference_evidence
             and grounded
+            and (not reason_required or reason_grounded)
             else 0.0
         )
         policy_boosts = _rounded_boosts(features.policy_boosts)
@@ -304,10 +307,18 @@ class PreferenceIntentPolicy:
             signals={
                 "benchmark_preference_evidence_boost": round(preference_boost, 6),
                 "benchmark_preference_evidence_grounded": grounded,
+                "benchmark_preference_reason_required": reason_required,
+                "benchmark_preference_reason_grounded": reason_grounded,
                 **policy_boosts,
             },
             reason_codes=(
                 *_reason_codes(("preference_evidence", preference_boost)),
+                *_reason_codes(
+                    (
+                        "preference_reason_grounding",
+                        float(reason_required and preference_boost > 0),
+                    )
+                ),
                 *(
                     f"focused_intent:{key}"
                     for key, value in policy_boosts.items()
@@ -794,6 +805,26 @@ def _preference_evidence_grounded(features: RerankPolicyFeatures) -> bool:
     if features.query_has_entities and not (features.entity_hits or features.speaker_hits):
         return False
     return bool(features.direct_speaker_turn or features.relation_hits)
+
+
+def _preference_reason_required(features: RerankPolicyFeatures) -> bool:
+    return bool(
+        features.is_preference_query
+        and "causal_support" in set(features.evidence_need)
+    )
+
+
+def _preference_reason_grounded(features: RerankPolicyFeatures) -> bool:
+    if not _preference_reason_required(features):
+        return True
+    category_hits = set(features.relation_category_hits)
+    preference_categories = {"preference", "favorite_preference"} & set(
+        features.relation_categories
+    )
+    return bool(
+        "causal" in category_hits
+        and (not preference_categories or preference_categories & category_hits)
+    )
 
 
 def _visual_evidence_grounded(features: RerankPolicyFeatures) -> bool:
