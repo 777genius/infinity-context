@@ -215,6 +215,10 @@ def test_temporal_query_intent_detects_since_and_until_event_sequences() -> None
     russian_after_talk = build_temporal_query_intent(
         "Что Алекс решил после разговора с Сергеем по Атласу?"
     )
+    after_source_turn = build_temporal_query_intent("What did Riley mention after D12:4?")
+    before_source_turn = build_temporal_query_intent(
+        "What did Riley mention before source turn D12:4?"
+    )
 
     assert since_call.after_event is True
     assert since_call.requests_change is True
@@ -246,6 +250,10 @@ def test_temporal_query_intent_detects_since_and_until_event_sequences() -> None
     assert after_messaging.event_sequence_terms == ("sam", "atlas")
     assert russian_after_talk.after_event is True
     assert russian_after_talk.event_sequence_terms == ("сергеем", "атласу")
+    assert after_source_turn.after_event is True
+    assert after_source_turn.source_turn_sequence.after_turns[0].label() == "D12:4"
+    assert before_source_turn.before_event is True
+    assert before_source_turn.source_turn_sequence.before_turns[0].label() == "D12:4"
 
 
 def test_temporal_query_intent_detects_relative_time_hints() -> None:
@@ -1139,6 +1147,76 @@ def test_temporal_query_boosts_matching_russian_before_event_direction() -> None
     )
     assert boosted[1].diagnostics["temporal_query_intent_reason"] == (
         "query asks for before-event sequence and item conflicts with direction"
+    )
+
+
+def test_temporal_query_boosts_source_turn_after_boundary_order() -> None:
+    intent = build_temporal_query_intent("What did Riley mention after D12:4?")
+    after_item = _item(
+        "after",
+        score=0.7,
+        retrieval_source="canonical_anchors",
+        fact_status="active",
+        text="D12:5 Riley said the studio visit was confirmed.",
+    )
+    before_item = _item(
+        "before",
+        score=0.72,
+        retrieval_source="canonical_anchors",
+        fact_status="active",
+        text="D12:3 Riley was still waiting on Morgan.",
+    )
+
+    boosted = apply_temporal_query_intent_boosts((after_item, before_item), intent=intent)
+
+    assert boosted[0].score == 0.74
+    assert boosted[0].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for after source turn and item source turn follows boundary"
+    )
+    assert boosted[1].score == 0.694
+    assert boosted[1].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for after source turn and item source turn precedes boundary"
+    )
+
+
+def test_temporal_query_uses_source_refs_for_source_turn_before_boundary_order() -> None:
+    intent = build_temporal_query_intent("What did Riley mention before D12:4?")
+    before_item = ContextItem(
+        item_id="before",
+        item_type="fact",
+        text="Riley was still waiting on Morgan.",
+        score=0.7,
+        source_refs=(
+            SourceRef(
+                source_type="document",
+                source_id="locomo:conv-1:session_12:D12:3:turn",
+            ),
+        ),
+        diagnostics={"retrieval_source": "canonical_anchors"},
+    )
+    after_item = ContextItem(
+        item_id="after",
+        item_type="fact",
+        text="Riley said the studio visit was confirmed.",
+        score=0.72,
+        source_refs=(
+            SourceRef(
+                source_type="document",
+                source_id="locomo:conv-1:session_12:D12:5:turn",
+            ),
+        ),
+        diagnostics={"retrieval_source": "canonical_anchors"},
+    )
+
+    boosted = apply_temporal_query_intent_boosts((before_item, after_item), intent=intent)
+
+    assert boosted[0].score == 0.74
+    assert boosted[0].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for before source turn and item source turn precedes boundary"
+    )
+    assert boosted[1].score == 0.694
+    assert boosted[1].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for before source turn and item source turn follows boundary"
     )
 
 

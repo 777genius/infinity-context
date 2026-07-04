@@ -31,6 +31,11 @@ from infinity_context_core.application.context_temporal_session_order import (
     temporal_session_orders_from_query,
     temporal_session_recency_boost,
 )
+from infinity_context_core.application.context_temporal_source_turn import (
+    SourceTurnSequenceRequest,
+    source_turn_sequence_boost_signal,
+    source_turn_sequence_request,
+)
 from infinity_context_core.application.dto import ContextItem
 
 _TOKEN_RE = re.compile(r"\w+", re.UNICODE)
@@ -428,6 +433,7 @@ class TemporalQueryIntent:
     after_date: str = ""
     before_date: str = ""
     event_sequence_terms: tuple[str, ...] = ()
+    source_turn_sequence: SourceTurnSequenceRequest = SourceTurnSequenceRequest()
 
     @property
     def include_superseded_review(self) -> bool:
@@ -453,6 +459,7 @@ class TemporalQueryIntent:
                 self.after_date,
                 self.before_date,
                 self.event_sequence_terms,
+                not self.source_turn_sequence.empty,
             )
         )
 
@@ -488,6 +495,10 @@ class TemporalQueryIntent:
             reasons.append("after_date")
         if self.before_date:
             reasons.append("before_date")
+        if self.source_turn_sequence.after_turns:
+            reasons.append("after_source_turn")
+        if self.source_turn_sequence.before_turns:
+            reasons.append("before_source_turn")
         return {
             "temporal_query_intent_status": "empty" if self.empty else "available",
             "temporal_query_prefers_current": self.prefers_current,
@@ -507,6 +518,12 @@ class TemporalQueryIntent:
             "temporal_query_after_date": self.after_date,
             "temporal_query_before_date": self.before_date,
             "temporal_query_event_sequence_terms": list(self.event_sequence_terms),
+            "temporal_query_after_source_turns": [
+                turn.label() for turn in self.source_turn_sequence.after_turns
+            ],
+            "temporal_query_before_source_turns": [
+                turn.label() for turn in self.source_turn_sequence.before_turns
+            ],
             "temporal_query_intent_reasons": reasons,
         }
 
@@ -529,6 +546,7 @@ def build_temporal_query_intent(query: str) -> TemporalQueryIntent:
     relative_time_hints = _query_temporal_hint_codes(query)
     temporal_range_hints = temporal_range_codes(query)
     after_date, before_date = temporal_boundary_dates(query)
+    source_turn_sequence = source_turn_sequence_request(query)
     excludes_stale = bool(_EXCLUDE_STALE_RE.search(query))
     still_current_state = bool(_STILL_CURRENT_STATE_RE.search(query))
     no_longer_current_state = bool(_NO_LONGER_CURRENT_STATE_RE.search(query))
@@ -564,11 +582,15 @@ def build_temporal_query_intent(query: str) -> TemporalQueryIntent:
     after_event = _has_after_event_context(
         query,
         variants,
-    ) or _has_since_relative_time_context(query, relative_time_hints)
+    ) or _has_since_relative_time_context(query, relative_time_hints) or bool(
+        source_turn_sequence.after_turns
+    )
     before_event = _has_before_event_context(
         query,
         variants,
-    ) or _has_until_relative_time_context(query, relative_time_hints)
+    ) or _has_until_relative_time_context(query, relative_time_hints) or bool(
+        source_turn_sequence.before_turns
+    )
     during_event = _has_during_event_context(query, variants)
     event_sequence_terms = (
         _event_sequence_anchor_terms(query)
@@ -604,6 +626,7 @@ def build_temporal_query_intent(query: str) -> TemporalQueryIntent:
         after_date=after_date,
         before_date=before_date,
         event_sequence_terms=event_sequence_terms,
+        source_turn_sequence=source_turn_sequence,
     )
 
 
@@ -652,6 +675,16 @@ def temporal_query_boost_signal(
             boost=-0.12,
             reason="query excludes stale memory",
             code="excludes_stale",
+        )
+    source_turn_signal = source_turn_sequence_boost_signal(
+        item,
+        request=intent.source_turn_sequence,
+    )
+    if not source_turn_signal.empty:
+        return TemporalQueryBoostSignal(
+            boost=source_turn_signal.boost,
+            reason=source_turn_signal.reason,
+            code=source_turn_signal.code,
         )
     if intent.session_ordinals:
         item_session_orders = set(temporal_session_orders(item))
