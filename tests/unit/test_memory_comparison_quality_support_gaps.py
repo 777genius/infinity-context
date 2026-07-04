@@ -2677,13 +2677,14 @@ def test_fast_gate_metrics_caps_selected_evidence_weakness_sample_values() -> No
     gate = fast_gate_metrics(
         (
             _item(
-                case_id="capped-selected-sample-values",
+                case_id=long_value,
+                group=long_value,
                 evidence_bundle={
                     "bundle_complete": True,
                     "items": [
                         {
-                            "id": "low-long",
-                            "role": "primary",
+                            "id": long_value,
+                            "role": long_value,
                             "query_roles": [long_value],
                             "answerability_score": 0.42,
                             "source_locality_score": 0.8,
@@ -2704,6 +2705,9 @@ def test_fast_gate_metrics_caps_selected_evidence_weakness_sample_values() -> No
 
     sample = gate["selected_evidence_weakness"]["low_answerability_samples"][0]
 
+    for key in ("case_id", "group", "item_id", "role"):
+        assert len(sample[key]) == 120
+        assert sample[key].endswith("...")
     for key in (
         "query_roles",
         "source_refs",

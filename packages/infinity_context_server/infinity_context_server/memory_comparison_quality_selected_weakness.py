@@ -223,10 +223,12 @@ def _selected_evidence_weakness_sample(
     compact_query_roles = _compact_sample_values(query_roles)
     compact_source_refs = _compact_sample_values(source_refs)
     sample: dict[str, object] = {
-        "case_id": case_id,
-        "group": group,
-        "item_id": str(bundle_item.get("id") or bundle_item.get("item_id") or ""),
-        "role": role,
+        "case_id": _compact_sample_text(case_id),
+        "group": _compact_sample_text(group),
+        "item_id": _compact_sample_text(
+            str(bundle_item.get("id") or bundle_item.get("item_id") or "")
+        ),
+        "role": _compact_sample_text(role),
         "query_roles": _sample_value_list(compact_query_roles)[
             :_SELECTED_WEAKNESS_QUERY_ROLE_LIMIT
         ],
