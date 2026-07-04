@@ -32,6 +32,7 @@ class _PersonRelationQuery:
     kind: PersonRelationKind
     target_label: str | None = None
     relation_role: str | None = None
+    requires_current: bool = False
 
 
 _LABEL_RE = (
@@ -185,6 +186,23 @@ _ANY_PERSON_RELATION_ROLE_CUE_RE = re.compile(
     r"coach(?:es)?|trainer|teacher|tutor|classmate|schoolmate)\b",
     re.IGNORECASE,
 )
+_STALE_RELATION_CUE_RE = re.compile(
+    r"\b(?:former|formerly|previously|used\s+to\s+be|"
+    r"used\s+to\s+(?:work|collaborate|partner|date|be)|"
+    r"no\s+longer|not\s+anymore|once\s+(?:was|were))\b|"
+    r"(?:^|\W)ex[-\s]?(?:friend|coworker|co-worker|colleague|teammate|"
+    r"partner|spouse|husband|wife|boyfriend|girlfriend)\b",
+    re.IGNORECASE,
+)
+_PAST_RELATION_QUERY_RE = re.compile(
+    r"\b(?:was|were|did|worked|collaborated|partnered|former|formerly|"
+    r"previously|used\s+to|no\s+longer)\b",
+    re.IGNORECASE,
+)
+_PRESENT_RELATION_QUERY_RE = re.compile(
+    r"\b(?:is|are|does|works|collaborates|partners)\b",
+    re.IGNORECASE,
+)
 _QUERY_LABEL_STOP_WORDS = frozenset({"who", "what", "which", "where", "when", "the"})
 
 
@@ -202,6 +220,11 @@ def person_relation_inventory_signal(
         return PersonRelationInventorySignal(
             boost=0.03 if relation_query.target_label else 0.022,
             reason="person_relation_inventory_match",
+        )
+    if _text_has_stale_relation_evidence(relation_query, text):
+        return PersonRelationInventorySignal(
+            penalty=0.042,
+            reason="person_relation_inventory_stale_relation",
         )
     if relation_query.target_label and _text_mentions_anchor_relation_without_target(
         relation_query,
@@ -225,6 +248,7 @@ def person_relation_inventory_signal(
 
 
 def _person_relation_query(query: str) -> _PersonRelationQuery | None:
+    requires_current = _requires_current_relation_answer(query)
     work_target_match = _TARGET_WORK_WITH_QUERY_RE.search(query)
     if work_target_match is not None:
         return _query_for_anchor(
@@ -232,6 +256,7 @@ def _person_relation_query(query: str) -> _PersonRelationQuery | None:
             PersonRelationKind.WORK,
             target=_clean_label(work_target_match.group("target")),
             role="work_peer",
+            requires_current=requires_current,
         )
     for pattern in (_TARGET_POSSESSIVE_RELATION_QUERY_RE, _TARGET_OF_RELATION_QUERY_RE):
         match = pattern.search(query)
@@ -243,6 +268,7 @@ def _person_relation_query(query: str) -> _PersonRelationQuery | None:
             _kind_for_relation(relation),
             target=_clean_label(match.group("target")),
             role=_role_for_relation(relation),
+            requires_current=requires_current,
         )
         if relation_query is not None:
             return relation_query
@@ -260,13 +286,18 @@ def _person_relation_query(query: str) -> _PersonRelationQuery | None:
                 or generic_target_match.group("target_alt")
                 or ""
             ),
+            requires_current=requires_current,
         )
     work_match = _WORK_WITH_QUERY_RE.search(query)
     if work_match is not None:
         anchor = _clean_label(
             work_match.group("anchor") or work_match.group("anchor_alt") or ""
         )
-        return _query_for_anchor(anchor, PersonRelationKind.WORK)
+        return _query_for_anchor(
+            anchor,
+            PersonRelationKind.WORK,
+            requires_current=requires_current,
+        )
     for pattern in (_POSSESSIVE_RELATION_QUERY_RE, _OF_RELATION_QUERY_RE):
         match = pattern.search(query)
         if match is None:
@@ -277,6 +308,7 @@ def _person_relation_query(query: str) -> _PersonRelationQuery | None:
             _clean_label(match.group("anchor")),
             kind,
             role=_role_for_relation(relation),
+            requires_current=requires_current,
         )
         if relation_query is not None:
             return relation_query
@@ -285,6 +317,7 @@ def _person_relation_query(query: str) -> _PersonRelationQuery | None:
         return _query_for_anchor(
             _clean_label(generic_match.group("anchor")),
             PersonRelationKind.GENERIC,
+            requires_current=requires_current,
         )
     return None
 
@@ -295,6 +328,7 @@ def _query_for_anchor(
     *,
     target: str | None = None,
     role: str | None = None,
+    requires_current: bool = False,
 ) -> _PersonRelationQuery | None:
     if not anchor or _normalized_label(anchor) in _QUERY_LABEL_STOP_WORDS:
         return None
@@ -309,7 +343,14 @@ def _query_for_anchor(
         kind=kind,
         target_label=cleaned_target or None,
         relation_role=role,
+        requires_current=requires_current,
     )
+
+
+def _requires_current_relation_answer(query: str) -> bool:
+    if _PAST_RELATION_QUERY_RE.search(query) is not None:
+        return False
+    return _PRESENT_RELATION_QUERY_RE.search(query) is not None
 
 
 def _kind_for_relation(relation: str) -> PersonRelationKind:
@@ -406,6 +447,33 @@ def _text_satisfies_relation_query(
     normalized_text = _HONORIFIC_PERIOD_RE.sub(r"\1", text)
     for sentence_match in _SENTENCE_RE.finditer(normalized_text):
         sentence = sentence_match.group(0)
+        if not _text_mentions_anchor(relation_query.anchor_label, sentence):
+            continue
+        if not _required_relation_cue(relation_query).search(sentence):
+            continue
+        if relation_query.requires_current and _STALE_RELATION_CUE_RE.search(sentence):
+            continue
+        if relation_query.target_label is not None:
+            return _text_mentions_anchor(relation_query.target_label, sentence)
+        if _has_distinct_named_person(
+            sentence,
+            relation_query.anchor_label,
+        ) or _has_kinship_common_person(sentence):
+            return True
+    return False
+
+
+def _text_has_stale_relation_evidence(
+    relation_query: _PersonRelationQuery,
+    text: str,
+) -> bool:
+    if not relation_query.requires_current:
+        return False
+    normalized_text = _HONORIFIC_PERIOD_RE.sub(r"\1", text)
+    for sentence_match in _SENTENCE_RE.finditer(normalized_text):
+        sentence = sentence_match.group(0)
+        if not _STALE_RELATION_CUE_RE.search(sentence):
+            continue
         if not _text_mentions_anchor(relation_query.anchor_label, sentence):
             continue
         if not _required_relation_cue(relation_query).search(sentence):

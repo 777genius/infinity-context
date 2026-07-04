@@ -207,6 +207,28 @@ def test_person_relation_inventory_signal_penalizes_same_anchor_wrong_role() -> 
     assert signal.reason == "person_relation_inventory_role_mismatch"
 
 
+def test_person_relation_inventory_signal_penalizes_stale_current_relation() -> None:
+    signal = person_relation_inventory_signal(
+        query="Who is Alice's coworker?",
+        text="D4:8 Alice: Ben used to be my coworker on the mobile team.",
+    )
+
+    assert signal.boost == 0
+    assert signal.penalty > 0
+    assert signal.reason == "person_relation_inventory_stale_relation"
+
+
+def test_person_relation_inventory_signal_accepts_stale_relation_for_past_query() -> None:
+    signal = person_relation_inventory_signal(
+        query="Who was Alice's coworker?",
+        text="D4:8 Alice: Ben used to be my coworker on the mobile team.",
+    )
+
+    assert signal.boost > 0
+    assert signal.penalty == 0
+    assert signal.reason == "person_relation_inventory_match"
+
+
 def test_person_relation_inventory_signal_matches_specific_target_alias() -> None:
     signal = person_relation_inventory_signal(
         query="Is Maria Lee Alice's doctor?",
@@ -269,6 +291,39 @@ def test_deterministic_rerank_prefers_person_relation_evidence() -> None:
     )
     assert (
         "person_relation_inventory_anchor_only"
+        in reranked[1].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+
+
+def test_deterministic_rerank_prefers_current_relation_over_stale_status() -> None:
+    query = "Who is Alice's coworker?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    current_relation = _item(
+        "current_relation",
+        score=0.7,
+        text="D4:8 Alice: Ben is my coworker on the mobile team.",
+    )
+    stale_relation = _item(
+        "stale_relation",
+        score=0.72,
+        text="D4:9 Alice: Chris used to be my coworker on the mobile team.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (current_relation, stale_relation),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+
+    assert reranked[0].item_id == "current_relation"
+    assert (
+        "person_relation_inventory_match"
+        in reranked[0].diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+    assert (
+        "person_relation_inventory_stale_relation"
         in reranked[1].diagnostics["provenance"]["deterministic_rerank_reasons"]
     )
 
