@@ -2144,6 +2144,10 @@ def _compact_evidence_bundle_coverage(
         if _mapping(item.get("evidence_bundle"))
     ]
     complete_count = sum(1 for bundle in bundles if bundle.get("bundle_complete") is True)
+    missing_required_role_counts: dict[str, int] = defaultdict(int)
+    for bundle in bundles:
+        for role in _str_tuple(bundle.get("missing_required_roles")):
+            missing_required_role_counts[role] += 1
     evidence_term_count = sum(
         _positive_int(bundle.get("evidence_term_count")) or 0 for bundle in bundles
     )
@@ -2187,11 +2191,17 @@ def _compact_evidence_bundle_coverage(
         "avg_evidence_term_recall": _avg(
             _metric_value(bundle, "evidence_term_recall") for bundle in bundles
         ),
+        "avg_supporting_evidence_count": _avg(
+            _metric_value(bundle, "supporting_evidence_count") for bundle in bundles
+        ),
         "avg_query_support_term_recall": _avg(
             _metric_value(bundle, "query_support_term_recall") for bundle in bundles
         ),
         "evidence_term_count": evidence_term_count,
         "covered_evidence_term_count": covered_evidence_term_count,
+        "missing_required_role_counts": dict(
+            sorted(missing_required_role_counts.items())
+        ),
         "incomplete_samples": incomplete_samples,
     }
 

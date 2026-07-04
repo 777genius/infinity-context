@@ -54,6 +54,7 @@ def selected_evidence_weakness_breakdown(
     conflict_or_stale_case_ids: set[str] = set()
     group_case_ids: dict[str, set[str]] = defaultdict(set)
     reason_group_counts: dict[str, Counter[str]] = defaultdict(Counter)
+    reason_role_counts: dict[str, Counter[str]] = defaultdict(Counter)
     group_counts: Counter[str] = Counter()
     role_counts: Counter[str] = Counter()
     query_role_counts: Counter[str] = Counter()
@@ -130,6 +131,8 @@ def selected_evidence_weakness_breakdown(
             if "selected_weak_source_locality" in reasons:
                 weak_source_locality_query_role_counts.update(query_roles)
             reason_counts.update(reasons)
+            for reason in reasons:
+                reason_role_counts[reason][role] += 1
             risk_reason_counts.update(risk_reasons)
             sample = _selected_evidence_weakness_sample(
                 bundle_item,
@@ -196,6 +199,10 @@ def selected_evidence_weakness_breakdown(
         "reason_group_counts": {
             reason: dict(sorted(group_counts.items()))
             for reason, group_counts in sorted(reason_group_counts.items())
+        },
+        "reason_role_counts": {
+            reason: dict(sorted(role_counts.items()))
+            for reason, role_counts in sorted(reason_role_counts.items())
         },
         "role_counts": dict(sorted(role_counts.items())),
         "query_role_counts": dict(sorted(query_role_counts.items())),

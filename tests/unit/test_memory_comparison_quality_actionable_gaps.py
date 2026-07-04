@@ -376,6 +376,82 @@ def test_actionable_gap_summary_caps_non_query_plan_sample_case_id_text() -> Non
     assert top_gap["sample_case_ids"] == [long_case_id[:125] + "..."]
 
 
+def test_actionable_gap_summary_includes_selected_weakness_sample_payloads() -> None:
+    long_value = "x" * 200
+    summary = actionable_gap_summary(
+        evaluation_count=2,
+        expected_case_count=2,
+        failed_gates=("selected_low_answerability_clear",),
+        query_overlap_count=0,
+        profile_overlap_count=0,
+        intent_overlap_count=0,
+        selected_evidence_weakness={
+            "reason_counts": {
+                "selected_low_answerability": 2,
+                "selected_weak_source_locality": 1,
+            },
+            "samples": [
+                {
+                    "case_id": "weak-answerability",
+                    "group": "open-domain",
+                    "item_id": "candidate-1",
+                    "role": "supporting",
+                    "reasons": [
+                        "selected_low_answerability",
+                        "selected_weak_source_locality",
+                    ],
+                    "risk_reason_codes": ["risk:low_answerability"],
+                    "query_roles": ["original_question", f"role-{long_value}"],
+                    "source_refs": ["D1:1", f"D1:{long_value}"],
+                    "retrieval_order": 4,
+                    "source_ref_count": 2,
+                    "answerability_score": 0.1234567,
+                    "source_locality_score": 0.35,
+                    "broad_summary": False,
+                    "unlisted_field": "excluded",
+                },
+                {
+                    "case_id": "weak-answerability-2",
+                    "reasons": ["selected_low_answerability"],
+                    "source_refs": ["D2:1"],
+                },
+            ],
+        },
+    )
+
+    selected_gap = next(
+        gap
+        for gap in summary["ranked_gaps"]
+        if gap["gap"] == "selected_low_answerability"
+    )
+    locality_gap = next(
+        gap
+        for gap in summary["ranked_gaps"]
+        if gap["gap"] == "selected_weak_source_locality"
+    )
+
+    assert selected_gap["samples"][0] == {
+        "case_id": "weak-answerability",
+        "group": "open-domain",
+        "item_id": "candidate-1",
+        "role": "supporting",
+        "reasons": [
+            "selected_low_answerability",
+            "selected_weak_source_locality",
+        ],
+        "risk_reason_codes": ["risk:low_answerability"],
+        "query_roles": ["original_question", f"role-{long_value[:120]}..."],
+        "source_refs": ["D1:1", f"D1:{long_value[:122]}..."],
+        "retrieval_order": 4,
+        "source_ref_count": 2,
+        "answerability_score": 0.123457,
+        "source_locality_score": 0.35,
+    }
+    assert "unlisted_field" not in selected_gap["samples"][0]
+    assert selected_gap["samples"][1]["case_id"] == "weak-answerability-2"
+    assert locality_gap["samples"] == [selected_gap["samples"][0]]
+
+
 def test_actionable_gap_summary_caps_query_plan_actionable_samples() -> None:
     long_text = "x" * 200
     samples = [

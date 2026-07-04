@@ -2659,6 +2659,12 @@ def test_fast_gate_metrics_surfaces_selected_evidence_weakness() -> None:
         "selected_low_answerability": 1,
         "selected_weak_source_locality": 1,
     }
+    assert weakness["reason_role_counts"] == {
+        "selected_broad_summary": {"supporting": 1},
+        "selected_conflict_or_stale": {"supporting": 1},
+        "selected_low_answerability": {"primary": 1},
+        "selected_weak_source_locality": {"supporting": 1},
+    }
     assert weakness["role_counts"] == {"primary": 1, "supporting": 3}
     assert weakness["query_role_counts"] == {
         "location_support": 1,
@@ -2931,6 +2937,10 @@ def test_fast_gate_metrics_clusters_selected_evidence_weakness_by_group() -> Non
     assert weakness["reason_group_counts"] == {
         "selected_low_answerability": {"open-domain": 1, "temporal": 1},
         "selected_weak_source_locality": {"open-domain": 1},
+    }
+    assert weakness["reason_role_counts"] == {
+        "selected_low_answerability": {"primary": 2},
+        "selected_weak_source_locality": {"supporting": 1},
     }
 
 

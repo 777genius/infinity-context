@@ -26,6 +26,8 @@ _MAX_SAMPLE_CASE_IDS = 5
 _MAX_QUERY_PLAN_ACTIONABLE_SAMPLES = 3
 _MAX_QUERY_PLAN_ACTIONABLE_SAMPLE_VALUES = 5
 _MAX_QUERY_PLAN_ACTIONABLE_SAMPLE_TEXT = 128
+_MAX_SELECTED_EVIDENCE_ACTIONABLE_SAMPLES = 3
+_MAX_SELECTED_EVIDENCE_ACTIONABLE_SAMPLE_VALUES = 5
 
 
 def actionable_gap_summary(
@@ -230,6 +232,13 @@ def _append_selected_evidence_weakness_gaps(
     }
     for gap, count in _count_mapping(breakdown.get("reason_counts")).items():
         failed_gate = failed_gate_by_gap.get(str(gap), "")
+        matched_samples = _samples_for_gap(
+            _sequence(breakdown.get("samples")),
+            str(gap),
+        )
+        compact_samples = _compact_selected_evidence_actionable_samples(
+            matched_samples
+        )
         _append_actionable_gap(
             gaps,
             evaluation_count=evaluation_count,
@@ -246,7 +255,8 @@ def _append_selected_evidence_weakness_gaps(
                     "and provenance."
                 ),
             ),
-            samples=_samples_for_gap(_sequence(breakdown.get("samples")), str(gap)),
+            samples=matched_samples,
+            sample_payloads=compact_samples,
         )
 
 
@@ -714,6 +724,57 @@ def _compact_query_plan_actionable_samples(
         if compact:
             compact_samples.append(compact)
         if len(compact_samples) >= limit:
+            break
+    return tuple(compact_samples)
+
+
+def _compact_selected_evidence_actionable_samples(
+    samples: Sequence[Mapping[str, object]],
+) -> tuple[dict[str, object], ...]:
+    compact_samples: list[dict[str, object]] = []
+    for sample in samples:
+        compact: dict[str, object] = {}
+        for key in ("case_id", "group", "item_id", "role"):
+            value = _compact_query_plan_sample_text(sample.get(key))
+            if value:
+                compact[key] = value
+        for key in (
+            "reasons",
+            "risk_reason_codes",
+            "planner_reason_codes",
+            "query_roles",
+            "source_refs",
+            "answerability_reason_codes",
+            "source_locality_reason_codes",
+            "retrieval_sources",
+            "source_types",
+        ):
+            values = tuple(
+                value
+                for value in (
+                    _compact_query_plan_sample_text(raw_value)
+                    for raw_value in _str_tuple(sample.get(key))
+                )
+                if value
+            )
+            if values:
+                compact[key] = list(
+                    values[:_MAX_SELECTED_EVIDENCE_ACTIONABLE_SAMPLE_VALUES]
+                )
+        for key in ("retrieval_order", "source_ref_count"):
+            value = _positive_int(sample.get(key)) or 0
+            if value:
+                compact[key] = value
+        for key in ("answerability_score", "source_locality_score"):
+            value = sample.get(key)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                compact[key] = round(float(value), 6)
+        for key in ("broad_summary", "conflict_or_stale"):
+            if sample.get(key) is True:
+                compact[key] = True
+        if compact:
+            compact_samples.append(compact)
+        if len(compact_samples) >= _MAX_SELECTED_EVIDENCE_ACTIONABLE_SAMPLES:
             break
     return tuple(compact_samples)
 

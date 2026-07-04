@@ -17,6 +17,7 @@ from infinity_context_server.memory_comparison_benchmark import (
     LOCOMO_INGEST_OFFICIAL_TURNS,
     MEMORY_COMPARISON_MODE,
     _backend_comparison,
+    _compact_evidence_bundle_coverage,
     _compact_fast_gate_summary,
     _load_memory_comparison_cases,
     run_memory_comparison_benchmark,
@@ -1969,6 +1970,11 @@ def test_memory_comparison_compact_report_omits_heavy_evaluations(
     assert coverage["bundle_incomplete_count"] == 2
     assert coverage["bundle_completion_rate"] == 0.0
     assert coverage["avg_bundle_item_count"] == 0.5
+    assert coverage["avg_supporting_evidence_count"] == 0.0
+    assert coverage["missing_required_role_counts"] == {
+        "current_goal_support": 1,
+        "primary": 1,
+    }
     assert coverage["incomplete_samples"][0] == {
         "case_id": passing.case_id,
         "group": "single-hop",
@@ -2002,6 +2008,53 @@ def test_memory_comparison_compact_report_omits_heavy_evaluations(
     assert written["diagnostics"]["backend_summaries"]["memo-stack"][
         "fast_gate_summary"
     ] == fast_gate_summary
+
+
+def test_compact_evidence_bundle_coverage_summarizes_support_role_gaps() -> None:
+    coverage = _compact_evidence_bundle_coverage(
+        (
+            {
+                "case_id": "conv-1:qa:missing-bridge",
+                "group": "multi-hop",
+                "evidence_bundle": {
+                    "bundle_complete": False,
+                    "item_count": 1,
+                    "supporting_evidence_count": 0,
+                    "evidence_term_recall": 0.5,
+                    "query_support_term_recall": 0.25,
+                    "evidence_term_count": 2,
+                    "covered_evidence_terms": ["D1:1"],
+                    "missing_required_roles": ["bridge", "temporal_support"],
+                },
+                "retrieval_quality": {
+                    "missing_evidence_terms": ["D2:3"],
+                    "missing_terms": ["before the move"],
+                },
+            },
+            {
+                "case_id": "conv-1:qa:missing-temporal",
+                "group": "multi-hop",
+                "evidence_bundle": {
+                    "bundle_complete": True,
+                    "item_count": 2,
+                    "supporting_evidence_count": 1,
+                    "evidence_term_recall": 1.0,
+                    "query_support_term_recall": 1.0,
+                    "evidence_term_count": 1,
+                    "covered_evidence_terms": ["D3:4"],
+                    "missing_required_roles": ["temporal_support"],
+                },
+            },
+        )
+    )
+
+    assert coverage["schema_version"] == "compact_evidence_bundle_coverage.v1"
+    assert coverage["avg_supporting_evidence_count"] == 0.5
+    assert coverage["missing_required_role_counts"] == {
+        "bridge": 1,
+        "temporal_support": 2,
+    }
+    assert coverage["incomplete_samples"][0]["case_id"] == "conv-1:qa:missing-bridge"
 
 
 def test_compact_fast_gate_summary_surfaces_computed_gap_diagnostics() -> None:
