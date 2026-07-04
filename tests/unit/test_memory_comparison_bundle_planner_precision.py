@@ -96,6 +96,51 @@ def test_evidence_bundle_quality_does_not_reward_noisy_source_proximity() -> Non
     assert "risk:broad_summary" in quality["reason_codes"]
 
 
+def test_evidence_bundle_quality_reports_weak_source_locality_samples() -> None:
+    primary = _candidate(
+        item_id="primary",
+        retrieval_order=1,
+        dedupe_key="refs:D4:10",
+        covered_evidence_terms=("plan",),
+        primary_signal=True,
+        source_refs=("D4:10",),
+        focused_evidence_score=1.0,
+        direct_speaker_turn=True,
+        answerability_score=0.92,
+    )
+    weak_local_support = _candidate(
+        item_id="weak-local-support",
+        retrieval_order=2,
+        dedupe_key="refs:D4:12",
+        query_support_terms=("origin", "country"),
+        source_refs=("D4:12",),
+        focused_evidence_score=1.0,
+        direct_speaker_turn=True,
+        answerability_score=0.84,
+        source_locality_score=0.3,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, weak_local_support),
+        case_group="single",
+    )
+
+    quality = plan.to_diagnostics()["bundle_quality"]
+    assert quality["weak_source_locality_count"] == 1
+    assert quality["weak_source_locality_samples"] == [
+        {
+            "id": "weak-local-support",
+            "role": "supporting",
+            "source_locality_score": 0.3,
+            "answerability_score": 0.84,
+            "source_ref_count": 1,
+            "turn_refs_sample": ["D4:12"],
+        }
+    ]
+    assert quality["source_proximity_support_count"] == 0
+    assert "risk:weak_source_locality" in quality["reason_codes"]
+
+
 def test_evidence_bundle_quality_does_not_reward_generic_source_refs() -> None:
     primary = _candidate(
         item_id="primary",
@@ -513,6 +558,17 @@ def test_evidence_bundle_quality_flags_diffuse_source_refs() -> None:
 
     quality = plan.to_diagnostics()["bundle_quality"]
     assert quality["diffuse_source_ref_count"] == 1
+    assert quality["diffuse_source_ref_samples"] == [
+        {
+            "id": "diffuse-support",
+            "role": "supporting",
+            "source_ref_count": 3,
+            "turn_ref_count": 3,
+            "source_group_count": 1,
+            "max_turn_span": 26,
+            "turn_refs_sample": ["D4:2", "D4:11", "D4:28"],
+        }
+    ]
     assert "risk:diffuse_source_refs" in quality["reason_codes"]
 
 

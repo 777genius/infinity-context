@@ -27,6 +27,8 @@ _TURN_REF_PARTS_RE = re.compile(
 _SOURCE_PROXIMITY_WINDOW = 3
 _COMPACT_SOURCE_REF_MAX_TURNS = 2
 _COMPACT_SOURCE_REF_MAX_SPAN = _SOURCE_PROXIMITY_WINDOW
+_SOURCE_DIAGNOSTIC_SAMPLE_LIMIT = 5
+_SOURCE_DIAGNOSTIC_REF_SAMPLE_LIMIT = 4
 _TYPED_RELATION_SUPPORT_CATEGORIES = {
     "action_support": frozenset({"action_event"}),
     "activity_support": frozenset({"activity_profile"}),
@@ -2347,6 +2349,9 @@ def _bundle_quality_diagnostics(
             "source_chain_proximity_distance_counts": {},
             "source_proximity_window": _SOURCE_PROXIMITY_WINDOW,
             "diffuse_source_ref_count": 0,
+            "diffuse_source_ref_samples": [],
+            "weak_source_locality_count": 0,
+            "weak_source_locality_samples": [],
             "missing_required_role_count": len(missing_roles),
             "missing_required_roles": list(missing_roles),
             "contrast_count": 0,
@@ -2530,6 +2535,15 @@ def _bundle_quality_diagnostics(
     diffuse_source_ref_count = sum(
         1 for item in items if _candidate_has_diffuse_source_refs(item.candidate)
     )
+    diffuse_source_ref_items = tuple(
+        item for item in items if _candidate_has_diffuse_source_refs(item.candidate)
+    )
+    weak_source_locality_items = tuple(
+        item
+        for item in items
+        if _candidate_has_measured_weak_source_locality(item.candidate)
+    )
+    weak_source_locality_count = len(weak_source_locality_items)
     contrast_count = sum(
         1 for item in items if _candidate_has_contrast_support(item.candidate)
     )
@@ -2669,6 +2683,7 @@ def _bundle_quality_diagnostics(
             stale_surface_count=stale_surface_count,
             broad_summary_count=broad_summary_count,
             diffuse_source_ref_count=diffuse_source_ref_count,
+            weak_source_locality_count=weak_source_locality_count,
             conflict_or_stale_count=conflict_or_stale_count,
             selected_item_count=len(items),
         ),
@@ -2760,6 +2775,13 @@ def _bundle_quality_diagnostics(
         ),
         "source_proximity_window": _SOURCE_PROXIMITY_WINDOW,
         "diffuse_source_ref_count": diffuse_source_ref_count,
+        "diffuse_source_ref_samples": _diffuse_source_ref_samples(
+            diffuse_source_ref_items
+        ),
+        "weak_source_locality_count": weak_source_locality_count,
+        "weak_source_locality_samples": _weak_source_locality_samples(
+            weak_source_locality_items
+        ),
         "missing_required_role_count": len(missing_roles),
         "missing_required_roles": list(missing_roles),
         "contrast_count": contrast_count,
@@ -2850,6 +2872,55 @@ def _source_chain_proximity_distances(
             distances.append(closest_distance)
         previously_selected_turn_refs.extend(item_turn_refs)
     return tuple(distances)
+
+
+def _diffuse_source_ref_samples(
+    items: Sequence[PlannedEvidenceItem],
+) -> list[dict[str, object]]:
+    samples: list[dict[str, object]] = []
+    for item in items[:_SOURCE_DIAGNOSTIC_SAMPLE_LIMIT]:
+        turn_refs = _candidate_turn_refs(item.candidate)
+        samples.append(
+            {
+                "id": item.candidate.item_id,
+                "role": item.role,
+                "source_ref_count": len(item.candidate.source_refs),
+                "turn_ref_count": len(turn_refs),
+                "source_group_count": len({turn_ref[:2] for turn_ref in turn_refs}),
+                "max_turn_span": _turn_ref_span(turn_refs),
+                "turn_refs_sample": _source_turn_ref_strings_sample(item.candidate),
+            }
+        )
+    return samples
+
+
+def _weak_source_locality_samples(
+    items: Sequence[PlannedEvidenceItem],
+) -> list[dict[str, object]]:
+    samples: list[dict[str, object]] = []
+    for item in items[:_SOURCE_DIAGNOSTIC_SAMPLE_LIMIT]:
+        samples.append(
+            {
+                "id": item.candidate.item_id,
+                "role": item.role,
+                "source_locality_score": round(
+                    item.candidate.source_locality_score,
+                    6,
+                ),
+                "answerability_score": round(item.candidate.answerability_score, 6),
+                "source_ref_count": len(item.candidate.source_refs),
+                "turn_refs_sample": _source_turn_ref_strings_sample(item.candidate),
+            }
+        )
+    return samples
+
+
+def _source_turn_ref_strings_sample(
+    candidate: EvidenceBundleCandidate,
+) -> list[str]:
+    return list(
+        _candidate_turn_ref_strings(candidate)[:_SOURCE_DIAGNOSTIC_REF_SAMPLE_LIMIT]
+    )
 
 
 def _candidate_has_focused_source_proximity_support(
@@ -3057,6 +3128,7 @@ def _bundle_quality_reason_codes(
     stale_surface_count: int,
     broad_summary_count: int,
     diffuse_source_ref_count: int,
+    weak_source_locality_count: int,
     conflict_or_stale_count: int,
     selected_item_count: int,
 ) -> list[str]:
@@ -3159,6 +3231,8 @@ def _bundle_quality_reason_codes(
         reasons.append("risk:all_broad_summary")
     if diffuse_source_ref_count:
         reasons.append("risk:diffuse_source_refs")
+    if weak_source_locality_count:
+        reasons.append("risk:weak_source_locality")
     if conflict_or_stale_count:
         reasons.append("risk:conflict_or_stale")
     if selected_item_count and conflict_or_stale_count == selected_item_count:
