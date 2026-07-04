@@ -516,6 +516,8 @@ def infer_evidence_need(
         multi_hop_markers=multi_hop_markers,
     ):
         needs.append("contrast")
+    if _has_negative_absence_intent(question):
+        needs.append("negative_absence")
     if _has_inference_support_intent(
         question=question,
         relation_terms=relation_terms,
@@ -555,6 +557,8 @@ def infer_bundle_evidence_roles(
         roles.append("temporal_support")
     if "contrast" in evidence_need_set:
         roles.append("contrast")
+    if "negative_absence" in evidence_need_set:
+        roles.append("negative_support")
     if "count_support" in evidence_need_set:
         roles.append("count_support")
     if "list_support" in evidence_need_set:
@@ -619,6 +623,24 @@ def infer_bundle_evidence_roles(
     ):
         roles.append("inference_support")
     return tuple(dict.fromkeys(roles))
+
+
+def _has_negative_absence_intent(question: str) -> bool:
+    normalized = re.sub(r"[^0-9a-z']+", " ", question.casefold()).strip()
+    if not normalized:
+        return False
+    return bool(
+        re.search(
+            r"\b(?:"
+            r"no\s+longer|not\s+yet|never|none|nobody|no\s+one|"
+            r"(?:has|have|had|with|there\s+is|there\s+are)\s+no|"
+            r"not\s+(?:valid|current|available|present|registered|attending|"
+            r"going|using|used|mentioned|included)|"
+            r"without|missing|absent"
+            r")\b",
+            normalized,
+        )
+    )
 
 
 def merge_relation_evidence_needs(

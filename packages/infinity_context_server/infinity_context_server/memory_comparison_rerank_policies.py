@@ -518,6 +518,52 @@ class ContrastIntentPolicy:
         )
 
 
+class NegativeAbsencePolicy:
+    name = "NegativeAbsencePolicy"
+
+    def score(self, features: RerankPolicyFeatures) -> RerankPolicyContribution:
+        needed = "negative_absence" in set(features.evidence_need)
+        grounded = _negative_absence_evidence_grounded(features)
+        support_boost = 0.075 if needed and grounded else 0.0
+        positive_topic_penalty = (
+            -0.035
+            if needed
+            and not grounded
+            and not (
+                features.negation_surface
+                or features.stale_surface
+                or features.contrast_surface
+            )
+            and (
+                features.overlap_terms
+                or features.entity_hits
+                or features.speaker_hits
+                or features.relation_hits
+            )
+            else 0.0
+        )
+        return RerankPolicyContribution(
+            policy=self.name,
+            score=support_boost + positive_topic_penalty,
+            signals={
+                "benchmark_negative_absence_needed": needed,
+                "benchmark_negative_absence_evidence_grounded": grounded,
+                "benchmark_negative_absence_support_boost": round(
+                    support_boost,
+                    6,
+                ),
+                "benchmark_negative_absence_positive_topic_penalty": round(
+                    positive_topic_penalty,
+                    6,
+                ),
+            },
+            reason_codes=(
+                *_reason_codes(("negative_absence_support", support_boost)),
+                *(("negative_absence_positive_topic_conflict",) if positive_topic_penalty else ()),
+            ),
+        )
+
+
 class LocationIntentPolicy:
     name = "LocationIntentPolicy"
 
@@ -1046,6 +1092,31 @@ def _contrast_boost_eligible(features: RerankPolicyFeatures) -> bool:
     )
 
 
+def _negative_absence_evidence_grounded(features: RerankPolicyFeatures) -> bool:
+    if not features.negation_surface:
+        return False
+    if features.broad_summary or features.conflict_or_stale:
+        return False
+    if _has_measured_locality_below(features, 0.45):
+        return False
+    if features.query_has_entities and not (
+        features.entity_hits or features.speaker_hits
+    ):
+        return False
+    if _has_missing_required_answer_evidence(features) and not (
+        len(features.overlap_terms) >= 2 or features.relation_hits
+    ):
+        return False
+    return bool(
+        features.direct_speaker_turn
+        or features.source_ref_count > 0
+        or features.turn_ref_count > 0
+        or features.source_locality_score >= 0.65
+        or features.relation_hits
+        or len(features.overlap_terms) >= 2
+    )
+
+
 _TYPED_RELATION_SUPPORT_ROLE_CATEGORIES = {
     "action_support": frozenset({"action_event"}),
     "causal_support": frozenset({"causal"}),
@@ -1326,6 +1397,7 @@ _DEFAULT_POLICIES: tuple[RerankPolicy, ...] = (
     AnswerabilityPolicy(),
     MultiHopPolicy(),
     ContrastIntentPolicy(),
+    NegativeAbsencePolicy(),
     TypedRelationSupportPolicy(),
     LocationIntentPolicy(),
     CountListAnswerShapePolicy(),

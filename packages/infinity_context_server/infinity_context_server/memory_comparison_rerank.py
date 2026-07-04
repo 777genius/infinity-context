@@ -556,6 +556,14 @@ def expanded_search_query(case: PublicBenchmarkCase) -> tuple[str, dict[str, obj
     if temporal_terms:
         focus_temporal = _temporal_search_terms(temporal_terms, temporal_surface_terms)
         focus_parts.append(f"temporal: {', '.join(focus_temporal[:8])}")
+    if "negative_absence" in intent.evidence_need:
+        focus_negative = _negative_absence_support_query_terms(
+            relation_terms=relation_terms,
+            relation_variant_terms=relation_variant_terms,
+            lexical_terms=intent.lexical_terms,
+            entity_surfaces=entity_surfaces,
+        )
+        focus_parts.append(f"negative/absence: {', '.join(focus_negative[:8])}")
     if visual_terms:
         focus_visual = tuple(dict.fromkeys((*visual_terms, "image", "photo", "shows")))
         focus_parts.append(f"visual: {', '.join(focus_visual[:8])}")
@@ -803,6 +811,36 @@ def decomposed_search_queries(
                 reason_codes=(
                     "contrast_support",
                     "current_previous_evidence",
+                    "question_only",
+                ),
+            )
+        )
+    negative_absence_query_terms = (
+        _negative_absence_support_query_terms(
+            relation_terms=relation_terms,
+            relation_variant_terms=relation_variant_terms,
+            lexical_terms=lexical_terms,
+            entity_surfaces=entity_surfaces,
+        )
+        if "negative_absence" in intent.evidence_need
+        else ()
+    )
+    if negative_absence_query_terms and (
+        entity_surfaces or len(negative_absence_query_terms) >= 4
+    ):
+        query_candidates.append(
+            QueryPlanCandidate(
+                role="negative_support",
+                query=" ".join(
+                    (
+                        *entity_surfaces,
+                        *_render_query_terms(negative_absence_query_terms[:9]),
+                    )
+                ),
+                priority=36,
+                query_type="lexical",
+                reason_codes=(
+                    "negative_absence_support",
                     "question_only",
                 ),
             )
@@ -1504,6 +1542,8 @@ def _recommended_query_role_families(intent: RetrievalIntent) -> tuple[str, ...]
         families.append("temporal_support")
     if "contrast" in intent.evidence_need:
         families.append("contrast_support")
+    if "negative_absence" in intent.evidence_need:
+        families.append("negative_support")
     if "location_support" in intent.evidence_need:
         families.append("location_support")
     if "count_support" in intent.evidence_need:
@@ -1598,6 +1638,44 @@ def _compact_relation_query_role(intent: RetrievalIntent) -> str:
         if role in roles:
             return role
     return "compact_relation"
+
+
+def _negative_absence_support_query_terms(
+    *,
+    relation_terms: tuple[str, ...],
+    relation_variant_terms: tuple[str, ...],
+    lexical_terms: tuple[str, ...],
+    entity_surfaces: tuple[str, ...],
+) -> tuple[str, ...]:
+    entity_tokens = {
+        token for surface in entity_surfaces for token in _normalized_terms(surface)
+    }
+    topical_terms = tuple(
+        term
+        for term in lexical_terms
+        if term not in _QUERY_STOPWORDS
+        and term not in relation_terms
+        and term not in relation_variant_terms
+        and term not in entity_tokens
+    )
+    return tuple(
+        dict.fromkeys(
+            (
+                *_relation_query_terms(relation_terms, relation_variant_terms),
+                *topical_terms[:5],
+                "no",
+                "not",
+                "never",
+                "none",
+                "not yet",
+                "no longer",
+                "without",
+                "missing",
+                "absent",
+                "stale",
+            )
+        )
+    )
 
 
 def _temporal_query_role(time_kind: str) -> str:

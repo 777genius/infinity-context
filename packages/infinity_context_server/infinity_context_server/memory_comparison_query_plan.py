@@ -355,6 +355,7 @@ def _role_family_selection_priority(family: str) -> int:
         "base_query": 0,
         "commonality_support": 1,
         "contrast_support": 1,
+        "negative_support": 1,
         "visual_support": 1,
         "count_support": 2,
         "list_support": 2,
@@ -405,7 +406,7 @@ def _candidate_replacement_priority(candidate: QueryPlanCandidate) -> int:
 def _role_family_replacement_priority(family: str) -> int:
     if family == "base_query":
         return 0
-    if family == "location_support":
+    if family in {"location_support", "negative_support"}:
         return 1
     if family in {"count_support", "list_support", "value_support"}:
         return 2
@@ -488,6 +489,8 @@ def _role_families(role: str) -> tuple[str, ...]:
         return ("temporal_support",)
     if role == "contrast_support":
         return ("contrast_support",)
+    if role == "negative_support":
+        return ("negative_support",)
     if role.startswith("multi_hop"):
         return ("multi_hop",)
     return (role or "unknown",)

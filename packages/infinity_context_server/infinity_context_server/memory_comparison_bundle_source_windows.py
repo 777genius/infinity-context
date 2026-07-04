@@ -47,10 +47,21 @@ def is_redundant_source_window_filler(
         and not has_answer_evidence
         and not any(source_type_counts[key] == 0 for key in source_type_keys)
         and not any(retrieval_source_counts[key] == 0 for key in retrieval_source_keys)
-        and _candidate_has_redundant_source_window(
-            candidate,
-            selected,
-            source_proximity_window=source_proximity_window,
+        and (
+            _candidate_has_redundant_source_window(
+                candidate,
+                selected,
+                source_proximity_window=source_proximity_window,
+            )
+            or (
+                not adds_query_support_terms
+                and _candidate_has_redundant_source_window(
+                    candidate,
+                    selected,
+                    source_proximity_window=source_proximity_window,
+                    include_primary=True,
+                )
+            )
         )
         and _has_distinct_source_window_alternative(
             remaining,
@@ -92,6 +103,7 @@ def _candidate_has_redundant_source_window(
     selected: Sequence[Any],
     *,
     source_proximity_window: int,
+    include_primary: bool = False,
 ) -> bool:
     if not candidate.source_refs:
         return False
@@ -100,7 +112,7 @@ def _candidate_has_redundant_source_window(
     selected_turn_refs = tuple(
         turn_ref
         for item in selected
-        if item.role != "primary"
+        if include_primary or item.role != "primary"
         if item.candidate.source_refs
         if _candidate_has_source_proximity_support(item.candidate)
         for turn_ref in _candidate_turn_refs(item.candidate)

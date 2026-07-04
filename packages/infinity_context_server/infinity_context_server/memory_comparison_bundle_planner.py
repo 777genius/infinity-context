@@ -697,6 +697,11 @@ def _role_for_candidate(
 ) -> BundleRole:
     if primary is not None and candidate.dedupe_key == primary.dedupe_key:
         return "primary"
+    if (
+        _NEGATIVE_ABSENCE_ROLES.intersection(required_roles)
+        and _candidate_has_negative_absence_support(candidate)
+    ):
+        return "negative_support"
     if candidate.conflict_or_stale or candidate.contrast_surface:
         return "contrast"
     if _is_bridge_candidate(candidate, case_group=case_group):
