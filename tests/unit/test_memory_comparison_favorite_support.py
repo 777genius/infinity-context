@@ -133,6 +133,77 @@ def test_favorite_support_distinguishes_explicit_favorite_from_generic_preferenc
     ] == ["favorite_support"]
 
 
+def test_favorite_support_does_not_boost_negated_or_stale_favorite() -> None:
+    case = _case(
+        case_id="favorite-color-negated-stale-rerank",
+        question="What is Alex's favorite color?",
+        expected_terms=("blue",),
+        answer="blue",
+    )
+    negated_favorite = RetrievedMemory(
+        item_id="negated-favorite",
+        rank=1,
+        score=0.2,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alex: Green is not my favorite color."
+        ),
+        source_refs=("D1:1",),
+    )
+    stale_favorite = RetrievedMemory(
+        item_id="stale-favorite",
+        rank=2,
+        score=0.2,
+        text=(
+            "session_1 turn D1:2 date: 10:05 am "
+            "D1:2 Alex: Red used to be my favorite color."
+        ),
+        source_refs=("D1:2",),
+    )
+    current_favorite = RetrievedMemory(
+        item_id="current-favorite",
+        rank=3,
+        score=0.0,
+        text=(
+            "session_1 turn D1:3 date: 10:10 am "
+            "D1:3 Alex: My favorite color is blue."
+        ),
+        source_refs=("D1:3",),
+    )
+
+    reranked, _metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (negated_favorite, stale_favorite, current_favorite),
+    )
+
+    assert reranked[0].item_id == "current-favorite"
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    current_features = diagnostics_by_id["current-favorite"][
+        "benchmark_candidate_features"
+    ]
+    negated_features = diagnostics_by_id["negated-favorite"][
+        "benchmark_candidate_features"
+    ]
+    stale_features = diagnostics_by_id["stale-favorite"][
+        "benchmark_candidate_features"
+    ]
+
+    assert "favorite_preference" in current_features["relation_category_hits"]
+    assert "favorite_preference" not in negated_features["relation_category_hits"]
+    assert "favorite_preference" not in stale_features["relation_category_hits"]
+    assert diagnostics_by_id["current-favorite"]["score_signals"][
+        "benchmark_typed_relation_support_hit_roles"
+    ] == ["favorite_support"]
+    assert "favorite_support" not in diagnostics_by_id["negated-favorite"][
+        "score_signals"
+    ].get("benchmark_typed_relation_support_hit_roles", [])
+    assert "favorite_support" not in diagnostics_by_id["stale-favorite"][
+        "score_signals"
+    ].get("benchmark_typed_relation_support_hit_roles", [])
+
+
 def test_negative_preference_support_prefers_avoid_evidence() -> None:
     case = _case(
         case_id="avoid-activity-rerank-preference-support",

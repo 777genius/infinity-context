@@ -1734,6 +1734,28 @@ _FAVORITE_PREFERENCE_SURFACE_RE = re.compile(
     r"|\bgo-to\s+(?:book|choice|color|food|movie|music|place|restaurant|song|spot)\b",
     re.IGNORECASE,
 )
+_FAVORITE_NEGATED_OR_STALE_SURFACE_RE = re.compile(
+    r"\b(?:not(?!\s+just\b)|never|no\s+longer|isn't|wasn't|"
+    r"is\s+not|was\s+not)\s+"
+    r"(?:(?:my|his|her|their|our|your)\s+)?(?:favorite|favourite)\b"
+    r"|\b(?:my|his|her|their|our|your)\s+"
+    r"(?:favorite|favourite)\s+"
+    r"(?:book|choice|color|food|movie|music|place|restaurant|song|spot)\s+"
+    r"(?:is|was)\s+not\b"
+    r"|\bused\s+to\s+(?:be\s+)?"
+    r"(?:(?:my|his|her|their|our|your)\s+)?(?:favorite|favourite)\b"
+    r"|\b(?:my|his|her|their|our|your)\s+"
+    r"(?:favorite|favourite)\s+"
+    r"(?:book|choice|color|food|movie|music|place|restaurant|song|spot)\s+"
+    r"used\s+to\s+be\b",
+    re.IGNORECASE,
+)
+_FAVORITE_CURRENT_SURFACE_RE = re.compile(
+    r"\b(?:now|currently|current|these\s+days|today)\b.{0,80}"
+    r"\b(?:favorite|favourite)\b"
+    r"|\bcurrent\s+(?:favorite|favourite)\b",
+    re.IGNORECASE | re.DOTALL,
+)
 
 
 def _has_favorite_preference_support(
@@ -1741,6 +1763,10 @@ def _has_favorite_preference_support(
     *,
     memory_text: str = "",
 ) -> bool:
+    if _FAVORITE_NEGATED_OR_STALE_SURFACE_RE.search(
+        memory_text,
+    ) and not _FAVORITE_CURRENT_SURFACE_RE.search(memory_text):
+        return False
     favorite_surface = {"favorite", "favourite"} & memory_terms
     favorite_context = {
         "book",
