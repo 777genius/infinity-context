@@ -2042,6 +2042,23 @@ def _compact_fast_gate_summary(
                 selected_weakness.get("risk_reason_counts")
             ),
         },
+        "selected_evidence_weakness_samples": {
+            "samples": _compact_selected_evidence_weakness_samples(
+                selected_weakness.get("samples")
+            ),
+            "low_answerability_samples": _compact_selected_evidence_weakness_samples(
+                selected_weakness.get("low_answerability_samples")
+            ),
+            "weak_source_locality_samples": _compact_selected_evidence_weakness_samples(
+                selected_weakness.get("weak_source_locality_samples")
+            ),
+            "broad_summary_samples": _compact_selected_evidence_weakness_samples(
+                selected_weakness.get("broad_summary_samples")
+            ),
+            "conflict_or_stale_samples": _compact_selected_evidence_weakness_samples(
+                selected_weakness.get("conflict_or_stale_samples")
+            ),
+        },
         "query_role_gap_counts": {
             "role_gap_count": _positive_int(query_role_gaps.get("role_gap_count")) or 0,
             "role_family_gap_count": _positive_int(
@@ -2133,6 +2150,68 @@ def _compact_fast_gate_summary(
             ),
         },
     }
+
+
+def _compact_selected_evidence_weakness_samples(
+    value: object,
+    *,
+    limit: int = 3,
+) -> list[dict[str, object]]:
+    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
+        return []
+    samples: list[dict[str, object]] = []
+    allowed_scalar_keys = {
+        "case_id",
+        "group",
+        "item_id",
+        "role",
+        "query_role_count",
+        "retrieval_order",
+        "answerability_score",
+        "source_locality_score",
+        "broad_summary",
+        "conflict_or_stale",
+        "source_ref_count",
+        "risk_reason_count",
+        "planner_reason_count",
+        "answerability_reason_count",
+        "source_locality_reason_count",
+        "retrieval_source_count",
+        "source_type_count",
+        "relation_category_count",
+        "relation_category_hit_count",
+        "source_type",
+        "stale_reason",
+        "conflict_reason",
+    }
+    allowed_sequence_keys = {
+        "query_roles",
+        "reasons",
+        "source_refs",
+        "risk_reason_codes",
+        "planner_reason_codes",
+        "answerability_reason_codes",
+        "source_locality_reason_codes",
+        "retrieval_sources",
+        "source_types",
+        "relation_categories",
+        "relation_category_hits",
+    }
+    for raw_sample in value:
+        sample = _mapping(raw_sample)
+        if not sample:
+            continue
+        compact: dict[str, object] = {}
+        for key in sorted(allowed_scalar_keys):
+            if key in sample:
+                compact[key] = sample[key]
+        for key in sorted(allowed_sequence_keys):
+            if key in sample:
+                compact[key] = list(_str_tuple(sample.get(key))[:6])
+        samples.append(compact)
+        if len(samples) >= limit:
+            break
+    return samples
 
 
 def _compact_evidence_bundle_coverage(

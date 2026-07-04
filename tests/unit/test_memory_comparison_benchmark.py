@@ -2133,7 +2133,9 @@ def test_compact_fast_gate_summary_surfaces_computed_gap_diagnostics() -> None:
                         "missing_emotion_response_evidence"
                     ],
                     "source_locality_reason_codes": ["broad_source_refs"],
+                    "query_roles": ["relation_compact"],
                     "source_refs": ["D1:1"],
+                    "text": "raw selected evidence should stay out of compact summary",
                 }
             ],
         },
@@ -2155,6 +2157,33 @@ def test_compact_fast_gate_summary_surfaces_computed_gap_diagnostics() -> None:
         "selected_low_answerability": 1,
         "selected_weak_source_locality": 1,
     }
+    weakness_samples = summary["selected_evidence_weakness_samples"]
+    assert weakness_samples["samples"] == [
+        {
+            "answerability_score": 0.1,
+            "answerability_reason_count": 1,
+            "broad_summary": False,
+            "case_id": "compact-fastgate-gap",
+            "conflict_or_stale": False,
+            "group": "single-hop",
+            "item_id": "weak-selected",
+            "query_role_count": 1,
+            "retrieval_order": 1,
+            "role": "primary",
+            "source_locality_score": 0.1,
+            "source_locality_reason_count": 1,
+            "source_ref_count": 1,
+            "answerability_reason_codes": ["missing_emotion_response_evidence"],
+            "query_roles": ["relation_compact"],
+            "reasons": [
+                "selected_low_answerability",
+                "selected_weak_source_locality",
+            ],
+            "source_locality_reason_codes": ["broad_source_refs"],
+            "source_refs": ["D1:1"],
+        }
+    ]
+    assert "text" not in weakness_samples["samples"][0]
     assert summary["rerank_signal_gap_counts"][
         "positive_unselected_candidate_count"
     ] == 1
