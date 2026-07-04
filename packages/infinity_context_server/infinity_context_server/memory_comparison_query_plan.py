@@ -356,6 +356,8 @@ def _role_family_selection_priority(family: str) -> int:
         "list_support": 2,
         "value_support": 2,
         "relation_compact": 2,
+        "preference_support": 2,
+        "causal_support": 2,
         "location_support": 2,
         "temporal_support": 3,
         "multi_hop": 4,
@@ -405,6 +407,8 @@ def _role_family_replacement_priority(family: str) -> int:
         return 2
     if family == "relation_compact":
         return 2
+    if family in {"preference_support", "causal_support"}:
+        return 2
     if family == "expanded_focus":
         return 3
     return 4
@@ -443,14 +447,16 @@ def _role_families(role: str) -> tuple[str, ...]:
         return ("expanded_focus",)
     if role == "compact_relation":
         return ("relation_compact",)
+    if role == "causal_support":
+        return ("relation_compact", "causal_support")
+    if role in {"favorite_support", "preference_support"}:
+        return ("relation_compact", "preference_support")
     if role in {
-        "causal_support",
         "communication_support",
         "emotion_response_support",
         "event_support",
         "exchange_support",
         "inference_support",
-        "preference_support",
         "symbolic_meaning_support",
     }:
         return ("relation_compact",)

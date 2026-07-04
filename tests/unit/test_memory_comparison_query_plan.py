@@ -414,6 +414,66 @@ def test_query_planner_maps_relation_support_roles_to_compact_family() -> None:
     assert diagnostics["missing_recommended_role_families"] == []
 
 
+def test_query_planner_preserves_preference_and_causal_support_families() -> None:
+    plan = QueryPlannerV2(max_queries=4, max_queries_per_type=3).plan(
+        (
+            _candidate(
+                "original_question",
+                "Why does Alex prefer tea?",
+                priority=0,
+                query_type="semantic",
+            ),
+            _candidate(
+                "expanded_focus",
+                "Why does Alex prefer tea?\nSearch focus: entities: alex",
+                priority=10,
+                query_type="semantic",
+            ),
+            _candidate(
+                "causal_support",
+                "alex reason because cause prefer tea",
+                priority=30,
+            ),
+            _candidate(
+                "preference_support",
+                "alex prefer tea like preferred",
+                priority=34,
+            ),
+            _candidate(
+                "multi_hop_bridge",
+                "alex prefer tea reason because decision",
+                priority=45,
+            ),
+        ),
+        fallback_query="Why does Alex prefer tea?",
+        recommended_role_families=(
+            "base_query",
+            "relation_compact",
+            "preference_support",
+            "causal_support",
+            "multi_hop",
+        ),
+    )
+
+    diagnostics = plan.to_diagnostics()
+
+    assert diagnostics["selected_roles"] == [
+        "original_question",
+        "causal_support",
+        "preference_support",
+        "multi_hop_bridge",
+    ]
+    assert diagnostics["selected_role_families"] == [
+        "base_query",
+        "relation_compact",
+        "causal_support",
+        "relation_compact",
+        "preference_support",
+        "multi_hop",
+    ]
+    assert diagnostics["missing_recommended_role_families"] == []
+
+
 def test_query_planner_preserves_commonality_support_family() -> None:
     plan = QueryPlannerV2(max_queries=3).plan(
         (

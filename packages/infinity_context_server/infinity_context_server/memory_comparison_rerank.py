@@ -33,6 +33,7 @@ from infinity_context_server.memory_comparison_query_terms import (
     _HIGH_SIGNAL_RELATION_VARIANTS,
     _contrast_support_query_terms,
     _location_support_query_terms,
+    _preference_support_query_terms,
     _relation_query_terms,
     _support_query_terms,
 )
@@ -742,6 +743,36 @@ def decomposed_search_queries(
                 ),
             )
         )
+        if (
+            "preference" in intent.evidence_need
+            and "causal_support" in intent.evidence_need
+            and compact_relation_role not in {"favorite_support", "preference_support"}
+        ):
+            preference_query_terms = _preference_support_query_terms(
+                relation_terms=relation_terms,
+                relation_variant_terms=relation_variant_terms,
+                lexical_terms=lexical_terms,
+                entity_surfaces=entity_surfaces,
+            )
+            if preference_query_terms:
+                query_candidates.append(
+                    QueryPlanCandidate(
+                        role="preference_support",
+                        query=" ".join(
+                            (
+                                *compact_entity_surfaces,
+                                *_render_query_terms(preference_query_terms[:8]),
+                            )
+                        ),
+                        priority=34,
+                        query_type="lexical",
+                        reason_codes=(
+                            "preference_support",
+                            "preference_reason_evidence",
+                            "question_only",
+                        ),
+                    )
+                )
     contrast_query_terms = (
         _contrast_support_query_terms(
             relation_terms=relation_terms,
@@ -1093,6 +1124,11 @@ def decomposed_search_queries(
             or (
                 "causal_support" in evidence_need_set
                 and multi_hop_markers
+                and has_multi_hop_bridge_query
+            )
+            or (
+                "preference" in evidence_need_set
+                and "causal_support" in evidence_need_set
                 and has_multi_hop_bridge_query
             )
             or (visual_terms and has_multi_hop_bridge_query)
@@ -1448,6 +1484,8 @@ def _recommended_query_role_families(intent: RetrievalIntent) -> tuple[str, ...]
         families.append("commonality_support")
     if intent.relation_terms or intent.relation_variant_terms:
         families.append("relation_compact")
+    if "preference" in intent.evidence_need:
+        families.append("preference_support")
     if intent.visual_terms:
         families.append("visual_support")
     if intent.time_intent.is_temporal and not (
@@ -1466,6 +1504,7 @@ def _recommended_query_role_families(intent: RetrievalIntent) -> tuple[str, ...]
     if "value_support" in intent.evidence_need:
         families.append("value_support")
     if "causal_support" in intent.evidence_need:
+        families.append("causal_support")
         families.append("multi_hop")
     if "multi_hop" in intent.evidence_need or intent.multi_hop_markers:
         families.append("multi_hop")

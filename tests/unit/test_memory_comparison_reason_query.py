@@ -161,6 +161,13 @@ def test_preferring_reason_question_keeps_preference_support() -> None:
     assert "preference" in profile["evidence_need"]
     assert "causal_support" in profile["evidence_need"]
     assert "preference_support" in profile["bundle_evidence_roles"]
+    assert "preference_support" in metadata["query_plan"]["selected_roles"]
+    assert "causal_support" in metadata["query_plan"]["selected_roles"]
+    assert (
+        "preference_support"
+        in metadata["query_plan"]["recommended_role_families"]
+    )
+    assert metadata["query_plan"]["missing_recommended_role_families"] == []
     assert any(
         "alex reason give prefer motivation because cause" in query
         for query in queries
