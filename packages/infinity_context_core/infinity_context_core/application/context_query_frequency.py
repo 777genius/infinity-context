@@ -184,10 +184,10 @@ def frequency_recurrence_tail(variants: frozenset[str]) -> str:
         for part in (
             activity_terms,
             (
-                "frequency recurrence cadence regular regularly often routine every "
-                "each daily weekly monthly yearly weekend weekdays every other "
-                "every few every two biweekly fortnightly once twice three "
-                "times per week per month couple times"
+                "frequency recurrence cadence regular often every each daily "
+                "weekly monthly yearly weekend weekdays every other every few "
+                "every two biweekly monday tuesday sunday wednesday thursday "
+                "friday saturday once twice"
             ),
         )
         if part
