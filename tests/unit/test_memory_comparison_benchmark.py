@@ -2271,6 +2271,14 @@ def test_compact_fast_gate_summary_surfaces_computed_gap_diagnostics() -> None:
     summary = _compact_fast_gate_summary((item,))
 
     assert summary["schema_version"] == "compact_fast_gate_summary.v1"
+    assert {
+        ".": "fast_gate.v1",
+        "actionable_gap_summary": "actionable_gap_summary.v1",
+        "answer_context_support_gap_summary": "answer_context_support_gaps.v1",
+        "query_plan_gap_breakdown": "query_plan_gap_breakdown.v1",
+        "rerank_signal_gap_breakdown": "rerank_signal_gaps.v1",
+        "selected_evidence_weakness": "selected_evidence_weakness.v2",
+    }.items() <= summary["source_schema_versions"].items()
     assert summary["ready_for_full_locomo"] is False
     assert "query_plan_evidence_roles_clear" in summary["failed_gates"]
     assert summary["query_plan_gap_counts"][
