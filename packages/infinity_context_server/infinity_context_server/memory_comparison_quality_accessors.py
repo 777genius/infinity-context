@@ -238,7 +238,18 @@ def only_broad_bundle_evidence(item: Mapping[str, object]) -> bool:
 
 
 def bundle_complete(item: Mapping[str, object]) -> bool:
-    return bool(mapping(item.get("evidence_bundle")).get("bundle_complete"))
+    bundle = mapping(item.get("evidence_bundle"))
+    if not bool(bundle.get("bundle_complete")):
+        return False
+    if str_tuple(bundle.get("missing_required_roles")):
+        return False
+    if bundle.get("role_requirement_complete") is False:
+        return False
+
+    planner = bundle_planner(item)
+    if str_tuple(planner.get("missing_required_roles")):
+        return False
+    return planner.get("role_requirement_complete") is not False
 
 
 def has_evidence_recall(item: Mapping[str, object]) -> bool:

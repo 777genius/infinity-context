@@ -6,6 +6,9 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 
 from infinity_context_server.memory_comparison_quality_accessors import (
+    bundle_complete as _bundle_complete,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
     bundle_items as _bundle_items,
 )
 from infinity_context_server.memory_comparison_quality_accessors import (
@@ -182,7 +185,7 @@ def bundle_incomplete_diagnostics(
         if item.get("scored") is not True:
             continue
         bundle = _mapping(item.get("evidence_bundle"))
-        if bool(bundle.get("bundle_complete")):
+        if _bundle_complete(item):
             continue
         incomplete_case_count += 1
         item_reasons = _bundle_incomplete_reasons(item)
@@ -342,7 +345,15 @@ def _bundle_incomplete_reasons(item: Mapping[str, object]) -> tuple[str, ...]:
         ):
             reasons.append("missing_typed_relation_support")
             reasons.append(f"missing_{role}")
-    for role in _str_tuple(bundle.get("missing_required_roles")):
+    planner = _mapping(bundle.get("bundle_planner"))
+    for role in tuple(
+        dict.fromkeys(
+            (
+                *_str_tuple(bundle.get("missing_required_roles")),
+                *_str_tuple(planner.get("missing_required_roles")),
+            )
+        )
+    ):
         reasons.append(f"missing_required_{role}")
     reasons.extend(_multi_hop_bundle_gap_reasons(item, bundle))
     return tuple(dict.fromkeys(reasons or ("unknown_bundle_gap",)))

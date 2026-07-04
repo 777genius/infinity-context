@@ -1629,6 +1629,82 @@ def test_fast_gate_metrics_passes_when_locomo_fast_thresholds_are_met() -> None:
     assert "bundle_quality_medium_or_high" not in gate["gates"]
 
 
+def test_fast_gate_metrics_treats_required_role_gaps_as_incomplete() -> None:
+    complete_items = [
+        _item(
+            case_id=f"case-{index}",
+            evidence_bundle={
+                "bundle_complete": True,
+                "role_requirement_complete": True,
+                "missing_required_roles": [],
+                "evidence_term_count": 1,
+                "covered_evidence_terms": [f"D{index}:1"],
+                "items": [
+                    {
+                        "retrieval_order": 1,
+                        "covered_evidence_terms": [f"D{index}:1"],
+                        "focused_evidence_score": 1.0,
+                    }
+                ],
+            },
+        )
+        for index in range(1, 39)
+    ]
+    top_level_gap = _item(
+        case_id="top-level-role-gap",
+        evidence_bundle={
+            "bundle_complete": True,
+            "role_requirement_complete": False,
+            "missing_required_roles": ["temporal_support"],
+            "evidence_term_count": 1,
+            "covered_evidence_terms": ["D39:1"],
+            "items": [
+                {
+                    "retrieval_order": 1,
+                    "covered_evidence_terms": ["D39:1"],
+                    "focused_evidence_score": 1.0,
+                }
+            ],
+        },
+    )
+    planner_gap = _item(
+        case_id="planner-role-gap",
+        evidence_bundle={
+            "bundle_complete": True,
+            "evidence_term_count": 1,
+            "covered_evidence_terms": ["D40:1"],
+            "bundle_planner": {
+                "role_requirement_complete": False,
+                "missing_required_roles": ["location_support"],
+            },
+            "items": [
+                {
+                    "retrieval_order": 1,
+                    "covered_evidence_terms": ["D40:1"],
+                    "focused_evidence_score": 1.0,
+                }
+            ],
+        },
+    )
+
+    gate = fast_gate_metrics(
+        (*complete_items, top_level_gap, planner_gap),
+        expected_case_count=40,
+    )
+    diagnostics = quality_diagnostics((*complete_items, top_level_gap, planner_gap))
+
+    assert gate["gates"]["evidence_bundle_complete"]["actual"] == 38
+    assert "evidence_bundle_complete" in gate["failed_gates"]
+    assert gate["bundle_gap_breakdown"]["incomplete_case_count"] == 2
+    assert gate["bundle_gap_breakdown"]["reason_counts"][
+        "missing_required_temporal_support"
+    ] == 1
+    assert gate["bundle_gap_breakdown"]["reason_counts"][
+        "missing_required_location_support"
+    ] == 1
+    assert diagnostics["per_intent"]["need:unknown"]["bundle_complete_rate"] == 0.95
+
+
 def test_fast_gate_metrics_fails_when_thresholds_or_leakage_fail() -> None:
     items = tuple(
         _item(
