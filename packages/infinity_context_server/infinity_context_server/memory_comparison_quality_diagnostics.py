@@ -139,6 +139,12 @@ from infinity_context_server.memory_comparison_quality_fusion import (
 from infinity_context_server.memory_comparison_quality_fusion import (
     candidate_fusion_table as _candidate_fusion_table,
 )
+from infinity_context_server.memory_comparison_quality_query_plan_gaps import (
+    evidence_role_query_families as _evidence_role_query_families,
+)
+from infinity_context_server.memory_comparison_quality_query_plan_gaps import (
+    query_plan_gap_breakdown as _query_plan_gap_breakdown,
+)
 from infinity_context_server.memory_comparison_quality_query_role_gaps import (
     query_role_gap_breakdown as _query_role_gap_breakdown,
 )
@@ -154,31 +160,6 @@ _SELECTED_WEAKNESS_REASON_LIMIT = 6
 _SELECTED_WEAKNESS_QUERY_ROLE_LIMIT = 6
 _SELECTED_WEAKNESS_SOURCE_REF_LIMIT = 5
 _SELECTED_WEAKNESS_CATEGORY_SAMPLE_LIMIT = 5
-
-
-_PROFILE_SUPPORT_ROLES = frozenset(
-    {
-        "action_support",
-        "activity_support",
-        "age_support",
-        "alias_support",
-        "commitment_support",
-        "contact_support",
-        "current_goal_support",
-        "date_support",
-        "diet_support",
-        "education_support",
-        "employment_support",
-        "favorite_support",
-        "health_support",
-        "identity_support",
-        "pet_support",
-        "skill_support",
-        "status_support",
-        "support_goal_support",
-        "vehicle_support",
-    }
-)
 
 
 def evidence_ref_rank_gate_metrics(
@@ -950,75 +931,6 @@ def _add_compact_sample_list(
     compact = tuple(dict.fromkeys(value for value in values if value.strip()))[:limit]
     if compact:
         sample[key] = list(compact)
-
-
-def _query_plan_gap_breakdown(
-    query_plan_integrity: Mapping[str, object],
-) -> dict[str, object]:
-    return {
-        "schema_version": "query_plan_gap_breakdown.v1",
-        "plan_count": _positive_int(query_plan_integrity.get("plan_count")) or 0,
-        "plan_gap_case_count": (
-            _positive_int(query_plan_integrity.get("plan_gap_case_count")) or 0
-        ),
-        "missing_recommended_role_family_total": (
-            _positive_int(
-                query_plan_integrity.get(
-                    "missing_recommended_role_family_total"
-                )
-            )
-            or 0
-        ),
-        "dropped_query_count": (
-            _positive_int(query_plan_integrity.get("dropped_query_count")) or 0
-        ),
-        "fanout_limit_hit_count": (
-            _positive_int(query_plan_integrity.get("fanout_limit_hit_count")) or 0
-        ),
-        "type_limit_hit_count": (
-            _positive_int(query_plan_integrity.get("type_limit_hit_count")) or 0
-        ),
-        "empty_query_candidate_count": (
-            _positive_int(query_plan_integrity.get("empty_query_candidate_count"))
-            or 0
-        ),
-        "gap_reason_counts": _count_mapping(
-            query_plan_integrity.get("gap_reason_counts")
-        ),
-        "missing_recommended_role_family_counts": _count_mapping(
-            query_plan_integrity.get("missing_recommended_role_family_counts")
-        ),
-        "missing_evidence_role_query_family_total": (
-            _positive_int(
-                query_plan_integrity.get(
-                    "missing_evidence_role_query_family_total"
-                )
-            )
-            or 0
-        ),
-        "required_evidence_role_counts": _count_mapping(
-            query_plan_integrity.get("required_evidence_role_counts")
-        ),
-        "missing_evidence_role_query_family_counts": _count_mapping(
-            query_plan_integrity.get("missing_evidence_role_query_family_counts")
-        ),
-        "dropped_role_family_counts": _count_mapping(
-            query_plan_integrity.get("dropped_role_family_counts")
-        ),
-        "selected_role_family_counts": _count_mapping(
-            query_plan_integrity.get("selected_role_family_counts")
-        ),
-        "dropped_type_limit_role_counts": _count_mapping(
-            query_plan_integrity.get("dropped_type_limit_role_counts")
-        ),
-        "replaced_type_limit_role_counts": _count_mapping(
-            query_plan_integrity.get("replaced_type_limit_role_counts")
-        ),
-        "type_limit_replacement_role_counts": _count_mapping(
-            query_plan_integrity.get("type_limit_replacement_role_counts")
-        ),
-        "samples": list(_sequence(query_plan_integrity.get("samples")))[:5],
-    }
 
 
 def _policy_contribution_table(
@@ -2202,40 +2114,6 @@ def _missing_evidence_role_query_families(
             continue
         missing.append(role_key)
     return tuple(dict.fromkeys(missing))
-
-
-def _evidence_role_query_families(role: str) -> tuple[str, ...]:
-    if role in _PROFILE_SUPPORT_ROLES:
-        return ("relation_compact", "expanded_focus")
-    return {
-        "primary": ("base_query", "expanded_focus", "relation_compact"),
-        "supporting": ("base_query", "expanded_focus", "relation_compact"),
-        "bridge": ("multi_hop", "relation_compact", "expanded_focus"),
-        "count_support": ("count_support", "expanded_focus"),
-        "list_support": ("list_support", "expanded_focus"),
-        "value_support": ("value_support", "expanded_focus"),
-        "temporal_support": ("temporal_support", "expanded_focus"),
-        "location_support": (
-            "location_support",
-            "relation_compact",
-            "expanded_focus",
-        ),
-        "causal_support": ("multi_hop", "relation_compact", "expanded_focus"),
-        "communication_support": ("relation_compact", "expanded_focus"),
-        "event_support": ("relation_compact", "expanded_focus"),
-        "exchange_support": ("relation_compact", "expanded_focus"),
-        "emotion_response_support": ("relation_compact", "expanded_focus"),
-        "symbolic_meaning_support": ("relation_compact", "expanded_focus"),
-        "inference_support": ("relation_compact", "expanded_focus", "base_query"),
-        "preference_support": ("relation_compact", "expanded_focus", "base_query"),
-        "visual_support": ("visual_support", "expanded_focus", "relation_compact"),
-        "contrast": ("contrast_support", "relation_compact", "expanded_focus"),
-        "entity_disambiguation": (
-            "base_query",
-            "expanded_focus",
-            "relation_compact",
-        ),
-    }.get(role, ())
 
 
 def _rerank_lift_table(items: Sequence[Mapping[str, object]]) -> dict[str, object]:

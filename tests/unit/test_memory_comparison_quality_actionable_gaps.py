@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from infinity_context_server.memory_comparison_quality_actionable_gaps import (
+    actionable_gap_summary,
+)
 from infinity_context_server.memory_comparison_quality_diagnostics import (
     fast_gate_metrics,
 )
@@ -117,3 +120,189 @@ def test_fast_gate_metrics_actionable_summary_is_empty_when_no_observed_gaps() -
     assert summary["top_gap"] is None
     assert summary["ranked_gaps"] == []
     assert summary["gap_count"] == 0
+
+
+def test_fast_gate_metrics_actionable_summary_explains_query_plan_role_gap() -> None:
+    bundle = _fast_gate_bundle(
+        1,
+        bundle_quality=_bundle_quality(
+            confidence_score=0.76,
+            confidence_band="high",
+            reason_codes=("has_primary_evidence", "high_answerability"),
+            selected_item_count=1,
+            primary_count=1,
+        ),
+    )
+    bundle["items"][0]["source_refs"] = ["D1:1"]
+    query_plan = {
+        "schema_version": "query_plan.v2",
+        "selected_query_count": 1,
+        "dropped_query_count": 0,
+        "selected_roles": ["original_question"],
+        "dropped_roles": [],
+        "recommended_role_families": ["base_query"],
+        "selected_role_families": ["base_query"],
+        "missing_recommended_role_families": [],
+        "selected_role_family_counts": {"base_query": 1},
+        "fanout_integrity": {"bounded": True},
+    }
+    item = _item(
+        case_id="favorite-actionable",
+        group="single-hop",
+        evidence_bundle=bundle,
+        retrieval=_retrieval_payload(
+            evidence_need=("favorite_preference", "preference"),
+            bundle_evidence_roles=("primary", "favorite_support"),
+            relation_categories=("favorite_preference", "preference"),
+            policy_score=0.0,
+            query_plan=query_plan,
+        ),
+    )
+
+    gate = fast_gate_metrics((item,), expected_case_count=1)
+    summary = gate["actionable_gap_summary"]
+    ranked_gaps = summary["ranked_gaps"]
+    role_gap = next(
+        gap
+        for gap in ranked_gaps
+        if gap["source_metric"]
+        == (
+            "query_plan_gap_breakdown."
+            "missing_evidence_role_query_family_counts"
+        )
+        and gap["gap"] == "favorite_support"
+    )
+    reason_gap = next(
+        gap
+        for gap in ranked_gaps
+        if gap["source_metric"] == "query_plan_gap_breakdown.gap_reason_counts"
+        and gap["gap"] == "missing_evidence_role_query_family"
+    )
+
+    assert role_gap["failed_gate"] == "query_plan_evidence_roles_clear"
+    assert role_gap["action"] == (
+        "Add query-plan coverage for the favorite support role family using "
+        "relation compact or expanded focus queries."
+    )
+    assert role_gap["evidence"] == {
+        "role_family": "favorite_support",
+        "role_family_label": "favorite support",
+        "accepted_query_families": ["relation_compact", "expanded_focus"],
+    }
+    assert role_gap["sample_case_ids"] == ["favorite-actionable"]
+    assert role_gap["samples"] == [
+        {
+            "case_id": "favorite-actionable",
+            "group": "single-hop",
+            "gap_reasons": ["missing_evidence_role_query_family"],
+            "missing_evidence_role_query_families": ["favorite_support"],
+            "selected_role_families": ["base_query"],
+            "required_evidence_roles": ["primary", "favorite_support"],
+            "selected_query_count": 1,
+        }
+    ]
+    assert reason_gap["action"] == (
+        "Add selected query families that satisfy required evidence role "
+        "families."
+    )
+    assert reason_gap["samples"] == role_gap["samples"]
+
+
+
+def test_actionable_gap_summary_uses_stable_tie_breaks_and_gap_schema() -> None:
+    summary = actionable_gap_summary(
+        evaluation_count=4,
+        expected_case_count=4,
+        failed_gates=("query_plan_evidence_roles_clear",),
+        query_overlap_count=1,
+        profile_overlap_count=0,
+        intent_overlap_count=0,
+        ref_gate={},
+        bundle_quality_failure_breakdown={},
+        bundle_gap_breakdown={},
+        answerability_gap_breakdown={},
+        selected_evidence_weakness={},
+        query_role_gap_breakdown={
+            "role_family_gaps": {
+                "temporal_support": {
+                    "candidate_count": 1,
+                    "selected_item_count": 0,
+                    "gap_reasons": ["not_selected"],
+                }
+            }
+        },
+        query_plan_gap_breakdown={
+            "missing_evidence_role_query_family_counts": {
+                "favorite_support": 1,
+                "temporal_support": 1,
+            },
+            "gap_reason_counts": {"missing_evidence_role_query_family": 1},
+            "samples": [
+                {
+                    "case_id": "case-plan",
+                    "missing_evidence_role_query_families": ("favorite_support",),
+                }
+            ],
+        },
+        source_ref_provenance={},
+    )
+
+    ranked_gaps = summary["ranked_gaps"]
+
+    assert summary["blocking_gap_count"] == 3
+    assert summary["diagnostic_gap_count"] == 2
+    assert [(gap["severity"], gap["category"], gap["gap"]) for gap in ranked_gaps] == [
+        ("blocking", "query_plan", "favorite_support"),
+        ("blocking", "query_plan", "missing_evidence_role_query_family"),
+        ("blocking", "query_plan", "temporal_support"),
+        ("diagnostic", "query_leakage", "expected_answer_query_overlap"),
+        ("diagnostic", "query_role_family", "temporal_support"),
+    ]
+    assert ranked_gaps[0]["sample_case_ids"] == ["case-plan"]
+    diagnostic_gap = ranked_gaps[-1]
+    assert diagnostic_gap["failed_gate"] == ""
+    assert diagnostic_gap["sample_case_ids"] == []
+    assert diagnostic_gap["evidence"] == {"gap_reasons": ["not_selected"]}
+
+
+def test_actionable_gap_summary_caps_ranked_gaps_and_sample_case_ids() -> None:
+    samples = [
+        {"case_id": f"case-{index}", "reasons": ["selected_low_answerability"]}
+        for index in range(1, 8)
+    ]
+    summary = actionable_gap_summary(
+        evaluation_count=20,
+        expected_case_count=20,
+        failed_gates=("selected_low_answerability_clear",),
+        query_overlap_count=0,
+        profile_overlap_count=0,
+        intent_overlap_count=0,
+        ref_gate={},
+        bundle_quality_failure_breakdown={},
+        bundle_gap_breakdown={},
+        answerability_gap_breakdown={},
+        selected_evidence_weakness={
+            "reason_counts": {
+                f"selected_gap_{index:02d}": 1 for index in range(12)
+            }
+            | {"selected_low_answerability": 7},
+            "low_answerability_item_count": 7,
+            "samples": samples,
+        },
+        query_role_gap_breakdown={},
+        query_plan_gap_breakdown={},
+        source_ref_provenance={},
+    )
+
+    ranked_gaps = summary["ranked_gaps"]
+
+    assert summary["gap_count"] == 13
+    assert len(ranked_gaps) == 10
+    assert ranked_gaps[0]["gap"] == "selected_low_answerability"
+    assert ranked_gaps[0]["sample_case_ids"] == [
+        "case-1",
+        "case-2",
+        "case-3",
+        "case-4",
+        "case-5",
+    ]

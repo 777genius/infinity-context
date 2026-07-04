@@ -21,6 +21,9 @@ from infinity_context_server.memory_comparison_quality_accessors import (
     str_tuple as _str_tuple,
 )
 
+_MAX_RANKED_GAPS = 10
+_MAX_SAMPLE_CASE_IDS = 5
+
 
 def actionable_gap_summary(
     *,
@@ -115,7 +118,7 @@ def actionable_gap_summary(
         ),
         "rank_basis": "observed_impact_desc_blocking_tie_break",
         "top_gap": ranked[0] if ranked else None,
-        "ranked_gaps": ranked[:10],
+        "ranked_gaps": ranked[:_MAX_RANKED_GAPS],
     }
 
 
@@ -248,28 +251,99 @@ def _append_query_plan_gaps(
         if "query_plan_evidence_roles_clear" in failed_gate_set
         else ""
     )
-    _append_counted_gap_map(
+    _append_query_plan_missing_role_family_gaps(
         gaps,
         evaluation_count=evaluation_count,
-        category="query_plan",
-        source_metric="query_plan_gap_breakdown.missing_evidence_role_query_family_counts",
+        failed_gate=failed_gate,
         counts=_count_mapping(
             breakdown.get("missing_evidence_role_query_family_counts")
         ),
-        failed_gate=failed_gate,
-        action="Add query plan coverage for required evidence role families.",
-        samples=_sequence(breakdown.get("samples")),
+        details=_mapping(
+            breakdown.get("missing_evidence_role_query_family_details")
+        ),
+        samples=_query_plan_samples(breakdown),
     )
-    _append_counted_gap_map(
+    _append_query_plan_reason_gaps(
         gaps,
         evaluation_count=evaluation_count,
-        category="query_plan",
-        source_metric="query_plan_gap_breakdown.gap_reason_counts",
-        counts=_count_mapping(breakdown.get("gap_reason_counts")),
         failed_gate=failed_gate,
-        action="Fix query plan gaps that drop required retrieval routes.",
-        samples=_sequence(breakdown.get("samples")),
+        counts=_count_mapping(breakdown.get("gap_reason_counts")),
+        samples=_query_plan_samples(breakdown),
     )
+
+
+def _append_query_plan_missing_role_family_gaps(
+    gaps: list[dict[str, object]],
+    *,
+    evaluation_count: int,
+    failed_gate: str,
+    counts: Mapping[str, int],
+    details: Mapping[str, object],
+    samples: Sequence[object],
+) -> None:
+    for family, count in sorted(counts.items()):
+        detail = _mapping(details.get(family))
+        accepted_families = _str_tuple(detail.get("accepted_query_families"))
+        evidence: dict[str, object] = {
+            "role_family": str(family),
+            "role_family_label": str(
+                detail.get("role_family_label") or _role_family_label(str(family))
+            ),
+        }
+        if accepted_families:
+            evidence["accepted_query_families"] = list(accepted_families)
+        action = str(detail.get("action") or "").strip() or (
+            "Add query-plan coverage for required evidence role families."
+        )
+        matched_samples = _query_plan_samples_for_gap(
+            samples,
+            str(family),
+            key="missing_evidence_role_query_families",
+        )
+        _append_actionable_gap(
+            gaps,
+            evaluation_count=evaluation_count,
+            category="query_plan",
+            gap=str(family),
+            impact_count=count,
+            failed_gate=failed_gate,
+            source_metric=(
+                "query_plan_gap_breakdown."
+                "missing_evidence_role_query_family_counts"
+            ),
+            action=action,
+            evidence=evidence,
+            samples=matched_samples,
+            sample_payloads=_compact_query_plan_actionable_samples(matched_samples),
+        )
+
+
+def _append_query_plan_reason_gaps(
+    gaps: list[dict[str, object]],
+    *,
+    evaluation_count: int,
+    failed_gate: str,
+    counts: Mapping[str, int],
+    samples: Sequence[object],
+) -> None:
+    for reason, count in sorted(counts.items()):
+        matched_samples = _query_plan_samples_for_gap(
+            samples,
+            str(reason),
+            key="gap_reasons",
+        )
+        _append_actionable_gap(
+            gaps,
+            evaluation_count=evaluation_count,
+            category="query_plan",
+            gap=str(reason),
+            impact_count=count,
+            failed_gate=failed_gate,
+            source_metric="query_plan_gap_breakdown.gap_reason_counts",
+            action=_query_plan_reason_action(str(reason)),
+            samples=matched_samples,
+            sample_payloads=_compact_query_plan_actionable_samples(matched_samples),
+        )
 
 
 def _append_query_role_gaps(
@@ -444,6 +518,7 @@ def _append_actionable_gap(
     failed_gate: str = "",
     evidence: Mapping[str, object] | None = None,
     samples: Sequence[object] = (),
+    sample_payloads: Sequence[Mapping[str, object]] = (),
 ) -> None:
     if impact_count <= 0:
         return
@@ -453,16 +528,19 @@ def _append_actionable_gap(
         "impact_count": impact_count,
         "impact_rate": _ratio(impact_count, evaluation_count),
         "severity": "blocking" if failed_gate else "diagnostic",
+        "failed_gate": failed_gate,
         "source_metric": source_metric,
         "action": action,
+        "sample_case_ids": _sample_case_ids(samples),
+        "evidence": dict(evidence or {}),
     }
-    if failed_gate:
-        payload["failed_gate"] = failed_gate
-    sample_case_ids = _sample_case_ids(samples)
-    if sample_case_ids:
-        payload["sample_case_ids"] = sample_case_ids
-    if evidence:
-        payload["evidence"] = dict(evidence)
+    compact_samples = [
+        dict(sample)
+        for sample in sample_payloads
+        if isinstance(sample, Mapping)
+    ][:3]
+    if compact_samples:
+        payload["samples"] = compact_samples
     gaps.append(payload)
 
 
@@ -478,6 +556,7 @@ def _rank_actionable_gaps(
                 0 if gap.get("severity") == "blocking" else 1,
                 str(gap.get("category") or ""),
                 str(gap.get("gap") or ""),
+                str(gap.get("source_metric") or ""),
             ),
         )
     ]
@@ -497,6 +576,7 @@ def _samples_for_gap(
         and (
             gap in _str_tuple(sample.get("reasons"))
             or gap in _str_tuple(sample.get("reason_codes"))
+            or gap in _str_tuple(sample.get("gap_reasons"))
         )
     ]
     if matched:
@@ -512,7 +592,7 @@ def _sample_case_ids(samples: Sequence[object]) -> list[str]:
         case_id = str(sample.get("case_id") or "").strip()
         if case_id and case_id not in case_ids:
             case_ids.append(case_id)
-        if len(case_ids) >= 5:
+        if len(case_ids) >= _MAX_SAMPLE_CASE_IDS:
             break
     return case_ids
 
@@ -532,3 +612,115 @@ def _action_for_gap(category: str, gap: str, *, default: str) -> str:
     if category == "bundle_quality_risk":
         return f"Reduce bundle quality risk '{gap}' in selected evidence."
     return default
+
+
+def _query_plan_samples(
+    breakdown: Mapping[str, object],
+) -> tuple[Mapping[str, object], ...]:
+    compact_samples = tuple(
+        sample
+        for sample in _sequence(breakdown.get("compact_samples"))
+        if isinstance(sample, Mapping)
+    )
+    if compact_samples:
+        return compact_samples
+    return tuple(
+        sample
+        for sample in _sequence(breakdown.get("samples"))
+        if isinstance(sample, Mapping)
+    )
+
+
+def _query_plan_samples_for_gap(
+    samples: Sequence[object],
+    gap: str,
+    *,
+    key: str,
+) -> tuple[Mapping[str, object], ...]:
+    matched = [
+        sample
+        for sample in samples
+        if isinstance(sample, Mapping) and gap in _str_tuple(sample.get(key))
+    ]
+    if matched:
+        return tuple(matched)
+    return tuple(sample for sample in samples if isinstance(sample, Mapping))
+
+
+def _compact_query_plan_actionable_samples(
+    samples: Sequence[Mapping[str, object]],
+) -> tuple[dict[str, object], ...]:
+    compact_samples: list[dict[str, object]] = []
+    for sample in samples:
+        compact: dict[str, object] = {}
+        for key in ("case_id", "group"):
+            value = str(sample.get(key) or "").strip()
+            if value:
+                compact[key] = value
+        for key in (
+            "gap_reasons",
+            "missing_evidence_role_query_families",
+            "missing_recommended_role_families",
+            "selected_role_families",
+            "required_evidence_roles",
+            "dropped_roles",
+            "dropped_type_limit_roles",
+            "replaced_type_limit_roles",
+            "type_limit_replacement_roles",
+        ):
+            values = _str_tuple(sample.get(key))
+            if values:
+                compact[key] = list(values[:5])
+        for key in (
+            "selected_query_count",
+            "dropped_query_count",
+            "empty_query_candidate_count",
+        ):
+            value = _positive_int(sample.get(key)) or 0
+            if value:
+                compact[key] = value
+        for key in ("fanout_limit_hit", "type_limit_hit"):
+            if sample.get(key) is True:
+                compact[key] = True
+        if compact:
+            compact_samples.append(compact)
+        if len(compact_samples) >= 3:
+            break
+    return tuple(compact_samples)
+
+
+def _query_plan_reason_action(reason: str) -> str:
+    return {
+        "missing_evidence_role_query_family": (
+            "Add selected query families that satisfy required evidence role "
+            "families."
+        ),
+        "missing_recommended_role_family": (
+            "Add selected queries for recommended role families reported by "
+            "the query plan."
+        ),
+        "dropped_queries": (
+            "Preserve or replace dropped query roles before query-plan fanout "
+            "removes required coverage."
+        ),
+        "fanout_limit_hit": (
+            "Rebalance query-plan fanout so required role families survive "
+            "selection."
+        ),
+        "type_limit_hit": (
+            "Rebalance per-type query limits so semantic and lexical slots keep "
+            "required role-family coverage."
+        ),
+        "type_limit_replacement": (
+            "Verify type-limit replacements keep the required role-family "
+            "coverage they replaced."
+        ),
+        "empty_query_candidate": (
+            "Suppress empty query candidates or backfill valid query text before "
+            "selection."
+        ),
+    }.get(reason, "Fix query-plan gaps that drop required retrieval routes.")
+
+
+def _role_family_label(family: str) -> str:
+    return family.strip().replace("_", " ")

@@ -3534,6 +3534,38 @@ def test_quality_diagnostics_reports_evidence_role_query_family_gap() -> None:
         "temporal_support",
     )
 
+    gate = fast_gate_metrics((item,), expected_case_count=1)
+    breakdown = gate["query_plan_gap_breakdown"]
+
+    assert breakdown["missing_evidence_role_query_family_details"] == {
+        "temporal_support": {
+            "role_family": "temporal_support",
+            "role_family_label": "temporal support",
+            "impact_count": 1,
+            "accepted_query_families": ["temporal_support", "expanded_focus"],
+            "accepted_query_family_labels": [
+                "temporal support",
+                "expanded focus",
+            ],
+            "action": (
+                "Add query-plan coverage for the temporal support role family "
+                "using temporal support or expanded focus queries."
+            ),
+            "sample_case_ids": ["role-query-gap"],
+        }
+    }
+    assert breakdown["compact_samples"] == [
+        {
+            "case_id": "role-query-gap",
+            "group": "temporal",
+            "gap_reasons": ["missing_evidence_role_query_family"],
+            "missing_evidence_role_query_families": ["temporal_support"],
+            "selected_role_families": ["base_query"],
+            "required_evidence_roles": ["primary", "temporal_support"],
+            "selected_query_count": 1,
+        }
+    ]
+
 
 def test_quality_diagnostics_accepts_relation_compact_for_profile_support_roles() -> None:
     query_plan = {
