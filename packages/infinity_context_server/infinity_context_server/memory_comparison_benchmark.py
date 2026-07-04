@@ -1708,20 +1708,39 @@ def _failure_analysis_entry(
     retrieval_quality = _mapping(evaluation.get("retrieval_quality"))
     judgment = _mapping(evaluation.get("judgment"))
     missing_terms = retrieval_quality.get("missing_terms")
+    missing_evidence_terms = retrieval_quality.get("missing_evidence_terms")
     score = float(judgment.get("score", 0.0))
     retrieval_recall = float(retrieval_quality.get("expected_term_recall", 0.0))
-    if score >= 1.0 and retrieval_recall >= 1.0:
+    evidence_recall = (
+        _metric_value(retrieval_quality, "evidence_term_recall")
+        if "evidence_term_recall" in retrieval_quality
+        else None
+    )
+    evidence_recall_failed = evidence_recall is not None and evidence_recall < 1.0
+    if score >= 1.0 and retrieval_recall >= 1.0 and not evidence_recall_failed:
         return None
     diagnostics = _failure_diagnostics(evaluation)
     return {
         "backend": evaluation.get("backend"),
         "case_id": evaluation.get("case_id"),
         "group": evaluation.get("group"),
+        "category": evaluation.get("category"),
         "capability": evaluation.get("capability"),
         "score": score,
         "retrieval_expected_term_recall": retrieval_recall,
+        "retrieval_evidence_term_recall": evidence_recall,
         "missing_terms": missing_terms if isinstance(missing_terms, list) else [],
-        "reason": judgment.get("reason") or "retrieval_or_judgment_failed",
+        "missing_evidence_terms": (
+            missing_evidence_terms if isinstance(missing_evidence_terms, list) else []
+        ),
+        "reason": (
+            judgment.get("reason")
+            or (
+                "evidence_ref_support_incomplete"
+                if evidence_recall_failed
+                else "retrieval_or_judgment_failed"
+            )
+        ),
         "diagnostic_reason_codes": _failure_diagnostic_reason_codes(
             evaluation,
             score=score,

@@ -19,6 +19,7 @@ from infinity_context_server.memory_comparison_benchmark import (
     _backend_comparison,
     _compact_evidence_bundle_coverage,
     _compact_fast_gate_summary,
+    _failure_analysis_entry,
     _load_memory_comparison_cases,
     run_memory_comparison_benchmark,
     run_memory_comparison_replay,
@@ -2008,6 +2009,45 @@ def test_memory_comparison_compact_report_omits_heavy_evaluations(
     assert written["diagnostics"]["backend_summaries"]["memo-stack"][
         "fast_gate_summary"
     ] == fast_gate_summary
+
+
+def test_failure_analysis_entry_surfaces_category_and_evidence_ref_recall() -> None:
+    failure = _failure_analysis_entry(
+        {
+            "backend": "memo-stack",
+            "case_id": "conv-1:qa:7",
+            "group": "multi-hop",
+            "category": "3:multi-hop",
+            "capability": "answer",
+            "scored": True,
+            "retrieval_quality": {
+                "expected_term_recall": 1.0,
+                "evidence_term_recall": 0.25,
+                "missing_terms": [],
+                "missing_evidence_terms": ["D2:4", "D3:9"],
+            },
+            "retrieval": {
+                "results": [
+                    {
+                        "source_refs": ["D2:2"],
+                        "metadata": {
+                            "diagnostics": {"retrieval_sources": ["raw_turns"]}
+                        },
+                    }
+                ]
+            },
+            "evidence_bundle": {"bundle_complete": False, "items": []},
+            "generation": {"answer": "The launch plan is in the blue notebook."},
+            "judgment": {"score": 1.0},
+        }
+    )
+
+    assert failure is not None
+    assert failure["category"] == "3:multi-hop"
+    assert failure["retrieval_evidence_term_recall"] == 0.25
+    assert failure["missing_evidence_terms"] == ["D2:4", "D3:9"]
+    assert failure["reason"] == "evidence_ref_support_incomplete"
+    assert "missing_evidence_refs" in failure["diagnostic_reason_codes"]
 
 
 def test_compact_evidence_bundle_coverage_summarizes_support_role_gaps() -> None:
