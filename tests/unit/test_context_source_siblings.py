@@ -1515,6 +1515,14 @@ def test_source_sibling_answer_evidence_accepts_frequency_turn_without_speaker()
     )
 
 
+def test_source_sibling_answer_evidence_accepts_every_other_appointment_cadence() -> None:
+    assert source_sibling_answer_evidence(
+        expansion_query="How often are Sam's therapy appointments?",
+        expansion_reason="decomposition_frequency_recurrence",
+        text="D7:2 Sam: My therapy appointments are every other week.",
+    )
+
+
 def test_source_sibling_answer_evidence_rejects_cause_awareness_event_only_turn() -> None:
     assert not source_sibling_answer_evidence(
         expansion_query="What did the charity race raise awareness for?",
