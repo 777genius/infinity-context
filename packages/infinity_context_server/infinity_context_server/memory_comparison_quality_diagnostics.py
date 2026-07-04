@@ -326,6 +326,18 @@ def fast_gate_metrics(
             )
             or 0
         ),
+        "selected_broad_summary_clear": _zero_gate(
+            _positive_int(
+                selected_evidence_weakness.get("broad_summary_item_count")
+            )
+            or 0
+        ),
+        "selected_conflict_or_stale_clear": _zero_gate(
+            _positive_int(
+                selected_evidence_weakness.get("conflict_or_stale_item_count")
+            )
+            or 0
+        ),
     }
     if bundle_quality_count:
         gates["bundle_quality_present"] = _min_gate(
@@ -680,10 +692,17 @@ def _selected_evidence_weakness_breakdown(
 ) -> dict[str, object]:
     low_answerability_case_ids: set[str] = set()
     weak_source_locality_case_ids: set[str] = set()
+    broad_summary_case_ids: set[str] = set()
+    conflict_or_stale_case_ids: set[str] = set()
     role_counts: Counter[str] = Counter()
+    query_role_counts: Counter[str] = Counter()
+    low_answerability_query_role_counts: Counter[str] = Counter()
+    weak_source_locality_query_role_counts: Counter[str] = Counter()
     reason_counts: Counter[str] = Counter()
     low_answerability_item_count = 0
     weak_source_locality_item_count = 0
+    broad_summary_item_count = 0
+    conflict_or_stale_item_count = 0
     samples: list[dict[str, object]] = []
 
     for item in items:
@@ -695,6 +714,7 @@ def _selected_evidence_weakness_breakdown(
             reasons: list[str] = []
             answerability_score = _metric_value(bundle_item, "answerability_score")
             source_locality_score = _metric_value(bundle_item, "source_locality_score")
+            planner_reasons = _str_tuple(bundle_item.get("planner_reason_codes"))
             if _is_measured_low_answerability(answerability_score):
                 low_answerability_item_count += 1
                 if case_id:
@@ -705,10 +725,32 @@ def _selected_evidence_weakness_breakdown(
                 if case_id:
                     weak_source_locality_case_ids.add(case_id)
                 reasons.append("selected_weak_source_locality")
+            if (
+                bundle_item.get("broad_summary") is True
+                or "broad_summary" in planner_reasons
+            ):
+                broad_summary_item_count += 1
+                if case_id:
+                    broad_summary_case_ids.add(case_id)
+                reasons.append("selected_broad_summary")
+            if (
+                bundle_item.get("conflict_or_stale") is True
+                or "conflict_or_stale" in planner_reasons
+            ):
+                conflict_or_stale_item_count += 1
+                if case_id:
+                    conflict_or_stale_case_ids.add(case_id)
+                reasons.append("selected_conflict_or_stale")
             if not reasons:
                 continue
             role = str(bundle_item.get("role") or "unknown").strip() or "unknown"
+            query_roles = _str_tuple(bundle_item.get("query_roles"))
             role_counts[role] += 1
+            query_role_counts.update(query_roles)
+            if "selected_low_answerability" in reasons:
+                low_answerability_query_role_counts.update(query_roles)
+            if "selected_weak_source_locality" in reasons:
+                weak_source_locality_query_role_counts.update(query_roles)
             reason_counts.update(reasons)
             if len(samples) < 10:
                 samples.append(
@@ -721,6 +763,7 @@ def _selected_evidence_weakness_breakdown(
                             or ""
                         ),
                         "role": role,
+                        "query_roles": list(query_roles),
                         "retrieval_order": (
                             _positive_int(bundle_item.get("retrieval_order"))
                             or _positive_int(bundle_item.get("rank"))
@@ -729,22 +772,46 @@ def _selected_evidence_weakness_breakdown(
                         "reasons": reasons,
                         "answerability_score": round(answerability_score, 6),
                         "source_locality_score": round(source_locality_score, 6),
+                        "broad_summary": (
+                            bundle_item.get("broad_summary") is True
+                            or "broad_summary" in planner_reasons
+                        ),
+                        "conflict_or_stale": (
+                            bundle_item.get("conflict_or_stale") is True
+                            or "conflict_or_stale" in planner_reasons
+                        ),
                         "source_refs": list(
                             _source_refs_from_bundle_item(bundle_item)
                         )[:5],
                     }
                 )
 
-    weak_case_ids = low_answerability_case_ids | weak_source_locality_case_ids
+    weak_case_ids = (
+        low_answerability_case_ids
+        | weak_source_locality_case_ids
+        | broad_summary_case_ids
+        | conflict_or_stale_case_ids
+    )
     return {
-        "schema_version": "selected_evidence_weakness.v1",
+        "schema_version": "selected_evidence_weakness.v2",
         "weak_case_count": len(weak_case_ids),
         "low_answerability_case_count": len(low_answerability_case_ids),
         "weak_source_locality_case_count": len(weak_source_locality_case_ids),
+        "broad_summary_case_count": len(broad_summary_case_ids),
+        "conflict_or_stale_case_count": len(conflict_or_stale_case_ids),
         "low_answerability_item_count": low_answerability_item_count,
         "weak_source_locality_item_count": weak_source_locality_item_count,
+        "broad_summary_item_count": broad_summary_item_count,
+        "conflict_or_stale_item_count": conflict_or_stale_item_count,
         "reason_counts": dict(sorted(reason_counts.items())),
         "role_counts": dict(sorted(role_counts.items())),
+        "query_role_counts": dict(sorted(query_role_counts.items())),
+        "low_answerability_query_role_counts": dict(
+            sorted(low_answerability_query_role_counts.items())
+        ),
+        "weak_source_locality_query_role_counts": dict(
+            sorted(weak_source_locality_query_role_counts.items())
+        ),
         "samples": samples,
     }
 

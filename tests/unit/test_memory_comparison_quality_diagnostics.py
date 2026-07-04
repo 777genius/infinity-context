@@ -388,6 +388,8 @@ def test_quality_diagnostics_reports_intents_policies_bundle_gaps_and_leakage() 
         "typed_relation_hit_rate": 0.0,
         "bridge_query_hit_candidate_count": 1,
         "bridge_query_hit_selected_count": 1,
+        "selected_low_answerability_count": 0,
+        "selected_weak_source_locality_count": 0,
         "avg_candidate_answerability_score": 0.9,
         "avg_measured_candidate_answerability_score": 0.9,
         "candidate_unmeasured_answerability_count": 0,
@@ -413,6 +415,8 @@ def test_quality_diagnostics_reports_intents_policies_bundle_gaps_and_leakage() 
         "typed_relation_hit_rate": 0.0,
         "bridge_query_hit_candidate_count": 0,
         "bridge_query_hit_selected_count": 0,
+        "selected_low_answerability_count": 0,
+        "selected_weak_source_locality_count": 0,
         "avg_candidate_answerability_score": 0.42,
         "avg_measured_candidate_answerability_score": 0.42,
         "candidate_unmeasured_answerability_count": 0,
@@ -2115,6 +2119,15 @@ def test_fast_gate_metrics_reports_candidate_fusion_summary() -> None:
                                 "original_question": 4,
                                 "location_support": 2,
                             },
+                            "score_winner_query_role_counts": {
+                                "original_question": 1,
+                            },
+                            "selected_evidence_query_role_counts": {
+                                "location_support": 1,
+                            },
+                            "focused_query_evidence_selection_role_counts": {
+                                "location_support": 1,
+                            },
                             "max_query_match_count": 3,
                             "max_source_diversity_count": 2,
                             "max_rrf_score": 0.047,
@@ -2137,6 +2150,15 @@ def test_fast_gate_metrics_reports_candidate_fusion_summary() -> None:
                             "focused_query_evidence_selection_count": 1,
                             "query_role_counts": {
                                 "original_question": 2,
+                                "contrast_support": 1,
+                            },
+                            "score_winner_query_role_counts": {
+                                "original_question": 1,
+                            },
+                            "selected_evidence_query_role_counts": {
+                                "contrast_support": 1,
+                            },
+                            "focused_query_evidence_selection_role_counts": {
                                 "contrast_support": 1,
                             },
                             "max_query_match_count": 2,
@@ -2165,6 +2187,17 @@ def test_fast_gate_metrics_reports_candidate_fusion_summary() -> None:
             "contrast_support": 1,
             "location_support": 2,
             "original_question": 6,
+        },
+        "score_winner_query_role_counts": {
+            "original_question": 2,
+        },
+        "selected_evidence_query_role_counts": {
+            "contrast_support": 1,
+            "location_support": 1,
+        },
+        "focused_query_evidence_selection_role_counts": {
+            "contrast_support": 1,
+            "location_support": 1,
         },
         "max_query_match_count": 3,
         "max_source_diversity_count": 3,

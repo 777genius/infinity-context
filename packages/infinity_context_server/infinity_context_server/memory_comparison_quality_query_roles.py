@@ -82,6 +82,8 @@ def query_role_effectiveness_table(
     bridge_query_hit_candidate_family_counts: Counter[str] = Counter()
     bridge_query_hit_selected_family_counts: Counter[str] = Counter()
     selected_bundle_role_counts: dict[str, Counter[str]] = defaultdict(Counter)
+    selected_low_answerability_role_counts: Counter[str] = Counter()
+    selected_weak_source_locality_role_counts: Counter[str] = Counter()
     required_evidence_role_counts: Counter[str] = Counter()
     required_role_selected_evidence_query_counts: Counter[str] = Counter()
     missing_required_evidence_role_counts: Counter[str] = Counter()
@@ -179,11 +181,23 @@ def query_role_effectiveness_table(
             has_source_locality_score = "source_locality_score" in bundle_item
             answerability_score = _metric_value(bundle_item, "answerability_score")
             source_locality_score = _metric_value(bundle_item, "source_locality_score")
+            selected_low_answerability = (
+                has_answerability_score
+                and _is_measured_low_answerability(answerability_score)
+            )
+            selected_weak_source_locality = (
+                has_source_locality_score
+                and _is_measured_weak_source_locality(source_locality_score)
+            )
             for query_role in query_roles:
                 query_role_families = _query_role_families(query_role)
                 selected_item_role_counts[query_role] += 1
                 selected_item_role_family_counts.update(query_role_families)
                 selected_bundle_role_counts[query_role][bundle_role] += 1
+                if selected_low_answerability:
+                    selected_low_answerability_role_counts[query_role] += 1
+                if selected_weak_source_locality:
+                    selected_weak_source_locality_role_counts[query_role] += 1
                 if has_answerability_score:
                     selected_answerability_scores[query_role].append(answerability_score)
                 if has_source_locality_score:
@@ -213,6 +227,12 @@ def query_role_effectiveness_table(
             bridge_query_hit_candidate_counts=bridge_query_hit_candidate_counts,
             bridge_query_hit_selected_counts=bridge_query_hit_selected_counts,
             selected_bundle_role_counts=selected_bundle_role_counts,
+            selected_low_answerability_role_counts=(
+                selected_low_answerability_role_counts
+            ),
+            selected_weak_source_locality_role_counts=(
+                selected_weak_source_locality_role_counts
+            ),
             candidate_answerability_scores=candidate_answerability_scores,
             selected_answerability_scores=selected_answerability_scores,
             candidate_source_locality_scores=candidate_source_locality_scores,
@@ -233,6 +253,12 @@ def query_role_effectiveness_table(
             sorted(lifted_candidate_role_counts.items())
         ),
         "selected_item_role_counts": dict(sorted(selected_item_role_counts.items())),
+        "selected_low_answerability_role_counts": dict(
+            sorted(selected_low_answerability_role_counts.items())
+        ),
+        "selected_weak_source_locality_role_counts": dict(
+            sorted(selected_weak_source_locality_role_counts.items())
+        ),
         "typed_relation_hit_role_counts": dict(
             sorted(typed_relation_hit_role_counts.items())
         ),
@@ -530,6 +556,8 @@ def _query_role_stat_payload(
     bridge_query_hit_candidate_counts: Counter[str],
     bridge_query_hit_selected_counts: Counter[str],
     selected_bundle_role_counts: Mapping[str, Counter[str]],
+    selected_low_answerability_role_counts: Counter[str],
+    selected_weak_source_locality_role_counts: Counter[str],
     candidate_answerability_scores: Mapping[str, Sequence[float]],
     selected_answerability_scores: Mapping[str, Sequence[float]],
     candidate_source_locality_scores: Mapping[str, Sequence[float]],
@@ -571,6 +599,12 @@ def _query_role_stat_payload(
             query_role
         ],
         "bridge_query_hit_selected_count": bridge_query_hit_selected_counts[query_role],
+        "selected_low_answerability_count": selected_low_answerability_role_counts[
+            query_role
+        ],
+        "selected_weak_source_locality_count": (
+            selected_weak_source_locality_role_counts[query_role]
+        ),
         "avg_candidate_answerability_score": _avg(candidate_scores),
         "avg_measured_candidate_answerability_score": _avg(measured_candidate_scores),
         "candidate_unmeasured_answerability_count": sum(
@@ -608,3 +642,11 @@ def _candidate_lifted(diagnostics: Mapping[str, object]) -> bool:
         or _positive_policy_score(diagnostics) > 0
         or bool(_positive_signal_names(score_signals))
     )
+
+
+def _is_measured_low_answerability(score: float) -> bool:
+    return 0 < score < 0.55
+
+
+def _is_measured_weak_source_locality(score: float) -> bool:
+    return 0 < score < 0.45

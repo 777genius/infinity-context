@@ -219,6 +219,61 @@ def test_query_role_effectiveness_distinguishes_unmeasured_source_locality() -> 
     assert stats["selected_unmeasured_source_locality_count"] == 1
 
 
+def test_query_role_effectiveness_reports_selected_weakness_by_query_role() -> None:
+    diagnostics = quality_diagnostics(
+        (
+            {
+                "case_id": "selected-weakness-roles",
+                "retrieval": {
+                    "results": [
+                        _memory("low", query_roles=("location_support",)),
+                        _memory("weak", query_roles=("temporal_support",)),
+                    ],
+                },
+                "evidence_bundle": {
+                    "items": [
+                        {
+                            "id": "low",
+                            "role": "location_support",
+                            "query_roles": ["location_support"],
+                            "answerability_score": 0.4,
+                            "source_locality_score": 0.8,
+                        },
+                        {
+                            "id": "weak",
+                            "role": "temporal_support",
+                            "query_roles": ["temporal_support"],
+                            "answerability_score": 0.8,
+                            "source_locality_score": 0.3,
+                        },
+                    ],
+                },
+            },
+        )
+    )
+
+    table = diagnostics["query_role_effectiveness_table"]
+
+    assert table["selected_low_answerability_role_counts"] == {
+        "location_support": 1
+    }
+    assert table["selected_weak_source_locality_role_counts"] == {
+        "temporal_support": 1
+    }
+    assert table["role_stats"]["location_support"][
+        "selected_low_answerability_count"
+    ] == 1
+    assert table["role_stats"]["location_support"][
+        "selected_weak_source_locality_count"
+    ] == 0
+    assert table["role_stats"]["temporal_support"][
+        "selected_low_answerability_count"
+    ] == 0
+    assert table["role_stats"]["temporal_support"][
+        "selected_weak_source_locality_count"
+    ] == 1
+
+
 def test_query_role_effectiveness_reports_required_role_candidate_query_gaps() -> None:
     item = {
         "case_id": "required-role-gap",

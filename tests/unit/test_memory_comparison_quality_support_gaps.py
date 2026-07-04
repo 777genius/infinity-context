@@ -2536,13 +2536,14 @@ def test_fast_gate_metrics_surfaces_selected_evidence_weakness() -> None:
                 group="single-hop",
                 evidence_bundle={
                     "bundle_complete": True,
-                    "item_count": 2,
+                    "item_count": 5,
                     "primary_evidence_count": 1,
-                    "supporting_evidence_count": 1,
+                    "supporting_evidence_count": 4,
                     "items": [
                         {
                             "id": "low-answerability",
                             "role": "primary",
+                            "query_roles": ["original_question"],
                             "retrieval_order": 1,
                             "answerability_score": 0.42,
                             "source_locality_score": 0.7,
@@ -2551,15 +2552,34 @@ def test_fast_gate_metrics_surfaces_selected_evidence_weakness() -> None:
                         {
                             "id": "weak-locality",
                             "role": "supporting",
+                            "query_roles": ["location_support"],
                             "retrieval_order": 2,
                             "answerability_score": 0.72,
                             "source_locality_score": 0.3,
                             "source_refs": ["D1:2"],
                         },
                         {
-                            "id": "unmeasured",
+                            "id": "broad-summary",
                             "role": "supporting",
                             "retrieval_order": 3,
+                            "answerability_score": 0.73,
+                            "source_locality_score": 0.8,
+                            "broad_summary": True,
+                            "source_refs": ["D1:3"],
+                        },
+                        {
+                            "id": "stale-conflict",
+                            "role": "supporting",
+                            "retrieval_order": 4,
+                            "answerability_score": 0.71,
+                            "source_locality_score": 0.75,
+                            "planner_reason_codes": ["conflict_or_stale"],
+                            "source_refs": ["D1:4"],
+                        },
+                        {
+                            "id": "unmeasured",
+                            "role": "supporting",
+                            "retrieval_order": 5,
                             "answerability_score": 0.0,
                             "source_locality_score": 0.0,
                         },
@@ -2575,15 +2595,34 @@ def test_fast_gate_metrics_surfaces_selected_evidence_weakness() -> None:
     assert gate["passed"] is False
     assert "selected_low_answerability_clear" in gate["failed_gates"]
     assert "selected_weak_source_locality_clear" in gate["failed_gates"]
+    assert "selected_broad_summary_clear" in gate["failed_gates"]
+    assert "selected_conflict_or_stale_clear" in gate["failed_gates"]
     assert weakness["weak_case_count"] == 1
     assert weakness["low_answerability_item_count"] == 1
     assert weakness["weak_source_locality_item_count"] == 1
+    assert weakness["broad_summary_item_count"] == 1
+    assert weakness["conflict_or_stale_item_count"] == 1
     assert weakness["reason_counts"] == {
+        "selected_broad_summary": 1,
+        "selected_conflict_or_stale": 1,
         "selected_low_answerability": 1,
         "selected_weak_source_locality": 1,
     }
-    assert weakness["role_counts"] == {"primary": 1, "supporting": 1}
+    assert weakness["role_counts"] == {"primary": 1, "supporting": 3}
+    assert weakness["query_role_counts"] == {
+        "location_support": 1,
+        "original_question": 1,
+    }
+    assert weakness["low_answerability_query_role_counts"] == {
+        "original_question": 1
+    }
+    assert weakness["weak_source_locality_query_role_counts"] == {
+        "location_support": 1
+    }
+    assert weakness["samples"][0]["query_roles"] == ["original_question"]
     assert weakness["samples"][0]["source_refs"] == ["D1:1"]
+    assert weakness["samples"][2]["broad_summary"] is True
+    assert weakness["samples"][3]["conflict_or_stale"] is True
 
 
 def _item(

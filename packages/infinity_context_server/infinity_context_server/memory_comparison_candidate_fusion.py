@@ -27,6 +27,11 @@ class CandidateFusionConfig:
 
 DEFAULT_CANDIDATE_FUSION_CONFIG = CandidateFusionConfig()
 _TURN_REF_RE = re.compile(r"\bD\d+:\d+\b")
+_SOURCE_SESSION_TURN_RE = re.compile(
+    r"(?:^|:)session_(?P<session>\d+):(?P<turn_ref>D\d+:\d+):"
+    r"(?:turn|chunk|fact)(?:[-_][^:]*)?$",
+    re.IGNORECASE,
+)
 _BROAD_SUMMARY_SURFACE_RE = re.compile(
     r"\b(?:conversation summary|memory summary|observations|related turns|"
     r"events date|summari[sz]ed turns|summary of)\b|\bsummary\s*:",
@@ -103,6 +108,9 @@ def fuse_query_results(
     rrf_scores: list[float] = []
     source_diversity_counts: list[int] = []
     query_role_counts: Counter[str] = Counter()
+    score_winner_query_role_counts: Counter[str] = Counter()
+    selected_evidence_query_role_counts: Counter[str] = Counter()
+    focused_query_evidence_selection_role_counts: Counter[str] = Counter()
     bridge_query_hit_count = 0
     lower_score_evidence_selection_count = 0
     source_type_evidence_selection_count = 0
@@ -114,6 +122,14 @@ def fuse_query_results(
         rrf_scores.append(float(fusion["rrf_score"]))
         source_diversity_counts.append(int(fusion["source_diversity_count"]))
         query_role_counts.update(_string_sequence(fusion.get("query_roles")))
+        score_winner_query_role = str(fusion.get("score_winner_query_role") or "")
+        selected_evidence_query_role = str(
+            fusion.get("selected_evidence_query_role") or ""
+        )
+        if score_winner_query_role:
+            score_winner_query_role_counts[score_winner_query_role] += 1
+        if selected_evidence_query_role:
+            selected_evidence_query_role_counts[selected_evidence_query_role] += 1
         if fusion.get("bridge_query_hit") is True:
             bridge_query_hit_count += 1
         if float(fusion.get("selected_evidence_score") or 0.0) < float(
@@ -128,6 +144,10 @@ def fuse_query_results(
             "score_winner_query_role"
         ):
             focused_query_evidence_selection_count += 1
+            if selected_evidence_query_role:
+                focused_query_evidence_selection_role_counts[
+                    selected_evidence_query_role
+                ] += 1
 
     fused.sort(key=lambda memory: (-memory.score, memory.rank))
     reranked = [
@@ -142,11 +162,20 @@ def fuse_query_results(
         "duplicate_result_count": max(0, raw_result_count - len(reranked)),
         "multi_query_hit_count": sum(1 for count in match_counts if count > 1),
         "query_role_counts": dict(sorted(query_role_counts.items())),
+        "score_winner_query_role_counts": dict(
+            sorted(score_winner_query_role_counts.items())
+        ),
+        "selected_evidence_query_role_counts": dict(
+            sorted(selected_evidence_query_role_counts.items())
+        ),
         "bridge_query_hit_count": bridge_query_hit_count,
         "lower_score_evidence_selection_count": lower_score_evidence_selection_count,
         "source_type_evidence_selection_count": source_type_evidence_selection_count,
         "focused_query_evidence_selection_count": (
             focused_query_evidence_selection_count
+        ),
+        "focused_query_evidence_selection_role_counts": dict(
+            sorted(focused_query_evidence_selection_role_counts.items())
         ),
         "max_query_match_count": max(match_counts, default=0),
         "max_rrf_score": round(max(rrf_scores, default=0.0), 6),
@@ -468,8 +497,15 @@ def _candidate_group_key(
 ) -> str:
     keys = _memory_merge_keys(memory)
     existing_groups = tuple(
-        dict.fromkeys(key_to_group[key] for key in keys if key in key_to_group)
+        dict.fromkeys(
+            group
+            for key in keys
+            if (group := key_to_group.get(key)) is not None
+            and _merge_key_sets_are_compatible(keys, group_keys.get(group, set()))
+        )
     )
+    if not existing_groups:
+        existing_groups = _session_turn_fallback_groups(keys, group_keys)
     if not existing_groups:
         group_key = keys[0]
         group_keys[group_key] = set(keys)
@@ -508,6 +544,7 @@ def _memory_merge_keys(memory: RetrievedMemory) -> tuple[str, ...]:
 
 
 def _precise_source_ref_merge_key(source_refs: Sequence[str]) -> str:
+    session_turn_refs = _session_turn_refs_from_source_refs(source_refs)
     turn_refs = tuple(
         dict.fromkeys(
             ref
@@ -515,6 +552,12 @@ def _precise_source_ref_merge_key(source_refs: Sequence[str]) -> str:
             for ref in _TURN_REF_RE.findall(str(source_ref))
         )
     )
+    if session_turn_refs:
+        if len(session_turn_refs) <= 3 and _turn_ref_count(session_turn_refs) == len(
+            turn_refs
+        ):
+            return "source_session_turn_refs:" + "|".join(sorted(session_turn_refs))
+        return ""
     if not turn_refs or len(turn_refs) > 3:
         return ""
     return "turn_refs:" + "|".join(sorted(turn_refs))
@@ -530,7 +573,7 @@ def _source_identity_refs(memory: RetrievedMemory) -> tuple[str, ...]:
     direct_refs = tuple(
         str(ref).strip() for ref in memory.source_refs if str(ref).strip()
     )
-    return tuple(
+    refs = tuple(
         dict.fromkeys(
             (
                 *source_identity_refs_from_dedupe_key(
@@ -545,6 +588,115 @@ def _source_identity_refs(memory: RetrievedMemory) -> tuple[str, ...]:
             )
         )
     )
+    session_turn_refs = _session_turn_refs_from_source_refs(direct_refs)
+    if not session_turn_refs:
+        return refs
+    session_unqualified_refs = _unqualified_turn_refs_from_session_refs(
+        session_turn_refs
+    )
+    return tuple(
+        ref
+        for ref in refs
+        if not (
+            ref.startswith("source_turn_refs:")
+            and ref in session_unqualified_refs
+        )
+    )
+
+
+def _merge_key_sets_are_compatible(
+    candidate_keys: Sequence[str],
+    existing_keys: set[str],
+) -> bool:
+    candidate_sessions = _session_turn_refs_from_merge_keys(candidate_keys)
+    existing_sessions = _session_turn_refs_from_merge_keys(existing_keys)
+    if not candidate_sessions or not existing_sessions:
+        return True
+    return bool(set(candidate_sessions).intersection(existing_sessions))
+
+
+def _session_turn_fallback_groups(
+    candidate_keys: Sequence[str],
+    group_keys: Mapping[str, set[str]],
+) -> tuple[str, ...]:
+    candidate_sessions = _session_turn_refs_from_merge_keys(candidate_keys)
+    candidate_turn_refs = _unqualified_turn_refs_from_merge_keys(candidate_keys)
+    groups: list[str] = []
+    for group, keys in group_keys.items():
+        existing_sessions = _session_turn_refs_from_merge_keys(keys)
+        existing_turn_refs = _unqualified_turn_refs_from_merge_keys(keys)
+        if candidate_sessions and existing_sessions:
+            continue
+        if candidate_sessions:
+            candidate_unqualified = _unqualified_turn_refs_from_session_refs(
+                candidate_sessions
+            )
+            if candidate_unqualified.intersection(existing_turn_refs):
+                groups.append(group)
+        elif existing_sessions:
+            existing_unqualified = _unqualified_turn_refs_from_session_refs(
+                existing_sessions
+            )
+            if candidate_turn_refs.intersection(existing_unqualified):
+                groups.append(group)
+    groups = list(dict.fromkeys(groups))
+    if len(groups) != 1:
+        return ()
+    return (groups[0],)
+
+
+def _session_turn_refs_from_source_refs(source_refs: Sequence[str]) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            f"session_{match.group('session')}:{match.group('turn_ref')}"
+            for source_ref in source_refs
+            if (match := _SOURCE_SESSION_TURN_RE.search(str(source_ref)))
+        )
+    )
+
+
+def _session_turn_refs_from_merge_keys(keys: Sequence[str]) -> tuple[str, ...]:
+    refs: list[str] = []
+    for key in keys:
+        value = str(key)
+        if value.startswith("source_identity:"):
+            value = value.removeprefix("source_identity:")
+        if not value.startswith("source_session_turn_refs:"):
+            continue
+        refs.extend(
+            ref
+            for ref in value.removeprefix("source_session_turn_refs:").split("|")
+            if ref
+        )
+    return tuple(dict.fromkeys(refs))
+
+
+def _unqualified_turn_refs_from_merge_keys(keys: Sequence[str]) -> set[str]:
+    refs: set[str] = set()
+    for key in keys:
+        value = str(key)
+        if value.startswith("source_identity:"):
+            value = value.removeprefix("source_identity:")
+        if value.startswith(("source_turn_refs:", "turn_refs:")):
+            refs.update(
+                f"source_turn_refs:{ref}"
+                for ref in value.split(":", maxsplit=1)[1].split("|")
+                if ref
+            )
+    return refs
+
+
+def _unqualified_turn_refs_from_session_refs(session_refs: Sequence[str]) -> set[str]:
+    refs: set[str] = set()
+    for ref in session_refs:
+        match = _TURN_REF_RE.search(str(ref))
+        if match is not None:
+            refs.add(f"source_turn_refs:{match.group(0)}")
+    return refs
+
+
+def _turn_ref_count(values: Sequence[str]) -> int:
+    return sum(1 for value in values if _TURN_REF_RE.search(str(value)))
 
 
 def _source_refs(

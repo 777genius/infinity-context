@@ -162,12 +162,85 @@ def test_candidate_fusion_merges_distinct_ids_for_same_precise_turn_ref() -> Non
     assert fused[0].item_id == "chunk-123"
     assert fused[0].score > chunk.score
     fusion = fused[0].metadata["diagnostics"]["benchmark_candidate_fusion"]
-    assert fusion["dedupe_key"] == "turn_refs:D2:8"
+    assert fusion["dedupe_key"] == "source_session_turn_refs:session_2:D2:8"
     assert fusion["source_refs"] == [
         "locomo:conv-26:session_2:D2:8:chunk",
         "locomo:conv-26:session_2:D2:8:turn",
     ]
     assert fusion["source_types"] == ["chunk", "raw_turn"]
+
+
+def test_candidate_fusion_keeps_cross_session_canonical_turn_refs_distinct() -> None:
+    session_one = RetrievedMemory(
+        item_id="session-one-chunk",
+        rank=1,
+        score=0.82,
+        text="Caroline discussed adoption support in the session.",
+        source_refs=("locomo:conv-19:session_1:D1:8:chunk",),
+        metadata={
+            "item_type": "chunk",
+            "diagnostics": {"retrieval_sources": ["semantic_chunks"]},
+        },
+    )
+    session_eleven = RetrievedMemory(
+        item_id="session-eleven-chunk",
+        rank=1,
+        score=0.81,
+        text="Caroline discussed adoption support in the session.",
+        source_refs=("locomo:conv-19:session_11:D1:8:chunk",),
+        metadata={
+            "item_type": "chunk",
+            "diagnostics": {"retrieval_sources": ["semantic_chunks"]},
+        },
+    )
+
+    fused, diagnostics = fuse_query_results(
+        (("session-one", (session_one,)), ("session-eleven", (session_eleven,)))
+    )
+
+    assert [memory.item_id for memory in fused] == [
+        "session-one-chunk",
+        "session-eleven-chunk",
+    ]
+    assert diagnostics["duplicate_result_count"] == 0
+
+
+def test_candidate_fusion_merges_same_session_canonical_chunk_and_turn_refs() -> None:
+    chunk = RetrievedMemory(
+        item_id="session-one-chunk",
+        rank=2,
+        score=0.82,
+        text="Caroline discussed adoption support.",
+        source_refs=("locomo:conv-19:session_1:D1:8:chunk",),
+        metadata={
+            "item_type": "chunk",
+            "diagnostics": {"retrieval_sources": ["semantic_chunks"]},
+        },
+    )
+    raw_turn = RetrievedMemory(
+        item_id="session-one-turn",
+        rank=1,
+        score=0.8,
+        text="D1:8 Caroline: I got adoption support.",
+        source_refs=("locomo:conv-19:session_1:D1:8:turn",),
+        metadata={
+            "item_type": "raw_turn",
+            "diagnostics": {"retrieval_sources": ["raw_turns"]},
+        },
+    )
+
+    fused, diagnostics = fuse_query_results(
+        (("chunk", (chunk,)), ("raw-turn", (raw_turn,)))
+    )
+
+    assert len(fused) == 1
+    assert diagnostics["duplicate_result_count"] == 1
+    fusion = fused[0].metadata["diagnostics"]["benchmark_candidate_fusion"]
+    assert fusion["dedupe_key"] == "source_session_turn_refs:session_1:D1:8"
+    assert set(fusion["source_refs"]) == {
+        "locomo:conv-19:session_1:D1:8:chunk",
+        "locomo:conv-19:session_1:D1:8:turn",
+    }
 
 
 def test_candidate_fusion_merges_source_ref_dedupe_identity_without_source_refs() -> None:
@@ -240,7 +313,7 @@ def test_candidate_fusion_merges_canonical_source_ref_with_text_turn_identity() 
     assert diagnostics["duplicate_result_count"] == 1
     assert fused[0].source_refs == ("locomo:conv-26:session_2:D2:8:chunk",)
     fusion = fused[0].metadata["diagnostics"]["benchmark_candidate_fusion"]
-    assert fusion["dedupe_key"] == "turn_refs:D2:8"
+    assert fusion["dedupe_key"] == "source_session_turn_refs:session_2:D2:8"
     assert fusion["source_types"] == ["chunk", "raw_turn"]
 
 
@@ -451,6 +524,13 @@ def test_candidate_fusion_prefers_typed_relation_support_evidence() -> None:
     assert diagnostics["query_role_counts"] == {
         "exchange_support": 1,
         "original_question": 1,
+    }
+    assert diagnostics["score_winner_query_role_counts"] == {"original_question": 1}
+    assert diagnostics["selected_evidence_query_role_counts"] == {
+        "exchange_support": 1
+    }
+    assert diagnostics["focused_query_evidence_selection_role_counts"] == {
+        "exchange_support": 1
     }
     assert fused[0].text == exchange_hit.text
     fusion = fused[0].metadata["diagnostics"]["benchmark_candidate_fusion"]

@@ -84,6 +84,9 @@ def candidate_fusion_table(
     source_type_selection_count = 0
     focused_query_selection_count = 0
     query_role_counts: Counter[str] = Counter()
+    score_winner_query_role_counts: Counter[str] = Counter()
+    selected_evidence_query_role_counts: Counter[str] = Counter()
+    focused_query_evidence_selection_role_counts: Counter[str] = Counter()
     max_query_match_count = 0
     max_source_diversity_count = 0
     max_rrf_score = 0.0
@@ -108,6 +111,15 @@ def candidate_fusion_table(
             positive_int(merge.get("focused_query_evidence_selection_count")) or 0
         )
         query_role_counts.update(count_mapping(merge.get("query_role_counts")))
+        score_winner_query_role_counts.update(
+            count_mapping(merge.get("score_winner_query_role_counts"))
+        )
+        selected_evidence_query_role_counts.update(
+            count_mapping(merge.get("selected_evidence_query_role_counts"))
+        )
+        focused_query_evidence_selection_role_counts.update(
+            count_mapping(merge.get("focused_query_evidence_selection_role_counts"))
+        )
         max_query_match_count = max(
             max_query_match_count,
             positive_int(merge.get("max_query_match_count")) or 0,
@@ -129,6 +141,15 @@ def candidate_fusion_table(
         "source_type_evidence_selection_count": source_type_selection_count,
         "focused_query_evidence_selection_count": focused_query_selection_count,
         "query_role_counts": dict(sorted(query_role_counts.items())),
+        "score_winner_query_role_counts": dict(
+            sorted(score_winner_query_role_counts.items())
+        ),
+        "selected_evidence_query_role_counts": dict(
+            sorted(selected_evidence_query_role_counts.items())
+        ),
+        "focused_query_evidence_selection_role_counts": dict(
+            sorted(focused_query_evidence_selection_role_counts.items())
+        ),
         "max_query_match_count": max_query_match_count,
         "max_source_diversity_count": max_source_diversity_count,
         "max_rrf_score": round(max_rrf_score, 6),
