@@ -252,11 +252,18 @@ def _render_memory_evidence_line(memory: RetrievedMemory, *, index: int) -> str:
     reason_codes = _string_sequence(metadata.get("answer_context_reason_codes"))
     if reason_codes:
         labels.append(f"reasons={','.join(reason_codes[:4])}")
-    risk_reasons = _string_sequence(
-        metadata.get("answer_context_bundle_risk_reason_codes")
+    risk_reasons = tuple(
+        dict.fromkeys(
+            (
+                *_string_sequence(
+                    metadata.get("answer_context_bundle_risk_reason_codes")
+                ),
+                *_string_sequence(metadata.get("answer_context_risk_reason_codes")),
+            )
+        )
     )
     if risk_reasons:
-        labels.append(f"risks={','.join(risk_reasons[:3])}")
+        labels.append(f"risks={','.join(risk_reasons[:6])}")
     return f"{index}. [{' '.join(labels)}] {memory.text}{refs}"
 
 

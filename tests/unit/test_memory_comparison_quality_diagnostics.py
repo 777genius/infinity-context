@@ -1747,6 +1747,8 @@ def test_quality_diagnostics_propagates_selected_evidence_risk_reasons() -> None
         "risk:conflict_or_stale",
         "risk:selected_custom",
     ]
+    assert breakdown["samples"][0]["broad_summary"] is True
+    assert breakdown["samples"][0]["conflict_or_stale"] is True
 
 
 def test_quality_diagnostics_reports_empty_bundle_quality_table() -> None:

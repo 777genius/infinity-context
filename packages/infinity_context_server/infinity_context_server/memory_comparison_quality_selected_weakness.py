@@ -236,10 +236,12 @@ def _selected_evidence_weakness_sample(
         "broad_summary": (
             bundle_item.get("broad_summary") is True
             or "broad_summary" in planner_reasons
+            or "risk:broad_summary" in risk_reasons
         ),
         "conflict_or_stale": (
             bundle_item.get("conflict_or_stale") is True
             or "conflict_or_stale" in planner_reasons
+            or "risk:conflict_or_stale" in risk_reasons
         ),
         "source_refs": list(source_refs)[:_SELECTED_WEAKNESS_SOURCE_REF_LIMIT],
         "source_ref_count": len(source_refs),
