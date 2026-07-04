@@ -2014,6 +2014,91 @@ def test_quality_diagnostics_reports_concise_weak_evidence_summary() -> None:
     )
 
 
+def test_quality_diagnostics_reports_evidence_recall_gap_samples() -> None:
+    items = (
+        _item(
+            case_id="missing-ref",
+            group="multi-hop",
+            retrieval_quality={
+                "expected_term_recall": 1.0,
+                "evidence_term_recall": 0.0,
+                "missing_evidence_terms": ["D3:4", "D3:5"],
+            },
+            evidence_bundle={"bundle_complete": False},
+        ),
+        _item(
+            case_id="weak-recall",
+            group="single-hop",
+            retrieval_quality={
+                "expected_term_recall": 1.0,
+                "evidence_term_recall": 0.5,
+                "missing_evidence_terms": [],
+            },
+            evidence_bundle={"bundle_complete": True},
+        ),
+        _item(
+            case_id="unmeasured-missing-ref",
+            group="single-hop",
+            retrieval_quality={
+                "expected_term_recall": 0.5,
+                "missing_evidence_terms": ["D7:1"],
+            },
+            evidence_bundle={"bundle_complete": False},
+        ),
+    )
+
+    diagnostics = quality_diagnostics(items)
+    gate = fast_gate_metrics(items, expected_case_count=3)
+
+    summary = diagnostics["evidence_recall_gap_summary"]
+
+    assert gate["evidence_recall_gap_summary"] == summary
+    assert summary["schema_version"] == "evidence_recall_gap_summary.v1"
+    assert summary["evaluation_count"] == 3
+    assert summary["measured_evidence_recall_count"] == 2
+    assert summary["missing_evidence_ref_case_count"] == 2
+    assert summary["weak_evidence_recall_case_count"] == 2
+    assert summary["zero_evidence_recall_case_count"] == 1
+    assert summary["avg_expected_term_recall"] == 0.8333
+    assert summary["avg_evidence_term_recall"] == 0.25
+    assert summary["top_missing_evidence_terms"] == {
+        "D3:4": 1,
+        "D3:5": 1,
+        "D7:1": 1,
+    }
+    assert summary["samples"] == [
+        {
+            "case_id": "missing-ref",
+            "group": "multi-hop",
+            "expected_term_recall": 1.0,
+            "evidence_term_recall_measured": True,
+            "missing_evidence_term_count": 2,
+            "missing_evidence_terms": ["D3:4", "D3:5"],
+            "bundle_complete": False,
+            "evidence_term_recall": 0.0,
+        },
+        {
+            "case_id": "unmeasured-missing-ref",
+            "group": "single-hop",
+            "expected_term_recall": 0.5,
+            "evidence_term_recall_measured": False,
+            "missing_evidence_term_count": 1,
+            "missing_evidence_terms": ["D7:1"],
+            "bundle_complete": False,
+        },
+        {
+            "case_id": "weak-recall",
+            "group": "single-hop",
+            "expected_term_recall": 1.0,
+            "evidence_term_recall_measured": True,
+            "missing_evidence_term_count": 0,
+            "missing_evidence_terms": [],
+            "bundle_complete": True,
+            "evidence_term_recall": 0.5,
+        },
+    ]
+
+
 def test_quality_diagnostics_reports_measured_bundle_score_averages() -> None:
     diagnostics = quality_diagnostics(
         (

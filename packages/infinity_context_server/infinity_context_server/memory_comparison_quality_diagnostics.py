@@ -173,6 +173,8 @@ from infinity_context_server.memory_comparison_temporal_grounding import (
 
 _ANSWERABILITY_GAP_REASON_LIMIT = 6
 _ANSWERABILITY_GAP_TEXT_VALUE_LIMIT = 120
+_EVIDENCE_RECALL_GAP_SAMPLE_LIMIT = 10
+_EVIDENCE_RECALL_MISSING_TERM_SAMPLE_LIMIT = 8
 _LOCOMO_TURN_REF_RE = re.compile(r"\bD\d+:\d+\b")
 _LOCOMO_SESSION_TURN_IDENTITY_RE = re.compile(
     r"^source_session_turn_refs:session_\d+:D\d+:\d+$",
@@ -255,6 +257,7 @@ def quality_diagnostics(items: Sequence[Mapping[str, object]]) -> dict[str, obje
             answer_context_provenance=answer_context_provenance,
         ),
         "bundle_quality_table": _bundle_quality_table(items),
+        "evidence_recall_gap_summary": _evidence_recall_gap_summary(items),
         "policy_contribution_table": _policy_contribution_table(items),
         "evidence_feature_table": _evidence_feature_table(items),
         "source_ref_provenance_table": source_ref_provenance,
@@ -292,6 +295,7 @@ def fast_gate_metrics(
     query_role_effectiveness = _query_role_effectiveness_table(items)
     query_plan_integrity = _query_plan_integrity_table(items)
     risk_flag_table = _risk_flag_table(items)
+    evidence_recall_gap_summary = _evidence_recall_gap_summary(items)
     source_ref_provenance = _source_ref_provenance_table(items)
     answer_context_provenance = _answer_context_provenance_table(items)
     answer_context_support_gaps = _answer_context_support_gap_summary(items)
@@ -411,6 +415,7 @@ def fast_gate_metrics(
         "bundle_source_identity": _bundle_source_identity_summary(bundle_quality),
         "bundle_source_proximity": _bundle_source_proximity_summary(bundle_quality),
         "bundle_gap_breakdown": bundle_gap_breakdown,
+        "evidence_recall_gap_summary": evidence_recall_gap_summary,
         "evidence_bundle_gap_report": _evidence_bundle_gap_report(
             evaluation_count=scored_count,
             bundle_gap_breakdown=bundle_gap_breakdown,
@@ -553,6 +558,102 @@ def _intent_metric_payload(items: Sequence[Mapping[str, object]]) -> dict[str, o
             len(scored),
         ),
     }
+
+
+def _evidence_recall_gap_summary(
+    items: Sequence[Mapping[str, object]],
+) -> dict[str, object]:
+    scored = [item for item in items if item.get("scored") is True]
+    measured = [item for item in scored if _has_evidence_recall(item)]
+    missing_ref_items = [
+        item
+        for item in scored
+        if _str_tuple(
+            _mapping(item.get("retrieval_quality")).get("missing_evidence_terms")
+        )
+    ]
+    weak_recall_items = [item for item in measured if _evidence_recall(item) < 1.0]
+    gap_items = _dedupe_items((*missing_ref_items, *weak_recall_items))
+    missing_term_counts: Counter[str] = Counter()
+    for item in missing_ref_items:
+        missing_term_counts.update(
+            _str_tuple(
+                _mapping(item.get("retrieval_quality")).get("missing_evidence_terms")
+            )
+        )
+    return {
+        "schema_version": "evidence_recall_gap_summary.v1",
+        "evaluation_count": len(scored),
+        "measured_evidence_recall_count": len(measured),
+        "missing_evidence_ref_case_count": len(missing_ref_items),
+        "weak_evidence_recall_case_count": len(weak_recall_items),
+        "zero_evidence_recall_case_count": sum(
+            1 for item in measured if _evidence_recall(item) <= 0
+        ),
+        "avg_expected_term_recall": _avg(_expected_recall(item) for item in scored),
+        "avg_evidence_term_recall": _avg(_evidence_recall(item) for item in measured),
+        "top_missing_evidence_terms": _top_counts(missing_term_counts, limit=10),
+        "samples": _evidence_recall_gap_samples(gap_items),
+    }
+
+
+def _dedupe_items(
+    items: Sequence[Mapping[str, object]],
+) -> tuple[Mapping[str, object], ...]:
+    deduped: list[Mapping[str, object]] = []
+    seen: set[int] = set()
+    for item in items:
+        key = id(item)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+    return tuple(deduped)
+
+
+def _evidence_recall_gap_samples(
+    items: Sequence[Mapping[str, object]],
+) -> list[dict[str, object]]:
+    samples: list[dict[str, object]] = []
+    for item in sorted(
+        items,
+        key=lambda item: (
+            0
+            if _str_tuple(
+                _mapping(item.get("retrieval_quality")).get(
+                    "missing_evidence_terms"
+                )
+            )
+            else 1,
+            _evidence_recall(item) if _has_evidence_recall(item) else 1.0,
+            -len(
+                _str_tuple(
+                    _mapping(item.get("retrieval_quality")).get(
+                        "missing_evidence_terms"
+                    )
+                )
+            ),
+            str(item.get("case_id") or ""),
+        ),
+    )[:_EVIDENCE_RECALL_GAP_SAMPLE_LIMIT]:
+        quality = _mapping(item.get("retrieval_quality"))
+        measured = _has_evidence_recall(item)
+        missing_terms = _str_tuple(quality.get("missing_evidence_terms"))
+        sample: dict[str, object] = {
+            "case_id": str(item.get("case_id") or ""),
+            "group": str(item.get("group") or ""),
+            "expected_term_recall": round(_expected_recall(item), 6),
+            "evidence_term_recall_measured": measured,
+            "missing_evidence_term_count": len(missing_terms),
+            "missing_evidence_terms": list(
+                missing_terms[:_EVIDENCE_RECALL_MISSING_TERM_SAMPLE_LIMIT]
+            ),
+            "bundle_complete": _bundle_complete(item),
+        }
+        if measured:
+            sample["evidence_term_recall"] = round(_evidence_recall(item), 6)
+        samples.append(sample)
+    return samples
 
 
 def _risk_flag_table(items: Sequence[Mapping[str, object]]) -> dict[str, object]:
