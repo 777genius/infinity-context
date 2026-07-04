@@ -398,6 +398,8 @@ def test_answer_context_uses_bundle_order_within_cutoff() -> None:
         "backfilled_conflict_or_stale_count": 0,
         "backfilled_low_answerability_count": 0,
         "backfilled_weak_source_locality_count": 0,
+        "backfilled_low_answerability_role_counts": {},
+        "backfilled_weak_source_locality_role_counts": {},
         "backfilled_source_proximity_support_count": 0,
         "backfilled_chained_source_proximity_support_count": 0,
         "backfilled_source_proximity_closest_distance": None,
@@ -656,6 +658,75 @@ def test_answer_context_matches_session_qualified_turn_key() -> None:
         "source_session_turn_refs:session_1:D1:8",
         "source_turn_refs:D1:8",
     )
+
+
+def test_answer_context_does_not_match_same_dialogue_different_session_source_ref() -> None:
+    memories = (
+        RetrievedMemory(
+            text="wrong session evidence",
+            rank=1,
+            item_id="wrong-session",
+            source_refs=("locomo:conv-19:session_11:D1:8:turn",),
+        ),
+        RetrievedMemory(
+            text="correct session evidence",
+            rank=2,
+            item_id="correct-session",
+            source_refs=("locomo:conv-19:session_1:D1:8:turn",),
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "items": [
+                {
+                    "role": "primary",
+                    "source_refs": ["locomo:conv-19:session_1:D1:8:turn"],
+                }
+            ]
+        },
+        cutoff=2,
+    )
+
+    assert [memory.item_id for memory in context.memories] == ["correct-session"]
+    assert "source_session_turn_refs:session_1:D1:8" in context.memories[0].source_refs
+    assert (
+        "source_session_turn_refs:session_11:D1:8"
+        not in context.memories[0].source_refs
+    )
+
+
+def test_answer_context_requires_session_match_for_session_qualified_bundle_key() -> None:
+    memories = (
+        RetrievedMemory(
+            text="D1:8 unqualified evidence from a hydrated source sibling.",
+            rank=1,
+            item_id="unqualified",
+            source_refs=("D1:8",),
+        ),
+        RetrievedMemory(
+            text="session_11 date: Friday D1:8 wrong session evidence.",
+            rank=2,
+            item_id="wrong-session",
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "items": [
+                {
+                    "role": "primary",
+                    "source_ref_dedupe_key": "source_session_turn_refs:session_1:D1:8",
+                }
+            ]
+        },
+        cutoff=2,
+    )
+
+    assert context.source == "retrieval_slice"
+    assert context.fallback_reason == "no_bundle_items_within_cutoff"
 
 
 def test_answer_context_matches_partial_multi_turn_source_identity() -> None:
@@ -1760,6 +1831,59 @@ def test_answer_context_backfill_does_not_prefer_low_quality_sibling() -> None:
     assert diagnostics["backfilled_source_proximity_support_count"] == 0
 
 
+def test_answer_context_diagnostics_bucket_weak_backfill_by_missing_role() -> None:
+    memories = (
+        RetrievedMemory(
+            text="D6:1 Alex mentioned Maria.",
+            rank=1,
+            item_id="primary",
+            source_refs=("D6:1",),
+        ),
+        RetrievedMemory(
+            text="D6:2 Maria might be Alex's sister.",
+            rank=2,
+            item_id="weak-status",
+            source_refs=("D6:2",),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "query_roles": ["status_support"],
+                        "relation_category_hits": ["status_profile"],
+                        "entity_hits": ["alex", "maria"],
+                        "answerability_score": 0.4,
+                        "source_locality_score": 0.3,
+                    }
+                }
+            },
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "role_requirement_complete": False,
+            "missing_required_roles": ["status_support"],
+            "items": [{"id": "primary", "retrieval_order": 1, "role": "primary"}],
+        },
+        cutoff=2,
+    )
+
+    diagnostics = context.to_diagnostics()
+
+    assert [memory.item_id for memory in context.memories] == [
+        "primary",
+        "weak-status",
+    ]
+    assert diagnostics["backfilled_low_answerability_count"] == 1
+    assert diagnostics["backfilled_weak_source_locality_count"] == 1
+    assert diagnostics["backfilled_low_answerability_role_counts"] == {
+        "status_support": 1
+    }
+    assert diagnostics["backfilled_weak_source_locality_role_counts"] == {
+        "status_support": 1
+    }
+
+
 def test_answer_context_backfill_prefers_source_proximate_role_evidence() -> None:
     memories = (
         RetrievedMemory(
@@ -2361,6 +2485,12 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
                             "backfilled_conflict_or_stale_count": 0,
                             "backfilled_low_answerability_count": 1,
                             "backfilled_weak_source_locality_count": 1,
+                            "backfilled_low_answerability_role_counts": {
+                                "contrast": 1,
+                            },
+                            "backfilled_weak_source_locality_role_counts": {
+                                "contrast": 1,
+                            },
                             "backfilled_source_proximity_support_count": 1,
                             "backfilled_chained_source_proximity_support_count": 1,
                             "backfilled_source_proximity_closest_distance": 2,
@@ -2459,6 +2589,12 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
     assert metrics["primary_avg_backfilled_low_answerability_count"] == 0.5
     assert metrics["primary_total_backfilled_weak_source_locality_count"] == 1
     assert metrics["primary_avg_backfilled_weak_source_locality_count"] == 0.5
+    assert metrics["primary_backfilled_low_answerability_role_counts"] == {
+        "contrast": 1
+    }
+    assert metrics["primary_backfilled_weak_source_locality_role_counts"] == {
+        "contrast": 1
+    }
     assert metrics["primary_total_backfilled_source_proximity_support_count"] == 1
     assert metrics["primary_avg_backfilled_source_proximity_support_count"] == 0.5
     assert (
@@ -2559,6 +2695,8 @@ def test_answer_context_metrics_aggregates_sources_and_compression() -> None:
     assert primary["avg_backfilled_low_answerability_count"] == 0.5
     assert primary["total_backfilled_weak_source_locality_count"] == 1
     assert primary["avg_backfilled_weak_source_locality_count"] == 0.5
+    assert primary["backfilled_low_answerability_role_counts"] == {"contrast": 1}
+    assert primary["backfilled_weak_source_locality_role_counts"] == {"contrast": 1}
     assert primary["total_backfilled_source_proximity_support_count"] == 1
     assert primary["avg_backfilled_source_proximity_support_count"] == 0.5
     assert primary["total_backfilled_chained_source_proximity_support_count"] == 1

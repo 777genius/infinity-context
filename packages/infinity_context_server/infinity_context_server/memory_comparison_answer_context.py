@@ -758,6 +758,12 @@ def answer_context_metrics(
             primary,
             "avg_backfilled_weak_source_locality_count",
         ),
+        "primary_backfilled_low_answerability_role_counts": _int_mapping(
+            primary.get("backfilled_low_answerability_role_counts")
+        ),
+        "primary_backfilled_weak_source_locality_role_counts": _int_mapping(
+            primary.get("backfilled_weak_source_locality_role_counts")
+        ),
         "primary_total_backfilled_source_proximity_support_count": (
             _positive_int(
                 primary.get("total_backfilled_source_proximity_support_count")
@@ -966,6 +972,8 @@ def _answer_context_cutoff_metrics(
     backfilled_precise_source_overlap_counts: list[int] = []
     backfilled_low_answerability_counts: list[int] = []
     backfilled_weak_source_locality_counts: list[int] = []
+    backfilled_low_answerability_role_counts: Counter[str] = Counter()
+    backfilled_weak_source_locality_role_counts: Counter[str] = Counter()
     backfilled_source_proximity_support_counts: list[int] = []
     backfilled_chained_source_proximity_support_counts: list[int] = []
     backfilled_source_proximity_closest_distances: list[int] = []
@@ -1090,6 +1098,12 @@ def _answer_context_cutoff_metrics(
         )
         backfilled_weak_source_locality_counts.append(
             _positive_int(context.get("backfilled_weak_source_locality_count")) or 0
+        )
+        backfilled_low_answerability_role_counts.update(
+            _int_mapping(context.get("backfilled_low_answerability_role_counts"))
+        )
+        backfilled_weak_source_locality_role_counts.update(
+            _int_mapping(context.get("backfilled_weak_source_locality_role_counts"))
         )
         backfilled_source_proximity_support_counts.append(
             _positive_int(
@@ -1354,6 +1368,12 @@ def _answer_context_cutoff_metrics(
         "avg_backfilled_weak_source_locality_count": _avg(
             backfilled_weak_source_locality_counts
         ),
+        "backfilled_low_answerability_role_counts": dict(
+            sorted(backfilled_low_answerability_role_counts.items())
+        ),
+        "backfilled_weak_source_locality_role_counts": dict(
+            sorted(backfilled_weak_source_locality_role_counts.items())
+        ),
         "total_backfilled_source_proximity_support_count": sum(
             backfilled_source_proximity_support_counts
         ),
@@ -1583,12 +1603,29 @@ def _memory_for_bundle_item(
 
     source_refs = set(_source_match_refs_from_bundle_item(item))
     if source_refs:
-        for memory in memories:
-            if source_refs.intersection(_precise_source_match_refs_from_memory(memory)):
-                return memory
-        for memory in memories:
-            if source_refs.intersection(_source_match_refs_from_memory(memory)):
-                return memory
+        session_source_refs = _session_source_match_refs(source_refs)
+        if session_source_refs:
+            for memory in memories:
+                if session_source_refs.intersection(
+                    _session_source_match_refs(
+                        _precise_source_match_refs_from_memory(memory)
+                    )
+                ):
+                    return memory
+            for memory in memories:
+                if session_source_refs.intersection(
+                    _session_source_match_refs(_source_match_refs_from_memory(memory))
+                ):
+                    return memory
+        else:
+            for memory in memories:
+                if source_refs.intersection(
+                    _precise_source_match_refs_from_memory(memory)
+                ):
+                    return memory
+            for memory in memories:
+                if source_refs.intersection(_source_match_refs_from_memory(memory)):
+                    return memory
 
     rank = _positive_int(item.get("rank"))
     if rank is not None:
@@ -1600,6 +1637,14 @@ def _memory_for_bundle_item(
     if retrieval_order is not None and 1 <= retrieval_order <= len(memories):
         return memories[retrieval_order - 1]
     return None
+
+
+def _session_source_match_refs(source_refs: Sequence[str]) -> set[str]:
+    return {
+        ref
+        for ref in source_refs
+        if str(ref).startswith("source_session_turn_refs:")
+    }
 
 
 def _with_answer_context_metadata(
@@ -2252,18 +2297,25 @@ def _backfill_risk_stats(memories: Sequence[RetrievedMemory]) -> dict[str, objec
     conflict_or_stale_count = 0
     low_answerability_count = 0
     weak_source_locality_count = 0
+    low_answerability_role_counts: Counter[str] = Counter()
+    weak_source_locality_role_counts: Counter[str] = Counter()
     source_proximity_distances: list[int] = []
     chained_source_proximity_count = 0
     for memory in backfilled:
         features = _candidate_features(memory)
+        role_hits = _string_tuple(
+            memory.metadata.get("answer_context_backfill_missing_role_hits")
+        )
         if memory_has_broad_summary(memory, features):
             broad_summary_count += 1
         if memory_has_conflict_or_stale(memory, features):
             conflict_or_stale_count += 1
         if _is_measured_low_answerability(features.get("answerability_score")):
             low_answerability_count += 1
+            low_answerability_role_counts.update(role_hits)
         if _is_measured_weak_source_locality(features.get("source_locality_score")):
             weak_source_locality_count += 1
+            weak_source_locality_role_counts.update(role_hits)
         source_proximity_distance = _positive_int(
             memory.metadata.get("answer_context_backfill_source_proximity_distance")
         )
@@ -2278,6 +2330,12 @@ def _backfill_risk_stats(memories: Sequence[RetrievedMemory]) -> dict[str, objec
         "backfilled_conflict_or_stale_count": conflict_or_stale_count,
         "backfilled_low_answerability_count": low_answerability_count,
         "backfilled_weak_source_locality_count": weak_source_locality_count,
+        "backfilled_low_answerability_role_counts": dict(
+            sorted(low_answerability_role_counts.items())
+        ),
+        "backfilled_weak_source_locality_role_counts": dict(
+            sorted(weak_source_locality_role_counts.items())
+        ),
         "backfilled_source_proximity_support_count": len(
             source_proximity_distances
         ),

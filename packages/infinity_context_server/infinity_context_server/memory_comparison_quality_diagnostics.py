@@ -265,7 +265,10 @@ def fast_gate_metrics(
     selected_evidence_weakness = _selected_evidence_weakness_breakdown(items)
     candidate_fusion = _candidate_fusion_table(items)
     rerank_signal_gaps = _rerank_signal_gap_breakdown(items)
-    query_role_gap_breakdown = _query_role_gap_breakdown(query_role_effectiveness)
+    query_role_gap_breakdown = _query_role_gap_breakdown(
+        query_role_effectiveness,
+        candidate_fusion_summary=candidate_fusion,
+    )
     query_plan_gap_breakdown = _query_plan_gap_breakdown(query_plan_integrity)
     bundle_quality_count = _positive_int(bundle_quality.get("bundle_count")) or 0
     medium_or_high_bundle_count = (
@@ -1151,6 +1154,8 @@ def _answer_context_provenance_table(
     backfilled_precise_source_overlap_count = 0
     backfilled_low_answerability_count = 0
     backfilled_weak_source_locality_count = 0
+    backfilled_low_answerability_role_counts: Counter[str] = Counter()
+    backfilled_weak_source_locality_role_counts: Counter[str] = Counter()
     backfilled_source_proximity_support_count = 0
     backfilled_chained_source_proximity_support_count = 0
     backfilled_source_proximity_closest_distances: list[int] = []
@@ -1251,6 +1256,12 @@ def _answer_context_provenance_table(
             context_backfilled_weak_source_locality_count = (
                 _positive_int(context.get("backfilled_weak_source_locality_count"))
                 or 0
+            )
+            context_backfilled_low_answerability_role_counts = _count_mapping(
+                context.get("backfilled_low_answerability_role_counts")
+            )
+            context_backfilled_weak_source_locality_role_counts = _count_mapping(
+                context.get("backfilled_weak_source_locality_role_counts")
             )
             context_backfilled_source_proximity_support_count = (
                 _positive_int(
@@ -1354,6 +1365,12 @@ def _answer_context_provenance_table(
             )
             backfilled_weak_source_locality_count += (
                 context_backfilled_weak_source_locality_count
+            )
+            backfilled_low_answerability_role_counts.update(
+                context_backfilled_low_answerability_role_counts
+            )
+            backfilled_weak_source_locality_role_counts.update(
+                context_backfilled_weak_source_locality_role_counts
             )
             backfilled_source_proximity_support_count += (
                 context_backfilled_source_proximity_support_count
@@ -1482,6 +1499,28 @@ def _answer_context_provenance_table(
                         "backfilled_weak_source_locality_count": (
                             context_backfilled_weak_source_locality_count
                         ),
+                        **(
+                            {
+                                "backfilled_low_answerability_role_counts": dict(
+                                    sorted(
+                                        context_backfilled_low_answerability_role_counts.items()
+                                    )
+                                )
+                            }
+                            if context_backfilled_low_answerability_role_counts
+                            else {}
+                        ),
+                        **(
+                            {
+                                "backfilled_weak_source_locality_role_counts": dict(
+                                    sorted(
+                                        context_backfilled_weak_source_locality_role_counts.items()
+                                    )
+                                )
+                            }
+                            if context_backfilled_weak_source_locality_role_counts
+                            else {}
+                        ),
                         "backfilled_source_proximity_support_count": (
                             context_backfilled_source_proximity_support_count
                         ),
@@ -1605,6 +1644,12 @@ def _answer_context_provenance_table(
         "avg_backfilled_weak_source_locality_count": _ratio(
             backfilled_weak_source_locality_count,
             context_count,
+        ),
+        "backfilled_low_answerability_role_counts": dict(
+            sorted(backfilled_low_answerability_role_counts.items())
+        ),
+        "backfilled_weak_source_locality_role_counts": dict(
+            sorted(backfilled_weak_source_locality_role_counts.items())
         ),
         "backfilled_source_proximity_support_count": (
             backfilled_source_proximity_support_count

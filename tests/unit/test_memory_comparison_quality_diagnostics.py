@@ -936,6 +936,14 @@ def test_quality_diagnostics_reports_answer_context_provenance_table() -> None:
                             "skipped_redundant_role_backfill_count": 1,
                             "backfilled_broad_summary_count": 1,
                             "backfilled_conflict_or_stale_count": 0,
+                            "backfilled_low_answerability_count": 1,
+                            "backfilled_weak_source_locality_count": 1,
+                            "backfilled_low_answerability_role_counts": {
+                                "contrast": 1,
+                            },
+                            "backfilled_weak_source_locality_role_counts": {
+                                "contrast": 1,
+                            },
                             "backfilled_source_proximity_support_count": 1,
                             "backfilled_chained_source_proximity_support_count": 1,
                             "backfilled_source_proximity_closest_distance": 2,
@@ -994,10 +1002,12 @@ def test_quality_diagnostics_reports_answer_context_provenance_table() -> None:
     assert table["backfilled_conflict_or_stale_count"] == 0
     assert table["backfilled_precise_source_overlap_count"] == 1
     assert table["avg_backfilled_precise_source_overlap_count"] == 0.5
-    assert table["backfilled_low_answerability_count"] == 0
-    assert table["avg_backfilled_low_answerability_count"] == 0.0
-    assert table["backfilled_weak_source_locality_count"] == 0
-    assert table["avg_backfilled_weak_source_locality_count"] == 0.0
+    assert table["backfilled_low_answerability_count"] == 1
+    assert table["avg_backfilled_low_answerability_count"] == 0.5
+    assert table["backfilled_weak_source_locality_count"] == 1
+    assert table["avg_backfilled_weak_source_locality_count"] == 0.5
+    assert table["backfilled_low_answerability_role_counts"] == {"contrast": 1}
+    assert table["backfilled_weak_source_locality_role_counts"] == {"contrast": 1}
     assert table["backfilled_source_proximity_support_count"] == 1
     assert table["avg_backfilled_source_proximity_support_count"] == 0.5
     assert table["backfilled_chained_source_proximity_support_count"] == 1
@@ -1041,8 +1051,10 @@ def test_quality_diagnostics_reports_answer_context_provenance_table() -> None:
             "backfilled_broad_summary_count": 1,
             "backfilled_conflict_or_stale_count": 0,
             "backfilled_precise_source_overlap_count": 1,
-            "backfilled_low_answerability_count": 0,
-            "backfilled_weak_source_locality_count": 0,
+            "backfilled_low_answerability_count": 1,
+            "backfilled_weak_source_locality_count": 1,
+            "backfilled_low_answerability_role_counts": {"contrast": 1},
+            "backfilled_weak_source_locality_role_counts": {"contrast": 1},
             "backfilled_source_proximity_support_count": 1,
             "backfilled_chained_source_proximity_support_count": 1,
             "backfilled_source_proximity_closest_distance": 2,
@@ -2713,6 +2725,76 @@ def test_fast_gate_metrics_reports_query_role_gap_breakdown_as_diagnostic_only()
         "selected_bundle_role_counts": {},
         "gap_reasons": ["not_selected"],
     }
+
+
+def test_fast_gate_metrics_uses_fusion_selected_evidence_role_counts() -> None:
+    retrieval = _retrieval_payload(
+        evidence_need=("location",),
+        bundle_evidence_roles=("primary", "location_support"),
+        policy_score=0.2,
+        candidate_features={
+            "query_roles": ("location_support",),
+            "answerability_score": 0.8,
+            "source_locality_score": 0.84,
+        },
+    )
+    retrieval["metadata"]["multi_query_merge"] = {
+        "raw_result_count": 2,
+        "unique_result_count": 1,
+        "query_role_counts": {"original_question": 1, "location_support": 1},
+        "selected_evidence_query_role_counts": {"location_support": 1},
+    }
+
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="fusion-selected-role",
+                group="single-hop",
+                retrieval=retrieval,
+                evidence_bundle={
+                    "bundle_complete": True,
+                    "evidence_term_count": 1,
+                    "covered_evidence_terms": ["D1:1"],
+                    "items": [
+                        {
+                            "role": "location_support",
+                            "retrieval_order": 1,
+                            "covered_evidence_terms": ["D1:1"],
+                            "focused_evidence_score": 1.0,
+                            "answerability_score": 0.8,
+                            "source_locality_score": 0.84,
+                        }
+                    ],
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    breakdown = gate["query_role_gap_breakdown"]
+
+    assert gate["ready_for_full_locomo"] is True
+    assert breakdown["candidate_fusion_query_role_counts"] == {
+        "location_support": 1,
+        "original_question": 1,
+    }
+    assert breakdown["selected_evidence_query_role_counts"] == {
+        "location_support": 1
+    }
+    assert breakdown["roles_without_selected_items"] == ["location_support"]
+    assert breakdown["roles_without_selected_evidence"] == []
+    assert breakdown["roles_with_selected_evidence_only_in_fusion"] == [
+        "location_support"
+    ]
+    assert breakdown["role_gaps"]["location_support"]["gap_reasons"] == [
+        "selected_evidence_not_bundle_tagged"
+    ]
+    assert (
+        breakdown["role_gaps"]["location_support"][
+            "selected_evidence_query_role_count"
+        ]
+        == 1
+    )
 
 
 def test_fast_gate_metrics_reports_typed_relation_hit_role_gaps() -> None:

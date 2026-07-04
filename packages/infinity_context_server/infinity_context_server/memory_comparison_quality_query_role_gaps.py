@@ -24,6 +24,8 @@ from infinity_context_server.memory_comparison_quality_accessors import (
 
 def query_role_gap_breakdown(
     query_role_effectiveness: Mapping[str, object],
+    *,
+    candidate_fusion_summary: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     candidate_role_counts = _count_mapping(
         query_role_effectiveness.get("candidate_role_counts")
@@ -54,6 +56,11 @@ def query_role_gap_breakdown(
     )
     bridge_hit_selected_counts = _count_mapping(
         query_role_effectiveness.get("bridge_query_hit_selected_counts")
+    )
+    candidate_fusion = _mapping(candidate_fusion_summary)
+    fusion_query_role_counts = _count_mapping(candidate_fusion.get("query_role_counts"))
+    selected_evidence_query_role_counts = _count_mapping(
+        candidate_fusion.get("selected_evidence_query_role_counts")
     )
     role_family_gap_summary = query_role_family_gap_summary(query_role_effectiveness)
     required_evidence_role_counts = _count_mapping(
@@ -87,6 +94,7 @@ def query_role_gap_breakdown(
         candidate_count = candidate_role_counts.get(role, 0)
         lifted_count = lifted_candidate_role_counts.get(role, 0)
         selected_count = selected_item_role_counts.get(role, 0)
+        selected_evidence_count = selected_evidence_query_role_counts.get(role, 0)
         bridge_candidate_count = bridge_hit_candidate_counts.get(role, 0)
         bridge_selected_count = bridge_hit_selected_counts.get(role, 0)
         typed_relation_hit_count = typed_relation_hit_role_counts.get(role, 0)
@@ -95,8 +103,10 @@ def query_role_gap_breakdown(
             0,
         )
         gap_reasons: list[str] = []
-        if selected_count <= 0:
+        if selected_count <= 0 and selected_evidence_count <= 0:
             gap_reasons.append("not_selected")
+        if selected_count <= 0 and selected_evidence_count > 0:
+            gap_reasons.append("selected_evidence_not_bundle_tagged")
         if lifted_count <= 0:
             gap_reasons.append("not_lifted")
         if bridge_candidate_count > bridge_selected_count:
@@ -176,6 +186,10 @@ def query_role_gap_breakdown(
             ),
             "gap_reasons": gap_reasons,
         }
+        if role in fusion_query_role_counts or selected_evidence_count > 0:
+            role_gaps[role]["selected_evidence_query_role_count"] = (
+                selected_evidence_count
+            )
 
     return {
         "schema_version": "query_role_gap_breakdown.v1",
@@ -198,6 +212,8 @@ def query_role_gap_breakdown(
         "candidate_role_counts": candidate_role_counts,
         "lifted_candidate_role_counts": lifted_candidate_role_counts,
         "selected_item_role_counts": selected_item_role_counts,
+        "candidate_fusion_query_role_counts": fusion_query_role_counts,
+        "selected_evidence_query_role_counts": selected_evidence_query_role_counts,
         "typed_relation_hit_role_counts": typed_relation_hit_role_counts,
         "typed_relation_lifted_hit_role_counts": (
             typed_relation_lifted_hit_role_counts
@@ -258,6 +274,18 @@ def query_role_gap_breakdown(
                 query_role_effectiveness.get("roles_without_selected_items")
             )
             if candidate_role_counts.get(role, 0) > 0
+        ],
+        "roles_without_selected_evidence": [
+            role
+            for role in candidate_roles
+            if selected_item_role_counts.get(role, 0) <= 0
+            and selected_evidence_query_role_counts.get(role, 0) <= 0
+        ],
+        "roles_with_selected_evidence_only_in_fusion": [
+            role
+            for role in candidate_roles
+            if selected_item_role_counts.get(role, 0) <= 0
+            and selected_evidence_query_role_counts.get(role, 0) > 0
         ],
         "roles_without_lifted_candidates": [
             role
