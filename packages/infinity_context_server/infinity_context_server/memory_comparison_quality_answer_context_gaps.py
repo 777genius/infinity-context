@@ -21,6 +21,9 @@ from infinity_context_server.memory_comparison_quality_accessors import (
     ratio as _ratio,
 )
 from infinity_context_server.memory_comparison_quality_accessors import (
+    sequence as _sequence,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
     str_tuple as _str_tuple,
 )
 from infinity_context_server.memory_comparison_quality_accessors import (
@@ -225,11 +228,28 @@ def _support_gap_sample(
     fallback_reason = str(context.get("fallback_reason") or "").strip()
     if fallback_reason:
         sample["fallback_reason"] = fallback_reason
+    sample.update(_answer_context_sample_identity(context))
     if missing_required_roles:
         sample["missing_required_roles"] = list(missing_required_roles)
     if risk_reasons:
         sample["risk_reason_codes"] = list(risk_reasons)
     return sample
+
+
+def _answer_context_sample_identity(context: Mapping[str, object]) -> dict[str, object]:
+    item_ids = _str_tuple(context.get("item_ids"))[:8]
+    retrieval_orders = tuple(
+        order
+        for raw_order in _sequence(context.get("retrieval_orders"))
+        for order in (_positive_int(raw_order),)
+        if order is not None
+    )[:8]
+    identity: dict[str, object] = {}
+    if item_ids:
+        identity["item_ids"] = list(item_ids)
+    if retrieval_orders:
+        identity["retrieval_orders"] = list(retrieval_orders)
+    return identity
 
 
 def _metric_scalar(value: object) -> float:

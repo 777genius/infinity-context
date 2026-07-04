@@ -2398,7 +2398,12 @@ def _compact_answer_context_support_gap_samples(
         "avg_measured_source_locality_score",
         "fallback_reason",
     )
-    list_keys = ("gap_reasons", "missing_required_roles", "risk_reason_codes")
+    list_keys = (
+        "gap_reasons",
+        "missing_required_roles",
+        "risk_reason_codes",
+        "item_ids",
+    )
     for raw_sample in value[:limit]:
         sample = _mapping(raw_sample)
         if not sample:
@@ -2415,6 +2420,9 @@ def _compact_answer_context_support_gap_samples(
                 if _str_tuple(sample.get(key))
             }
         )
+        retrieval_orders = _positive_ints(sample.get("retrieval_orders"))[:8]
+        if retrieval_orders:
+            compact["retrieval_orders"] = list(retrieval_orders)
         if compact:
             samples.append(compact)
     return samples

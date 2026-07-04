@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import json
 
+from infinity_context_server.memory_comparison_quality_answer_context_gaps import (
+    answer_context_support_gap_summary,
+)
 from infinity_context_server.memory_comparison_quality_diagnostics import (
     fast_gate_metrics,
 )
@@ -53,6 +56,40 @@ def test_fast_gate_metrics_reports_missing_contrast_evidence_gap() -> None:
         "missing_evidence_refs",
         "missing_contrast",
     ]
+
+
+def test_answer_context_support_gap_samples_include_safe_context_identity() -> None:
+    summary = answer_context_support_gap_summary(
+        (
+            {
+                "case_id": "risky-context",
+                "group": "single-hop",
+                "cutoff_results": {
+                    "5": {
+                        "answer_context": {
+                            "source": "evidence_bundle",
+                            "memory_count": 2,
+                            "source_ref_item_count": 0,
+                            "source_refless_item_count": 2,
+                            "item_ids": ["selected", "backfilled"],
+                            "retrieval_orders": [1, "3", "not-an-order"],
+                            "text": "raw payload text must not appear",
+                            "risk_reason_codes": [
+                                "risk:missing_required_role",
+                            ],
+                        }
+                    }
+                },
+            },
+        )
+    )
+
+    sample = summary["samples"][0]
+
+    assert sample["item_ids"] == ["selected", "backfilled"]
+    assert sample["retrieval_orders"] == [1, 3]
+    assert sample["risk_reason_codes"] == ["risk:missing_required_role"]
+    assert "text" not in sample
 
 
 def test_fast_gate_metrics_rejects_contrast_role_label_without_surface() -> None:

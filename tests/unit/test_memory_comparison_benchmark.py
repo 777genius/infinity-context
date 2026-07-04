@@ -2231,6 +2231,8 @@ def test_compact_fast_gate_summary_surfaces_computed_gap_diagnostics() -> None:
                     "memory_count": 2,
                     "source_ref_item_count": 0,
                     "source_refless_item_count": 2,
+                    "item_ids": ["weak-selected", "backfilled-context"],
+                    "retrieval_orders": [1, 3],
                     "bundle_confidence_score": 0.42,
                     "bundle_confidence_band": "low",
                     "bundle_source_ref_support_item_count": 0,
@@ -2336,6 +2338,8 @@ def test_compact_fast_gate_summary_surfaces_computed_gap_diagnostics() -> None:
                 "risk:missing_required_role",
                 "risk:backfilled_low_answerability",
             ],
+            "item_ids": ["weak-selected", "backfilled-context"],
+            "retrieval_orders": [1, 3],
         }
     ]
     assert summary["rerank_signal_gap_counts"][
