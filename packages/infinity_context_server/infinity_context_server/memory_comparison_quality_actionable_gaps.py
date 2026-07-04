@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 
 from infinity_context_server.memory_comparison_quality_accessors import (
@@ -28,11 +29,18 @@ _MAX_QUERY_PLAN_ACTIONABLE_SAMPLE_VALUES = 5
 _MAX_QUERY_PLAN_ACTIONABLE_SAMPLE_TEXT = 128
 _MAX_SELECTED_EVIDENCE_ACTIONABLE_SAMPLES = 3
 _MAX_SELECTED_EVIDENCE_ACTIONABLE_SAMPLE_VALUES = 5
+_MAX_ANSWER_CONTEXT_ACTIONABLE_SAMPLES = 3
+_MAX_ANSWER_CONTEXT_ACTIONABLE_SAMPLE_VALUES = 5
 _MAX_RERANK_SIGNAL_ACTIONABLE_SAMPLES = 3
 _MAX_RERANK_SIGNAL_ACTIONABLE_SAMPLE_VALUES = 5
 _MAX_EVIDENCE_RECALL_ACTIONABLE_SAMPLES = 3
 _MAX_EVIDENCE_RECALL_ACTIONABLE_SAMPLE_VALUES = 5
-_MAX_ANSWER_CONTEXT_ACTIONABLE_SAMPLES = 3
+_SAFE_SOURCE_IDENTITY_REF_RE = re.compile(
+    r"^(?:(?P<turn_prefix>source_turn_refs):(?P<turn_ref>D\d+:\d+)|"
+    r"(?P<session_prefix>source_session_turn_refs):(?P<session>session_\d+):"
+    r"(?P<session_turn_ref>D\d+:\d+))$",
+    re.IGNORECASE,
+)
 
 
 def actionable_gap_summary(
@@ -962,6 +970,96 @@ def _compact_selected_evidence_actionable_samples(
     return tuple(compact_samples)
 
 
+def _compact_answer_context_actionable_samples(
+    samples: Sequence[object],
+) -> tuple[dict[str, object], ...]:
+    compact_samples: list[dict[str, object]] = []
+    for raw_sample in samples:
+        sample = _mapping(raw_sample)
+        if not sample:
+            continue
+        compact: dict[str, object] = {}
+        for key in ("case_id", "cutoff", "source", "fallback_reason"):
+            value = _compact_query_plan_sample_text(sample.get(key))
+            if value:
+                compact[key] = value
+        for key in (
+            "item_ids",
+            "missing_required_roles",
+            "risk_reason_codes",
+        ):
+            values = tuple(
+                value
+                for value in (
+                    _compact_query_plan_sample_text(raw_value)
+                    for raw_value in _str_tuple(sample.get(key))
+                )
+                if value
+            )
+            if values:
+                compact[key] = list(
+                    values[:_MAX_ANSWER_CONTEXT_ACTIONABLE_SAMPLE_VALUES]
+                )
+        source_identity_refs = _compact_answer_context_source_identity_refs(
+            sample.get("source_identity_refs")
+        )
+        if source_identity_refs:
+            compact["source_identity_refs"] = list(source_identity_refs)
+        retrieval_orders = tuple(
+            order
+            for raw_order in _sequence(sample.get("retrieval_orders"))
+            for order in (_positive_int(raw_order),)
+            if order is not None
+        )
+        if retrieval_orders:
+            compact["retrieval_orders"] = list(
+                retrieval_orders[:_MAX_ANSWER_CONTEXT_ACTIONABLE_SAMPLE_VALUES]
+            )
+        for key in (
+            "memory_count",
+            "source_ref_count",
+            "source_ref_item_count",
+            "source_refless_item_count",
+            "source_identity_ref_count",
+            "source_identity_item_count",
+        ):
+            value = _positive_int(sample.get(key)) or 0
+            if value:
+                compact[key] = value
+        if compact:
+            compact_samples.append(compact)
+        if len(compact_samples) >= _MAX_ANSWER_CONTEXT_ACTIONABLE_SAMPLES:
+            break
+    return tuple(compact_samples)
+
+
+def _compact_answer_context_source_identity_refs(value: object) -> tuple[str, ...]:
+    refs = tuple(
+        dict.fromkeys(
+            ref
+            for raw_ref in _str_tuple(value)
+            for ref in (_safe_answer_context_source_identity_ref(raw_ref),)
+            if ref
+        )
+    )
+    return refs[:_MAX_ANSWER_CONTEXT_ACTIONABLE_SAMPLE_VALUES]
+
+
+def _safe_answer_context_source_identity_ref(value: object) -> str | None:
+    ref = str(value or "").strip()
+    if not ref or len(ref) > 80:
+        return None
+    match = _SAFE_SOURCE_IDENTITY_REF_RE.fullmatch(ref)
+    if match is None:
+        return None
+    if match.group("turn_ref"):
+        return f"source_turn_refs:{match.group('turn_ref').upper()}"
+    return (
+        "source_session_turn_refs:"
+        f"{match.group('session').lower()}:{match.group('session_turn_ref').upper()}"
+    )
+
+
 def _compact_evidence_recall_actionable_samples(
     samples: Sequence[object],
 ) -> tuple[dict[str, object], ...]:
@@ -1087,35 +1185,6 @@ def _compact_rerank_signal_actionable_samples(
         if compact:
             compact_samples.append(compact)
         if len(compact_samples) >= _MAX_RERANK_SIGNAL_ACTIONABLE_SAMPLES:
-            break
-    return tuple(compact_samples)
-
-
-def _compact_answer_context_actionable_samples(
-    samples: Sequence[object],
-) -> tuple[dict[str, object], ...]:
-    compact_samples: list[dict[str, object]] = []
-    for raw_sample in samples:
-        sample = _mapping(raw_sample)
-        if not sample:
-            continue
-        compact: dict[str, object] = {}
-        for key in ("case_id", "cutoff", "source", "fallback_reason"):
-            value = _compact_query_plan_sample_text(sample.get(key))
-            if value:
-                compact[key] = value
-        for key in (
-            "memory_count",
-            "source_ref_count",
-            "source_ref_item_count",
-            "source_refless_item_count",
-        ):
-            value = _positive_int(sample.get(key)) or 0
-            if value:
-                compact[key] = value
-        if compact:
-            compact_samples.append(compact)
-        if len(compact_samples) >= _MAX_ANSWER_CONTEXT_ACTIONABLE_SAMPLES:
             break
     return tuple(compact_samples)
 

@@ -175,6 +175,8 @@ _ANSWERABILITY_GAP_REASON_LIMIT = 6
 _ANSWERABILITY_GAP_TEXT_VALUE_LIMIT = 120
 _EVIDENCE_RECALL_GAP_SAMPLE_LIMIT = 10
 _EVIDENCE_RECALL_MISSING_TERM_SAMPLE_LIMIT = 8
+_ANSWER_CONTEXT_SAMPLE_IDENTITY_LIMIT = 8
+_ANSWER_CONTEXT_SAMPLE_SOURCE_IDENTITY_ITEM_LIMIT = 3
 _LOCOMO_TURN_REF_RE = re.compile(r"\bD\d+:\d+\b")
 _LOCOMO_SESSION_TURN_IDENTITY_RE = re.compile(
     r"^source_session_turn_refs:session_\d+:D\d+:\d+$",
@@ -1691,6 +1693,27 @@ def _answer_context_provenance_table(
                             context_source_refless_item_count
                         ),
                         "fallback_reason": fallback_reason,
+                        **(
+                            {"source_ref_count": context_source_ref_count}
+                            if context_source_ref_count
+                            else {}
+                        ),
+                        **(
+                            {"source_ref_item_count": context_source_ref_item_count}
+                            if context_source_ref_item_count
+                            else {}
+                        ),
+                        **_answer_context_sample_identity(context),
+                        **(
+                            {"missing_required_roles": list(missing_required_roles)}
+                            if missing_required_roles
+                            else {}
+                        ),
+                        **(
+                            {"risk_reason_codes": list(risk_reasons)}
+                            if risk_reasons
+                            else {}
+                        ),
                     }
                 )
             if (
@@ -1710,6 +1733,17 @@ def _answer_context_provenance_table(
                             context_source_refless_item_count
                         ),
                         "fallback_reason": fallback_reason,
+                        **_answer_context_sample_identity(context),
+                        **(
+                            {"missing_required_roles": list(missing_required_roles)}
+                            if missing_required_roles
+                            else {}
+                        ),
+                        **(
+                            {"risk_reason_codes": list(risk_reasons)}
+                            if risk_reasons
+                            else {}
+                        ),
                     }
                 )
 
@@ -1948,19 +1982,92 @@ def _answer_contexts(
 
 
 def _answer_context_sample_identity(context: Mapping[str, object]) -> dict[str, object]:
-    item_ids = _str_tuple(context.get("item_ids"))[:8]
+    item_ids = _str_tuple(context.get("item_ids"))[
+        :_ANSWER_CONTEXT_SAMPLE_IDENTITY_LIMIT
+    ]
     retrieval_orders = tuple(
         order
         for raw_order in _sequence(context.get("retrieval_orders"))
         for order in (_positive_int(raw_order),)
         if order is not None
-    )[:8]
+    )[:_ANSWER_CONTEXT_SAMPLE_IDENTITY_LIMIT]
     identity: dict[str, object] = {}
     if item_ids:
         identity["item_ids"] = list(item_ids)
     if retrieval_orders:
         identity["retrieval_orders"] = list(retrieval_orders)
+    source_identity_refs = _safe_answer_context_source_identity_refs(
+        context.get("source_identity_refs")
+    )
+    source_identity_ref_count = _positive_int(context.get("source_identity_ref_count"))
+    if source_identity_ref_count is not None or source_identity_refs:
+        identity["source_identity_ref_count"] = (
+            source_identity_ref_count or len(source_identity_refs)
+        )
+    source_identity_item_count = _positive_int(
+        context.get("source_identity_item_count")
+    )
+    if source_identity_item_count is not None:
+        identity["source_identity_item_count"] = source_identity_item_count
+    if source_identity_refs:
+        identity["source_identity_refs"] = list(source_identity_refs)
+    source_identity_items = _safe_answer_context_source_identity_items(
+        context.get("source_identity_items")
+    )
+    if source_identity_items:
+        identity["source_identity_items"] = list(source_identity_items)
     return identity
+
+
+def _safe_answer_context_source_identity_refs(value: object) -> tuple[str, ...]:
+    refs = tuple(
+        dict.fromkeys(
+            ref
+            for raw_ref in _sequence(value)
+            for ref in (_safe_answer_context_source_identity_ref(raw_ref),)
+            if ref
+        )
+    )
+    return refs[:_ANSWER_CONTEXT_SAMPLE_IDENTITY_LIMIT]
+
+
+def _safe_answer_context_source_identity_items(
+    value: object,
+) -> tuple[dict[str, object], ...]:
+    items: list[dict[str, object]] = []
+    for raw_item in _sequence(value):
+        item = _mapping(raw_item)
+        refs = _safe_answer_context_source_identity_refs(
+            item.get("source_identity_refs")
+        )
+        if not refs:
+            continue
+        compact: dict[str, object] = {"source_identity_refs": list(refs[:4])}
+        item_id = str(item.get("item_id") or "").strip()
+        if item_id and len(item_id) <= 128:
+            compact["item_id"] = item_id
+        retrieval_order = _positive_int(item.get("retrieval_order"))
+        if retrieval_order is not None:
+            compact["retrieval_order"] = retrieval_order
+        items.append(compact)
+        if len(items) >= _ANSWER_CONTEXT_SAMPLE_SOURCE_IDENTITY_ITEM_LIMIT:
+            break
+    return tuple(items)
+
+
+def _safe_answer_context_source_identity_ref(value: object) -> str | None:
+    ref = str(value or "").strip()
+    if not ref or len(ref) > 80:
+        return None
+    session_match = _LOCOMO_SESSION_TURN_IDENTITY_RE.fullmatch(ref)
+    if session_match:
+        prefix, session, day, turn = ref.split(":")
+        return f"{prefix.lower()}:{session.lower()}:{day.upper()}:{turn}"
+    turn_match = _LOCOMO_TURN_IDENTITY_RE.fullmatch(ref)
+    if turn_match:
+        prefix, day, turn = ref.split(":")
+        return f"{prefix.lower()}:{day.upper()}:{turn}"
+    return None
 
 
 def _query_plan_integrity_table(

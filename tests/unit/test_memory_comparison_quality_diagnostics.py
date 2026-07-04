@@ -1222,6 +1222,8 @@ def test_quality_diagnostics_reports_answer_context_provenance_table() -> None:
             "memory_count": 3,
             "source_refless_item_count": 2,
             "fallback_reason": "empty_bundle",
+            "source_ref_count": 1,
+            "source_ref_item_count": 1,
         }
     ]
     assert table["mixed_source_context_samples"] == [
@@ -3956,6 +3958,10 @@ def test_fast_gate_metrics_reports_answer_context_provenance() -> None:
             "memory_count": 2,
             "source_refless_item_count": 2,
             "fallback_reason": "",
+            "item_ids": ["primary", "stale-summary"],
+            "retrieval_orders": [1, 2],
+            "missing_required_roles": ["visual"],
+            "risk_reason_codes": expected_risk_reason_codes,
         }
     ]
     assert provenance["mixed_source_context_samples"] == []

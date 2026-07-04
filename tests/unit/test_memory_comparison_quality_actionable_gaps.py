@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from infinity_context_server.memory_comparison_quality_actionable_gaps import (
     actionable_gap_summary,
 )
@@ -454,6 +456,108 @@ def test_actionable_summary_bounds_answer_context_provenance_samples() -> None:
     }
     assert "raw_provider_payload" not in gap["samples"][0]
     assert "memory_text" not in gap["samples"][0]
+
+
+def test_answer_context_provenance_samples_include_safe_audit_detail() -> None:
+    bundle = _fast_gate_bundle(
+        1,
+        bundle_quality=_bundle_quality(
+            confidence_score=0.76,
+            confidence_band="high",
+            reason_codes=("has_primary_evidence", "high_answerability"),
+            selected_item_count=1,
+            primary_count=1,
+        ),
+    )
+    bundle["items"][0]["source_refs"] = ["D1:1"]
+    item = _item(
+        case_id="context-audit-gap",
+        evidence_bundle=bundle,
+        cutoff_results={
+            "200": {
+                "answer_context": {
+                    "source": "evidence_bundle",
+                    "memory_count": 2,
+                    "source_ref_count": 1,
+                    "source_ref_item_count": 1,
+                    "source_refless_item_count": 1,
+                    "source_identity_ref_count": 3,
+                    "source_identity_item_count": 2,
+                    "source_identity_refs": [
+                        "source_turn_refs:D1:2",
+                        "source_session_turn_refs:session_1:D1:3",
+                        "locomo:conv-private:session_1:D1:4:turn-secret",
+                    ],
+                    "source_identity_items": [
+                        {
+                            "item_id": "selected",
+                            "retrieval_order": 1,
+                            "source_identity_refs": [
+                                "source_turn_refs:D1:2",
+                                "raw provider payload must not appear",
+                            ],
+                        }
+                    ],
+                    "item_ids": ["selected", "support"],
+                    "retrieval_orders": [1, 2],
+                    "missing_required_roles": ["supporting"],
+                    "risk_reason_codes": ["risk:missing_required_role"],
+                    "text": "raw memory text must not appear",
+                }
+            }
+        },
+    )
+
+    gate = fast_gate_metrics((item,), expected_case_count=1)
+    provenance_sample = gate["answer_context_provenance"][
+        "source_refless_context_samples"
+    ][0]
+    gap = next(
+        gap
+        for gap in gate["actionable_gap_summary"]["ranked_gaps"]
+        if gap["category"] == "answer_context_provenance"
+    )
+
+    assert provenance_sample["item_ids"] == ["selected", "support"]
+    assert provenance_sample["retrieval_orders"] == [1, 2]
+    assert provenance_sample["source_identity_refs"] == [
+        "source_turn_refs:D1:2",
+        "source_session_turn_refs:session_1:D1:3",
+    ]
+    assert provenance_sample["source_identity_items"] == [
+        {
+            "source_identity_refs": ["source_turn_refs:D1:2"],
+            "item_id": "selected",
+            "retrieval_order": 1,
+        }
+    ]
+    assert provenance_sample["missing_required_roles"] == ["supporting"]
+    assert provenance_sample["risk_reason_codes"] == ["risk:missing_required_role"]
+    assert gap["samples"] == [
+        {
+            "case_id": "context-audit-gap",
+            "cutoff": "200",
+            "source": "evidence_bundle",
+            "item_ids": ["selected", "support"],
+            "missing_required_roles": ["supporting"],
+            "risk_reason_codes": ["risk:missing_required_role"],
+            "source_identity_refs": [
+                "source_turn_refs:D1:2",
+                "source_session_turn_refs:session_1:D1:3",
+            ],
+            "retrieval_orders": [1, 2],
+            "memory_count": 2,
+            "source_ref_count": 1,
+            "source_ref_item_count": 1,
+            "source_refless_item_count": 1,
+            "source_identity_ref_count": 3,
+            "source_identity_item_count": 2,
+        }
+    ]
+    serialized = json.dumps(gate)
+    assert "locomo:conv-private" not in serialized
+    assert "raw provider payload must not appear" not in serialized
+    assert "raw memory text must not appear" not in serialized
 
 
 def test_fast_gate_actionable_summary_reports_rerank_selection_conflicts() -> None:
