@@ -1915,6 +1915,10 @@ def test_memory_comparison_compact_report_omits_heavy_evaluations(
         expected_terms=("red folder",),
         answer="red folder",
     )
+    failing = replace(
+        failing,
+        metadata={**failing.metadata, "evidence_terms": ["D2:5"]},
+    )
     backend = _StaticBackend(
         "memo-stack",
         {
@@ -1935,6 +1939,7 @@ def test_memory_comparison_compact_report_omits_heavy_evaluations(
                     rank=1,
                     score=0.4,
                     item_id="miss",
+                    source_refs=("D2:3",),
                     metadata={
                         "diagnostics": {"retrieval_sources": ["postgres_facts"]}
                     },
@@ -1990,7 +1995,7 @@ def test_memory_comparison_compact_report_omits_heavy_evaluations(
             "group": "single-hop",
             "item_count": 1,
             "evidence_term_recall": 0.0,
-            "missing_evidence_terms": [],
+            "missing_evidence_terms": ["D2:5"],
             "missing_expected_terms": ["red folder"],
         }
     )
@@ -2000,6 +2005,45 @@ def test_memory_comparison_compact_report_omits_heavy_evaluations(
     assert fast_gate_summary["schema_version"] == "compact_fast_gate_summary.v1"
     assert fast_gate_summary["ready_for_full_locomo"] is False
     assert "evidence_bundle_complete" in fast_gate_summary["failed_gates"]
+    provenance_summary = result["diagnostics"]["failure_provenance_summary"]
+    assert provenance_summary == {
+        "schema_version": "compact_failure_provenance_summary.v1",
+        "failure_count": 1,
+        "diagnostic_reason_counts": {
+            "judge_score_below_threshold": 1,
+            "no_expected_term_support": 1,
+            "missing_expected_terms": 1,
+            "missing_evidence_refs": 1,
+            "missing_evidence_source_window_miss": 1,
+            "bundle_incomplete": 1,
+            "missing_required_roles": 1,
+            "weak_evidence_bundle": 1,
+            "bundle_risk_reasons_present": 1,
+            "answer_context_missing_required_roles": 1,
+            "answer_context_risk_reasons_present": 1,
+        },
+        "missing_evidence_source_locality": {
+            "missing_turn_ref_count": 1,
+            "same_source_missing_count": 1,
+            "near_retrieved_window_count": 1,
+            "source_absent_count": 0,
+            "top_missing_source_ids": {"D2": 1},
+            "sample_windows": [
+                {
+                    "case_id": failing.case_id,
+                    "ref": "D2:5",
+                    "source_id": "D2",
+                    "retrieved_same_source": True,
+                    "bundle_same_source": True,
+                    "nearest_retrieved_turn_ref": "D2:3",
+                    "nearest_retrieved_turn_distance": 2,
+                    "nearest_bundle_turn_ref": "D2:3",
+                    "nearest_bundle_turn_distance": 2,
+                }
+            ],
+        },
+        "selected_source_refless_failure_count": 0,
+    }
     written = json.loads(report.read_text(encoding="utf-8"))
     assert written["evaluations"] == []
     assert written["metadata"]["report_mode"] == "compact"
@@ -2009,6 +2053,7 @@ def test_memory_comparison_compact_report_omits_heavy_evaluations(
     assert written["diagnostics"]["backend_summaries"]["memo-stack"][
         "fast_gate_summary"
     ] == fast_gate_summary
+    assert written["diagnostics"]["failure_provenance_summary"] == provenance_summary
 
 
 def test_failure_analysis_entry_surfaces_category_and_evidence_ref_recall() -> None:

@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import time
 import uuid
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from math import isfinite
 from pathlib import Path
@@ -1937,6 +1937,11 @@ def _compact_report(
         "full_evaluation_count": len(evaluations),
         "compact_failure_limit": failure_limit,
     }
+    diagnostics = _compact_diagnostics(evaluations)
+    diagnostics["failure_provenance_summary"] = _compact_failure_provenance_summary(
+        failure_analysis,
+        failures,
+    )
     compact: dict[str, object] = {
         "schema_version": result.get("schema_version"),
         "suite": result.get("suite"),
@@ -1956,7 +1961,7 @@ def _compact_report(
         "metrics": result.get("metrics", {}),
         "backend_metrics": result.get("backend_metrics", {}),
         "backend_comparison": result.get("backend_comparison", {}),
-        "diagnostics": _compact_diagnostics(evaluations),
+        "diagnostics": diagnostics,
         "failure_analysis": failure_analysis[:failure_limit],
         "failures": failures[:failure_limit],
         "evaluations": [],
@@ -1978,6 +1983,81 @@ def _compact_diagnostics(
             backend: _compact_backend_diagnostics(items)
             for backend, items in sorted(by_backend.items())
         },
+    }
+
+
+def _compact_failure_provenance_summary(
+    failure_analysis: Sequence[Mapping[str, object]],
+    failures: Sequence[Mapping[str, object]],
+) -> dict[str, object]:
+    entries = tuple(failure_analysis) or tuple(failures)
+    diagnostic_reasons: Counter[str] = Counter()
+    missing_source_ids: Counter[str] = Counter()
+    missing_turn_ref_count = 0
+    same_source_missing_count = 0
+    near_retrieved_window_count = 0
+    source_absent_count = 0
+    selected_source_refless_failure_count = 0
+    window_samples: list[dict[str, object]] = []
+    for entry in entries:
+        diagnostic_reasons.update(_str_tuple(entry.get("diagnostic_reason_codes")))
+        diagnostics = _mapping(entry.get("diagnostics"))
+        bundle = _mapping(diagnostics.get("bundle"))
+        if (
+            _positive_int(bundle.get("selected_bundle_source_refless_item_count")) or 0
+        ) > 0:
+            selected_source_refless_failure_count += 1
+        locality = _mapping(diagnostics.get("missing_evidence_source_locality"))
+        missing_turn_ref_count += (
+            _positive_int(locality.get("missing_turn_ref_count")) or 0
+        )
+        same_source_missing_count += (
+            _positive_int(locality.get("same_source_missing_count")) or 0
+        )
+        near_retrieved_window_count += (
+            _positive_int(locality.get("near_retrieved_window_count")) or 0
+        )
+        source_absent_count += _positive_int(locality.get("source_absent_count")) or 0
+        windows = locality.get("missing_ref_windows")
+        if not isinstance(windows, Sequence) or isinstance(windows, str | bytes):
+            continue
+        for window in windows:
+            if not isinstance(window, Mapping):
+                continue
+            source_id = str(window.get("source_id") or "").strip()
+            if source_id:
+                missing_source_ids[source_id] += 1
+            if len(window_samples) >= 8:
+                continue
+            sample: dict[str, object] = {
+                "case_id": str(entry.get("case_id") or ""),
+                "ref": str(window.get("ref") or ""),
+                "source_id": source_id,
+                "retrieved_same_source": bool(window.get("retrieved_same_source")),
+                "bundle_same_source": bool(window.get("bundle_same_source")),
+            }
+            for key in (
+                "nearest_retrieved_turn_ref",
+                "nearest_retrieved_turn_distance",
+                "nearest_bundle_turn_ref",
+                "nearest_bundle_turn_distance",
+            ):
+                if key in window:
+                    sample[key] = window[key]
+            window_samples.append(sample)
+    return {
+        "schema_version": "compact_failure_provenance_summary.v1",
+        "failure_count": len(entries),
+        "diagnostic_reason_counts": dict(diagnostic_reasons.most_common()),
+        "missing_evidence_source_locality": {
+            "missing_turn_ref_count": missing_turn_ref_count,
+            "same_source_missing_count": same_source_missing_count,
+            "near_retrieved_window_count": near_retrieved_window_count,
+            "source_absent_count": source_absent_count,
+            "top_missing_source_ids": dict(missing_source_ids.most_common(8)),
+            "sample_windows": window_samples,
+        },
+        "selected_source_refless_failure_count": selected_source_refless_failure_count,
     }
 
 
