@@ -926,6 +926,47 @@ def test_action_role_extracts_activity_companion_participant() -> None:
     assert mentioned_person.penalty == 0.0
 
 
+def test_action_role_requires_activity_companion_in_same_local_segment() -> None:
+    matched = action_role_rerank_signal(
+        query="Who attended yoga class with Maria?",
+        text="Alex attended yoga class with Maria after work.",
+    )
+    split_segment = action_role_rerank_signal(
+        query="Who attended yoga class with Maria?",
+        text=(
+            "Alex attended yoga class after work. "
+            "Maria mentioned the class in the next session."
+        ),
+    )
+    generic_activity = action_role_rerank_signal(
+        query="Who attended yoga class with Maria?",
+        text="Maria enjoys yoga class because it helps her relax.",
+    )
+
+    assert matched.boost > 0
+    assert matched.reason == "action_role_companion_match"
+    assert split_segment.boost == 0.0
+    assert split_segment.penalty == 0.0
+    assert generic_activity.penalty > 0
+    assert generic_activity.reason == "action_role_participant_role_missing"
+
+
+def test_action_role_penalizes_generic_activity_without_participant_role() -> None:
+    generic_activity = action_role_rerank_signal(
+        query="Who participated in the pottery workshop?",
+        text="D2:4 Caroline: I love the pottery workshop and talk about it often.",
+    )
+    topical_event = action_role_rerank_signal(
+        query="Who participated in the pottery workshop?",
+        text="D2:5 Alex asked Caroline about the pottery workshop.",
+    )
+
+    assert generic_activity.penalty > 0
+    assert generic_activity.reason == "action_role_participant_role_missing"
+    assert topical_event.boost == 0.0
+    assert topical_event.penalty == 0.0
+
+
 def test_action_role_extracts_support_requested_recipient() -> None:
     matched = action_role_rerank_signal(
         query="Who did Caroline help with the Atlas migration?",

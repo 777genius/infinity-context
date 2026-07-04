@@ -587,6 +587,80 @@ def test_apply_domain_rerank_signals_penalizes_single_slot_list_evidence() -> No
     assert "aggregation_list_single_evidence_incomplete" in adjustment.reasons
 
 
+def test_apply_domain_rerank_signals_boosts_local_object_attribute_evidence() -> None:
+    local_attribute = ContextItem(
+        item_id="maya_backpack_color",
+        item_type="chunk",
+        text=(
+            "D4:6 Maya: I finally bought the red hiking backpack for the "
+            "summer field trip."
+        ),
+        score=0.68,
+        source_refs=(SourceRef(source_type="locomo_turn", source_id="conv-1:D4:6"),),
+        diagnostics={"retrieval_sources": ["keyword_chunks"]},
+    )
+
+    adjustment = apply_domain_rerank_signals(
+        query="What color is Maya's backpack?",
+        query_reason="original_query",
+        item=local_attribute,
+        relevance=_relevance(distinctive_term_hits=3),
+    )
+
+    assert "object_attribute_local_evidence" in adjustment.reasons
+    assert adjustment.boost >= 0.06
+    assert dict(adjustment.rank_signals)["object_attribute_local_evidence"] == 3.0
+
+
+def test_apply_domain_rerank_signals_penalizes_person_attribute_without_object() -> None:
+    person_attribute_noise = ContextItem(
+        item_id="maya_unrelated_colour",
+        item_type="chunk",
+        text=(
+            "D4:7 Maya: I picked a red dress for the reunion and packed my "
+            "tickets in the side pocket."
+        ),
+        score=0.91,
+        source_refs=(SourceRef(source_type="locomo_turn", source_id="conv-1:D4:7"),),
+        diagnostics={"retrieval_sources": ["keyword_chunks"]},
+    )
+
+    adjustment = apply_domain_rerank_signals(
+        query="What color is Maya's backpack?",
+        query_reason="original_query",
+        item=person_attribute_noise,
+        relevance=_relevance(distinctive_term_hits=2),
+    )
+
+    assert "object_attribute_person_attribute_noise" in adjustment.reasons
+    assert adjustment.penalty >= 0.13
+    assert not adjustment.rank_signals
+
+
+def test_apply_domain_rerank_signals_boosts_local_brand_model_evidence() -> None:
+    local_attribute = ContextItem(
+        item_id="jordan_car_model",
+        item_type="chunk",
+        text=(
+            "D8:2 Jordan: My project car is a Subaru Forester, and I'm "
+            "restoring the engine this month."
+        ),
+        score=0.72,
+        source_refs=(SourceRef(source_type="locomo_turn", source_id="conv-2:D8:2"),),
+        diagnostics={"retrieval_sources": ["keyword_chunks"]},
+    )
+
+    adjustment = apply_domain_rerank_signals(
+        query="What model is Jordan's car?",
+        query_reason="vehicle_interest_bridge",
+        item=local_attribute,
+        relevance=_relevance(distinctive_term_hits=4),
+    )
+
+    assert "object_attribute_local_evidence" in adjustment.reasons
+    assert dict(adjustment.rank_signals)["object_attribute_local_evidence"] == 3.0
+
+
 def _relevance(*, distinctive_term_hits: int) -> QueryRelevance:
     return QueryRelevance(
         score_boost=0.0,

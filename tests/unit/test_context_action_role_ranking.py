@@ -393,6 +393,47 @@ def test_deterministic_rerank_prefers_actual_companion_over_mentioned_person() -
     )
 
 
+def test_deterministic_rerank_penalizes_generic_activity_without_participant_role() -> None:
+    query = "Who attended yoga class with Maria?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    correct = _item(
+        "alex_with_maria",
+        score=0.7,
+        text="Alex attended yoga class with Maria after work.",
+    )
+    generic_activity = _item(
+        "maria_likes_yoga",
+        score=0.72,
+        text="Maria enjoys yoga class because it helps her relax.",
+    )
+    split_segment = _item(
+        "alex_split_segment",
+        score=0.71,
+        text=(
+            "Alex attended yoga class after work. "
+            "Maria mentioned the class in the next session."
+        ),
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (generic_activity, split_segment, correct),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert by_id["alex_with_maria"].score > by_id["maria_likes_yoga"].score
+    assert by_id["alex_with_maria"].score > by_id["alex_split_segment"].score
+    assert (
+        "action_role_participant_role_missing"
+        in by_id["maria_likes_yoga"].diagnostics["provenance"][
+            "deterministic_rerank_reasons"
+        ]
+    )
+
+
 def _item(item_id: str, *, score: float, text: str) -> ContextItem:
     return ContextItem(
         item_id=item_id,

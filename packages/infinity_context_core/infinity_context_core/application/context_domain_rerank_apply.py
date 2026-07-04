@@ -57,6 +57,9 @@ from infinity_context_core.application.context_future_plan_timing_rerank import 
 from infinity_context_core.application.context_national_park_inference import (
     national_park_inference_rerank_signal,
 )
+from infinity_context_core.application.context_object_attribute_rerank import (
+    object_attribute_rerank_signal,
+)
 from infinity_context_core.application.context_relevance import QueryRelevance
 from infinity_context_core.application.dto import ContextItem
 
@@ -248,6 +251,12 @@ def _domain_rerank_signals(
             relevance=relevance,
         ),
         current_state_rerank_signal(
+            query=query,
+            query_reason=query_reason,
+            item=item,
+            relevance=relevance,
+        ),
+        object_attribute_rerank_signal(
             query=query,
             query_reason=query_reason,
             item=item,

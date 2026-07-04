@@ -5,6 +5,11 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from infinity_context_core.application.context_activity_participant_grounding import (
+    generic_activity_mention_without_participant_role,
+    local_action_segment,
+)
+
 _LABEL_RE = r"[A-ZА-ЯЁ][A-Za-zА-Яа-яЁё._-]{1,39}"
 _QUERY_LABEL_RE = r"[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё._-]{1,39}"
 _ACTION_VERB_RE = (
@@ -334,7 +339,7 @@ _DIRECT_RECIPIENT_VERBS = frozenset(
         "visit",
     }
 )
-_COMPANION_ACTION_VERBS = frozenset({"join", "meet", "visit"})
+_COMPANION_ACTION_VERBS = frozenset({"attend", "help", "join", "meet", "visit"})
 _DIRECT_RECIPIENT_OBJECT_STOP_WORDS = frozenset(
     {
         "a",
@@ -1009,6 +1014,16 @@ def _companion_action_signal(
             penalty=_ACTION_ROLE_REQUESTED_RECIPIENT_MISSING_PENALTY,
             reason="action_role_companion_missing",
         )
+    if generic_activity_mention_without_participant_role(
+        text,
+        participant=participant,
+        verb_key=role_query.verb_key,
+        context_terms=role_query.context_terms,
+    ):
+        return ActionRoleRerankSignal(
+            penalty=_ACTION_ROLE_REQUESTED_RECIPIENT_MISSING_PENALTY,
+            reason="action_role_participant_role_missing",
+        )
     return ActionRoleRerankSignal()
 
 
@@ -1043,6 +1058,16 @@ def _actor_evidence_signal(
         return ActionRoleRerankSignal(
             boost=_ACTION_ROLE_REQUESTED_RECIPIENT_EVIDENCE_BOOST,
             reason="action_role_actor_evidence",
+        )
+    if generic_activity_mention_without_participant_role(
+        text,
+        participant="",
+        verb_key=role_query.verb_key,
+        context_terms=role_query.context_terms,
+    ):
+        return ActionRoleRerankSignal(
+            penalty=_ACTION_ROLE_REQUESTED_RECIPIENT_MISSING_PENALTY,
+            reason="action_role_participant_role_missing",
         )
     return ActionRoleRerankSignal()
 
@@ -1335,7 +1360,7 @@ def _has_participant_action_with_companion(
         if _action_gap_blocks_positive_match(match.group("gap")):
             continue
         actor = _clean_label(match.group("actor"))
-        body = match.group("body")
+        body = local_action_segment(match.group("body"))
         if context_terms and not _context_terms_match(body, context_terms):
             continue
         if _normalized_label(actor) == participant_key and _body_has_companion(body):
@@ -1349,7 +1374,11 @@ def _has_participant_action_with_companion(
         re.IGNORECASE | re.DOTALL,
     )
     return any(
-        not context_terms or _context_terms_match(match.group("body"), context_terms)
+        not context_terms
+        or _context_terms_match(
+            local_action_segment(match.group("body")),
+            context_terms,
+        )
         for match in paired_pattern.finditer(text)
     )
 
@@ -1369,7 +1398,7 @@ def _has_participant_action_without_companion(
     for match in pattern.finditer(text):
         if _action_gap_blocks_positive_match(match.group("gap")):
             continue
-        body = match.group("body")
+        body = local_action_segment(match.group("body"))
         if context_terms and not _context_terms_match(body, context_terms):
             continue
         if not _body_has_companion(body):
@@ -1408,7 +1437,10 @@ def _has_any_actor_action_with_context(
             continue
         if _action_gap_blocks_positive_match(match.group("gap")):
             continue
-        if _context_terms_match(match.group("body"), context_terms):
+        if _context_terms_match(
+            local_action_segment(match.group("body")),
+            context_terms,
+        ):
             return True
     return False
 
@@ -1441,7 +1473,7 @@ def _has_negated_actor_action(
     for match in pattern.finditer(text):
         if not _negated_action_gap(match.group("gap")):
             continue
-        body = match.group("body")
+        body = local_action_segment(match.group("body"))
         if target and not re.search(
             _recipient_label_pattern(target, verb_key=verb_key),
             body,
@@ -1529,7 +1561,7 @@ def _has_actor_action_to_any_recipient_with_context(
     for match in pattern.finditer(text):
         if _action_gap_blocks_positive_match(match.group("gap")):
             continue
-        body = match.group("body")
+        body = local_action_segment(match.group("body"))
         if not _body_has_recipient_for_verb(body, verb_key=verb_key):
             continue
         if _context_terms_match(body, context_terms):

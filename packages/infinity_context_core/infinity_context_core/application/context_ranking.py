@@ -18,6 +18,9 @@ from infinity_context_core.application.context_aggregation_answer_slots import (
 from infinity_context_core.application.context_answer_unit_shapes import (
     is_typed_answer_unit_shape,
 )
+from infinity_context_core.application.context_conflicting_evidence_rerank import (
+    apply_conflicting_evidence_currentness_rerank,
+)
 from infinity_context_core.application.context_conversation_counterparty import (
     conversation_counterparty_evidence_signal,
     conversation_recency_evidence_signal,
@@ -747,10 +750,16 @@ def apply_deterministic_rerank_adjustments(
         query=query,
         max_penalty=max_penalty,
     )
-    return _apply_same_person_topic_disambiguation_penalties(
+    adjusted = _apply_same_person_topic_disambiguation_penalties(
         adjusted,
         query=query,
         query_anchor_intent=query_anchor_intent,
+        max_penalty=max_penalty,
+    )
+    return apply_conflicting_evidence_currentness_rerank(
+        adjusted,
+        query=query,
+        max_boost=max_boost,
         max_penalty=max_penalty,
     )
 
