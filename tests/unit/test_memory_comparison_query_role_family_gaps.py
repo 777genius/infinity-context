@@ -255,6 +255,45 @@ def test_query_role_gap_samples_include_bounded_reason_codes() -> None:
     json.dumps(sample)
 
 
+def test_query_role_gap_samples_include_fusion_selected_evidence_role() -> None:
+    item = {
+        "case_id": "fusion-selected-evidence-role-sample",
+        "group": "single-hop",
+        "retrieval": {
+            "results": [
+                _memory(
+                    "location",
+                    query_roles=("location_support",),
+                    candidate_fusion={
+                        "score_winner_query_role": "original_question",
+                        "selected_evidence_query_role": "location_support",
+                        "evidence_selection_reason_codes": [
+                            "lower_score_within_band",
+                            "focused_query_role",
+                            "higher_evidence_quality",
+                        ],
+                    },
+                ),
+            ],
+        },
+        "evidence_bundle": {"items": []},
+    }
+
+    sample = fast_gate_metrics((item,), expected_case_count=1)[
+        "query_role_gap_breakdown"
+    ]["samples"][0]
+
+    assert sample["fusion_score_winner_query_role"] == "original_question"
+    assert sample["fusion_selected_evidence_query_role"] == "location_support"
+    assert sample["fusion_evidence_selection_reason_codes"] == [
+        "lower_score_within_band",
+        "focused_query_role",
+        "higher_evidence_quality",
+    ]
+    assert sample["fusion_evidence_selection_reason_count"] == 3
+    json.dumps(sample)
+
+
 def test_query_role_gap_breakdown_uses_fusion_selected_evidence_role_families() -> None:
     item = {
         "case_id": "fusion-selected-role-family",
@@ -325,6 +364,60 @@ def test_query_role_gap_breakdown_uses_fusion_selected_evidence_role_families() 
         "gap_reasons": ["selected_evidence_not_bundle_tagged"],
         "selected_evidence_query_role_family_count": 1,
     }
+
+
+def test_query_role_gap_breakdown_reports_bundle_role_without_query_tag() -> None:
+    item = {
+        "case_id": "selected-role-not-query-tagged",
+        "retrieval": {
+            "results": [
+                _memory(
+                    "location",
+                    query_roles=("location_support",),
+                    lifted=True,
+                ),
+            ],
+        },
+        "evidence_bundle": {
+            "items": [
+                {
+                    "id": "location",
+                    "role": "location_support",
+                }
+            ]
+        },
+    }
+
+    breakdown = fast_gate_metrics((item,), expected_case_count=1)[
+        "query_role_gap_breakdown"
+    ]
+
+    assert breakdown["selected_bundle_role_family_counts"] == {
+        "location_support": 1,
+        "relation_compact": 1,
+    }
+    assert breakdown["role_families_with_selected_bundle_role_only"] == [
+        "location_support",
+        "relation_compact",
+    ]
+    assert breakdown["role_family_gaps"]["location_support"] == {
+        "candidate_count": 1,
+        "lifted_candidate_count": 1,
+        "selected_item_count": 0,
+        "selection_rate": 0.0,
+        "lifted_rate": 1.0,
+        "bridge_query_hit_candidate_count": 0,
+        "bridge_query_hit_selected_count": 0,
+        "gap_reasons": [
+            "not_selected",
+            "selected_bundle_role_not_query_tagged",
+        ],
+        "selected_bundle_role_family_count": 1,
+    }
+    assert breakdown["role_family_gaps"]["relation_compact"]["gap_reasons"] == [
+        "not_selected",
+        "selected_bundle_role_not_query_tagged",
+    ]
 
 
 def test_query_role_family_gap_ignores_exact_role_loss_when_family_selected() -> None:
@@ -436,6 +529,7 @@ def _memory(
     policy_reason_codes: tuple[str, ...] = (),
     answerability_reason_codes: tuple[str, ...] = (),
     source_locality_reason_codes: tuple[str, ...] = (),
+    candidate_fusion: dict[str, object] | None = None,
 ) -> dict[str, object]:
     candidate_features: dict[str, object] = {
         "query_roles": query_roles,
@@ -456,6 +550,8 @@ def _memory(
         diagnostics["benchmark_rerank_boosted"] = True
     if score_signals is not None:
         diagnostics["score_signals"] = score_signals
+    if candidate_fusion is not None:
+        diagnostics["benchmark_candidate_fusion"] = candidate_fusion
     if policy_reason_codes:
         diagnostics["benchmark_rerank_policy"] = {
             "contributions": [

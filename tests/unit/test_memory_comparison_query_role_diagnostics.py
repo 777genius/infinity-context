@@ -579,6 +579,61 @@ def test_query_role_effectiveness_distinguishes_unrelated_selected_evidence_quer
     )
 
 
+def test_query_role_effectiveness_maps_generic_support_role_by_query_family() -> None:
+    item = {
+        "case_id": "generic-support-selected-query-role",
+        "retrieval": {
+            "metadata": {
+                "query_decomposition": {
+                    "query_plan": {
+                        "schema_version": "query_plan.v2",
+                        "selected_role_families": ["location_support"],
+                    },
+                    "query_profile": {
+                        "bundle_evidence_roles": [
+                            "primary",
+                            "location_support",
+                        ],
+                    },
+                },
+            },
+            "results": [
+                _memory("location", query_roles=("location_support",)),
+            ],
+        },
+        "evidence_bundle": {
+            "required_roles": [
+                "primary",
+                "location_support",
+            ],
+            "items": [
+                {
+                    "id": "location",
+                    "role": "supporting",
+                    "query_roles": ["location_support"],
+                }
+            ],
+        },
+    }
+
+    diagnostics = quality_diagnostics((item,))
+    table = diagnostics["query_role_effectiveness_table"]
+
+    assert table["required_role_selected_evidence_query_counts"] == {
+        "location_support": 1
+    }
+    assert table["missing_required_role_selected_evidence_query_counts"] == {}
+    assert table["required_roles_without_selected_evidence_queries"] == []
+
+    breakdown = fast_gate_metrics((item,), expected_case_count=1)[
+        "query_role_gap_breakdown"
+    ]
+    assert breakdown["required_role_selected_evidence_query_counts"] == {
+        "location_support": 1
+    }
+    assert breakdown["missing_required_role_selected_evidence_query_counts"] == {}
+
+
 def test_query_role_effectiveness_accepts_compact_query_for_profile_required_role() -> None:
     diagnostics = quality_diagnostics(
         (

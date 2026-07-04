@@ -52,6 +52,8 @@ def case_evidence_refs(case: Any) -> tuple[str, ...]:
     if not isinstance(metadata, Mapping):
         return ()
     evidence = metadata.get("evidence")
+    if not evidence:
+        evidence = metadata.get("evidence_terms")
     if not isinstance(evidence, Sequence) or isinstance(evidence, str | bytes):
         return ()
     return tuple(str(value).strip()[:120] for value in evidence[:20] if str(value).strip())
@@ -134,6 +136,9 @@ def _item_source_ref_evidence_parts(item: Mapping[str, object]) -> list[str]:
 
 
 def _source_ref_evidence_parts(ref: object) -> list[str]:
+    if isinstance(ref, str):
+        text = ref.strip()
+        return [text[:320]] if text else []
     if not isinstance(ref, Mapping):
         return []
     parts: list[str] = []

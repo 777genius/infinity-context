@@ -67,6 +67,8 @@ _PROFILE_SUPPORT_ROLES = frozenset(
     }
 )
 
+_GENERIC_SUPPORT_BUNDLE_ROLES = frozenset({"support", "supporting"})
+
 
 def query_role_effectiveness_table(
     items: Sequence[Mapping[str, object]],
@@ -510,13 +512,23 @@ def _selected_evidence_query_families_for_required_role(
     role: str,
 ) -> set[str]:
     bundle = _mapping(item.get("evidence_bundle"))
+    required_selected_families = set(
+        _required_evidence_role_selected_query_families(role)
+    )
     families: set[str] = set()
     for bundle_item in _bundle_items(bundle):
         bundle_role = str(bundle_item.get("role") or "").strip()
-        if not _bundle_role_matches_required_role(bundle_role, role):
-            continue
+        item_families: set[str] = set()
         for query_role in _str_tuple(bundle_item.get("query_roles")):
-            families.update(_query_role_families(query_role))
+            item_families.update(_query_role_families(query_role))
+        if _bundle_role_matches_required_role(bundle_role, role):
+            families.update(item_families)
+            continue
+        if (
+            bundle_role in _GENERIC_SUPPORT_BUNDLE_ROLES
+            and item_families.intersection(required_selected_families)
+        ):
+            families.update(item_families)
     return families
 
 

@@ -102,11 +102,15 @@ def query_role_gap_breakdown(
             selected_evidence_query_role_counts
         )
     )
+    selected_bundle_role_family_counts = _selected_bundle_role_family_counts(
+        items or ()
+    )
     role_family_gap_summary = query_role_family_gap_summary(
         query_role_effectiveness,
         selected_evidence_query_role_family_counts=(
             selected_evidence_query_role_family_counts
         ),
+        selected_bundle_role_family_counts=selected_bundle_role_family_counts,
     )
     required_evidence_role_counts = _count_mapping(
         query_role_effectiveness.get("required_evidence_role_counts")
@@ -377,6 +381,7 @@ def query_role_family_gap_summary(
     query_role_effectiveness: Mapping[str, object],
     *,
     selected_evidence_query_role_family_counts: Mapping[str, int] | None = None,
+    selected_bundle_role_family_counts: Mapping[str, int] | None = None,
 ) -> dict[str, object]:
     candidate_family_counts = _count_mapping(
         query_role_effectiveness.get("candidate_role_family_counts")
@@ -396,11 +401,17 @@ def query_role_family_gap_summary(
     selected_evidence_family_counts = _count_mapping(
         selected_evidence_query_role_family_counts
     )
+    selected_bundle_family_counts = {
+        family: count
+        for family, count in _count_mapping(selected_bundle_role_family_counts).items()
+        if candidate_family_counts.get(family, 0) > 0
+    }
     role_family_gaps = _query_role_family_gaps(
         candidate_family_counts=candidate_family_counts,
         lifted_family_counts=lifted_family_counts,
         selected_family_counts=selected_family_counts,
         selected_evidence_family_counts=selected_evidence_family_counts,
+        selected_bundle_family_counts=selected_bundle_family_counts,
         bridge_candidate_family_counts=bridge_candidate_family_counts,
         bridge_selected_family_counts=bridge_selected_family_counts,
     )
@@ -408,6 +419,7 @@ def query_role_family_gap_summary(
         "bridge_query_hit_candidate_family_counts": bridge_candidate_family_counts,
         "bridge_query_hit_selected_family_counts": bridge_selected_family_counts,
         "selected_evidence_query_role_family_counts": selected_evidence_family_counts,
+        "selected_bundle_role_family_counts": selected_bundle_family_counts,
         "role_families_without_selected_items": [
             family
             for family, count in sorted(candidate_family_counts.items())
@@ -426,6 +438,14 @@ def query_role_family_gap_summary(
             if count > 0
             and selected_family_counts.get(family, 0) <= 0
             and selected_evidence_family_counts.get(family, 0) > 0
+        ],
+        "role_families_with_selected_bundle_role_only": [
+            family
+            for family, count in sorted(candidate_family_counts.items())
+            if count > 0
+            and selected_family_counts.get(family, 0) <= 0
+            and selected_evidence_family_counts.get(family, 0) <= 0
+            and selected_bundle_family_counts.get(family, 0) > 0
         ],
         "role_families_without_lifted_candidates": [
             family
@@ -448,6 +468,7 @@ def _query_role_family_gaps(
     lifted_family_counts: Mapping[str, int],
     selected_family_counts: Mapping[str, int],
     selected_evidence_family_counts: Mapping[str, int],
+    selected_bundle_family_counts: Mapping[str, int],
     bridge_candidate_family_counts: Mapping[str, int],
     bridge_selected_family_counts: Mapping[str, int],
 ) -> dict[str, dict[str, object]]:
@@ -458,6 +479,7 @@ def _query_role_family_gaps(
         lifted_count = lifted_family_counts.get(family, 0)
         selected_count = selected_family_counts.get(family, 0)
         selected_evidence_count = selected_evidence_family_counts.get(family, 0)
+        selected_bundle_count = selected_bundle_family_counts.get(family, 0)
         bridge_candidate_count = bridge_candidate_family_counts.get(family, 0)
         bridge_selected_count = bridge_selected_family_counts.get(family, 0)
         gap_reasons: list[str] = []
@@ -465,6 +487,12 @@ def _query_role_family_gaps(
             gap_reasons.append("not_selected")
         if selected_count <= 0 and selected_evidence_count > 0:
             gap_reasons.append("selected_evidence_not_bundle_tagged")
+        if (
+            selected_count <= 0
+            and selected_evidence_count <= 0
+            and selected_bundle_count > 0
+        ):
+            gap_reasons.append("selected_bundle_role_not_query_tagged")
         if lifted_count <= 0:
             gap_reasons.append("not_lifted")
         if bridge_candidate_count > bridge_selected_count:
@@ -485,7 +513,23 @@ def _query_role_family_gaps(
             role_family_gaps[family]["selected_evidence_query_role_family_count"] = (
                 selected_evidence_count
             )
+        if selected_bundle_count > 0 and selected_evidence_count <= 0:
+            role_family_gaps[family]["selected_bundle_role_family_count"] = (
+                selected_bundle_count
+            )
     return role_family_gaps
+
+
+def _selected_bundle_role_family_counts(
+    items: Sequence[Mapping[str, object]],
+) -> dict[str, int]:
+    counts: Counter[str] = Counter()
+    for item in items:
+        bundle = _mapping(item.get("evidence_bundle"))
+        for bundle_item in _bundle_items(bundle):
+            for role in _str_tuple(bundle_item.get("role")):
+                counts.update(_query_role_families(role))
+    return dict(sorted(counts.items()))
 
 
 def _selected_evidence_query_role_family_counts(
@@ -619,6 +663,7 @@ def _query_role_gap_samples(
                     limit=_QUERY_ROLE_GAP_REASON_LIMIT,
                     count_key="source_locality_reason_count",
                 )
+                _add_fusion_evidence_selection_sample_fields(sample, diagnostics)
                 samples.append(sample)
                 if len(samples) >= _QUERY_ROLE_GAP_SAMPLE_LIMIT:
                     return samples
@@ -643,6 +688,34 @@ def _sample_gap_reasons(
             if reason not in reasons:
                 reasons.append(reason)
     return reasons
+
+
+def _add_fusion_evidence_selection_sample_fields(
+    sample: dict[str, object],
+    diagnostics: Mapping[str, object],
+) -> None:
+    fusion = _mapping(diagnostics.get("benchmark_candidate_fusion"))
+    if not fusion:
+        return
+    score_winner_query_role = str(fusion.get("score_winner_query_role") or "").strip()
+    selected_evidence_query_role = str(
+        fusion.get("selected_evidence_query_role") or ""
+    ).strip()
+    if score_winner_query_role:
+        sample["fusion_score_winner_query_role"] = _compact_sample_text(
+            score_winner_query_role
+        )
+    if selected_evidence_query_role:
+        sample["fusion_selected_evidence_query_role"] = _compact_sample_text(
+            selected_evidence_query_role
+        )
+    _add_query_role_gap_sample_list(
+        sample,
+        "fusion_evidence_selection_reason_codes",
+        _str_tuple(fusion.get("evidence_selection_reason_codes")),
+        limit=_QUERY_ROLE_GAP_REASON_LIMIT,
+        count_key="fusion_evidence_selection_reason_count",
+    )
 
 
 def _policy_reason_codes(diagnostics: Mapping[str, object]) -> tuple[str, ...]:
