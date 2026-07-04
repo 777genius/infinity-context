@@ -133,8 +133,62 @@ def test_failure_diagnostics_report_structured_failure_reasons() -> None:
         "supporting_evidence_count": 0,
         "confidence_score": 0.22,
         "confidence_band": "low",
+        "selected_low_answerability_count": 0,
+        "selected_weak_source_locality_count": 0,
         "reason_codes": (
             "risk:missing_required_bridge",
             "risk:low_answerability",
         ),
     }
+
+
+def test_failure_diagnostics_report_selected_answerability_and_locality_weakness() -> None:
+    evaluation = {
+        "retrieval": {"total_results": 2, "results": []},
+        "retrieval_quality": {
+            "expected_term_recall": 0.5,
+            "evidence_term_recall": 0.0,
+        },
+        "evidence_bundle": {
+            "bundle_complete": False,
+            "item_count": 2,
+            "items": [
+                {
+                    "role": "supporting",
+                    "answerability_score": 0.42,
+                    "source_locality_score": 0.8,
+                },
+                {
+                    "role": "supporting",
+                    "answerability_score": 0.7,
+                    "source_locality_score": 0.35,
+                },
+            ],
+            "bundle_planner": {
+                "bundle_quality": {
+                    "confidence_score": 0.18,
+                    "confidence_band": "low",
+                    "low_answerability_count": 1,
+                    "reason_codes": [
+                        "risk:low_answerability",
+                        "risk:missing_required_primary",
+                    ],
+                }
+            },
+        },
+        "generation": {},
+        "judgment": {},
+    }
+
+    diagnostics = failure_diagnostics(evaluation)
+    reasons = failure_diagnostic_reason_codes(
+        evaluation,
+        score=0.0,
+        retrieval_recall=0.5,
+        diagnostics=diagnostics,
+    )
+
+    assert diagnostics["bundle"]["selected_low_answerability_count"] == 1
+    assert diagnostics["bundle"]["selected_weak_source_locality_count"] == 1
+    assert "selected_low_answerability_evidence" in reasons
+    assert "selected_weak_source_locality_evidence" in reasons

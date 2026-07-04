@@ -514,7 +514,7 @@ def bundle_has_inference_support(
             _passes_support_quality(item)
             and _passes_person_grounding(item, require_grounding=require_grounding)
             and (
-                _str_tuple(item.get("relation_category_hits"))
+                "inference" in _str_tuple(item.get("relation_category_hits"))
                 or "inference_relation_category_hits"
                 in _str_tuple(item.get("planner_reason_codes"))
                 or "inference_relation_hits"

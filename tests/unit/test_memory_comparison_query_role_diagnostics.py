@@ -341,6 +341,108 @@ def test_query_role_effectiveness_reports_required_role_selected_query_gaps() ->
     ]
 
 
+def test_query_role_effectiveness_distinguishes_unrelated_selected_evidence_queries() -> None:
+    unrelated_item = {
+        "case_id": "unrelated-selected-query-role",
+        "retrieval": {
+            "metadata": {
+                "query_decomposition": {
+                    "query_plan": {
+                        "schema_version": "query_plan.v2",
+                        "selected_role_families": ["temporal_support"],
+                    },
+                    "query_profile": {
+                        "bundle_evidence_roles": [
+                            "primary",
+                            "temporal_support",
+                        ],
+                    },
+                },
+            },
+            "results": [
+                _memory("temporal-candidate", query_roles=("temporal_support",)),
+            ],
+        },
+        "evidence_bundle": {
+            "required_roles": [
+                "primary",
+                "temporal_support",
+            ],
+            "items": [
+                {
+                    "id": "primary-selected",
+                    "role": "primary",
+                    "query_roles": ["temporal_support"],
+                }
+            ],
+        },
+    }
+    covered_item = {
+        "case_id": "expected-selected-query-role",
+        "retrieval": {
+            "metadata": {
+                "query_decomposition": {
+                    "query_plan": {
+                        "schema_version": "query_plan.v2",
+                        "selected_role_families": ["temporal_support"],
+                    },
+                    "query_profile": {
+                        "bundle_evidence_roles": [
+                            "primary",
+                            "temporal_support",
+                        ],
+                    },
+                },
+            },
+            "results": [
+                _memory("temporal-candidate", query_roles=("temporal_support",)),
+            ],
+        },
+        "evidence_bundle": {
+            "required_roles": [
+                "primary",
+                "temporal_support",
+            ],
+            "items": [
+                {
+                    "id": "temporal-selected",
+                    "role": "temporal_support",
+                    "query_roles": ["temporal_support"],
+                }
+            ],
+        },
+    }
+
+    diagnostics = quality_diagnostics((unrelated_item, covered_item))
+    table = diagnostics["query_role_effectiveness_table"]
+
+    assert table["missing_required_role_selected_query_counts"] == {}
+    assert table["required_roles_without_selected_queries"] == []
+    assert table["required_role_selected_evidence_query_counts"] == {
+        "temporal_support": 1
+    }
+    assert table["missing_required_role_selected_evidence_query_counts"] == {
+        "temporal_support": 1
+    }
+    assert table["required_roles_without_selected_evidence_queries"] == [
+        "temporal_support"
+    ]
+
+    breakdown = fast_gate_metrics(
+        (unrelated_item, covered_item),
+        expected_case_count=2,
+    )["query_role_gap_breakdown"]
+    assert breakdown["required_role_selected_evidence_query_counts"] == {
+        "temporal_support": 1
+    }
+    assert breakdown["missing_required_role_selected_evidence_query_counts"] == {
+        "temporal_support": 1
+    }
+    assert breakdown["required_roles_without_selected_evidence_queries"] == [
+        "temporal_support"
+    ]
+
+
 def test_query_role_effectiveness_accepts_compact_query_for_profile_required_role() -> None:
     diagnostics = quality_diagnostics(
         (

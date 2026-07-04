@@ -266,7 +266,19 @@ def answer_context_from_evidence_bundle(
         if key in selected_keys:
             continue
         source_identity_key = _bundle_source_identity_key(memory, item)
-        if source_identity_key and source_identity_key in selected_source_identity_keys:
+        if (
+            source_identity_key
+            and (
+                source_identity_key in selected_source_identity_keys
+                or (
+                    not _bundle_item_has_noise_risk(memory)
+                    and _source_identity_key_overlaps(
+                        source_identity_key,
+                        selected_source_identity_keys,
+                    )
+                )
+            )
+        ):
             skipped += 1
             skipped_duplicate_source += 1
             skipped_required_roles.update(item_required_roles)
@@ -2066,12 +2078,54 @@ def _bundle_source_identity_key(
 
 
 def _bundle_item_has_session_turn_key(bundle_item: Mapping[str, object]) -> bool:
-    values = (
-        bundle_item.get("source_ref_dedupe_key"),
-        bundle_item.get("dedupe_key"),
-        *_string_tuple(bundle_item.get("source_refs")),
+    return any(
+        ref.startswith("source_session_turn_refs:")
+        for ref in _source_identity_refs_from_bundle_item(bundle_item)
     )
-    return any(str(value).startswith("source_session_turn_refs:") for value in values)
+
+
+def _source_identity_key_overlaps(
+    source_identity_key: tuple[str, ...],
+    selected_source_identity_keys: set[tuple[str, ...]],
+) -> bool:
+    source_identity_refs = set(source_identity_key)
+    source_identity_turn_refs = _unqualified_source_turn_refs(source_identity_key)
+    source_identity_has_session_refs = _has_session_source_turn_refs(
+        source_identity_key
+    )
+    for selected_key in selected_source_identity_keys:
+        if source_identity_refs.intersection(selected_key):
+            return True
+        selected_has_session_refs = _has_session_source_turn_refs(selected_key)
+        if source_identity_has_session_refs and selected_has_session_refs:
+            continue
+        if source_identity_turn_refs.intersection(
+            _unqualified_source_turn_refs(selected_key)
+        ):
+            return True
+    return False
+
+
+def _has_session_source_turn_refs(source_identity_key: Sequence[str]) -> bool:
+    return any(
+        ref.startswith("source_session_turn_refs:")
+        for ref in source_identity_key
+    )
+
+
+def _unqualified_source_turn_refs(source_identity_key: Sequence[str]) -> set[str]:
+    unqualified = {
+        ref
+        for ref in source_identity_key
+        if ref.startswith("source_turn_refs:")
+    }
+    for ref in source_identity_key:
+        if not ref.startswith("source_session_turn_refs:"):
+            continue
+        parts = ref.split(":")
+        if len(parts) >= 4:
+            unqualified.add(f"source_turn_refs:{parts[-2]}:{parts[-1]}")
+    return unqualified
 
 
 def _bundle_source_turn_refs(

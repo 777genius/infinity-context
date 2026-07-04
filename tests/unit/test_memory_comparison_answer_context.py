@@ -881,6 +881,60 @@ def test_answer_context_skips_duplicate_exact_and_canonical_turn_sources() -> No
     assert context.skipped_duplicate_source_bundle_item_count == 1
 
 
+def test_answer_context_keeps_cross_session_canonical_chunk_sources() -> None:
+    memories = (
+        RetrievedMemory(
+            text="session_1 D1:8 Caroline discussed adoption support.",
+            rank=1,
+            item_id="session-one",
+            source_refs=("locomo:conv-19:session_1:D1:8:chunk-a",),
+        ),
+        RetrievedMemory(
+            text="session_11 D1:8 Caroline discussed old adoption notes.",
+            rank=2,
+            item_id="session-eleven",
+            source_refs=("locomo:conv-19:session_11:D1:8:chunk-b",),
+        ),
+    )
+
+    context = answer_context_from_evidence_bundle(
+        memories,
+        {
+            "items": [
+                {
+                    "id": "session-one",
+                    "retrieval_order": 1,
+                    "role": "primary",
+                    "source_refs": ["locomo:conv-19:session_1:D1:8:chunk-a"],
+                },
+                {
+                    "id": "session-eleven",
+                    "retrieval_order": 2,
+                    "role": "support",
+                    "source_refs": ["locomo:conv-19:session_11:D1:8:chunk-b"],
+                },
+            ]
+        },
+        cutoff=2,
+    )
+
+    assert [memory.item_id for memory in context.memories] == [
+        "session-one",
+        "session-eleven",
+    ]
+    assert context.memories[0].source_refs == (
+        "locomo:conv-19:session_1:D1:8:chunk-a",
+        "source_session_turn_refs:session_1:D1:8",
+        "source_turn_refs:D1:8",
+    )
+    assert context.memories[1].source_refs == (
+        "locomo:conv-19:session_11:D1:8:chunk-b",
+        "source_session_turn_refs:session_11:D1:8",
+        "source_turn_refs:D1:8",
+    )
+    assert context.skipped_duplicate_source_bundle_item_count == 0
+
+
 def test_answer_context_skips_noisy_overlapping_bundle_summary() -> None:
     memories = (
         RetrievedMemory(

@@ -7,7 +7,8 @@ from collections.abc import Sequence
 
 _TURN_REF_RE = re.compile(r"\bD\d+:\d+\b")
 _SOURCE_SESSION_TURN_RE = re.compile(
-    r"(?:^|:)session_(?P<session>\d+):(?P<turn_ref>D\d+:\d+):(?:turn|chunk|fact)$",
+    r"(?:^|:)session_(?P<session>\d+):(?P<turn_ref>D\d+:\d+):"
+    r"(?:turn|chunk|fact)(?:[-_][^:]*)?$",
     re.IGNORECASE,
 )
 _TEXT_SESSION_TURN_RE = re.compile(

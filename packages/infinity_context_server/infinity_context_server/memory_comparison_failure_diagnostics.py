@@ -92,6 +92,13 @@ def failure_diagnostics(evaluation: Mapping[str, object]) -> dict[str, object]:
             "confidence_band": str(
                 bundle_quality.get("confidence_band") or "unknown"
             ),
+            "selected_low_answerability_count": _selected_low_answerability_count(
+                bundle_items,
+                bundle_quality=bundle_quality,
+            ),
+            "selected_weak_source_locality_count": (
+                _selected_weak_source_locality_count(bundle_items)
+            ),
             "reason_codes": _str_tuple(bundle_quality.get("reason_codes")),
         },
     }
@@ -128,6 +135,10 @@ def failure_diagnostic_reason_codes(
         reason_codes.append("missing_required_roles")
     if str(bundle.get("confidence_band") or "") in {"none", "low"}:
         reason_codes.append("weak_evidence_bundle")
+    if (_positive_int(bundle.get("selected_low_answerability_count")) or 0) > 0:
+        reason_codes.append("selected_low_answerability_evidence")
+    if (_positive_int(bundle.get("selected_weak_source_locality_count")) or 0) > 0:
+        reason_codes.append("selected_weak_source_locality_evidence")
     if any(
         str(reason).startswith("risk:")
         for reason in _str_tuple(bundle.get("reason_codes"))
@@ -168,6 +179,41 @@ def _bundle_items(bundle: Mapping[str, object]) -> tuple[Mapping[str, object], .
 
 def _partial_support(value: float) -> bool:
     return 0.0 < value < 1.0
+
+
+def _selected_low_answerability_count(
+    bundle_items: Sequence[Mapping[str, object]],
+    *,
+    bundle_quality: Mapping[str, object],
+) -> int:
+    counted_items = sum(
+        1
+        for item in bundle_items
+        if _is_measured_low_answerability(_metric_value(item, "answerability_score"))
+    )
+    return counted_items or int(
+        _metric_value(bundle_quality, "low_answerability_count")
+    )
+
+
+def _selected_weak_source_locality_count(
+    bundle_items: Sequence[Mapping[str, object]],
+) -> int:
+    return sum(
+        1
+        for item in bundle_items
+        if _is_measured_weak_source_locality(
+            _metric_value(item, "source_locality_score")
+        )
+    )
+
+
+def _is_measured_low_answerability(score: float) -> bool:
+    return 0.0 < score < 0.55
+
+
+def _is_measured_weak_source_locality(score: float) -> bool:
+    return 0.0 < score < 0.45
 
 
 def _token_usage_mapping(stage: Mapping[str, object]) -> dict[str, int]:

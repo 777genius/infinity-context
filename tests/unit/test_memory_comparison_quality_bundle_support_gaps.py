@@ -144,20 +144,152 @@ def test_quality_diagnostics_marks_noisy_complete_bundle_as_weak_support() -> No
     ]
 
 
+def test_fast_gate_metrics_rejects_unrelated_relation_as_inference_support() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="unrelated-relation-inference",
+                group="multi-hop",
+                retrieval=_retrieval_payload(
+                    evidence_need=("inference_support",),
+                    bundle_evidence_roles=("primary", "inference_support"),
+                    relation_categories=("support_goal",),
+                    entities=("caroline",),
+                ),
+                evidence_bundle={
+                    "bundle_complete": False,
+                    "item_count": 1,
+                    "primary_evidence_count": 1,
+                    "supporting_evidence_count": 0,
+                    "query_support_term_recall": 0.5,
+                    "covered_evidence_terms": [],
+                    "items": [
+                        {
+                            "role": "supporting",
+                            "retrieval_order": 1,
+                            "focused_evidence_score": 1.0,
+                            "entity_hits": ["caroline"],
+                            "relation_category_hits": ["preference"],
+                            "planner_reason_codes": [
+                                "preference_relation_category_hits"
+                            ],
+                        }
+                    ],
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    breakdown = gate["bundle_gap_breakdown"]
+
+    assert breakdown["reason_counts"]["missing_inference_support"] == 1
+    assert breakdown["evidence_need_gap_reason_counts"] == {
+        "missing_inference_support": 1
+    }
+    assert "missing_inference_support" in breakdown["samples"][0]["reasons"]
+
+
+def test_fast_gate_metrics_accepts_inference_specific_relation_support() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="valid-inference-relation",
+                group="multi-hop",
+                retrieval=_retrieval_payload(
+                    evidence_need=("inference_support",),
+                    bundle_evidence_roles=("primary", "inference_support"),
+                    relation_categories=("support_goal",),
+                    entities=("caroline",),
+                ),
+                evidence_bundle={
+                    "bundle_complete": False,
+                    "item_count": 1,
+                    "primary_evidence_count": 1,
+                    "supporting_evidence_count": 0,
+                    "query_support_term_recall": 0.5,
+                    "covered_evidence_terms": [],
+                    "items": [
+                        {
+                            "role": "inference_support",
+                            "retrieval_order": 1,
+                            "focused_evidence_score": 1.0,
+                            "entity_hits": ["caroline"],
+                            "relation_hits": ["support_goal"],
+                            "planner_reason_codes": [
+                                "inference_support",
+                                "inference_relation_hits",
+                            ],
+                        }
+                    ],
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    breakdown = gate["bundle_gap_breakdown"]
+
+    assert "missing_inference_support" not in breakdown["reason_counts"]
+    assert "missing_inference_support" not in breakdown[
+        "evidence_need_gap_reason_counts"
+    ]
+
+
 def _item(
     *,
     case_id: str,
     evidence_bundle: dict[str, object],
+    group: str = "multi-hop",
+    retrieval: dict[str, object] | None = None,
+    retrieval_quality: dict[str, object] | None = None,
 ) -> dict[str, object]:
     return {
         "case_id": case_id,
-        "group": "multi-hop",
+        "group": group,
         "scored": True,
         "judgment": {"score": 1.0},
-        "retrieval_quality": {},
+        "retrieval_quality": retrieval_quality or {},
         "evidence_bundle": evidence_bundle,
-        "retrieval": {"metadata": {}, "results": []},
+        "retrieval": retrieval or {"metadata": {}, "results": []},
         "cutoff_results": {},
+    }
+
+
+def _retrieval_payload(
+    *,
+    evidence_need: tuple[str, ...],
+    bundle_evidence_roles: tuple[str, ...],
+    relation_categories: tuple[str, ...],
+    entities: tuple[str, ...] = (),
+) -> dict[str, object]:
+    return {
+        "metadata": {
+            "query_decomposition": {
+                "query_profile": {
+                    "evidence_need": evidence_need,
+                    "bundle_evidence_roles": bundle_evidence_roles,
+                    "relation_categories": relation_categories,
+                    "entities": entities,
+                },
+                "retrieval_intent": {
+                    "entity_count": len(entities),
+                    "entities": [
+                        {"canonical": entity, "surfaces": [entity]}
+                        for entity in entities
+                    ],
+                    "evidence_need": list(evidence_need),
+                    "bundle_evidence_roles": list(bundle_evidence_roles),
+                    "relations": {
+                        "intents": [
+                            {"category": category}
+                            for category in relation_categories
+                        ]
+                    },
+                },
+            }
+        },
+        "results": [],
     }
 
 

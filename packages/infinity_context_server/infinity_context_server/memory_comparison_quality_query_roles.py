@@ -83,9 +83,11 @@ def query_role_effectiveness_table(
     bridge_query_hit_selected_family_counts: Counter[str] = Counter()
     selected_bundle_role_counts: dict[str, Counter[str]] = defaultdict(Counter)
     required_evidence_role_counts: Counter[str] = Counter()
+    required_role_selected_evidence_query_counts: Counter[str] = Counter()
     missing_required_evidence_role_counts: Counter[str] = Counter()
     missing_required_role_candidate_query_counts: Counter[str] = Counter()
     missing_required_role_selected_query_counts: Counter[str] = Counter()
+    missing_required_role_selected_evidence_query_counts: Counter[str] = Counter()
     candidate_answerability_scores: dict[str, list[float]] = defaultdict(list)
     selected_answerability_scores: dict[str, list[float]] = defaultdict(list)
     candidate_source_locality_scores: dict[str, list[float]] = defaultdict(list)
@@ -154,6 +156,16 @@ def query_role_effectiveness_table(
                 )
             ):
                 missing_required_role_selected_query_counts[role] += 1
+            selected_evidence_query_families = (
+                _selected_evidence_query_families_for_required_role(item, role)
+            )
+            if required_selected_families:
+                if selected_evidence_query_families.intersection(
+                    required_selected_families
+                ):
+                    required_role_selected_evidence_query_counts[role] += 1
+                else:
+                    missing_required_role_selected_evidence_query_counts[role] += 1
         for role in missing_required_roles:
             missing_required_evidence_role_counts[role] += 1
 
@@ -251,6 +263,9 @@ def query_role_effectiveness_table(
         "required_evidence_role_counts": dict(
             sorted(required_evidence_role_counts.items())
         ),
+        "required_role_selected_evidence_query_counts": dict(
+            sorted(required_role_selected_evidence_query_counts.items())
+        ),
         "missing_required_evidence_role_counts": dict(
             sorted(missing_required_evidence_role_counts.items())
         ),
@@ -259,6 +274,9 @@ def query_role_effectiveness_table(
         ),
         "missing_required_role_selected_query_counts": dict(
             sorted(missing_required_role_selected_query_counts.items())
+        ),
+        "missing_required_role_selected_evidence_query_counts": dict(
+            sorted(missing_required_role_selected_evidence_query_counts.items())
         ),
         "required_roles_without_candidate_queries": [
             role
@@ -269,6 +287,11 @@ def query_role_effectiveness_table(
             role
             for role in sorted(required_evidence_role_counts)
             if missing_required_role_selected_query_counts[role] > 0
+        ],
+        "required_roles_without_selected_evidence_queries": [
+            role
+            for role in sorted(required_evidence_role_counts)
+            if missing_required_role_selected_evidence_query_counts[role] > 0
         ],
         "missing_required_evidence_roles": [
             role
@@ -360,6 +383,47 @@ def _selected_query_role_families(item: Mapping[str, object]) -> set[str]:
         query_plan = _mapping(payload.get("query_plan"))
         families.update(_str_tuple(query_plan.get("selected_role_families")))
     return families
+
+
+def _selected_evidence_query_families_for_required_role(
+    item: Mapping[str, object],
+    role: str,
+) -> set[str]:
+    bundle = _mapping(item.get("evidence_bundle"))
+    families: set[str] = set()
+    for bundle_item in _bundle_items(bundle):
+        bundle_role = str(bundle_item.get("role") or "").strip()
+        if not _bundle_role_matches_required_role(bundle_role, role):
+            continue
+        for query_role in _str_tuple(bundle_item.get("query_roles")):
+            families.update(_query_role_families(query_role))
+    return families
+
+
+def _bundle_role_matches_required_role(bundle_role: str, required_role: str) -> bool:
+    role = str(required_role or "").strip()
+    selected_role = str(bundle_role or "").strip()
+    if not role or not selected_role:
+        return False
+    return selected_role in _required_evidence_role_aliases(role)
+
+
+def _required_evidence_role_aliases(role: str) -> tuple[str, ...]:
+    normalized = str(role or "").strip()
+    if not normalized:
+        return ()
+    aliases = {
+        "bridge": ("bridge", "multi_hop_bridge", "multi_hop_support"),
+        "multi_hop_bridge": ("bridge", "multi_hop_bridge", "multi_hop_support"),
+        "multi_hop_support": ("bridge", "multi_hop_bridge", "multi_hop_support"),
+        "location": ("location", "location_support"),
+        "location_support": ("location", "location_support"),
+        "contrast": ("contrast", "contrast_support"),
+        "contrast_support": ("contrast", "contrast_support"),
+        "visual": ("visual", "visual_support"),
+        "visual_support": ("visual", "visual_support"),
+    }
+    return aliases.get(normalized, (normalized,))
 
 
 def _required_evidence_role_query_family(role: str) -> str:
