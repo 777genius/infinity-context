@@ -165,6 +165,30 @@ def test_query_role_gap_samples_sort_selected_bundle_role_lists() -> None:
     assert sample["selected_bundle_query_roles"] == ["a_query", "z_query"]
 
 
+def test_query_role_gap_samples_match_positive_signal_lifted_candidates() -> None:
+    item = {
+        "case_id": "positive-signal-lifted-sample",
+        "group": "single-hop",
+        "retrieval": {
+            "results": [
+                _memory(
+                    "signal-lifted",
+                    query_roles=("temporal_support",),
+                    score_signals={"temporal_query_role_match": True},
+                ),
+            ],
+        },
+        "evidence_bundle": {"items": []},
+    }
+
+    breakdown = fast_gate_metrics((item,), expected_case_count=1)[
+        "query_role_gap_breakdown"
+    ]
+
+    assert breakdown["lifted_candidate_role_counts"] == {"temporal_support": 1}
+    assert breakdown["samples"][0]["lifted"] is True
+
+
 def test_query_role_gap_breakdown_uses_fusion_selected_evidence_role_families() -> None:
     item = {
         "case_id": "fusion-selected-role-family",
@@ -342,6 +366,7 @@ def _memory(
     source_locality_score: float = 0.7,
     bridge_query_hit: bool = False,
     lifted: bool = False,
+    score_signals: dict[str, object] | None = None,
 ) -> dict[str, object]:
     diagnostics: dict[str, object] = {
         "benchmark_candidate_features": {
@@ -353,6 +378,8 @@ def _memory(
     }
     if lifted:
         diagnostics["benchmark_rerank_boosted"] = True
+    if score_signals is not None:
+        diagnostics["score_signals"] = score_signals
     return {
         "id": item_id,
         "metadata": {

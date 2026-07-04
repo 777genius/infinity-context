@@ -2672,6 +2672,54 @@ def test_fast_gate_metrics_caps_selected_low_answerability_samples() -> None:
     assert samples[0]["planner_reason_count"] == 8
 
 
+def test_fast_gate_metrics_caps_selected_evidence_weakness_sample_values() -> None:
+    long_value = "diagnostic-value-" + ("x" * 200)
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="capped-selected-sample-values",
+                evidence_bundle={
+                    "bundle_complete": True,
+                    "items": [
+                        {
+                            "id": "low-long",
+                            "role": "primary",
+                            "query_roles": [long_value],
+                            "answerability_score": 0.42,
+                            "source_locality_score": 0.8,
+                            "source_refs": [long_value],
+                            "risk_reason_codes": [f"risk:{long_value}"],
+                            "planner_reason_codes": [long_value],
+                            "answerability_reason_codes": [long_value],
+                            "source_type": long_value,
+                            "stale_reason": long_value,
+                            "conflict_reason": long_value,
+                        }
+                    ],
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    sample = gate["selected_evidence_weakness"]["low_answerability_samples"][0]
+
+    for key in (
+        "query_roles",
+        "source_refs",
+        "risk_reason_codes",
+        "planner_reason_codes",
+        "answerability_reason_codes",
+    ):
+        assert len(sample[key][0]) == 120
+        assert sample[key][0].endswith("...")
+    for key in ("source_type", "stale_reason", "conflict_reason"):
+        assert len(sample[key]) == 120
+        assert sample[key].endswith("...")
+    assert sample["query_role_count"] == 1
+    assert sample["source_ref_count"] == 1
+
+
 def _weak_item(index: int) -> dict[str, object]:
     return {
         "id": f"low-{index}",

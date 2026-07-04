@@ -32,6 +32,9 @@ from infinity_context_server.memory_comparison_quality_accessors import (
 from infinity_context_server.memory_comparison_quality_accessors import (
     positive_policy_score as _positive_policy_score,
 )
+from infinity_context_server.memory_comparison_quality_accessors import (
+    positive_signal_names as _positive_signal_names,
+)
 from infinity_context_server.memory_comparison_quality_accessors import ratio as _ratio
 from infinity_context_server.memory_comparison_quality_accessors import (
     sequence as _sequence,
@@ -618,7 +621,9 @@ def _selected_bundle_query_roles(item: Mapping[str, object]) -> tuple[str, ...]:
 
 
 def _candidate_lifted(diagnostics: Mapping[str, object]) -> bool:
+    score_signals = _mapping(diagnostics.get("score_signals"))
     return (
         diagnostics.get("benchmark_rerank_boosted") is True
         or _positive_policy_score(diagnostics) > 0
+        or bool(_positive_signal_names(score_signals))
     )

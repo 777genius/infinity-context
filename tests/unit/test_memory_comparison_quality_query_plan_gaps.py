@@ -141,6 +141,62 @@ def test_query_plan_gap_breakdown_caps_samples_deterministically() -> None:
     ]
 
 
+def test_query_plan_gap_breakdown_compact_samples_cap_text_payloads() -> None:
+    long_text = "x" * 200
+    samples = tuple(
+        {
+            "case_id": f"case-{index}-{long_text}",
+            "group": f"group-{long_text}",
+            "gap_reasons": ("missing_evidence_role_query_family",),
+            "missing_evidence_role_query_families": (f"location-{long_text}",),
+            "selected_role_families": tuple(
+                f"family-{family_index}-{long_text}" for family_index in range(7)
+            ),
+            "required_evidence_roles": (
+                "primary",
+                f"location-{long_text}",
+            ),
+            "selected_query_count": index,
+        }
+        for index in range(1, 8)
+    )
+
+    breakdown = query_plan_gap_breakdown(
+        {
+            "plan_count": 7,
+            "plan_gap_case_count": 7,
+            "missing_evidence_role_query_family_total": 7,
+            "missing_evidence_role_query_family_counts": {
+                f"location-{long_text}": 7
+            },
+            "gap_reason_counts": {"missing_evidence_role_query_family": 7},
+            "samples": samples,
+        }
+    )
+
+    compact_samples = breakdown["compact_samples"]
+    assert len(compact_samples) == 5
+    assert compact_samples[0]["case_id"].endswith("...")
+    assert compact_samples[0]["group"].endswith("...")
+    assert len(compact_samples[0]["selected_role_families"]) == 5
+    assert all(
+        len(value) <= 128
+        for sample in compact_samples
+        for value in (
+            sample["case_id"],
+            sample["group"],
+            *sample["missing_evidence_role_query_families"],
+            *sample["selected_role_families"],
+            *sample["required_evidence_roles"],
+        )
+    )
+    sample_case_ids = breakdown["missing_evidence_role_query_family_details"][
+        f"location-{long_text}"
+    ]["sample_case_ids"]
+    assert len(sample_case_ids) == 5
+    assert all(len(case_id) <= 128 for case_id in sample_case_ids)
+
+
 def _query_plan_item(
     case_id: str,
     *,

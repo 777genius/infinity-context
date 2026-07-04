@@ -35,6 +35,7 @@ _SELECTED_WEAKNESS_REASON_LIMIT = 6
 _SELECTED_WEAKNESS_QUERY_ROLE_LIMIT = 6
 _SELECTED_WEAKNESS_SOURCE_REF_LIMIT = 5
 _SELECTED_WEAKNESS_CATEGORY_SAMPLE_LIMIT = 5
+_SELECTED_WEAKNESS_TEXT_VALUE_LIMIT = 120
 
 
 def selected_evidence_weakness_breakdown(
@@ -226,7 +227,7 @@ def _selected_evidence_weakness_sample(
         "group": group,
         "item_id": str(bundle_item.get("id") or bundle_item.get("item_id") or ""),
         "role": role,
-        "query_roles": list(compact_query_roles)[
+        "query_roles": _sample_value_list(compact_query_roles)[
             :_SELECTED_WEAKNESS_QUERY_ROLE_LIMIT
         ],
         "query_role_count": len(compact_query_roles),
@@ -248,7 +249,7 @@ def _selected_evidence_weakness_sample(
             or "conflict_or_stale" in planner_reasons
             or "risk:conflict_or_stale" in risk_reasons
         ),
-        "source_refs": list(compact_source_refs)[
+        "source_refs": _sample_value_list(compact_source_refs)[
             :_SELECTED_WEAKNESS_SOURCE_REF_LIMIT
         ],
         "source_ref_count": len(compact_source_refs),
@@ -283,7 +284,7 @@ def _selected_evidence_weakness_sample(
             count_key=count_key,
         )
     for key in ("source_type", "stale_reason", "conflict_reason"):
-        value = str(bundle_item.get(key) or "").strip()
+        value = _compact_sample_text(str(bundle_item.get(key) or ""))
         if value:
             sample[key] = value
     return sample
@@ -313,7 +314,7 @@ def _add_compact_sample_list(
     compact = _compact_sample_values(values)
     if not compact:
         return
-    sample[key] = list(compact[:limit])
+    sample[key] = _sample_value_list(compact[:limit])
     if count_key:
         sample[count_key] = len(compact)
 
@@ -322,3 +323,14 @@ def _compact_sample_values(values: Sequence[str]) -> tuple[str, ...]:
     return tuple(
         dict.fromkeys(stripped for value in values if (stripped := value.strip()))
     )
+
+
+def _sample_value_list(values: Sequence[str]) -> list[str]:
+    return [_compact_sample_text(value) for value in values]
+
+
+def _compact_sample_text(value: str) -> str:
+    stripped = value.strip()
+    if len(stripped) <= _SELECTED_WEAKNESS_TEXT_VALUE_LIMIT:
+        return stripped
+    return f"{stripped[:_SELECTED_WEAKNESS_TEXT_VALUE_LIMIT - 3]}..."

@@ -43,6 +43,7 @@ _PROFILE_SUPPORT_ROLES = frozenset(
 
 _QUERY_PLAN_GAP_SAMPLE_LIMIT = 5
 _COMPACT_SAMPLE_VALUE_LIMIT = 5
+_COMPACT_SAMPLE_TEXT_LIMIT = 128
 
 _BRIDGE_QUERY_FAMILIES = ("multi_hop", "relation_compact", "expanded_focus")
 _LOCATION_QUERY_FAMILIES = (
@@ -223,8 +224,8 @@ def _missing_evidence_role_query_family_details(
 
 def _compact_query_plan_gap_sample(sample: Mapping[str, object]) -> dict[str, object]:
     compact: dict[str, object] = {
-        "case_id": str(sample.get("case_id") or ""),
-        "group": str(sample.get("group") or ""),
+        "case_id": _compact_sample_text(sample.get("case_id")),
+        "group": _compact_sample_text(sample.get("group")),
     }
     for key in (
         "gap_reasons",
@@ -237,7 +238,14 @@ def _compact_query_plan_gap_sample(sample: Mapping[str, object]) -> dict[str, ob
         "replaced_type_limit_roles",
         "type_limit_replacement_roles",
     ):
-        values = _str_tuple(sample.get(key))
+        values = tuple(
+            value
+            for value in (
+                _compact_sample_text(raw_value)
+                for raw_value in _str_tuple(sample.get(key))
+            )
+            if value
+        )
         if values:
             compact[key] = list(values[:_COMPACT_SAMPLE_VALUE_LIMIT])
     for key in ("selected_query_count", "dropped_query_count"):
@@ -258,7 +266,7 @@ def _sample_case_ids(samples: Sequence[object]) -> list[str]:
     for sample in samples:
         if not isinstance(sample, Mapping):
             continue
-        case_id = str(sample.get("case_id") or "").strip()
+        case_id = _compact_sample_text(sample.get("case_id"))
         if case_id and case_id not in case_ids:
             case_ids.append(case_id)
         if len(case_ids) >= _QUERY_PLAN_GAP_SAMPLE_LIMIT:
@@ -297,3 +305,10 @@ def _family_text(families: Sequence[str]) -> str:
 
 def _role_family_label(family: str) -> str:
     return str(family).strip().replace("_", " ")
+
+
+def _compact_sample_text(value: object) -> str:
+    text = str(value or "").strip()
+    if len(text) <= _COMPACT_SAMPLE_TEXT_LIMIT:
+        return text
+    return f"{text[: _COMPACT_SAMPLE_TEXT_LIMIT - 3]}..."
