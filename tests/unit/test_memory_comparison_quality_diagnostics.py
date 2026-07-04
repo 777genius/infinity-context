@@ -2123,6 +2123,7 @@ def test_fast_gate_metrics_uses_measured_locality_for_bundle_gaps() -> None:
 
 
 def test_fast_gate_metrics_reports_answerability_gap_breakdown() -> None:
+    long_reason = "unsupported_memory_answer_" + ("x" * 160)
     gate = fast_gate_metrics(
         (
             _item(
@@ -2139,6 +2140,12 @@ def test_fast_gate_metrics_reports_answerability_gap_breakdown() -> None:
                         "answerability_reason_codes": [
                             "missing_preference_evidence",
                             "missing_contrast_evidence",
+                            "unsupported_memory_answer",
+                            "unsupported_answer_claim",
+                            "unsupported_answer_source",
+                            "unsupported_answer_shape",
+                            "unsupported_answer_context",
+                            long_reason,
                             "low_answerability",
                         ],
                         "relation_categories": ["preference", "contrast"],
@@ -2170,10 +2177,60 @@ def test_fast_gate_metrics_reports_answerability_gap_breakdown() -> None:
     assert breakdown["samples"][0]["lifted"] is False
     assert breakdown["samples"][0]["positive_policy_score"] == 0
     assert breakdown["samples"][0]["answerability_score"] == 0.42
+    assert breakdown["samples"][0]["answerability_reason_codes"] == [
+        "missing_preference_evidence",
+        "missing_contrast_evidence",
+        "unsupported_memory_answer",
+        "unsupported_answer_claim",
+        "unsupported_answer_source",
+        "unsupported_answer_shape",
+    ]
+    assert breakdown["samples"][0]["answerability_reason_count"] == 9
     assert breakdown["samples"][0]["relation_categories"] == [
         "preference",
         "contrast",
     ]
+
+
+def test_fast_gate_metrics_bounds_answerability_gap_reason_code_samples() -> None:
+    long_reason = "unsupported_memory_answer_" + ("x" * 160)
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="unsupported-memory-answer",
+                group="open-domain",
+                retrieval=_retrieval_payload(
+                    evidence_need=("inference_support",),
+                    relation_categories=("inference",),
+                    policy_score=0.0,
+                    item_id="unsupported-answer",
+                    candidate_features={
+                        "answerability_score": 0.42,
+                        "source_locality_score": 0.9,
+                        "answerability_reason_codes": [
+                            "missing_inference_evidence",
+                            "unsupported_memory_answer",
+                            long_reason,
+                        ],
+                        "relation_categories": ["inference"],
+                        "relation_category_hits": [],
+                    },
+                ),
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    sample = gate["answerability_gap_breakdown"]["samples"][0]
+
+    assert sample["reasons"] == ["missing_inference_evidence"]
+    assert sample["answerability_reason_codes"][:2] == [
+        "missing_inference_evidence",
+        "unsupported_memory_answer",
+    ]
+    assert len(sample["answerability_reason_codes"][2]) == 120
+    assert sample["answerability_reason_codes"][2].endswith("...")
+    assert sample["answerability_reason_count"] == 3
 
 
 def test_fast_gate_metrics_blocks_lifted_answerability_gaps() -> None:
@@ -2349,6 +2406,33 @@ def test_fast_gate_metrics_reports_candidate_fusion_summary() -> None:
                             "focused_query_evidence_selection_role_counts": {
                                 "location_support": 1,
                             },
+                            "evidence_selection_reason_counts": {
+                                "different_source_type": 1,
+                                "lower_score_within_band": 1,
+                            },
+                            "evidence_selection_samples": [
+                                {
+                                    "dedupe_key": "turn_refs:D2:9",
+                                    "reason_codes": [
+                                        "lower_score_within_band",
+                                        "different_source_type",
+                                    ],
+                                    "query_match_count": 2,
+                                    "score_winner_item_id": "summary",
+                                    "score_winner_query_role": "original_question",
+                                    "score_winner_source_type": "chunk",
+                                    "winner_score": 0.82,
+                                    "selected_evidence_item_id": "raw-turn",
+                                    "selected_evidence_query_role": (
+                                        "location_support"
+                                    ),
+                                    "selected_evidence_source_type": "raw_turn",
+                                    "selected_evidence_score": 0.805,
+                                    "selected_evidence_quality_score": 0.29,
+                                    "source_ref_count": 2,
+                                    "source_refs_sample": ["D2:9", "D2:10"],
+                                }
+                            ],
                             "max_query_match_count": 3,
                             "max_source_diversity_count": 2,
                             "max_rrf_score": 0.047,
@@ -2382,6 +2466,33 @@ def test_fast_gate_metrics_reports_candidate_fusion_summary() -> None:
                             "focused_query_evidence_selection_role_counts": {
                                 "contrast_support": 1,
                             },
+                            "evidence_selection_reason_counts": {
+                                "focused_query_role": 1,
+                                "lower_score_within_band": 1,
+                            },
+                            "evidence_selection_samples": [
+                                {
+                                    "dedupe_key": "turn_refs:D4:2",
+                                    "reason_codes": [
+                                        "lower_score_within_band",
+                                        "focused_query_role",
+                                    ],
+                                    "query_match_count": 2,
+                                    "score_winner_item_id": "generic-hit",
+                                    "score_winner_query_role": "original_question",
+                                    "score_winner_source_type": "raw_turn",
+                                    "winner_score": 0.84,
+                                    "selected_evidence_item_id": "contrast-hit",
+                                    "selected_evidence_query_role": (
+                                        "contrast_support"
+                                    ),
+                                    "selected_evidence_source_type": "raw_turn",
+                                    "selected_evidence_score": 0.82,
+                                    "selected_evidence_quality_score": 0.29,
+                                    "source_ref_count": 1,
+                                    "source_refs_sample": ["D4:2"],
+                                }
+                            ],
                             "max_query_match_count": 2,
                             "max_source_diversity_count": 3,
                             "max_rrf_score": 0.061,
@@ -2420,6 +2531,51 @@ def test_fast_gate_metrics_reports_candidate_fusion_summary() -> None:
             "contrast_support": 1,
             "location_support": 1,
         },
+        "evidence_selection_reason_counts": {
+            "different_source_type": 1,
+            "focused_query_role": 1,
+            "lower_score_within_band": 2,
+        },
+        "evidence_selection_samples": [
+            {
+                "dedupe_key": "turn_refs:D2:9",
+                "reason_codes": [
+                    "lower_score_within_band",
+                    "different_source_type",
+                ],
+                "query_match_count": 2,
+                "score_winner_item_id": "summary",
+                "score_winner_query_role": "original_question",
+                "score_winner_source_type": "chunk",
+                "winner_score": 0.82,
+                "selected_evidence_item_id": "raw-turn",
+                "selected_evidence_query_role": "location_support",
+                "selected_evidence_source_type": "raw_turn",
+                "selected_evidence_score": 0.805,
+                "selected_evidence_quality_score": 0.29,
+                "source_ref_count": 2,
+                "source_refs_sample": ["D2:9", "D2:10"],
+            },
+            {
+                "dedupe_key": "turn_refs:D4:2",
+                "reason_codes": [
+                    "lower_score_within_band",
+                    "focused_query_role",
+                ],
+                "query_match_count": 2,
+                "score_winner_item_id": "generic-hit",
+                "score_winner_query_role": "original_question",
+                "score_winner_source_type": "raw_turn",
+                "winner_score": 0.84,
+                "selected_evidence_item_id": "contrast-hit",
+                "selected_evidence_query_role": "contrast_support",
+                "selected_evidence_source_type": "raw_turn",
+                "selected_evidence_score": 0.82,
+                "selected_evidence_quality_score": 0.29,
+                "source_ref_count": 1,
+                "source_refs_sample": ["D4:2"],
+            },
+        ],
         "max_query_match_count": 3,
         "max_source_diversity_count": 3,
         "max_rrf_score": 0.061,
@@ -3262,6 +3418,8 @@ def test_fast_gate_metrics_reports_answer_context_provenance() -> None:
                             "bundle_source_type_support_diversity": 0,
                             "bundle_retrieval_source_support_diversity": 0,
                             "missing_required_roles": ["visual"],
+                            "item_ids": ["primary", "stale-summary"],
+                            "retrieval_orders": [1, 2],
                         }
                     }
                 },
@@ -3357,6 +3515,8 @@ def test_fast_gate_metrics_reports_answer_context_provenance() -> None:
             "backfilled_chained_source_proximity_support_count": 1,
             "backfilled_source_proximity_closest_distance": 1,
             "missing_required_roles": ["visual"],
+            "item_ids": ["primary", "stale-summary"],
+            "retrieval_orders": [1, 2],
             "risk_reason_codes": expected_risk_reason_codes,
         }
     ]

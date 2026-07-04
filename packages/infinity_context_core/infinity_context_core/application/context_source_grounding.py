@@ -31,6 +31,11 @@ _DIRECT_DIALOGUE_TURN_RE = re.compile(
 )
 _TURN_REF_RE = re.compile(r"\bD\d+:\d+\b", re.IGNORECASE)
 _WORD_RE = re.compile(r"[A-Za-zА-Яа-яЁё0-9][A-Za-zА-Яа-яЁё0-9'-]*")
+_NEGATION_RE = re.compile(
+    r"\b(?:not|never|no|none|n't|didn't|doesn't|don't|isn't|wasn't|weren't|"
+    r"haven't|hasn't|hadn't|cannot|can't|won't|without)\b",
+    re.IGNORECASE,
+)
 _DIALOGUE_SOURCE_QUERY_RE = re.compile(
     r"\b(?:dialogue|turn)\b|\bwho\b.{0,80}\b"
     r"(?:said|told|mentioned|recommended|suggested|asked|advised|invited|"
@@ -111,6 +116,8 @@ def source_grounding_evidence(
     """Return source-grounding evidence including quote relevance diagnostics."""
 
     if not is_source_grounding_query(query):
+        return SourceGroundingSignal(0.0, 0.0, "", False, False, False)
+    if not _polarity_compatible(query=query, text=text):
         return SourceGroundingSignal(0.0, 0.0, "", False, False, False)
     content_hits = _query_content_hit_count(query=query, text=text)
     if content_hits < _required_content_hits(query):
@@ -247,11 +254,19 @@ def _has_relevant_source_quote(*, query: str, source_refs: Sequence[SourceRef]) 
     if required_hits <= 0:
         return False
     return any(
+        _polarity_compatible(query=query, text=ref.quote_preview or "")
+        and
         _query_content_hit_count(query=query, text=ref.quote_preview or "")
         >= required_hits
         for ref in source_refs
         if (ref.quote_preview or "").strip()
     )
+
+
+def _polarity_compatible(*, query: str, text: str) -> bool:
+    query_negated = _NEGATION_RE.search(query or "") is not None
+    text_negated = _NEGATION_RE.search(text or "") is not None
+    return query_negated == text_negated
 
 
 def _has_unrelated_source_quote(*, query: str, source_refs: Sequence[SourceRef]) -> bool:

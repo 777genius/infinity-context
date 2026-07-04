@@ -111,6 +111,8 @@ def fuse_query_results(
     score_winner_query_role_counts: Counter[str] = Counter()
     selected_evidence_query_role_counts: Counter[str] = Counter()
     focused_query_evidence_selection_role_counts: Counter[str] = Counter()
+    evidence_selection_reason_counts: Counter[str] = Counter()
+    evidence_selection_samples: list[dict[str, object]] = []
     bridge_query_hit_count = 0
     lower_score_evidence_selection_count = 0
     source_type_evidence_selection_count = 0
@@ -148,6 +150,14 @@ def fuse_query_results(
                 focused_query_evidence_selection_role_counts[
                     selected_evidence_query_role
                 ] += 1
+        reason_codes = _string_sequence(fusion.get("evidence_selection_reason_codes"))
+        evidence_selection_reason_counts.update(reason_codes)
+        if (
+            len(evidence_selection_samples) < 10
+            and reason_codes
+            and reason_codes != ("score_winner",)
+        ):
+            evidence_selection_samples.append(_evidence_selection_sample(fusion))
 
     fused.sort(key=lambda memory: (-memory.score, memory.rank))
     reranked = [
@@ -177,6 +187,10 @@ def fuse_query_results(
         "focused_query_evidence_selection_role_counts": dict(
             sorted(focused_query_evidence_selection_role_counts.items())
         ),
+        "evidence_selection_reason_counts": dict(
+            sorted(evidence_selection_reason_counts.items())
+        ),
+        "evidence_selection_samples": evidence_selection_samples,
         "max_query_match_count": max(match_counts, default=0),
         "max_rrf_score": round(max(rrf_scores, default=0.0), 6),
         "max_source_diversity_count": max(source_diversity_counts, default=0),
@@ -232,6 +246,10 @@ def _fuse_candidate(
         else 0.0
     )
     total_boost = round(multi_query_boost + rrf_boost + source_diversity_boost, 6)
+    evidence_selection_reason_codes = _evidence_selection_reason_codes(
+        score_winner,
+        evidence_winner,
+    )
     fusion = {
         "schema_version": "candidate_fusion.v1",
         "dedupe_key": key,
@@ -260,6 +278,7 @@ def _fuse_candidate(
             _evidence_quality_score(evidence_winner.memory),
             6,
         ),
+        "evidence_selection_reason_codes": list(evidence_selection_reason_codes),
         "occurrence_scores": [
             round(occurrence.memory.score, 6) for occurrence in occurrences
         ],
@@ -303,6 +322,66 @@ def _evidence_winner_key(
         occurrence.memory.score,
         -occurrence.rank,
     )
+
+
+def _evidence_selection_reason_codes(
+    score_winner: _CandidateOccurrence,
+    evidence_winner: _CandidateOccurrence,
+) -> tuple[str, ...]:
+    if evidence_winner is score_winner:
+        return ("score_winner",)
+
+    reason_codes: list[str] = []
+    if evidence_winner.memory.score < score_winner.memory.score:
+        reason_codes.append("lower_score_within_band")
+    if _source_type(evidence_winner.memory) != _source_type(score_winner.memory):
+        reason_codes.append("different_source_type")
+    if (
+        evidence_winner.query_role != score_winner.query_role
+        and _query_role_focus_score(evidence_winner.query_role)
+        > _query_role_focus_score(score_winner.query_role)
+    ):
+        reason_codes.append("focused_query_role")
+    if _evidence_quality_score(evidence_winner.memory) > _evidence_quality_score(
+        score_winner.memory
+    ):
+        reason_codes.append("higher_evidence_quality")
+    if not reason_codes:
+        reason_codes.append("alternate_evidence_surface")
+    return tuple(reason_codes)
+
+
+def _evidence_selection_sample(fusion: Mapping[str, object]) -> dict[str, object]:
+    return {
+        "dedupe_key": str(fusion.get("dedupe_key") or ""),
+        "reason_codes": list(
+            _string_sequence(fusion.get("evidence_selection_reason_codes"))[:6]
+        ),
+        "query_match_count": int(fusion.get("query_match_count") or 0),
+        "score_winner_item_id": str(fusion.get("score_winner_item_id") or ""),
+        "score_winner_query_role": str(fusion.get("score_winner_query_role") or ""),
+        "score_winner_source_type": str(fusion.get("score_winner_source_type") or ""),
+        "winner_score": round(float(fusion.get("winner_score") or 0.0), 6),
+        "selected_evidence_item_id": str(
+            fusion.get("selected_evidence_item_id") or ""
+        ),
+        "selected_evidence_query_role": str(
+            fusion.get("selected_evidence_query_role") or ""
+        ),
+        "selected_evidence_source_type": str(
+            fusion.get("selected_evidence_source_type") or ""
+        ),
+        "selected_evidence_score": round(
+            float(fusion.get("selected_evidence_score") or 0.0),
+            6,
+        ),
+        "selected_evidence_quality_score": round(
+            float(fusion.get("selected_evidence_quality_score") or 0.0),
+            6,
+        ),
+        "source_ref_count": len(_string_sequence(fusion.get("source_refs"))),
+        "source_refs_sample": list(_string_sequence(fusion.get("source_refs"))[:6]),
+    }
 
 
 def _query_role_focus_score(role: str) -> float:

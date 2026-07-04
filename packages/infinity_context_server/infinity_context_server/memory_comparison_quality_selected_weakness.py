@@ -37,6 +37,12 @@ _SELECTED_WEAKNESS_QUERY_ROLE_LIMIT = 6
 _SELECTED_WEAKNESS_SOURCE_REF_LIMIT = 5
 _SELECTED_WEAKNESS_CATEGORY_SAMPLE_LIMIT = 5
 _SELECTED_WEAKNESS_TEXT_VALUE_LIMIT = 120
+_BROAD_SUMMARY_RISK_CODES = frozenset(
+    {"risk:broad_summary", "risk:backfilled_broad_summary"}
+)
+_CONFLICT_OR_STALE_RISK_CODES = frozenset(
+    {"risk:conflict_or_stale", "risk:backfilled_conflict_or_stale"}
+)
 
 
 def selected_evidence_weakness_breakdown(
@@ -89,19 +95,19 @@ def selected_evidence_weakness_breakdown(
                 if case_id:
                     weak_source_locality_case_ids.add(case_id)
                 reasons.append("selected_weak_source_locality")
-            if (
-                bundle_item.get("broad_summary") is True
-                or "broad_summary" in planner_reasons
-                or "risk:broad_summary" in risk_reasons
+            if _has_selected_broad_summary_risk(
+                bundle_item,
+                planner_reasons=planner_reasons,
+                risk_reasons=risk_reasons,
             ):
                 broad_summary_item_count += 1
                 if case_id:
                     broad_summary_case_ids.add(case_id)
                 reasons.append("selected_broad_summary")
-            if (
-                bundle_item.get("conflict_or_stale") is True
-                or "conflict_or_stale" in planner_reasons
-                or "risk:conflict_or_stale" in risk_reasons
+            if _has_selected_conflict_or_stale_risk(
+                bundle_item,
+                planner_reasons=planner_reasons,
+                risk_reasons=risk_reasons,
             ):
                 conflict_or_stale_item_count += 1
                 if case_id:
@@ -243,14 +249,18 @@ def _selected_evidence_weakness_sample(
         "answerability_score": _sample_metric_value(answerability_score),
         "source_locality_score": _sample_metric_value(source_locality_score),
         "broad_summary": (
-            bundle_item.get("broad_summary") is True
-            or "broad_summary" in planner_reasons
-            or "risk:broad_summary" in risk_reasons
+            _has_selected_broad_summary_risk(
+                bundle_item,
+                planner_reasons=planner_reasons,
+                risk_reasons=risk_reasons,
+            )
         ),
         "conflict_or_stale": (
-            bundle_item.get("conflict_or_stale") is True
-            or "conflict_or_stale" in planner_reasons
-            or "risk:conflict_or_stale" in risk_reasons
+            _has_selected_conflict_or_stale_risk(
+                bundle_item,
+                planner_reasons=planner_reasons,
+                risk_reasons=risk_reasons,
+            )
         ),
         "source_refs": _sample_value_list(compact_source_refs)[
             :_SELECTED_WEAKNESS_SOURCE_REF_LIMIT
@@ -291,6 +301,32 @@ def _selected_evidence_weakness_sample(
         if value:
             sample[key] = value
     return sample
+
+
+def _has_selected_broad_summary_risk(
+    bundle_item: Mapping[str, object],
+    *,
+    planner_reasons: Sequence[str],
+    risk_reasons: Sequence[str],
+) -> bool:
+    return (
+        bundle_item.get("broad_summary") is True
+        or "broad_summary" in planner_reasons
+        or bool(_BROAD_SUMMARY_RISK_CODES.intersection(risk_reasons))
+    )
+
+
+def _has_selected_conflict_or_stale_risk(
+    bundle_item: Mapping[str, object],
+    *,
+    planner_reasons: Sequence[str],
+    risk_reasons: Sequence[str],
+) -> bool:
+    return (
+        bundle_item.get("conflict_or_stale") is True
+        or "conflict_or_stale" in planner_reasons
+        or bool(_CONFLICT_OR_STALE_RISK_CODES.intersection(risk_reasons))
+    )
 
 
 def _selected_evidence_risk_reasons(

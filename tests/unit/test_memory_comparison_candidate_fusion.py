@@ -394,6 +394,11 @@ def test_candidate_fusion_selects_local_evidence_within_score_band() -> None:
     assert diagnostics["lower_score_evidence_selection_count"] == 1
     assert diagnostics["source_type_evidence_selection_count"] == 1
     assert diagnostics["focused_query_evidence_selection_count"] == 0
+    assert diagnostics["evidence_selection_reason_counts"] == {
+        "different_source_type": 1,
+        "higher_evidence_quality": 1,
+        "lower_score_within_band": 1,
+    }
     assert fused[0].text == raw_turn.text
     assert fused[0].score > broad_chunk.score
     assert fused[0].source_refs == ("D2:9",)
@@ -407,6 +412,33 @@ def test_candidate_fusion_selects_local_evidence_within_score_band() -> None:
     assert fusion["score_winner_source_type"] == "chunk"
     assert fusion["selected_evidence_score"] == 0.805
     assert fusion["selected_evidence_source_type"] == "raw_turn"
+    assert fusion["evidence_selection_reason_codes"] == [
+        "lower_score_within_band",
+        "different_source_type",
+        "higher_evidence_quality",
+    ]
+    assert diagnostics["evidence_selection_samples"] == [
+        {
+            "dedupe_key": "id:adoption-support",
+            "reason_codes": [
+                "lower_score_within_band",
+                "different_source_type",
+                "higher_evidence_quality",
+            ],
+            "query_match_count": 2,
+            "score_winner_item_id": "adoption-support",
+            "score_winner_query_role": "",
+            "score_winner_source_type": "chunk",
+            "winner_score": 0.82,
+            "selected_evidence_item_id": "adoption-support",
+            "selected_evidence_query_role": "",
+            "selected_evidence_source_type": "raw_turn",
+            "selected_evidence_score": 0.805,
+            "selected_evidence_quality_score": 0.29,
+            "source_ref_count": 4,
+            "source_refs_sample": ["D2:9", "D2:8", "D2:10", "D2:11"],
+        }
+    ]
 
 
 def test_candidate_fusion_penalizes_generated_summary_evidence() -> None:
@@ -483,11 +515,19 @@ def test_candidate_fusion_prefers_focused_query_evidence_within_score_band() -> 
     assert diagnostics["lower_score_evidence_selection_count"] == 1
     assert diagnostics["source_type_evidence_selection_count"] == 0
     assert diagnostics["focused_query_evidence_selection_count"] == 1
+    assert diagnostics["evidence_selection_reason_counts"] == {
+        "focused_query_role": 1,
+        "lower_score_within_band": 1,
+    }
     assert fused[0].text == focused_hit.text
     assert fused[0].score > generic_hit.score
     fusion = fused[0].metadata["diagnostics"]["benchmark_candidate_fusion"]
     assert fusion["score_winner_query_role"] == "original_question"
     assert fusion["selected_evidence_query_role"] == "location_support"
+    assert fusion["evidence_selection_reason_codes"] == [
+        "lower_score_within_band",
+        "focused_query_role",
+    ]
 
 
 def test_candidate_fusion_prefers_typed_relation_support_evidence() -> None:

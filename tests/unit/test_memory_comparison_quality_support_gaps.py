@@ -2629,6 +2629,51 @@ def test_fast_gate_metrics_surfaces_selected_evidence_weakness() -> None:
     assert weakness["samples"][3]["conflict_or_stale"] is True
 
 
+def test_fast_gate_metrics_flags_backfilled_selected_stale_risk_codes() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="backfilled-risk-selected",
+                group="temporal",
+                evidence_bundle={
+                    "bundle_complete": True,
+                    "items": [
+                        {
+                            "id": "backfilled-stale",
+                            "role": "supporting",
+                            "retrieval_order": 1,
+                            "answerability_score": 0.82,
+                            "source_locality_score": 0.76,
+                            "risk_reason_codes": [
+                                "risk:backfilled_conflict_or_stale",
+                                "risk:backfilled_broad_summary",
+                            ],
+                        }
+                    ],
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    weakness = gate["selected_evidence_weakness"]
+
+    assert "selected_broad_summary_clear" in gate["failed_gates"]
+    assert "selected_conflict_or_stale_clear" in gate["failed_gates"]
+    assert weakness["broad_summary_item_count"] == 1
+    assert weakness["conflict_or_stale_item_count"] == 1
+    assert weakness["reason_counts"] == {
+        "selected_broad_summary": 1,
+        "selected_conflict_or_stale": 1,
+    }
+    assert weakness["risk_reason_counts"] == {
+        "risk:backfilled_broad_summary": 1,
+        "risk:backfilled_conflict_or_stale": 1,
+    }
+    assert weakness["samples"][0]["broad_summary"] is True
+    assert weakness["samples"][0]["conflict_or_stale"] is True
+
+
 def test_fast_gate_metrics_caps_selected_low_answerability_samples() -> None:
     gate = fast_gate_metrics(
         tuple(

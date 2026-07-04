@@ -161,6 +161,9 @@ from infinity_context_server.memory_comparison_quality_selected_weakness import 
     selected_evidence_weakness_breakdown as _selected_evidence_weakness_breakdown,
 )
 
+_ANSWERABILITY_GAP_REASON_LIMIT = 6
+_ANSWERABILITY_GAP_TEXT_VALUE_LIMIT = 120
+
 
 def evidence_ref_rank_gate_metrics(
     items: Sequence[Mapping[str, object]],
@@ -638,9 +641,12 @@ def _answerability_gap_breakdown(
             if not isinstance(memory, Mapping):
                 continue
             features = _candidate_features(memory)
+            answerability_reason_codes = _compact_answerability_gap_values(
+                _str_tuple(features.get("answerability_reason_codes"))
+            )
             reasons = tuple(
                 reason
-                for reason in _str_tuple(features.get("answerability_reason_codes"))
+                for reason in answerability_reason_codes
                 if reason.startswith("missing_") and reason.endswith("_evidence")
             )
             if not reasons:
@@ -670,6 +676,13 @@ def _answerability_gap_breakdown(
                         "memory_id": _memory_id(memory),
                         "rank": _positive_int(memory.get("rank")),
                         "reasons": list(reasons),
+                        "answerability_reason_codes": [
+                            _compact_answerability_gap_text(reason)
+                            for reason in answerability_reason_codes[
+                                :_ANSWERABILITY_GAP_REASON_LIMIT
+                            ]
+                        ],
+                        "answerability_reason_count": len(answerability_reason_codes),
                         "lifted": lifted,
                         "positive_policy_score": round(
                             _positive_policy_score(diagnostics),
@@ -704,6 +717,19 @@ def _answerability_gap_breakdown(
         "lifted_category_counts": dict(sorted(lifted_category_counts.items())),
         "samples": samples,
     }
+
+
+def _compact_answerability_gap_values(values: Sequence[str]) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(stripped for value in values if (stripped := value.strip()))
+    )
+
+
+def _compact_answerability_gap_text(value: str) -> str:
+    stripped = value.strip()
+    if len(stripped) <= _ANSWERABILITY_GAP_TEXT_VALUE_LIMIT:
+        return stripped
+    return f"{stripped[:_ANSWERABILITY_GAP_TEXT_VALUE_LIMIT - 3]}..."
 
 
 def _policy_contribution_table(
@@ -1399,6 +1425,7 @@ def _answer_context_provenance_table(
                             context_backfilled_source_proximity_closest_distance
                         ),
                         "missing_required_roles": list(missing_required_roles),
+                        **_answer_context_sample_identity(context),
                         **(
                             {"risk_reason_codes": list(risk_reasons)}
                             if risk_reasons
@@ -1673,6 +1700,22 @@ def _answer_contexts(
             ),
         )
     )
+
+
+def _answer_context_sample_identity(context: Mapping[str, object]) -> dict[str, object]:
+    item_ids = _str_tuple(context.get("item_ids"))[:8]
+    retrieval_orders = tuple(
+        order
+        for raw_order in _sequence(context.get("retrieval_orders"))
+        for order in (_positive_int(raw_order),)
+        if order is not None
+    )[:8]
+    identity: dict[str, object] = {}
+    if item_ids:
+        identity["item_ids"] = list(item_ids)
+    if retrieval_orders:
+        identity["retrieval_orders"] = list(retrieval_orders)
+    return identity
 
 
 def _query_plan_integrity_table(

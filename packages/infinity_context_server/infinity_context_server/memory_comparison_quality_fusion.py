@@ -87,6 +87,8 @@ def candidate_fusion_table(
     score_winner_query_role_counts: Counter[str] = Counter()
     selected_evidence_query_role_counts: Counter[str] = Counter()
     focused_query_evidence_selection_role_counts: Counter[str] = Counter()
+    evidence_selection_reason_counts: Counter[str] = Counter()
+    evidence_selection_samples: list[dict[str, object]] = []
     max_query_match_count = 0
     max_source_diversity_count = 0
     max_rrf_score = 0.0
@@ -120,6 +122,13 @@ def candidate_fusion_table(
         focused_query_evidence_selection_role_counts.update(
             count_mapping(merge.get("focused_query_evidence_selection_role_counts"))
         )
+        evidence_selection_reason_counts.update(
+            count_mapping(merge.get("evidence_selection_reason_counts"))
+        )
+        for sample in _bounded_selection_samples(merge.get("evidence_selection_samples")):
+            if len(evidence_selection_samples) >= 10:
+                break
+            evidence_selection_samples.append(sample)
         max_query_match_count = max(
             max_query_match_count,
             positive_int(merge.get("max_query_match_count")) or 0,
@@ -150,7 +159,66 @@ def candidate_fusion_table(
         "focused_query_evidence_selection_role_counts": dict(
             sorted(focused_query_evidence_selection_role_counts.items())
         ),
+        "evidence_selection_reason_counts": dict(
+            sorted(evidence_selection_reason_counts.items())
+        ),
+        "evidence_selection_samples": evidence_selection_samples,
         "max_query_match_count": max_query_match_count,
         "max_source_diversity_count": max_source_diversity_count,
         "max_rrf_score": round(max_rrf_score, 6),
     }
+
+
+def _bounded_selection_samples(value: object) -> tuple[dict[str, object], ...]:
+    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
+        return ()
+    samples: list[dict[str, object]] = []
+    for sample in value:
+        if not isinstance(sample, Mapping):
+            continue
+        samples.append(
+            {
+                "dedupe_key": str(sample.get("dedupe_key") or ""),
+                "reason_codes": _string_list(sample.get("reason_codes"), limit=6),
+                "query_match_count": positive_int(sample.get("query_match_count")) or 0,
+                "score_winner_item_id": str(sample.get("score_winner_item_id") or ""),
+                "score_winner_query_role": str(
+                    sample.get("score_winner_query_role") or ""
+                ),
+                "score_winner_source_type": str(
+                    sample.get("score_winner_source_type") or ""
+                ),
+                "winner_score": round(metric_value(sample, "winner_score"), 6),
+                "selected_evidence_item_id": str(
+                    sample.get("selected_evidence_item_id") or ""
+                ),
+                "selected_evidence_query_role": str(
+                    sample.get("selected_evidence_query_role") or ""
+                ),
+                "selected_evidence_source_type": str(
+                    sample.get("selected_evidence_source_type") or ""
+                ),
+                "selected_evidence_score": round(
+                    metric_value(sample, "selected_evidence_score"),
+                    6,
+                ),
+                "selected_evidence_quality_score": round(
+                    metric_value(sample, "selected_evidence_quality_score"),
+                    6,
+                ),
+                "source_ref_count": positive_int(sample.get("source_ref_count")) or 0,
+                "source_refs_sample": _string_list(
+                    sample.get("source_refs_sample"),
+                    limit=6,
+                ),
+            }
+        )
+        if len(samples) >= 10:
+            break
+    return tuple(samples)
+
+
+def _string_list(value: object, *, limit: int) -> list[str]:
+    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
+        return []
+    return [str(item) for item in value if str(item).strip()][:limit]

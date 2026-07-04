@@ -66,6 +66,37 @@ def test_source_grounding_signal_penalizes_unrelated_source_quotes() -> None:
     ) == (0.0, 0.018, "source_grounding_unrelated_quote")
 
 
+def test_source_grounding_signal_rejects_opposite_polarity_dialogue() -> None:
+    query = "Which dialogue supports that Alex did not move to Denver?"
+
+    assert source_grounding_signal(
+        query=query,
+        text="D1:2 Jamie: Alex moved to Denver after the promotion.",
+        source_refs=(),
+    ) == (0.0, 0.0, "")
+    assert source_grounding_signal(
+        query=query,
+        text="D1:3 Jamie: Alex did not move to Denver after the promotion.",
+        source_refs=(),
+    ) == (0.026, 0.0, "source_grounding_match")
+
+
+def test_source_grounding_signal_rejects_opposite_polarity_quote() -> None:
+    query = "Which source supports that Alex moved to Denver?"
+
+    assert source_grounding_signal(
+        query=query,
+        text="Alex moved to Denver after the promotion.",
+        source_refs=(
+            SourceRef(
+                source_type="document",
+                source_id="profile-note",
+                quote_preview="Jamie said Alex did not move to Denver.",
+            ),
+        ),
+    ) == (0.0, 0.018, "source_grounding_unrelated_quote")
+
+
 def test_deterministic_rerank_prefers_source_grounded_dialogue_support() -> None:
     query = "Which dialogue supports that Alex moved to Denver?"
     plan = build_query_expansion_plan(query)
