@@ -2804,6 +2804,74 @@ def test_evidence_bundle_planner_does_not_treat_ungrounded_bridge_query_hit_as_b
     assert diagnostics["bundle_quality"]["bridge_query_hit_count"] == 1
 
 
+def test_evidence_bundle_planner_does_not_complete_required_bridge_with_generic_support() -> None:
+    primary = _candidate(
+        item_id="primary",
+        covered_evidence_terms=("D1:1",),
+        primary_signal=True,
+    )
+    generic_support = _candidate(
+        item_id="generic-support",
+        dedupe_key="refs:D2:4",
+        query_support_terms=("caroline", "agency", "support"),
+        source_refs=("D2:4",),
+        source_locality_score=0.9,
+        answerability_score=0.8,
+    )
+
+    plan = EvidenceBundlePlanner().plan(
+        (primary, generic_support),
+        case_group="multi-hop",
+        required_roles=("primary", "bridge"),
+    )
+
+    assert [item.candidate.item_id for item in plan.items] == [
+        "primary",
+        "generic-support",
+    ]
+    assert plan.satisfied_required_roles == ("primary",)
+    assert plan.missing_required_roles == ("bridge",)
+    diagnostics = plan.to_diagnostics()
+    assert diagnostics["role_counts"] == {"primary": 1, "supporting": 1}
+    assert diagnostics["role_requirement_complete"] is False
+    assert "risk:missing_required_bridge" in diagnostics["bundle_quality"][
+        "reason_codes"
+    ]
+
+
+def test_evidence_bundle_planner_completes_required_bridge_with_grounded_relation() -> None:
+    primary = _candidate(
+        item_id="primary",
+        covered_evidence_terms=("D1:1",),
+        primary_signal=True,
+    )
+    bridge = _candidate(
+        item_id="bridge-turn",
+        dedupe_key="refs:D2:3",
+        query_support_terms=("caroline", "agency", "support"),
+        relation_hits=("agency", "support"),
+        entity_hits=("caroline",),
+        source_refs=("D2:3",),
+        source_locality_score=0.9,
+        answerability_score=0.8,
+        query_roles=("multi_hop_bridge",),
+        bridge_query_hit=True,
+    )
+
+    plan = EvidenceBundlePlanner().plan(
+        (primary, bridge),
+        case_group="multi-hop",
+        required_roles=("primary", "bridge"),
+    )
+
+    assert plan.satisfied_required_roles == ("primary", "bridge")
+    assert plan.missing_required_roles == ()
+    assert [item.role for item in plan.items] == ["primary", "bridge"]
+    diagnostics = plan.to_diagnostics()
+    assert diagnostics["role_requirement_complete"] is True
+    assert diagnostics["bundle_quality"]["bridge_count"] == 1
+
+
 def test_evidence_bundle_planner_prefers_marginal_evidence_coverage() -> None:
     primary = _candidate(
         item_id="primary",

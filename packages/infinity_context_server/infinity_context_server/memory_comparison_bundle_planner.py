@@ -803,12 +803,23 @@ def _is_bridge_candidate(
 ) -> bool:
     if case_group != "multi-hop":
         return False
+    return _candidate_has_bridge_grounding(candidate)
+
+
+def _candidate_has_bridge_grounding(candidate: EvidenceBundleCandidate) -> bool:
     if candidate.conflict_or_stale or candidate.broad_summary:
+        return False
+    if _candidate_has_measured_weak_source_locality(candidate):
+        return False
+    if _is_measured_low_answerability(candidate.answerability_score):
         return False
     support_term_count = len(tuple(dict.fromkeys(candidate.query_support_terms)))
     if support_term_count < 2:
         return False
-    return bool(candidate.relation_hits and (candidate.entity_hits or candidate.speaker_hits))
+    return bool(
+        _candidate_has_relation_grounding(candidate)
+        and _candidate_has_person_grounding(candidate)
+    )
 
 
 def _required_role_values(required_roles: Sequence[str]) -> tuple[str, ...]:
@@ -834,6 +845,10 @@ def _satisfied_required_roles(
         ):
             satisfied.add(role)
             continue
+        if role == "bridge":
+            if _selection_has_bridge_support(selected):
+                satisfied.add(role)
+            continue
         if role in selected_roles and role not in _PREDICATE_REQUIRED_ROLES:
             satisfied.add(role)
             continue
@@ -848,8 +863,6 @@ def _satisfied_required_roles(
         ):
             satisfied.add(role)
             continue
-        if role == "bridge" and _selection_has_bridge_support(selected):
-            satisfied.add(role)
         if role == "location_support" and any(
             _candidate_has_location_support(item.candidate) for item in selected
         ):
@@ -1514,21 +1527,7 @@ def _selection_has_bridge_support(selected: Sequence[PlannedEvidenceItem]) -> bo
         return False
     if not any(item.role == "primary" for item in selected):
         return False
-    support_terms = {
-        term
-        for item in selected
-        for term in item.candidate.query_support_terms
-        if str(term).strip()
-    }
-    if len(support_terms) >= 2:
-        return True
-    covered_terms = {
-        term
-        for item in selected
-        for term in (*item.candidate.covered_expected_terms, *item.candidate.covered_evidence_terms)
-        if str(term).strip()
-    }
-    return len(covered_terms) >= 2
+    return any(_candidate_has_bridge_grounding(item.candidate) for item in selected)
 
 
 def _primary_candidate_eligible(candidate: EvidenceBundleCandidate) -> bool:
