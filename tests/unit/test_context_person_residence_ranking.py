@@ -67,6 +67,15 @@ def test_person_residence_signal_penalizes_same_turn_other_person_residence() ->
     assert signal.reason == "person_residence_other_person"
 
 
+
+def test_person_residence_signal_does_not_boost_person_as_housemate_location() -> None:
+    signal = person_residence_signal(
+        query="Where does Alice live?",
+        text="D2:6 Ben: I live with Alice near Seattle now.",
+    )
+
+    assert signal.boost == 0
+
 def test_person_residence_signal_matches_named_person_origin() -> None:
     signal = person_residence_signal(
         query="What is Alice Chen's hometown?",

@@ -182,9 +182,65 @@ def _text_has_membership_match(
             continue
         if cue.search(sentence) is None:
             continue
+        if not _has_membership_direction(team_query, sentence):
+            continue
         if team_query.requires_current and _STALE_MEMBERSHIP_CUE_RE.search(sentence):
             continue
         return True
+    return False
+
+
+def _has_membership_direction(
+    team_query: _PersonTeamQuery,
+    sentence: str,
+) -> bool:
+    for person_pattern in _person_label_alias_patterns(team_query.person_label):
+        if team_query.kind is TeamMembershipKind.CLASS:
+            membership_noun = r"class|course"
+            joined_phrase = (
+                r"(?:joined|signed\s+up\s+for|enrolled\s+in|taking|in|"
+                r"used\s+to\s+(?:take|be\s+in))"
+            )
+        elif team_query.kind is TeamMembershipKind.CLUB:
+            membership_noun = r"club"
+            joined_phrase = (
+                r"(?:joined|belong(?:s|ed)?\s+to|member\s+of|part\s+of|in|"
+                r"used\s+to\s+(?:belong\s+to|be\s+(?:in|part\s+of)))"
+            )
+        elif team_query.kind is TeamMembershipKind.GROUP:
+            membership_noun = r"group"
+            joined_phrase = (
+                r"(?:joined|belong(?:s|ed)?\s+to|member\s+of|part\s+of|in|"
+                r"used\s+to\s+(?:belong\s+to|be\s+(?:in|part\s+of)))"
+            )
+        else:
+            membership_noun = r"team"
+            joined_phrase = (
+                r"(?:joined|on|member\s+of|part\s+of|belong(?:s|ed)?\s+to|"
+                r"used\s+to\s+(?:belong\s+to|be\s+(?:on|part\s+of)))"
+            )
+        patterns = (
+            rf"\bD\d+:\d+\s+{person_pattern}:\s*.{{0,120}}\b"
+            rf"I\s+{joined_phrase}\s+(?:the\s+|a\s+|an\s+)?"
+            rf"(?:[A-Za-zА-Яа-яЁё0-9_.-]{{1,40}}\s+){{0,4}}"
+            rf"(?:{membership_noun})\b",
+            rf"\bD\d+:\d+\s+{person_pattern}:\s*.{{0,120}}\b"
+            rf"I\s+(?:am|was)\s+(?:a\s+)?(?:member|part)\s+of\s+"
+            rf"(?:the\s+|a\s+|an\s+)?"
+            rf"(?:[A-Za-zА-Яа-яЁё0-9_.-]{{1,40}}\s+){{0,4}}"
+            rf"(?:{membership_noun})\b",
+            rf"\b{person_pattern}\s+{joined_phrase}\s+(?:the\s+|a\s+|an\s+)?"
+            rf"(?:[A-Za-zА-Яа-яЁё0-9_.-]{{1,40}}\s+){{0,4}}"
+            rf"(?:{membership_noun})\b",
+            rf"\b{person_pattern}\s+(?:is|was)\s+(?:a\s+)?(?:member|part)\s+"
+            rf"of\s+(?:the\s+|a\s+|an\s+)?"
+            rf"(?:[A-Za-zА-Яа-яЁё0-9_.-]{{1,40}}\s+){{0,4}}"
+            rf"(?:{membership_noun})\b",
+            rf"\b{person_pattern}(?:'s|s')\s+(?:{membership_noun})\s+"
+            r"(?:is|was)\b",
+        )
+        if any(re.search(pattern, sentence, re.IGNORECASE | re.DOTALL) for pattern in patterns):
+            return True
     return False
 
 
@@ -231,6 +287,18 @@ def _text_mentions_other_person(person: str, text: str) -> bool:
             continue
         return True
     return False
+
+
+def _person_label_alias_patterns(person_label: str) -> tuple[str, ...]:
+    labels = [person_label]
+    tokens = person_label.strip(" :,.!?;").split()
+    if len(tokens) > 1:
+        labels.append(tokens[0])
+    return tuple(
+        re.escape(label)
+        for label in dict.fromkeys(label.strip(" :,.!?;") for label in labels)
+        if person_alias_keys(label)
+    )
 
 
 def _valid_label(label: str) -> bool:

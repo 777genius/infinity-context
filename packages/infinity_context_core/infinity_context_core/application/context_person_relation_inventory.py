@@ -186,6 +186,26 @@ _ANY_PERSON_RELATION_ROLE_CUE_RE = re.compile(
     r"coach(?:es)?|trainer|teacher|tutor|classmate|schoolmate)\b",
     re.IGNORECASE,
 )
+_DIRECTED_RELATION_ROLES = frozenset(
+    (
+        "work_authority",
+        "medical",
+        "coach",
+        "education",
+    )
+)
+_DIRECTED_ROLE_TERMS = {
+    "work_authority": r"manager|mentor|boss|supervisor",
+    "medical": r"doctor|dentist|therapist|counsellor|counselor",
+    "coach": r"coach|trainer",
+    "education": r"teacher|tutor|classmate|schoolmate",
+}
+_DIRECTED_ROLE_VERBS = {
+    "work_authority": r"manages?|managed|supervises?|supervised|mentors?|mentored",
+    "medical": r"treats?|treated|counsels?|counselled|counseled",
+    "coach": r"coaches?|coached|trains?|trained",
+    "education": r"teaches?|taught|tutors?|tutored",
+}
 _STALE_RELATION_CUE_RE = re.compile(
     r"\b(?:former|formerly|previously|used\s+to\s+be|"
     r"used\s+to\s+(?:work|collaborate|partner|date|be)|"
@@ -432,11 +452,10 @@ def _role_for_relation(relation: str) -> str | None:
         return "medical"
     if "coach" in normalized or "trainer" in normalized:
         return "coach"
-    if any(
-        token in normalized
-        for token in ("teacher", "tutor", "classmate", "schoolmate")
-    ):
+    if any(token in normalized for token in ("teacher", "tutor")):
         return "education"
+    if any(token in normalized for token in ("classmate", "schoolmate")):
+        return "education_peer"
     return None
 
 
@@ -450,6 +469,8 @@ def _text_satisfies_relation_query(
         if not _text_mentions_anchor(relation_query.anchor_label, sentence):
             continue
         if not _required_relation_cue(relation_query).search(sentence):
+            continue
+        if not _has_required_relation_direction(relation_query, sentence):
             continue
         if relation_query.requires_current and _STALE_RELATION_CUE_RE.search(sentence):
             continue
@@ -536,6 +557,88 @@ def _text_mentions_anchor_wrong_relation_role(
     return False
 
 
+def _has_required_relation_direction(
+    relation_query: _PersonRelationQuery,
+    sentence: str,
+) -> bool:
+    role = relation_query.relation_role
+    if role not in _DIRECTED_RELATION_ROLES:
+        return True
+    return _has_directed_role_evidence(relation_query, sentence)
+
+
+def _has_directed_role_evidence(
+    relation_query: _PersonRelationQuery,
+    sentence: str,
+) -> bool:
+    role = relation_query.relation_role
+    if role not in _DIRECTED_RELATION_ROLES:
+        return False
+    role_terms = _DIRECTED_ROLE_TERMS[role]
+    role_verbs = _DIRECTED_ROLE_VERBS[role]
+    anchor_patterns = _person_label_alias_patterns(relation_query.anchor_label)
+    if not anchor_patterns:
+        return False
+    for anchor_pattern in anchor_patterns:
+        speaker_first_person_patterns = (
+            rf"\bD\d+:\d+\s+{anchor_pattern}:\s*.{{0,120}}\b"
+            rf"(?P<target>{_LABEL_RE})\s+"
+            rf"(?:is|was|became|has\s+been|had\s+been)\s+"
+            rf"(?:my|their|her|his)\s+(?:{role_terms})\b",
+            rf"\bD\d+:\d+\s+{anchor_pattern}:\s*.{{0,120}}\b"
+            rf"(?:my|their|her|his)\s+(?:{role_terms})\s+"
+            rf"(?:is|was)\s+(?P<target>{_LABEL_RE})\b",
+            rf"\bD\d+:\d+\s+{anchor_pattern}:\s*.{{0,120}}\b"
+            rf"I\s+report(?:ed|s)?\s+to\s+(?P<target>{_LABEL_RE})\b",
+        )
+        possessive_patterns = (
+            rf"\b{anchor_pattern}(?:'s|s')\s+(?:{role_terms})\s+"
+            rf"(?:is|was|became|has\s+been|had\s+been)\s+"
+            rf"(?P<target>{_LABEL_RE})\b",
+            rf"\b(?P<target>{_LABEL_RE})\s+"
+            rf"(?:is|was|became|has\s+been|had\s+been)\s+"
+            rf"{anchor_pattern}(?:'s|s')\s+(?:{role_terms})\b",
+            rf"\b(?P<target>{_LABEL_RE})\s+(?:{role_verbs})\s+"
+            rf"{anchor_pattern}\b",
+            rf"\b{anchor_pattern}\s+report(?:ed|s)?\s+to\s+"
+            rf"(?P<target>{_LABEL_RE})\b",
+        )
+        for pattern in (*speaker_first_person_patterns, *possessive_patterns):
+            for match in re.finditer(pattern, sentence, re.IGNORECASE | re.DOTALL):
+                if _counterpart_matches_relation_query(
+                    relation_query,
+                    match.group("target"),
+                ):
+                    return True
+    return False
+
+
+def _counterpart_matches_relation_query(
+    relation_query: _PersonRelationQuery,
+    counterpart: str,
+) -> bool:
+    if not person_alias_keys(counterpart):
+        return False
+    if person_labels_match(counterpart, relation_query.anchor_label):
+        return False
+    if relation_query.target_label is None:
+        label_key = _normalized_label(counterpart)
+        return not (label_key.startswith("d") and label_key[1:].isdigit())
+    return person_labels_match(counterpart, relation_query.target_label)
+
+
+def _person_label_alias_patterns(person_label: str) -> tuple[str, ...]:
+    labels = [person_label]
+    tokens = _clean_label(person_label).split()
+    if len(tokens) > 1:
+        labels.append(tokens[0])
+    return tuple(
+        re.escape(label)
+        for label in dict.fromkeys(_clean_label(label) for label in labels)
+        if _clean_label(label) and person_alias_keys(label)
+    )
+
+
 def _required_relation_cue(relation_query: _PersonRelationQuery) -> re.Pattern[str]:
     if relation_query.relation_role is None:
         return _relation_cue(relation_query.kind)
@@ -562,6 +665,8 @@ def _role_relation_cue(role: str) -> re.Pattern[str]:
     if role == "coach":
         return _COACH_ROLE_CUE_RE
     if role == "education":
+        return _EDUCATION_ROLE_CUE_RE
+    if role == "education_peer":
         return _EDUCATION_ROLE_CUE_RE
     return _GENERIC_CUE_RE
 

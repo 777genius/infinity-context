@@ -62,6 +62,24 @@ def test_person_occupation_signal_matches_named_person_employer_lookup() -> None
     assert signal.reason == "person_occupation_match"
 
 
+def test_person_occupation_signal_does_not_boost_reversed_employer_direction() -> None:
+    signal = person_occupation_signal(
+        query="Who does Alice Chen work for?",
+        text="D2:6 Ben works for Alice Chen.",
+    )
+
+    assert signal.boost == 0
+
+
+def test_person_occupation_signal_does_not_boost_person_as_employer_for_work_role() -> None:
+    signal = person_occupation_signal(
+        query="What does Alice Chen do for work?",
+        text="D2:6 Ben works as Alice Chen's studio assistant.",
+    )
+
+    assert signal.boost == 0
+
+
 def test_deterministic_rerank_prefers_named_person_occupation() -> None:
     query = "What does Alice Chen do for work?"
     plan = build_query_expansion_plan(query)

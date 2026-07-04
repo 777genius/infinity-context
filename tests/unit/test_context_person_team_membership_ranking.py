@@ -22,6 +22,15 @@ def test_person_team_membership_signal_matches_named_person_team() -> None:
     assert signal.reason == "person_team_membership_match"
 
 
+def test_person_team_membership_signal_does_not_boost_person_as_coach() -> None:
+    signal = person_team_membership_signal(
+        query="What team is Alice Chen on?",
+        text="D5:6 Alice Chen coaches the robotics team this spring.",
+    )
+
+    assert signal.boost == 0
+
+
 def test_person_team_membership_signal_penalizes_other_person_team() -> None:
     signal = person_team_membership_signal(
         query="What team is Alice on?",

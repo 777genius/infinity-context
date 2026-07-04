@@ -64,6 +64,9 @@ _PARTNER_FALSE_POSITIVE_RE = re.compile(
     r"partner\b|\bpartner\s+(?:company|deal|organization|organisation|program)\b",
     re.IGNORECASE,
 )
+_ASYMMETRIC_KINSHIP_KINDS = frozenset(
+    (KinshipRelationKind.PARENT, KinshipRelationKind.CHILD)
+)
 _QUERY_LABEL_STOP_WORDS = frozenset({"who"})
 
 
@@ -74,12 +77,7 @@ def person_kinship_signal(*, query: str, text: str) -> PersonKinshipSignal:
     if kinship_query is None:
         return PersonKinshipSignal()
     if (
-        _text_mentions_person(kinship_query.person_label, text)
-        and _has_kinship_evidence(
-            kinship_query.kind,
-            text,
-            person_label=kinship_query.person_label,
-        )
+        _text_has_kinship_match(kinship_query, text)
     ):
         return PersonKinshipSignal(boost=0.022, reason="person_kinship_match")
     if (
@@ -92,6 +90,62 @@ def person_kinship_signal(*, query: str, text: str) -> PersonKinshipSignal:
             reason="person_kinship_other_person",
         )
     return PersonKinshipSignal()
+
+
+def _text_has_kinship_match(
+    kinship_query: _PersonKinshipQuery,
+    text: str,
+) -> bool:
+    if kinship_query.kind not in _ASYMMETRIC_KINSHIP_KINDS:
+        return (
+            _text_mentions_person(kinship_query.person_label, text)
+            and _has_kinship_evidence(
+                kinship_query.kind,
+                text,
+                person_label=kinship_query.person_label,
+            )
+        )
+    for sentence in _sentences(text):
+        if not _text_mentions_person(kinship_query.person_label, sentence):
+            continue
+        if _has_directed_kinship_evidence(kinship_query, sentence):
+            return True
+    return False
+
+
+def _has_directed_kinship_evidence(
+    kinship_query: _PersonKinshipQuery,
+    sentence: str,
+) -> bool:
+    person_patterns = _person_label_alias_patterns(kinship_query.person_label)
+    if not person_patterns:
+        return False
+    relation_terms = _kinship_relation_terms(kinship_query.kind)
+    for person_pattern in person_patterns:
+        patterns = (
+            rf"\bD\d+:\d+\s+{person_pattern}:\s*.{{0,120}}\b"
+            rf"(?:my|our)\s+(?:{relation_terms})\b",
+            rf"\b{person_pattern}(?:'s|s')\s+(?:{relation_terms})\b",
+            rf"\b(?:{relation_terms})\s+(?:of|for|to)\s+{person_pattern}\b",
+            rf"\b(?P<counterpart>{_LABEL_RE})\s+"
+            rf"(?:is|was|became|has\s+been|had\s+been)\s+"
+            rf"{person_pattern}(?:'s|s')\s+(?:{relation_terms})\b",
+        )
+        if any(re.search(pattern, sentence, re.IGNORECASE | re.DOTALL) for pattern in patterns):
+            return True
+    return False
+
+
+def _kinship_relation_terms(kind: KinshipRelationKind) -> str:
+    if kind is KinshipRelationKind.PARENT:
+        return r"mother|mom|father|dad|parents?"
+    if kind is KinshipRelationKind.CHILD:
+        return r"children|kids|sons?|daughters?"
+    return _KINSHIP_TERMS_RE
+
+
+def _sentences(text: str) -> tuple[str, ...]:
+    return tuple(part for part in re.split(r"[.?!;\n]+", text) if part.strip())
 
 
 def _person_kinship_query(query: str) -> _PersonKinshipQuery | None:
@@ -227,7 +281,7 @@ def _has_named_marriage_evidence(*, person_label: str, text: str) -> bool:
 
 
 def _person_label_alias_patterns(person_label: str) -> tuple[str, ...]:
-    tokens = _LABEL_TOKEN_RE.findall(person_label)
+    tokens = person_label.strip(" :,.!?;").split()
     aliases = [" ".join(tokens)]
     if len(tokens) > 1:
         aliases.append(tokens[0])

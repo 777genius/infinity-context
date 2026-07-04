@@ -171,6 +171,16 @@ def test_person_relation_inventory_signal_matches_named_person_classmate() -> No
     assert signal.reason == "person_relation_inventory_match"
 
 
+def test_person_relation_inventory_signal_keeps_peer_relation_symmetric() -> None:
+    signal = person_relation_inventory_signal(
+        query="Who is Alice Chen's classmate?",
+        text="D4:8 Maria: Alice is my classmate in biology.",
+    )
+
+    assert signal.boost > 0
+    assert signal.reason == "person_relation_inventory_match"
+
+
 def test_person_relation_inventory_signal_requires_specific_relation_target() -> None:
     exact = person_relation_inventory_signal(
         query="Is Maria Alice's boss?",
@@ -205,6 +215,24 @@ def test_person_relation_inventory_signal_penalizes_same_anchor_wrong_role() -> 
 
     assert signal.penalty > 0
     assert signal.reason == "person_relation_inventory_role_mismatch"
+
+
+def test_person_relation_inventory_signal_does_not_boost_reversed_boss_direction() -> None:
+    signal = person_relation_inventory_signal(
+        query="Who is Alice's boss?",
+        text="D4:8 Maria: Alice is my boss at the clinic.",
+    )
+
+    assert signal.boost == 0
+
+
+def test_person_relation_inventory_signal_does_not_boost_reversed_target_boss() -> None:
+    signal = person_relation_inventory_signal(
+        query="Is Maria Alice's boss?",
+        text="D4:8 Maria: Alice is my boss at the clinic.",
+    )
+
+    assert signal.boost == 0
 
 
 def test_person_relation_inventory_signal_penalizes_stale_current_relation() -> None:
@@ -427,6 +455,41 @@ def test_deterministic_rerank_prefers_requested_role_over_same_anchor_decoy() ->
     assert (
         "person_relation_inventory_role_mismatch"
         in by_id["wrong_role"]
+        .diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+
+
+def test_deterministic_rerank_does_not_lift_reversed_boss_relation() -> None:
+    query = "Who is Alice's boss?"
+    plan = build_query_expansion_plan(query)
+    intent = build_query_anchor_intent(query)
+    correct_direction = _item(
+        "correct_direction",
+        score=0.7,
+        text="D4:8 Alice: Maria is my boss at the clinic.",
+    )
+    reversed_direction = _item(
+        "reversed_direction",
+        score=0.7,
+        text="D4:9 Maria: Alice is my boss at the clinic.",
+    )
+
+    reranked = apply_deterministic_rerank_adjustments(
+        (reversed_direction, correct_direction),
+        query=query,
+        plan=plan,
+        query_anchor_intent=intent,
+    )
+    by_id = {item.item_id: item for item in reranked}
+
+    assert (
+        "person_relation_inventory_match"
+        in by_id["correct_direction"]
+        .diagnostics["provenance"]["deterministic_rerank_reasons"]
+    )
+    assert (
+        "person_relation_inventory_match"
+        not in by_id["reversed_direction"]
         .diagnostics["provenance"]["deterministic_rerank_reasons"]
     )
 

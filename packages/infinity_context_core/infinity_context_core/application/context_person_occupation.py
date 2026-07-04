@@ -78,8 +78,7 @@ def person_occupation_signal(*, query: str, text: str) -> PersonOccupationSignal
     if occupation_query is None:
         return PersonOccupationSignal()
     if (
-        _text_mentions_person(occupation_query.person_label, text)
-        and _occupation_cue(occupation_query.kind).search(text) is not None
+        _text_has_occupation_match(occupation_query, text)
     ):
         return PersonOccupationSignal(boost=0.022, reason="person_occupation_match")
     if (
@@ -92,6 +91,71 @@ def person_occupation_signal(*, query: str, text: str) -> PersonOccupationSignal
             reason="person_occupation_other_person",
         )
     return PersonOccupationSignal()
+
+
+def _text_has_occupation_match(
+    occupation_query: _PersonOccupationQuery,
+    text: str,
+) -> bool:
+    for sentence in _sentences(text):
+        if not _text_mentions_person(occupation_query.person_label, sentence):
+            continue
+        if occupation_query.kind is PersonOccupationQueryKind.WORKPLACE:
+            if _has_workplace_direction(occupation_query.person_label, sentence):
+                return True
+            continue
+        if _has_role_direction(occupation_query.person_label, sentence):
+            return True
+    return False
+
+
+def _has_role_direction(person_label: str, sentence: str) -> bool:
+    for person_pattern in _person_label_alias_patterns(person_label):
+        patterns = (
+            rf"\bD\d+:\d+\s+{person_pattern}:\s*.{{0,120}}\b"
+            r"(?:I\s+work(?:ed|s|ing)?\s+as|my\s+(?:job|occupation|"
+            r"profession|role|title)\s+(?:is|was)|I\s+am\s+(?:a|an))\b",
+            rf"\b{person_pattern}\s+"
+            r"(?:work(?:ed|s|ing)?\s+as|is\s+(?:a|an)|was\s+(?:a|an)|"
+            r"is\s+employed\s+as|was\s+employed\s+as)\b",
+            rf"\b{person_pattern}(?:'s|s')\s+"
+            r"(?:job|occupation|profession|role|title)\s+(?:is|was)\b",
+        )
+        if any(re.search(pattern, sentence, re.IGNORECASE | re.DOTALL) for pattern in patterns):
+            return True
+    return False
+
+
+def _has_workplace_direction(person_label: str, sentence: str) -> bool:
+    for person_pattern in _person_label_alias_patterns(person_label):
+        patterns = (
+            rf"\bD\d+:\d+\s+{person_pattern}:\s*.{{0,120}}\b"
+            r"(?:I\s+work(?:ed|s|ing)?\s+(?:at|for|with)|"
+            r"I\s+am\s+employed\s+(?:at|by)|"
+            r"my\s+(?:employer|workplace|company|organization|organisation)\s+"
+            r"(?:is|was)|"
+            r"[A-ZА-ЯЁ][A-Za-zА-Яа-яЁё0-9_.-]{1,40}"
+            r"(?:\s+[A-ZА-ЯЁ][A-Za-zА-Яа-яЁё0-9_.-]{1,40}){0,3}\s+"
+            r"(?:is|was)\s+my\s+(?:employer|workplace|company|organization|"
+            r"organisation))\b",
+            rf"\b{person_pattern}\s+"
+            r"(?:work(?:ed|s|ing)?\s+(?:at|for|with)|"
+            r"is\s+employed\s+(?:at|by)|was\s+employed\s+(?:at|by))\b",
+            rf"\b{person_pattern}(?:'s|s')\s+"
+            r"(?:employer|workplace|company|organization|organisation)\s+"
+            r"(?:is|was)\b",
+            rf"\b[A-ZА-ЯЁ][A-Za-zА-Яа-яЁё0-9_.-]{{1,40}}"
+            rf"(?:\s+[A-ZА-ЯЁ][A-Za-zА-Яа-яЁё0-9_.-]{{1,40}}){{0,3}}\s+"
+            rf"(?:is|was)\s+{person_pattern}(?:'s|s')\s+"
+            r"(?:employer|workplace|company|organization|organisation)\b",
+        )
+        if any(re.search(pattern, sentence, re.IGNORECASE | re.DOTALL) for pattern in patterns):
+            return True
+    return False
+
+
+def _sentences(text: str) -> tuple[str, ...]:
+    return tuple(part for part in re.split(r"[.?!;\n]+", text) if part.strip())
 
 
 def _person_occupation_query(query: str) -> _PersonOccupationQuery | None:
@@ -158,6 +222,18 @@ def _text_mentions_other_person(person: str, text: str) -> bool:
             continue
         return True
     return False
+
+
+def _person_label_alias_patterns(person_label: str) -> tuple[str, ...]:
+    labels = [person_label]
+    tokens = person_label.strip(" :,.!?;").split()
+    if len(tokens) > 1:
+        labels.append(tokens[0])
+    return tuple(
+        re.escape(label)
+        for label in dict.fromkeys(label.strip(" :,.!?;") for label in labels)
+        if person_alias_keys(label)
+    )
 
 
 def _valid_label(label: str) -> bool:

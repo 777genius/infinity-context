@@ -87,6 +87,25 @@ def test_person_kinship_signal_ignores_unrelated_marriage_mention() -> None:
     assert signal == (0.0, 0.0, "")
 
 
+def test_person_kinship_signal_does_not_boost_reversed_parent_direction() -> None:
+    signal = person_kinship_signal(
+        query="Who is Alice's mother?",
+        text="D2:6 Alice is Maya's mother.",
+    )
+
+    assert signal.boost == 0
+
+
+def test_person_kinship_signal_matches_parent_possessive_direction() -> None:
+    signal = person_kinship_signal(
+        query="Who is Alice's mother?",
+        text="D2:6 Maya is Alice's mother.",
+    )
+
+    assert signal.boost > 0
+    assert signal.reason == "person_kinship_match"
+
+
 def test_deterministic_rerank_prefers_named_person_kinship_evidence() -> None:
     query = "Who is Alice Chen's brother?"
     plan = build_query_expansion_plan(query)
