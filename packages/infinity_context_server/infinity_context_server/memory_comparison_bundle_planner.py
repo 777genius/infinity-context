@@ -1542,21 +1542,36 @@ def _candidate_has_typed_relation_support(
         return False
     if candidate.broad_summary or candidate.conflict_or_stale:
         return False
-    if role == "support_goal_support" and not (
-        candidate.relation_category_hits or candidate.entity_hits or candidate.speaker_hits
-    ):
-        support_terms = set(candidate.query_support_terms)
-        return bool(
-            "support" in support_terms
-            and {"adoption", "agency", "individual", "help"} & support_terms
-        )
-    if not (candidate.entity_hits or candidate.speaker_hits):
-        return False
     if _candidate_has_measured_weak_source_locality(candidate):
         return False
     if candidate.answerability_score and candidate.answerability_score < 0.55:
         return False
+    if role == "support_goal_support" and not (
+        candidate.entity_hits or candidate.speaker_hits
+    ):
+        return _candidate_has_entityless_support_goal_grounding(candidate)
+    if not (candidate.entity_hits or candidate.speaker_hits):
+        return False
     return bool(required_categories.intersection(candidate.relation_category_hits))
+
+
+def _candidate_has_entityless_support_goal_grounding(
+    candidate: EvidenceBundleCandidate,
+) -> bool:
+    if not (
+        candidate.source_refs
+        or _candidate_turn_refs(candidate)
+        or candidate.direct_speaker_turn
+        or candidate.focused_evidence_score > 0
+    ):
+        return False
+    if "support_goal" in set(candidate.relation_category_hits):
+        return True
+    support_terms = set(candidate.query_support_terms)
+    return bool(
+        "support" in support_terms
+        and {"adoption", "agency", "individual", "help"} & support_terms
+    )
 
 
 def _candidate_has_measured_weak_source_locality(

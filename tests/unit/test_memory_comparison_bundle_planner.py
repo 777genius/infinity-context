@@ -1954,6 +1954,83 @@ def test_evidence_bundle_planner_selects_required_inference_support() -> None:
     ]
 
 
+def test_evidence_bundle_planner_rejects_ungrounded_support_goal_terms() -> None:
+    primary = _candidate(
+        item_id="primary",
+        covered_evidence_terms=("D1:1",),
+        primary_signal=True,
+        source_refs=("D1:1",),
+        direct_speaker_turn=True,
+        answerability_score=0.9,
+        source_locality_score=1.0,
+    )
+    query_only_support = _candidate(
+        item_id="query-only-support",
+        dedupe_key="query-only-support",
+        query_support_terms=("adoption", "support"),
+        bundle_strength_score=9.0,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, query_only_support),
+        case_group="single",
+        required_roles=("primary", "support_goal_support"),
+    )
+
+    assert [item.candidate.item_id for item in plan.items] == [
+        "primary",
+        "query-only-support",
+    ]
+    assert [item.role for item in plan.items] == ["primary", "supporting"]
+    assert plan.satisfied_required_roles == ("primary",)
+    assert plan.missing_required_roles == ("support_goal_support",)
+    quality = plan.to_diagnostics()["bundle_quality"]
+    assert quality["typed_relation_support_counts"] == {}
+    assert "risk:missing_required_support_goal_support" in quality["reason_codes"]
+
+
+def test_evidence_bundle_planner_allows_source_grounded_entityless_support_goal() -> None:
+    primary = _candidate(
+        item_id="primary",
+        covered_evidence_terms=("D1:1",),
+        primary_signal=True,
+        source_refs=("D1:1",),
+        direct_speaker_turn=True,
+        answerability_score=0.9,
+        source_locality_score=1.0,
+    )
+    source_grounded_support = _candidate(
+        item_id="source-grounded-support",
+        dedupe_key="refs:D2:3",
+        query_support_terms=("adoption", "agency", "support"),
+        relation_category_hits=("support_goal",),
+        source_refs=("D2:3",),
+        source_locality_score=0.9,
+        answerability_score=0.74,
+        bundle_strength_score=2.0,
+    )
+
+    plan = EvidenceBundlePlanner(max_items=2).plan(
+        (primary, source_grounded_support),
+        case_group="single",
+        required_roles=("primary", "support_goal_support"),
+    )
+
+    assert [item.candidate.item_id for item in plan.items] == [
+        "primary",
+        "source-grounded-support",
+    ]
+    assert [item.role for item in plan.items] == [
+        "primary",
+        "support_goal_support",
+    ]
+    assert plan.satisfied_required_roles == ("primary", "support_goal_support")
+    assert plan.missing_required_roles == ()
+    quality = plan.to_diagnostics()["bundle_quality"]
+    assert quality["typed_relation_support_counts"] == {"support_goal_support": 1}
+    assert "has_support_goal_support_evidence" in quality["reason_codes"]
+
+
 def test_evidence_bundle_planner_requires_relation_inference_support() -> None:
     primary = _candidate(
         item_id="primary",
