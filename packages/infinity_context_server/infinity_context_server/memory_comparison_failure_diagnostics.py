@@ -6,7 +6,10 @@ import re
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 
-_TURN_REF_RE = re.compile(r"\bD(?P<source>\d+):(?P<turn>\d+)\b")
+_TURN_REF_RE = re.compile(
+    r"\b(?:(?P<session>session_\d+):)?D(?P<source>\d+):(?P<turn>\d+)\b",
+    re.IGNORECASE,
+)
 
 
 def failure_diagnostics(evaluation: Mapping[str, object]) -> dict[str, object]:
@@ -15,9 +18,14 @@ def failure_diagnostics(evaluation: Mapping[str, object]) -> dict[str, object]:
     evidence_bundle = _mapping(evaluation.get("evidence_bundle"))
     generation = _mapping(evaluation.get("generation"))
     judgment = _mapping(evaluation.get("judgment"))
+    answer_context = _primary_answer_context(evaluation)
     bundle_planner = _mapping(evidence_bundle.get("bundle_planner"))
     bundle_quality = _mapping(bundle_planner.get("bundle_quality"))
     bundle_items = _bundle_items(evidence_bundle)
+    bundle_source_ref_stats = _selected_bundle_source_ref_stats(
+        bundle_items,
+        bundle_quality=bundle_quality,
+    )
     source_refs = tuple(
         dict.fromkeys(
             source_ref
@@ -93,6 +101,7 @@ def failure_diagnostics(evaluation: Mapping[str, object]) -> dict[str, object]:
             "supporting_evidence_count": (
                 _positive_int(evidence_bundle.get("supporting_evidence_count")) or 0
             ),
+            **bundle_source_ref_stats,
             "confidence_score": round(
                 _metric_value(bundle_quality, "confidence_score"),
                 6,
@@ -112,6 +121,7 @@ def failure_diagnostics(evaluation: Mapping[str, object]) -> dict[str, object]:
             ),
             "reason_codes": _str_tuple(bundle_quality.get("reason_codes")),
         },
+        "answer_context": _answer_context_failure_summary(answer_context),
     }
 
 
@@ -168,12 +178,114 @@ def failure_diagnostic_reason_codes(
         reason_codes.append("selected_low_answerability_evidence")
     if (_positive_int(bundle.get("selected_weak_source_locality_count")) or 0) > 0:
         reason_codes.append("selected_weak_source_locality_evidence")
+    if (
+        _positive_int(bundle.get("selected_bundle_source_refless_item_count")) or 0
+    ) > 0:
+        reason_codes.append("selected_bundle_source_refless_evidence")
     if any(
         str(reason).startswith("risk:")
         for reason in _str_tuple(bundle.get("reason_codes"))
     ):
         reason_codes.append("bundle_risk_reasons_present")
+    answer_context = _mapping(diagnostics.get("answer_context"))
+    if answer_context.get("present") is True:
+        if str(answer_context.get("source") or "") == "retrieval_slice" or str(
+            answer_context.get("fallback_reason") or ""
+        ):
+            reason_codes.append("answer_context_fallback")
+        if (
+            (_positive_int(answer_context.get("source_refless_item_count")) or 0) > 0
+            or (
+                (_positive_int(answer_context.get("memory_count")) or 0) > 0
+                and _metric_value(answer_context, "source_ref_coverage_rate") <= 0
+            )
+        ):
+            reason_codes.append("answer_context_source_refless")
+        if answer_context.get("role_requirement_complete") is False:
+            reason_codes.append("answer_context_missing_required_roles")
+        if (
+            _positive_int(answer_context.get("backfilled_retrieval_item_count")) or 0
+        ) > 0:
+            reason_codes.append("answer_context_backfilled_retrieval")
+        if _str_tuple(answer_context.get("risk_reason_codes")):
+            reason_codes.append("answer_context_risk_reasons_present")
     return list(dict.fromkeys(reason_codes or ["retrieval_or_judgment_failed"]))
+
+
+def _primary_answer_context(
+    evaluation: Mapping[str, object],
+) -> tuple[int | str | None, Mapping[str, object]] | None:
+    direct_context = _mapping(evaluation.get("answer_context"))
+    if direct_context:
+        return None, direct_context
+
+    contexts: list[tuple[int, str, Mapping[str, object]]] = []
+    for cutoff, payload in _mapping(evaluation.get("cutoff_results")).items():
+        context = _mapping(_mapping(payload).get("answer_context"))
+        if not context:
+            continue
+        contexts.append((_positive_int(cutoff) or -1, str(cutoff), context))
+    if not contexts:
+        return None
+
+    numeric_cutoff, cutoff_label, context = max(
+        contexts,
+        key=lambda item: (item[0], item[1]),
+    )
+    return (numeric_cutoff if numeric_cutoff >= 0 else cutoff_label), context
+
+
+def _answer_context_failure_summary(
+    answer_context: tuple[int | str | None, Mapping[str, object]] | None,
+) -> dict[str, object]:
+    if answer_context is None:
+        return {"present": False}
+
+    cutoff, context = answer_context
+    risk_reason_codes = tuple(
+        dict.fromkeys(
+            (
+                *_str_tuple(context.get("risk_reason_codes")),
+                *_str_tuple(context.get("bundle_risk_reason_codes")),
+            )
+        )
+    )
+    return {
+        "present": True,
+        "cutoff": cutoff,
+        "source": str(context.get("source") or "unknown"),
+        "fallback_reason": str(context.get("fallback_reason") or "") or None,
+        "memory_count": _positive_int(context.get("memory_count")) or 0,
+        "source_ref_count": _positive_int(context.get("source_ref_count")) or 0,
+        "source_ref_item_count": _positive_int(context.get("source_ref_item_count")) or 0,
+        "source_refless_item_count": (
+            _positive_int(context.get("source_refless_item_count")) or 0
+        ),
+        "source_ref_coverage_rate": _metric_value(context, "source_ref_coverage_rate"),
+        "selected_bundle_item_count": (
+            _positive_int(context.get("selected_bundle_item_count")) or 0
+        ),
+        "skipped_bundle_item_count": (
+            _positive_int(context.get("skipped_bundle_item_count")) or 0
+        ),
+        "backfilled_retrieval_item_count": (
+            _positive_int(context.get("backfilled_retrieval_item_count")) or 0
+        ),
+        "role_requirement_complete": (
+            context.get("role_requirement_complete")
+            if isinstance(context.get("role_requirement_complete"), bool)
+            else None
+        ),
+        "missing_required_roles": _str_tuple(context.get("missing_required_roles")),
+        "risk_reason_codes": risk_reason_codes,
+        "item_ids": _str_tuple(context.get("item_ids"))[:8],
+        "retrieval_orders": tuple(
+            order
+            for raw_order in _sequence(context.get("retrieval_orders"))
+            for order in (_positive_int(raw_order),)
+            if order is not None
+        )[:8],
+    }
 
 
 def _retrieval_source_counts(evaluation: Mapping[str, object]) -> dict[str, int]:
@@ -303,7 +415,11 @@ def _turn_refs(values: Iterable[str]) -> tuple[tuple[str, int], ...]:
     seen: set[tuple[str, int]] = set()
     for value in values:
         for match in _TURN_REF_RE.finditer(str(value)):
-            ref = (f"D{match.group('source')}", int(match.group("turn")))
+            source_id = f"D{match.group('source')}"
+            session_id = str(match.group("session") or "").strip().lower()
+            if session_id:
+                source_id = f"{session_id}:{source_id}"
+            ref = (source_id, int(match.group("turn")))
             if ref in seen:
                 continue
             refs.append(ref)
@@ -345,6 +461,52 @@ def _selected_weak_source_locality_count(
     return counted_items or int(
         _metric_value(bundle_quality, "weak_source_locality_count")
     )
+
+
+def _selected_bundle_source_ref_stats(
+    bundle_items: Sequence[Mapping[str, object]],
+    *,
+    bundle_quality: Mapping[str, object],
+) -> dict[str, object]:
+    item_ref_counts = [len(_str_tuple(item.get("source_refs"))) for item in bundle_items]
+    source_ref_item_count = sum(1 for count in item_ref_counts if count > 0)
+    source_ref_count = len(
+        tuple(
+            dict.fromkeys(
+                source_ref
+                for item in bundle_items
+                for source_ref in _str_tuple(item.get("source_refs"))
+            )
+        )
+    )
+    source_refless_item_count = len(bundle_items) - source_ref_item_count
+    if not bundle_items:
+        source_ref_item_count = (
+            _positive_int(bundle_quality.get("selected_bundle_source_ref_item_count"))
+            or _positive_int(bundle_quality.get("source_ref_item_count"))
+            or 0
+        )
+        source_ref_count = (
+            _positive_int(bundle_quality.get("selected_bundle_source_ref_count"))
+            or _positive_int(bundle_quality.get("source_ref_count"))
+            or 0
+        )
+        source_refless_item_count = (
+            _positive_int(
+                bundle_quality.get("selected_bundle_source_refless_item_count")
+            )
+            or _positive_int(bundle_quality.get("source_refless_item_count"))
+            or 0
+        )
+    return {
+        "selected_bundle_source_ref_count": source_ref_count,
+        "selected_bundle_source_ref_item_count": source_ref_item_count,
+        "selected_bundle_source_refless_item_count": source_refless_item_count,
+        "selected_bundle_source_ref_coverage_rate": _ratio(
+            source_ref_item_count,
+            len(bundle_items) or source_ref_item_count + source_refless_item_count,
+        ),
+    }
 
 
 def _is_measured_low_answerability(score: float) -> bool:
@@ -399,3 +561,9 @@ def _metric_value(item: Mapping[str, object], key: str) -> float:
         return float(value)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return 0.0
+
+
+def _ratio(numerator: int, denominator: int) -> float:
+    if denominator <= 0:
+        return 0.0
+    return round(numerator / denominator, 6)

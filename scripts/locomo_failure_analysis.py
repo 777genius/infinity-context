@@ -254,6 +254,18 @@ def _root_cause_tags(failure: Mapping[str, object]) -> tuple[str, ...]:
             tags.append("evidence:same_source_miss")
     elif "partial_evidence_ref_support" in reason_codes:
         tags.append("evidence:partial_refs")
+    if "selected_bundle_source_refless_evidence" in reason_codes:
+        tags.append("evidence:selected_bundle_source_refless")
+    if "answer_context_fallback" in reason_codes:
+        tags.append("answer_context:fallback")
+    if "answer_context_source_refless" in reason_codes:
+        tags.append("answer_context:source_refless")
+    if "answer_context_missing_required_roles" in reason_codes:
+        tags.append("answer_context:missing_required_roles")
+    if "answer_context_backfilled_retrieval" in reason_codes:
+        tags.append("answer_context:backfilled_retrieval")
+    if "answer_context_risk_reasons_present" in reason_codes:
+        tags.append("answer_context:risk_reasons")
     for role in _strings(bundle.get("missing_required_roles")):
         tags.append(f"bundle:missing_role:{_normalize_tag_value(role)}")
     if "bundle_incomplete" in reason_codes:
@@ -298,6 +310,9 @@ def _root_cause_example(
     missing_locality = _missing_evidence_source_locality_summary(failure)
     if missing_locality:
         payload["missing_evidence_source_locality"] = missing_locality
+    answer_context = _answer_context_summary(failure)
+    if answer_context:
+        payload["answer_context"] = answer_context
     return payload
 
 
@@ -323,6 +338,36 @@ def _missing_evidence_source_locality_summary(
         "source_absent_count": _positive_int(locality.get("source_absent_count")) or 0,
     }
     return summary if any(summary.values()) else None
+
+
+def _answer_context_summary(failure: Mapping[str, object]) -> dict[str, object] | None:
+    context = _mapping(_mapping(failure.get("diagnostics")).get("answer_context"))
+    if context.get("present") is not True:
+        return None
+    summary: dict[str, object] = {
+        "source": str(context.get("source") or "unknown"),
+        "memory_count": _positive_int(context.get("memory_count")) or 0,
+        "source_ref_item_count": _positive_int(context.get("source_ref_item_count"))
+        or 0,
+        "source_refless_item_count": _positive_int(
+            context.get("source_refless_item_count")
+        )
+        or 0,
+        "backfilled_retrieval_item_count": _positive_int(
+            context.get("backfilled_retrieval_item_count")
+        )
+        or 0,
+    }
+    fallback_reason = str(context.get("fallback_reason") or "")
+    if fallback_reason:
+        summary["fallback_reason"] = fallback_reason
+    missing_roles = _strings(context.get("missing_required_roles"))
+    if missing_roles:
+        summary["missing_required_roles"] = list(missing_roles)
+    risk_reasons = _strings(context.get("risk_reason_codes"))
+    if risk_reasons:
+        summary["risk_reason_codes"] = list(risk_reasons)
+    return summary
 
 
 def _normalize_tag_value(value: object) -> str:

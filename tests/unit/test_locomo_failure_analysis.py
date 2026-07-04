@@ -198,6 +198,7 @@ def test_locomo_failure_analysis_groups_root_cause_tags_from_diagnostics() -> No
                     "judge_score_below_threshold",
                     "partial_expected_term_support",
                     "missing_evidence_refs",
+                    "selected_bundle_source_refless_evidence",
                     "bundle_incomplete",
                     "missing_required_roles",
                     "weak_evidence_bundle",
@@ -231,6 +232,10 @@ def test_locomo_failure_analysis_groups_root_cause_tags_from_diagnostics() -> No
         "retrieval:no_expected_term_support": 1,
     }
     assert summary["root_cause_tag_count"]["evidence:missing_refs"] == 2
+    assert (
+        summary["root_cause_tag_count"]["evidence:selected_bundle_source_refless"]
+        == 1
+    )
     assert summary["root_cause_tag_count"]["bundle:missing_role:bridge"] == 1
     assert summary["root_cause_tag_count"]["bundle:risk:low_answerability"] == 1
     assert summary["top_missing_evidence_refs"] == {"D1:2": 1, "D1:3": 1, "D4:5": 1}
@@ -242,6 +247,7 @@ def test_locomo_failure_analysis_groups_root_cause_tags_from_diagnostics() -> No
             "root_cause_tags": [
                 "retrieval:partial_expected_term_support",
                 "evidence:missing_refs",
+                "evidence:selected_bundle_source_refless",
                 "bundle:missing_role:bridge",
                 "bundle:incomplete",
                 "bundle:weak",
@@ -253,6 +259,7 @@ def test_locomo_failure_analysis_groups_root_cause_tags_from_diagnostics() -> No
                 "judge_score_below_threshold",
                 "partial_expected_term_support",
                 "missing_evidence_refs",
+                "selected_bundle_source_refless_evidence",
                 "bundle_incomplete",
                 "missing_required_roles",
                 "weak_evidence_bundle",
@@ -311,6 +318,79 @@ def test_locomo_failure_analysis_tags_missing_evidence_source_locality() -> None
         "near_retrieved_window_count": 1,
         "source_absent_count": 0,
     }
+
+
+def test_locomo_failure_analysis_tags_answer_context_gaps() -> None:
+    report = {
+        "failures": [
+            {
+                "case_id": "answer-context-gap",
+                "capability": "locomo_category_2",
+                "reason": "expected_terms_missing",
+                "diagnostic_reason_codes": [
+                    "answer_context_fallback",
+                    "answer_context_source_refless",
+                    "answer_context_missing_required_roles",
+                    "answer_context_backfilled_retrieval",
+                    "answer_context_risk_reasons_present",
+                ],
+                "diagnostics": {
+                    "answer_context": {
+                        "present": True,
+                        "source": "retrieval_slice",
+                        "fallback_reason": "no_bundle_items_within_cutoff",
+                        "memory_count": 2,
+                        "source_ref_item_count": 0,
+                        "source_refless_item_count": 2,
+                        "backfilled_retrieval_item_count": 1,
+                        "missing_required_roles": ["bridge"],
+                        "risk_reason_codes": ["risk:retrieval_backfill"],
+                    },
+                },
+            }
+        ]
+    }
+
+    summary = _summary(_failures(report), top=10)
+
+    assert summary["root_cause_tag_count"]["answer_context:fallback"] == 1
+    assert summary["root_cause_tag_count"]["answer_context:source_refless"] == 1
+    assert (
+        summary["root_cause_tag_count"]["answer_context:missing_required_roles"] == 1
+    )
+    assert summary["root_cause_tag_count"]["answer_context:backfilled_retrieval"] == 1
+    assert summary["root_cause_tag_count"]["answer_context:risk_reasons"] == 1
+    assert summary["root_cause_examples"]["answer_context:fallback"] == [
+        {
+            "case_id": "answer-context-gap",
+            "capability": "locomo_category_2",
+            "reason": "expected_terms_missing",
+            "root_cause_tags": [
+                "answer_context:fallback",
+                "answer_context:source_refless",
+                "answer_context:missing_required_roles",
+                "answer_context:backfilled_retrieval",
+                "answer_context:risk_reasons",
+            ],
+            "diagnostic_reason_codes": [
+                "answer_context_fallback",
+                "answer_context_source_refless",
+                "answer_context_missing_required_roles",
+                "answer_context_backfilled_retrieval",
+                "answer_context_risk_reasons_present",
+            ],
+            "answer_context": {
+                "source": "retrieval_slice",
+                "memory_count": 2,
+                "source_ref_item_count": 0,
+                "source_refless_item_count": 2,
+                "backfilled_retrieval_item_count": 1,
+                "fallback_reason": "no_bundle_items_within_cutoff",
+                "missing_required_roles": ["bridge"],
+                "risk_reason_codes": ["risk:retrieval_backfill"],
+            },
+        }
+    ]
 
 
 def test_locomo_failure_analysis_limit_makes_small_canary_args(tmp_path) -> None:

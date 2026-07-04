@@ -153,6 +153,10 @@ def test_failure_diagnostics_report_structured_failure_reasons() -> None:
         "missing_required_roles": ("bridge",),
         "primary_evidence_count": 1,
         "supporting_evidence_count": 0,
+        "selected_bundle_source_ref_count": 2,
+        "selected_bundle_source_ref_item_count": 2,
+        "selected_bundle_source_refless_item_count": 0,
+        "selected_bundle_source_ref_coverage_rate": 1.0,
         "confidence_score": 0.22,
         "confidence_band": "low",
         "selected_low_answerability_count": 0,
@@ -214,6 +218,53 @@ def test_failure_diagnostics_report_selected_answerability_and_locality_weakness
     assert diagnostics["bundle"]["selected_weak_source_locality_count"] == 1
     assert "selected_low_answerability_evidence" in reasons
     assert "selected_weak_source_locality_evidence" in reasons
+
+
+def test_failure_diagnostics_reports_selected_bundle_source_ref_gaps() -> None:
+    evaluation = {
+        "retrieval": {"total_results": 1, "results": []},
+        "retrieval_quality": {
+            "expected_term_recall": 0.5,
+            "evidence_term_recall": 0.5,
+        },
+        "evidence_bundle": {
+            "bundle_complete": False,
+            "item_count": 2,
+            "items": [
+                {
+                    "id": "grounded",
+                    "role": "primary",
+                    "source_refs": ["D1:7"],
+                },
+                {
+                    "id": "ungrounded-support",
+                    "role": "supporting",
+                },
+            ],
+            "bundle_planner": {
+                "bundle_quality": {
+                    "confidence_score": 0.3,
+                    "confidence_band": "low",
+                }
+            },
+        },
+        "generation": {},
+        "judgment": {},
+    }
+
+    diagnostics = failure_diagnostics(evaluation)
+    reasons = failure_diagnostic_reason_codes(
+        evaluation,
+        score=0.0,
+        retrieval_recall=0.5,
+        diagnostics=diagnostics,
+    )
+
+    assert diagnostics["bundle"]["selected_bundle_source_ref_count"] == 1
+    assert diagnostics["bundle"]["selected_bundle_source_ref_item_count"] == 1
+    assert diagnostics["bundle"]["selected_bundle_source_refless_item_count"] == 1
+    assert diagnostics["bundle"]["selected_bundle_source_ref_coverage_rate"] == 0.5
+    assert "selected_bundle_source_refless_evidence" in reasons
 
 
 def test_failure_diagnostics_uses_bundle_quality_weak_locality_fallback() -> None:
@@ -285,7 +336,7 @@ def test_failure_diagnostics_reports_missing_evidence_source_absence() -> None:
     assert diagnostics["missing_evidence_source_locality"] == {
         "schema_version": "missing_evidence_source_locality.v1",
         "missing_turn_ref_count": 1,
-        "retrieved_source_ids": ["D1", "D2"],
+        "retrieved_source_ids": ["session_1:D1", "session_2:D2"],
         "bundle_source_ids": ["D1"],
         "same_source_missing_count": 0,
         "near_retrieved_window_count": 0,
@@ -300,3 +351,143 @@ def test_failure_diagnostics_reports_missing_evidence_source_absence() -> None:
         ],
     }
     assert "missing_evidence_source_absent" in reasons
+
+
+def test_failure_diagnostics_keeps_session_scoped_missing_evidence_sources() -> None:
+    evaluation = {
+        "retrieval": {
+            "total_results": 1,
+            "results": [{"source_refs": ["session_2:D4:10"]}],
+        },
+        "retrieval_quality": {
+            "expected_term_recall": 0.5,
+            "evidence_term_recall": 0.0,
+            "missing_evidence_terms": ["session_1:D4:12", "D9:2"],
+        },
+        "evidence_bundle": {"bundle_complete": False, "items": []},
+        "generation": {},
+        "judgment": {},
+    }
+
+    diagnostics = failure_diagnostics(evaluation)
+    reasons = failure_diagnostic_reason_codes(
+        evaluation,
+        score=0.0,
+        retrieval_recall=0.5,
+        diagnostics=diagnostics,
+    )
+
+    assert diagnostics["missing_evidence_source_locality"] == {
+        "schema_version": "missing_evidence_source_locality.v1",
+        "missing_turn_ref_count": 2,
+        "retrieved_source_ids": ["session_2:D4"],
+        "bundle_source_ids": [],
+        "same_source_missing_count": 0,
+        "near_retrieved_window_count": 0,
+        "source_absent_count": 2,
+        "missing_ref_windows": [
+            {
+                "ref": "session_1:D4:12",
+                "source_id": "session_1:D4",
+                "retrieved_same_source": False,
+                "bundle_same_source": False,
+            },
+            {
+                "ref": "D9:2",
+                "source_id": "D9",
+                "retrieved_same_source": False,
+                "bundle_same_source": False,
+            },
+        ],
+    }
+    assert "missing_evidence_source_absent" in reasons
+    assert "missing_evidence_source_window_miss" not in reasons
+
+
+def test_failure_diagnostics_report_primary_answer_context_support_gaps() -> None:
+    evaluation = {
+        "retrieval": {"total_results": 3, "results": []},
+        "retrieval_quality": {
+            "expected_term_recall": 0.5,
+            "evidence_term_recall": 0.0,
+        },
+        "evidence_bundle": {
+            "bundle_complete": False,
+            "items": [],
+            "bundle_planner": {
+                "bundle_quality": {
+                    "confidence_score": 0.2,
+                    "confidence_band": "low",
+                }
+            },
+        },
+        "generation": {},
+        "judgment": {},
+        "cutoff_results": {
+            "1": {
+                "answer_context": {
+                    "source": "evidence_bundle",
+                    "memory_count": 1,
+                    "source_ref_count": 1,
+                    "source_ref_item_count": 1,
+                    "source_refless_item_count": 0,
+                    "source_ref_coverage_rate": 1.0,
+                    "selected_bundle_item_count": 1,
+                    "retrieval_orders": [1],
+                    "item_ids": ["supported"],
+                }
+            },
+            "3": {
+                "answer_context": {
+                    "source": "retrieval_slice",
+                    "fallback_reason": "no_bundle_items_within_cutoff",
+                    "memory_count": 2,
+                    "source_ref_count": 0,
+                    "source_ref_item_count": 0,
+                    "source_refless_item_count": 2,
+                    "source_ref_coverage_rate": 0.0,
+                    "selected_bundle_item_count": 0,
+                    "skipped_bundle_item_count": 2,
+                    "backfilled_retrieval_item_count": 1,
+                    "role_requirement_complete": False,
+                    "missing_required_roles": ["bridge"],
+                    "risk_reason_codes": ["risk:retrieval_backfill"],
+                    "retrieval_orders": [1, 3],
+                    "item_ids": ["fallback-a", "fallback-b"],
+                }
+            },
+        },
+    }
+
+    diagnostics = failure_diagnostics(evaluation)
+    reasons = failure_diagnostic_reason_codes(
+        evaluation,
+        score=0.0,
+        retrieval_recall=0.5,
+        diagnostics=diagnostics,
+    )
+
+    assert diagnostics["answer_context"] == {
+        "present": True,
+        "cutoff": 3,
+        "source": "retrieval_slice",
+        "fallback_reason": "no_bundle_items_within_cutoff",
+        "memory_count": 2,
+        "source_ref_count": 0,
+        "source_ref_item_count": 0,
+        "source_refless_item_count": 2,
+        "source_ref_coverage_rate": 0.0,
+        "selected_bundle_item_count": 0,
+        "skipped_bundle_item_count": 2,
+        "backfilled_retrieval_item_count": 1,
+        "role_requirement_complete": False,
+        "missing_required_roles": ("bridge",),
+        "risk_reason_codes": ("risk:retrieval_backfill",),
+        "item_ids": ("fallback-a", "fallback-b"),
+        "retrieval_orders": (1, 3),
+    }
+    assert "answer_context_fallback" in reasons
+    assert "answer_context_source_refless" in reasons
+    assert "answer_context_missing_required_roles" in reasons
+    assert "answer_context_backfilled_retrieval" in reasons
+    assert "answer_context_risk_reasons_present" in reasons
