@@ -858,7 +858,12 @@ def _preference_evidence_grounded(features: RerankPolicyFeatures) -> bool:
         return False
     if features.query_has_entities and not (features.entity_hits or features.speaker_hits):
         return False
-    return bool(features.direct_speaker_turn or features.relation_hits)
+    if _has_typed_preference_relation_hit(features):
+        return True
+    if not features.direct_speaker_turn:
+        return False
+    non_preference_hits = set(features.relation_hits) - _PREFERENCE_POLARITY_TERMS
+    return bool(non_preference_hits)
 
 
 def _preference_reason_required(features: RerankPolicyFeatures) -> bool:
@@ -878,6 +883,12 @@ def _preference_reason_grounded(features: RerankPolicyFeatures) -> bool:
     return bool(
         "causal" in category_hits
         and (not preference_categories or preference_categories & category_hits)
+    )
+
+
+def _has_typed_preference_relation_hit(features: RerankPolicyFeatures) -> bool:
+    return bool(
+        {"preference", "favorite_preference"} & set(features.relation_category_hits)
     )
 
 
@@ -1144,6 +1155,36 @@ _TYPED_RELATION_SUPPORT_ROLE_CATEGORIES = {
     "symbolic_meaning_support": frozenset({"symbolic_meaning"}),
     "vehicle_support": frozenset({"vehicle_profile"}),
 }
+
+_PREFERENCE_POLARITY_TERMS = frozenset(
+    {
+        "avoid",
+        "avoided",
+        "avoids",
+        "dislik",
+        "dislike",
+        "disliked",
+        "enjoy",
+        "enjoyed",
+        "fan",
+        "favorite",
+        "favourite",
+        "hat",
+        "hate",
+        "hated",
+        "hates",
+        "interest",
+        "interested",
+        "like",
+        "liked",
+        "love",
+        "loved",
+        "prefer",
+        "preferred",
+        "preference",
+        "prioritize",
+    }
+)
 
 _MISSING_REQUIRED_ANSWER_EVIDENCE_REASONS = frozenset(
     {

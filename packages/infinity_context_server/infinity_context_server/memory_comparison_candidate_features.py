@@ -154,6 +154,7 @@ _INTENT_RELATION_CATEGORY_ORDER = (
     "skill_profile",
     "vehicle_profile",
 )
+_PREFERENCE_CATEGORY_HITS = frozenset({"favorite_preference", "preference"})
 
 
 @dataclass(frozen=True)
@@ -1030,7 +1031,7 @@ def _intent_answerability(
     reasons: list[str] = []
     category_set = set(relation_categories)
     category_hit_set = set(relation_category_hits)
-    has_non_preference_category_hit = bool(category_hit_set - {"preference"})
+    has_non_preference_category_hit = bool(category_hit_set - _PREFERENCE_CATEGORY_HITS)
     if is_temporal_query:
         score, reason = _temporal_intent_answerability(
             time_intent_kind=time_intent_kind,
@@ -1045,9 +1046,18 @@ def _intent_answerability(
         scores.append(score)
         reasons.append(reason)
     if is_preference_query and not has_non_preference_category_hit:
-        scores.append(1.0 if has_preference_evidence else 0.0)
+        has_grounded_preference_evidence = bool(
+            has_preference_evidence
+            and (
+                _PREFERENCE_CATEGORY_HITS & category_hit_set
+                or relation_hit_count >= 2
+            )
+        )
+        scores.append(1.0 if has_grounded_preference_evidence else 0.0)
         reasons.append(
-            "preference_evidence" if has_preference_evidence else "missing_preference_evidence"
+            "preference_evidence"
+            if has_grounded_preference_evidence
+            else "missing_preference_evidence"
         )
     if is_contrast_query:
         has_old_new_surface = currentness_surface and stale_surface

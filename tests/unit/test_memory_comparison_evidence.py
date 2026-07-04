@@ -295,6 +295,71 @@ def test_evidence_bundle_requires_preference_support_for_preference_queries() ->
     assert "preference_support" in support_item["planner_reason_codes"]
 
 
+def test_evidence_bundle_rejects_like_only_preference_support() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-preference:qa:like-only",
+        question="What do Melanie's kids like?",
+        expected_terms=("animals",),
+        memory_scope_external_ref="locomo-conv-preference",
+        thread_external_ref="locomo-conv-preference",
+        metadata={"category": 4},
+    )
+
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text="D1:1 Melanie mentioned animals.",
+                rank=1,
+                item_id="primary",
+                source_refs=("D1:1",),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.95,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "relation_hits": ["animal"],
+                            "speaker_hits": ["melanie"],
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+            RetrievedMemory(
+                text="D2:3 Melanie: Glad you like it. I love to help.",
+                rank=2,
+                item_id="generic-like",
+                source_refs=("D2:3",),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.74,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "has_preference_evidence": True,
+                            "relation_categories": ["preference"],
+                            "relation_hits": ["like"],
+                            "speaker_hits": ["melanie"],
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+        ),
+    )
+
+    roles_by_id = {item["id"]: item["role"] for item in bundle["items"]}
+
+    assert bundle["required_roles"] == ["primary", "preference_support"]
+    assert bundle["satisfied_required_roles"] == ["primary"]
+    assert bundle["missing_required_roles"] == ["preference_support"]
+    assert roles_by_id["primary"] == "primary"
+    assert roles_by_id["generic-like"] != "preference_support"
+    assert bundle["bundle_planner"]["bundle_quality"]["preference_support_count"] == 0
+
+
 def test_evidence_bundle_completes_typed_profile_support_role() -> None:
     case = PublicBenchmarkCase(
         benchmark="locomo",

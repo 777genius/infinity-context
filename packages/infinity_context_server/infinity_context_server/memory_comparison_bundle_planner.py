@@ -1413,9 +1413,11 @@ def _candidate_has_answer_unit_support_grounding(
 def _candidate_has_preference_support(candidate: EvidenceBundleCandidate) -> bool:
     if not _candidate_has_typed_relation_grounding(candidate):
         return False
+    if "favorite_preference" in set(candidate.relation_category_hits):
+        return True
     return bool(
-        candidate.has_preference_evidence
-        or "preference" in set(candidate.relation_category_hits)
+        "preference" in set(candidate.relation_category_hits)
+        or (candidate.has_preference_evidence and len(candidate.relation_hits) >= 2)
     )
 
 

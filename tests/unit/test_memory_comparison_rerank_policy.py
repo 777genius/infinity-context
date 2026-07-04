@@ -842,6 +842,47 @@ def test_rerank_policy_requires_grounded_preference_evidence() -> None:
     assert grounded.boost > broad.boost
 
 
+def test_rerank_policy_rejects_like_only_preference_overlap() -> None:
+    generic_like = score_benchmark_rerank_candidate(
+        _features(
+            overlap_terms=("melanie", "like"),
+            entity_hits=("melanie",),
+            speaker_hits=("melanie",),
+            relation_hits=("like",),
+            relation_terms=("like", "kid"),
+            is_preference_query=True,
+            has_preference_evidence=True,
+            direct_speaker_turn=True,
+            source_locality_score=1.0,
+        )
+    )
+    typed_preference = score_benchmark_rerank_candidate(
+        _features(
+            overlap_terms=("melanie", "like"),
+            entity_hits=("melanie",),
+            speaker_hits=("melanie",),
+            relation_hits=("like",),
+            relation_terms=("like", "kid"),
+            relation_categories=("preference",),
+            relation_category_hits=("preference",),
+            relation_category_coverage_ratio=1.0,
+            is_preference_query=True,
+            has_preference_evidence=True,
+            direct_speaker_turn=True,
+            source_locality_score=1.0,
+        )
+    )
+
+    generic_signals = generic_like.signals["score_signals"]
+    typed_signals = typed_preference.signals["score_signals"]
+
+    assert generic_signals["benchmark_preference_evidence_boost"] == 0.0
+    assert generic_signals["benchmark_preference_evidence_grounded"] is False
+    assert typed_signals["benchmark_preference_evidence_boost"] == 0.12
+    assert typed_signals["benchmark_preference_evidence_grounded"] is True
+    assert typed_preference.boost > generic_like.boost
+
+
 def test_rerank_policy_requires_reason_grounding_for_preference_reason_query() -> None:
     generic_preference = score_benchmark_rerank_candidate(
         _features(
