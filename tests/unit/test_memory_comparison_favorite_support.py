@@ -176,6 +176,69 @@ def test_negative_preference_support_prefers_avoid_evidence() -> None:
     assert signals["benchmark_preference_evidence_grounded"] is True
 
 
+def test_comparative_option_preference_scores_later_option_speaker() -> None:
+    case = _case(
+        case_id="comparative-option-preference-speaker",
+        question="Who likes tea more, Alice or Bob?",
+        expected_terms=("bob",),
+        answer="Bob",
+    )
+    first_option_preference = RetrievedMemory(
+        item_id="alice-like",
+        rank=1,
+        score=0.0,
+        text=(
+            "session_1 turn D1:1 date: 10:00 am "
+            "D1:1 Alice: I like tea."
+        ),
+        source_refs=("D1:1",),
+    )
+    later_option_stronger_preference = RetrievedMemory(
+        item_id="bob-prefer",
+        rank=2,
+        score=0.0,
+        text=(
+            "session_1 turn D1:2 date: 10:05 am "
+            "D1:2 Bob: I love tea and prefer tea over coffee."
+        ),
+        source_refs=("D1:2",),
+    )
+
+    reranked, metadata = rerank_module.benchmark_rerank_memories(
+        case,
+        (first_option_preference, later_option_stronger_preference),
+    )
+
+    assert metadata["query_profile"]["comparative_option_preference_query"] is True
+    assert reranked[0].item_id == "bob-prefer"
+
+    diagnostics_by_id = {
+        memory.item_id: memory.metadata["diagnostics"] for memory in reranked
+    }
+    bob_features = diagnostics_by_id["bob-prefer"]["benchmark_candidate_features"]
+    bob_signals = diagnostics_by_id["bob-prefer"]["score_signals"]
+
+    assert bob_features["speaker_hits"] == ["bob"]
+    assert bob_signals["benchmark_speaker_boost"] == 0.08
+    assert bob_signals["benchmark_focused_turn_boost"] == 0.08
+
+    current_case = _case(
+        case_id="current-comparative-option-preference",
+        question="Who likes tea more now, Alice or Bob?",
+        expected_terms=("bob",),
+        answer="Bob",
+    )
+    _reranked, current_metadata = rerank_module.benchmark_rerank_memories(
+        current_case,
+        (),
+    )
+
+    assert (
+        current_metadata["query_profile"]["comparative_option_preference_query"]
+        is False
+    )
+
+
 def _case(
     *,
     case_id: str,

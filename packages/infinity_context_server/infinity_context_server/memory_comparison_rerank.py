@@ -13,6 +13,12 @@ from infinity_context_core.application.context_answer_unit_shapes import (
 from infinity_context_server.memory_comparison_candidate_features import (
     build_candidate_evidence_features,
 )
+from infinity_context_server.memory_comparison_comparative_preference import (
+    comparative_option_preference_query as _comparative_option_preference_query,
+)
+from infinity_context_server.memory_comparison_comparative_preference import (
+    without_contrast_requirement as _without_contrast_requirement,
+)
 from infinity_context_server.memory_comparison_intent import (
     RetrievalEntityIntent,
     RetrievalIntent,
@@ -1757,10 +1763,7 @@ def benchmark_rerank_memories(
     memories: Sequence[RetrievedMemory],
 ) -> tuple[list[RetrievedMemory], dict[str, object]]:
     intent = _query_retrieval_intent(case)
-    profile = {
-        **intent.to_query_profile(),
-        "current_state_query": _has_current_state_query(case.question),
-    }
+    profile = _query_profile_for_rerank(case, intent)
     if not memories or not profile["lexical_terms"]:
         return list(memories), {
             "applied": False,
@@ -2100,10 +2103,27 @@ def _query_retrieval_intent(case: PublicBenchmarkCase) -> RetrievalIntent:
 
 
 def _query_rerank_profile(case: PublicBenchmarkCase) -> dict[str, object]:
-    profile = _query_retrieval_intent(case).to_query_profile()
+    intent = _query_retrieval_intent(case)
+    return _query_profile_for_rerank(case, intent)
+
+
+def _query_profile_for_rerank(
+    case: PublicBenchmarkCase,
+    intent: RetrievalIntent,
+) -> dict[str, object]:
+    profile = intent.to_query_profile()
+    current_state_query = _has_current_state_query(case.question)
+    comparative_option_preference = _comparative_option_preference_query(
+        case.question,
+        profile,
+        current_state_query=current_state_query,
+    )
+    if comparative_option_preference:
+        profile = _without_contrast_requirement(profile)
     return {
         **profile,
-        "current_state_query": _has_current_state_query(case.question),
+        "current_state_query": current_state_query,
+        "comparative_option_preference_query": comparative_option_preference,
     }
 
 
@@ -2883,6 +2903,11 @@ def _benchmark_rerank_boost(
     entity_surfaces = tuple(_string_sequence(profile.get("entity_surfaces"))) or entities
     speaker_surfaces = tuple(_string_sequence(profile.get("speaker_surfaces")))
     primary_speaker_surfaces = speaker_surfaces[:1] or speaker_surfaces
+    speaker_match_surfaces = (
+        speaker_surfaces
+        if profile.get("comparative_option_preference_query") is True
+        else primary_speaker_surfaces
+    )
     entity_hits = tuple(
         entity
         for entity in entity_surfaces
@@ -2890,7 +2915,7 @@ def _benchmark_rerank_boost(
     )
     speaker_hits = tuple(
         entity
-        for entity in _speaker_match_surfaces(primary_speaker_surfaces)
+        for entity in _speaker_match_surfaces(speaker_match_surfaces)
         if _entity_speaks_in_memory(entity, memory.text)
     )
     candidate_features = build_candidate_evidence_features(
