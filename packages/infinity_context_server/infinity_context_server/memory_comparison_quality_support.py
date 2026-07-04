@@ -46,6 +46,27 @@ _TYPED_RELATION_SUPPORT_CATEGORIES = {
     "support_goal_support": frozenset({"support_goal"}),
     "vehicle_support": frozenset({"vehicle_profile"}),
 }
+_SUPPORT_ROLE_LABELS = frozenset(
+    {
+        "bridge",
+        "causal_support",
+        "communication_support",
+        "contrast",
+        "emotion_response_support",
+        "event_support",
+        "exchange_support",
+        "inference_support",
+        "location_support",
+        "preference_support",
+        "supporting",
+        "symbolic_meaning_support",
+        "temporal_support",
+        "visual_support",
+        *_TEMPORAL_BUNDLE_ROLES,
+        *_TYPED_RELATION_SUPPORT_CATEGORIES,
+    }
+)
+_ROLE_ONLY_REASON_PREFIXES = ("role:", "selected_role:")
 
 
 def typed_relation_support_roles() -> tuple[str, ...]:
@@ -529,6 +550,26 @@ def bundle_has_typed_relation_support(
     )
 
 
+def bundle_weak_support_reasons(bundle: Mapping[str, object]) -> tuple[str, ...]:
+    items = _bundle_items(bundle)
+    if not items:
+        return ()
+    support_items = tuple(item for item in items if _is_support_role_item(item))
+    weak_items = tuple(item for item in items if not _passes_support_quality(item))
+    reasons: list[str] = []
+    if weak_items and len(weak_items) == len(items):
+        reasons.append("all_selected_support_weak")
+    elif weak_items:
+        reasons.append("weak_selected_support")
+    if (
+        support_items
+        and any(_passes_support_quality(item) for item in support_items)
+        and not any(_bundle_item_has_substantive_support(item) for item in support_items)
+    ):
+        reasons.append("role_label_only_support")
+    return tuple(dict.fromkeys(reasons))
+
+
 def _query_profile_and_intent(
     item: Mapping[str, object],
 ) -> tuple[Mapping[str, object], Mapping[str, object]]:
@@ -643,6 +684,57 @@ def _passes_support_quality(item: Mapping[str, object]) -> bool:
         or answerability_score <= 0
         or answerability_score >= 0.55
     )
+
+
+def _is_support_role_item(item: Mapping[str, object]) -> bool:
+    role = str(item.get("role") or "").strip()
+    if role in _SUPPORT_ROLE_LABELS:
+        return True
+    query_roles = set(_str_tuple(item.get("query_roles")))
+    if query_roles.intersection(_SUPPORT_ROLE_LABELS):
+        return True
+    planner_reasons = set(_str_tuple(item.get("planner_reason_codes")))
+    return bool(planner_reasons.intersection(_SUPPORT_ROLE_LABELS))
+
+
+def _bundle_item_has_substantive_support(item: Mapping[str, object]) -> bool:
+    if not _passes_support_quality(item):
+        return False
+    if (
+        _str_tuple(item.get("covered_evidence_terms"))
+        or _str_tuple(item.get("covered_expected_terms"))
+        or _str_tuple(item.get("dedupe_key"))
+        or _str_tuple(item.get("entity_hits"))
+        or _str_tuple(item.get("relation_category_hits"))
+        or _str_tuple(item.get("relation_hits"))
+        or _str_tuple(item.get("source_identity_refs"))
+        or _str_tuple(item.get("source_ref_dedupe_key"))
+        or _str_tuple(item.get("source_refs"))
+        or _str_tuple(item.get("speaker_hits"))
+    ):
+        return True
+    focused_score = _float_value(item.get("focused_evidence_score"))
+    if focused_score is not None and focused_score > 0:
+        return True
+    if item.get("direct_speaker_turn") is True:
+        return True
+    if _bundle_item_has_temporal_support(item) or _bundle_item_has_contrast_support(item):
+        return True
+    support_flags = (
+        "bridge_query_hit",
+        "exact_count_evidence",
+        "has_preference_evidence",
+        "has_visual_evidence",
+    )
+    if any(item.get(flag) is True for flag in support_flags):
+        return True
+    substantive_reasons = tuple(
+        reason
+        for reason in _str_tuple(item.get("planner_reason_codes"))
+        if not reason.startswith(_ROLE_ONLY_REASON_PREFIXES)
+        and reason not in _SUPPORT_ROLE_LABELS
+    )
+    return bool(substantive_reasons)
 
 
 def _float_value(value: object) -> float | None:

@@ -79,6 +79,8 @@ def query_role_effectiveness_table(
     selected_item_role_family_counts: Counter[str] = Counter()
     bridge_query_hit_candidate_counts: Counter[str] = Counter()
     bridge_query_hit_selected_counts: Counter[str] = Counter()
+    bridge_query_hit_candidate_family_counts: Counter[str] = Counter()
+    bridge_query_hit_selected_family_counts: Counter[str] = Counter()
     selected_bundle_role_counts: dict[str, Counter[str]] = defaultdict(Counter)
     required_evidence_role_counts: Counter[str] = Counter()
     missing_required_evidence_role_counts: Counter[str] = Counter()
@@ -121,6 +123,9 @@ def query_role_effectiveness_table(
                     lifted_candidate_role_family_counts.update(query_role_families)
                 if bridge_query_hit:
                     bridge_query_hit_candidate_counts[query_role] += 1
+                    bridge_query_hit_candidate_family_counts.update(
+                        query_role_families
+                    )
             for hit_role in typed_relation_hit_roles:
                 typed_relation_hit_role_counts[hit_role] += 1
                 if lifted:
@@ -175,6 +180,7 @@ def query_role_effectiveness_table(
                     )
                 if bridge_query_hit:
                     bridge_query_hit_selected_counts[query_role] += 1
+                    bridge_query_hit_selected_family_counts.update(query_role_families)
 
     query_roles = sorted(
         set(candidate_role_counts)
@@ -235,6 +241,12 @@ def query_role_effectiveness_table(
         ),
         "bridge_query_hit_selected_counts": dict(
             sorted(bridge_query_hit_selected_counts.items())
+        ),
+        "bridge_query_hit_candidate_family_counts": dict(
+            sorted(bridge_query_hit_candidate_family_counts.items())
+        ),
+        "bridge_query_hit_selected_family_counts": dict(
+            sorted(bridge_query_hit_selected_family_counts.items())
         ),
         "required_evidence_role_counts": dict(
             sorted(required_evidence_role_counts.items())
