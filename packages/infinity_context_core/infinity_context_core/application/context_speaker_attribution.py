@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 
 from infinity_context_core.application.context_person_aliases import (
     person_alias_keys,
@@ -97,29 +98,30 @@ _SPEAKER_ATTRIBUTION_SUBJECT_SELF_REPORT_PENALTY = 0.034
 _SPEAKER_ATTRIBUTION_OTHER_SPEAKER_PENALTY = 0.024
 
 
+@dataclass(frozen=True)
+class SpeakerAttributionMatch:
+    attributed_speaker: str
+    matched_speaker: str
+    exact_name_match: bool
+    alias_only_match: bool
+
+
 def speaker_attribution_signal(*, query: str, text: str) -> tuple[float, float, str]:
     """Return bounded signal for attributed-speaker questions."""
 
-    match = _SPEAKER_ATTRIBUTION_QUERY_RE.search(query)
-    attributed_speaker, attributed_subject = _attributed_speaker_and_subject(match)
-    if not attributed_speaker:
-        attributed_speaker = _attributed_speaker_from_query(query)
-    if not attributed_speaker:
-        return 0.0, 0.0, ""
-    if not attributed_subject:
-        attributed_subject = _attributed_subject_from_query(
-            query,
-            speaker=attributed_speaker,
-        )
-    speakers = _dialogue_speaker_labels(text)
-    if not speakers:
-        return 0.0, 0.0, ""
-    if any(person_labels_match(attributed_speaker, speaker) for speaker in speakers):
+    attribution_match = speaker_attribution_match(query=query, text=text)
+    if attribution_match is not None:
         return (
             _SPEAKER_ATTRIBUTION_MATCH_BOOST,
             0.0,
             "speaker_attribution_match",
         )
+    attributed_speaker, attributed_subject = _attributed_speaker_query_parts(query)
+    if not attributed_speaker:
+        return 0.0, 0.0, ""
+    speakers = _dialogue_speaker_labels(text)
+    if not speakers:
+        return 0.0, 0.0, ""
     if attributed_subject and any(
         person_labels_match(attributed_subject, speaker) for speaker in speakers
     ):
@@ -133,6 +135,59 @@ def speaker_attribution_signal(*, query: str, text: str) -> tuple[float, float, 
         _SPEAKER_ATTRIBUTION_OTHER_SPEAKER_PENALTY,
         "speaker_attribution_other_speaker",
     )
+
+
+def speaker_attribution_match(
+    *,
+    query: str,
+    text: str,
+) -> SpeakerAttributionMatch | None:
+    """Return the matched dialogue speaker for attributed-speaker questions."""
+
+    attributed_speaker, _ = _attributed_speaker_query_parts(query)
+    if not attributed_speaker:
+        return None
+    speakers = _dialogue_speaker_labels(text)
+    if not speakers:
+        return None
+    attributed_exact_key = _normalized_label(attributed_speaker)
+    matched_speakers = tuple(
+        speaker
+        for speaker in sorted(speakers)
+        if person_labels_match(attributed_speaker, speaker)
+    )
+    if not matched_speakers:
+        return None
+    for speaker in matched_speakers:
+        exact_name_match = _normalized_label(speaker) == attributed_exact_key
+        if exact_name_match:
+            return SpeakerAttributionMatch(
+                attributed_speaker=attributed_speaker,
+                matched_speaker=speaker,
+                exact_name_match=True,
+                alias_only_match=False,
+            )
+    return SpeakerAttributionMatch(
+        attributed_speaker=attributed_speaker,
+        matched_speaker=matched_speakers[0],
+        exact_name_match=False,
+        alias_only_match=True,
+    )
+
+
+def _attributed_speaker_query_parts(query: str) -> tuple[str, str]:
+    match = _SPEAKER_ATTRIBUTION_QUERY_RE.search(query)
+    attributed_speaker, attributed_subject = _attributed_speaker_and_subject(match)
+    if not attributed_speaker:
+        attributed_speaker = _attributed_speaker_from_query(query)
+    if not attributed_speaker:
+        return "", ""
+    if not attributed_subject:
+        attributed_subject = _attributed_subject_from_query(
+            query,
+            speaker=attributed_speaker,
+        )
+    return attributed_speaker, attributed_subject
 
 
 def _attributed_speaker_and_subject(
@@ -206,3 +261,7 @@ def _dialogue_speaker_labels(text: str) -> frozenset[str]:
         match.group("speaker")
         for match in _DIALOGUE_SPEAKER_RE.finditer(text)
     )
+
+
+def _normalized_label(value: str) -> str:
+    return "".join(char for char in value.casefold() if char.isalnum())

@@ -145,6 +145,9 @@ from infinity_context_core.application.context_requirement_coverage import (
 from infinity_context_core.application.context_speaker_attribution import (
     speaker_attribution_signal,
 )
+from infinity_context_core.application.context_speaker_disambiguation import (
+    apply_attributed_speaker_exact_name_disambiguation,
+)
 from infinity_context_core.application.context_temporal_metadata import (
     temporal_hint_code_from_metadata,
 )
@@ -742,6 +745,11 @@ def apply_deterministic_rerank_adjustments(
             max_penalty=max_penalty,
         )
         for item in items
+    )
+    adjusted = apply_attributed_speaker_exact_name_disambiguation(
+        adjusted,
+        query=query,
+        max_penalty=max_penalty,
     )
     return _apply_same_person_topic_disambiguation_penalties(
         adjusted,
