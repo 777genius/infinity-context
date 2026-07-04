@@ -11,10 +11,14 @@ def test_commonality_queries_get_shared_attribute_support_fanout() -> None:
 
     queries, diagnostics = decomposed_search_queries(case)
     query_plan = diagnostics["query_plan"]
+    query_profile = diagnostics["query_profile"]
 
     assert "commonality_support" in query_plan["selected_roles"]
     assert "commonality_support" in query_plan["selected_role_families"]
     assert "commonality_support" in query_plan["recommended_role_families"]
+    assert "contrast" not in query_profile["evidence_need"]
+    assert "contrast" not in query_profile["relation_categories"]
+    assert "contrast_support" not in query_plan["selected_roles"]
     assert query_plan["missing_recommended_role_families"] == []
     commonality_query = _selected_query(query_plan, role="commonality_support")
     assert "alex" in commonality_query
@@ -37,6 +41,36 @@ def test_commonality_support_covers_shared_place_activity_and_event_shapes() -> 
         assert "commonality_support" in query_plan["selected_roles"]
         assert "alex" in commonality_query
         assert "riley" in commonality_query
+
+
+def test_commonality_between_phrase_does_not_become_contrast() -> None:
+    case = _case("What is common between Alex and Riley?")
+
+    _, diagnostics = decomposed_search_queries(case)
+    query_plan = diagnostics["query_plan"]
+    query_profile = diagnostics["query_profile"]
+
+    assert "commonality_support" in query_plan["selected_roles"]
+    assert "commonality_support" in query_plan["recommended_role_families"]
+    assert "contrast" not in query_profile["evidence_need"]
+    assert "contrast" not in query_profile["relation_categories"]
+    assert "contrast_support" not in query_plan["selected_roles"]
+
+
+def test_difference_and_comparative_choice_queries_keep_contrast_support() -> None:
+    different_case = _case("How are Alex and Riley different?")
+    preferred_more_case = _case("Which one preferred tea more, Alex or Riley?")
+    changed_more_case = _case("Which one changed more, Alex or Riley?")
+
+    for case in (different_case, preferred_more_case, changed_more_case):
+        _, diagnostics = decomposed_search_queries(case)
+        query_plan = diagnostics["query_plan"]
+        query_profile = diagnostics["query_profile"]
+
+        assert "contrast" in query_profile["evidence_need"]
+        assert "contrast" in query_profile["relation_categories"]
+        assert "contrast_support" in query_plan["selected_roles"]
+        assert "contrast_support" in query_plan["recommended_role_families"]
 
 
 def test_commonality_support_requires_two_entities() -> None:

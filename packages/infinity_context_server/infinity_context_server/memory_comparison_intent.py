@@ -395,12 +395,19 @@ def infer_relation_intents(
             relation_terms=relation_terms,
         ):
             continue
+        contrast_intent = category == "contrast" and _has_contrast_intent(
+            question=question,
+            relation_terms=relation_terms,
+            multi_hop_markers=multi_hop_markers,
+        )
+        if category == "contrast" and not contrast_intent:
+            continue
         terms = tuple(term for term in relation_terms if term in config["terms"])
         variants = tuple(
             term for term in relation_variant_terms if term in config["variants"]
         )
         marker_hit = bool(set(config["markers"]) & set(multi_hop_markers))
-        if not terms and not marker_hit:
+        if not terms and not marker_hit and not contrast_intent:
             continue
         facets.append(
             RetrievalRelationIntent(
@@ -500,6 +507,7 @@ def infer_evidence_need(
     } & relation_set:
         needs.append("preference")
     if _has_contrast_intent(
+        question=question,
         relation_terms=relation_terms,
         multi_hop_markers=multi_hop_markers,
     ):
@@ -676,14 +684,56 @@ def merge_relation_evidence_needs(
 
 def _has_contrast_intent(
     *,
+    question: str = "",
     relation_terms: tuple[str, ...],
     multi_hop_markers: tuple[str, ...],
 ) -> bool:
+    normalized = " ".join(str(question or "").casefold().split())
+    if _has_commonality_intent(normalized) and not _has_explicit_difference_intent(
+        normalized
+    ):
+        return False
     relation_set = set(relation_terms)
     return bool(
         {"between", "compare", "different", "difference", "former", "previous"}
         & relation_set
         or {"compare", "between", "before", "after"} & set(multi_hop_markers)
+        or _has_comparative_choice_intent(normalized)
+    )
+
+
+_COMMONALITY_INTENT_RE = re.compile(
+    r"\b(?:both|common|connects?|mutual|overlap|same|shared|similar)\b|"
+    r"\bin\s+common\b"
+)
+_EXPLICIT_DIFFERENCE_INTENT_RE = re.compile(
+    r"\b(?:compare|compared|contrast|different|difference)\b"
+)
+_COMPARATIVE_CHOICE_INTENT_RE = re.compile(
+    r"\b(?:which\s+(?:one|person)|who)\b"
+    r".{0,100}\b(?:chang(?:e|ed|es|ing)?|prefer(?:s|red|ring)?|"
+    r"lik(?:e|es|ed|ing)?|enjoy(?:s|ed|ing)?|lov(?:e|es|ed|ing)?)\b"
+    r".{0,60}\b(?:more|less|most|least)\b"
+)
+
+
+def _has_commonality_intent(normalized_question: str) -> bool:
+    return bool(
+        normalized_question and _COMMONALITY_INTENT_RE.search(normalized_question)
+    )
+
+
+def _has_explicit_difference_intent(normalized_question: str) -> bool:
+    return bool(
+        normalized_question
+        and _EXPLICIT_DIFFERENCE_INTENT_RE.search(normalized_question)
+    )
+
+
+def _has_comparative_choice_intent(normalized_question: str) -> bool:
+    return bool(
+        normalized_question
+        and _COMPARATIVE_CHOICE_INTENT_RE.search(normalized_question)
     )
 
 
