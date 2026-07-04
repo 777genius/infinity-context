@@ -17,6 +17,7 @@ from infinity_context_server.memory_comparison_benchmark import (
     LOCOMO_INGEST_OFFICIAL_TURNS,
     MEMORY_COMPARISON_MODE,
     _backend_comparison,
+    _compact_fast_gate_summary,
     _load_memory_comparison_cases,
     run_memory_comparison_benchmark,
     run_memory_comparison_replay,
@@ -1986,12 +1987,109 @@ def test_memory_comparison_compact_report_omits_heavy_evaluations(
             "missing_expected_terms": ["red folder"],
         }
     )
+    fast_gate_summary = result["diagnostics"]["backend_summaries"]["memo-stack"][
+        "fast_gate_summary"
+    ]
+    assert fast_gate_summary["schema_version"] == "compact_fast_gate_summary.v1"
+    assert fast_gate_summary["ready_for_full_locomo"] is False
+    assert "evidence_bundle_complete" in fast_gate_summary["failed_gates"]
     written = json.loads(report.read_text(encoding="utf-8"))
     assert written["evaluations"] == []
     assert written["metadata"]["report_mode"] == "compact"
     assert written["diagnostics"]["backend_summaries"]["memo-stack"][
         "evidence_bundle_coverage"
     ] == coverage
+    assert written["diagnostics"]["backend_summaries"]["memo-stack"][
+        "fast_gate_summary"
+    ] == fast_gate_summary
+
+
+def test_compact_fast_gate_summary_surfaces_computed_gap_diagnostics() -> None:
+    base_only_plan = {
+        "schema_version": "query_plan.v2",
+        "selected_query_count": 1,
+        "dropped_query_count": 0,
+        "selected_roles": ["original_question"],
+        "dropped_roles": [],
+        "recommended_role_families": ["base_query", "relation_compact"],
+        "selected_role_families": ["base_query"],
+        "missing_recommended_role_families": ["relation_compact"],
+        "selected_role_family_counts": {"base_query": 1},
+        "fanout_integrity": {"bounded": True},
+    }
+    item = {
+        "case_id": "compact-fastgate-gap",
+        "backend": "memo-stack",
+        "group": "single-hop",
+        "scored": True,
+        "judgment": {"score": 1.0},
+        "retrieval_quality": {"expected_term_recall": 1.0},
+        "retrieval": {
+            "metadata": {
+                "query_decomposition": {
+                    "query_profile": {
+                        "evidence_need": ["emotion_response"],
+                        "bundle_evidence_roles": [
+                            "primary",
+                            "emotion_response_support",
+                        ],
+                        "relation_categories": ["emotion_response"],
+                    },
+                    "retrieval_intent": {
+                        "evidence_need": ["emotion_response"],
+                        "bundle_evidence_roles": [
+                            "primary",
+                            "emotion_response_support",
+                        ],
+                        "relations": {
+                            "intents": [{"category": "emotion_response"}]
+                        },
+                    },
+                    "query_plan": base_only_plan,
+                }
+            },
+            "results": [],
+        },
+        "evidence_bundle": {
+            "bundle_complete": True,
+            "evidence_term_count": 1,
+            "covered_evidence_terms": ["D1:1"],
+            "items": [
+                {
+                    "id": "weak-selected",
+                    "role": "primary",
+                    "retrieval_order": 1,
+                    "covered_evidence_terms": ["D1:1"],
+                    "focused_evidence_score": 1.0,
+                    "answerability_score": 0.1,
+                    "source_locality_score": 0.1,
+                    "answerability_reason_codes": [
+                        "missing_emotion_response_evidence"
+                    ],
+                    "source_locality_reason_codes": ["broad_source_refs"],
+                    "source_refs": ["D1:1"],
+                }
+            ],
+        },
+        "cutoff_results": {},
+    }
+
+    summary = _compact_fast_gate_summary((item,))
+
+    assert summary["schema_version"] == "compact_fast_gate_summary.v1"
+    assert summary["ready_for_full_locomo"] is False
+    assert "query_plan_evidence_roles_clear" in summary["failed_gates"]
+    assert summary["query_plan_gap_counts"][
+        "missing_evidence_role_query_family_counts"
+    ] == {"emotion_response_support": 1}
+    assert summary["selected_evidence_weakness_counts"][
+        "low_answerability_item_count"
+    ] == 1
+    assert summary["selected_evidence_weakness_counts"]["reason_counts"] == {
+        "selected_low_answerability": 1,
+        "selected_weak_source_locality": 1,
+    }
+    assert summary["top_gap"] is not None
 
 
 def test_memory_comparison_compact_report_preserves_setup_failures(

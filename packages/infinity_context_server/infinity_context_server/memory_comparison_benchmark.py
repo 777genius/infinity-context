@@ -1993,6 +1993,101 @@ def _compact_backend_diagnostics(
         ),
         "retrieval_source_counts": _retrieval_source_counts(items),
         "evidence_bundle_coverage": _compact_evidence_bundle_coverage(items),
+        "fast_gate_summary": _compact_fast_gate_summary(items),
+    }
+
+
+def _compact_fast_gate_summary(
+    items: Sequence[Mapping[str, object]],
+) -> dict[str, object]:
+    gate = _fast_gate_metrics(items)
+    selected_weakness = _mapping(gate.get("selected_evidence_weakness"))
+    query_role_gaps = _mapping(gate.get("query_role_gap_breakdown"))
+    query_plan_gaps = _mapping(gate.get("query_plan_gap_breakdown"))
+    bundle_gaps = _mapping(gate.get("bundle_gap_breakdown"))
+    actionable = _mapping(gate.get("actionable_gap_summary"))
+    return {
+        "schema_version": "compact_fast_gate_summary.v1",
+        "ready_for_full_locomo": bool(gate.get("ready_for_full_locomo")),
+        "failed_gates": list(_str_tuple(gate.get("failed_gates"))),
+        "evaluation_count": _positive_int(gate.get("evaluation_count")) or 0,
+        "expected_case_count": _positive_int(gate.get("expected_case_count")) or 0,
+        "top_gap": actionable.get("top_gap"),
+        "blocking_gap_count": _positive_int(actionable.get("blocking_gap_count")) or 0,
+        "diagnostic_gap_count": _positive_int(actionable.get("diagnostic_gap_count")) or 0,
+        "selected_evidence_weakness_counts": {
+            "weak_case_count": _positive_int(selected_weakness.get("weak_case_count"))
+            or 0,
+            "low_answerability_item_count": _positive_int(
+                selected_weakness.get("low_answerability_item_count")
+            )
+            or 0,
+            "weak_source_locality_item_count": _positive_int(
+                selected_weakness.get("weak_source_locality_item_count")
+            )
+            or 0,
+            "broad_summary_item_count": _positive_int(
+                selected_weakness.get("broad_summary_item_count")
+            )
+            or 0,
+            "conflict_or_stale_item_count": _positive_int(
+                selected_weakness.get("conflict_or_stale_item_count")
+            )
+            or 0,
+            "reason_counts": _compact_count_mapping(
+                selected_weakness.get("reason_counts")
+            ),
+            "risk_reason_counts": _compact_count_mapping(
+                selected_weakness.get("risk_reason_counts")
+            ),
+        },
+        "query_role_gap_counts": {
+            "role_gap_count": _positive_int(query_role_gaps.get("role_gap_count")) or 0,
+            "role_family_gap_count": _positive_int(
+                query_role_gaps.get("role_family_gap_count")
+            )
+            or 0,
+            "required_role_coverage_gap_count": _positive_int(
+                query_role_gaps.get("required_role_coverage_gap_count")
+            )
+            or 0,
+            "bridge_hit_roles_without_selected_items": list(
+                _str_tuple(query_role_gaps.get("bridge_hit_roles_without_selected_items"))
+            ),
+            "bridge_hit_role_families_without_selected_items": list(
+                _str_tuple(
+                    query_role_gaps.get(
+                        "bridge_hit_role_families_without_selected_items"
+                    )
+                )
+            ),
+        },
+        "query_plan_gap_counts": {
+            "plan_gap_case_count": _positive_int(
+                query_plan_gaps.get("plan_gap_case_count")
+            )
+            or 0,
+            "missing_evidence_role_query_family_total": _positive_int(
+                query_plan_gaps.get("missing_evidence_role_query_family_total")
+            )
+            or 0,
+            "missing_evidence_role_query_family_counts": _compact_count_mapping(
+                query_plan_gaps.get("missing_evidence_role_query_family_counts")
+            ),
+            "gap_reason_counts": _compact_count_mapping(
+                query_plan_gaps.get("gap_reason_counts")
+            ),
+        },
+        "bundle_gap_counts": {
+            "incomplete_case_count": _positive_int(
+                bundle_gaps.get("incomplete_case_count")
+            )
+            or 0,
+            "reason_counts": _compact_count_mapping(bundle_gaps.get("reason_counts")),
+            "bridge_gap_reason_counts": _compact_count_mapping(
+                bundle_gaps.get("bridge_gap_reason_counts")
+            ),
+        },
     }
 
 
@@ -2078,6 +2173,19 @@ def _retrieval_source_counts(
             for source in _result_retrieval_sources(result):
                 counts[source] += 1
     return dict(sorted(counts.items()))
+
+
+def _compact_count_mapping(value: object, *, limit: int = 12) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    if not isinstance(value, Mapping):
+        return counts
+    for key, raw_count in value.items():
+        count = _positive_int(raw_count)
+        if count is None:
+            continue
+        counts[str(key)] = count
+    ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    return dict(ranked[:limit])
 
 
 def _retrieval_results(item: Mapping[str, object]) -> tuple[Mapping[str, object], ...]:
