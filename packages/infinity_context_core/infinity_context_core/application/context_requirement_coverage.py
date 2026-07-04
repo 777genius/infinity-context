@@ -499,6 +499,16 @@ _EXISTENCE_ANSWER_QUERY_RE = re.compile(
     r"доказательств|упоминан\w*)|неизвестно)\b",
     re.IGNORECASE | re.DOTALL,
 )
+_YES_NO_EXISTENCE_QUERY_RE = re.compile(
+    r"^\s*(?:do|does|did|has|have|had|is|are|was|were|can|could|will|would)\s+"
+    r"(?:[A-Za-zА-Яа-яЁё._'-]+\s+){1,12}"
+    r"(?:have|has|had|mention|mentioned|say|said|report|reported|record|"
+    r"recorded|confirm|confirmed|find|found|attend|attended|join|joined|"
+    r"own|owned|use|used|visit|visited|go|went|participate|participated|"
+    r"есть|был|была|были|упоминал|упоминала|сказал|сказала|посетил|"
+    r"посетила|участвовал|участвовала)\b",
+    re.IGNORECASE,
+)
 _STATE_UPDATE_ANSWER_QUERY_RE = re.compile(
     r"\b(?:latest|current|currently|most\s+recent|newest|final|canonical|"
     r"source\s+of\s+truth|right\s+now|at\s+the\s+moment|as\s+of\s+now|"
@@ -1286,7 +1296,9 @@ def _requested_answer_shapes(query: str) -> tuple[str, ...]:
         shapes.append("commitment")
     if _GOTCHA_ANSWER_QUERY_RE.search(query) or gotcha_failure_query_variants(query):
         shapes.append("gotcha")
-    if _EXISTENCE_ANSWER_QUERY_RE.search(query):
+    if _EXISTENCE_ANSWER_QUERY_RE.search(query) or _YES_NO_EXISTENCE_QUERY_RE.search(
+        query
+    ):
         shapes.append("existence")
     if (
         _STATE_UPDATE_ANSWER_QUERY_RE.search(query)

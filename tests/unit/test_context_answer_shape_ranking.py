@@ -236,6 +236,49 @@ def test_context_requirement_boost_prefers_requested_dollar_unit() -> None:
     ]
 
 
+def test_context_requirement_boost_prefers_yes_no_existence_evidence() -> None:
+    query = "Does Gina have a rescue dog?"
+    generic_pet_context = _item(
+        "generic_pet_context",
+        score=0.711,
+        text="Gina volunteers at the animal shelter and likes rescue events.",
+    )
+    yes_no_evidence = _item(
+        "yes_no_evidence",
+        score=0.7,
+        text="Gina has a rescue dog named Pepper.",
+    )
+
+    boosted = apply_context_requirement_boosts(
+        (generic_pet_context, yes_no_evidence),
+        query=query,
+        query_anchor_intent=build_query_anchor_intent(query),
+        max_boost=0.04,
+    )
+    by_id = {item.item_id: item for item in boosted}
+
+    assert by_id["yes_no_evidence"].score > by_id["generic_pet_context"].score
+    assert "existence" in by_id["yes_no_evidence"].diagnostics["provenance"][
+        "context_requirement_matched_answer_shapes"
+    ]
+    assert "existence" not in by_id["generic_pet_context"].diagnostics.get(
+        "provenance",
+        {},
+    ).get("context_requirement_matched_answer_shapes", [])
+
+
+def test_context_requirement_coverage_does_not_treat_what_did_as_yes_no() -> None:
+    query = "What did Gina report about the rescue dog?"
+
+    coverage = context_requirement_coverage(
+        query=query,
+        query_anchor_intent=build_query_anchor_intent(query),
+        items=(),
+    )
+
+    assert "existence" not in coverage["requested_answer_shapes"]
+
+
 def test_context_requirement_penalizes_nearby_wrong_unit_for_price_query() -> None:
     query = "What was the deposit amount for Mia's ceramics class?"
     nearby_wrong_unit = _item(
