@@ -148,6 +148,7 @@ def _summary(failures: Sequence[Mapping[str, object]], *, top: int) -> dict[str,
     root_cause_tags: Counter[str] = Counter()
     root_cause_examples: dict[str, list[dict[str, object]]] = defaultdict(list)
     provenance_gap_causes: Counter[str] = Counter()
+    answer_context_provenance: Counter[str] = Counter()
     temporal_grounding_issue_reasons: Counter[str] = Counter()
     temporal_grounding_issue_examples: dict[str, list[dict[str, object]]] = (
         defaultdict(list)
@@ -166,6 +167,9 @@ def _summary(failures: Sequence[Mapping[str, object]], *, top: int) -> dict[str,
         primary_root_causes[primary_root_cause] += 1
         root_cause_tags.update(root_tags)
         provenance_gap_causes.update(_provenance_gap_cause_counts(failure))
+        answer_context_provenance.update(
+            _answer_context_provenance_counts(failure)
+        )
         if len(root_cause_examples[primary_root_cause]) < 5:
             root_cause_examples[primary_root_cause].append(
                 _root_cause_example(failure, root_tags)
@@ -206,6 +210,9 @@ def _summary(failures: Sequence[Mapping[str, object]], *, top: int) -> dict[str,
         "primary_root_cause_count": dict(primary_root_causes.most_common(top)),
         "root_cause_tag_count": dict(root_cause_tags.most_common(top)),
         "provenance_gap_cause_count": dict(provenance_gap_causes.most_common(top)),
+        "answer_context_provenance_count": dict(
+            answer_context_provenance.most_common(top)
+        ),
         "root_cause_examples": {
             root_cause: examples
             for root_cause, examples in sorted(root_cause_examples.items())
@@ -462,6 +469,19 @@ def _answer_context_summary(failure: Mapping[str, object]) -> dict[str, object] 
         )
         or 0,
     }
+    source_ref_count = _positive_int(context.get("source_ref_count")) or 0
+    if source_ref_count:
+        summary["source_ref_count"] = source_ref_count
+    source_identity_ref_count = (
+        _positive_int(context.get("source_identity_ref_count")) or 0
+    )
+    if source_identity_ref_count:
+        summary["source_identity_ref_count"] = source_identity_ref_count
+    source_identity_item_count = (
+        _positive_int(context.get("source_identity_item_count")) or 0
+    )
+    if source_identity_item_count:
+        summary["source_identity_item_count"] = source_identity_item_count
     fallback_reason = str(context.get("fallback_reason") or "")
     if fallback_reason:
         summary["fallback_reason"] = fallback_reason
@@ -472,6 +492,41 @@ def _answer_context_summary(failure: Mapping[str, object]) -> dict[str, object] 
     if risk_reasons:
         summary["risk_reason_codes"] = list(risk_reasons)
     return summary
+
+
+def _answer_context_provenance_counts(failure: Mapping[str, object]) -> Counter[str]:
+    context = _mapping(_mapping(failure.get("diagnostics")).get("answer_context"))
+    if context.get("present") is not True:
+        return Counter()
+    source_ref_item_count = _positive_int(context.get("source_ref_item_count")) or 0
+    source_refless_item_count = (
+        _positive_int(context.get("source_refless_item_count")) or 0
+    )
+    source_identity_ref_count = (
+        _positive_int(context.get("source_identity_ref_count")) or 0
+    )
+    source_identity_item_count = (
+        _positive_int(context.get("source_identity_item_count")) or 0
+    )
+    backfilled_count = (
+        _positive_int(context.get("backfilled_retrieval_item_count")) or 0
+    )
+    counts = Counter({"present": 1})
+    if source_ref_item_count > 0:
+        counts["source_refs_present"] += 1
+    if source_refless_item_count > 0:
+        counts["source_refless_items_present"] += 1
+    if source_identity_ref_count > 0:
+        counts["source_identity_refs_present"] += 1
+    if source_identity_item_count > 0:
+        counts["source_identity_items_present"] += 1
+    if str(context.get("fallback_reason") or ""):
+        counts["fallback_present"] += 1
+    if backfilled_count > 0:
+        counts["backfilled_retrieval_present"] += 1
+    if context.get("role_requirement_complete") is False:
+        counts["missing_required_roles_present"] += 1
+    return counts
 
 
 def _selected_evidence_weakness_summary(

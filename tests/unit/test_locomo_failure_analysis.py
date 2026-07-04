@@ -428,6 +428,75 @@ def test_locomo_failure_analysis_tags_answer_context_gaps() -> None:
     ]
 
 
+def test_locomo_failure_analysis_counts_answer_context_identity_provenance() -> None:
+    report = {
+        "failures": [
+            {
+                "case_id": "identity-only",
+                "capability": "locomo_category_2",
+                "reason": "expected_terms_missing",
+                "diagnostic_reason_codes": [
+                    "answer_context_fallback",
+                    "answer_context_source_refless",
+                ],
+                "diagnostics": {
+                    "answer_context": {
+                        "present": True,
+                        "source": "retrieval_slice",
+                        "fallback_reason": "no_bundle_items_within_cutoff",
+                        "memory_count": 2,
+                        "source_ref_count": 0,
+                        "source_ref_item_count": 0,
+                        "source_refless_item_count": 2,
+                        "source_identity_ref_count": 3,
+                        "source_identity_item_count": 2,
+                        "backfilled_retrieval_item_count": 1,
+                    },
+                },
+            },
+            {
+                "case_id": "source-ref-grounded",
+                "capability": "locomo_category_1",
+                "reason": "expected_terms_missing",
+                "diagnostics": {
+                    "answer_context": {
+                        "present": True,
+                        "source": "evidence_bundle",
+                        "memory_count": 1,
+                        "source_ref_count": 1,
+                        "source_ref_item_count": 1,
+                        "source_refless_item_count": 0,
+                    },
+                },
+            },
+        ]
+    }
+
+    summary = _summary(_failures(report), top=10)
+
+    assert summary["answer_context_provenance_count"] == {
+        "present": 2,
+        "source_refless_items_present": 1,
+        "source_identity_refs_present": 1,
+        "source_identity_items_present": 1,
+        "fallback_present": 1,
+        "backfilled_retrieval_present": 1,
+        "source_refs_present": 1,
+    }
+    assert summary["root_cause_examples"]["answer_context:fallback"][0][
+        "answer_context"
+    ] == {
+        "source": "retrieval_slice",
+        "memory_count": 2,
+        "source_ref_item_count": 0,
+        "source_refless_item_count": 2,
+        "backfilled_retrieval_item_count": 1,
+        "source_identity_ref_count": 3,
+        "source_identity_item_count": 2,
+        "fallback_reason": "no_bundle_items_within_cutoff",
+    }
+
+
 def test_locomo_failure_analysis_tags_selected_evidence_weakness() -> None:
     report = {
         "failures": [
