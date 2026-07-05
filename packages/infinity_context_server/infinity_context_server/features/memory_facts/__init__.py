@@ -1,5 +1,7 @@
-"""Server-side seam for the memory_facts feature mirror."""
+"""Server feature mirror for memory_facts."""
 
-from infinity_context_core.features.memory_facts.public import FEATURE_ID
+from infinity_context_server.features.memory_facts import public
 
-__all__ = ("FEATURE_ID",)
+FEATURE_ID = public.FEATURE_ID
+
+__all__ = ("FEATURE_ID", "public")
