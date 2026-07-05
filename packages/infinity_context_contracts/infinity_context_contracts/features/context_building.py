@@ -118,11 +118,25 @@ class BuildContextRequestDto:
     query: str
     space_id: str | None = None
     memory_scope_id: str | None = None
+    memory_scope_ids: Sequence[str] = field(default_factory=tuple)
     thread_id: str | None = None
     space_slug: str | None = None
     memory_scope_external_ref: str | None = None
+    memory_scope_external_refs: Sequence[str] = field(default_factory=tuple)
     thread_external_ref: str | None = None
     budget: ContextBudgetDto | Mapping[str, JsonValue] | None = None
+    token_budget: int | None = None
+    max_facts: int | None = None
+    max_chunks: int | None = None
+    max_evidence_items: int | None = None
+    consistency_mode: str | None = None
+    max_conflicting_suggestions: int | None = None
+    include_superseded: bool = False
+    include_stale: bool = False
+    category: str | None = None
+    tags_any: Sequence[str] = field(default_factory=tuple)
+    tags_all: Sequence[str] = field(default_factory=tuple)
+    tags_none: Sequence[str] = field(default_factory=tuple)
     include_kinds: Sequence[str] = field(default_factory=tuple)
     tags: Sequence[str] = field(default_factory=tuple)
     policy_mode: str | None = None
@@ -134,11 +148,27 @@ class BuildContextRequestDto:
             "query": self.query,
             "space_id": self.space_id,
             "memory_scope_id": self.memory_scope_id,
+            "memory_scope_ids": json_compatible(self.memory_scope_ids),
             "thread_id": self.thread_id,
             "space_slug": self.space_slug,
             "memory_scope_external_ref": self.memory_scope_external_ref,
+            "memory_scope_external_refs": json_compatible(
+                self.memory_scope_external_refs
+            ),
             "thread_external_ref": self.thread_external_ref,
             "budget": json_compatible(self.budget),
+            "token_budget": self.token_budget,
+            "max_facts": self.max_facts,
+            "max_chunks": self.max_chunks,
+            "max_evidence_items": self.max_evidence_items,
+            "consistency_mode": self.consistency_mode,
+            "max_conflicting_suggestions": self.max_conflicting_suggestions,
+            "include_superseded": self.include_superseded,
+            "include_stale": self.include_stale,
+            "category": self.category,
+            "tags_any": json_compatible(self.tags_any),
+            "tags_all": json_compatible(self.tags_all),
+            "tags_none": json_compatible(self.tags_none),
             "include_kinds": json_compatible(self.include_kinds),
             "tags": json_compatible(self.tags),
             "policy_mode": self.policy_mode,

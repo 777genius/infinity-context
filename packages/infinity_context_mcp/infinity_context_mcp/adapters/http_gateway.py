@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import httpx
+from infinity_context_contracts.features.context_building import BuildContextRequestDto
 from infinity_context_contracts.features.document_ingestion import IngestDocumentRequestDto
 from infinity_context_contracts.features.memory_facts import (
     RememberFactRequestDto,
@@ -54,24 +55,19 @@ class HttpMemoryGateway:
         tags_all: list[str] | None = None,
         tags_none: list[str] | None = None,
     ) -> dict[str, Any]:
-        memory_scope_payload = _read_scope_memory_scope_payload(scope)
         return await self._request(
             "POST",
             "/v1/context",
-            json=_without_none(
-                {
-                    "space_slug": scope.space_slug,
-                    **memory_scope_payload,
-                    "thread_external_ref": scope.thread_external_ref,
-                    "query": query,
-                    "token_budget": token_budget,
-                    "max_facts": max_facts,
-                    "max_chunks": max_chunks,
-                    "category": category,
-                    "tags_any": tags_any or None,
-                    "tags_all": tags_all or None,
-                    "tags_none": tags_none or None,
-                }
+            json=_build_context_body(
+                scope=scope,
+                query=query,
+                token_budget=token_budget,
+                max_facts=max_facts,
+                max_chunks=max_chunks,
+                category=category,
+                tags_any=tags_any,
+                tags_all=tags_all,
+                tags_none=tags_none,
             ),
         )
 
@@ -818,6 +814,56 @@ def _to_error(response: httpx.Response) -> MemoryGatewayError:
 
 def _without_none(values: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in values.items() if value is not None}
+
+
+def _without_none_or_empty_contract_defaults(values: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in values.items()
+        if value is not None and value not in ({}, (), [])
+    }
+
+
+def _build_context_body(
+    *,
+    scope: MemoryReadScope,
+    query: str,
+    token_budget: int,
+    max_facts: int,
+    max_chunks: int,
+    category: str | None,
+    tags_any: list[str] | None,
+    tags_all: list[str] | None,
+    tags_none: list[str] | None,
+) -> dict[str, Any]:
+    contract = BuildContextRequestDto(
+        space_slug=scope.space_slug,
+        **_read_scope_memory_scope_payload(scope),
+        thread_external_ref=scope.thread_external_ref,
+        query=query,
+        token_budget=token_budget,
+        max_facts=max_facts,
+        max_chunks=max_chunks,
+        category=category,
+        tags_any=tags_any or (),
+        tags_all=tags_all or (),
+        tags_none=tags_none or (),
+    )
+    payload = _without_none_or_empty_contract_defaults(contract.to_dict())
+    for key in (
+        "budget",
+        "include_kinds",
+        "tags",
+        "policy_mode",
+        "include_diagnostics",
+        "metadata",
+    ):
+        payload.pop(key, None)
+    if payload.get("include_superseded") is False:
+        payload.pop("include_superseded", None)
+    if payload.get("include_stale") is False:
+        payload.pop("include_stale", None)
+    return payload
 
 
 def _remember_fact_body(

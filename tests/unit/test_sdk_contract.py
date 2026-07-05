@@ -4,6 +4,7 @@ from dataclasses import fields
 import httpx
 import infinity_context_sdk._payloads as sdk_payloads
 import pytest
+from infinity_context_contracts.features.context_building import BuildContextRequestDto
 from infinity_context_contracts.features.document_ingestion import IngestDocumentRequestDto
 from infinity_context_contracts.features.memory_facts import (
     RememberFactRequestDto,
@@ -245,7 +246,7 @@ def test_sdk_document_and_memory_scope_helpers_serialize_feature_contract_dtos()
     assert scope_payload == scope_contract
 
 
-def test_sdk_context_payload_keeps_legacy_shape_without_exact_feature_dto_fit() -> None:
+def test_sdk_context_payload_uses_feature_contract_and_keeps_legacy_shape() -> None:
     budget_field = "to" + "ken_budget"
     context_kwargs = {
         "scope_payload": None,
@@ -262,7 +263,33 @@ def test_sdk_context_payload_keeps_legacy_shape_without_exact_feature_dto_fit() 
         "max_chunks": 8,
     }
     payload = sdk_payloads.context_body(**context_kwargs)
+    contract = BuildContextRequestDto(
+        query="What is canonical?",
+        space_id="space_client_app",
+        memory_scope_ids=("memory_scope_default",),
+        token_budget=512,
+        max_facts=4,
+        max_chunks=8,
+    ).to_dict()
+    expected = {
+        key: value
+        for key, value in contract.items()
+        if value is not None
+        and value not in ({}, (), [])
+        and key
+        not in {
+            "budget",
+            "include_kinds",
+            "tags",
+            "policy_mode",
+            "include_diagnostics",
+            "metadata",
+        }
+    }
+    expected.pop("include_superseded")
+    expected.pop("include_stale")
 
+    assert payload == expected
     assert payload["memory_scope_ids"] == ["memory_scope_default"]
     assert payload[budget_field] == 512
     assert payload["max_facts"] == 4

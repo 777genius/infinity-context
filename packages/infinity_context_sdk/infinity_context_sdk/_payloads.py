@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from infinity_context_contracts.features.context_building import BuildContextRequestDto
 from infinity_context_contracts.features.document_ingestion import IngestDocumentRequestDto
 from infinity_context_contracts.features.memory_facts import (
     RememberFactRequestDto,
@@ -194,23 +195,23 @@ def context_body(
         memory_scope_external_refs=memory_scope_external_refs,
         thread_external_ref=thread_external_ref,
     )
-    return without_none(
-        {
+    return _context_payload_from_contract(
+        BuildContextRequestDto(
             **payload,
-            "query": query,
-            "consistency_mode": consistency_mode,
-            "token_budget": token_budget,
-            "max_facts": max_facts,
-            "max_chunks": max_chunks,
-            "max_evidence_items": max_evidence_items,
-            "max_conflicting_suggestions": max_conflicting_suggestions,
-            "include_superseded": include_superseded if include_superseded else None,
-            "include_stale": include_stale if include_stale else None,
-            "category": category,
-            "tags_any": tags_any or None,
-            "tags_all": tags_all or None,
-            "tags_none": tags_none or None,
-        }
+            query=query,
+            token_budget=token_budget,
+            max_facts=max_facts,
+            max_chunks=max_chunks,
+            max_evidence_items=max_evidence_items,
+            consistency_mode=consistency_mode,
+            max_conflicting_suggestions=max_conflicting_suggestions,
+            include_superseded=include_superseded,
+            include_stale=include_stale,
+            category=category,
+            tags_any=tags_any or (),
+            tags_all=tags_all or (),
+            tags_none=tags_none or (),
+        )
     )
 
 
@@ -231,26 +232,41 @@ def context_scope_body(
     consistency_mode: str | None = None,
     max_conflicting_suggestions: int | None = None,
 ) -> dict[str, Any]:
-    return without_none(
-        {
-            **context_scope_payload(
-                space_id=space_id,
-                memory_scope_ids=memory_scope_ids,
-                thread_id=thread_id,
-                space_slug=space_slug,
-                memory_scope_external_ref=memory_scope_external_ref,
-                memory_scope_external_refs=memory_scope_external_refs,
-                thread_external_ref=thread_external_ref,
-            ),
-            "query": query,
-            "consistency_mode": consistency_mode,
-            "token_budget": token_budget,
-            "max_facts": max_facts,
-            "max_chunks": max_chunks,
-            "max_evidence_items": max_evidence_items,
-            "max_conflicting_suggestions": max_conflicting_suggestions,
-        }
+    return context_body(
+        scope_payload=None,
+        space_id=space_id,
+        memory_scope_ids=memory_scope_ids,
+        thread_id=thread_id,
+        space_slug=space_slug,
+        memory_scope_external_ref=memory_scope_external_ref,
+        memory_scope_external_refs=memory_scope_external_refs,
+        thread_external_ref=thread_external_ref,
+        query=query,
+        token_budget=token_budget,
+        max_facts=max_facts,
+        max_chunks=max_chunks,
+        max_evidence_items=max_evidence_items,
+        consistency_mode=consistency_mode,
+        max_conflicting_suggestions=max_conflicting_suggestions,
     )
+
+
+def _context_payload_from_contract(contract: BuildContextRequestDto) -> dict[str, Any]:
+    payload = without_none_or_empty_contract_defaults(contract.to_dict())
+    for key in (
+        "budget",
+        "include_kinds",
+        "tags",
+        "policy_mode",
+        "include_diagnostics",
+        "metadata",
+    ):
+        payload.pop(key, None)
+    if payload.get("include_superseded") is False:
+        payload.pop("include_superseded", None)
+    if payload.get("include_stale") is False:
+        payload.pop("include_stale", None)
+    return payload
 
 
 def suggestions_batch_body(

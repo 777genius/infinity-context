@@ -73,14 +73,28 @@ def test_context_building_dtos_roundtrip_to_plain_json_payloads() -> None:
     request = BuildContextRequestDto(
         query="What is rendered?",
         space_id="space_1",
-        memory_scope_id="scope_1",
+        memory_scope_ids=("scope_1", "scope_2"),
         budget=budget,
+        token_budget=2048,
+        max_facts=6,
+        max_chunks=9,
+        max_evidence_items=8,
+        consistency_mode="best_effort",
+        max_conflicting_suggestions=2,
+        include_superseded=True,
+        category="architecture",
+        tags_any=("postgres",),
+        tags_all=("canonical",),
+        tags_none=("deprecated",),
         include_kinds=("document_chunk",),
         include_diagnostics=True,
     )
     result = BuildContextResultDto(items=(item,), budget=budget, diagnostics={"ok": True})
 
     assert _json_roundtrip(request.to_dict()) == request.to_dict()
+    assert request.to_dict()["memory_scope_ids"] == ["scope_1", "scope_2"]
+    assert request.to_dict()["token_budget"] == 2048
+    assert request.to_dict()["tags_any"] == ["postgres"]
     assert _json_roundtrip(result.to_dict()) == result.to_dict()
     assert result.to_dict()["data"]["items"][0]["evidence"][0]["bbox"] == [
         1.0,
