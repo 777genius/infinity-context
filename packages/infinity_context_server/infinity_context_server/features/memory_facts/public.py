@@ -19,6 +19,8 @@ from infinity_context_server.features.memory_facts.contracts import (
 from infinity_context_server.features.memory_facts.mappers import (
     evidence_ref_request_to_public,
     evidence_ref_to_response,
+    fact_relation_item_to_response,
+    fact_relation_to_response,
     fact_result_to_response,
     fact_to_response,
     forget_fact_command_from_http,
@@ -30,6 +32,7 @@ from infinity_context_server.features.memory_facts.mappers import (
     memory_fact_scope_from_ids,
     memory_fact_snapshot_to_contract,
     memory_fact_snapshot_to_response,
+    related_fact_to_response,
     remember_fact_command_from_contract,
     remember_fact_request_to_command,
     remember_fact_result_to_contract,
@@ -39,6 +42,7 @@ from infinity_context_server.features.memory_facts.mappers import (
     update_fact_command_from_http,
     update_fact_request_to_command,
     update_fact_result_to_contract,
+    validate_fact_relation_status_filter,
 )
 from infinity_context_server.features.memory_facts.routes import (
     create_memory_facts_router,
@@ -59,6 +63,8 @@ __all__ = (
     "create_memory_facts_router",
     "evidence_ref_request_to_public",
     "evidence_ref_to_response",
+    "fact_relation_item_to_response",
+    "fact_relation_to_response",
     "fact_result_to_response",
     "fact_to_response",
     "forget_fact_command_from_http",
@@ -70,6 +76,7 @@ __all__ = (
     "memory_fact_scope_from_ids",
     "memory_fact_snapshot_to_contract",
     "memory_fact_snapshot_to_response",
+    "related_fact_to_response",
     "remember_fact_command_from_contract",
     "remember_fact_request_to_command",
     "remember_fact_result_to_contract",
@@ -79,4 +86,5 @@ __all__ = (
     "update_fact_command_from_http",
     "update_fact_request_to_command",
     "update_fact_result_to_contract",
+    "validate_fact_relation_status_filter",
 )

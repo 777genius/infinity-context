@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import ast
 import asyncio
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import infinity_context_core.features.memory_facts.public as memory_facts
 import pytest
@@ -21,6 +22,15 @@ FEATURE_ROOT = (
     / "infinity_context_server"
     / "features"
     / "memory_facts"
+)
+API_FACTS_PATH = (
+    REPO_ROOT
+    / "packages"
+    / "infinity_context_server"
+    / "infinity_context_server"
+    / "api"
+    / "v1"
+    / "facts.py"
 )
 
 
@@ -114,6 +124,8 @@ def test_memory_facts_server_feature_public_surface_composes_router() -> None:
         "create_memory_facts_router",
         "evidence_ref_request_to_public",
         "evidence_ref_to_response",
+        "fact_relation_item_to_response",
+        "fact_relation_to_response",
         "fact_result_to_response",
         "fact_to_response",
         "forget_fact_command_from_http",
@@ -125,6 +137,7 @@ def test_memory_facts_server_feature_public_surface_composes_router() -> None:
         "memory_fact_scope_from_ids",
         "memory_fact_snapshot_to_contract",
         "memory_fact_snapshot_to_response",
+        "related_fact_to_response",
         "remember_fact_command_from_contract",
         "remember_fact_request_to_command",
         "remember_fact_result_to_contract",
@@ -134,6 +147,7 @@ def test_memory_facts_server_feature_public_surface_composes_router() -> None:
         "update_fact_command_from_http",
         "update_fact_request_to_command",
         "update_fact_result_to_contract",
+        "validate_fact_relation_status_filter",
     )
     assert {route.path for route in feature.create_router().routes} == {
         "/memory-facts-feature/facts",
@@ -234,6 +248,81 @@ def test_memory_facts_mapper_requires_resolved_scope_ids() -> None:
 
     with pytest.raises(ValueError, match="space_id is required"):
         server_public.remember_fact_command_from_contract(request)
+
+
+def test_memory_facts_public_seam_maps_relation_responses() -> None:
+    created_at = datetime(2026, 1, 2, 3, 4, 5)
+    valid_to = datetime(2026, 2, 1, 0, 0, tzinfo=UTC)
+    relation = SimpleNamespace(
+        id="relation_1",
+        space_id="space_1",
+        memory_scope_id="scope_1",
+        source_fact_id="fact_1",
+        target_fact_id="fact_2",
+        relation_type=SimpleNamespace(value="supports"),
+        reason="relation checked with Bearer " + "sk-" + "proj-secretvalue1234567890",
+        status=SimpleNamespace(value="active"),
+        valid_from=None,
+        valid_to=valid_to,
+        created_at=created_at,
+        updated_at=created_at,
+    )
+    related_fact = _snapshot(
+        fact_id="fact_2",
+        scope=memory_facts.MemoryFactScope(
+            space_id="space_1",
+            memory_scope_id="scope_1",
+        ),
+        text="Graphiti remains a derived index.",
+        source_refs=(_source_ref(),),
+    )
+
+    relation_body = server_public.fact_relation_to_response(relation)
+    item_body = server_public.fact_relation_item_to_response(
+        SimpleNamespace(
+            relation=relation,
+            related_fact=related_fact,
+            direction="outgoing",
+        )
+    )
+    related_body = server_public.related_fact_to_response(
+        SimpleNamespace(
+            fact=related_fact,
+            score=0.75,
+            relation_reasons=("ADR support",),
+        )
+    )
+
+    assert relation_body == {
+        "id": "relation_1",
+        "space_id": "space_1",
+        "memory_scope_id": "scope_1",
+        "source_fact_id": "fact_1",
+        "target_fact_id": "fact_2",
+        "relation_type": "supports",
+        "reason": "relation checked with [redacted]",
+        "status": "active",
+        "observed_at": "2026-01-02T03:04:05+00:00",
+        "valid_from": None,
+        "valid_to": "2026-02-01T00:00:00+00:00",
+        "created_at": "2026-01-02T03:04:05+00:00",
+        "updated_at": "2026-01-02T03:04:05+00:00",
+    }
+    assert item_body["relation"] == relation_body
+    assert item_body["related_fact"]["id"] == "fact_2"
+    assert item_body["direction"] == "outgoing"
+    assert related_body["id"] == "fact_2"
+    assert related_body["score"] == 0.75
+    assert related_body["relation_reasons"] == ["ADR support"]
+
+
+def test_memory_facts_public_seam_validates_relation_status_filter() -> None:
+    server_public.validate_fact_relation_status_filter(None)
+    server_public.validate_fact_relation_status_filter("active")
+    server_public.validate_fact_relation_status_filter("deleted")
+
+    with pytest.raises(ValueError, match="Unknown fact relation status"):
+        server_public.validate_fact_relation_status_filter("archived")
 
 
 def test_memory_facts_routes_map_http_contracts_to_feature_use_cases() -> None:
@@ -342,6 +431,17 @@ def test_memory_facts_routes_map_http_contracts_to_feature_use_cases() -> None:
     assert forget_command.idempotency_key == "forget_1"
     assert forget_body["data"]["status"] == "deleted"
     assert forget_body["data"]["version"] == 3
+
+
+def test_v1_facts_route_delegates_relation_response_mapping_to_feature_public_seam() -> None:
+    source = API_FACTS_PATH.read_text(encoding="utf-8")
+
+    assert "def related_fact_to_response" not in source
+    assert "def fact_relation_to_response" not in source
+    assert "def fact_relation_item_to_response" not in source
+    assert "infinity_context_server.api.public_payload" not in _imports(API_FACTS_PATH)
+    assert "memory_facts_feature.fact_relation_to_response" in source
+    assert "memory_facts_feature.related_fact_to_response" in source
 
 
 def test_memory_facts_server_slice_uses_only_public_feature_boundaries() -> None:

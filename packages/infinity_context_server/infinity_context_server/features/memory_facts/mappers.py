@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from math import isfinite
 from typing import Any
 
@@ -32,6 +33,25 @@ from infinity_context_core.features.memory_facts.public import (
 )
 
 _MISSING = object()
+_FACT_RELATION_STATUS_VALUES = frozenset({"active", "deleted"})
+_SECRET_PATTERNS = (
+    re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]{8,}\b", re.IGNORECASE),
+    re.compile(r"\bsk-proj-[A-Za-z0-9_-]{12,}\b"),
+    re.compile(r"\bsk-[A-Za-z0-9_-]{12,}\b"),
+    re.compile(r"\bgh[pousr]_[A-Za-z0-9_]{12,}\b"),
+    re.compile(r"\bAKIA[0-9A-Z]{12,}\b"),
+    re.compile(
+        r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----",
+        re.DOTALL,
+    ),
+    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
+    re.compile(
+        r"\b[A-Za-z0-9_]*(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL)"
+        r"\s*[:=]\s*['\"]?(?![$<{]|\[redacted[^\]]*\])[^'\"\s]{12,}",
+        re.IGNORECASE,
+    ),
+)
+_USERINFO_PATTERN = re.compile(r"(https?://)[^/@\s]+@")
 
 
 def memory_fact_scope_from_ids(
@@ -320,6 +340,54 @@ def fact_to_response(
     return legacy_memory_fact_to_response(fact, indexing_status)
 
 
+def related_fact_to_response(item: object) -> dict[str, Any]:
+    body = fact_to_response(_required_value(item, "fact"))
+    body["score"] = _required_value(item, "score")
+    body["relation_reasons"] = list(_value(item, "relation_reasons", ()))
+    return body
+
+
+def fact_relation_to_response(relation: object) -> dict[str, Any]:
+    observed_at = _value(relation, "observed_at", None) or _required_value(
+        relation,
+        "created_at",
+    )
+    return {
+        "id": str(_required_value(relation, "id")),
+        "space_id": str(_required_value(relation, "space_id")),
+        "memory_scope_id": str(_required_value(relation, "memory_scope_id")),
+        "source_fact_id": str(_required_value(relation, "source_fact_id")),
+        "target_fact_id": str(_required_value(relation, "target_fact_id")),
+        "relation_type": _enum_or_text(_value(relation, "relation_type", "")),
+        "reason": _safe_public_text(str(_value(relation, "reason", ""))),
+        "status": _enum_or_text(_value(relation, "status", "")),
+        "observed_at": _relation_datetime_to_response(observed_at),
+        "valid_from": _relation_datetime_to_response(_value(relation, "valid_from", None)),
+        "valid_to": _relation_datetime_to_response(_value(relation, "valid_to", None)),
+        "created_at": _relation_datetime_to_response(
+            _required_value(relation, "created_at")
+        ),
+        "updated_at": _relation_datetime_to_response(
+            _required_value(relation, "updated_at")
+        ),
+    }
+
+
+def fact_relation_item_to_response(item: object) -> dict[str, Any]:
+    return {
+        "relation": fact_relation_to_response(_required_value(item, "relation")),
+        "related_fact": fact_to_response(_required_value(item, "related_fact")),
+        "direction": _required_value(item, "direction"),
+    }
+
+
+def validate_fact_relation_status_filter(status_filter: str | None) -> None:
+    if status_filter is None:
+        return
+    if status_filter not in _FACT_RELATION_STATUS_VALUES:
+        raise ValueError("Unknown fact relation status")
+
+
 def source_ref_to_contract(source_ref: MemoryFactSourceRef) -> MemoryFactSourceRefDto:
     return MemoryFactSourceRefDto(
         source_type=source_ref.source_type,
@@ -435,7 +503,14 @@ def _optional_public_text(value: object, *, limit: int) -> str | None:
 
 
 def _safe_public_text(value: str, *, limit: int = 500) -> str:
-    return value[:limit]
+    return _redact_sensitive_text(value)[:limit]
+
+
+def _redact_sensitive_text(value: str, *, marker: str = "[redacted]") -> str:
+    redacted = _USERINFO_PATTERN.sub(lambda match: f"{match.group(1)}{marker}@", value)
+    for pattern in _SECRET_PATTERNS:
+        redacted = pattern.sub(marker, redacted)
+    return redacted
 
 
 def _range_pair(start: object, end: object) -> tuple[int | None, int | None]:
@@ -502,9 +577,19 @@ def _datetime_to_response(value: datetime | None) -> str | None:
     return value.isoformat() if value is not None else None
 
 
+def _relation_datetime_to_response(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    return value.isoformat()
+
+
 __all__ = (
     "evidence_ref_request_to_public",
     "evidence_ref_to_response",
+    "fact_relation_item_to_response",
+    "fact_relation_to_response",
     "fact_result_to_response",
     "fact_to_response",
     "forget_fact_command_from_http",
@@ -516,6 +601,7 @@ __all__ = (
     "memory_fact_scope_from_ids",
     "memory_fact_snapshot_to_contract",
     "memory_fact_snapshot_to_response",
+    "related_fact_to_response",
     "remember_fact_command_from_contract",
     "remember_fact_request_to_command",
     "remember_fact_result_to_contract",
@@ -525,4 +611,5 @@ __all__ = (
     "update_fact_command_from_http",
     "update_fact_request_to_command",
     "update_fact_result_to_contract",
+    "validate_fact_relation_status_filter",
 )

@@ -2,30 +2,25 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, Query, Response, status
 from infinity_context_core.application import (
-    FactRelationItem,
     FactVersionsQuery,
     ForgetFactCommand,
     GetFactQuery,
     LinkFactsCommand,
     ListFactRelationsQuery,
     ListFactsQuery,
-    RelatedFactItem,
     RelatedFactsQuery,
     RememberFactCommand,
     UnlinkFactRelationCommand,
     UpdateFactCommand,
 )
 from infinity_context_core.domain.entities import (
-    FactRelationType,
     FactStatus,
-    LifecycleStatus,
     MemoryFact,
-    MemoryFactRelation,
     MemoryKind,
 )
 from infinity_context_core.domain.errors import MemoryValidationError
@@ -34,7 +29,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from infinity_context_server.api.auth import require_service_token
 from infinity_context_server.api.dependencies import get_container
 from infinity_context_server.api.policy import ensure_server_writes_enabled
-from infinity_context_server.api.public_payload import safe_public_text
 from infinity_context_server.api.v1.scope_resolution import (
     resolve_existing_single_scope,
     resolve_single_scope,
@@ -90,7 +84,7 @@ class LinkFactRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     target_fact_id: str = Field(min_length=1, max_length=160)
-    relation_type: str = Field(default=FactRelationType.RELATED_TO.value, max_length=80)
+    relation_type: str = Field(default="related_to", max_length=80)
     reason: str = Field(min_length=1, max_length=320)
     observed_at: datetime | None = None
     valid_from: datetime | None = None
@@ -108,51 +102,9 @@ def fact_to_response(fact: MemoryFact, indexing_status: str | None = None) -> di
     return memory_facts_feature.fact_to_response(fact, indexing_status)
 
 
-def related_fact_to_response(item: RelatedFactItem) -> dict[str, Any]:
-    body = fact_to_response(item.fact)
-    body["score"] = item.score
-    body["relation_reasons"] = list(item.relation_reasons)
-    return body
-
-
-def fact_relation_to_response(relation: MemoryFactRelation) -> dict[str, Any]:
-    observed_at = getattr(relation, "observed_at", None) or relation.created_at
-    return {
-        "id": str(relation.id),
-        "space_id": str(relation.space_id),
-        "memory_scope_id": str(relation.memory_scope_id),
-        "source_fact_id": str(relation.source_fact_id),
-        "target_fact_id": str(relation.target_fact_id),
-        "relation_type": _enum_or_text(relation.relation_type),
-        "reason": safe_public_text(getattr(relation, "reason", "")),
-        "status": _enum_or_text(relation.status),
-        "observed_at": _datetime_to_response(observed_at),
-        "valid_from": _datetime_to_response(getattr(relation, "valid_from", None)),
-        "valid_to": _datetime_to_response(getattr(relation, "valid_to", None)),
-        "created_at": _datetime_to_response(relation.created_at),
-        "updated_at": _datetime_to_response(relation.updated_at),
-    }
-
-
-def fact_relation_item_to_response(item: FactRelationItem) -> dict[str, Any]:
-    return {
-        "relation": fact_relation_to_response(item.relation),
-        "related_fact": fact_to_response(item.related_fact),
-        "direction": item.direction,
-    }
-
-
-def _datetime_to_response(value: datetime | None) -> str | None:
-    if value is None:
-        return None
-    if value.tzinfo is None:
-        value = value.replace(tzinfo=UTC)
-    return value.isoformat()
-
-
-def _enum_or_text(value: object) -> str:
-    raw = getattr(value, "value", value)
-    return str(raw)
+related_fact_to_response = memory_facts_feature.related_fact_to_response
+fact_relation_to_response = memory_facts_feature.fact_relation_to_response
+fact_relation_item_to_response = memory_facts_feature.fact_relation_item_to_response
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -417,9 +369,7 @@ def _validate_fact_status(status_filter: str | None) -> None:
 
 
 def _validate_relation_status(status_filter: str | None) -> None:
-    if status_filter is None:
-        return
     try:
-        LifecycleStatus(status_filter)
+        memory_facts_feature.validate_fact_relation_status_filter(status_filter)
     except ValueError as exc:
         raise MemoryValidationError("Unknown fact relation status") from exc
