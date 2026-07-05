@@ -2635,7 +2635,10 @@ def main(argv: Sequence[str] | None = None) -> None:
     memory_comparison.add_argument(
         "--preflight-probe-services",
         action="store_true",
-        help="During --preflight-only, probe memo-stack and mem0 HTTP roots.",
+        help=(
+            "During --preflight-only, probe memo-stack health and mem0 OSS "
+            "OpenAPI contracts."
+        ),
     )
     memory_comparison.add_argument(
         "--preflight-timeout-seconds",

@@ -779,8 +779,9 @@ Model defaults:
   endpoints.
 - `--preflight-only` prints sanitized dataset, auth, URL, LLM and fast-readiness
   checks without ingesting, searching or resetting live benchmark state.
-- `--preflight-probe-services` adds unauthenticated HTTP root probes to the
-  preflight report when local Docker services should already be running.
+- `--preflight-probe-services` adds unauthenticated memo-stack health and mem0
+  OpenAPI contract probes to the preflight report when local Docker services
+  should already be running.
 - `--allow-paid-llm` is required before OpenAI answerer or judge calls.
 - `--answerer-provider codex` / `--judge-provider codex` do not require
   `--allow-paid-llm` or an OpenAI API key, but they do consume the local Codex
