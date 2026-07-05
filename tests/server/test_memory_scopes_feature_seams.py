@@ -159,6 +159,8 @@ def test_memory_scopes_server_feature_public_surface_composes_router() -> None:
         "create_memory_scope_result_to_contract",
         "create_memory_scopes_router",
         "delete_memory_scope_compatibility_command_from_path",
+        "graph_export_scope_not_found_response",
+        "graph_export_to_response",
         "memory_scope_collection_compatibility_response",
         "memory_scope_compatibility_response",
         "memory_scope_actor_from_http",
@@ -393,14 +395,191 @@ def test_memory_scopes_feature_owns_snapshot_compatibility_api_mapping() -> None
     assert "_verify_memory_scope_snapshot_manifest" not in api_function_names
     assert "_validate_memory_scope_snapshot_import_request" not in api_function_names
     assert "_validate_memory_scope_snapshot_preview_request" not in api_function_names
-    assert "graph_export_to_response" in api_function_names
+    assert "graph_export_to_response" not in api_function_names
+    assert "graph_export_scope_not_found_response" not in api_function_names
     assert "infinity_context_core.memory_scope_snapshots" not in _imports(EXPORT_API_PATH)
     assert "infinity_context_server.features.memory_scopes" in _imports(EXPORT_API_PATH)
+    assert "memory_scopes_feature.graph_export_to_response" in api_source
+    assert "memory_scopes_feature.graph_export_scope_not_found_response" in api_source
     assert "memory_scopes_feature.memory_scope_snapshot_export_response" in api_source
     assert "memory_scopes_feature.validate_memory_scope_snapshot_import_request" in api_source
     assert "memory_scopes_feature.validate_memory_scope_snapshot_preview_request" in api_source
-    assert "memory_scopes_feature.graph_export_to_response" not in api_source
-    assert "graph_export_to_response" not in server_public.__all__
+    assert "graph_export_to_response" in server_public.__all__
+    assert "graph_export_scope_not_found_response" in server_public.__all__
+
+
+def test_memory_scopes_feature_owns_graph_export_api_responses() -> None:
+    graph = SimpleNamespace(
+        schema_version="infinity_context.graph_export.v1",
+        scope={"space_id": "space_1"},
+        nodes=(
+            SimpleNamespace(
+                id="fact:fact_1",
+                type="fact",
+                label="Fact",
+                data={"text": "A fact"},
+            ),
+        ),
+        edges=(
+            SimpleNamespace(
+                id="edge_1",
+                type="contains_fact",
+                source="scope:scope_1",
+                target="fact:fact_1",
+                label="contains",
+                data={"rank": 1},
+            ),
+        ),
+        counts={"facts": 1, "nodes": 1, "edges": 1},
+        truncated=False,
+        warnings=("truncated_facts",),
+    )
+
+    assert server_public.graph_export_to_response(graph) == {
+        "schema_version": "infinity_context.graph_export.v1",
+        "scope": {"space_id": "space_1"},
+        "nodes": [
+            {
+                "id": "fact:fact_1",
+                "type": "fact",
+                "label": "Fact",
+                "data": {"text": "A fact"},
+            }
+        ],
+        "edges": [
+            {
+                "id": "edge_1",
+                "type": "contains_fact",
+                "source": "scope:scope_1",
+                "target": "fact:fact_1",
+                "label": "contains",
+                "data": {"rank": 1},
+            }
+        ],
+        "counts": {"facts": 1, "nodes": 1, "edges": 1},
+        "truncated": False,
+        "warnings": ["truncated_facts"],
+    }
+    assert server_public.graph_export_scope_not_found_response() == {
+        "schema_version": "infinity_context.graph_export.v1",
+        "scope": {"scope_not_found": True},
+        "nodes": [],
+        "edges": [],
+        "counts": {
+            "facts": 0,
+            "documents": 0,
+            "episodes": 0,
+            "chunks": 0,
+            "anchors": 0,
+            "nodes": 0,
+            "edges": 0,
+            "relations": 0,
+            "anchor_relations": 0,
+        },
+        "truncated": False,
+        "warnings": ["scope_not_found"],
+    }
+
+
+def test_export_graph_route_delegates_response_to_memory_scopes_public(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from infinity_context_server.api.v1 import export as export_api
+
+    calls: list[tuple[str, object]] = []
+
+    class RecordingExportGraph:
+        async def execute(self, query: object) -> object:
+            calls.append(("execute", query))
+            return SimpleNamespace(schema_version="graph.v1")
+
+    async def fake_resolve_existing_single_scope(
+        _container: object,
+        **kwargs: object,
+    ) -> SimpleNamespace:
+        calls.append(("resolve", kwargs))
+        return SimpleNamespace(space_id="space_1", memory_scope_id="scope_1", thread_id="thread_1")
+
+    def fake_graph_export_to_response(graph: object) -> dict[str, object]:
+        calls.append(("response", graph))
+        return {"delegated": True}
+
+    monkeypatch.setattr(
+        export_api,
+        "resolve_existing_single_scope",
+        fake_resolve_existing_single_scope,
+    )
+    monkeypatch.setattr(
+        export_api.memory_scopes_feature,
+        "graph_export_to_response",
+        fake_graph_export_to_response,
+    )
+
+    response = asyncio.run(
+        export_api.export_graph_json(
+            SimpleNamespace(export_graph=RecordingExportGraph()),
+            space_slug="team",
+            memory_scope_external_ref="atlas",
+            thread_external_ref="planning",
+            include_deleted=True,
+            include_restricted=True,
+            max_facts=10,
+            max_anchors=14,
+        )
+    )
+
+    assert response == {"data": {"delegated": True}}
+    assert [name for name, _payload in calls] == ["resolve", "execute", "response"]
+    query = calls[1][1]
+    assert (query.space_id, query.memory_scope_id) == ("space_1", "scope_1")
+    assert query.thread_id == "thread_1"
+    assert (query.include_deleted, query.include_restricted) == (True, True)
+    assert (query.max_facts, query.max_anchors) == (10, 14)
+
+
+def test_export_graph_route_delegates_scope_not_found_payload_to_memory_scopes_public(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from infinity_context_server.api.v1 import export as export_api
+
+    calls: list[tuple[str, object]] = []
+
+    class FailingExportGraph:
+        async def execute(self, query: object) -> object:
+            raise AssertionError(f"export should not execute for unresolved scope: {query!r}")
+
+    async def fake_resolve_existing_single_scope(
+        _container: object,
+        **kwargs: object,
+    ) -> None:
+        calls.append(("resolve", kwargs))
+        return None
+
+    def fake_scope_not_found_response() -> dict[str, object]:
+        calls.append(("scope_not_found", {}))
+        return {"delegated": "missing"}
+
+    monkeypatch.setattr(
+        export_api,
+        "resolve_existing_single_scope",
+        fake_resolve_existing_single_scope,
+    )
+    monkeypatch.setattr(
+        export_api.memory_scopes_feature,
+        "graph_export_scope_not_found_response",
+        fake_scope_not_found_response,
+    )
+
+    response = asyncio.run(
+        export_api.export_graph_json(
+            SimpleNamespace(export_graph=FailingExportGraph()),
+            space_slug="team",
+            memory_scope_external_ref="missing",
+        )
+    )
+
+    assert response == {"data": {"delegated": "missing"}}
+    assert [name for name, _payload in calls] == ["resolve", "scope_not_found"]
 
 
 def test_export_route_delegates_snapshot_export_envelope_to_memory_scopes_public(

@@ -8,7 +8,6 @@ from fastapi import APIRouter, Depends, Query
 from infinity_context_core.application import (
     EnsureScopeCommand,
     ExportGraphQuery,
-    GraphExportResult,
 )
 from infinity_context_core.domain.errors import MemoryValidationError
 
@@ -59,27 +58,7 @@ async def export_graph_json(
         thread_required=False,
     )
     if scope is None:
-        return {
-            "data": {
-                "schema_version": "infinity_context.graph_export.v1",
-                "scope": {"scope_not_found": True},
-                "nodes": [],
-                "edges": [],
-                "counts": {
-                    "facts": 0,
-                    "documents": 0,
-                    "episodes": 0,
-                    "chunks": 0,
-                    "anchors": 0,
-                    "nodes": 0,
-                    "edges": 0,
-                    "relations": 0,
-                    "anchor_relations": 0,
-                },
-                "truncated": False,
-                "warnings": ["scope_not_found"],
-            }
-        }
+        return {"data": memory_scopes_feature.graph_export_scope_not_found_response()}
     graph = await container.export_graph.execute(
         ExportGraphQuery(
             space_id=scope.space_id,
@@ -94,7 +73,7 @@ async def export_graph_json(
             max_anchors=max_anchors,
         )
     )
-    return {"data": graph_export_to_response(graph)}
+    return {"data": memory_scopes_feature.graph_export_to_response(graph)}
 
 
 @router.get("/memory_scope-snapshot")
@@ -203,33 +182,3 @@ async def preview_memory_scope_snapshot_import(
         blob_storage=container.blob_storage,
     )
     return memory_scopes_feature.memory_scope_snapshot_transfer_response(result)
-
-
-def graph_export_to_response(graph: GraphExportResult) -> dict[str, Any]:
-    return {
-        "schema_version": graph.schema_version,
-        "scope": graph.scope,
-        "nodes": [
-            {
-                "id": node.id,
-                "type": node.type,
-                "label": node.label,
-                "data": node.data,
-            }
-            for node in graph.nodes
-        ],
-        "edges": [
-            {
-                "id": edge.id,
-                "type": edge.type,
-                "source": edge.source,
-                "target": edge.target,
-                "label": edge.label,
-                "data": edge.data,
-            }
-            for edge in graph.edges
-        ],
-        "counts": graph.counts,
-        "truncated": graph.truncated,
-        "warnings": list(graph.warnings),
-    }
