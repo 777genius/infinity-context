@@ -15,6 +15,7 @@ from infinity_context_server.public_benchmark_metrics import (
     case_failures,
     case_payload,
     coverage_summary,
+    progress_case_outcome_fields,
     progress_timing_fields,
     run_metric_summary,
 )
@@ -94,6 +95,7 @@ def test_public_benchmark_payloads_sanitize_auth_previews_refs_and_item_ids() ->
     private_auth_path = "/home/alice/.config/openai/auth.json"
 
     result = _case_result(
+        case_id=f"case-one {bearer_payload}",
         ok=False,
         missing_terms=(key_payload,),
         item_ids=(bearer_payload, raw_ref, private_auth_path, "safe-chunk"),
@@ -129,10 +131,32 @@ def test_public_benchmark_payloads_sanitize_auth_previews_refs_and_item_ids() ->
     assert "turn-secret" not in rendered
     assert "/home/alice" not in rendered
     assert "auth.json" not in rendered
+    assert "\"case_id\": \"case-one [redacted]\"" in rendered
     assert "safe-chunk" in rendered
     assert "source_session_turn_refs:session_3:D3:11" in rendered
     assert "source_turn_refs:D4:5" in rendered
     assert "[redacted]" in rendered
+
+
+def test_public_benchmark_progress_outcome_fields_sanitize_case_ids() -> None:
+    bearer_payload = "Bearer " + ("a" * 16)
+    result = _case_result(
+        case_id=f"case-failed {bearer_payload}",
+        ok=False,
+        missing_terms=("answer",),
+    )
+
+    fields = progress_case_outcome_fields(
+        processed_case_count=1,
+        run_results=(result,),
+        failures=case_failures((result,)),
+        total_case_count=1,
+    )
+    rendered = json.dumps(fields, sort_keys=True)
+
+    assert "Bearer" not in rendered
+    assert fields["last_case_id"] == "case-failed [redacted]"
+    assert fields["recent_failed_case_ids"] == ["case-failed [redacted]"]
 
 
 def test_public_benchmark_progress_fields_sanitize_refs_previews_and_item_ids() -> None:
@@ -406,6 +430,7 @@ def test_public_benchmark_resume_sanitizes_checkpoint_failure_diagnostics(
     bearer_payload = "Bearer " + ("a" * 16)
     key_payload = "MEMORY_TOKEN=" + ("b" * 16)
     raw_ref = "locomo:conv-private:session_3:D3:11:turn-secret"
+    unsafe_case_id = f"case-failed {bearer_payload}"
     checkpoint = tmp_path / "checkpoint.json"
     checkpoint.write_text(
         json.dumps(
@@ -428,7 +453,7 @@ def test_public_benchmark_resume_sanitizes_checkpoint_failure_diagnostics(
                     },
                     {
                         "benchmark": "locomo",
-                        "case_id": "case-failed",
+                        "case_id": unsafe_case_id,
                         "capability": "locomo:temporal_reasoning",
                         "status": "failed",
                         "expected_ok": False,
@@ -456,7 +481,7 @@ def test_public_benchmark_resume_sanitizes_checkpoint_failure_diagnostics(
                 ],
                 "failures": [
                     {
-                        "case_id": "case-failed",
+                        "case_id": unsafe_case_id,
                         "category": "locomo",
                         "reason": key_payload,
                         "question_preview": f"fallback {bearer_payload}",
@@ -471,7 +496,7 @@ def test_public_benchmark_resume_sanitizes_checkpoint_failure_diagnostics(
         checkpoint_out=checkpoint,
         dataset_hash="dataset-hash",
         case_selection=None,
-        cases=(_Case("locomo", "case-ok"), _Case("locomo", "case-failed")),
+        cases=(_Case("locomo", "case-ok"), _Case("locomo", unsafe_case_id)),
     )
 
     rendered = json.dumps(loaded.checkpoint_failures, sort_keys=True)
@@ -479,8 +504,10 @@ def test_public_benchmark_resume_sanitizes_checkpoint_failure_diagnostics(
     assert loaded.status == "loaded"
     assert "Bearer" not in rendered
     assert "MEMORY_TOKEN" not in rendered
+    assert unsafe_case_id not in rendered
     assert "conv-private" not in rendered
     assert "turn-secret" not in rendered
+    assert '"case_id": "case-failed [redacted]"' in rendered
     assert "source_session_turn_refs:session_3:D3:11" in rendered
     assert "source_turn_refs:D4:5" in rendered
     assert "[redacted]" in rendered

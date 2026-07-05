@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Mapping, Sequence
 
 from infinity_context_server.memory_comparison_quality_accessors import (
@@ -70,6 +71,13 @@ _GAP_REASON_ACTIONS = {
     "type_limit_replacement": (
         "Inspect replaced type-limit roles and confirm replacement coverage."
     ),
+}
+_MISSING_RECOMMENDED_CAUSE_PRIORITY = {
+    "dropped_by_type_limit": 0,
+    "dropped_by_fanout_limit": 1,
+    "dropped_candidate": 2,
+    "candidate_absent": 3,
+    "diagnostic_mismatch": 4,
 }
 
 _BRIDGE_QUERY_FAMILIES = ("multi_hop", "relation_compact", "expanded_focus")
@@ -170,6 +178,16 @@ def query_plan_gap_breakdown(
         "missing_recommended_role_family_counts": _count_mapping(
             query_plan_integrity.get("missing_recommended_role_family_counts")
         ),
+        "missing_recommended_role_family_details": (
+            _missing_recommended_role_family_details(
+                _count_mapping(
+                    query_plan_integrity.get(
+                        "missing_recommended_role_family_counts"
+                    )
+                ),
+                samples=samples,
+            )
+        ),
         "missing_evidence_role_query_family_total": (
             _positive_int(
                 query_plan_integrity.get(
@@ -252,6 +270,40 @@ def _missing_evidence_role_query_family_details(
     return details
 
 
+def _missing_recommended_role_family_details(
+    missing_recommended_role_counts: Mapping[str, int],
+    *,
+    samples: Sequence[object],
+) -> dict[str, dict[str, object]]:
+    details: dict[str, dict[str, object]] = {}
+    for family, count in sorted(
+        missing_recommended_role_counts.items(),
+        key=lambda pair: (-pair[1], pair[0]),
+    ):
+        matching_samples = [
+            sample
+            for sample in samples
+            if isinstance(sample, Mapping)
+            and family in _str_tuple(sample.get("missing_recommended_role_families"))
+        ]
+        cause_counts = Counter(
+            _missing_recommended_role_family_cause(sample, family=family)
+            for sample in matching_samples
+        )
+        details[family] = {
+            "role_family": family,
+            "role_family_label": _role_family_label(family),
+            "impact_count": count,
+            "sample_cause_counts": dict(cause_counts),
+            "action": _missing_recommended_role_family_action(
+                family,
+                cause_counts=cause_counts,
+            ),
+            "sample_case_ids": _sample_case_ids(matching_samples),
+        }
+    return details
+
+
 def _gap_reason_details(
     gap_reason_counts: Mapping[str, int],
     *,
@@ -289,6 +341,7 @@ def _compact_query_plan_gap_sample(sample: Mapping[str, object]) -> dict[str, ob
         "missing_evidence_role_query_families",
         "missing_recommended_role_families",
         "selected_role_families",
+        "dropped_role_families",
         "required_evidence_roles",
         "dropped_roles",
         "dropped_type_limit_roles",
@@ -347,6 +400,106 @@ def _missing_evidence_role_query_family_action(
         f"Add query-plan coverage for the {role_label} role family or map it "
         "to an accepted query family."
     )
+
+
+def _missing_recommended_role_family_cause(
+    sample: Mapping[str, object],
+    *,
+    family: str,
+) -> str:
+    dropped_families = _sample_dropped_role_families(sample)
+    if family in dropped_families:
+        if sample.get("type_limit_hit") is True:
+            return "dropped_by_type_limit"
+        if sample.get("fanout_limit_hit") is True:
+            return "dropped_by_fanout_limit"
+        return "dropped_candidate"
+    if family in set(_str_tuple(sample.get("selected_role_families"))):
+        return "diagnostic_mismatch"
+    return "candidate_absent"
+
+
+def _sample_dropped_role_families(sample: Mapping[str, object]) -> set[str]:
+    families = set(_str_tuple(sample.get("dropped_role_families")))
+    for role in _str_tuple(sample.get("dropped_roles")):
+        families.update(_query_role_families(role))
+    return families
+
+
+def _query_role_families(role: str) -> tuple[str, ...]:
+    role_key = str(role or "").strip()
+    if role_key in {"original_question", "fallback_original"}:
+        return ("base_query",)
+    if role_key == "expanded_focus":
+        return ("expanded_focus",)
+    if role_key == "compact_relation":
+        return ("relation_compact",)
+    if role_key == "causal_support":
+        return ("relation_compact", "causal_support")
+    if role_key in {"favorite_support", "preference_support"}:
+        return ("relation_compact", "preference_support")
+    if role_key == "location_support":
+        return ("relation_compact", "location_support")
+    if role_key in {
+        "commonality_support",
+        "contrast_support",
+        "count_support",
+        "list_support",
+        "negative_support",
+        "value_support",
+        "visual_support",
+    }:
+        return (role_key,)
+    if role_key == "visual_temporal_support":
+        return ("visual_support", "temporal_support")
+    if role_key.endswith("_temporal_support"):
+        return ("temporal_support",)
+    if role_key == "temporal_support":
+        return ("temporal_support",)
+    if role_key.startswith("multi_hop"):
+        return ("multi_hop",)
+    if role_key in _PROFILE_SUPPORT_ROLES:
+        return ("relation_compact",)
+    return (role_key,) if role_key else ()
+
+
+def _missing_recommended_role_family_action(
+    family: str,
+    *,
+    cause_counts: Mapping[str, int],
+) -> str:
+    family_label = _role_family_label(family)
+    if not cause_counts:
+        return f"Inspect missing recommended {family_label} query coverage."
+    top_cause = sorted(
+        cause_counts.items(),
+        key=lambda pair: (
+            -pair[1],
+            _MISSING_RECOMMENDED_CAUSE_PRIORITY.get(pair[0], 99),
+            pair[0],
+        ),
+    )[0][0]
+    if top_cause == "dropped_by_type_limit":
+        return (
+            f"Preserve {family_label} queries when type limits replace or drop "
+            "candidate query families."
+        )
+    if top_cause == "dropped_by_fanout_limit":
+        return (
+            f"Preserve {family_label} queries before the query fanout cap drops "
+            "lower-priority recommended coverage."
+        )
+    if top_cause == "dropped_candidate":
+        return (
+            f"Inspect why candidate selection dropped {family_label} query "
+            "coverage."
+        )
+    if top_cause == "diagnostic_mismatch":
+        return (
+            f"Inspect query-plan diagnostics because {family_label} appears "
+            "selected but is still reported missing."
+        )
+    return f"Add candidate generation for recommended {family_label} queries."
 
 
 def _gap_reason_action(reason: str) -> str:
