@@ -1002,7 +1002,6 @@ def _compact_selected_evidence_actionable_samples(
             "risk_reason_codes",
             "planner_reason_codes",
             "query_roles",
-            "source_refs",
             "answerability_reason_codes",
             "source_locality_reason_codes",
             "retrieval_sources",
@@ -1020,6 +1019,11 @@ def _compact_selected_evidence_actionable_samples(
                 compact[key] = list(
                     values[:_MAX_SELECTED_EVIDENCE_ACTIONABLE_SAMPLE_VALUES]
                 )
+        source_refs = _compact_selected_evidence_source_refs(
+            sample.get("source_refs")
+        )
+        if source_refs:
+            compact["source_refs"] = list(source_refs)
         for key in ("retrieval_order", "source_ref_count"):
             value = _positive_int(sample.get(key)) or 0
             if value:
@@ -1036,6 +1040,13 @@ def _compact_selected_evidence_actionable_samples(
         if len(compact_samples) >= _MAX_SELECTED_EVIDENCE_ACTIONABLE_SAMPLES:
             break
     return tuple(compact_samples)
+
+
+def _compact_selected_evidence_source_refs(value: object) -> tuple[str, ...]:
+    return _compact_diagnostic_source_refs(
+        value,
+        limit=_MAX_SELECTED_EVIDENCE_ACTIONABLE_SAMPLE_VALUES,
+    )
 
 
 def _compact_answer_context_actionable_samples(
@@ -1239,17 +1250,28 @@ def _compact_temporal_grounding_actionable_samples(
 
 
 def _compact_temporal_grounding_source_refs(value: object) -> tuple[str, ...]:
+    return _compact_diagnostic_source_refs(
+        value,
+        limit=_MAX_TEMPORAL_GROUNDING_ACTIONABLE_SAMPLE_VALUES,
+    )
+
+
+def _compact_diagnostic_source_refs(
+    value: object,
+    *,
+    limit: int,
+) -> tuple[str, ...]:
     refs: list[str] = []
     for raw_ref in _str_tuple(value):
-        for ref in _safe_temporal_grounding_source_refs_for_value(raw_ref):
+        for ref in _safe_diagnostic_source_refs_for_value(raw_ref):
             if ref and ref not in refs:
                 refs.append(ref)
-            if len(refs) >= _MAX_TEMPORAL_GROUNDING_ACTIONABLE_SAMPLE_VALUES:
+            if len(refs) >= limit:
                 return tuple(refs)
     return tuple(refs)
 
 
-def _safe_temporal_grounding_source_refs_for_value(value: object) -> tuple[str, ...]:
+def _safe_diagnostic_source_refs_for_value(value: object) -> tuple[str, ...]:
     safe_ref = _safe_source_identity_ref(value)
     if safe_ref:
         return (safe_ref,)

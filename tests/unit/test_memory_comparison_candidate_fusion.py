@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from infinity_context_server.memory_comparison_candidate_fusion import fuse_query_results
 from infinity_context_server.memory_comparison_models import RetrievedMemory
 
@@ -439,6 +441,73 @@ def test_candidate_fusion_selects_local_evidence_within_score_band() -> None:
             "source_refs_sample": ["D2:9", "D2:8", "D2:10", "D2:11"],
         }
     ]
+
+
+def test_candidate_fusion_evidence_selection_sample_sanitizes_source_refs() -> None:
+    broad_chunk = RetrievedMemory(
+        item_id="private-support",
+        rank=1,
+        score=0.82,
+        text=(
+            "Summary: D1:2 Morgan discussed the private plan, support, "
+            "follow-up options, and next steps."
+        ),
+        source_refs=(
+            "locomo:conv-private:session_1:D1:2:chunk-secret-token",
+            "provider-private-payload",
+        ),
+        metadata={
+            "item_type": "chunk",
+            "diagnostics": {"retrieval_sources": ["semantic_chunks"]},
+        },
+    )
+    raw_turn = RetrievedMemory(
+        item_id="private-support",
+        rank=2,
+        score=0.805,
+        text="D1:2 Morgan: The support plan is ready.",
+        source_refs=("locomo:conv-private:session_1:D1:2:turn-secret-token",),
+        metadata={
+            "item_type": "raw_turn",
+            "diagnostics": {"retrieval_sources": ["raw_turns"]},
+        },
+    )
+
+    fused, diagnostics = fuse_query_results(
+        (("semantic", (broad_chunk,)), ("raw-turn", (raw_turn,)))
+    )
+
+    assert len(fused) == 1
+    assert diagnostics["lower_score_evidence_selection_count"] == 1
+    assert diagnostics["evidence_selection_samples"] == [
+        {
+            "dedupe_key": "source_session_turn_refs:session_1:D1:2",
+            "reason_codes": [
+                "lower_score_within_band",
+                "different_source_type",
+                "higher_evidence_quality",
+            ],
+            "query_match_count": 2,
+            "score_winner_item_id": "private-support",
+            "score_winner_query_role": "",
+            "score_winner_source_type": "chunk",
+            "winner_score": 0.82,
+            "selected_evidence_item_id": "private-support",
+            "selected_evidence_query_role": "",
+            "selected_evidence_source_type": "raw_turn",
+            "selected_evidence_score": 0.805,
+            "selected_evidence_quality_score": 0.29,
+            "source_ref_count": 3,
+            "source_refs_sample": [
+                "source_session_turn_refs:session_1:D1:2",
+                "source_turn_refs:D1:2",
+            ],
+        }
+    ]
+    serialized = json.dumps(diagnostics["evidence_selection_samples"])
+    assert "locomo:conv-private" not in serialized
+    assert "secret-token" not in serialized
+    assert "provider-private-payload" not in serialized
 
 
 def test_candidate_fusion_penalizes_generated_summary_evidence() -> None:
