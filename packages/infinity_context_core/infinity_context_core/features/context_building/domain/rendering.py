@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from infinity_context_core.features.context_building.domain.context import (
     ContextItem,
     ContextSourceRef,
+)
+from infinity_context_core.features.context_building.domain.prompt_sections import (
+    PromptSectionPlan,
+    PromptSectionPlanner,
 )
 
 
@@ -16,6 +20,7 @@ class EvidenceRenderPolicy:
 
     heading: str = "Memory evidence (untrusted)"
     include_sources: bool = True
+    include_section_titles: bool = True
     max_item_chars: int | None = None
 
     def __post_init__(self) -> None:
@@ -30,29 +35,38 @@ class ContextEvidenceRenderer:
     """Render memory as quoted evidence records, never as direct instructions."""
 
     policy: EvidenceRenderPolicy = EvidenceRenderPolicy()
+    section_planner: PromptSectionPlanner = field(default_factory=PromptSectionPlanner)
 
     def render(self, items: tuple[ContextItem, ...]) -> str:
-        if not items:
+        return self.render_plan(self.section_planner.plan(items))
+
+    def render_plan(self, plan: PromptSectionPlan) -> str:
+        if not plan.sections:
             return ""
 
         lines = [self.policy.heading]
-        for index, item in enumerate(items, start=1):
-            sources = _format_sources(item)
-            text = _normalize_text(item.text)
-            if self.policy.max_item_chars is not None:
-                text = _truncate(text, self.policy.max_item_chars)
+        index = 1
+        for section in plan.sections:
+            if self.policy.include_section_titles:
+                lines.append(f"[{section.section_id}] {section.title}")
+            for item in section.items:
+                sources = _format_sources(item)
+                text = _normalize_text(item.text)
+                if self.policy.max_item_chars is not None:
+                    text = _truncate(text, self.policy.max_item_chars)
 
-            labels = [
-                f"item={item.item_id}",
-                f"kind={item.kind}",
-                f"role={item.role}",
-                f"priority={item.priority}",
-            ]
-            if self.policy.include_sources:
-                labels.append(f"sources={sources}")
+                labels = [
+                    f"item={item.item_id}",
+                    f"kind={item.kind}",
+                    f"role={item.role}",
+                    f"priority={item.priority}",
+                ]
+                if self.policy.include_sources:
+                    labels.append(f"sources={sources}")
 
-            lines.append(f"{index}. {'; '.join(labels)}")
-            lines.append(f'   quote: "{text}"')
+                lines.append(f"{index}. {'; '.join(labels)}")
+                lines.append(f'   quote: "{text}"')
+                index += 1
 
         return "\n".join(lines)
 

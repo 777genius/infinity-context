@@ -24,6 +24,24 @@ from infinity_context_core.features.context_building.domain.feature import (
     FEATURE_ID,
     ContextBuildingFeature,
 )
+from infinity_context_core.features.context_building.domain.prompt_sections import (
+    CRITICAL_SECTION_ID,
+    LOW_TRUST_SECTION_ID,
+    PRIMARY_SECTION_ID,
+    SUPPORTING_SECTION_ID,
+    PromptEvidenceSection,
+    PromptSectionPlan,
+    PromptSectionPlanner,
+    PromptSectionPolicy,
+)
+from infinity_context_core.features.context_building.domain.query_pipeline import (
+    DEFAULT_QUERY_STOP_WORDS,
+    ContextQueryExpansionPolicy,
+    ContextQueryNormalizationPolicy,
+    ContextQueryPlan,
+    ContextQueryVariant,
+    NormalizedContextQuery,
+)
 from infinity_context_core.features.context_building.domain.rendering import (
     ContextEvidenceRenderer,
     EvidenceRenderPolicy,
@@ -31,6 +49,11 @@ from infinity_context_core.features.context_building.domain.rendering import (
 
 __all__ = (
     "FEATURE_ID",
+    "CRITICAL_SECTION_ID",
+    "DEFAULT_QUERY_STOP_WORDS",
+    "LOW_TRUST_SECTION_ID",
+    "PRIMARY_SECTION_ID",
+    "SUPPORTING_SECTION_ID",
     "ContextBudget",
     "ContextBudgetPolicy",
     "ContextBuildingFeature",
@@ -45,9 +68,18 @@ __all__ = (
     "ContextItemRole",
     "ContextPackingPlan",
     "ContextQuery",
+    "ContextQueryExpansionPolicy",
+    "ContextQueryNormalizationPolicy",
+    "ContextQueryPlan",
+    "ContextQueryVariant",
     "ContextScope",
     "ContextSourceRef",
     "ContextTrustLevel",
     "EvidenceRenderPolicy",
+    "NormalizedContextQuery",
+    "PromptEvidenceSection",
+    "PromptSectionPlan",
+    "PromptSectionPlanner",
+    "PromptSectionPolicy",
     "estimate_token_count",
 )

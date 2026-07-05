@@ -4,7 +4,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TypeAlias
+from typing import TYPE_CHECKING, TypeAlias
+
+if TYPE_CHECKING:
+    from infinity_context_core.features.context_building.domain.prompt_sections import (
+        PromptSectionPlan,
+    )
+    from infinity_context_core.features.context_building.domain.query_pipeline import (
+        ContextQueryPlan,
+    )
 
 ContextItemKind: TypeAlias = str
 ContextItemRole: TypeAlias = str
@@ -119,6 +127,8 @@ class ContextBundle:
     rendered_evidence: str = ""
     max_prompt_tokens: int | None = None
     total_estimated_tokens: int = 0
+    query_plan: "ContextQueryPlan | None" = None
+    prompt_section_plan: "PromptSectionPlan | None" = None
 
 
 def estimate_token_count(text: str) -> int:

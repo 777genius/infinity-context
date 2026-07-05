@@ -9,11 +9,15 @@ from infinity_context_core.features.context_building.application.queries import 
     BuildContextResult,
     PackContextQuery,
     PackContextResult,
+    PlanContextPipelineQuery,
+    PlanContextPipelineResult,
 )
 from infinity_context_core.features.context_building.domain import (
     ContextBudgetPolicy,
     ContextBundle,
     ContextEvidenceRenderer,
+    ContextQueryExpansionPolicy,
+    PromptSectionPlanner,
 )
 from infinity_context_core.features.context_building.ports import (
     ContextCandidateProviderPort,
@@ -29,10 +33,14 @@ class PackContextHandler:
     evidence_renderer: ContextEvidenceRenderer = field(
         default_factory=ContextEvidenceRenderer
     )
+    prompt_section_planner: PromptSectionPlanner = field(
+        default_factory=PromptSectionPlanner
+    )
 
     async def execute(self, query: PackContextQuery) -> PackContextResult:
         plan = self.budget_policy.plan(query.candidates, query.budget)
-        rendered_evidence = self.evidence_renderer.render(plan.selected_items)
+        prompt_section_plan = self.prompt_section_planner.plan(plan.selected_items)
+        rendered_evidence = self.evidence_renderer.render_plan(prompt_section_plan)
         bundle = ContextBundle(
             query=query.query,
             items=plan.selected_items,
@@ -40,6 +48,8 @@ class PackContextHandler:
             rendered_evidence=rendered_evidence,
             max_prompt_tokens=query.budget.max_prompt_tokens,
             total_estimated_tokens=plan.total_estimated_tokens,
+            query_plan=query.query_plan,
+            prompt_section_plan=prompt_section_plan,
         )
         return PackContextResult(bundle=bundle)
 
@@ -53,25 +63,56 @@ class BuildContextHandler:
     evidence_renderer: ContextEvidenceRenderer = field(
         default_factory=ContextEvidenceRenderer
     )
+    query_expansion_policy: ContextQueryExpansionPolicy = field(
+        default_factory=ContextQueryExpansionPolicy
+    )
+    prompt_section_planner: PromptSectionPlanner = field(
+        default_factory=PromptSectionPlanner
+    )
 
     async def execute(self, query: BuildContextQuery) -> BuildContextResult:
+        query_plan = self.query_expansion_policy.plan(query.query)
         request = ContextCandidateRequest(
-            query=query.query,
+            query=query_plan.normalized_query,
             limit=query.candidate_limit,
+            query_plan=query_plan,
         )
         candidates = await self.candidate_provider.find_candidates(request)
         pack_result = await PackContextHandler(
             budget_policy=self.budget_policy,
             evidence_renderer=self.evidence_renderer,
+            prompt_section_planner=self.prompt_section_planner,
         ).execute(
             PackContextQuery(
                 query=query.query,
                 budget=query.budget,
                 candidates=candidates,
                 idempotency_key=query.idempotency_key,
+                query_plan=query_plan,
             )
         )
         return BuildContextResult(bundle=pack_result.bundle)
 
 
-__all__ = ("BuildContextHandler", "PackContextHandler")
+@dataclass(frozen=True, slots=True)
+class PlanContextPipelineHandler:
+    """Plan context retrieval query variants and prompt evidence sections."""
+
+    query_expansion_policy: ContextQueryExpansionPolicy = field(
+        default_factory=ContextQueryExpansionPolicy
+    )
+    prompt_section_planner: PromptSectionPlanner = field(
+        default_factory=PromptSectionPlanner
+    )
+
+    async def execute(
+        self,
+        query: PlanContextPipelineQuery,
+    ) -> PlanContextPipelineResult:
+        return PlanContextPipelineResult(
+            query_plan=self.query_expansion_policy.plan(query.query),
+            prompt_section_plan=self.prompt_section_planner.plan(query.candidates),
+        )
+
+
+__all__ = ("BuildContextHandler", "PackContextHandler", "PlanContextPipelineHandler")

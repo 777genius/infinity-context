@@ -65,9 +65,20 @@ def test_build_context_query_and_result_are_frozen_dataclasses() -> None:
         candidates=(item,),
         idempotency_key="pack-1",
     )
+    pipeline_query = application.PlanContextPipelineQuery(
+        query=query,
+        candidates=(item,),
+        idempotency_key="pipeline-1",
+    )
     bundle = domain.ContextBundle(query=query, items=())
     result = application.BuildContextResult(bundle=bundle)
     pack_result = application.PackContextResult(bundle=bundle)
+    query_plan = domain.ContextQueryExpansionPolicy().plan(query)
+    prompt_section_plan = domain.PromptSectionPlanner().plan((item,))
+    pipeline_result = application.PlanContextPipelineResult(
+        query_plan=query_plan,
+        prompt_section_plan=prompt_section_plan,
+    )
 
     shapes = (
         (
@@ -79,9 +90,19 @@ def test_build_context_query_and_result_are_frozen_dataclasses() -> None:
         (
             application.PackContextQuery,
             pack_query,
-            ("query", "budget", "candidates", "idempotency_key"),
+            ("query", "budget", "candidates", "idempotency_key", "query_plan"),
         ),
         (application.PackContextResult, pack_result, ("bundle",)),
+        (
+            application.PlanContextPipelineQuery,
+            pipeline_query,
+            ("query", "candidates", "idempotency_key"),
+        ),
+        (
+            application.PlanContextPipelineResult,
+            pipeline_result,
+            ("query_plan", "prompt_section_plan"),
+        ),
     )
 
     for shape, value, expected_fields in shapes:
@@ -107,6 +128,7 @@ def test_context_candidate_provider_port_is_protocol_boundary() -> None:
     )
     assert is_dataclass(ports.ContextCandidateRequest)
     assert not hasattr(request, "__dict__")
+    assert request.query_plan is None
     _assert_frozen(request)
 
 
@@ -120,7 +142,12 @@ def test_pack_context_handler_packs_candidates_without_retrieval_port() -> None:
     )
     assert result.bundle.total_estimated_tokens == 4
     assert result.bundle.max_prompt_tokens == 8
+    assert result.bundle.prompt_section_plan is not None
+    assert tuple(
+        section.section_id for section in result.bundle.prompt_section_plan.sections
+    ) == ("primary_evidence",)
     assert "Memory evidence (untrusted)" in result.bundle.rendered_evidence
+    assert "[primary_evidence] Primary evidence" in result.bundle.rendered_evidence
     assert "sources=document:doc-1" in result.bundle.rendered_evidence
 
 
@@ -163,9 +190,16 @@ def test_build_context_handler_uses_ports_budget_policy_and_renderer() -> None:
     result, provider = asyncio.run(_run_build_context_handler())
 
     assert provider.requests[0].limit == 7
+    assert provider.requests[0].query_plan is result.bundle.query_plan
+    assert provider.requests[0].query_plan.search_texts[0] == "How do we deploy?"
+    assert "deploy" in provider.requests[0].query_plan.terms
     assert tuple(item.item_id for item in result.bundle.items) == ("selected",)
     assert tuple(drop.item_id for drop in result.bundle.dropped_items) == ("dropped",)
     assert result.bundle.total_estimated_tokens == 4
+    assert result.bundle.prompt_section_plan is not None
+    assert tuple(
+        section.section_id for section in result.bundle.prompt_section_plan.sections
+    ) == ("primary_evidence",)
     assert "Memory evidence (untrusted)" in result.bundle.rendered_evidence
     assert "sources=document:doc-1#chunk-1" in result.bundle.rendered_evidence
 
@@ -223,6 +257,8 @@ def test_context_building_public_api_exports_application_domain_and_ports() -> N
         "BuildContextQuery": application,
         "BuildContextResult": application,
         "BuildContextUseCase": application,
+        "CRITICAL_SECTION_ID": domain,
+        "DEFAULT_QUERY_STOP_WORDS": domain,
         "ContextBudget": domain,
         "ContextBudgetPolicy": domain,
         "ContextBuildingUseCases": application,
@@ -234,18 +270,78 @@ def test_context_building_public_api_exports_application_domain_and_ports() -> N
         "ContextItem": domain,
         "ContextPackingPlan": domain,
         "ContextQuery": domain,
+        "ContextQueryExpansionPolicy": domain,
+        "ContextQueryNormalizationPolicy": domain,
+        "ContextQueryPlan": domain,
+        "ContextQueryVariant": domain,
         "ContextScope": domain,
         "ContextSourceRef": domain,
         "EvidenceRenderPolicy": domain,
+        "LOW_TRUST_SECTION_ID": domain,
+        "NormalizedContextQuery": domain,
         "PackContextHandler": application,
         "PackContextQuery": application,
         "PackContextResult": application,
         "PackContextUseCase": application,
+        "PlanContextPipelineHandler": application,
+        "PlanContextPipelineQuery": application,
+        "PlanContextPipelineResult": application,
+        "PlanContextPipelineUseCase": application,
+        "PRIMARY_SECTION_ID": domain,
+        "PromptEvidenceSection": domain,
+        "PromptSectionPlan": domain,
+        "PromptSectionPlanner": domain,
+        "PromptSectionPolicy": domain,
+        "SUPPORTING_SECTION_ID": domain,
     }
 
     assert expected_exports.keys() <= set(public.__all__)
     for name, module in expected_exports.items():
         assert getattr(public, name) is getattr(module, name)
+
+
+def test_plan_context_pipeline_handler_returns_query_and_prompt_plans() -> None:
+    result = asyncio.run(_run_plan_context_pipeline_handler())
+
+    assert result.query_plan.normalized_query.text == "Who owns the deploy?"
+    assert result.query_plan.search_texts == (
+        "Who owns the deploy?",
+        "owns deploy runbook",
+        "runbook",
+    )
+    assert tuple(section.section_id for section in result.prompt_section_plan.sections) == (
+        "primary_evidence",
+    )
+
+
+async def _run_plan_context_pipeline_handler() -> object:
+    application = importlib.import_module(APPLICATION_MODULE)
+    domain = importlib.import_module(DOMAIN_MODULE)
+
+    scope = domain.ContextScope(space_id="space-1", memory_scope_id="scope-1")
+    source_ref = domain.ContextSourceRef(source_type="document", source_id="doc-1")
+    evidence = domain.ContextEvidence(
+        text="Ada owns the deploy runbook.",
+        source_refs=(source_ref,),
+    )
+    item = domain.ContextItem(
+        item_id="owner",
+        text="Ada owns the deploy runbook.",
+        evidence=(evidence,),
+        priority=6,
+        estimated_tokens=5,
+    )
+
+    return await application.PlanContextPipelineHandler().execute(
+        application.PlanContextPipelineQuery(
+            query=domain.ContextQuery(
+                scope=scope,
+                text=" Who owns   the deploy? ",
+                tags=("Runbook",),
+            ),
+            candidates=(item,),
+        )
+    )
 
 
 def test_application_ports_and_public_import_only_feature_owned_core() -> None:

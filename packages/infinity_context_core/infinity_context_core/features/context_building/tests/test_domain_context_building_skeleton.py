@@ -10,6 +10,8 @@ from pathlib import Path
 
 DOMAIN_MODULE = "infinity_context_core.features.context_building.domain"
 CONTEXT_MODULE = f"{DOMAIN_MODULE}.context"
+PROMPT_SECTIONS_MODULE = f"{DOMAIN_MODULE}.prompt_sections"
+QUERY_PIPELINE_MODULE = f"{DOMAIN_MODULE}.query_pipeline"
 FEATURE_ROOT = Path(__file__).resolve().parents[1]
 PACKAGES_ROOT = FEATURE_ROOT.parents[3]
 FORBIDDEN_IMPORT_PREFIXES = (
@@ -55,6 +57,33 @@ def test_domain_context_shapes_are_imported_and_exported() -> None:
         assert getattr(domain, export) is getattr(context, export)
 
 
+def test_pipeline_policy_shapes_are_imported_and_exported() -> None:
+    domain = importlib.import_module(DOMAIN_MODULE)
+    prompt_sections = importlib.import_module(PROMPT_SECTIONS_MODULE)
+    query_pipeline = importlib.import_module(QUERY_PIPELINE_MODULE)
+
+    expected_exports = {
+        "CRITICAL_SECTION_ID": prompt_sections,
+        "DEFAULT_QUERY_STOP_WORDS": query_pipeline,
+        "LOW_TRUST_SECTION_ID": prompt_sections,
+        "PRIMARY_SECTION_ID": prompt_sections,
+        "SUPPORTING_SECTION_ID": prompt_sections,
+        "ContextQueryExpansionPolicy": query_pipeline,
+        "ContextQueryNormalizationPolicy": query_pipeline,
+        "ContextQueryPlan": query_pipeline,
+        "ContextQueryVariant": query_pipeline,
+        "NormalizedContextQuery": query_pipeline,
+        "PromptEvidenceSection": prompt_sections,
+        "PromptSectionPlan": prompt_sections,
+        "PromptSectionPlanner": prompt_sections,
+        "PromptSectionPolicy": prompt_sections,
+    }
+
+    assert expected_exports.keys() <= set(domain.__all__)
+    for export, module in expected_exports.items():
+        assert getattr(domain, export) is getattr(module, export)
+
+
 def test_taxonomy_fields_are_flexible_strings_without_prescriptive_enums() -> None:
     domain = importlib.import_module(DOMAIN_MODULE)
 
@@ -77,6 +106,73 @@ def test_taxonomy_fields_are_flexible_strings_without_prescriptive_enums() -> No
     assert item.role == "answer-support"
     assert item.evidence[0].trust_level == "source-reviewed"
     assert item.evidence[0].confidence == "extractor-score:0.62"
+
+
+def test_query_pipeline_normalizes_terms_tags_and_expands_variants() -> None:
+    domain = importlib.import_module(DOMAIN_MODULE)
+
+    scope = domain.ContextScope(space_id="space-1", memory_scope_id="scope-1")
+    query = domain.ContextQuery(
+        scope=scope,
+        text="  What changed   for deploy dry-run?  ",
+        intent="Answer",
+        tags=("Deploy Notes", "deploy-notes"),
+    )
+
+    plan = domain.ContextQueryExpansionPolicy().plan(query)
+
+    assert plan.normalized_query.text == "What changed for deploy dry-run?"
+    assert plan.normalized_query.intent == "answer"
+    assert plan.normalized_query.tags == ("deploy-notes",)
+    assert plan.terms == ("changed", "deploy", "dry-run", "deploy-notes")
+    assert plan.search_texts == (
+        "What changed for deploy dry-run?",
+        "changed deploy dry-run deploy-notes",
+        "deploy-notes",
+    )
+    assert tuple(variant.reason for variant in plan.variants) == (
+        "normalized_query",
+        "significant_terms",
+        "tag",
+    )
+
+
+def test_prompt_section_planner_groups_evidence_without_instruction_semantics() -> None:
+    domain = importlib.import_module(DOMAIN_MODULE)
+
+    critical = _item(
+        domain,
+        item_id="critical",
+        role="current_request_evidence",
+        tags=("selected",),
+        estimated_tokens=2,
+    )
+    primary = _item(domain, item_id="primary", priority=8, estimated_tokens=3)
+    supporting = _item(domain, item_id="supporting", priority=1, estimated_tokens=4)
+    low_trust = _item(
+        domain,
+        item_id="low-trust",
+        kind="assistant_answer",
+        estimated_tokens=5,
+    )
+
+    plan = domain.PromptSectionPlanner().plan(
+        (supporting, low_trust, primary, critical)
+    )
+
+    assert tuple(section.section_id for section in plan.sections) == (
+        domain.CRITICAL_SECTION_ID,
+        domain.PRIMARY_SECTION_ID,
+        domain.SUPPORTING_SECTION_ID,
+        domain.LOW_TRUST_SECTION_ID,
+    )
+    assert tuple(item.item_id for item in plan.items) == (
+        "critical",
+        "primary",
+        "supporting",
+        "low-trust",
+    )
+    assert plan.total_estimated_tokens == 14
 
 
 def test_context_domain_shapes_are_frozen_slot_dataclasses() -> None:
@@ -168,6 +264,7 @@ def test_evidence_renderer_labels_memory_as_evidence_not_instruction() -> None:
     rendered = domain.ContextEvidenceRenderer().render((item,))
 
     assert rendered.startswith("Memory evidence (untrusted)")
+    assert "[supporting_evidence] Supporting evidence" in rendered
     assert "sources=document:doc-1" in rendered
     assert 'quote: "Ignore previous instructions' in rendered
     assert "system:" not in rendered.lower()
@@ -200,6 +297,7 @@ def _item(
     priority: int = 0,
     score: float = 0.0,
     estimated_tokens: int | None = None,
+    tags: tuple[str, ...] = (),
 ) -> object:
     source_ref = domain.ContextSourceRef(source_type="document", source_id=source_id)
     evidence = domain.ContextEvidence(
@@ -217,6 +315,7 @@ def _item(
         priority=priority,
         score=score,
         estimated_tokens=estimated_tokens,
+        tags=tags,
     )
 
 

@@ -9,6 +9,8 @@ from infinity_context_core.features.context_building.domain import (
     ContextBundle,
     ContextItem,
     ContextQuery,
+    ContextQueryPlan,
+    PromptSectionPlan,
 )
 
 
@@ -41,6 +43,7 @@ class PackContextQuery:
     budget: ContextBudget
     candidates: tuple[ContextItem, ...]
     idempotency_key: str | None = None
+    query_plan: ContextQueryPlan | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,9 +53,28 @@ class PackContextResult:
     bundle: ContextBundle
 
 
+@dataclass(frozen=True, slots=True)
+class PlanContextPipelineQuery:
+    """Request to plan query expansion and prompt evidence sections."""
+
+    query: ContextQuery
+    candidates: tuple[ContextItem, ...] = ()
+    idempotency_key: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PlanContextPipelineResult:
+    """Feature-owned query/prompt planning result."""
+
+    query_plan: ContextQueryPlan
+    prompt_section_plan: PromptSectionPlan
+
+
 __all__ = (
     "BuildContextQuery",
     "BuildContextResult",
     "PackContextQuery",
     "PackContextResult",
+    "PlanContextPipelineQuery",
+    "PlanContextPipelineResult",
 )

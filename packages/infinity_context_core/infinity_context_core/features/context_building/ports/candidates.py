@@ -8,6 +8,7 @@ from typing import Protocol
 from infinity_context_core.features.context_building.domain import (
     ContextItem,
     ContextQuery,
+    ContextQueryPlan,
 )
 
 
@@ -17,6 +18,7 @@ class ContextCandidateRequest:
 
     query: ContextQuery
     limit: int = 20
+    query_plan: ContextQueryPlan | None = None
 
     def __post_init__(self) -> None:
         if self.limit < 1:
