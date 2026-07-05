@@ -30,11 +30,20 @@ from infinity_context_server.memory_comparison_quality_accessors import (
 from infinity_context_server.memory_comparison_quality_accessors import (
     str_tuple as _str_tuple,
 )
+from infinity_context_server.memory_comparison_source_identity import (
+    safe_source_identity_ref as _safe_source_identity_ref,
+)
+from infinity_context_server.memory_comparison_source_identity import (
+    safe_turn_ref as _safe_turn_ref,
+)
+from infinity_context_server.memory_comparison_source_identity import (
+    source_identity_refs_from_source_refs as _source_identity_refs_from_source_refs,
+)
 
 _SELECTED_WEAKNESS_SAMPLE_LIMIT = 10
 _SELECTED_WEAKNESS_REASON_LIMIT = 6
 _SELECTED_WEAKNESS_QUERY_ROLE_LIMIT = 6
-_SELECTED_WEAKNESS_SOURCE_REF_LIMIT = 5
+_SELECTED_WEAKNESS_SOURCE_REF_LIMIT = 6
 _SELECTED_WEAKNESS_CATEGORY_SAMPLE_LIMIT = 5
 _SELECTED_WEAKNESS_TEXT_VALUE_LIMIT = 120
 _BROAD_SUMMARY_RISK_CODES = frozenset(
@@ -234,8 +243,9 @@ def _selected_evidence_weakness_sample(
     source_locality_score: float,
 ) -> dict[str, object]:
     source_refs = _source_refs_from_bundle_item(bundle_item)
+    source_ref_count = len(_compact_sample_values(source_refs))
     compact_query_roles = _compact_sample_values(query_roles)
-    compact_source_refs = _compact_sample_values(source_refs)
+    compact_source_refs = _safe_selected_source_refs(source_refs)
     sample: dict[str, object] = {
         "case_id": _compact_sample_text(case_id),
         "group": _compact_sample_text(group),
@@ -272,7 +282,7 @@ def _selected_evidence_weakness_sample(
         "source_refs": _sample_value_list(compact_source_refs)[
             :_SELECTED_WEAKNESS_SOURCE_REF_LIMIT
         ],
-        "source_ref_count": len(compact_source_refs),
+        "source_ref_count": source_ref_count,
     }
     _add_compact_sample_list(
         sample,
@@ -368,6 +378,30 @@ def _add_compact_sample_list(
 def _compact_sample_values(values: Sequence[str]) -> tuple[str, ...]:
     return tuple(
         dict.fromkeys(stripped for value in values if (stripped := value.strip()))
+    )
+
+
+def _safe_selected_source_refs(values: Sequence[str]) -> tuple[str, ...]:
+    refs: list[str] = []
+    for raw_ref in values:
+        for ref in _safe_selected_source_refs_for_value(raw_ref):
+            if ref and ref not in refs:
+                refs.append(ref)
+    return tuple(refs)
+
+
+def _safe_selected_source_refs_for_value(value: object) -> tuple[str, ...]:
+    safe_ref = _safe_source_identity_ref(value)
+    if safe_ref:
+        return (safe_ref,)
+    turn_ref = _safe_turn_ref(value)
+    if turn_ref:
+        return (turn_ref,)
+    return tuple(
+        safe_ref
+        for raw_ref in _source_identity_refs_from_source_refs((str(value or ""),))
+        for safe_ref in (_safe_source_identity_ref(raw_ref),)
+        if safe_ref
     )
 
 

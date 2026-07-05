@@ -1011,6 +1011,34 @@ def test_actionable_selected_evidence_samples_filter_unsafe_source_refs() -> Non
     assert long_ref not in serialized
 
 
+def test_actionable_gap_summary_filters_raw_selected_weakness_source_refs() -> None:
+    raw_provider_ref = "provider:private-token:selected-evidence"
+    summary = actionable_gap_summary(
+        evaluation_count=1,
+        expected_case_count=1,
+        failed_gates=(),
+        query_overlap_count=0,
+        profile_overlap_count=0,
+        intent_overlap_count=0,
+        selected_evidence_weakness={
+            "reason_counts": {"selected_low_answerability": 1},
+            "samples": [
+                {
+                    "case_id": "raw-provider-selected",
+                    "reasons": ["selected_low_answerability"],
+                    "source_refs": [raw_provider_ref, raw_provider_ref, "D1:1"],
+                }
+            ],
+        },
+    )
+
+    sample = summary["top_gap"]["samples"][0]
+
+    assert sample["source_refs"] == ["D1:1"]
+    assert sample["source_ref_count"] == 2
+    assert raw_provider_ref not in json.dumps(summary, sort_keys=True)
+
+
 def test_actionable_gap_summary_caps_query_plan_actionable_samples() -> None:
     long_text = "x" * 200
     samples = [

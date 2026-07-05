@@ -2893,7 +2893,7 @@ def _sanitized_source_ref_count(
     safe_source_refs: Sequence[str],
 ) -> int | None:
     if raw_source_refs and tuple(raw_source_refs) != tuple(safe_source_refs):
-        return len(raw_source_refs)
+        return len(tuple(dict.fromkeys(raw_source_refs)))
     return None
 
 
@@ -3069,7 +3069,6 @@ def _compact_selected_evidence_weakness_samples(
         "source_locality_score",
         "broad_summary",
         "conflict_or_stale",
-        "source_ref_count",
         "risk_reason_count",
         "planner_reason_count",
         "answerability_reason_count",
@@ -3114,6 +3113,18 @@ def _compact_selected_evidence_weakness_samples(
                 values = _compact_sample_values(sample.get(key), limit=6)
             if values:
                 compact[key] = values
+        raw_source_refs = _str_tuple(sample.get("source_refs"))
+        source_refs = tuple(compact.get("source_refs", ()))
+        source_ref_count = _positive_int(sample.get("source_ref_count"))
+        if (source_ref_count is None or source_ref_count == 0) and raw_source_refs:
+            sanitized_source_ref_count = _sanitized_source_ref_count(
+                raw_source_refs,
+                safe_source_refs=source_refs,
+            )
+            if sanitized_source_ref_count is not None:
+                source_ref_count = sanitized_source_ref_count
+        if source_ref_count is not None:
+            compact["source_ref_count"] = source_ref_count
         if compact:
             samples.append(compact)
         if len(samples) >= limit:

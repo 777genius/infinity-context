@@ -371,6 +371,36 @@ def test_compact_fast_gate_summary_bounds_remaining_gap_sample_fields(
     )
 
 
+def test_compact_fast_gate_summary_recounts_sanitized_selected_source_refs(
+    monkeypatch,
+) -> None:
+    raw_provider_ref = "provider:private-token:selected-evidence"
+
+    def fast_gate_metrics(_: object) -> dict[str, object]:
+        return {
+            "schema_version": "fast_gate.v1",
+            "evaluation_count": 1,
+            "expected_case_count": 1,
+            "selected_evidence_weakness": {
+                "samples": [
+                    {
+                        "case_id": "selected-raw-source-ref",
+                        "source_refs": [raw_provider_ref, raw_provider_ref, "D1:1"],
+                    }
+                ],
+            },
+        }
+
+    monkeypatch.setattr(benchmark, "_fast_gate_metrics", fast_gate_metrics)
+
+    summary = benchmark._compact_fast_gate_summary(({"case_id": "case-1"},))
+    sample = summary["selected_evidence_weakness_samples"]["samples"][0]
+
+    assert sample["source_refs"] == ["D1:1"]
+    assert sample["source_ref_count"] == 2
+    assert raw_provider_ref not in json.dumps(summary, sort_keys=True)
+
+
 def test_compact_fast_gate_summary_keeps_selected_weakness_diagnostics_bounded(
     monkeypatch,
 ) -> None:
@@ -471,3 +501,37 @@ def test_compact_fast_gate_summary_keeps_selected_weakness_diagnostics_bounded(
     serialized = json.dumps(summary, sort_keys=True)
     assert long_value not in serialized
     assert raw_memory_text not in serialized
+
+
+def test_compact_backend_metrics_uses_allowlist_without_raw_payloads() -> None:
+    raw_payload = "RAW MEMORY TEXT provider:private-token"
+
+    compact = benchmark._compact_backend_metrics(
+        {
+            "memo-stack": {
+                "ok": True,
+                "total": 1,
+                "accuracy": 1.0,
+                "expected_term_recall": 1.0,
+                "raw_provider_payload": raw_payload,
+                "quality_diagnostics": {
+                    "samples": [{"memory_text": raw_payload}],
+                },
+                "fast_gate": {
+                    "selected_evidence_weakness": {
+                        "samples": [{"source_refs": [raw_payload]}],
+                    },
+                },
+            }
+        }
+    )
+
+    assert compact == {
+        "memo-stack": {
+            "accuracy": 1.0,
+            "expected_term_recall": 1.0,
+            "ok": True,
+            "total": 1,
+        }
+    }
+    assert raw_payload not in json.dumps(compact, sort_keys=True)

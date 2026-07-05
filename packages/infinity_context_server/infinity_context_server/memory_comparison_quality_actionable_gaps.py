@@ -1019,12 +1019,22 @@ def _compact_selected_evidence_actionable_samples(
                 compact[key] = list(
                     values[:_MAX_SELECTED_EVIDENCE_ACTIONABLE_SAMPLE_VALUES]
                 )
-        source_refs = _compact_selected_evidence_source_refs(
-            sample.get("source_refs")
-        )
+        raw_source_refs = _str_tuple(sample.get("source_refs"))
+        source_refs = _compact_selected_evidence_source_refs(raw_source_refs)
         if source_refs:
             compact["source_refs"] = list(source_refs)
-        for key in ("retrieval_order", "source_ref_count"):
+        source_ref_count = _positive_int(sample.get("source_ref_count")) or 0
+        if not source_ref_count:
+            source_ref_count = (
+                _sanitized_source_ref_count(
+                    raw_source_refs,
+                    safe_source_refs=source_refs,
+                )
+                or 0
+            )
+        if source_ref_count:
+            compact["source_ref_count"] = source_ref_count
+        for key in ("retrieval_order",):
             value = _positive_int(sample.get(key)) or 0
             if value:
                 compact[key] = value
@@ -1296,7 +1306,7 @@ def _sanitized_source_ref_count(
     safe_source_refs: Sequence[str],
 ) -> int | None:
     if raw_source_refs and tuple(raw_source_refs) != tuple(safe_source_refs):
-        return len(raw_source_refs)
+        return len(tuple(dict.fromkeys(raw_source_refs)))
     return None
 
 
