@@ -42,9 +42,9 @@ from infinity_context_server.api.v1.scope_resolution import (
 from infinity_context_server.api.v1.source_refs import (
     SourceRefRequest,
     map_source_ref,
-    source_ref_to_response,
 )
 from infinity_context_server.composition import Container
+from infinity_context_server.features.memory_facts import public as memory_facts_feature
 from infinity_context_server.pagination import (
     cursor_datetime,
     cursor_str,
@@ -105,29 +105,7 @@ def map_memory_kind(value: str) -> MemoryKind:
 
 
 def fact_to_response(fact: MemoryFact, indexing_status: str | None = None) -> dict[str, Any]:
-    body: dict[str, Any] = {
-        "id": str(fact.id),
-        "space_id": str(fact.space_id),
-        "memory_scope_id": str(fact.memory_scope_id),
-        "thread_id": str(fact.thread_id) if fact.thread_id else None,
-        "text": fact.text,
-        "kind": fact.kind.value,
-        "status": fact.status.value,
-        "version": fact.version,
-        "confidence": fact.confidence.value,
-        "trust_level": fact.trust_level.value,
-        "classification": fact.classification,
-        "category": fact.category,
-        "tags": list(fact.tags),
-        "ttl_policy": fact.ttl_policy,
-        "expires_at": fact.expires_at.isoformat() if fact.expires_at else None,
-        "source_refs": [source_ref_to_response(ref) for ref in fact.source_refs],
-        "created_at": fact.created_at.isoformat(),
-        "updated_at": fact.updated_at.isoformat(),
-    }
-    if indexing_status is not None:
-        body["indexing_status"] = indexing_status
-    return body
+    return memory_facts_feature.fact_to_response(fact, indexing_status)
 
 
 def related_fact_to_response(item: RelatedFactItem) -> dict[str, Any]:
@@ -195,19 +173,30 @@ async def remember_fact(
         thread_external_ref=request.thread_external_ref,
         thread_required=False,
     )
+    feature_command = memory_facts_feature.remember_fact_request_to_command(
+        request,
+        scope=memory_facts_feature.memory_fact_scope_from_ids(
+            space_id=str(scope.space_id),
+            memory_scope_id=str(scope.memory_scope_id),
+            thread_id=str(scope.thread_id) if scope.thread_id else None,
+        ),
+        idempotency_key=idempotency_key,
+    )
     result = await container.remember_fact.execute(
         RememberFactCommand(
             space_id=scope.space_id,
             memory_scope_id=scope.memory_scope_id,
             thread_id=scope.thread_id,
-            text=request.text,
-            kind=map_memory_kind(request.kind),
-            source_refs=tuple(map_source_ref(ref) for ref in request.source_refs),
+            text=feature_command.text,
+            kind=map_memory_kind(feature_command.kind),
+            source_refs=tuple(
+                map_source_ref(source_ref) for source_ref in feature_command.source_refs
+            ),
             classification=request.classification,
             category=request.category,
             tags=tuple(request.tags),
             ttl_policy=request.ttl_policy,
-            idempotency_key=idempotency_key,
+            idempotency_key=feature_command.idempotency_key,
         )
     )
     if result.indexing_status == "already_indexed_or_pending":
@@ -373,13 +362,25 @@ async def update_fact(
     container: Annotated[Container, Depends(get_container)],
 ) -> dict[str, Any]:
     ensure_server_writes_enabled(container)
+    current = await container.get_fact.execute(GetFactQuery(fact_id=fact_id))
+    feature_command = memory_facts_feature.update_fact_request_to_command(
+        request,
+        scope=memory_facts_feature.memory_fact_scope_from_ids(
+            space_id=str(current.fact.space_id),
+            memory_scope_id=str(current.fact.memory_scope_id),
+            thread_id=str(current.fact.thread_id) if current.fact.thread_id else None,
+        ),
+        fact_id=fact_id,
+    )
     result = await container.update_fact.execute(
         UpdateFactCommand(
-            fact_id=fact_id,
-            expected_version=request.expected_version,
-            text=request.text,
-            reason=request.reason,
-            source_refs=tuple(map_source_ref(ref) for ref in request.source_refs),
+            fact_id=feature_command.identity.fact_id,
+            expected_version=feature_command.expected_version,
+            text=feature_command.text,
+            reason=feature_command.reason or "",
+            source_refs=tuple(
+                map_source_ref(source_ref) for source_ref in feature_command.source_refs
+            ),
         )
     )
     return {"data": fact_to_response(result.fact, result.indexing_status)}
@@ -391,7 +392,18 @@ async def forget_fact(
     container: Annotated[Container, Depends(get_container)],
 ) -> dict[str, Any]:
     ensure_server_writes_enabled(container)
-    result = await container.forget_fact.execute(ForgetFactCommand(fact_id=fact_id))
+    current = await container.get_fact.execute(GetFactQuery(fact_id=fact_id))
+    feature_command = memory_facts_feature.forget_fact_request_to_command(
+        scope=memory_facts_feature.memory_fact_scope_from_ids(
+            space_id=str(current.fact.space_id),
+            memory_scope_id=str(current.fact.memory_scope_id),
+            thread_id=str(current.fact.thread_id) if current.fact.thread_id else None,
+        ),
+        fact_id=fact_id,
+    )
+    result = await container.forget_fact.execute(
+        ForgetFactCommand(fact_id=feature_command.identity.fact_id)
+    )
     return {"data": fact_to_response(result.fact, result.indexing_status)}
 
 

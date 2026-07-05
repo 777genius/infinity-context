@@ -119,6 +119,7 @@ def test_memory_facts_server_feature_public_surface_composes_router() -> None:
         "forget_fact_command_from_http",
         "forget_fact_request_to_command",
         "forget_fact_result_to_contract",
+        "legacy_memory_fact_to_response",
         "memory_fact_result_to_response",
         "memory_fact_scope_from_contract",
         "memory_fact_scope_from_ids",

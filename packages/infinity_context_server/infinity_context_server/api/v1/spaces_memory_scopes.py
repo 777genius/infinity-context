@@ -19,6 +19,7 @@ from infinity_context_server.api.auth import require_service_token
 from infinity_context_server.api.dependencies import get_container
 from infinity_context_server.api.policy import ensure_server_writes_enabled
 from infinity_context_server.composition import Container
+from infinity_context_server.features.memory_scopes import public as memory_scopes_feature
 
 router = APIRouter(tags=["spaces-memory-scopes"], dependencies=[Depends(require_service_token)])
 
@@ -57,15 +58,7 @@ def space_to_response(space: MemorySpace) -> dict[str, Any]:
 
 
 def memory_scope_to_response(memory_scope: MemoryScope) -> dict[str, Any]:
-    return {
-        "id": str(memory_scope.id),
-        "space_id": str(memory_scope.space_id),
-        "external_ref": memory_scope.external_ref,
-        "name": memory_scope.name,
-        "status": memory_scope.status.value,
-        "created_at": memory_scope.created_at.isoformat(),
-        "updated_at": memory_scope.updated_at.isoformat(),
-    }
+    return memory_scopes_feature.memory_scope_to_response(memory_scope)
 
 
 @router.post("/spaces", status_code=status.HTTP_201_CREATED)
@@ -99,11 +92,14 @@ async def create_memory_scope(
     response: Response,
 ) -> dict[str, Any]:
     ensure_server_writes_enabled(container)
+    contract = memory_scopes_feature.create_memory_scope_contract_from_http_request(
+        request,
+    )
     result = await container.create_memory_scope.execute(
         CreateMemoryScopeCommand(
-            space_id=SpaceId(request.space_id),
-            external_ref=request.external_ref,
-            name=request.name,
+            space_id=SpaceId(contract.space_id or ""),
+            external_ref=contract.external_ref,
+            name=contract.name,
         )
     )
     if not result.created:

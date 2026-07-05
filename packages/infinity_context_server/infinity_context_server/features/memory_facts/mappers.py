@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from datetime import datetime
+from math import isfinite
 from typing import Any
 
 from infinity_context_contracts.features.memory_facts import (
@@ -275,6 +276,50 @@ def memory_fact_result_to_response(
     return body
 
 
+def legacy_memory_fact_to_response(
+    fact: object,
+    indexing_status: str | None = None,
+) -> dict[str, Any]:
+    body: dict[str, Any] = {
+        "id": str(_required_value(fact, "id")),
+        "space_id": str(_required_value(fact, "space_id")),
+        "memory_scope_id": str(_required_value(fact, "memory_scope_id")),
+        "thread_id": _optional_identifier(_value(fact, "thread_id", None)),
+        "text": _required_content(fact, "text"),
+        "kind": _enum_or_text(_value(fact, "kind", "note")),
+        "status": _enum_or_text(_value(fact, "status", "active")),
+        "version": int(_required_value(fact, "version")),
+        "confidence": _enum_or_text(_value(fact, "confidence", "medium")),
+        "trust_level": _enum_or_text(_value(fact, "trust_level", "medium")),
+        "classification": str(_value(fact, "classification", "internal")),
+        "category": _optional_text(_value(fact, "category", None)),
+        "tags": list(_value(fact, "tags", ())),
+        "ttl_policy": _optional_text(_value(fact, "ttl_policy", None)),
+        "expires_at": _datetime_to_response(_value(fact, "expires_at", None)),
+        "source_refs": [
+            source_ref_to_response(source_ref)
+            for source_ref in _value(fact, "source_refs", ())
+        ],
+        "created_at": _datetime_to_response(_required_value(fact, "created_at")),
+        "updated_at": _datetime_to_response(_required_value(fact, "updated_at")),
+    }
+    if indexing_status is not None:
+        body["indexing_status"] = indexing_status
+    return body
+
+
+def fact_to_response(
+    fact: MemoryFactSnapshot | object,
+    indexing_status: str | None = None,
+) -> dict[str, Any]:
+    if isinstance(fact, MemoryFactSnapshot):
+        body = memory_fact_snapshot_to_response(fact)
+        if indexing_status is not None:
+            body["indexing_status"] = indexing_status
+        return body
+    return legacy_memory_fact_to_response(fact, indexing_status)
+
+
 def source_ref_to_contract(source_ref: MemoryFactSourceRef) -> MemoryFactSourceRefDto:
     return MemoryFactSourceRefDto(
         source_type=source_ref.source_type,
@@ -290,18 +335,30 @@ def source_ref_to_contract(source_ref: MemoryFactSourceRef) -> MemoryFactSourceR
     )
 
 
-def source_ref_to_response(source_ref: MemoryFactSourceRef) -> dict[str, Any]:
+def source_ref_to_response(source_ref: MemoryFactSourceRef | object) -> dict[str, Any]:
+    quote_preview = _value(source_ref, "quote_preview", None)
+    char_start, char_end = _range_pair(
+        _value(source_ref, "char_start", None),
+        _value(source_ref, "char_end", None),
+    )
+    time_start_ms, time_end_ms = _range_pair(
+        _value(source_ref, "time_start_ms", None),
+        _value(source_ref, "time_end_ms", None),
+    )
     return {
-        "source_type": source_ref.source_type,
-        "source_id": source_ref.source_id,
-        "chunk_id": source_ref.chunk_id,
-        "char_start": source_ref.char_start,
-        "char_end": source_ref.char_end,
-        "quote_preview": source_ref.quote_preview,
-        "page_number": source_ref.page_number,
-        "time_start_ms": source_ref.time_start_ms,
-        "time_end_ms": source_ref.time_end_ms,
-        "bbox": list(source_ref.bbox) if source_ref.bbox is not None else None,
+        "source_type": _safe_public_text(_required_str(source_ref, "source_type"), limit=80),
+        "source_id": _safe_public_text(_required_str(source_ref, "source_id"), limit=160),
+        "chunk_id": _optional_public_text(
+            _value(source_ref, "chunk_id", None),
+            limit=160,
+        ),
+        "char_start": char_start,
+        "char_end": char_end,
+        "quote_preview": _safe_public_text(str(quote_preview)) if quote_preview else None,
+        "page_number": _positive_int(_value(source_ref, "page_number", None)),
+        "time_start_ms": time_start_ms,
+        "time_end_ms": time_end_ms,
+        "bbox": _bbox_to_response(_value(source_ref, "bbox", None)),
     }
 
 
@@ -312,7 +369,6 @@ def evidence_ref_to_response(evidence_ref: MemoryFactEvidenceRef) -> dict[str, A
     }
 
 
-fact_to_response = memory_fact_snapshot_to_response
 fact_result_to_response = memory_fact_result_to_response
 
 
@@ -360,6 +416,69 @@ def _optional_text(value: object) -> str | None:
     return text or None
 
 
+def _optional_identifier(value: object) -> str | None:
+    if value is None:
+        return None
+    return str(value)
+
+
+def _enum_or_text(value: object) -> str:
+    raw = getattr(value, "value", value)
+    return str(raw)
+
+
+def _optional_public_text(value: object, *, limit: int) -> str | None:
+    if value is None:
+        return None
+    text = _safe_public_text(str(value), limit=limit).strip()
+    return text or None
+
+
+def _safe_public_text(value: str, *, limit: int = 500) -> str:
+    return value[:limit]
+
+
+def _range_pair(start: object, end: object) -> tuple[int | None, int | None]:
+    parsed_start = _non_negative_int(start)
+    parsed_end = _non_negative_int(end)
+    if (start is not None and parsed_start is None) or (
+        end is not None and parsed_end is None
+    ):
+        return None, None
+    if parsed_start is not None and parsed_end is not None and parsed_end < parsed_start:
+        return None, None
+    return parsed_start, parsed_end
+
+
+def _positive_int(value: object) -> int | None:
+    parsed = _non_negative_int(value)
+    return parsed if parsed is not None and parsed >= 1 else None
+
+
+def _non_negative_int(value: object) -> int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed >= 0 else None
+
+
+def _bbox_to_response(value: object) -> list[float] | None:
+    if not isinstance(value, (list, tuple)) or len(value) != 4:
+        return None
+    try:
+        bbox = [float(item) for item in value]
+    except (TypeError, ValueError):
+        return None
+    if not all(isfinite(item) for item in bbox):
+        return None
+    if any(item < 0 for item in bbox) or bbox[2] <= bbox[0] or bbox[3] <= bbox[1]:
+        return None
+    return bbox
+
+
 def _string_tuple(values: object) -> tuple[str, ...]:
     if values is None:
         return ()
@@ -391,6 +510,7 @@ __all__ = (
     "forget_fact_command_from_http",
     "forget_fact_request_to_command",
     "forget_fact_result_to_contract",
+    "legacy_memory_fact_to_response",
     "memory_fact_scope_from_contract",
     "memory_fact_result_to_response",
     "memory_fact_scope_from_ids",

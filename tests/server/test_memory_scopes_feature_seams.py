@@ -1,16 +1,15 @@
 from __future__ import annotations
 
 import ast
+import asyncio
 from pathlib import Path
 
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
+import infinity_context_core.features.memory_scopes.public as memory_scopes
+import pytest
 from infinity_context_contracts.features.memory_scopes import (
     CreateMemoryScopeRequestDto,
 )
-import infinity_context_core.features.memory_scopes.public as memory_scopes
 from infinity_context_server.features.memory_scopes import public as server_public
-import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FEATURE_ROOT = (
@@ -136,11 +135,13 @@ def test_memory_scopes_server_feature_public_surface_composes_router() -> None:
         "archive_memory_scope_result_to_response",
         "build_memory_scopes_server_feature",
         "create_memory_scope_command_from_contract",
+        "create_memory_scope_contract_from_http_request",
         "create_memory_scope_result_to_contract",
         "create_memory_scopes_router",
         "memory_scope_actor_from_http",
         "memory_scope_owner_from_http",
         "memory_scope_snapshot_to_contract",
+        "memory_scope_to_response",
         "restore_memory_scope_command_from_http",
         "restore_memory_scope_result_to_response",
         "transfer_memory_scope_ownership_command_from_http",
@@ -293,34 +294,59 @@ def test_memory_scopes_routes_map_http_contracts_to_feature_use_cases() -> None:
         archive_memory_scope=archive_recorder,
         restore_memory_scope=restore_recorder,
     )
-    app = FastAPI()
-    app.include_router(server_public.create_memory_scopes_router(use_cases), prefix="/v1")
-    client = TestClient(app)
-
-    create_response = client.post(
-        "/v1/memory-scopes",
-        json={
-            "space_id": "space_1",
-            "external_ref": "default",
-            "name": "Default",
-            "description": "Default client app memory scope.",
-            "owner": {
-                "principal_id": "owner_1",
-                "principal_kind": "user",
-            },
-        },
+    router = server_public.create_memory_scopes_router(use_cases)
+    create_route = next(
+        route
+        for route in router.routes
+        if route.path == "/memory-scopes" and "POST" in route.methods
+    )
+    transfer_route = next(
+        route
+        for route in router.routes
+        if route.path == "/memory-scopes/{memory_scope_id}/ownership"
+        and "POST" in route.methods
+    )
+    archive_route = next(
+        route
+        for route in router.routes
+        if route.path == "/memory-scopes/{memory_scope_id}/archive"
+        and "POST" in route.methods
+    )
+    restore_route = next(
+        route
+        for route in router.routes
+        if route.path == "/memory-scopes/{memory_scope_id}/restore"
+        and "POST" in route.methods
     )
 
-    assert create_response.status_code == 201
+    create_body = asyncio.run(
+        create_route.endpoint(
+            server_public.CreateMemoryScopeHttpRequest(
+                space_id="space_1",
+                external_ref="default",
+                name="Default",
+                description="Default client app memory scope.",
+                owner=server_public.MemoryScopeOwnerHttpRequest(
+                    principal_id="owner_1",
+                    principal_kind="user",
+                ),
+            )
+        )
+    )
+
+    assert create_route.status_code == 201
     assert len(create_recorder.commands) == 1
     assert create_recorder.commands[0].space_id == "space_1"
     assert create_recorder.commands[0].owner.principal_id == "owner_1"
-    create_body = create_response.json()
     assert create_body["data"]["scope"] == {
         "id": "scope_1",
         "space_id": "space_1",
         "external_ref": "default",
         "name": "Default",
+        "owner": {
+            "principal_id": "owner_1",
+            "principal_kind": "user",
+        },
         "description": "Default client app memory scope.",
         "status": "active",
         "policy_mode": "manual_only",
@@ -335,33 +361,33 @@ def test_memory_scopes_routes_map_http_contracts_to_feature_use_cases() -> None:
     }
     assert create_body["data"]["created"] is True
 
-    transfer_response = client.post(
-        "/v1/memory-scopes/scope_1/ownership",
-        json={
-            "space_id": "space_1",
-            "new_owner": {
-                "principal_id": "owner_2",
-                "principal_kind": "team",
-            },
-            "initiated_by": {
-                "principal_id": "owner_1",
-                "capabilities": ["memory_scope:transfer"],
-            },
-            "expected_current_owner": {
-                "principal_id": "owner_1",
-                "principal_kind": "user",
-            },
-            "reason": "owner rotation",
-        },
+    transfer_body = asyncio.run(
+        transfer_route.endpoint(
+            "scope_1",
+            server_public.TransferMemoryScopeOwnershipHttpRequest(
+                space_id="space_1",
+                new_owner=server_public.MemoryScopeOwnerHttpRequest(
+                    principal_id="owner_2",
+                    principal_kind="team",
+                ),
+                initiated_by=server_public.MemoryScopeActorHttpRequest(
+                    principal_id="owner_1",
+                    capabilities=["memory_scope:transfer"],
+                ),
+                expected_current_owner=server_public.MemoryScopeOwnerHttpRequest(
+                    principal_id="owner_1",
+                    principal_kind="user",
+                ),
+                reason="owner rotation",
+            ),
+        )
     )
 
-    assert transfer_response.status_code == 200
     assert len(transfer_recorder.commands) == 1
     transfer_command = transfer_recorder.commands[0]
     assert transfer_command.identity.memory_scope_id == "scope_1"
     assert transfer_command.new_owner.principal_id == "owner_2"
     assert transfer_command.initiated_by.capabilities == ("memory_scope:transfer",)
-    transfer_body = transfer_response.json()
     assert transfer_body["data"]["scope"]["metadata"]["owner"] == {
         "principal_id": "owner_2",
         "principal_kind": "team",
@@ -372,20 +398,21 @@ def test_memory_scopes_routes_map_http_contracts_to_feature_use_cases() -> None:
     }
     assert transfer_body["data"]["transferred"] is True
 
-    archive_response = client.post(
-        "/v1/memory-scopes/scope_1/archive",
-        json={
-            "space_id": "space_1",
-            "initiated_by": {
-                "principal_id": "owner_1",
-                "capabilities": ["memory_scope:lifecycle"],
-            },
-            "expected_status": "active",
-            "reason": "hide default memory",
-        },
+    archive_body = asyncio.run(
+        archive_route.endpoint(
+            "scope_1",
+            server_public.ArchiveMemoryScopeHttpRequest(
+                space_id="space_1",
+                initiated_by=server_public.MemoryScopeActorHttpRequest(
+                    principal_id="owner_1",
+                    capabilities=["memory_scope:lifecycle"],
+                ),
+                expected_status="active",
+                reason="hide default memory",
+            ),
+        )
     )
 
-    assert archive_response.status_code == 200
     assert len(archive_recorder.commands) == 1
     archive_command = archive_recorder.commands[0]
     assert archive_command.identity == memory_scopes.MemoryScopeIdentity(
@@ -396,25 +423,25 @@ def test_memory_scopes_routes_map_http_contracts_to_feature_use_cases() -> None:
         "memory_scope:lifecycle",
     )
     assert archive_command.expected_status == "active"
-    archive_body = archive_response.json()
     assert archive_body["data"]["scope"]["status"] == "archived"
     assert archive_body["data"]["previous_status"] == "active"
     assert archive_body["data"]["archived"] is True
 
-    restore_response = client.post(
-        "/v1/memory-scopes/scope_1/restore",
-        json={
-            "space_id": "space_1",
-            "initiated_by": {
-                "principal_id": "owner_1",
-                "capabilities": ["memory_scope:lifecycle"],
-            },
-            "expected_status": "archived",
-            "reason": "memory needed again",
-        },
+    restore_body = asyncio.run(
+        restore_route.endpoint(
+            "scope_1",
+            server_public.RestoreMemoryScopeHttpRequest(
+                space_id="space_1",
+                initiated_by=server_public.MemoryScopeActorHttpRequest(
+                    principal_id="owner_1",
+                    capabilities=["memory_scope:lifecycle"],
+                ),
+                expected_status="archived",
+                reason="memory needed again",
+            ),
+        )
     )
 
-    assert restore_response.status_code == 200
     assert len(restore_recorder.commands) == 1
     restore_command = restore_recorder.commands[0]
     assert restore_command.identity == memory_scopes.MemoryScopeIdentity(
@@ -423,7 +450,6 @@ def test_memory_scopes_routes_map_http_contracts_to_feature_use_cases() -> None:
     )
     assert restore_command.expected_status == "archived"
     assert restore_command.reason == "memory needed again"
-    restore_body = restore_response.json()
     assert restore_body["data"]["scope"]["status"] == "active"
     assert restore_body["data"]["previous_status"] == "archived"
     assert restore_body["data"]["restored"] is True
@@ -447,14 +473,13 @@ def test_memory_scopes_server_slice_uses_only_public_feature_boundaries() -> Non
     for path in sorted(FEATURE_ROOT.rglob("*.py")):
         for imported in _imports(path):
             rel = path.relative_to(REPO_ROOT)
-            if imported.startswith("infinity_context_core.features."):
-                if not imported.endswith(".public"):
-                    violations.append(f"{rel}: imports {imported}")
+            if imported.startswith(
+                "infinity_context_core.features."
+            ) and not imported.endswith(".public"):
+                violations.append(f"{rel}: imports {imported}")
             if imported == "infinity_context_core" or any(
                 imported.startswith(f"{prefix}.") for prefix in forbidden_prefixes
-            ):
-                violations.append(f"{rel}: imports {imported}")
-            elif imported in forbidden_prefixes:
+            ) or imported in forbidden_prefixes:
                 violations.append(f"{rel}: imports {imported}")
 
     assert violations == []
