@@ -4,6 +4,7 @@ import ast
 import asyncio
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import infinity_context_core.features.context_building.public as context_building
 import pytest
@@ -99,6 +100,7 @@ def test_context_building_server_feature_public_surface_composes_router() -> Non
         "ContextBudgetHttpRequest",
         "ContextBuildingServerFeature",
         "FEATURE_ID",
+        "LegacyContextApiResponseMapper",
         "build_context_building_server_feature",
         "build_context_query_from_contract",
         "build_context_result_to_contract",
@@ -215,6 +217,133 @@ def test_context_building_route_maps_http_contract_to_feature_use_case() -> None
     }
 
 
+def test_context_building_legacy_response_mapper_shapes_context_and_search_payloads() -> None:
+    mapper = _legacy_response_mapper_for_tests()
+    source_ref = SimpleNamespace(
+        source_type="document",
+        source_id="doc_1",
+        chunk_id="chunk_1",
+        char_start=0,
+        char_end=37,
+        quote_preview="Postgres owns canonical lifecycle.",
+        page_number=None,
+        time_start_ms=None,
+        time_end_ms=None,
+        bbox=None,
+    )
+    item = SimpleNamespace(
+        item_id="ctx 1",
+        item_type="document chunk",
+        text="Postgres owns canonical lifecycle.",
+        score=0.97,
+        source_refs=(source_ref,),
+        is_instruction=False,
+        diagnostics={
+            "memory_scope_id": "scope_1",
+            "retrieval_source": "keyword_chunks",
+            "evidence_kind": "source_quote",
+            "evidence_confidence": 0.9,
+        },
+    )
+    bundle = SimpleNamespace(
+        bundle_id="bundle_1",
+        rendered_text="[1] Postgres owns canonical lifecycle.",
+        items=(item,),
+        diagnostics={"items_used": 1},
+    )
+
+    context_response = mapper.context_response_from_bundle(
+        bundle,
+        request_id="req_context",
+    )
+    search_response = mapper.search_response_from_bundle(
+        bundle,
+        request_id="req_search",
+    )
+    disabled_search = mapper.empty_search_response(
+        policy_mode="disabled",
+        request_id="req_disabled",
+        consistency_mode="best_effort",
+        include_answer_support=False,
+    )
+
+    context_data = context_response["data"]
+    assert context_data["bundle_id"] == "bundle_1"
+    assert context_data["rendered_text"] == "[1] Postgres owns canonical lifecycle."
+    assert context_data["items"][0]["source_refs"][0]["quote_preview"] == (
+        "Postgres owns canonical lifecycle."
+    )
+    assert context_data["items"][0]["citations"][0]["citation_id"] == (
+        "document_chunk:ctx_1:citation:1"
+    )
+    assert context_data["items"][0]["citations"][0]["char_range"] == {
+        "start": 0,
+        "end": 37,
+    }
+    assert context_data["top_evidence"][0]["reasons"] == [
+        "high_context_score",
+        "retrieved_by:keyword_chunks",
+        "quote_preview",
+        "kind:source_quote",
+    ]
+    assert context_data["answer_support"]["status"] == "strong"
+    assert context_data["diagnostics"]["source_refs_total"] == 1
+    assert context_data["diagnostics"]["answer_support_cited_count"] == 1
+
+    assert search_response["data"]["next_cursor"] is None
+    assert search_response["data"]["items"] == context_data["items"]
+    assert "answer_support" not in disabled_search["data"]
+
+
+def _legacy_response_mapper_for_tests() -> server_public.LegacyContextApiResponseMapper:
+    def normalize_context_diagnostics(diagnostics: object) -> dict[str, object]:
+        return dict(diagnostics) if isinstance(diagnostics, dict) else {}
+
+    def normalize_context_bundle_diagnostics(
+        diagnostics: dict[str, Any],
+        *,
+        items: object,
+    ) -> dict[str, object]:
+        normalized = dict(diagnostics)
+        normalized["items_used"] = len(tuple(items))
+        normalized.setdefault("retrieval_sources_used", [])
+        normalized.setdefault("hybrid_items_used", 0)
+        normalized.setdefault("temporal_replacements_applied", 0)
+        return normalized
+
+    def safe_public_metadata(
+        metadata: object,
+        *,
+        max_items: int = 260,
+    ) -> dict[str, Any]:
+        return dict(metadata) if isinstance(metadata, dict) else {}
+
+    def safe_public_text(value: str, *, limit: int = 500) -> str:
+        return str(value)[:limit]
+
+    def source_ref_to_response(ref: object) -> dict[str, Any]:
+        return {
+            "source_type": safe_public_text(str(ref.source_type), limit=80),
+            "source_id": safe_public_text(str(ref.source_id), limit=160),
+            "chunk_id": ref.chunk_id,
+            "char_start": ref.char_start,
+            "char_end": ref.char_end,
+            "quote_preview": ref.quote_preview,
+            "page_number": ref.page_number,
+            "time_start_ms": ref.time_start_ms,
+            "time_end_ms": ref.time_end_ms,
+            "bbox": ref.bbox,
+        }
+
+    return server_public.LegacyContextApiResponseMapper(
+        normalize_context_diagnostics=normalize_context_diagnostics,
+        normalize_context_bundle_diagnostics=normalize_context_bundle_diagnostics,
+        safe_public_metadata=safe_public_metadata,
+        safe_public_text=safe_public_text,
+        source_ref_to_response=source_ref_to_response,
+    )
+
+
 def test_context_building_server_slice_uses_only_public_feature_boundaries() -> None:
     violations: list[str] = []
     forbidden_prefixes = (
@@ -256,6 +385,13 @@ def test_legacy_context_api_uses_context_building_server_public_seam_only() -> N
         "import public as context_building_server"
     ) in source
     assert "context_building_server.build_context_query_from_contract" in source
+    assert "context_building_server.LegacyContextApiResponseMapper" in source
+    assert (
+        "return _LEGACY_CONTEXT_API_RESPONSES.context_item_to_response(item)"
+    ) in source
+    assert "def _source_ref_to_citation(" not in source
+    assert "def _answer_support_coverage(" not in source
+    assert "def _top_evidence_candidate(" not in source
 
     violations: list[str] = []
     for imported in _imports(LEGACY_CONTEXT_API):

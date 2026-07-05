@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 
+import infinity_context_core.features.context_building.public as context_building
 from infinity_context_contracts.features.context_building import (
     BuildContextRequestDto,
     BuildContextResultDto,
@@ -12,7 +13,6 @@ from infinity_context_contracts.features.context_building import (
     ContextEvidenceDto,
     ContextItemDto,
 )
-import infinity_context_core.features.context_building.public as context_building
 
 DEFAULT_CONTEXT_TOKEN_BUDGET = 1800
 DEFAULT_CANDIDATE_LIMIT = 20

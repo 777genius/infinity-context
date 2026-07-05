@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, status
 import infinity_context_core.features.context_building.public as context_building
+from fastapi import APIRouter, HTTPException, status
 
 from infinity_context_server.features.context_building.contracts import (
     BuildContextHttpRequest,

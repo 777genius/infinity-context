@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from fastapi import APIRouter
 import infinity_context_core.features.context_building.public as context_building
+from fastapi import APIRouter
 
 from infinity_context_server.features.context_building.routes import (
     create_context_building_router,
