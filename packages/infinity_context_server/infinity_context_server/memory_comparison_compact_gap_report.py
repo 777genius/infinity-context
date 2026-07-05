@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping, Sequence
 
+from infinity_context_core.application.sensitive_text import redact_sensitive_text
+
 _COVERAGE_GAP_LIMIT = 5
 _WEAK_SIGNAL_LIMIT = 5
 _SAMPLE_CASE_ID_LIMIT = 5
@@ -12,6 +14,7 @@ _LOCALITY_SAMPLE_LIMIT = 5
 _LOCALITY_WINDOW_LIMIT = 3
 _REF_TEXT_LIMIT = 128
 _TEXT_LIMIT = 180
+_REDACTED_TEXT = "[redacted]"
 _SAFE_SOURCE_REF_RE = re.compile(
     r"(?<![A-Za-z0-9_])(?:(?P<session>session_\d+):)?"
     r"(?P<source>D\d+)(?::(?P<turn>\d+))?(?![A-Za-z0-9_])",
@@ -53,7 +56,7 @@ def compact_evidence_bundle_gap_report(value: object) -> dict[str, object]:
             ]
             if _mapping(signal)
         ],
-        "top_action": _text(report.get("top_action")),
+        "top_action": _safe_text(report.get("top_action")),
     }
 
 
@@ -71,7 +74,7 @@ def compact_text_list(
     values = []
     seen: set[str] = set()
     for item in items:
-        text = _text(item, limit=text_limit)
+        text = _safe_text(item, limit=text_limit)
         if text and text not in seen:
             values.append(text)
             seen.add(text)
@@ -96,8 +99,8 @@ def compact_evidence_ref_list(
     for item in items:
         text = _safe_turn_ref(item, limit=text_limit)
         if not text:
-            text = _text(item, limit=text_limit)
-            if _looks_like_raw_source_ref(text):
+            text = _safe_text(item, limit=text_limit)
+            if text == _REDACTED_TEXT:
                 continue
         if text and text not in seen:
             values.append(text)
@@ -110,10 +113,10 @@ def compact_evidence_ref_list(
 def _compact_coverage_gap(value: object) -> dict[str, object]:
     gap = _mapping(value)
     payload: dict[str, object] = {
-        "reason": _text(gap.get("reason")),
+        "reason": _safe_text(gap.get("reason")),
         "count": _int(gap.get("count")),
         "case_rate": _number(gap.get("case_rate")),
-        "action": _text(gap.get("action")),
+        "action": _safe_text(gap.get("action")),
         "sample_case_ids": _text_list(
             gap.get("sample_case_ids"),
             limit=_SAMPLE_CASE_ID_LIMIT,
@@ -130,10 +133,10 @@ def _compact_coverage_gap(value: object) -> dict[str, object]:
 def _compact_weak_signal(value: object) -> dict[str, object]:
     signal = _mapping(value)
     return {
-        "name": _text(signal.get("name")),
+        "name": _safe_text(signal.get("name")),
         "count": _int(signal.get("count")),
         "rate": _number(signal.get("rate")),
-        "action": _text(signal.get("action")),
+        "action": _safe_text(signal.get("action")),
         "sample_case_ids": _text_list(
             signal.get("sample_case_ids"),
             limit=_SAMPLE_CASE_ID_LIMIT,
@@ -148,7 +151,7 @@ def _source_window_locality_samples(value: object) -> list[dict[str, object]]:
         if not sample:
             continue
         payload: dict[str, object] = {
-            "case_id": _text(sample.get("case_id")),
+            "case_id": _safe_text(sample.get("case_id")),
             "missing_turn_ref_count": _int(sample.get("missing_turn_ref_count")),
             "same_source_missing_count": _int(
                 sample.get("same_source_missing_count")
@@ -209,7 +212,21 @@ def _text_list(value: object, *, limit: int) -> list[str]:
     return compact_text_list(value, item_limit=limit, text_limit=_TEXT_LIMIT)
 
 
+def _safe_text(value: object, *, limit: int = _TEXT_LIMIT) -> str:
+    text = " ".join(redact_sensitive_text(str(value or "")).strip().split())
+    if not text:
+        return ""
+    if _looks_like_raw_source_ref(text):
+        return _REDACTED_TEXT
+    return _bounded_text(text, limit=limit)
+
+
 def _text(value: object, *, limit: int = _TEXT_LIMIT) -> str:
+    text = str(value or "").strip()
+    return _bounded_text(text, limit=limit)
+
+
+def _bounded_text(value: str, *, limit: int) -> str:
     text = str(value or "").strip()
     if len(text) <= limit:
         return text

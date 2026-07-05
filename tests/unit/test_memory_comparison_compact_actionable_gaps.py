@@ -401,6 +401,75 @@ def test_compact_fast_gate_summary_recounts_sanitized_selected_source_refs(
     assert raw_provider_ref not in json.dumps(summary, sort_keys=True)
 
 
+def test_compact_fast_gate_summary_filters_private_item_ids(monkeypatch) -> None:
+    private_item_id = "provider:private-token-memory-123"
+
+    def fast_gate_metrics(_: object) -> dict[str, object]:
+        return {
+            "schema_version": "fast_gate.v1",
+            "evaluation_count": 1,
+            "expected_case_count": 1,
+            "answerability_gap_breakdown": {
+                "samples": [
+                    {
+                        "case_id": "private-item-id-answerability",
+                        "memory_id": private_item_id,
+                        "rank": 1,
+                    }
+                ],
+            },
+            "answer_context_support_gap_summary": {
+                "samples": [
+                    {
+                        "case_id": "private-item-id-context",
+                        "item_ids": [private_item_id, "safe-item"],
+                    }
+                ],
+            },
+            "selected_evidence_weakness": {
+                "samples": [
+                    {
+                        "case_id": "private-item-id-selected",
+                        "item_id": private_item_id,
+                    }
+                ],
+            },
+            "temporal_grounding_table": {
+                "selected_temporal_grounding_issue_samples": [
+                    {
+                        "case_id": "private-item-id-temporal",
+                        "item_id": private_item_id,
+                    }
+                ],
+            },
+            "rerank_signal_gap_breakdown": {
+                "positive_unselected_samples": [
+                    {
+                        "case_id": "private-item-id-rerank",
+                        "item_id": private_item_id,
+                        "selected_item_ids": [private_item_id, "safe-selected"],
+                    }
+                ],
+            },
+        }
+
+    monkeypatch.setattr(benchmark, "_fast_gate_metrics", fast_gate_metrics)
+
+    summary = benchmark._compact_fast_gate_summary(({"case_id": "case-1"},))
+    serialized = json.dumps(summary, sort_keys=True)
+
+    assert private_item_id not in serialized
+    assert "private-token" not in serialized
+    assert "safe-item" in serialized
+    assert "safe-selected" in serialized
+    assert "memory_id" not in summary["answerability_gap_samples"]["samples"][0]
+    assert "item_id" not in summary["selected_evidence_weakness_samples"]["samples"][0]
+    assert "item_id" not in summary["temporal_grounding_issue_samples"][0]
+    assert "item_id" not in summary["rerank_signal_gap_samples"][
+        "positive_unselected_samples"
+    ][0]
+
+
 def test_compact_fast_gate_summary_keeps_selected_weakness_diagnostics_bounded(
     monkeypatch,
 ) -> None:

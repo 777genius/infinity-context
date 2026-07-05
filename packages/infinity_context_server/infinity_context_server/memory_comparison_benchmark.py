@@ -161,6 +161,37 @@ _MAX_COMPACT_FAILURE_SEQUENCE_ITEMS = 8
 _MAX_COMPACT_FAILURE_MAPPING_ITEMS = 40
 _MAX_COMPACT_FAILURE_TEXT_CHARS = 240
 _MAX_COMPACT_SAMPLE_TEXT_CHARS = 180
+_MAX_COMPACT_SOURCE_REF_TEXT_CHARS = 128
+_COMPACT_REDACTED_TEXT = "[redacted]"
+_COMPACT_OMIT = object()
+_COMPACT_UNSAFE_TEXT_PREFIXES = (
+    "backend:",
+    "graphiti:",
+    "mem0:",
+    "memory://",
+    "openai:",
+    "provider:",
+    "provider-ref-",
+    "qdrant:",
+)
+_COMPACT_UNSAFE_TEXT_MARKERS = (
+    "conv-private",
+    "locomo:",
+    "private-token",
+    "provider-secret",
+    "provider_payload",
+    "raw_provider",
+    "turn-secret",
+)
+_COMPACT_RAW_PAYLOAD_KEYS = frozenset(
+    {
+        "payload",
+        "provider_payload",
+        "raw_payload",
+        "raw_provider",
+        "raw_provider_payload",
+    }
+)
 _COMPACT_BACKEND_METRIC_KEYS = frozenset(
     {
         "ok",
@@ -2098,7 +2129,20 @@ def _compact_case_selection(value: object) -> dict[str, object]:
     return selection
 
 
-def _compact_failure_value(value: object) -> object:
+def _compact_failure_value(value: object, *, key: str | None = None) -> object:
+    key_name = _compact_key_name(key)
+    if _compact_should_omit_key(key_name):
+        return _COMPACT_OMIT
+    if _compact_source_refs_key(key_name):
+        return list(_compact_diagnostic_source_refs(value, limit=8))
+    if _compact_source_ref_key(key_name):
+        return _compact_source_ref_text(value) or _COMPACT_OMIT
+    if _compact_source_id_key(key_name):
+        return _compact_source_id_text(value) or _COMPACT_OMIT
+    if _compact_item_ids_key(key_name):
+        return _compact_item_ids(value, limit=8)
+    if _compact_item_id_key(key_name):
+        return _compact_item_id(value) or _COMPACT_OMIT
     if value is None or isinstance(value, bool | int):
         return value
     if isinstance(value, float):
@@ -2110,15 +2154,26 @@ def _compact_failure_value(value: object) -> object:
         for key, raw_value in sorted(value.items(), key=lambda item: str(item[0]))[
             :_MAX_COMPACT_FAILURE_MAPPING_ITEMS
         ]:
-            compact[
-                _compact_failure_text(key, limit=_MAX_COMPACT_FAILURE_TEXT_CHARS)
-            ] = _compact_failure_value(raw_value)
+            raw_key = str(key)
+            if _compact_should_omit_key(_compact_key_name(raw_key)):
+                continue
+            compact_value = _compact_failure_value(raw_value, key=raw_key)
+            if compact_value is _COMPACT_OMIT:
+                continue
+            compact_key = _compact_failure_text(
+                raw_key,
+                limit=_MAX_COMPACT_FAILURE_TEXT_CHARS,
+            )
+            if compact_key:
+                compact[compact_key] = compact_value
         return compact
     if isinstance(value, Sequence) and not isinstance(value, str | bytes):
-        return [
-            _compact_failure_value(item)
-            for item in tuple(value)[:_MAX_COMPACT_FAILURE_SEQUENCE_ITEMS]
-        ]
+        values: list[object] = []
+        for item in tuple(value)[:_MAX_COMPACT_FAILURE_SEQUENCE_ITEMS]:
+            compact_value = _compact_failure_value(item)
+            if compact_value is not _COMPACT_OMIT:
+                values.append(compact_value)
+        return values
     return _compact_failure_text(value)
 
 
@@ -2127,10 +2182,7 @@ def _compact_failure_text(
     *,
     limit: int = _MAX_COMPACT_FAILURE_TEXT_CHARS,
 ) -> str:
-    text = " ".join(str(value or "").strip().split())
-    if len(text) <= limit:
-        return text
-    return f"{text[: limit - 3]}..."
+    return _compact_safe_text(value, limit=limit, normalize_whitespace=True)
 
 
 def _compact_diagnostics(
@@ -2184,15 +2236,18 @@ def _compact_failure_provenance_summary(
         for window in windows:
             if not isinstance(window, Mapping):
                 continue
-            source_id = str(window.get("source_id") or "").strip()
+            ref = _compact_source_ref_text(window.get("ref") or "")
+            source_id = _compact_source_id_text(window.get("source_id") or "")
+            if not source_id and ref:
+                source_id = _source_id_from_compact_ref(ref)
             if source_id:
                 missing_source_ids[source_id] += 1
             if len(window_samples) >= 8:
                 continue
             sample: dict[str, object] = {
                 "case_id": _compact_failure_text(entry.get("case_id") or ""),
-                "ref": _compact_failure_text(window.get("ref") or ""),
-                "source_id": _compact_failure_text(source_id),
+                "ref": ref,
+                "source_id": source_id,
                 "retrieved_same_source": bool(window.get("retrieved_same_source")),
                 "bundle_same_source": bool(window.get("bundle_same_source")),
             }
@@ -2203,7 +2258,9 @@ def _compact_failure_provenance_summary(
                 "nearest_bundle_turn_distance",
             ):
                 if key in window:
-                    sample[key] = _compact_failure_value(window[key])
+                    compact_value = _compact_failure_value(window[key], key=key)
+                    if compact_value is not _COMPACT_OMIT:
+                        sample[key] = compact_value
             window_samples.append(sample)
     return {
         "schema_version": "compact_failure_provenance_summary.v1",
@@ -2638,12 +2695,108 @@ def _compact_sample_text(
     *,
     limit: int = _MAX_COMPACT_SAMPLE_TEXT_CHARS,
 ) -> str:
+    return _compact_safe_text(value, limit=limit)
+
+
+def _compact_safe_text(
+    value: object,
+    *,
+    limit: int,
+    normalize_whitespace: bool = False,
+) -> str:
     text = str(value or "").strip()
+    if normalize_whitespace:
+        text = " ".join(text.split())
+    text = redact_sensitive_text(text)
+    if normalize_whitespace:
+        text = " ".join(text.split())
     if not text:
         return ""
+    if _looks_like_unsafe_compact_text(text):
+        return _COMPACT_REDACTED_TEXT
     if len(text) <= limit:
         return text
     return f"{text[: limit - 3]}..."
+
+
+def _looks_like_unsafe_compact_text(value: object) -> bool:
+    text = str(value or "").strip().lower()
+    if not text:
+        return False
+    if any(text.startswith(prefix) for prefix in _COMPACT_UNSAFE_TEXT_PREFIXES):
+        return True
+    return any(marker in text for marker in _COMPACT_UNSAFE_TEXT_MARKERS)
+
+
+def _compact_key_name(value: object) -> str:
+    return str(value or "").strip().casefold()
+
+
+def _compact_should_omit_key(key: str) -> bool:
+    return key in _COMPACT_RAW_PAYLOAD_KEYS or key.endswith("_payload")
+
+
+def _compact_source_refs_key(key: str) -> bool:
+    return key in {"raw_source_refs", "source_refs"}
+
+
+def _compact_source_ref_key(key: str) -> bool:
+    return key in {"ref", "source_ref"} or key.endswith("_turn_ref")
+
+
+def _compact_source_id_key(key: str) -> bool:
+    return key == "source_id" or key.endswith("_source_id")
+
+
+def _compact_item_ids_key(key: str) -> bool:
+    return key in {"item_ids", "selected_item_ids"}
+
+
+def _compact_item_id_key(key: str) -> bool:
+    return key in {"id", "item_id", "memory_id"}
+
+
+def _compact_item_id(value: object, *, limit: int = 128) -> str | None:
+    text = str(value or "").strip()
+    if not text or _looks_like_unsafe_compact_text(text):
+        return None
+    return _compact_safe_text(text, limit=limit)
+
+
+def _compact_item_ids(value: object, *, limit: int) -> list[str]:
+    values: list[str] = []
+    for raw_value in _str_tuple(value):
+        text = _compact_item_id(raw_value)
+        if text and text not in values:
+            values.append(text)
+        if len(values) >= limit:
+            break
+    return values
+
+
+def _compact_source_ref_text(value: object) -> str:
+    refs = _compact_diagnostic_source_refs((str(value or ""),), limit=1)
+    if refs:
+        return refs[0]
+    if _looks_like_unsafe_compact_text(value):
+        return ""
+    return _compact_safe_text(value, limit=_MAX_COMPACT_SOURCE_REF_TEXT_CHARS)
+
+
+def _compact_source_id_text(value: object) -> str:
+    ref = _compact_source_ref_text(value)
+    if ref:
+        return _source_id_from_compact_ref(ref)
+    if _looks_like_unsafe_compact_text(value):
+        return ""
+    return _compact_safe_text(value, limit=_MAX_COMPACT_SOURCE_REF_TEXT_CHARS)
+
+
+def _source_id_from_compact_ref(ref: str) -> str:
+    parts = str(ref or "").split(":")
+    if len(parts) <= 1:
+        return ref
+    return ":".join(parts[:-1])
 
 
 def _compact_sample_scalar(value: object) -> object | None:
@@ -2705,7 +2858,11 @@ def _compact_answerability_gap_samples(
         compact: dict[str, object] = {}
         for key in sorted(scalar_keys):
             if key in sample:
-                compact_value = _compact_sample_scalar(sample[key])
+                compact_value = (
+                    _compact_item_id(sample[key])
+                    if key == "memory_id"
+                    else _compact_sample_scalar(sample[key])
+                )
                 if compact_value is not None:
                     compact[key] = compact_value
         for key in sorted(sequence_keys):
@@ -2762,7 +2919,11 @@ def _compact_answer_context_support_gap_samples(
             if compact_value is not None:
                 compact[key] = compact_value
         for key in list_keys:
-            values = _compact_sample_values(sample.get(key), limit=8)
+            values = (
+                _compact_item_ids(sample.get(key), limit=8)
+                if key == "item_ids"
+                else _compact_sample_values(sample.get(key), limit=8)
+            )
             if values:
                 compact[key] = values
         source_identity_refs = _compact_source_identity_refs(
@@ -2804,7 +2965,11 @@ def _compact_temporal_grounding_issue_samples(
         compact: dict[str, object] = {}
         for key in scalar_keys:
             raw_value = sample.get(key)
-            if isinstance(raw_value, str):
+            if key == "item_id":
+                item_id = _compact_item_id(raw_value, limit=128)
+                if item_id:
+                    compact[key] = item_id
+            elif isinstance(raw_value, str):
                 text = _compact_sample_text(raw_value, limit=128)
                 if text:
                     compact[key] = text
@@ -3013,13 +3178,21 @@ def _compact_rerank_gap_sample(sample: Mapping[str, object]) -> dict[str, object
     }
     for key in sorted(scalar_keys):
         if key in sample:
-            compact_value = _compact_sample_scalar(sample[key])
+            compact_value = (
+                _compact_item_id(sample[key])
+                if key == "item_id"
+                else _compact_sample_scalar(sample[key])
+            )
             if compact_value is not None:
                 compact[key] = compact_value
     for key in sorted(sequence_keys):
         if key not in sample:
             continue
-        values = _compact_sample_values(sample.get(key), limit=6)
+        values = (
+            _compact_item_ids(sample.get(key), limit=6)
+            if key == "selected_item_ids"
+            else _compact_sample_values(sample.get(key), limit=6)
+        )
         if values:
             compact[key] = values
     for key in sorted(mapping_keys):
@@ -3036,6 +3209,8 @@ def _compact_scalar_mapping(value: object, *, limit: int = 6) -> dict[str, objec
     for key, raw_value in sorted(value.items(), key=lambda item: str(item[0])):
         if len(compact) >= limit:
             break
+        if _compact_should_omit_key(_compact_key_name(key)):
+            continue
         compact_key = _compact_sample_text(key)
         if not compact_key:
             continue
@@ -3101,7 +3276,11 @@ def _compact_selected_evidence_weakness_samples(
         compact: dict[str, object] = {}
         for key in sorted(allowed_scalar_keys):
             if key in sample:
-                compact_value = _compact_sample_scalar(sample[key])
+                compact_value = (
+                    _compact_item_id(sample[key])
+                    if key == "item_id"
+                    else _compact_sample_scalar(sample[key])
+                )
                 if compact_value is not None:
                     compact[key] = compact_value
         for key in sorted(allowed_sequence_keys):
@@ -3275,8 +3454,12 @@ def _result_retrieval_sources(result: Mapping[str, object]) -> tuple[str, ...]:
     diagnostics = _mapping(metadata.get("diagnostics"))
     sources = diagnostics.get("retrieval_sources")
     if isinstance(sources, Sequence) and not isinstance(sources, str | bytes):
-        return tuple(str(source or "unknown") for source in sources)
-    return (str(diagnostics.get("retrieval_source") or "unknown"),)
+        return tuple(_compact_retrieval_source(source) for source in sources)
+    return (_compact_retrieval_source(diagnostics.get("retrieval_source")),)
+
+
+def _compact_retrieval_source(value: object) -> str:
+    return _compact_sample_text(value or "unknown", limit=80) or "unknown"
 
 
 def _empty_failure_report(

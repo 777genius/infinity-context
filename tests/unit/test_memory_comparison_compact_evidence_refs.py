@@ -239,3 +239,32 @@ def test_compact_evidence_bundle_coverage_filters_fuzzed_source_refs() -> None:
     assert invalid_provider_ref not in serialized
     assert raw_provider_ref not in serialized
     assert raw_long_ref not in serialized
+
+
+def test_compact_evidence_bundle_coverage_filters_secret_like_evidence_refs() -> None:
+    secret_ref = "provider-ref-compact-redacted-1234567890"
+    coverage = benchmark._compact_evidence_bundle_coverage(
+        (
+            {
+                "case_id": "conv-1:qa:secret-ref",
+                "group": "multi-hop",
+                "retrieval_quality": {
+                    "covered_evidence_terms": [secret_ref, "D1:2"],
+                    "missing_evidence_terms": [secret_ref, "D2:3"],
+                },
+                "evidence_bundle": {
+                    "bundle_complete": False,
+                    "item_count": 1,
+                    "evidence_term_recall": 0.0,
+                },
+            },
+        )
+    )
+
+    sample = coverage["incomplete_samples"][0]
+    serialized = json.dumps(sample)
+
+    assert sample["covered_evidence_refs"] == ["D1:2"]
+    assert sample["missing_evidence_refs"] == ["D2:3"]
+    assert secret_ref not in serialized
+    assert "[redacted]" not in serialized

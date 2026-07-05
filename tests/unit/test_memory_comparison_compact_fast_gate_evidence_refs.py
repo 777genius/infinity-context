@@ -4,6 +4,7 @@ import json
 
 from infinity_context_server.memory_comparison_benchmark import (
     _compact_fast_gate_summary,
+    _compact_report,
 )
 from infinity_context_server.memory_comparison_compact_gap_report import (
     compact_evidence_bundle_gap_report,
@@ -244,6 +245,116 @@ def test_compact_gap_report_normalizes_locality_window_private_refs() -> None:
     serialized = json.dumps(report)
     assert "locomo:conv-private" not in serialized
     assert "turn-secret" not in serialized
+
+
+def test_compact_gap_report_redacts_raw_payload_text_fields() -> None:
+    raw_payload = "provider_payload private-token-abc raw_provider body"
+    report = compact_evidence_bundle_gap_report(
+        {
+            "schema_version": "evidence_bundle_gap_report.v1",
+            "status": "gaps_found",
+            "evaluation_count": 1,
+            "incomplete_case_count": 1,
+            "top_action": raw_payload,
+            "top_coverage_gaps": [
+                {
+                    "reason": raw_payload,
+                    "count": 1,
+                    "case_rate": 1.0,
+                    "action": raw_payload,
+                    "sample_case_ids": [raw_payload],
+                }
+            ],
+            "weak_provenance_signals": [
+                {
+                    "name": raw_payload,
+                    "count": 1,
+                    "rate": 1.0,
+                    "action": raw_payload,
+                    "sample_case_ids": [raw_payload],
+                }
+            ],
+        }
+    )
+
+    serialized = json.dumps(report)
+
+    assert "provider_payload" not in serialized
+    assert "private-token" not in serialized
+    assert "raw_provider" not in serialized
+    assert "[redacted]" in serialized
+
+
+def test_compact_report_sanitizes_failure_payloads_private_ids_and_refs() -> None:
+    raw_locomo_ref = "locomo:conv-private:session_2:D2:3:turn-secret"
+    raw_nearest_ref = "locomo:conv-private:session_2:D2:2:turn-secret"
+    raw_provider_payload = "provider_payload private-token-abc raw_provider body"
+    private_item_id = "provider:private-token-item-123"
+    oversized_ref = f"D9:{'7' * 220}"
+
+    compact = _compact_report(
+        {
+            "schema_version": "memory-comparison-benchmark-v1",
+            "suite": "memory-comparison-benchmark",
+            "source_suite": "public-memory-benchmark",
+            "status": "failed",
+            "ok": False,
+            "evaluations": [],
+            "metadata": {"raw_provider_payload": raw_provider_payload},
+            "metrics": {},
+            "backend_metrics": {},
+            "backend_comparison": {},
+            "failure_analysis": [
+                {
+                    "case_id": "failure-safety",
+                    "backend": "memo-stack",
+                    "group": "single-hop",
+                    "reason": raw_provider_payload,
+                    "diagnostic_reason_codes": ["missing_evidence_refs"],
+                    "diagnostics": {
+                        "item_id": private_item_id,
+                        "item_ids": [private_item_id, "safe-item"],
+                        "source_refs": [raw_locomo_ref, oversized_ref],
+                        "provider_payload": {"raw": raw_provider_payload},
+                        "missing_evidence_source_locality": {
+                            "missing_turn_ref_count": 1,
+                            "same_source_missing_count": 1,
+                            "near_retrieved_window_count": 1,
+                            "source_absent_count": 0,
+                            "missing_ref_windows": [
+                                {
+                                    "ref": raw_locomo_ref,
+                                    "source_id": raw_locomo_ref,
+                                    "retrieved_same_source": True,
+                                    "bundle_same_source": False,
+                                    "nearest_retrieved_turn_ref": raw_nearest_ref,
+                                    "nearest_bundle_turn_ref": oversized_ref,
+                                    "nearest_retrieved_turn_distance": 1,
+                                    "nearest_bundle_turn_distance": 2,
+                                }
+                            ],
+                        },
+                    },
+                }
+            ],
+            "failures": [],
+            "elapsed_ms": 1.0,
+        },
+        failure_limit=5,
+    )
+
+    serialized = json.dumps(compact, sort_keys=True)
+
+    assert "locomo:conv-private" not in serialized.lower()
+    assert "turn-secret" not in serialized.lower()
+    assert "provider_payload" not in serialized
+    assert "private-token" not in serialized
+    assert private_item_id not in serialized
+    assert oversized_ref not in serialized
+    assert "safe-item" in serialized
+    provenance = compact["diagnostics"]["failure_provenance_summary"]
+    sample_window = provenance["missing_evidence_source_locality"]["sample_windows"][0]
+    assert "session_2" in sample_window["ref"]
 
 
 def _item(
