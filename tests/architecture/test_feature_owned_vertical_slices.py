@@ -262,7 +262,38 @@ def test_memory_facts_public_api_is_importable_and_narrow() -> None:
 
     assert public.FEATURE_ID == "memory_facts"
     assert public.MemoryFactsFeature().feature_id == "memory_facts"
-    assert public.__all__ == ("FEATURE_ID", "MemoryFactsFeature")
+    assert public.__all__ == (
+        "FEATURE_ID",
+        "ForgetFactCommand",
+        "ForgetFactResult",
+        "ForgetFactUseCase",
+        "MemoryFactClassification",
+        "MemoryFactClockPort",
+        "MemoryFactConfidence",
+        "MemoryFactEvidenceRef",
+        "MemoryFactIdPort",
+        "MemoryFactIdentity",
+        "MemoryFactKind",
+        "MemoryFactLifecycleUseCases",
+        "MemoryFactOutboxMessage",
+        "MemoryFactOutboxPort",
+        "MemoryFactRepositoryPort",
+        "MemoryFactScope",
+        "MemoryFactSnapshot",
+        "MemoryFactSourceRef",
+        "MemoryFactStatus",
+        "MemoryFactTrustLevel",
+        "MemoryFactUnitOfWorkFactoryPort",
+        "MemoryFactUnitOfWorkPort",
+        "MemoryFactVisibility",
+        "MemoryFactsFeature",
+        "RememberFactCommand",
+        "RememberFactResult",
+        "RememberFactUseCase",
+        "UpdateFactCommand",
+        "UpdateFactResult",
+        "UpdateFactUseCase",
+    )
 
 
 def test_relative_core_feature_import_resolves_to_legacy_layer_first_core() -> None:

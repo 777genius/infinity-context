@@ -2,9 +2,72 @@
 
 from __future__ import annotations
 
+from infinity_context_core.features.memory_facts.application import (
+    ForgetFactCommand,
+    ForgetFactResult,
+    ForgetFactUseCase,
+    MemoryFactLifecycleUseCases,
+    RememberFactCommand,
+    RememberFactResult,
+    RememberFactUseCase,
+    UpdateFactCommand,
+    UpdateFactResult,
+    UpdateFactUseCase,
+)
 from infinity_context_core.features.memory_facts.domain import (
     FEATURE_ID,
+    MemoryFactClassification,
+    MemoryFactConfidence,
+    MemoryFactEvidenceRef,
+    MemoryFactIdentity,
+    MemoryFactKind,
+    MemoryFactScope,
+    MemoryFactSnapshot,
+    MemoryFactSourceRef,
+    MemoryFactStatus,
+    MemoryFactTrustLevel,
+    MemoryFactVisibility,
     MemoryFactsFeature,
 )
+from infinity_context_core.features.memory_facts.ports import (
+    MemoryFactClockPort,
+    MemoryFactIdPort,
+    MemoryFactOutboxMessage,
+    MemoryFactOutboxPort,
+    MemoryFactRepositoryPort,
+    MemoryFactUnitOfWorkFactoryPort,
+    MemoryFactUnitOfWorkPort,
+)
 
-__all__ = ("FEATURE_ID", "MemoryFactsFeature")
+__all__ = (
+    "FEATURE_ID",
+    "ForgetFactCommand",
+    "ForgetFactResult",
+    "ForgetFactUseCase",
+    "MemoryFactClassification",
+    "MemoryFactClockPort",
+    "MemoryFactConfidence",
+    "MemoryFactEvidenceRef",
+    "MemoryFactIdPort",
+    "MemoryFactIdentity",
+    "MemoryFactKind",
+    "MemoryFactLifecycleUseCases",
+    "MemoryFactOutboxMessage",
+    "MemoryFactOutboxPort",
+    "MemoryFactRepositoryPort",
+    "MemoryFactScope",
+    "MemoryFactSnapshot",
+    "MemoryFactSourceRef",
+    "MemoryFactStatus",
+    "MemoryFactTrustLevel",
+    "MemoryFactUnitOfWorkFactoryPort",
+    "MemoryFactUnitOfWorkPort",
+    "MemoryFactVisibility",
+    "MemoryFactsFeature",
+    "RememberFactCommand",
+    "RememberFactResult",
+    "RememberFactUseCase",
+    "UpdateFactCommand",
+    "UpdateFactResult",
+    "UpdateFactUseCase",
+)
