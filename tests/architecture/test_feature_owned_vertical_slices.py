@@ -6,6 +6,10 @@ import ast
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+CORE_FEATURE_ROOT = (
+    REPO_ROOT / "packages" / "infinity_context_core" / "infinity_context_core" / "features"
+)
+CORE_FEATURE_LAYERS = ("domain", "application", "ports")
 
 FEATURE_IDS = frozenset(
     {
@@ -33,15 +37,129 @@ def _feature_dirs(root: str) -> list[Path]:
     return sorted(child for child in path.iterdir() if child.is_dir() and not child.name.startswith("_"))
 
 
-def _imports(path: Path) -> list[str]:
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+def _package_context(path: Path) -> str | None:
+    try:
+        relative = path.relative_to(REPO_ROOT / "packages")
+    except ValueError:
+        return None
+
+    parts = relative.with_suffix("").parts
+    if len(parts) < 2:
+        return None
+
+    module_parts = list(parts[1:])
+    if module_parts[-1] == "__init__":
+        module_parts.pop()
+    else:
+        module_parts.pop()
+
+    if not module_parts:
+        return None
+    return ".".join(module_parts)
+
+
+def _resolve_import_from(path: Path, node: ast.ImportFrom) -> str | None:
+    module = node.module or ""
+    if node.level == 0:
+        return module or None
+
+    package = _package_context(path)
+    if package is None:
+        return module or None
+
+    package_parts = package.split(".")
+    if node.level > len(package_parts):
+        return module or None
+
+    resolved_parts = package_parts[: len(package_parts) - node.level + 1]
+    if module:
+        resolved_parts.extend(module.split("."))
+    return ".".join(resolved_parts)
+
+
+def _imports_from_tree(path: Path, tree: ast.AST) -> list[str]:
     imports: list[str] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             imports.extend(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            imports.append(node.module)
+        elif isinstance(node, ast.ImportFrom):
+            imported = _resolve_import_from(path, node)
+            if imported is not None:
+                imports.append(imported)
     return imports
+
+
+def _imports_from_source(path: Path, source: str) -> list[str]:
+    tree = ast.parse(source, filename=str(path))
+    return _imports_from_tree(path, tree)
+
+
+def _imports(path: Path) -> list[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    return _imports_from_tree(path, tree)
+
+
+def _matches_module_prefix(imported: str, prefixes: tuple[str, ...]) -> bool:
+    return any(imported == prefix or imported.startswith(f"{prefix}.") for prefix in prefixes)
+
+
+def _is_cross_feature_internal_import(current_feature: str, imported: str) -> bool:
+    prefix = "infinity_context_core.features."
+    if not imported.startswith(prefix):
+        return False
+
+    imported_parts = imported.removeprefix(prefix).split(".")
+    if not imported_parts:
+        return False
+
+    imported_feature = imported_parts[0]
+    imports_internal = len(imported_parts) > 1 and imported_parts[1] != "public"
+    return imported_feature != current_feature and imports_internal
+
+
+def _is_allowed_core_feature_import(feature_id: str, path: Path, imported: str) -> bool:
+    if not imported.startswith("infinity_context_core."):
+        return True
+
+    relative_parts = path.relative_to(CORE_FEATURE_ROOT / feature_id).parts
+    own_feature = f"infinity_context_core.features.{feature_id}"
+    shared_kernel = "infinity_context_core.shared_kernel"
+
+    if _matches_module_prefix(imported, (shared_kernel,)):
+        return True
+
+    if relative_parts[0] == "public.py":
+        return _matches_module_prefix(
+            imported,
+            (
+                f"{own_feature}.application",
+                f"{own_feature}.domain",
+                f"{own_feature}.ports",
+            ),
+        )
+
+    layer = relative_parts[0]
+    if layer == "domain":
+        return _matches_module_prefix(imported, (f"{own_feature}.domain",))
+    if layer == "application":
+        return _matches_module_prefix(
+            imported,
+            (
+                f"{own_feature}.application",
+                f"{own_feature}.domain",
+                f"{own_feature}.ports",
+            ),
+        )
+    if layer == "ports":
+        return _matches_module_prefix(
+            imported,
+            (
+                f"{own_feature}.domain",
+                f"{own_feature}.ports",
+            ),
+        )
+
+    return False
 
 
 def test_feature_owned_architecture_decision_is_documented() -> None:
@@ -72,8 +190,40 @@ def test_core_feature_capsules_expose_public_api_when_created() -> None:
     assert missing_public_api == []
 
 
+def test_memory_facts_core_capsule_has_clean_architecture_shape() -> None:
+    feature_dir = CORE_FEATURE_ROOT / "memory_facts"
+
+    assert (feature_dir / "public.py").is_file()
+    for layer in CORE_FEATURE_LAYERS:
+        assert (feature_dir / layer / "__init__.py").is_file()
+
+
+def test_memory_facts_public_api_is_importable_and_narrow() -> None:
+    from infinity_context_core.features.memory_facts import public  # noqa: PLC0415
+
+    assert public.FEATURE_ID == "memory_facts"
+    assert public.MemoryFactsFeature().feature_id == "memory_facts"
+    assert public.__all__ == ("FEATURE_ID", "MemoryFactsFeature")
+
+
+def test_relative_core_feature_import_resolves_to_legacy_layer_first_core() -> None:
+    path = CORE_FEATURE_ROOT / "memory_facts" / "application" / "use_case.py"
+    imports = _imports_from_source(path, "from ....domain.entities import MemoryFact\n")
+
+    assert "infinity_context_core.domain.entities" in imports
+    assert not _is_allowed_core_feature_import("memory_facts", path, imports[0])
+
+
+def test_relative_core_feature_import_resolves_to_cross_feature_internal() -> None:
+    path = CORE_FEATURE_ROOT / "memory_facts" / "application" / "use_case.py"
+    imports = _imports_from_source(path, "from ...context_building.domain import Context\n")
+
+    assert "infinity_context_core.features.context_building.domain" in imports
+    assert _is_cross_feature_internal_import("memory_facts", imports[0])
+
+
 def test_core_features_do_not_import_other_feature_internals() -> None:
-    feature_root = REPO_ROOT / "packages" / "infinity_context_core" / "infinity_context_core" / "features"
+    feature_root = CORE_FEATURE_ROOT
     if not feature_root.exists():
         return
 
@@ -82,18 +232,24 @@ def test_core_features_do_not_import_other_feature_internals() -> None:
         current_feature = feature_dir.name
         for path in feature_dir.rglob("*.py"):
             for imported in _imports(path):
-                prefix = "infinity_context_core.features."
-                if not imported.startswith(prefix):
-                    continue
-
-                imported_parts = imported.removeprefix(prefix).split(".")
-                if not imported_parts:
-                    continue
-
-                imported_feature = imported_parts[0]
-                imports_internal = len(imported_parts) > 1 and imported_parts[1] != "public"
-                if imported_feature != current_feature and imports_internal:
+                if _is_cross_feature_internal_import(current_feature, imported):
                     rel = path.relative_to(REPO_ROOT)
                     violations.append(f"{rel}: imports {imported}")
+
+    assert violations == []
+
+
+def test_core_feature_capsule_layers_do_not_import_legacy_layer_first_core() -> None:
+    if not CORE_FEATURE_ROOT.exists():
+        return
+
+    violations: list[str] = []
+    for feature_dir in _feature_dirs(str(CORE_FEATURE_ROOT.relative_to(REPO_ROOT))):
+        for path in feature_dir.rglob("*.py"):
+            for imported in _imports(path):
+                if _is_allowed_core_feature_import(feature_dir.name, path, imported):
+                    continue
+                rel = path.relative_to(REPO_ROOT)
+                violations.append(f"{rel}: imports {imported}")
 
     assert violations == []
