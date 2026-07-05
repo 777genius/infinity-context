@@ -102,7 +102,10 @@ is not vendored in this repository; stage it at the path passed to `--dataset`
 or update that flag before treating preflight output as service readiness. The
 preflight prints only boolean secret readiness, never token values. Treat
 `ready_for_locomo_fast=false` as a blocker for the short LoCoMo fast run and
-any longer LoCoMo run.
+any longer LoCoMo run. For `--locomo-ingest-mode official-turns`, fast readiness
+also requires an official LoCoMo-shaped JSON dataset with conversation session
+turns and at least 10 scored QA cases in each requested fast group; arbitrary
+non-LoCoMo JSON and underfilled groups leave `ready_for_locomo_fast=false`.
 
 ```sh
 MEMORY_SERVICE_TOKEN=local-dev-token \

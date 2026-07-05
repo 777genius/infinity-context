@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from infinity_context_server import eval as eval_module
 from infinity_context_server.memory_comparison_preflight import (
     MEMORY_COMPARISON_PREFLIGHT_SUITE,
@@ -66,11 +67,20 @@ def test_memory_comparison_preflight_ready_for_locomo_fast(tmp_path: Path) -> No
     ]
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [
+        [{"sample_id": "unit"}],
+        {"cases": [{"id": "unit"}], "metadata": {"source": "not-locomo"}},
+    ],
+    ids=("list", "object"),
+)
 def test_memory_comparison_preflight_blocks_non_locomo_json_fast_readiness(
     tmp_path: Path,
+    payload: object,
 ) -> None:
     dataset = tmp_path / "not-locomo.json"
-    dataset.write_text('[{"sample_id":"unit"}]', encoding="utf-8")
+    dataset.write_text(json.dumps(payload), encoding="utf-8")
 
     result = run_memory_comparison_preflight(
         _config(
@@ -119,6 +129,37 @@ def test_memory_comparison_preflight_blocks_underfilled_locomo_fast_dataset(
     assert check["details"]["requested_groups"] == ["temporal"]
     assert check["details"]["requested_per_group"] == 10
     assert check["details"]["selected_by_group"] == {"temporal": 2}
+    assert check["details"]["missing_groups"] == ["temporal"]
+
+
+def test_memory_comparison_preflight_blocks_any_underfilled_requested_group(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "locomo-one-underfilled-group.json"
+    _write_official_locomo_fast_dataset(
+        dataset,
+        cases_per_group_by_category={1: 10, 2: 9, 3: 10, 4: 10},
+    )
+
+    result = run_memory_comparison_preflight(
+        _config(
+            dataset_path=dataset,
+            env={"MEM0_API_KEY": "secret-mem0"},
+        )
+    )
+
+    assert result["ok"] is True
+    assert result["ready_for_locomo_fast"] is False
+    assert result["fast_readiness_blockers"] == [
+        "locomo_fast_dataset_case_coverage"
+    ]
+    check = _check(result, "locomo_fast_dataset_case_coverage")
+    assert check["details"]["selected_by_group"] == {
+        "multi-hop": 10,
+        "temporal": 9,
+        "open-domain": 10,
+        "single-hop": 10,
+    }
     assert check["details"]["missing_groups"] == ["temporal"]
 
 
@@ -459,10 +500,16 @@ def _write_official_locomo_fast_dataset(
     path: Path,
     *,
     cases_per_group: int = 10,
+    cases_per_group_by_category: dict[int, int] | None = None,
 ) -> None:
     qas: list[dict[str, object]] = []
     for category in (1, 2, 3, 4):
-        for index in range(cases_per_group):
+        category_case_count = (
+            cases_per_group_by_category.get(category, cases_per_group)
+            if cases_per_group_by_category is not None
+            else cases_per_group
+        )
+        for index in range(category_case_count):
             qas.append(
                 {
                     "question": (
