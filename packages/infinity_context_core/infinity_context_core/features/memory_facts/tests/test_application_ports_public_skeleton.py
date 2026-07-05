@@ -170,19 +170,25 @@ def test_fact_lifecycle_ports_are_protocol_boundaries() -> None:
     assert domain.MemoryFactSnapshot.__name__ == "MemoryFactSnapshot"
 
 
-def test_memory_facts_public_api_exports_application_and_ports() -> None:
+def test_memory_facts_public_api_exports_exact_feature_boundary() -> None:
     application = importlib.import_module(APPLICATION_MODULE)
     domain = importlib.import_module(DOMAIN_MODULE)
     ports = importlib.import_module(PORTS_MODULE)
     public = importlib.import_module(PUBLIC_MODULE)
 
     expected_exports = {
+        "FEATURE_ID": domain,
         "ForgetFactCommand": application,
         "ForgetFactHandler": application,
         "ForgetFactResult": application,
         "ForgetFactUseCase": application,
+        "MemoryFactClassification": domain,
         "MemoryFactClockPort": ports,
+        "MemoryFactConfidence": domain,
+        "MemoryFactEvidenceRef": domain,
         "MemoryFactIdPort": ports,
+        "MemoryFactIdentity": domain,
+        "MemoryFactKind": domain,
         "MemoryFactLifecycleUseCases": application,
         "MemoryFactOutboxMessage": ports,
         "MemoryFactOutboxPort": ports,
@@ -190,8 +196,12 @@ def test_memory_facts_public_api_exports_application_and_ports() -> None:
         "MemoryFactScope": domain,
         "MemoryFactSnapshot": domain,
         "MemoryFactSourceRef": domain,
+        "MemoryFactStatus": domain,
+        "MemoryFactTrustLevel": domain,
         "MemoryFactUnitOfWorkFactoryPort": ports,
         "MemoryFactUnitOfWorkPort": ports,
+        "MemoryFactVisibility": domain,
+        "MemoryFactsFeature": domain,
         "RememberFactCommand": application,
         "RememberFactHandler": application,
         "RememberFactResult": application,
@@ -202,9 +212,24 @@ def test_memory_facts_public_api_exports_application_and_ports() -> None:
         "UpdateFactUseCase": application,
     }
 
-    assert expected_exports.keys() <= set(public.__all__)
+    assert public.__all__ == tuple(expected_exports)
     for name, module in expected_exports.items():
         assert getattr(public, name) is getattr(module, name)
+
+
+def test_memory_facts_public_api_imports_only_feature_layer_boundaries() -> None:
+    public_path = FEATURE_ROOT / "public.py"
+    feature_imports = tuple(
+        imported
+        for imported in _imports(public_path)
+        if imported.startswith("infinity_context_core.features.memory_facts")
+    )
+
+    assert feature_imports == (
+        APPLICATION_MODULE,
+        DOMAIN_MODULE,
+        PORTS_MODULE,
+    )
 
 
 def test_application_ports_and_public_import_only_feature_owned_core() -> None:

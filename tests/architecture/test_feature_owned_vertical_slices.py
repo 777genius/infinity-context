@@ -134,6 +134,41 @@ def _imports(path: Path) -> list[str]:
     return _imports_from_tree(path, tree)
 
 
+def _is_core_feature_package_root(imported: str) -> bool:
+    prefix = "infinity_context_core.features."
+    if not imported.startswith(prefix):
+        return False
+
+    imported_parts = imported.removeprefix(prefix).split(".")
+    return len(imported_parts) == 1 and imported_parts[0] in FEATURE_IDS
+
+
+def _import_targets_from_tree(path: Path, tree: ast.AST) -> list[str]:
+    imports: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imports.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            imported = _resolve_import_from(path, node)
+            if imported is None:
+                continue
+            if _is_core_feature_package_root(imported):
+                imports.extend(f"{imported}.{alias.name}" for alias in node.names)
+            else:
+                imports.append(imported)
+    return imports
+
+
+def _import_targets_from_source(path: Path, source: str) -> list[str]:
+    tree = ast.parse(source, filename=str(path))
+    return _import_targets_from_tree(path, tree)
+
+
+def _import_targets(path: Path) -> list[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    return _import_targets_from_tree(path, tree)
+
+
 def _matches_module_prefix(imported: str, prefixes: tuple[str, ...]) -> bool:
     return any(imported == prefix or imported.startswith(f"{prefix}.") for prefix in prefixes)
 
@@ -148,8 +183,8 @@ def _is_cross_feature_internal_import(current_feature: str, imported: str) -> bo
         return False
 
     imported_feature = imported_parts[0]
-    imports_internal = len(imported_parts) > 1 and imported_parts[1] != "public"
-    return imported_feature != current_feature and imports_internal
+    imports_public_api = len(imported_parts) > 1 and imported_parts[1] == "public"
+    return imported_feature != current_feature and not imports_public_api
 
 
 def _is_allowed_core_feature_import(feature_id: str, path: Path, imported: str) -> bool:
@@ -464,6 +499,14 @@ def test_relative_core_feature_import_resolves_to_cross_feature_internal() -> No
     assert _is_cross_feature_internal_import("memory_facts", imports[0])
 
 
+def test_relative_core_feature_public_import_resolves_to_public_module() -> None:
+    path = CORE_FEATURE_ROOT / "memory_facts" / "application" / "use_case.py"
+    imports = _import_targets_from_source(path, "from ...context_building import public\n")
+
+    assert "infinity_context_core.features.context_building.public" in imports
+    assert not _is_cross_feature_internal_import("memory_facts", imports[0])
+
+
 def test_core_features_do_not_import_other_feature_internals() -> None:
     feature_root = CORE_FEATURE_ROOT
     if not feature_root.exists():
@@ -473,10 +516,35 @@ def test_core_features_do_not_import_other_feature_internals() -> None:
     for feature_dir in _feature_dirs(str(feature_root.relative_to(REPO_ROOT))):
         current_feature = feature_dir.name
         for path in feature_dir.rglob("*.py"):
-            for imported in _imports(path):
+            for imported in _import_targets(path):
                 if _is_cross_feature_internal_import(current_feature, imported):
                     rel = path.relative_to(REPO_ROOT)
                     violations.append(f"{rel}: imports {imported}")
+
+    assert violations == []
+
+
+def test_memory_facts_external_core_imports_use_public_api() -> None:
+    memory_facts_feature_dir = CORE_FEATURE_ROOT / "memory_facts"
+    memory_facts_prefix = "infinity_context_core.features.memory_facts"
+    memory_facts_public = f"{memory_facts_prefix}.public"
+    scan_roots = (
+        REPO_ROOT / "packages",
+        REPO_ROOT / "tests",
+    )
+
+    violations: list[str] = []
+    for scan_root in scan_roots:
+        for path in _python_modules(scan_root):
+            if path.is_relative_to(memory_facts_feature_dir):
+                continue
+            for imported in _import_targets(path):
+                if not _matches_module_prefix(imported, (memory_facts_prefix,)):
+                    continue
+                if _matches_module_prefix(imported, (memory_facts_public,)):
+                    continue
+                rel = path.relative_to(REPO_ROOT)
+                violations.append(f"{rel}: imports {imported}")
 
     assert violations == []
 
