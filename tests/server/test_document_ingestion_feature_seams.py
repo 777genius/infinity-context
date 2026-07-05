@@ -5,12 +5,12 @@ import asyncio
 from datetime import datetime
 from pathlib import Path
 
+import infinity_context_core.features.document_ingestion.public as document_ingestion
+import pytest
 from infinity_context_contracts.features.document_ingestion import (
     IngestDocumentRequestDto,
 )
-import infinity_context_core.features.document_ingestion.public as document_ingestion
 from infinity_context_server.features.document_ingestion import public as server_public
-import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FEATURE_ROOT = (
@@ -20,6 +20,15 @@ FEATURE_ROOT = (
     / "infinity_context_server"
     / "features"
     / "document_ingestion"
+)
+DOCUMENTS_API_PATH = (
+    REPO_ROOT
+    / "packages"
+    / "infinity_context_server"
+    / "infinity_context_server"
+    / "api"
+    / "v1"
+    / "documents.py"
 )
 
 
@@ -225,15 +234,41 @@ def test_document_ingestion_server_slice_uses_only_public_feature_boundaries() -
     for path in sorted(FEATURE_ROOT.rglob("*.py")):
         for imported in _imports(path):
             rel = path.relative_to(REPO_ROOT)
-            if imported.startswith("infinity_context_core.features."):
-                if not imported.endswith(".public"):
-                    violations.append(f"{rel}: imports {imported}")
-            if imported == "infinity_context_core" or any(
-                imported.startswith(f"{prefix}.") for prefix in forbidden_prefixes
+            if imported.startswith(
+                "infinity_context_core.features."
+            ) and not imported.endswith(".public"):
+                violations.append(f"{rel}: imports {imported}")
+            if (
+                imported == "infinity_context_core"
+                or imported in forbidden_prefixes
+                or any(imported.startswith(f"{prefix}.") for prefix in forbidden_prefixes)
             ):
                 violations.append(f"{rel}: imports {imported}")
-            elif imported in forbidden_prefixes:
-                violations.append(f"{rel}: imports {imported}")
+
+    assert violations == []
+
+
+def test_legacy_documents_api_delegates_ingest_mapping_to_public_server_seam() -> None:
+    source = DOCUMENTS_API_PATH.read_text(encoding="utf-8")
+    imports = _imports(DOCUMENTS_API_PATH)
+
+    assert (
+        "from infinity_context_server.features.document_ingestion import "
+        "public as document_ingestion_server"
+    ) in source
+    assert "document_ingestion_server.IngestDocumentHttpRequest(" in source
+    assert "document_ingestion_server.ingest_document_command_from_contract(" in source
+    assert "infinity_context_core.features.document_ingestion" not in source
+    assert "infinity_context_server.features.document_ingestion." not in source
+
+    violations: list[str] = []
+    for imported in imports:
+        if imported.startswith("infinity_context_core.features.document_ingestion"):
+            violations.append(f"imports {imported}")
+        if imported.startswith(
+            "infinity_context_server.features.document_ingestion."
+        ) and imported != "infinity_context_server.features.document_ingestion.public":
+            violations.append(f"imports {imported}")
 
     assert violations == []
 

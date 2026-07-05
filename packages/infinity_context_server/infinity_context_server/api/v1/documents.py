@@ -8,14 +8,17 @@ from fastapi import APIRouter, Depends, Header, Query, Response, status
 from infinity_context_core.application import (
     DeleteDocumentCommand,
     GetDocumentQuery,
-    IngestDocumentCommand,
     ListDocumentChunksQuery,
     ProcessDocumentCommand,
+)
+from infinity_context_core.application import (
+    IngestDocumentCommand as LegacyIngestDocumentCommand,
 )
 from infinity_context_core.application.document_fragments import (
     document_fragment_summary_from_nodes,
 )
 from infinity_context_core.domain.entities import MemoryChunk, MemoryDocument
+from infinity_context_core.domain.errors import MemoryValidationError
 from pydantic import BaseModel, ConfigDict, Field
 
 from infinity_context_server.api.auth import require_service_token
@@ -26,6 +29,7 @@ from infinity_context_server.api.v1.scope_resolution import resolve_single_scope
 from infinity_context_server.api.v1.source_refs import SourceRefRequest
 from infinity_context_server.backpressure import document_ingest_backpressure_response
 from infinity_context_server.composition import Container
+from infinity_context_server.features.document_ingestion import public as document_ingestion_server
 from infinity_context_server.pagination import cursor_int, cursor_str, decode_cursor, encode_cursor
 
 router = APIRouter(
@@ -141,18 +145,25 @@ async def ingest_document(
         thread_external_ref=request.thread_external_ref,
         thread_required=False,
     )
+    try:
+        feature_command = document_ingestion_server.ingest_document_command_from_contract(
+            _document_ingestion_feature_request(
+                request,
+                space_id=str(scope.space_id),
+                memory_scope_id=str(scope.memory_scope_id),
+                thread_id=str(scope.thread_id) if scope.thread_id else None,
+                idempotency_key=idempotency_key,
+            ).to_contract()
+        )
+    except ValueError as exc:
+        raise MemoryValidationError(str(exc)) from exc
     result = await container.ingest_document.execute(
-        IngestDocumentCommand(
+        _legacy_ingest_document_command(
+            feature_command,
+            request,
             space_id=scope.space_id,
             memory_scope_id=scope.memory_scope_id,
             thread_id=scope.thread_id,
-            title=request.title,
-            text=request.text,
-            source_type=request.source_type,
-            source_external_id=request.source_external_id,
-            idempotency_key=idempotency_key,
-            classification=request.classification,
-            chunk_metadata=_document_chunk_metadata(request.source_refs),
         )
     )
     if result.indexing_status == "already_indexed_or_pending":
@@ -177,6 +188,49 @@ def _document_chunk_metadata(source_refs: list[SourceRefRequest]) -> dict[str, o
         ],
         "source_ref_count": len(source_refs[:24]),
     }
+
+
+def _document_ingestion_feature_request(
+    request: IngestDocumentRequest,
+    *,
+    space_id: str,
+    memory_scope_id: str,
+    thread_id: str | None,
+    idempotency_key: str | None,
+) -> document_ingestion_server.IngestDocumentHttpRequest:
+    return document_ingestion_server.IngestDocumentHttpRequest(
+        space_id=space_id,
+        memory_scope_id=memory_scope_id,
+        thread_id=thread_id,
+        title=request.title,
+        text=request.text,
+        source_type=request.source_type,
+        source_external_id=request.source_external_id,
+        classification=request.classification,
+        idempotency_key=idempotency_key,
+    )
+
+
+def _legacy_ingest_document_command(
+    feature_command: Any,
+    request: IngestDocumentRequest,
+    *,
+    space_id: Any,
+    memory_scope_id: Any,
+    thread_id: Any,
+) -> LegacyIngestDocumentCommand:
+    return LegacyIngestDocumentCommand(
+        space_id=space_id,
+        memory_scope_id=memory_scope_id,
+        thread_id=thread_id,
+        title=feature_command.title,
+        text=feature_command.text,
+        source_type=feature_command.origin.source_type,
+        source_external_id=feature_command.origin.source_external_id,
+        idempotency_key=feature_command.idempotency_key,
+        classification=feature_command.classification,
+        chunk_metadata=_document_chunk_metadata(request.source_refs),
+    )
 
 
 @router.get("/{document_id}")
