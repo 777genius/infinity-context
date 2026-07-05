@@ -13,7 +13,6 @@ import infinity_context_core.features.document_ingestion.public as document_inge
 import infinity_context_core.features.memory_facts.public as memory_facts_public
 import infinity_context_core.processes.document_memory_pipeline.public as pipeline_public
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PROCESS_ROOT = (
     REPO_ROOT
@@ -100,7 +99,10 @@ def test_process_contracts_are_frozen_dataclasses_and_publicly_exported() -> Non
 
     assert pipeline_public.DocumentMemoryPipelineCommand is contracts.DocumentMemoryPipelineCommand
     assert pipeline_public.DocumentMemoryPipelineResult is contracts.DocumentMemoryPipelineResult
-    assert pipeline_public.DocumentMemoryPipelineUseCases is contracts.DocumentMemoryPipelineUseCases
+    assert (
+        pipeline_public.DocumentMemoryPipelineUseCases
+        is contracts.DocumentMemoryPipelineUseCases
+    )
     assert pipeline_public.DocumentMemoryPipelineProcess is process.DocumentMemoryPipelineProcess
     assert pipeline_public.__all__ == (
         "DocumentMemoryPipelineCommand",

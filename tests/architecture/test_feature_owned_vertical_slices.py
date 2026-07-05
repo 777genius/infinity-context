@@ -35,6 +35,16 @@ FEATURE_ROOTS = (
 )
 
 ADR_PATH = REPO_ROOT / "docs" / "adr" / "ADR-0007-feature-owned-vertical-slices.md"
+SERVER_OUTBOX_WORKER_PATH = (
+    REPO_ROOT / "packages" / "infinity_context_server" / "infinity_context_server" / "worker.py"
+)
+SERVER_PROCESS_ROOT = (
+    REPO_ROOT
+    / "packages"
+    / "infinity_context_server"
+    / "infinity_context_server"
+    / "processes"
+)
 
 CONTRACT_FORBIDDEN_IMPORT_PREFIXES = (
     "fastapi",
@@ -550,6 +560,43 @@ def test_legacy_core_feature_public_shims_do_not_import_feature_internals() -> N
                 violations.append(f"{rel}: imports {imported}")
 
     assert violations == []
+
+
+def test_outbox_worker_event_dispatch_is_owned_by_server_process_boundary() -> None:
+    worker_source = SERVER_OUTBOX_WORKER_PATH.read_text(encoding="utf-8")
+    process_paths = sorted(SERVER_PROCESS_ROOT.glob("*.py"))
+    process_sources = {
+        path.name: path.read_text(encoding="utf-8") for path in process_paths
+    }
+    process_imports = {
+        imported
+        for path in process_paths
+        for imported in _imports(path)
+    }
+
+    assert "build_outbox_event_dispatcher" in worker_source
+    assert "document_chunk_retrieval_text" not in worker_source
+    assert "ConsolidateCaptureCommand" not in worker_source
+    assert "RunAssetExtractionCommand" not in worker_source
+
+    for event_type in (
+        "vector.upsert_chunk",
+        "vector.upsert_chunks",
+        "vector.delete_chunks",
+        "graph.upsert_fact",
+        "graph.delete_fact",
+        "cognee.ingest_document",
+        "cognee.forget_document",
+        "capture.consolidate",
+        "asset.extract",
+    ):
+        assert event_type not in worker_source
+        assert event_type in "".join(process_sources.values())
+
+    assert not any(
+        _matches_module_prefix(imported, ("fastapi", "infinity_context_server.api"))
+        for imported in process_imports
+    )
 
 
 def test_relative_core_feature_import_resolves_to_legacy_layer_first_core() -> None:
