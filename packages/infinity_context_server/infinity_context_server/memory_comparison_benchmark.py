@@ -2737,23 +2737,31 @@ def _compact_evidence_bundle_coverage(
         if len(incomplete_samples) >= 5:
             break
         quality = _mapping(item.get("retrieval_quality"))
-        incomplete_samples.append(
-            {
-                "case_id": str(item.get("case_id") or ""),
-                "group": str(item.get("group") or ""),
-                "item_count": _positive_int(bundle.get("item_count")) or 0,
-                "evidence_term_recall": round(
-                    _metric_value(bundle, "evidence_term_recall"),
-                    4,
-                ),
-                "missing_evidence_terms": list(
-                    _str_tuple(quality.get("missing_evidence_terms"))[:8]
-                ),
-                "missing_expected_terms": list(
-                    _str_tuple(quality.get("missing_terms"))[:8]
-                ),
-            }
-        )
+        covered_evidence_refs = _str_tuple(
+            quality.get("covered_evidence_terms")
+        ) or _str_tuple(bundle.get("covered_evidence_terms"))
+        missing_evidence_refs = _str_tuple(quality.get("missing_evidence_terms"))
+        evidence_refs = (*covered_evidence_refs, *missing_evidence_refs)
+        sample: dict[str, object] = {
+            "case_id": str(item.get("case_id") or ""),
+            "group": str(item.get("group") or ""),
+            "item_count": _positive_int(bundle.get("item_count")) or 0,
+            "evidence_term_recall": round(
+                _metric_value(bundle, "evidence_term_recall"),
+                4,
+            ),
+            "missing_evidence_terms": list(missing_evidence_refs[:8]),
+            "missing_expected_terms": list(
+                _str_tuple(quality.get("missing_terms"))[:8]
+            ),
+        }
+        if evidence_refs:
+            sample["evidence_refs"] = list(evidence_refs[:8])
+        if covered_evidence_refs:
+            sample["covered_evidence_refs"] = list(covered_evidence_refs[:8])
+        if missing_evidence_refs:
+            sample["missing_evidence_refs"] = list(missing_evidence_refs[:8])
+        incomplete_samples.append(sample)
     return {
         "schema_version": "compact_evidence_bundle_coverage.v1",
         "bundle_count": len(bundles),
