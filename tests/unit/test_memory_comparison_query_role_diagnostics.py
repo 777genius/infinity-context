@@ -634,6 +634,129 @@ def test_query_role_effectiveness_maps_generic_support_role_by_query_family() ->
     assert breakdown["missing_required_role_selected_evidence_query_counts"] == {}
 
 
+def test_query_role_effectiveness_uses_fusion_selected_evidence_query_roles() -> None:
+    item = {
+        "case_id": "fusion-selected-evidence-required-role",
+        "retrieval": {
+            "metadata": {
+                "query_decomposition": {
+                    "query_plan": {
+                        "schema_version": "query_plan.v2",
+                        "selected_role_families": ["location_support"],
+                    },
+                    "query_profile": {
+                        "bundle_evidence_roles": [
+                            "primary",
+                            "location_support",
+                        ],
+                    },
+                },
+                "multi_query_merge": {
+                    "selected_evidence_query_role_counts": {
+                        "location_support": 1,
+                    },
+                },
+            },
+            "results": [
+                _memory("location-candidate", query_roles=("location_support",)),
+            ],
+        },
+        "evidence_bundle": {
+            "required_roles": [
+                "primary",
+                "location_support",
+            ],
+            "items": [
+                {
+                    "id": "location-selected",
+                    "role": "location_support",
+                }
+            ],
+        },
+    }
+
+    diagnostics = quality_diagnostics((item,))
+    table = diagnostics["query_role_effectiveness_table"]
+
+    assert table["required_role_selected_evidence_query_counts"] == {
+        "location_support": 1
+    }
+    assert table["missing_required_role_selected_evidence_query_counts"] == {}
+    assert table["required_roles_without_selected_evidence_queries"] == []
+
+    breakdown = fast_gate_metrics((item,), expected_case_count=1)[
+        "query_role_gap_breakdown"
+    ]
+    assert breakdown["required_role_selected_evidence_query_counts"] == {
+        "location_support": 1
+    }
+    assert breakdown["missing_required_role_selected_evidence_query_counts"] == {}
+    assert breakdown["required_roles_without_selected_evidence_queries"] == []
+
+
+def test_query_role_effectiveness_uses_fusion_selected_evidence_query_role_sample() -> None:
+    item = {
+        "case_id": "fusion-selected-evidence-query-role",
+        "retrieval": {
+            "metadata": {
+                "query_decomposition": {
+                    "query_plan": {
+                        "schema_version": "query_plan.v2",
+                        "selected_role_families": ["location_support"],
+                    },
+                    "query_profile": {
+                        "bundle_evidence_roles": [
+                            "primary",
+                            "location_support",
+                        ],
+                    },
+                },
+                "multi_query_merge": {
+                    "evidence_selection_samples": [
+                        {
+                            "selected_evidence_item_id": "location-selected",
+                            "selected_evidence_query_role": "location_support",
+                        }
+                    ],
+                },
+            },
+            "results": [
+                _memory("location-selected", query_roles=("location_support",)),
+            ],
+        },
+        "evidence_bundle": {
+            "required_roles": [
+                "primary",
+                "location_support",
+            ],
+            "items": [
+                {
+                    "id": "location-selected",
+                    "role": "location_support",
+                }
+            ],
+        },
+    }
+
+    diagnostics = quality_diagnostics((item,))
+    table = diagnostics["query_role_effectiveness_table"]
+
+    assert table["required_role_selected_evidence_query_counts"] == {
+        "location_support": 1
+    }
+    assert table["missing_required_role_selected_evidence_query_counts"] == {}
+    assert table["required_roles_without_selected_evidence_queries"] == []
+
+    breakdown = fast_gate_metrics((item,), expected_case_count=1)[
+        "query_role_gap_breakdown"
+    ]
+    assert breakdown["required_role_selected_evidence_query_counts"] == {
+        "location_support": 1
+    }
+    assert breakdown["missing_required_role_selected_evidence_query_counts"] == {}
+    assert breakdown["required_roles_without_selected_evidence_queries"] == []
+
+
 def test_query_role_effectiveness_accepts_compact_query_for_profile_required_role() -> None:
     diagnostics = quality_diagnostics(
         (
