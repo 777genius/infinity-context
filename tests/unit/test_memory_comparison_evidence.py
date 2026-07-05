@@ -149,6 +149,48 @@ def test_evidence_diagnostics_use_safe_refs_for_raw_locomo_and_provider_terms() 
     assert raw_provider_ref not in serialized
 
 
+def test_evidence_bundle_filters_hyphenated_raw_provider_source_refs() -> None:
+    raw_provider_refs = ("provider-private-payload", "raw-provider-ref")
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:hyphen-provider-source-ref",
+        question="Where did Priya choose to go?",
+        expected_terms=("Osaka",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={"category": 4, "evidence_terms": ("D2:6",)},
+    )
+
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text="D2:6 Priya chose Osaka for the conference.",
+                rank=1,
+                item_id="safe-memory-id",
+                source_refs=(*raw_provider_refs, "D2:6"),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.9,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "entity_hits": ["priya"],
+                            "relation_hits": ["chose"],
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+        ),
+    )
+
+    assert bundle["items"][0]["source_refs"] == ["D2:6"]
+    serialized = json.dumps(bundle, sort_keys=True)
+    for raw_ref in raw_provider_refs:
+        assert raw_ref not in serialized
+
+
 def test_evidence_bundle_includes_feature_backed_entity_disambiguation() -> None:
     case = PublicBenchmarkCase(
         benchmark="locomo",

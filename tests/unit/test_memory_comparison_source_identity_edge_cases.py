@@ -130,6 +130,19 @@ def test_safe_source_refs_for_output_filters_auth_payloads_without_turn_refs() -
     ) == ("document:profile-note",)
 
 
+def test_safe_source_refs_for_output_filters_hyphenated_raw_provider_refs() -> None:
+    assert looks_like_raw_source_ref("provider-private-payload") is True
+    assert looks_like_raw_source_ref("raw-provider-ref") is True
+    assert safe_source_refs_for_output(
+        (
+            "provider-private-payload",
+            "raw-provider-ref",
+            "raw-provider-ref D6:7",
+            "document:profile-note",
+        )
+    ) == ("source_turn_refs:D6:7", "document:profile-note")
+
+
 def test_safe_source_refs_for_output_keeps_turn_identity_from_auth_refs() -> None:
     bearer_payload = "Bearer " + ("a" * 16)
 
