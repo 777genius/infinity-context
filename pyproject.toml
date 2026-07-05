@@ -62,6 +62,7 @@ infinity-context-obsidian = "infinity_context_obsidian.cli:main"
 [tool.setuptools.packages.find]
 where = [
   "packages/infinity_context_core",
+  "packages/infinity_context_contracts",
   "packages/infinity_context_server",
   "packages/infinity_context_adapters",
   "packages/infinity_context_sdk",
@@ -90,6 +91,7 @@ testpaths = ["tests"]
 pythonpath = [
   ".",
   "packages/infinity_context_core",
+  "packages/infinity_context_contracts",
   "packages/infinity_context_server",
   "packages/infinity_context_adapters",
   "packages/infinity_context_sdk",

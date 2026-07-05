@@ -6,6 +6,9 @@ import sys
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+CONTRACTS_ROOT = (
+    PROJECT_ROOT / "packages" / "infinity_context_contracts" / "infinity_context_contracts"
+)
 CORE_ROOT = PROJECT_ROOT / "packages" / "infinity_context_core" / "infinity_context_core"
 
 PROVIDER_OR_INFRASTRUCTURE_IMPORTS = frozenset(
@@ -256,6 +259,13 @@ def test_capability_contracts_are_importable_without_provider_adapters() -> None
 
     assert capabilities.MemoryCapability.TEMPORAL_FACT_GRAPH == "temporal_fact_graph"
     assert capabilities.ConsistencyMode.REQUIRE_FRESH_PROJECTION == "require_fresh_projection"
+
+
+def test_contracts_package_is_importable_without_runtime_layers() -> None:
+    import infinity_context_contracts as contracts  # noqa: PLC0415
+
+    assert CONTRACTS_ROOT.is_dir()
+    assert contracts.__version__ == "0.1.0"
 
 
 def test_routes_do_not_import_provider_adapter_packages() -> None:

@@ -44,6 +44,18 @@ CORE_FORBIDDEN_IMPORT_PREFIXES = (
     PROVIDER_OR_INFRASTRUCTURE_IMPORT_PREFIXES | CLIENT_APP_IMPORT_PREFIXES
 )
 
+CONTRACTS_FORBIDDEN_IMPORT_PREFIXES = (
+    CORE_FORBIDDEN_IMPORT_PREFIXES
+    | frozenset(
+        {
+            "alembic",
+            "docling",
+            "faster_whisper",
+            "infinity_context_obsidian_plugin",
+        }
+    )
+)
+
 ALLOWED_MCP_DYNAMIC_IMPORTS = frozenset(
     {
         (
@@ -278,6 +290,13 @@ def test_memory_core_has_no_infrastructure_or_client_app_dependencies() -> None:
         "packages/infinity_context_core/infinity_context_core",
         CORE_FORBIDDEN_IMPORT_PREFIXES,
     )
+
+
+def test_contracts_package_has_no_infrastructure_or_client_app_dependencies() -> None:
+    package = "packages/infinity_context_contracts/infinity_context_contracts"
+
+    assert (REPO_ROOT / package).is_dir()
+    _assert_no_imports(package, CONTRACTS_FORBIDDEN_IMPORT_PREFIXES)
 
 
 def test_memory_adapters_do_not_depend_on_api_or_mcp_layers() -> None:
