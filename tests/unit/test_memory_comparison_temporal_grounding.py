@@ -193,6 +193,74 @@ def test_temporal_grounding_reports_source_window_audit_gap_separately() -> None
     ]
 
 
+def test_temporal_grounding_reports_source_identity_mismatch() -> None:
+    diagnostics = quality_diagnostics(
+        (
+            _item(
+                case_id="temporal-source-mismatch",
+                group="temporal",
+                retrieval=_retrieval_payload(
+                    evidence_need=("temporal_support",),
+                    bundle_evidence_roles=("primary", "temporal_sequence_support"),
+                    relation_categories=("temporal",),
+                    policy_score=0.0,
+                    candidate_features={
+                        "query_roles": ["temporal_sequence_support"],
+                        "time_intent_kind": "temporal_sequence",
+                    },
+                ),
+                evidence_bundle={
+                    "items": [
+                        {
+                            "id": "mismatched-turn",
+                            "role": "temporal_sequence_support",
+                            "query_roles": ["temporal_sequence_support"],
+                            "source_refs": [
+                                "locomo:conv-1:session_4:D4:3:turn"
+                            ],
+                            "text": (
+                                "session_5 date: 9 October, 2022 "
+                                "D4:3 Riley said the workshop happened later."
+                            ),
+                        }
+                    ]
+                },
+            ),
+        )
+    )
+
+    table = diagnostics["temporal_grounding_table"]
+
+    assert table["selected_strong_temporal_grounding_item_count"] == 0
+    assert table["selected_temporal_grounding_issue_item_count"] == 1
+    assert table["selected_temporal_grounding_issue_reason_counts"] == {
+        "source_identity_mismatch": 1
+    }
+    assert table["selected_temporal_grounding_issue_samples"] == [
+        {
+            "case_id": "temporal-source-mismatch",
+            "group": "temporal",
+            "item_id": "mismatched-turn",
+            "role": "temporal_sequence_support",
+            "query_roles": ["temporal_sequence_support"],
+            "source_refs": [
+                "source_session_turn_refs:session_4:D4:3",
+                "source_turn_refs:D4:3",
+            ],
+            "issue_reasons": ["source_identity_mismatch"],
+            "grounding_signals": {
+                "source_window": True,
+                "session_boundary": True,
+                "date_or_range": True,
+                "temporal_order": True,
+            },
+            "source_identity_gap_codes": [
+                "source_text_session_turn_mismatch"
+            ],
+        }
+    ]
+
+
 def test_temporal_grounding_summarizes_missing_weak_and_conflicting_issues() -> None:
     diagnostics = quality_diagnostics(
         (

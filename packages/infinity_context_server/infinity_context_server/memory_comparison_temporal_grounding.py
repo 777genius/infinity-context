@@ -43,9 +43,21 @@ from infinity_context_server.memory_comparison_quality_accessors import (
 from infinity_context_server.memory_comparison_quality_accessors import (
     str_tuple as _str_tuple,
 )
+from infinity_context_server.memory_comparison_source_identity import (
+    source_identity_audit_gap_codes as _source_identity_audit_gap_codes,
+)
 
 _MAX_SAMPLES = 10
 _MAX_SAMPLE_REFS = 5
+_MAX_SOURCE_IDENTITY_GAP_CODES = 5
+_SOURCE_IDENTITY_MISMATCH_GAP_CODES = frozenset(
+    {
+        "cross_session_source_identity",
+        "cross_session_text_identity",
+        "source_text_session_turn_mismatch",
+        "source_text_turn_mismatch",
+    }
+)
 _SESSION_RE = re.compile(r"\bsession[_ -]?\d+\b", re.IGNORECASE)
 _TURN_RE = re.compile(r"\bD\d+:\d+\b")
 _SOURCE_WINDOW_REF_RE = re.compile(
@@ -165,6 +177,7 @@ def temporal_grounding_table(items: Sequence[Mapping[str, object]]) -> dict[str,
             selected_item_count += 1
             source_refs = _source_refs_from_bundle_item(bundle_item)
             has_source_window = _has_source_window_ref(source_refs)
+            source_identity_gap_codes = _source_identity_gap_codes(bundle_item)
             selected_source_window_item_count += int(has_source_window)
             if not has_source_window:
                 selected_missing_source_window_count += 1
@@ -183,6 +196,7 @@ def temporal_grounding_table(items: Sequence[Mapping[str, object]]) -> dict[str,
                 bundle_item,
                 signals=signals,
                 has_source_window=has_source_window,
+                source_identity_gap_codes=source_identity_gap_codes,
             )
             if issue_reasons:
                 issue_item_count += 1
@@ -206,6 +220,7 @@ def temporal_grounding_table(items: Sequence[Mapping[str, object]]) -> dict[str,
                             source_refs,
                             signals=signals,
                             has_source_window=has_source_window,
+                            source_identity_gap_codes=source_identity_gap_codes,
                             reasons=issue_reasons,
                         )
                     )
@@ -363,10 +378,13 @@ def _temporal_grounding_issue_reasons(
     *,
     signals: Mapping[str, bool],
     has_source_window: bool,
+    source_identity_gap_codes: Sequence[str],
 ) -> tuple[str, ...]:
     reasons: list[str] = []
     has_session_boundary = bool(signals.get("session_boundary"))
     has_date_or_range = bool(signals.get("date") or signals.get("range"))
+    if _has_source_identity_mismatch(source_identity_gap_codes):
+        reasons.append("source_identity_mismatch")
     if not has_source_window:
         reasons.append("missing_source_window")
     if not has_session_boundary:
@@ -420,6 +438,28 @@ def _bundle_item_has_broad_summary(item: Mapping[str, object]) -> bool:
         or payload_has_broad_summary(item, features)
         or any("broad_summary" in reason for reason in reason_codes)
     )
+
+
+def _source_identity_gap_codes(item: Mapping[str, object]) -> tuple[str, ...]:
+    source_refs = _str_tuple(item.get("source_refs"))
+    if not source_refs:
+        source_refs = _source_refs_from_bundle_item(item)
+    return _source_identity_audit_gap_codes(
+        source_refs=source_refs,
+        text=_bundle_item_identity_text(item),
+    )
+
+
+def _bundle_item_identity_text(item: Mapping[str, object]) -> str:
+    return " ".join(
+        value
+        for key in ("memory", "text", "content")
+        for value in _string_values(item.get(key))
+    )
+
+
+def _has_source_identity_mismatch(gap_codes: Sequence[str]) -> bool:
+    return any(code in _SOURCE_IDENTITY_MISMATCH_GAP_CODES for code in gap_codes)
 
 
 def _grounding_signal_payload(
@@ -535,9 +575,10 @@ def _temporal_grounding_issue_sample(
     *,
     signals: Mapping[str, bool],
     has_source_window: bool,
+    source_identity_gap_codes: Sequence[str],
     reasons: Sequence[str],
 ) -> dict[str, object]:
-    return {
+    sample: dict[str, object] = {
         "case_id": str(item.get("case_id") or ""),
         "group": str(item.get("group") or ""),
         "item_id": str(
@@ -556,3 +597,8 @@ def _temporal_grounding_issue_sample(
             "temporal_order": bool(signals.get("temporal_order")),
         },
     }
+    if _has_source_identity_mismatch(source_identity_gap_codes):
+        sample["source_identity_gap_codes"] = list(
+            source_identity_gap_codes[:_MAX_SOURCE_IDENTITY_GAP_CODES]
+        )
+    return sample
