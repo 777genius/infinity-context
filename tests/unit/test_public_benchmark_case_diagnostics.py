@@ -76,3 +76,28 @@ def test_case_evidence_refs_flattens_nested_locomo_evidence() -> None:
         "D1:1: Caroline wants to pursue counseling.",
         "D1:4: Mental health work feels like the right path.",
     )
+
+
+def test_case_evidence_refs_sanitize_private_source_refs() -> None:
+    raw_ref = "locomo:conv-private:session_2:D2:6:turn-secret"
+    case = _Case(
+        metadata={
+            "evidence": [raw_ref, "D3:9"],
+            "evidence_previews": {
+                raw_ref: "D2:6 Priya chose Osaka.",
+                "D3:9": "D3:9 Nate should clean the tank.",
+            },
+        }
+    )
+
+    refs = case_evidence_refs(case)
+
+    assert refs == (
+        "source_session_turn_refs:session_2:D2:6",
+        "source_turn_refs:D2:6",
+        "D3:9",
+    )
+    assert case_evidence_ref_previews(case, refs=refs) == (
+        "source_session_turn_refs:session_2:D2:6: D2:6 Priya chose Osaka.",
+        "D3:9: D3:9 Nate should clean the tank.",
+    )

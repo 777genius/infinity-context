@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable, Sequence
 
+from infinity_context_core.application.sensitive_text import contains_sensitive_text
+
 _TURN_REF_RE = re.compile(r"\bD\d+:\d+\b", re.IGNORECASE)
 _SOURCE_SESSION_TURN_RE = re.compile(
     r"(?:^|:)session_(?P<session>\d+):(?P<turn_ref>D\d+:\d+):"
@@ -65,9 +67,9 @@ def safe_turn_ref(value: object) -> str | None:
     return ref.upper()
 
 
-def safe_source_refs_for_output(source_refs: Sequence[str]) -> tuple[str, ...]:
+def safe_source_refs_for_output(source_refs: object) -> tuple[str, ...]:
     refs: list[str] = []
-    for raw_ref in source_refs:
+    for raw_ref in _source_ref_values(source_refs):
         for ref in _safe_source_refs_for_output_value(raw_ref):
             if ref and ref not in refs:
                 refs.append(ref)
@@ -146,6 +148,8 @@ def _safe_source_refs_for_output_value(value: object) -> tuple[str, ...]:
 
 
 def _looks_like_raw_ref(value: str) -> bool:
+    if contains_sensitive_text(value):
+        return True
     text = value.lower()
     if "locomo:" in text or "conv-private" in text or "turn-secret" in text:
         return True
@@ -205,11 +209,15 @@ def source_identity_refs_from_text(
 
 
 def source_identity_refs_from_source_refs(
-    source_refs: Sequence[str],
+    source_refs: object,
     *,
     include_exact_turn_refs: bool = False,
 ) -> tuple[str, ...]:
-    refs = tuple(str(ref).strip() for ref in source_refs if str(ref).strip())
+    refs = tuple(
+        str(ref).strip()
+        for ref in _source_ref_values(source_refs)
+        if str(ref).strip()
+    )
     session_turn_refs = _source_session_turn_refs(refs)
     turn_refs = _source_turn_refs(
         refs,
@@ -231,10 +239,14 @@ def source_identity_refs_from_source_refs(
 
 def source_identity_audit_gap_codes(
     *,
-    source_refs: Sequence[str],
+    source_refs: object,
     text: str,
 ) -> tuple[str, ...]:
-    refs = tuple(str(ref).strip() for ref in source_refs if str(ref).strip())
+    refs = tuple(
+        str(ref).strip()
+        for ref in _source_ref_values(source_refs)
+        if str(ref).strip()
+    )
     source_turn_refs = _source_turn_refs(refs, include_exact_turn_refs=True)
     source_session_turn_refs = _source_session_turn_refs(refs)
     text_session_turn_refs = _session_turn_refs_from_text(text)
@@ -281,6 +293,14 @@ def _split_identity_refs(value: str) -> tuple[str, ...]:
     return tuple(
         dict.fromkeys(ref.strip() for ref in value.split("|") if ref.strip())
     )
+
+
+def _source_ref_values(value: object) -> tuple[object, ...]:
+    if isinstance(value, str):
+        return (value,)
+    if isinstance(value, Sequence) and not isinstance(value, bytes):
+        return tuple(value)
+    return ()
 
 
 def _safe_identity_refs(values: Iterable[object]) -> tuple[str, ...]:

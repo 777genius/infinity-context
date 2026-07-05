@@ -27,6 +27,12 @@ from infinity_context_server.memory_comparison_rerank import (
     query_support_terms,
 )
 from infinity_context_server.memory_comparison_source_identity import (
+    looks_like_raw_source_ref as _looks_like_raw_source_ref,
+)
+from infinity_context_server.memory_comparison_source_identity import (
+    safe_item_id_for_output as _safe_item_id_for_output,
+)
+from infinity_context_server.memory_comparison_source_identity import (
     safe_source_refs_for_output as _safe_source_refs_for_output,
 )
 from infinity_context_server.memory_comparison_source_identity import (
@@ -748,9 +754,12 @@ def _safe_dedupe_key(value: object) -> str:
 
 
 def _looks_like_unsafe_source_ref(value: object) -> bool:
-    text = str(value or "").strip().lower()
-    if not text:
+    raw_text = str(value or "").strip()
+    if not raw_text:
         return False
+    if _looks_like_raw_source_ref(raw_text):
+        return True
+    text = raw_text.lower()
     if any(text.startswith(prefix) for prefix in _UNSAFE_SOURCE_REF_PREFIXES):
         return True
     return any(marker in text for marker in _UNSAFE_SOURCE_REF_MARKERS)
@@ -768,15 +777,16 @@ def _metadata_string_sequence(value: object) -> tuple[str, ...]:
 
 def _memory_identifier(memory: RetrievedMemory) -> str:
     if memory.item_id:
-        if _looks_like_unsafe_source_ref(memory.item_id):
-            refs = _safe_source_refs_for_output((memory.item_id,))
-            if refs:
-                return refs[0]
-            memory_refs = _memory_source_refs(memory)
-            if memory_refs:
-                return memory_refs[0]
-            return f"rank:{memory.rank}"
-        return memory.item_id
+        item_id = _safe_item_id_for_output(memory.item_id)
+        if item_id:
+            return item_id
+        refs = _safe_source_refs_for_output((memory.item_id,))
+        if refs:
+            return refs[0]
+        memory_refs = _memory_source_refs(memory)
+        if memory_refs:
+            return memory_refs[0]
+        return f"rank:{memory.rank}"
     refs = _memory_source_refs(memory)
     if refs:
         return refs[0]

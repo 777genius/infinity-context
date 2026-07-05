@@ -6,6 +6,8 @@ from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
 from math import isfinite
 
+from infinity_context_core.application.sensitive_text import redact_sensitive_text
+
 from infinity_context_server.memory_comparison_answer_context_risks import (
     is_measured_low_answerability as _is_measured_low_answerability,
 )
@@ -424,7 +426,11 @@ def _safe_selected_source_refs_for_value(value: object) -> tuple[str, ...]:
 
 
 def _sample_value_list(values: Sequence[str]) -> list[str]:
-    return [_compact_sample_text(value) for value in values]
+    return [
+        compact
+        for value in values
+        if (compact := _compact_sample_text(value))
+    ]
 
 
 def _sample_metric_value(value: float) -> float:
@@ -434,7 +440,9 @@ def _sample_metric_value(value: float) -> float:
 
 
 def _compact_sample_text(value: str) -> str:
-    stripped = value.strip()
+    stripped = redact_sensitive_text(value.strip())
+    if _looks_like_raw_source_ref(stripped):
+        return ""
     if len(stripped) <= _SELECTED_WEAKNESS_TEXT_VALUE_LIMIT:
         return stripped
     return f"{stripped[:_SELECTED_WEAKNESS_TEXT_VALUE_LIMIT - 3]}..."

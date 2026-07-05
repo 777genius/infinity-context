@@ -447,6 +447,54 @@ def test_compact_report_sanitizes_auth_markers_without_turn_refs() -> None:
     assert "[redacted]" in serialized
 
 
+def test_compact_report_redacts_auth_payload_shapes() -> None:
+    bearer_payload = "Bearer " + ("a" * 16)
+    key_payload = "MEMORY_TOKEN=" + ("b" * 16)
+
+    compact = _compact_report(
+        {
+            "schema_version": "memory-comparison-benchmark-v1",
+            "suite": "memory-comparison-benchmark",
+            "source_suite": "public-memory-benchmark",
+            "status": "failed",
+            "ok": False,
+            "evaluations": [],
+            "metadata": {"summary": bearer_payload},
+            "metrics": {},
+            "backend_metrics": {},
+            "backend_comparison": {},
+            "failure_analysis": [
+                {
+                    "case_id": "failure-auth-payload-shapes",
+                    "backend": "memo-stack",
+                    "group": "single-hop",
+                    "reason": bearer_payload,
+                    "diagnostic_reason_codes": ["missing_evidence_refs"],
+                    "diagnostics": {
+                        "item_id": bearer_payload,
+                        "item_ids": [key_payload, "safe-item"],
+                        "source_refs": [
+                            bearer_payload,
+                            f"authorization {bearer_payload} D7:8",
+                        ],
+                    },
+                }
+            ],
+            "failures": [{"reason": key_payload}],
+            "elapsed_ms": 1.0,
+        },
+        failure_limit=5,
+    )
+
+    serialized = json.dumps(compact, sort_keys=True)
+
+    assert "Bearer" not in serialized
+    assert "MEMORY_TOKEN" not in serialized
+    assert "safe-item" in serialized
+    assert "source_turn_refs:D7:8" in serialized
+    assert "[redacted]" in serialized
+
+
 def _item(
     *,
     case_id: str,

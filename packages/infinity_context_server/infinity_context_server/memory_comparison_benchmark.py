@@ -2723,11 +2723,12 @@ def _compact_safe_text(
 
 
 def _looks_like_unsafe_compact_text(value: object) -> bool:
-    text = str(value or "").strip().lower()
-    if not text:
+    raw_text = str(value or "").strip()
+    if not raw_text:
         return False
-    if _looks_like_raw_source_ref(text):
+    if _looks_like_raw_source_ref(raw_text):
         return True
+    text = raw_text.lower()
     if any(text.startswith(prefix) for prefix in _COMPACT_UNSAFE_TEXT_PREFIXES):
         return True
     return any(marker in text for marker in _COMPACT_UNSAFE_TEXT_MARKERS)
