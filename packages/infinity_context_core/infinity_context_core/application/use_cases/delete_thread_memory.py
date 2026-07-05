@@ -30,18 +30,26 @@ class DeleteThreadMemoryUseCase:
                         },
                     )
                 )
+            deleted_fact_versions = dict(result.deleted_fact_versions)
             for fact_id in result.deleted_fact_ids:
+                fact_version = deleted_fact_versions.get(fact_id)
+                # Keep thread-cleanup projection jobs under the thread aggregate so
+                # compatibility status counts stay scoped to canonical row cleanup.
+                payload: dict[str, object] = {
+                    "space_id": str(command.space_id),
+                    "memory_scope_id": str(command.memory_scope_id),
+                    "thread_id": str(command.thread_id),
+                    "fact_id": fact_id,
+                }
+                if fact_version is not None:
+                    payload["version"] = fact_version
                 await uow.outbox.enqueue(
                     OutboxEvent(
                         event_type="graph.delete_fact",
                         aggregate_type="thread",
                         aggregate_id=str(command.thread_id),
-                        payload={
-                            "space_id": str(command.space_id),
-                            "memory_scope_id": str(command.memory_scope_id),
-                            "thread_id": str(command.thread_id),
-                            "fact_id": fact_id,
-                        },
+                        aggregate_version=fact_version,
+                        payload=payload,
                     )
                 )
             await uow.commit()

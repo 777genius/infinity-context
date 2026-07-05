@@ -43,6 +43,7 @@ class SessionDeleteResult:
     deleted_jobs: int
     deleted_chunk_ids: tuple[str, ...] = ()
     deleted_fact_ids: tuple[str, ...] = ()
+    deleted_fact_versions: tuple[tuple[str, int], ...] = ()
 
 
 @dataclass(frozen=True)

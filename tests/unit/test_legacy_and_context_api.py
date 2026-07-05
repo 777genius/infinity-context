@@ -11,7 +11,10 @@ from infinity_context_adapters.noop import (
 )
 from infinity_context_adapters.postgres.models import (
     MemoryEpisodeRow,
+    MemoryFactRow,
+    MemoryFactVersionRow,
     MemoryOutboxRow,
+    MemorySourceRefRow,
     MemoryThreadRow,
 )
 from infinity_context_core.application import (
@@ -324,6 +327,9 @@ def test_v1_episode_context_status_duplicate_and_delete_thread_memory(
             headers=auth_headers(),
         )
         diagnostics = client.get("/v1/diagnostics/outbox", headers=auth_headers())
+        delete_audit = asyncio.run(
+            _thread_delete_fact_audit(client, fact_id=scoped_fact.json()["data"]["id"])
+        )
 
     assert created.status_code == 200
     assert created.json()["data"]["durability"] == "durable"
@@ -352,6 +358,13 @@ def test_v1_episode_context_status_duplicate_and_delete_thread_memory(
     event_types = [item["event_type"] for item in diagnostics.json()["data"]["items"]]
     assert "vector.delete_chunks" in event_types
     assert "graph.delete_fact" in event_types
+    assert delete_audit == {
+        "fact_status": "deleted",
+        "fact_version": 2,
+        "versions": [(1, "active", 1), (2, "deleted", 1)],
+        "source_ref_counts": [(1, 1), (2, 1)],
+        "graph_delete_versions": [2],
+    }
 
 
 def test_v1_thread_memory_read_routes_do_not_create_missing_scope(tmp_path: Path) -> None:
@@ -2187,6 +2200,55 @@ async def _thread_count(client: TestClient, *, external_ref: str) -> int:
                 .where(MemoryThreadRow.external_ref == external_ref)
             )
         )
+
+
+async def _thread_delete_fact_audit(client: TestClient, *, fact_id: str) -> dict[str, object]:
+    engine = client.app.state.container.engine
+    async with AsyncSession(engine) as session:
+        fact = await session.get(MemoryFactRow, fact_id)
+        assert fact is not None
+        version_rows = (
+            await session.execute(
+                select(
+                    MemoryFactVersionRow.version,
+                    MemoryFactVersionRow.status,
+                    MemoryFactVersionRow.source_refs_json,
+                )
+                .where(MemoryFactVersionRow.fact_id == fact_id)
+                .order_by(MemoryFactVersionRow.version)
+            )
+        ).all()
+        ref_counts = (
+            await session.execute(
+                select(MemorySourceRefRow.fact_version, func.count(MemorySourceRefRow.id))
+                .where(MemorySourceRefRow.fact_id == fact_id)
+                .group_by(MemorySourceRefRow.fact_version)
+                .order_by(MemorySourceRefRow.fact_version)
+            )
+        ).all()
+        graph_delete_rows = (
+            await session.execute(
+                select(MemoryOutboxRow)
+                .where(MemoryOutboxRow.event_type == "graph.delete_fact")
+                .order_by(MemoryOutboxRow.id)
+            )
+        ).scalars()
+        return {
+            "fact_status": fact.status,
+            "fact_version": fact.version,
+            "versions": [
+                (version, status, len(source_refs_json or ()))
+                for version, status, source_refs_json in version_rows
+            ],
+            "source_ref_counts": [
+                (fact_version, int(count)) for fact_version, count in ref_counts
+            ],
+            "graph_delete_versions": [
+                row.aggregate_version
+                for row in graph_delete_rows
+                if (row.payload_json or {}).get("fact_id") == fact_id
+            ],
+        }
 
 
 def test_disabled_policy_returns_no_legacy_memory_or_public_context(tmp_path: Path) -> None:

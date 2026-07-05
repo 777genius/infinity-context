@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from infinity_context_core.domain.entities import MemoryScope, MemorySpace, MemoryThread
 from infinity_context_core.domain.errors import MemoryConflictError, MemoryNotFoundError
@@ -20,6 +20,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from infinity_context_adapters.postgres.mappers import (
     memory_scope_row_to_domain,
     space_row_to_domain,
+    source_ref_row_to_domain,
+    source_ref_to_json,
     thread_row_to_domain,
 )
 from infinity_context_adapters.postgres.models import (
@@ -27,8 +29,10 @@ from infinity_context_adapters.postgres.models import (
     MemoryDocumentRow,
     MemoryEpisodeRow,
     MemoryFactRow,
+    MemoryFactVersionRow,
     MemoryOutboxRow,
     MemoryScopeRow,
+    MemorySourceRefRow,
     MemorySpaceRow,
     MemoryThreadRow,
 )
@@ -337,12 +341,12 @@ class PostgresScopeRepository(ScopeRepositoryPort):
             memory_scope_id=memory_scope_id,
             thread_id=thread_id,
         )
-        fact_ids = await self._soft_delete_ids(
-            MemoryFactRow,
+        deleted_fact_versions = await self._soft_delete_thread_facts(
             space_id=space_id,
             memory_scope_id=memory_scope_id,
             thread_id=thread_id,
         )
+        fact_ids = tuple(fact_id for fact_id, _version in deleted_fact_versions)
         episode_ids = await self._soft_delete_ids(
             MemoryEpisodeRow,
             space_id=space_id,
@@ -364,6 +368,141 @@ class PostgresScopeRepository(ScopeRepositoryPort):
             deleted_jobs=jobs,
             deleted_chunk_ids=chunk_ids,
             deleted_fact_ids=fact_ids,
+            deleted_fact_versions=deleted_fact_versions,
+        )
+
+    async def _soft_delete_thread_facts(
+        self,
+        *,
+        space_id: str,
+        memory_scope_id: str,
+        thread_id: str,
+    ) -> tuple[tuple[str, int], ...]:
+        rows = list(
+            (
+                await self._session.execute(
+                    select(MemoryFactRow)
+                    .where(
+                        MemoryFactRow.space_id == space_id,
+                        MemoryFactRow.memory_scope_id == memory_scope_id,
+                        MemoryFactRow.thread_id == thread_id,
+                        MemoryFactRow.status != "deleted",
+                    )
+                    .order_by(MemoryFactRow.id)
+                    .with_for_update()
+                )
+            ).scalars()
+        )
+        if not rows:
+            return ()
+
+        deleted_at = datetime.now(UTC)
+        deleted: list[tuple[str, int]] = []
+        for row in rows:
+            previous_version = int(row.version)
+            next_version = previous_version + 1
+            refs = await self._load_source_refs(fact_id=row.id, version=previous_version)
+            refs_json = [source_ref_to_json(source_ref_row_to_domain(ref)) for ref in refs]
+
+            row.status = "deleted"
+            row.version = next_version
+            row.updated_at = deleted_at
+            await self._write_fact_delete_version(
+                fact_id=row.id,
+                version=next_version,
+                text=row.text,
+                source_refs_json=refs_json,
+                deleted_at=deleted_at,
+            )
+            await self._copy_source_refs(
+                refs,
+                fact_id=row.id,
+                fact_version=next_version,
+            )
+            deleted.append((str(row.id), next_version))
+
+        await self._session.flush()
+        return tuple(deleted)
+
+    async def _write_fact_delete_version(
+        self,
+        *,
+        fact_id: str,
+        version: int,
+        text: str,
+        source_refs_json: list[dict[str, object]],
+        deleted_at: datetime,
+    ) -> None:
+        existing = (
+            await self._session.execute(
+                select(MemoryFactVersionRow).where(
+                    MemoryFactVersionRow.fact_id == fact_id,
+                    MemoryFactVersionRow.version == version,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing is not None:
+            existing.text = text
+            existing.status = "deleted"
+            existing.source_refs_json = source_refs_json
+            existing.reason = "thread_memory.delete"
+            existing.created_at = deleted_at
+            return
+        self._session.add(
+            MemoryFactVersionRow(
+                fact_id=fact_id,
+                version=version,
+                text=text,
+                status="deleted",
+                source_refs_json=source_refs_json,
+                reason="thread_memory.delete",
+                created_at=deleted_at,
+            )
+        )
+
+    async def _copy_source_refs(
+        self,
+        refs: list[MemorySourceRefRow],
+        *,
+        fact_id: str,
+        fact_version: int,
+    ) -> None:
+        await self._session.execute(
+            delete(MemorySourceRefRow).where(
+                MemorySourceRefRow.fact_id == fact_id,
+                MemorySourceRefRow.fact_version == fact_version,
+            )
+        )
+        for ref in refs:
+            self._session.add(
+                MemorySourceRefRow(
+                    fact_id=fact_id,
+                    fact_version=fact_version,
+                    source_type=ref.source_type,
+                    source_id=ref.source_id,
+                    chunk_id=ref.chunk_id,
+                    char_start=ref.char_start,
+                    char_end=ref.char_end,
+                    quote_preview=ref.quote_preview,
+                    page_number=ref.page_number,
+                    time_start_ms=ref.time_start_ms,
+                    time_end_ms=ref.time_end_ms,
+                    bbox_json=list(ref.bbox_json) if ref.bbox_json is not None else None,
+                )
+            )
+
+    async def _load_source_refs(self, *, fact_id: str, version: int) -> list[MemorySourceRefRow]:
+        return list(
+            (
+                await self._session.execute(
+                    select(MemorySourceRefRow)
+                    .where(
+                        MemorySourceRefRow.fact_id == fact_id,
+                        MemorySourceRefRow.fact_version == version,
+                    )
+                    .order_by(MemorySourceRefRow.id)
+                )
+            ).scalars()
         )
 
     async def thread_status(
