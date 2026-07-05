@@ -2456,6 +2456,8 @@ def _compact_answer_context_support_gap_samples(
         "memory_count",
         "source_ref_item_count",
         "source_refless_item_count",
+        "source_identity_ref_count",
+        "source_identity_item_count",
         "backfilled_retrieval_item_count",
         "skipped_redundant_risky_backfill_count",
         "avg_measured_answerability_score",
@@ -2467,6 +2469,7 @@ def _compact_answer_context_support_gap_samples(
         "missing_required_roles",
         "risk_reason_codes",
         "item_ids",
+        "source_identity_refs",
     )
     for raw_sample in value[:limit]:
         sample = _mapping(raw_sample)
