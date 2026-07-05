@@ -433,6 +433,88 @@ def test_failure_diagnostics_counts_source_identity_refs_as_provenance() -> None
     assert "selected_bundle_source_refless_evidence" not in reasons
 
 
+def test_failure_diagnostics_uses_dedupe_identity_when_direct_refs_are_generic() -> None:
+    evaluation = {
+        "retrieval": {
+            "total_results": 1,
+            "results": [
+                {
+                    "id": "generic-direct-with-identity",
+                    "rank": 1,
+                    "source_refs": ["locomo-conv-4"],
+                    "metadata": {
+                        "diagnostics": {
+                            "benchmark_candidate_features": {
+                                "source_ref_dedupe_key": "source_turn_refs:D4:2",
+                            }
+                        }
+                    },
+                }
+            ],
+        },
+        "retrieval_quality": {
+            "expected_term_recall": 0.5,
+            "evidence_term_recall": 0.0,
+            "missing_evidence_terms": ["D4:3"],
+        },
+        "evidence_bundle": {
+            "bundle_complete": False,
+            "items": [
+                {
+                    "id": "generic-direct-with-identity",
+                    "role": "primary",
+                    "source_refs": ["locomo-conv-4"],
+                    "source_ref_dedupe_key": "source_turn_refs:D4:2",
+                }
+            ],
+        },
+        "generation": {},
+        "judgment": {},
+    }
+
+    diagnostics = failure_diagnostics(evaluation)
+    reasons = failure_diagnostic_reason_codes(
+        evaluation,
+        score=0.0,
+        retrieval_recall=0.5,
+        diagnostics=diagnostics,
+    )
+
+    assert diagnostics["source_ref_count"] == 2
+    assert diagnostics["missing_evidence_source_locality"] == {
+        "schema_version": "missing_evidence_source_locality.v1",
+        "missing_turn_ref_count": 1,
+        "retrieved_source_id_count": 1,
+        "retrieved_source_ids": ["D4"],
+        "bundle_source_id_count": 1,
+        "bundle_source_ids": ["D4"],
+        "same_source_missing_count": 1,
+        "near_retrieved_window_count": 1,
+        "source_absent_count": 0,
+        "cause_counts": {"near_retrieved_window": 1},
+        "missing_ref_window_count": 1,
+        "missing_ref_window_omitted_count": 0,
+        "missing_ref_windows": [
+            {
+                "ref": "D4:3",
+                "source_id": "D4",
+                "retrieved_same_source": True,
+                "bundle_same_source": True,
+                "nearest_retrieved_turn_ref": "D4:2",
+                "nearest_retrieved_turn_distance": 1,
+                "nearest_bundle_turn_ref": "D4:2",
+                "nearest_bundle_turn_distance": 1,
+                "cause": "near_retrieved_window",
+            }
+        ],
+    }
+    assert diagnostics["bundle"]["selected_bundle_source_ref_count"] == 2
+    assert diagnostics["bundle"]["selected_bundle_source_ref_item_count"] == 1
+    assert diagnostics["bundle"]["selected_bundle_source_refless_item_count"] == 0
+    assert "missing_evidence_source_window_miss" in reasons
+    assert "missing_evidence_source_absent" not in reasons
+
+
 def test_failure_diagnostics_uses_bundle_quality_weak_locality_fallback() -> None:
     evaluation = {
         "retrieval": {"total_results": 1, "results": []},

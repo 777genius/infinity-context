@@ -680,11 +680,29 @@ def _selected_bundle_source_ref_stats(
 
 
 def _result_source_refs(result: Mapping[str, object]) -> tuple[str, ...]:
-    return _str_tuple(result.get("source_refs")) or _source_refs_from_memory(result)
+    return _source_refs_with_identity_fallback(
+        direct_refs=_str_tuple(result.get("source_refs")),
+        derived_refs=_source_refs_from_memory(result),
+    )
 
 
 def _bundle_item_source_refs(item: Mapping[str, object]) -> tuple[str, ...]:
-    return _str_tuple(item.get("source_refs")) or _source_refs_from_bundle_item(item)
+    return _source_refs_with_identity_fallback(
+        direct_refs=_str_tuple(item.get("source_refs")),
+        derived_refs=_source_refs_from_bundle_item(item),
+    )
+
+
+def _source_refs_with_identity_fallback(
+    *,
+    direct_refs: Sequence[str],
+    derived_refs: Sequence[str],
+) -> tuple[str, ...]:
+    if not direct_refs:
+        return tuple(derived_refs)
+    if _turn_refs(direct_refs):
+        return tuple(direct_refs)
+    return tuple(dict.fromkeys((*direct_refs, *derived_refs)))
 
 
 def _is_measured_low_answerability(score: float) -> bool:
