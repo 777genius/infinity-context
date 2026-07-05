@@ -28,6 +28,9 @@ from infinity_context_server.memory_comparison_compact_gap_report import (
     compact_evidence_bundle_gap_report as _compact_evidence_bundle_gap_report,
 )
 from infinity_context_server.memory_comparison_compact_gap_report import (
+    compact_evidence_ref_list as _compact_evidence_ref_list,
+)
+from infinity_context_server.memory_comparison_compact_gap_report import (
     compact_text_list as _compact_text_list,
 )
 from infinity_context_server.memory_comparison_evidence import (
@@ -3146,12 +3149,21 @@ def _compact_evidence_bundle_coverage(
             break
         quality = _mapping(item.get("retrieval_quality"))
         covered_evidence_refs = tuple(
-            _compact_text_list(quality.get("covered_evidence_terms"), item_limit=8)
+            _compact_evidence_ref_list(
+                quality.get("covered_evidence_terms"),
+                item_limit=8,
+            )
         ) or tuple(
-            _compact_text_list(bundle.get("covered_evidence_terms"), item_limit=8)
+            _compact_evidence_ref_list(
+                bundle.get("covered_evidence_terms"),
+                item_limit=8,
+            )
         )
         missing_evidence_refs = tuple(
-            _compact_text_list(quality.get("missing_evidence_terms"), item_limit=8)
+            _compact_evidence_ref_list(
+                quality.get("missing_evidence_terms"),
+                item_limit=8,
+            )
         )
         evidence_refs = tuple(
             dict.fromkeys((*covered_evidence_refs, *missing_evidence_refs))

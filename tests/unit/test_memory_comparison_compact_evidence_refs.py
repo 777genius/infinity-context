@@ -122,3 +122,34 @@ def test_compact_evidence_bundle_coverage_truncates_long_evidence_refs() -> None
     serialized = json.dumps(sample)
     assert raw_covered_ref not in serialized
     assert raw_missing_ref not in serialized
+
+
+def test_compact_evidence_bundle_coverage_normalizes_raw_locomo_refs() -> None:
+    raw_covered_ref = "locomo:conv-private:session_1:D1:2:turn-secret"
+    raw_missing_ref = "locomo:conv-private:session_2:D2:3:turn-secret"
+    coverage = benchmark._compact_evidence_bundle_coverage(
+        (
+            {
+                "case_id": "conv-1:qa:private-ref",
+                "group": "multi-hop",
+                "retrieval_quality": {
+                    "covered_evidence_terms": [raw_covered_ref],
+                    "missing_evidence_terms": [raw_missing_ref],
+                },
+                "evidence_bundle": {
+                    "bundle_complete": False,
+                    "item_count": 1,
+                    "evidence_term_recall": 0.0,
+                },
+            },
+        )
+    )
+
+    sample = coverage["incomplete_samples"][0]
+
+    assert sample["evidence_refs"] == ["session_1:D1:2", "session_2:D2:3"]
+    assert sample["covered_evidence_refs"] == ["session_1:D1:2"]
+    assert sample["missing_evidence_refs"] == ["session_2:D2:3"]
+    serialized = json.dumps(sample)
+    assert "locomo:conv-private" not in serialized
+    assert "turn-secret" not in serialized

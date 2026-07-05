@@ -5,6 +5,9 @@ import json
 from infinity_context_server.memory_comparison_benchmark import (
     _compact_fast_gate_summary,
 )
+from infinity_context_server.memory_comparison_compact_gap_report import (
+    compact_evidence_bundle_gap_report,
+)
 
 
 def test_compact_fast_gate_summary_surfaces_evidence_ref_gap_report_safely() -> None:
@@ -124,6 +127,57 @@ def test_compact_fast_gate_summary_sanitizes_selected_weakness_source_refs() -> 
     assert "locomo:conv-private" not in serialized
     assert "turn-secret" not in serialized
     assert "PRIVATE SELECTED MEMORY TEXT" not in serialized
+
+
+def test_compact_gap_report_normalizes_locality_window_private_refs() -> None:
+    raw_ref = "locomo:conv-private:session_2:D2:3:turn-secret"
+    raw_nearest_ref = "locomo:conv-private:session_2:D2:2:turn-secret"
+    report = compact_evidence_bundle_gap_report(
+        {
+            "schema_version": "evidence_bundle_gap_report.v1",
+            "status": "gaps_found",
+            "evaluation_count": 1,
+            "incomplete_case_count": 1,
+            "top_coverage_gaps": [
+                {
+                    "reason": "missing_evidence_refs",
+                    "count": 1,
+                    "case_rate": 1.0,
+                    "sample_case_ids": ["case-private-ref"],
+                    "source_window_locality_samples": [
+                        {
+                            "case_id": "case-private-ref",
+                            "missing_turn_ref_count": 1,
+                            "same_source_missing_count": 1,
+                            "near_retrieved_window_count": 1,
+                            "source_absent_count": 0,
+                            "missing_ref_windows": [
+                                {
+                                    "ref": raw_ref,
+                                    "source_id": raw_ref,
+                                    "retrieved_same_source": True,
+                                    "bundle_same_source": False,
+                                    "nearest_retrieved_turn_ref": raw_nearest_ref,
+                                    "nearest_retrieved_turn_distance": 1,
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+
+    window = report["top_coverage_gaps"][0]["source_window_locality_samples"][0][
+        "missing_ref_windows"
+    ][0]
+
+    assert window["ref"] == "session_2:D2:3"
+    assert window["source_id"] == "session_2:D2"
+    assert window["nearest_retrieved_turn_ref"] == "session_2:D2:2"
+    serialized = json.dumps(report)
+    assert "locomo:conv-private" not in serialized
+    assert "turn-secret" not in serialized
 
 
 def _item(

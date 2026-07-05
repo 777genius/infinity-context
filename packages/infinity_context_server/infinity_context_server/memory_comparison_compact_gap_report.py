@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 
 _COVERAGE_GAP_LIMIT = 5
@@ -11,6 +12,16 @@ _LOCALITY_SAMPLE_LIMIT = 5
 _LOCALITY_WINDOW_LIMIT = 3
 _REF_TEXT_LIMIT = 128
 _TEXT_LIMIT = 180
+_SAFE_SOURCE_REF_RE = re.compile(
+    r"(?<![A-Za-z0-9_])(?:(?P<session>session_\d+):)?"
+    r"(?P<source>D\d+)(?::(?P<turn>\d+))?(?![A-Za-z0-9_])",
+    re.IGNORECASE,
+)
+_SAFE_TURN_REF_RE = re.compile(
+    r"(?<![A-Za-z0-9_])(?:(?P<session>session_\d+):)?"
+    r"(?P<source>D\d+):(?P<turn>\d+)(?![A-Za-z0-9_])",
+    re.IGNORECASE,
+)
 
 
 def compact_evidence_bundle_gap_report(value: object) -> dict[str, object]:
@@ -61,6 +72,33 @@ def compact_text_list(
     seen: set[str] = set()
     for item in items:
         text = _text(item, limit=text_limit)
+        if text and text not in seen:
+            values.append(text)
+            seen.add(text)
+        if len(values) >= limit:
+            break
+    return values
+
+
+def compact_evidence_ref_list(
+    value: object,
+    *,
+    item_limit: int,
+    text_limit: int = _REF_TEXT_LIMIT,
+) -> list[str]:
+    """Return compact evidence refs, normalizing raw source IDs when possible."""
+    limit = max(0, item_limit)
+    if limit == 0:
+        return []
+    items: Sequence[object] = (value,) if isinstance(value, str) else _sequence(value)
+    values = []
+    seen: set[str] = set()
+    for item in items:
+        text = _safe_turn_ref(item, limit=text_limit)
+        if not text:
+            text = _text(item, limit=text_limit)
+            if _looks_like_raw_source_ref(text):
+                continue
         if text and text not in seen:
             values.append(text)
             seen.add(text)
@@ -134,15 +172,19 @@ def _missing_ref_windows(value: object) -> list[dict[str, object]]:
         if not window:
             continue
         payload: dict[str, object] = {}
-        for key in ("ref", "source_id"):
-            text = _text(window.get(key))
-            if text:
-                payload[key] = text
+        ref = _safe_turn_ref(window.get("ref"), limit=_TEXT_LIMIT)
+        if ref:
+            payload["ref"] = ref
+        source_id = _safe_source_id(window.get("source_id"), limit=_TEXT_LIMIT)
+        if not source_id:
+            source_id = _source_id_from_turn_ref(ref)
+        if source_id:
+            payload["source_id"] = source_id
         for key in ("retrieved_same_source", "bundle_same_source"):
             if key in window:
                 payload[key] = bool(window.get(key))
         for key in ("nearest_retrieved_turn_ref", "nearest_bundle_turn_ref"):
-            text = _text(window.get(key))
+            text = _safe_turn_ref(window.get(key), limit=_TEXT_LIMIT)
             if text:
                 payload[key] = text
         for key in ("nearest_retrieved_turn_distance", "nearest_bundle_turn_distance"):
@@ -172,6 +214,44 @@ def _text(value: object, *, limit: int = _TEXT_LIMIT) -> str:
     if len(text) <= limit:
         return text
     return f"{text[: limit - 3]}..."
+
+
+def _safe_turn_ref(value: object, *, limit: int) -> str:
+    match = _SAFE_TURN_REF_RE.search(str(value or "").strip())
+    if match is None:
+        return ""
+    return _text(_turn_ref(match), limit=limit)
+
+
+def _safe_source_id(value: object, *, limit: int) -> str:
+    match = _SAFE_SOURCE_REF_RE.search(str(value or "").strip())
+    if match is None:
+        return ""
+    return _text(_source_id(match), limit=limit)
+
+
+def _turn_ref(match: re.Match[str]) -> str:
+    return f"{_source_id(match)}:{match.group('turn')}"
+
+
+def _source_id(match: re.Match[str]) -> str:
+    source = match.group("source").upper()
+    session = match.group("session")
+    if session:
+        return f"{session.lower()}:{source}"
+    return source
+
+
+def _source_id_from_turn_ref(ref: str) -> str:
+    if not ref:
+        return ""
+    parts = ref.split(":")
+    return ":".join(parts[:-1])
+
+
+def _looks_like_raw_source_ref(value: str) -> bool:
+    text = value.lower()
+    return "locomo:" in text or "conv-private" in text
 
 
 def _int(value: object) -> int:
