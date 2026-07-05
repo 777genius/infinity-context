@@ -182,7 +182,12 @@ def _source_ref_evidence_parts(ref: object) -> list[str]:
                 if quote:
                     parts.append(quote)
             else:
-                parts.extend(_safe_source_ref_text_parts(text))
+                item_id = safe_item_id_for_output(text)
+                if item_id:
+                    parts.append(item_id[:320])
+                for part in _safe_source_ref_text_parts(text):
+                    if part not in parts:
+                        parts.append(part)
     return parts
 
 

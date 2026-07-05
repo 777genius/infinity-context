@@ -90,19 +90,30 @@ def test_public_benchmark_payloads_sanitize_auth_previews_refs_and_item_ids() ->
     bearer_payload = "Bearer " + ("a" * 16)
     key_payload = "MEMORY_TOKEN=" + ("b" * 16)
     raw_ref = "locomo:conv-private:session_3:D3:11:turn-secret"
+    private_auth_path = "/home/alice/.config/openai/auth.json"
 
     result = _case_result(
         ok=False,
         missing_terms=(key_payload,),
-        item_ids=(bearer_payload, raw_ref, "safe-chunk"),
+        item_ids=(bearer_payload, raw_ref, private_auth_path, "safe-chunk"),
         question_preview=f"Who supports Caroline? {bearer_payload}",
         answer_preview=f"Her mentors. {key_payload}",
         expected_terms_preview=(key_payload,),
-        evidence_refs=(raw_ref, f"authorization {bearer_payload} D4:5"),
-        evidence_ref_previews=(f"{raw_ref}: private text {bearer_payload}",),
+        evidence_refs=(
+            raw_ref,
+            private_auth_path,
+            f"authorization {bearer_payload} D4:5",
+        ),
+        evidence_ref_previews=(
+            f"{raw_ref}: private text {bearer_payload}",
+            f"{private_auth_path}: private auth index",
+        ),
         covered_terms=(key_payload,),
         covered_evidence_refs=(raw_ref,),
-        missing_evidence_refs=(f"authorization {bearer_payload} D4:5",),
+        missing_evidence_refs=(
+            private_auth_path,
+            f"authorization {bearer_payload} D4:5",
+        ),
         missing_evidence_ref_previews=(f"D4:5 private text {key_payload}",),
     )
 
@@ -115,6 +126,8 @@ def test_public_benchmark_payloads_sanitize_auth_previews_refs_and_item_ids() ->
     assert "MEMORY_TOKEN" not in rendered
     assert "conv-private" not in rendered
     assert "turn-secret" not in rendered
+    assert "/home/alice" not in rendered
+    assert "auth.json" not in rendered
     assert "safe-chunk" in rendered
     assert "source_session_turn_refs:session_3:D3:11" in rendered
     assert "source_turn_refs:D4:5" in rendered

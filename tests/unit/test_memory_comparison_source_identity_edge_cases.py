@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 from infinity_context_server.memory_comparison_candidate_features import (
     build_candidate_evidence_features,
 )
-from infinity_context_server.memory_comparison_models import RetrievedMemory
+from infinity_context_server.memory_comparison_models import (
+    BackendSearchResult,
+    RetrievedMemory,
+    search_payload,
+)
 from infinity_context_server.memory_comparison_source_identity import (
     looks_like_raw_source_ref,
     safe_item_id_for_output,
@@ -167,6 +173,114 @@ def test_safe_source_refs_for_output_filters_auth_payloads_without_turn_refs() -
     assert safe_source_refs_for_output(
         (bearer_payload, key_payload, userinfo_payload, "document:profile-note")
     ) == ("document:profile-note",)
+
+
+def test_safe_source_refs_for_output_filters_private_auth_paths() -> None:
+    private_paths = (
+        "/home/alice/.config/openai/auth.json",
+        "~/Library/Application Support/Codex/auth.json",
+        "C:\\Users\\alice\\.codex\\credentials.json",
+        "file:///home/alice/project/.env",
+        "provider-token.json",
+        "private/provider-token.json",
+    )
+
+    for raw_ref in private_paths:
+        assert looks_like_raw_source_ref(raw_ref) is True
+        assert safe_item_id_for_output(raw_ref) == ""
+
+    assert safe_source_refs_for_output(
+        (*private_paths, "document:profile-note")
+    ) == ("document:profile-note",)
+    assert source_identity_refs_from_dedupe_key(
+        "source_refs:" + "|".join((*private_paths, "D1:2"))
+    ) == ("source_turn_refs:D1:2",)
+
+
+def test_memory_comparison_search_payload_sanitizes_nested_source_ref_outputs() -> None:
+    raw_ref = "locomo:conv-private:session_3:D3:11:turn-secret"
+    private_auth_path = "/home/alice/.config/openai/auth.json"
+    raw_provider_payload = "PRIVATE_PROVIDER_PAYLOAD_SHOULD_NOT_RENDER"
+
+    payload = search_payload(
+        BackendSearchResult(
+            query="Who supports Caroline?",
+            memories=(
+                RetrievedMemory(
+                    text="D3:11 Caroline got support from mentors.",
+                    rank=1,
+                    item_id=private_auth_path,
+                    source_refs=(raw_ref, private_auth_path, "D2:3"),
+                    metadata={
+                        "source_ref": private_auth_path,
+                        "source_refs": [private_auth_path, "document:profile-note"],
+                        "diagnostic_note": raw_provider_payload,
+                        "untyped_refs": [private_auth_path, "safe-note"],
+                        "diagnostics": {
+                            "benchmark_candidate_fusion": {
+                                "source_refs": [raw_ref, private_auth_path, "D4:5"],
+                                "dedupe_key": (
+                                    "source_refs:"
+                                    f"{raw_ref}|{private_auth_path}|D4:5"
+                                ),
+                                "selected_evidence_item_id": private_auth_path,
+                                "selected_evidence_source_refs": [
+                                    raw_ref,
+                                    private_auth_path,
+                                    "D5:6",
+                                ],
+                                "raw_provider_payload": raw_provider_payload,
+                            },
+                        },
+                    },
+                ),
+            ),
+            metadata={
+                "source_refs": [private_auth_path, "D9:1"],
+                "provider_payload": {"raw": raw_provider_payload},
+            },
+        )
+    )
+
+    rendered = json.dumps(payload, sort_keys=True)
+
+    assert raw_ref not in rendered
+    assert private_auth_path not in rendered
+    assert raw_provider_payload not in rendered
+    assert "provider_payload" not in rendered
+    assert "raw_provider_payload" not in rendered
+    assert payload["results"][0]["source_refs"] == [
+        "source_session_turn_refs:session_3:D3:11",
+        "source_turn_refs:D3:11",
+        "D2:3",
+    ]
+    assert "id" not in payload["results"][0]
+    assert payload["metadata"]["source_refs"] == ["D9:1"]
+    assert (
+        payload["results"][0]["metadata"]["diagnostics"][
+            "benchmark_candidate_fusion"
+        ]["source_refs"]
+        == [
+            "source_session_turn_refs:session_3:D3:11",
+            "source_turn_refs:D3:11",
+            "D4:5",
+        ]
+    )
+    assert (
+        payload["results"][0]["metadata"]["diagnostics"][
+            "benchmark_candidate_fusion"
+        ]["selected_evidence_source_refs"]
+        == [
+            "source_session_turn_refs:session_3:D3:11",
+            "source_turn_refs:D3:11",
+            "D5:6",
+        ]
+    )
+    assert payload["results"][0]["metadata"]["diagnostic_note"] == "[redacted]"
+    assert payload["results"][0]["metadata"]["untyped_refs"] == [
+        "[redacted]",
+        "safe-note",
+    ]
 
 
 def test_safe_source_refs_for_output_filters_hyphenated_raw_provider_refs() -> None:

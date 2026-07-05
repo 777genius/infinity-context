@@ -41,6 +41,47 @@ _INSTRUCTION_LIKE_ITEM_ID_RE = re.compile(
     r"(?:system|developer)\s+prompt|system\s+prompt|developer\s+message)\b",
     re.IGNORECASE,
 )
+_ABSOLUTE_PATH_REF_RE = re.compile(
+    r"^(?:file://|~[/\\]|/|[A-Za-z]:[/\\])",
+    re.IGNORECASE,
+)
+_PRIVATE_PATH_SEGMENTS = frozenset(
+    {
+        ".aws",
+        ".azure",
+        ".codex",
+        ".config",
+        ".gcp",
+        ".gnupg",
+        ".ssh",
+        "private",
+        "secrets",
+    }
+)
+_PRIVATE_PATH_BASENAMES = frozenset(
+    {
+        ".env",
+        "api_key",
+        "api_key.json",
+        "api-key.json",
+        "auth.json",
+        "credentials",
+        "credentials.json",
+        "secret",
+        "secret.json",
+        "secrets.json",
+        "token",
+        "token.json",
+    }
+)
+_PRIVATE_PATH_NAME_MARKERS = (
+    "api-key",
+    "api_key",
+    "auth",
+    "credential",
+    "secret",
+    "token",
+)
 
 
 def safe_source_identity_ref(value: object) -> str | None:
@@ -156,6 +197,8 @@ def _looks_like_raw_ref(value: str) -> bool:
     if contains_sensitive_text(value):
         return True
     text = value.lower()
+    if _looks_like_private_path_ref(text):
+        return True
     if "locomo:" in text or "conv-private" in text or "turn-secret" in text:
         return True
     if any(
@@ -200,6 +243,25 @@ def _looks_like_raw_ref(value: str) -> bool:
             "refresh_token",
         )
     )
+
+
+def _looks_like_private_path_ref(value: str) -> bool:
+    path = value.strip().replace("\\", "/")
+    if not path:
+        return False
+    if _ABSOLUTE_PATH_REF_RE.search(path):
+        return True
+    basename = path.rsplit("/", 1)[-1]
+    if basename in _PRIVATE_PATH_BASENAMES:
+        return True
+    if basename.endswith((".env", ".json")) and any(
+        marker in basename for marker in _PRIVATE_PATH_NAME_MARKERS
+    ):
+        return True
+    if "/" not in path:
+        return False
+    parts = tuple(part for part in path.split("/") if part)
+    return any(part in _PRIVATE_PATH_SEGMENTS for part in parts)
 
 
 def source_identity_refs_from_text(
