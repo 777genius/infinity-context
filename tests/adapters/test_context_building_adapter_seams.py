@@ -9,7 +9,6 @@ import sys
 from pathlib import Path
 
 import pytest
-
 from infinity_context_core.features.context_building.public import (
     FEATURE_ID,
     BuildContextHandler,
@@ -22,7 +21,6 @@ from infinity_context_core.features.context_building.public import (
     ContextScope,
     ContextSourceRef,
 )
-
 
 FEATURE_ROOT = (
     Path(__file__).resolve().parents[2]
@@ -53,6 +51,7 @@ def test_context_building_adapter_package_mirrors_feature_id() -> None:
     assert "context_building" in features.__all__
     assert module.FEATURE_ID == FEATURE_ID == "context_building"
     assert module.ContextCandidateAdapterQuery
+    assert module.ContextCandidateRecord.feature_id == FEATURE_ID
     assert module.InMemoryContextCandidateProvider.feature_id == FEATURE_ID
     assert module.ContextCandidateProviderChain.feature_id == FEATURE_ID
     assert module.PostgresContextCandidateProvider.feature_id == FEATURE_ID

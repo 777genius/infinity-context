@@ -22,12 +22,17 @@ from infinity_context_adapters.features.memory_scopes.postgres_scope_store impor
     create_postgres_memory_scope_store,
     create_postgres_memory_scope_unit_of_work_factory,
 )
+from infinity_context_adapters.features.memory_scopes.records import (
+    MemoryScopeRecord,
+    memory_scope_record_from_snapshot,
+)
 
 __all__ = (
     "FEATURE_ID",
     "InMemoryMemoryScopeRepository",
     "InMemoryMemoryScopeUnitOfWork",
     "InMemoryMemoryScopeUnitOfWorkFactory",
+    "MemoryScopeRecord",
     "PostgresMemoryScopeStore",
     "PostgresMemoryScopeUnitOfWork",
     "PostgresMemoryScopeUnitOfWorkFactory",
@@ -35,4 +40,5 @@ __all__ = (
     "create_in_memory_memory_scope_unit_of_work_factory",
     "create_postgres_memory_scope_store",
     "create_postgres_memory_scope_unit_of_work_factory",
+    "memory_scope_record_from_snapshot",
 )

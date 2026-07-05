@@ -32,9 +32,14 @@ from infinity_context_adapters.features.document_ingestion.qdrant_chunk_index im
     QdrantDocumentChunkIndex,
     create_qdrant_document_chunk_index,
 )
+from infinity_context_adapters.features.document_ingestion.records import (
+    DocumentChunkIndexProjection,
+    document_chunk_index_projection_from_chunk,
+)
 
 __all__ = (
     "FEATURE_ID",
+    "DocumentChunkIndexProjection",
     "DocumentExtractionIngestionAdapter",
     "ExtractedDocumentText",
     "InMemoryDocumentChunkStore",
@@ -52,4 +57,5 @@ __all__ = (
     "create_postgres_document_ingestion_store",
     "create_postgres_source_document_store",
     "create_qdrant_document_chunk_index",
+    "document_chunk_index_projection_from_chunk",
 )

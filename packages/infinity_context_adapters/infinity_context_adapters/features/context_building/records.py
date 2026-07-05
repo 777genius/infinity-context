@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import ClassVar
 
 from infinity_context_core.features.context_building.public import (
+    FEATURE_ID,
     ContextCandidateRequest,
     ContextEvidence,
     ContextItem,
@@ -19,6 +21,8 @@ from infinity_context_adapters.features.context_building.query_request import (
 @dataclass(frozen=True, slots=True)
 class ContextCandidateRecord:
     """Storage/provider-neutral record that can become a core ContextItem."""
+
+    feature_id: ClassVar[str] = FEATURE_ID
 
     item_id: str
     space_id: str
@@ -71,9 +75,7 @@ class ContextCandidateRecord:
             return False
         if scope.thread_id is not None and self.thread_id not in (None, scope.thread_id):
             return False
-        if adapter_query.tags and not _has_tag_overlap(adapter_query.tags, self.tags):
-            return False
-        return True
+        return not adapter_query.tags or _has_tag_overlap(adapter_query.tags, self.tags)
 
     def to_context_item(self) -> ContextItem:
         """Convert the adapter record into the feature-owned port DTO."""

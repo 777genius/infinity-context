@@ -14,6 +14,7 @@ from infinity_context_core.features.document_ingestion.public import (
     ChunkingPolicy,
     DocumentChunk,
     DocumentIngestionScope,
+    DocumentIngestionValidationError,
     IngestDocumentCommand,
     IngestDocumentHandler,
     SourceDocument,
@@ -48,6 +49,7 @@ def test_document_ingestion_adapter_package_mirrors_feature_id() -> None:
     module = importlib.import_module("infinity_context_adapters.features.document_ingestion")
 
     assert module.FEATURE_ID == FEATURE_ID == "document_ingestion"
+    assert module.DocumentChunkIndexProjection.feature_id == FEATURE_ID
     assert module.InMemorySourceDocumentStore.feature_id == FEATURE_ID
     assert module.InMemoryDocumentChunkStore.feature_id == FEATURE_ID
     assert module.InMemoryDocumentIngestionStore.feature_id == FEATURE_ID
@@ -143,6 +145,55 @@ def test_in_memory_document_store_can_drive_core_ingest_handler() -> None:
     assert duplicate.chunks == result.chunks
     assert duplicate.duplicate_chunk_count == len(result.chunks)
     assert duplicate.indexing_status == "already_indexed_or_pending"
+
+
+def test_document_chunk_index_projection_maps_public_document_state() -> None:
+    module = importlib.import_module(
+        "infinity_context_adapters.features.document_ingestion"
+    )
+    document, chunk = _document_and_chunk()
+
+    projection = module.DocumentChunkIndexProjection.from_document_chunk(
+        document=document,
+        chunk=chunk,
+    )
+    factory_projection = module.document_chunk_index_projection_from_chunk(
+        document=document,
+        chunk=chunk,
+    )
+    item = projection.to_index_item()
+
+    assert projection == factory_projection
+    assert projection.feature_id == FEATURE_ID
+    assert item.chunk_id == chunk.identity.chunk_id
+    assert item.document_id == document.identity.document_id
+    assert item.scope == chunk.identity.scope
+    assert item.origin == document.origin
+    assert item.text == chunk.text
+    assert item.content_hash == chunk.content_hash
+    assert item.sequence == chunk.sequence
+
+
+def test_document_chunk_index_projection_rejects_cross_document_chunks() -> None:
+    module = importlib.import_module(
+        "infinity_context_adapters.features.document_ingestion"
+    )
+    document, chunk = _document_and_chunk()
+    other_document = SourceDocument.from_draft(
+        document_id="doc-2",
+        draft=SourceDocumentDraft.create(
+            scope=document.identity.scope,
+            title="Other",
+            origin=document.origin,
+            text="Other document content.",
+        ),
+    )
+
+    with pytest.raises(DocumentIngestionValidationError, match="same document"):
+        module.DocumentChunkIndexProjection.from_document_chunk(
+            document=other_document,
+            chunk=chunk,
+        )
 
 
 def test_postgres_document_store_is_explicit_placeholder() -> None:

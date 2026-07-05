@@ -60,6 +60,7 @@ def test_memory_scopes_adapter_package_mirrors_feature_id() -> None:
     assert module.InMemoryMemoryScopeRepository.feature_id == FEATURE_ID
     assert module.InMemoryMemoryScopeUnitOfWork.feature_id == FEATURE_ID
     assert module.InMemoryMemoryScopeUnitOfWorkFactory.feature_id == FEATURE_ID
+    assert module.MemoryScopeRecord.feature_id == FEATURE_ID
     assert module.PostgresMemoryScopeStore.feature_id == FEATURE_ID
     assert module.PostgresMemoryScopeUnitOfWork.feature_id == FEATURE_ID
     assert module.PostgresMemoryScopeUnitOfWorkFactory.feature_id == FEATURE_ID
@@ -235,6 +236,36 @@ def test_in_memory_memory_scope_uow_supports_external_ref_uniqueness_checks() ->
             MemoryScopeIdentity(space_id="space-1", memory_scope_id="scope-2"),
         )
     ) is None
+
+
+def test_memory_scope_record_round_trips_public_snapshot() -> None:
+    module = importlib.import_module("infinity_context_adapters.features.memory_scopes")
+    scope = MemoryScopeSnapshot(
+        identity=MemoryScopeIdentity(
+            space_id="space-1",
+            memory_scope_id="scope-1",
+        ),
+        name="Default",
+        owner=MemoryScopeOwner(
+            principal_id="owner-1",
+            principal_kind="service",
+        ),
+        external_ref="default",
+        description="Primary memory scope",
+        created_at=_time(1),
+        updated_at=_time(2),
+    )
+
+    record = module.MemoryScopeRecord.from_snapshot(scope)
+    factory_record = module.memory_scope_record_from_snapshot(scope)
+
+    assert record == factory_record
+    assert record.feature_id == FEATURE_ID
+    assert record.space_id == "space-1"
+    assert record.memory_scope_id == "scope-1"
+    assert record.owner_principal_id == "owner-1"
+    assert record.owner_principal_kind == "service"
+    assert record.to_snapshot() == scope
 
 
 def test_postgres_memory_scope_store_is_explicit_placeholder() -> None:
