@@ -24,6 +24,9 @@ from infinity_context_server.memory_comparison_answer_context import (
 from infinity_context_server.memory_comparison_answer_context import (
     answer_context_metrics as _answer_context_metrics,
 )
+from infinity_context_server.memory_comparison_compact_gap_report import (
+    compact_evidence_bundle_gap_report as _compact_evidence_bundle_gap_report,
+)
 from infinity_context_server.memory_comparison_evidence import (
     evidence_bundle as build_evidence_bundle,
 )
@@ -2108,6 +2111,11 @@ def _compact_fast_gate_summary(
     rerank_signal_gaps = _mapping(gate.get("rerank_signal_gap_breakdown"))
     answer_context_gaps = _mapping(gate.get("answer_context_support_gap_summary"))
     actionable = _mapping(gate.get("actionable_gap_summary"))
+    top_actionable_gaps = _compact_actionable_gaps(actionable.get("ranked_gaps"))
+    compact_top_gap = (
+        top_actionable_gaps[:1]
+        or _compact_actionable_gaps((actionable.get("top_gap"),), limit=1)
+    )
     return {
         "schema_version": "compact_fast_gate_summary.v1",
         "source_schema_versions": _nested_schema_versions(gate),
@@ -2115,12 +2123,13 @@ def _compact_fast_gate_summary(
         "failed_gates": list(_str_tuple(gate.get("failed_gates"))),
         "evaluation_count": _positive_int(gate.get("evaluation_count")) or 0,
         "expected_case_count": _positive_int(gate.get("expected_case_count")) or 0,
-        "top_gap": actionable.get("top_gap"),
-        "top_actionable_gaps": _compact_actionable_gaps(
-            actionable.get("ranked_gaps")
-        ),
+        "top_gap": compact_top_gap[0] if compact_top_gap else None,
+        "top_actionable_gaps": top_actionable_gaps,
         "blocking_gap_count": _positive_int(actionable.get("blocking_gap_count")) or 0,
         "diagnostic_gap_count": _positive_int(actionable.get("diagnostic_gap_count")) or 0,
+        "evidence_bundle_gap_report": _compact_evidence_bundle_gap_report(
+            gate.get("evidence_bundle_gap_report")
+        ),
         "selected_evidence_weakness_counts": {
             "weak_case_count": _positive_int(selected_weakness.get("weak_case_count"))
             or 0,

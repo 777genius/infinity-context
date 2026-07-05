@@ -87,7 +87,18 @@ def test_compact_fast_gate_summary_surfaces_bounded_actionable_gaps(
 
     summary = benchmark._compact_fast_gate_summary(({"case_id": "case-1"},))
 
-    assert summary["top_gap"] == ranked_gaps[0]
+    assert summary["top_gap"] == {
+        "rank": 1,
+        "impact_count": 9,
+        "impact_rate": 0.123457,
+        "severity": "blocking",
+        "category": "query_plan",
+        "gap": "gap-1",
+        "failed_gate": "query_plan_evidence_roles_clear",
+        "source_metric": "query_plan_gap_breakdown.reason_counts",
+        "action": "Inspect this gap and adjust the matching policy.",
+        "sample_case_ids": ["case-1-1", "case-1-2", "case-1-3"],
+    }
     assert len(summary["top_actionable_gaps"]) == 5
     assert summary["top_actionable_gaps"][0] == {
         "rank": 1,
@@ -101,5 +112,7 @@ def test_compact_fast_gate_summary_surfaces_bounded_actionable_gaps(
         "action": "Inspect this gap and adjust the matching policy.",
         "sample_case_ids": ["case-1-1", "case-1-2", "case-1-3"],
     }
+    assert "samples" not in summary["top_gap"]
+    assert "evidence" not in summary["top_gap"]
     assert all("samples" not in gap for gap in summary["top_actionable_gaps"])
     assert all("evidence" not in gap for gap in summary["top_actionable_gaps"])
