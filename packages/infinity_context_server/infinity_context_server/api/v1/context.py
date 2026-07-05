@@ -13,7 +13,7 @@ from infinity_context_core.application.context_diagnostics import (
     normalize_context_bundle_diagnostics,
     normalize_context_diagnostics,
 )
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from infinity_context_server.api.auth import require_service_token
 from infinity_context_server.api.dependencies import get_container
@@ -24,6 +24,7 @@ from infinity_context_server.api.v1.scope_resolution import (
 )
 from infinity_context_server.api.v1.source_refs import source_ref_to_response
 from infinity_context_server.composition import Container
+from infinity_context_server.features.context_building import public as context_building_server
 
 router = APIRouter(tags=["context"], dependencies=[Depends(require_service_token)])
 
@@ -689,6 +690,68 @@ def _non_negative_int(value: object) -> int:
     return max(0, parsed)
 
 
+def _legacy_build_context_query_from_feature_seam(
+    request: ContextRequest,
+    *,
+    scope,
+    max_rendered_chars: int,
+) -> BuildContextQuery:
+    feature_query = _feature_context_query_for_legacy_request(request, scope=scope)
+    memory_scope_ids = scope.memory_scope_ids
+    if feature_query is not None and len(memory_scope_ids) == 1:
+        memory_scope_ids = (feature_query.query.scope.memory_scope_id,)
+    space_id = feature_query.query.scope.space_id if feature_query is not None else scope.space_id
+    thread_id = (
+        feature_query.query.scope.thread_id if feature_query is not None else scope.thread_id
+    )
+    token_budget = (
+        feature_query.budget.max_prompt_tokens
+        if feature_query is not None
+        else request.token_budget
+    )
+
+    return BuildContextQuery(
+        space_id=space_id,
+        memory_scope_ids=memory_scope_ids,
+        thread_id=thread_id,
+        query=request.query,
+        consistency_mode=request.consistency_mode,
+        token_budget=token_budget,
+        max_rendered_chars=max_rendered_chars,
+        max_facts=request.max_facts,
+        max_chunks=request.max_chunks,
+        max_evidence_items=request.max_evidence_items,
+        max_conflicting_suggestions=request.max_conflicting_suggestions,
+        include_superseded=request.include_superseded,
+        include_stale=request.include_stale,
+        category=_normalize_label(request.category),
+        tags_any=_normalize_tags(request.tags_any),
+        tags_all=_normalize_tags(request.tags_all),
+        tags_none=_normalize_tags(request.tags_none),
+    )
+
+
+def _feature_context_query_for_legacy_request(request: ContextRequest, *, scope):
+    if not scope.memory_scope_ids:
+        return None
+
+    try:
+        return context_building_server.build_context_query_from_contract(
+            context_building_server.BuildContextHttpRequest(
+                query=request.query,
+                space_id=str(scope.space_id),
+                memory_scope_id=str(scope.memory_scope_ids[0]),
+                thread_id=str(scope.thread_id) if scope.thread_id else None,
+                budget=context_building_server.ContextBudgetHttpRequest(
+                    max_context_tokens=request.token_budget,
+                ),
+                tags=request.tags_any,
+            ).to_contract()
+        )
+    except (ValueError, ValidationError):
+        return None
+
+
 @router.post("/context")
 async def build_context(
     request: ContextRequest,
@@ -734,24 +797,10 @@ async def build_context(
         )
         return response
     bundle = await container.build_context.execute(
-        BuildContextQuery(
-            space_id=scope.space_id,
-            memory_scope_ids=scope.memory_scope_ids,
-            thread_id=scope.thread_id,
-            query=request.query,
-            consistency_mode=request.consistency_mode,
-            token_budget=request.token_budget,
+        _legacy_build_context_query_from_feature_seam(
+            request,
+            scope=scope,
             max_rendered_chars=container.settings.max_context_chars,
-            max_facts=request.max_facts,
-            max_chunks=request.max_chunks,
-            max_evidence_items=request.max_evidence_items,
-            max_conflicting_suggestions=request.max_conflicting_suggestions,
-            include_superseded=request.include_superseded,
-            include_stale=request.include_stale,
-            category=_normalize_label(request.category),
-            tags_any=_normalize_tags(request.tags_any),
-            tags_all=_normalize_tags(request.tags_all),
-            tags_none=_normalize_tags(request.tags_none),
         )
     )
     response_items = [context_item_to_response(item) for item in bundle.items]
@@ -841,24 +890,10 @@ async def search_memory(
         )
         return response
     bundle = await container.build_context.execute(
-        BuildContextQuery(
-            space_id=scope.space_id,
-            memory_scope_ids=scope.memory_scope_ids,
-            thread_id=scope.thread_id,
-            query=request.query,
-            consistency_mode=request.consistency_mode,
-            token_budget=request.token_budget,
+        _legacy_build_context_query_from_feature_seam(
+            request,
+            scope=scope,
             max_rendered_chars=container.settings.max_context_chars,
-            max_facts=request.max_facts,
-            max_chunks=request.max_chunks,
-            max_evidence_items=request.max_evidence_items,
-            max_conflicting_suggestions=request.max_conflicting_suggestions,
-            include_superseded=request.include_superseded,
-            include_stale=request.include_stale,
-            category=_normalize_label(request.category),
-            tags_any=_normalize_tags(request.tags_any),
-            tags_all=_normalize_tags(request.tags_all),
-            tags_none=_normalize_tags(request.tags_none),
         )
     )
     response_items = [context_item_to_response(item) for item in bundle.items]
