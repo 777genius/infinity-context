@@ -303,6 +303,128 @@ def test_transfer_handler_uses_policy_and_preserves_scope_identity() -> None:
     assert not uow.rolled_back
 
 
+def test_transfer_handler_rejects_missing_scope_without_commit() -> None:
+    application = importlib.import_module(APPLICATION_MODULE)
+    domain = importlib.import_module(DOMAIN_MODULE)
+
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    identity = domain.MemoryScopeIdentity(
+        space_id="space-1",
+        memory_scope_id="scope-missing",
+    )
+    repo = _MemoryScopeRepository()
+    uow = _MemoryScopeUnitOfWork(repo)
+    handler = application.TransferMemoryScopeOwnershipHandler(
+        uow_factory=_UnitOfWorkFactory(uow),
+        clock=_MemoryScopeClock(now),
+    )
+
+    try:
+        asyncio.run(
+            handler.execute(
+                application.TransferMemoryScopeOwnershipCommand(
+                    identity=identity,
+                    new_owner=domain.MemoryScopeOwner(principal_id="owner-2"),
+                    initiated_by=domain.MemoryScopeActor(principal_id="owner-1"),
+                )
+            )
+        )
+    except application.MemoryScopeNotFoundError:
+        pass
+    else:  # pragma: no cover - clearer assertion failure branch.
+        raise AssertionError("missing memory scope transfer should fail")
+
+    assert not uow.committed
+    assert uow.rolled_back
+
+
+def test_transfer_handler_rejects_expected_owner_conflict_without_save() -> None:
+    application = importlib.import_module(APPLICATION_MODULE)
+    domain = importlib.import_module(DOMAIN_MODULE)
+
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    owner = domain.MemoryScopeOwner(principal_id="owner-1")
+    identity = domain.MemoryScopeIdentity(
+        space_id="space-1",
+        memory_scope_id="scope-1",
+    )
+    current = domain.MemoryScopeSnapshot(
+        identity=identity,
+        name="Default",
+        owner=owner,
+    )
+    repo = _MemoryScopeRepository(current)
+    uow = _MemoryScopeUnitOfWork(repo)
+    handler = application.TransferMemoryScopeOwnershipHandler(
+        uow_factory=_UnitOfWorkFactory(uow),
+        clock=_MemoryScopeClock(now),
+    )
+
+    try:
+        asyncio.run(
+            handler.execute(
+                application.TransferMemoryScopeOwnershipCommand(
+                    identity=identity,
+                    new_owner=domain.MemoryScopeOwner(principal_id="owner-2"),
+                    initiated_by=domain.MemoryScopeActor(principal_id="owner-1"),
+                    expected_current_owner=domain.MemoryScopeOwner(
+                        principal_id="owner-stale"
+                    ),
+                )
+            )
+        )
+    except application.MemoryScopeConflictError:
+        pass
+    else:  # pragma: no cover - clearer assertion failure branch.
+        raise AssertionError("stale memory scope owner expectation should fail")
+
+    assert repo.get_stored(identity) == current
+    assert not uow.committed
+    assert uow.rolled_back
+
+
+def test_transfer_handler_rolls_back_policy_denial_without_save() -> None:
+    application = importlib.import_module(APPLICATION_MODULE)
+    domain = importlib.import_module(DOMAIN_MODULE)
+
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    owner = domain.MemoryScopeOwner(principal_id="owner-1")
+    identity = domain.MemoryScopeIdentity(
+        space_id="space-1",
+        memory_scope_id="scope-1",
+    )
+    current = domain.MemoryScopeSnapshot(
+        identity=identity,
+        name="Default",
+        owner=owner,
+    )
+    repo = _MemoryScopeRepository(current)
+    uow = _MemoryScopeUnitOfWork(repo)
+    handler = application.TransferMemoryScopeOwnershipHandler(
+        uow_factory=_UnitOfWorkFactory(uow),
+        clock=_MemoryScopeClock(now),
+    )
+
+    try:
+        asyncio.run(
+            handler.execute(
+                application.TransferMemoryScopeOwnershipCommand(
+                    identity=identity,
+                    new_owner=domain.MemoryScopeOwner(principal_id="owner-2"),
+                    initiated_by=domain.MemoryScopeActor(principal_id="outsider-1"),
+                )
+            )
+        )
+    except domain.MemoryScopeOwnershipError:
+        pass
+    else:  # pragma: no cover - clearer assertion failure branch.
+        raise AssertionError("unauthorized memory scope transfer should fail")
+
+    assert repo.get_stored(identity) == current
+    assert not uow.committed
+    assert uow.rolled_back
+
+
 def test_application_ports_and_public_import_only_feature_owned_core() -> None:
     paths = [
         *sorted((FEATURE_ROOT / "application").rglob("*.py")),
