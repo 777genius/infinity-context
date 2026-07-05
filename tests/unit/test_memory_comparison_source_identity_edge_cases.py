@@ -6,6 +6,7 @@ from infinity_context_server.memory_comparison_candidate_features import (
 from infinity_context_server.memory_comparison_models import RetrievedMemory
 from infinity_context_server.memory_comparison_source_identity import (
     safe_source_identity_ref,
+    safe_source_refs_for_output,
     safe_turn_ref,
     source_identity_audit_gap_codes,
     source_identity_refs_from_dedupe_key,
@@ -67,6 +68,26 @@ def test_source_identity_refs_normalize_fuzzed_source_refs() -> None:
     ) == (
         "source_session_turn_refs:session_8:D8:3",
         "source_turn_refs:D8:3",
+    )
+
+
+def test_safe_source_refs_for_output_filters_raw_provider_refs() -> None:
+    assert safe_source_refs_for_output(
+        (
+            "locomo:conv-private:session_8:D8:1:turn-secret",
+            "source_turn_refs:d1:2",
+            "D2:3",
+            "document:profile-note",
+            "provider:private-token-abc123",
+            "provider-ref-abc123",
+            f"D5:{'9' * 90}",
+        )
+    ) == (
+        "source_session_turn_refs:session_8:D8:1",
+        "source_turn_refs:D8:1",
+        "source_turn_refs:D1:2",
+        "D2:3",
+        "document:profile-note",
     )
 
 

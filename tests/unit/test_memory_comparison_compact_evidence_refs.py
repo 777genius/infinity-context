@@ -187,6 +187,7 @@ def test_compact_evidence_bundle_coverage_bounds_incomplete_samples() -> None:
 def test_compact_evidence_bundle_coverage_filters_fuzzed_source_refs() -> None:
     raw_private_ref = "LoCoMo:conv-private:SESSION_4:d4:5:TURN-secret"
     invalid_provider_ref = "provider:private-token-abc123"
+    raw_provider_ref = "provider-ref-abc123"
     raw_long_ref = f"D5:{'9' * 220}"
     compact_long_ref = f"D5:{'9' * 122}..."
     coverage = benchmark._compact_evidence_bundle_coverage(
@@ -200,12 +201,14 @@ def test_compact_evidence_bundle_coverage_filters_fuzzed_source_refs() -> None:
                         raw_private_ref,
                         "source_turn_refs:d1:2",
                         invalid_provider_ref,
+                        raw_provider_ref,
                         raw_private_ref,
                     ],
                     "missing_evidence_terms": [
                         "SOURCE_SESSION_TURN_REFS:SESSION_2:d2:3",
                         raw_long_ref,
                         invalid_provider_ref,
+                        raw_provider_ref,
                     ],
                 },
                 "evidence_bundle": {
@@ -234,4 +237,5 @@ def test_compact_evidence_bundle_coverage_filters_fuzzed_source_refs() -> None:
     assert "locomo:conv-private" not in serialized.lower()
     assert "turn-secret" not in serialized.lower()
     assert invalid_provider_ref not in serialized
+    assert raw_provider_ref not in serialized
     assert raw_long_ref not in serialized

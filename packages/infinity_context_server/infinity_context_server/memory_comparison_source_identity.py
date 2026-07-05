@@ -28,6 +28,7 @@ _SAFE_SOURCE_IDENTITY_REF_RE = re.compile(
 )
 _MAX_SAFE_SOURCE_IDENTITY_REF_LENGTH = 80
 _MAX_SAFE_TURN_REF_LENGTH = 32
+_MAX_SAFE_GENERIC_SOURCE_REF_LENGTH = 128
 
 
 def safe_source_identity_ref(value: object) -> str | None:
@@ -56,6 +57,15 @@ def safe_turn_ref(value: object) -> str | None:
     if _TURN_REF_RE.fullmatch(ref.upper()) is None:
         return None
     return ref.upper()
+
+
+def safe_source_refs_for_output(source_refs: Sequence[str]) -> tuple[str, ...]:
+    refs: list[str] = []
+    for raw_ref in source_refs:
+        for ref in _safe_source_refs_for_output_value(raw_ref):
+            if ref and ref not in refs:
+                refs.append(ref)
+    return tuple(refs)
 
 
 def source_identity_refs_from_dedupe_key(value: object) -> tuple[str, ...]:
@@ -87,6 +97,60 @@ def source_identity_refs_from_dedupe_key(value: object) -> tuple[str, ...]:
             )
         )
     return ()
+
+
+def _safe_source_refs_for_output_value(value: object) -> tuple[str, ...]:
+    text = str(value or "").strip()
+    if not text:
+        return ()
+    identity_ref = safe_source_identity_ref(text)
+    if identity_ref:
+        return (identity_ref,)
+    turn_ref = safe_turn_ref(text)
+    if turn_ref:
+        return (turn_ref,)
+    identity_refs = source_identity_refs_from_source_refs(
+        (text,),
+        include_exact_turn_refs=True,
+    )
+    if identity_refs:
+        return identity_refs
+    if _TURN_REF_RE.search(text):
+        return ()
+    if len(text) <= _MAX_SAFE_GENERIC_SOURCE_REF_LENGTH and not _looks_like_raw_ref(
+        text
+    ):
+        return (text,)
+    return ()
+
+
+def _looks_like_raw_ref(value: str) -> bool:
+    text = value.lower()
+    if "locomo:" in text or "conv-private" in text or "turn-secret" in text:
+        return True
+    if any(
+        text.startswith(prefix)
+        for prefix in (
+            "backend:",
+            "graphiti:",
+            "mem0:",
+            "memory://",
+            "openai:",
+            "provider:",
+            "provider-ref-",
+            "qdrant:",
+        )
+    ):
+        return True
+    return any(
+        marker in text
+        for marker in (
+            "private-token",
+            "provider-secret",
+            "provider_payload",
+            "raw_provider",
+        )
+    )
 
 
 def source_identity_refs_from_text(

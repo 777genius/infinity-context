@@ -262,6 +262,7 @@ def _looks_like_raw_source_ref(value: str) -> bool:
             "memory://",
             "openai:",
             "provider:",
+            "provider-ref-",
             "qdrant:",
         )
     ):
