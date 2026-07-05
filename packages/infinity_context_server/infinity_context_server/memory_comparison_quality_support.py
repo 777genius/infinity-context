@@ -67,6 +67,7 @@ _SUPPORT_ROLE_LABELS = frozenset(
     }
 )
 _ROLE_ONLY_REASON_PREFIXES = ("role:", "selected_role:")
+_SUPPORT_AUDIT_SEQUENCE_LIMIT = 8
 
 
 def typed_relation_support_roles() -> tuple[str, ...]:
@@ -607,22 +608,32 @@ def bundle_support_audit_items(
                 "has_substantive_support": _bundle_item_has_substantive_support(item),
                 "answerability_score": _float_value(item.get("answerability_score")),
                 "source_locality_score": _float_value(item.get("source_locality_score")),
-                "source_refs": _str_tuple(item.get("source_refs")),
-                "covered_evidence_terms": _str_tuple(
+                "source_refs": _bounded_str_tuple(item.get("source_refs")),
+                "covered_evidence_terms": _bounded_str_tuple(
                     item.get("covered_evidence_terms")
                 ),
                 "entity_hit_count": len(_str_tuple(item.get("entity_hits"))),
                 "speaker_hit_count": len(_str_tuple(item.get("speaker_hits"))),
                 "relation_hit_count": len(_str_tuple(item.get("relation_hits"))),
-                "relation_category_hits": _str_tuple(
+                "relation_category_hits": _bounded_str_tuple(
                     item.get("relation_category_hits")
                 ),
-                "planner_reason_codes": _str_tuple(item.get("planner_reason_codes")),
+                "planner_reason_codes": _bounded_str_tuple(
+                    item.get("planner_reason_codes")
+                ),
             }
         )
         if len(rows) >= limit:
             break
     return tuple(rows)
+
+
+def _bounded_str_tuple(
+    value: object,
+    *,
+    limit: int = _SUPPORT_AUDIT_SEQUENCE_LIMIT,
+) -> tuple[str, ...]:
+    return _str_tuple(value)[:limit]
 
 
 def _query_profile_and_intent(

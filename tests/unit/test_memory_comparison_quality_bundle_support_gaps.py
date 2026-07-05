@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from infinity_context_server.memory_comparison_quality_diagnostics import (
     fast_gate_metrics,
     quality_diagnostics,
@@ -70,6 +72,35 @@ def test_bundle_support_audit_items_reports_redacted_support_facts() -> None:
             "planner_reason_codes": ("role:preference_support",),
         },
     )
+
+
+def test_bundle_support_audit_items_bounds_ref_like_fields() -> None:
+    source_refs = [f"D1:{index}" for index in range(1, 13)]
+    relation_categories = [f"category_{index}" for index in range(1, 13)]
+    planner_reasons = [f"reason:{index}" for index in range(1, 13)]
+    bundle = {
+        "items": [
+            {
+                "role": "supporting",
+                "source_refs": source_refs,
+                "covered_evidence_terms": source_refs,
+                "relation_category_hits": relation_categories,
+                "planner_reason_codes": planner_reasons,
+                "text": "PRIVATE SELECTED TEXT",
+                "provider_payload": {"raw": "PRIVATE PROVIDER PAYLOAD"},
+            }
+        ]
+    }
+
+    rows = bundle_support_audit_items(bundle)
+
+    assert rows[0]["source_refs"] == tuple(source_refs[:8])
+    assert rows[0]["covered_evidence_terms"] == tuple(source_refs[:8])
+    assert rows[0]["relation_category_hits"] == tuple(relation_categories[:8])
+    assert rows[0]["planner_reason_codes"] == tuple(planner_reasons[:8])
+    serialized = json.dumps(rows)
+    assert "PRIVATE SELECTED TEXT" not in serialized
+    assert "PRIVATE PROVIDER PAYLOAD" not in serialized
 
 
 def test_bundle_weak_support_reasons_marks_low_answerability_support() -> None:
@@ -476,6 +507,43 @@ def test_fast_gate_metrics_accepts_inference_specific_relation_support() -> None
     assert "missing_inference_support" not in breakdown[
         "evidence_need_gap_reason_counts"
     ]
+
+
+def test_fast_gate_metrics_bounds_bundle_gap_sample_refs() -> None:
+    refs = [f"D1:{index}" for index in range(1, 14)]
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="bounded-ref-gap",
+                retrieval_quality={
+                    "expected_term_recall": 0.5,
+                    "evidence_term_recall": 0.0,
+                    "missing_evidence_terms": refs,
+                },
+                evidence_bundle={
+                    "bundle_complete": False,
+                    "item_count": 1,
+                    "primary_evidence_count": 1,
+                    "supporting_evidence_count": 0,
+                    "covered_evidence_terms": refs,
+                    "items": [
+                        {
+                            "role": "primary",
+                            "source_refs": refs,
+                            "text": "PRIVATE SELECTED TEXT",
+                        }
+                    ],
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    sample = gate["bundle_gap_breakdown"]["samples"][0]
+    assert sample["covered_evidence_terms"] == tuple(refs[:8])
+    assert sample["missing_evidence_terms"] == tuple(refs[:8])
+    serialized = json.dumps(gate)
+    assert "PRIVATE SELECTED TEXT" not in serialized
 
 
 def _item(
