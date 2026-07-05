@@ -91,6 +91,28 @@ def test_person_relation_inventory_signal_matches_named_person_spouse_role_alias
     assert signal.reason == "person_relation_inventory_match"
 
 
+def test_person_relation_inventory_signal_matches_extended_family_roles() -> None:
+    cousin = person_relation_inventory_signal(
+        query="Who is Dana's cousin?",
+        text="D2:3 Dana: Riley is my cousin.",
+    )
+    aunt = person_relation_inventory_signal(
+        query="Who is the aunt of Dana?",
+        text="D4:5 Dana told me that Maria is her aunt.",
+    )
+    grandparent = person_relation_inventory_signal(
+        query="Who is Dana's grandfather?",
+        text="D6:8 Dana: Luis is my grandpa.",
+    )
+
+    assert cousin.boost > 0
+    assert cousin.reason == "person_relation_inventory_match"
+    assert aunt.boost > 0
+    assert aunt.reason == "person_relation_inventory_match"
+    assert grandparent.boost > 0
+    assert grandparent.reason == "person_relation_inventory_match"
+
+
 def test_person_relation_inventory_signal_matches_named_person_neighbor() -> None:
     signal = person_relation_inventory_signal(
         query="Who is the neighbor of Alice?",

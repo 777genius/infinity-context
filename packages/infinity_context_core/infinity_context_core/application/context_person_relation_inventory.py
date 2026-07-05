@@ -60,7 +60,9 @@ _POSSESSIVE_RELATION_QUERY_RE = re.compile(
     rf"supervisors?|coach(?:es)?|trainers?|teachers?|tutors?|classmates?|"
     rf"schoolmates?|roommates?|"
     rf"neighbors?|neighbours?|doctors?|dentists?|therapists?|counsellors?|"
-    rf"counselors?|partner|spouse|husband|wife|siblings?|parents?|children|kids)\b",
+    rf"counselors?|partner|spouse|husband|wife|siblings?|parents?|children|kids|"
+    rf"brothers?|sisters?|mother|mom|father|dad|cousins?|aunts?|uncles?|"
+    rf"grandparents?|grandmothers?|grandmas?|grandfathers?|grandpas?)\b",
     re.IGNORECASE,
 )
 _OF_RELATION_QUERY_RE = re.compile(
@@ -70,7 +72,9 @@ _OF_RELATION_QUERY_RE = re.compile(
     rf"supervisors?|coach(?:es)?|trainers?|teachers?|tutors?|classmates?|"
     rf"schoolmates?|roommates?|"
     rf"neighbors?|neighbours?|doctors?|dentists?|therapists?|counsellors?|"
-    rf"counselors?|partner|spouse|husband|wife|siblings?|parents?|children|kids)\s+"
+    rf"counselors?|partner|spouse|husband|wife|siblings?|parents?|children|kids|"
+    rf"brothers?|sisters?|mother|mom|father|dad|cousins?|aunts?|uncles?|"
+    rf"grandparents?|grandmothers?|grandmas?|grandfathers?|grandpas?)\s+"
     rf"(?:with|of|to|for)\s+"
     rf"(?P<anchor>{_LABEL_RE})\b",
     re.IGNORECASE,
@@ -83,7 +87,9 @@ _TARGET_POSSESSIVE_RELATION_QUERY_RE = re.compile(
     rf"supervisors?|coach(?:es)?|trainers?|teachers?|tutors?|classmates?|"
     rf"schoolmates?|roommates?|"
     rf"neighbors?|neighbours?|doctors?|dentists?|therapists?|counsellors?|"
-    rf"counselors?|partner|spouse|husband|wife|siblings?|parents?|children|kids)\b",
+    rf"counselors?|partner|spouse|husband|wife|siblings?|parents?|children|kids|"
+    rf"brothers?|sisters?|mother|mom|father|dad|cousins?|aunts?|uncles?|"
+    rf"grandparents?|grandmothers?|grandmas?|grandfathers?|grandpas?)\b",
     re.IGNORECASE,
 )
 _TARGET_OF_RELATION_QUERY_RE = re.compile(
@@ -93,7 +99,9 @@ _TARGET_OF_RELATION_QUERY_RE = re.compile(
     rf"supervisors?|coach(?:es)?|trainers?|teachers?|tutors?|classmates?|"
     rf"schoolmates?|roommates?|"
     rf"neighbors?|neighbours?|doctors?|dentists?|therapists?|counsellors?|"
-    rf"counselors?|partner|spouse|husband|wife|siblings?|parents?|children|kids)\s+"
+    rf"counselors?|partner|spouse|husband|wife|siblings?|parents?|children|kids|"
+    rf"brothers?|sisters?|mother|mom|father|dad|cousins?|aunts?|uncles?|"
+    rf"grandparents?|grandmothers?|grandmas?|grandfathers?|grandpas?)\s+"
     rf"(?:with|of|to|for)\s+(?P<anchor>{_LABEL_RE})\b",
     re.IGNORECASE,
 )
@@ -397,8 +405,22 @@ def _kind_for_relation(relation: str) -> PersonRelationKind:
             "relative",
             "sibling",
             "parent",
+            "mother",
+            "mom",
+            "father",
+            "dad",
             "children",
             "kid",
+            "brother",
+            "sister",
+            "cousin",
+            "aunt",
+            "uncle",
+            "grandparent",
+            "grandmother",
+            "grandma",
+            "grandfather",
+            "grandpa",
             "spouse",
             "husband",
             "wife",
@@ -436,8 +458,22 @@ def _role_for_relation(relation: str) -> str | None:
             "relative",
             "sibling",
             "parent",
+            "mother",
+            "mom",
+            "father",
+            "dad",
             "children",
             "kid",
+            "brother",
+            "sister",
+            "cousin",
+            "aunt",
+            "uncle",
+            "grandparent",
+            "grandmother",
+            "grandma",
+            "grandfather",
+            "grandpa",
         )
     ):
         return "family"

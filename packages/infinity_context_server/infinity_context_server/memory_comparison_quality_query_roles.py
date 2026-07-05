@@ -13,6 +13,9 @@ from infinity_context_server.memory_comparison_quality_accessors import (
     candidate_features as _candidate_features,
 )
 from infinity_context_server.memory_comparison_quality_accessors import (
+    count_mapping as _count_mapping,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
     mapping as _mapping,
 )
 from infinity_context_server.memory_comparison_quality_accessors import (
@@ -512,24 +515,77 @@ def _selected_evidence_query_families_for_required_role(
     role: str,
 ) -> set[str]:
     bundle = _mapping(item.get("evidence_bundle"))
+    fusion_query_roles_by_item_id = _fusion_selected_evidence_query_roles_by_item_id(
+        item
+    )
+    fusion_selected_families = _fusion_selected_evidence_query_families(item, role)
     required_selected_families = set(
         _required_evidence_role_selected_query_families(role)
     )
     families: set[str] = set()
     for bundle_item in _bundle_items(bundle):
         bundle_role = str(bundle_item.get("role") or "").strip()
+        bundle_item_id = _bundle_item_id(bundle_item)
         item_families: set[str] = set()
         for query_role in _str_tuple(bundle_item.get("query_roles")):
             item_families.update(_query_role_families(query_role))
+        for query_role in fusion_query_roles_by_item_id.get(bundle_item_id, ()):
+            item_families.update(_query_role_families(query_role))
         if _bundle_role_matches_required_role(bundle_role, role):
             families.update(item_families)
+            families.update(fusion_selected_families)
             continue
         if (
             bundle_role in _GENERIC_SUPPORT_BUNDLE_ROLES
             and item_families.intersection(required_selected_families)
         ):
             families.update(item_families)
+            families.update(fusion_selected_families)
     return families
+
+
+def _fusion_selected_evidence_query_roles_by_item_id(
+    item: Mapping[str, object],
+) -> dict[str, tuple[str, ...]]:
+    metadata = _mapping(_mapping(item.get("retrieval")).get("metadata"))
+    merge = _mapping(metadata.get("multi_query_merge"))
+    query_roles_by_item_id: dict[str, tuple[str, ...]] = {}
+    for sample in _sequence(merge.get("evidence_selection_samples")):
+        if not isinstance(sample, Mapping):
+            continue
+        item_id = str(sample.get("selected_evidence_item_id") or "").strip()
+        query_role = str(sample.get("selected_evidence_query_role") or "").strip()
+        if not item_id or not query_role:
+            continue
+        query_roles_by_item_id[item_id] = tuple(
+            dict.fromkeys((*query_roles_by_item_id.get(item_id, ()), query_role))
+        )
+    return query_roles_by_item_id
+
+
+def _fusion_selected_evidence_query_families(
+    item: Mapping[str, object],
+    role: str,
+) -> set[str]:
+    required_families = set(_required_evidence_role_selected_query_families(role))
+    if not required_families:
+        return set()
+    metadata = _mapping(_mapping(item.get("retrieval")).get("metadata"))
+    merge = _mapping(metadata.get("multi_query_merge"))
+    families: set[str] = set()
+    for query_role, count in _count_mapping(
+        merge.get("selected_evidence_query_role_counts")
+    ).items():
+        if count <= 0:
+            continue
+        query_families = set(_query_role_families(query_role))
+        if query_families.intersection(required_families):
+            families.update(query_families)
+    return families
+
+
+def _bundle_item_id(bundle_item: Mapping[str, object]) -> str:
+    return str(bundle_item.get("id") or bundle_item.get("item_id") or "").strip()
 
 
 def _bundle_role_matches_required_role(bundle_role: str, required_role: str) -> bool:
