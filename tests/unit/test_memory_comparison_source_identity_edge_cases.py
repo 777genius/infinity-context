@@ -103,6 +103,46 @@ def test_source_identity_refs_normalize_hyphenated_source_ref_variants() -> None
     )
 
 
+def test_source_identity_refs_normalize_spaced_session_text_variants() -> None:
+    assert source_identity_refs_from_text(
+        "Session 12 date: March 7, 2024 D12:4 Melanie discussed camping.",
+        source_refs=("conversation-summary",),
+    ) == (
+        "source_session_turn_refs:session_12:D12:4",
+        "source_turn_refs:D12:4",
+    )
+    assert source_identity_refs_from_text(
+        "Session 3 turn D3:6 Alex confirmed the planning date.",
+        source_refs=("profile:alex-summary",),
+    ) == (
+        "source_session_turn_refs:session_3:D3:6",
+        "source_turn_refs:D3:6",
+    )
+    assert source_identity_refs_from_text(
+        "Session #3 date: 2024-01-11 D3:7 Alex confirmed the planning date.",
+        source_refs=("profile:alex-summary",),
+    ) == (
+        "source_session_turn_refs:session_3:D3:7",
+        "source_turn_refs:D3:7",
+    )
+    assert source_identity_refs_from_source_refs(
+        ("raw-provider payload session 12 turn D12-5",)
+    ) == (
+        "source_session_turn_refs:session_12:D12:5",
+        "source_turn_refs:D12:5",
+    )
+    assert safe_source_refs_for_output(
+        ("provider-private-payload session 12 D12:6",)
+    ) == (
+        "source_session_turn_refs:session_12:D12:6",
+        "source_turn_refs:D12:6",
+    )
+    assert source_identity_audit_gap_codes(
+        source_refs=("conversation-summary",),
+        text="Session 12 date: March 7, 2024 D12:4 Melanie discussed camping.",
+    ) == ("generic_source_refs_with_text_turn_identity",)
+
+
 def test_safe_source_refs_for_output_filters_raw_provider_refs() -> None:
     assert safe_source_refs_for_output(
         (
