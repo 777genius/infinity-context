@@ -15,8 +15,11 @@ from infinity_context_contracts.features.memory_scopes import (
 import infinity_context_core.features.memory_scopes.public as memory_scopes
 
 from infinity_context_server.features.memory_scopes.contracts import (
+    ArchiveMemoryScopeHttpRequest,
     MemoryScopeActorHttpRequest,
+    MemoryScopeLifecycleHttpRequest,
     MemoryScopeOwnerHttpRequest,
+    RestoreMemoryScopeHttpRequest,
     TransferMemoryScopeOwnershipHttpRequest,
 )
 
@@ -60,6 +63,40 @@ def transfer_memory_scope_ownership_command_from_http(
         expected_current_owner=_optional_owner(
             _value(request, "expected_current_owner", None)
         ),
+        reason=_optional_text(_value(request, "reason", None)),
+        idempotency_key=_optional_text(_value(request, "idempotency_key", None)),
+    )
+
+
+def archive_memory_scope_command_from_http(
+    memory_scope_id: str,
+    request: ArchiveMemoryScopeHttpRequest | Mapping[str, object],
+) -> memory_scopes.ArchiveMemoryScopeCommand:
+    """Map an HTTP archive request into the feature application command."""
+
+    return memory_scopes.ArchiveMemoryScopeCommand(
+        identity=_memory_scope_identity_from_http(memory_scope_id, request),
+        initiated_by=memory_scope_actor_from_http(
+            _required_value(request, "initiated_by")
+        ),
+        expected_status=_optional_text(_value(request, "expected_status", None)),
+        reason=_optional_text(_value(request, "reason", None)),
+        idempotency_key=_optional_text(_value(request, "idempotency_key", None)),
+    )
+
+
+def restore_memory_scope_command_from_http(
+    memory_scope_id: str,
+    request: RestoreMemoryScopeHttpRequest | Mapping[str, object],
+) -> memory_scopes.RestoreMemoryScopeCommand:
+    """Map an HTTP restore request into the feature application command."""
+
+    return memory_scopes.RestoreMemoryScopeCommand(
+        identity=_memory_scope_identity_from_http(memory_scope_id, request),
+        initiated_by=memory_scope_actor_from_http(
+            _required_value(request, "initiated_by")
+        ),
+        expected_status=_optional_text(_value(request, "expected_status", None)),
         reason=_optional_text(_value(request, "reason", None)),
         idempotency_key=_optional_text(_value(request, "idempotency_key", None)),
     )
@@ -132,6 +169,51 @@ def transfer_memory_scope_ownership_result_to_response(
     }
 
 
+def archive_memory_scope_result_to_response(
+    result: memory_scopes.ArchiveMemoryScopeResult,
+) -> dict[str, Any]:
+    return _lifecycle_result_to_response(
+        scope=result.scope,
+        previous_status=result.previous_status,
+        flag_name="archived",
+    )
+
+
+def restore_memory_scope_result_to_response(
+    result: memory_scopes.RestoreMemoryScopeResult,
+) -> dict[str, Any]:
+    return _lifecycle_result_to_response(
+        scope=result.scope,
+        previous_status=result.previous_status,
+        flag_name="restored",
+    )
+
+
+def _memory_scope_identity_from_http(
+    memory_scope_id: str,
+    request: MemoryScopeLifecycleHttpRequest | Mapping[str, object],
+) -> memory_scopes.MemoryScopeIdentity:
+    return memory_scopes.MemoryScopeIdentity(
+        space_id=_required_text(_value(request, "space_id", None), "space_id"),
+        memory_scope_id=_required_text(memory_scope_id, "memory_scope_id"),
+    )
+
+
+def _lifecycle_result_to_response(
+    *,
+    scope: memory_scopes.MemoryScopeSnapshot,
+    previous_status: str,
+    flag_name: str,
+) -> dict[str, Any]:
+    return {
+        "data": {
+            "scope": memory_scope_snapshot_to_contract(scope).to_dict(),
+            "previous_status": previous_status,
+            flag_name: True,
+        }
+    }
+
+
 def _optional_owner(value: object) -> memory_scopes.MemoryScopeOwner | None:
     if value is None:
         return None
@@ -188,11 +270,15 @@ def _datetime_to_string(value: datetime | None) -> str | None:
 
 __all__ = (
     "DEFAULT_POLICY_MODE",
+    "archive_memory_scope_command_from_http",
+    "archive_memory_scope_result_to_response",
     "create_memory_scope_command_from_contract",
     "create_memory_scope_result_to_contract",
     "memory_scope_actor_from_http",
     "memory_scope_owner_from_http",
     "memory_scope_snapshot_to_contract",
+    "restore_memory_scope_command_from_http",
+    "restore_memory_scope_result_to_response",
     "transfer_memory_scope_ownership_command_from_http",
     "transfer_memory_scope_ownership_result_to_response",
 )

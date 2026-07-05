@@ -71,9 +71,33 @@ class TransferMemoryScopeOwnershipHttpRequest(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class MemoryScopeLifecycleHttpRequest(BaseModel):
+    """HTTP request accepted by feature-owned archive/restore lifecycle seams."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    space_id: str = Field(min_length=1, max_length=80)
+    initiated_by: MemoryScopeActorHttpRequest
+    expected_status: str | None = Field(default=None, min_length=1, max_length=80)
+    reason: str | None = Field(default=None, max_length=1000)
+    idempotency_key: str | None = Field(default=None, min_length=1, max_length=160)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ArchiveMemoryScopeHttpRequest(MemoryScopeLifecycleHttpRequest):
+    """HTTP request accepted by the feature-owned scope archive seam."""
+
+
+class RestoreMemoryScopeHttpRequest(MemoryScopeLifecycleHttpRequest):
+    """HTTP request accepted by the feature-owned scope restore seam."""
+
+
 __all__ = (
+    "ArchiveMemoryScopeHttpRequest",
     "CreateMemoryScopeHttpRequest",
     "MemoryScopeActorHttpRequest",
+    "MemoryScopeLifecycleHttpRequest",
     "MemoryScopeOwnerHttpRequest",
+    "RestoreMemoryScopeHttpRequest",
     "TransferMemoryScopeOwnershipHttpRequest",
 )
