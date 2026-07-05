@@ -16,7 +16,7 @@ from infinity_context_server.memory_comparison_preflight import (
 
 def test_memory_comparison_preflight_ready_for_locomo_fast(tmp_path: Path) -> None:
     dataset = tmp_path / "locomo-mini.json"
-    dataset.write_text('[{"sample_id":"unit"}]', encoding="utf-8")
+    _write_official_locomo_fast_dataset(dataset)
 
     result = run_memory_comparison_preflight(
         _config(
@@ -58,6 +58,62 @@ def test_memory_comparison_preflight_ready_for_locomo_fast(tmp_path: Path) -> No
             "safe_payload": True,
         },
     ]
+
+
+def test_memory_comparison_preflight_blocks_non_locomo_json_fast_readiness(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "not-locomo.json"
+    dataset.write_text('[{"sample_id":"unit"}]', encoding="utf-8")
+
+    result = run_memory_comparison_preflight(
+        _config(
+            dataset_path=dataset,
+            env={"MEM0_API_KEY": "secret-mem0"},
+        )
+    )
+
+    assert result["ok"] is True
+    assert result["safe_to_run_live"] is True
+    assert result["ready_for_locomo_fast"] is False
+    assert result["fast_readiness_blockers"] == [
+        "locomo_fast_dataset_case_coverage"
+    ]
+    check = _check(result, "locomo_fast_dataset_case_coverage")
+    assert check["reason_code"] == "locomo_fast_dataset_insufficient_cases"
+    assert check["details"]["official_turn_case_count"] == 0
+    assert check["details"]["missing_groups"] == [
+        "multi-hop",
+        "temporal",
+        "open-domain",
+        "single-hop",
+    ]
+
+
+def test_memory_comparison_preflight_blocks_underfilled_locomo_fast_dataset(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "locomo-underfilled.json"
+    _write_official_locomo_fast_dataset(dataset, cases_per_group=2)
+
+    result = run_memory_comparison_preflight(
+        _config(
+            dataset_path=dataset,
+            case_set="locomo-fast-temporal",
+            env={"MEM0_API_KEY": "secret-mem0"},
+        )
+    )
+
+    assert result["ok"] is True
+    assert result["ready_for_locomo_fast"] is False
+    assert result["fast_readiness_blockers"] == [
+        "locomo_fast_dataset_case_coverage"
+    ]
+    check = _check(result, "locomo_fast_dataset_case_coverage")
+    assert check["details"]["requested_groups"] == ["temporal"]
+    assert check["details"]["requested_per_group"] == 10
+    assert check["details"]["selected_by_group"] == {"temporal": 2}
+    assert check["details"]["missing_groups"] == ["temporal"]
 
 
 def test_memory_comparison_preflight_reports_missing_required_gates(
@@ -148,7 +204,7 @@ def test_memory_comparison_preflight_cli_prints_sanitized_json(
     tmp_path: Path,
 ) -> None:
     dataset = tmp_path / "locomo-mini.json"
-    dataset.write_text('[{"sample_id":"unit"}]', encoding="utf-8")
+    _write_official_locomo_fast_dataset(dataset)
     monkeypatch.setenv("MEMORY_SERVICE_TOKEN", "secret-service-token")
     monkeypatch.setenv("MEM0_API_KEY", "secret-mem0-token")
 
@@ -190,7 +246,7 @@ def test_memory_comparison_preflight_probes_service_specific_contracts(
     tmp_path: Path,
 ) -> None:
     dataset = tmp_path / "locomo-mini.json"
-    dataset.write_text('[{"sample_id":"unit"}]', encoding="utf-8")
+    _write_official_locomo_fast_dataset(dataset)
     requests: list[tuple[str, str]] = []
     _install_fake_httpx(
         monkeypatch,
@@ -345,6 +401,47 @@ def _config(
         auth_token_configured=auth_token_configured,
         probe_services=probe_services,
         env=env or {},
+    )
+
+
+def _write_official_locomo_fast_dataset(
+    path: Path,
+    *,
+    cases_per_group: int = 10,
+) -> None:
+    qas: list[dict[str, object]] = []
+    for category in (1, 2, 3, 4):
+        for index in range(cases_per_group):
+            qas.append(
+                {
+                    "question": (
+                        f"What answer is needed for category {category} case {index}?"
+                    ),
+                    "answer": f"answer-{category}-{index}",
+                    "category": category,
+                }
+            )
+    path.write_text(
+        json.dumps(
+            [
+                {
+                    "sample_id": "unit-locomo",
+                    "conversation": {
+                        "speaker_a": "A",
+                        "session_1_date_time": "2023-01-01",
+                        "session_1": [
+                            {
+                                "dia_id": "D1:1",
+                                "speaker": "A",
+                                "text": "A compact LoCoMo fixture turn.",
+                            }
+                        ],
+                    },
+                    "qa": qas,
+                }
+            ]
+        ),
+        encoding="utf-8",
     )
 
 

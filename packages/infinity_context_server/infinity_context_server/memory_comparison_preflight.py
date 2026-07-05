@@ -23,6 +23,19 @@ _FAST_CASE_SETS = frozenset(
         "locomo-fast-single-hop",
     }
 )
+_FAST_CASES_PER_GROUP = 10
+_FAST_CASE_SET_GROUPS = {
+    "locomo-fast": (
+        "multi-hop",
+        "temporal",
+        "open-domain",
+        "single-hop",
+    ),
+    "locomo-fast-multi-hop": ("multi-hop",),
+    "locomo-fast-temporal": ("temporal",),
+    "locomo-fast-open-domain": ("open-domain",),
+    "locomo-fast-single-hop": ("single-hop",),
+}
 _REQUIRED_FAST_CUTOFFS = frozenset({10, 20, 50, 200})
 _SAFE_REPORTING_CONTRACTS = (
     ("quality_diagnostics", "quality_diagnostics.v2"),
@@ -113,6 +126,7 @@ def run_memory_comparison_preflight(
             },
         ),
         *_fast_readiness_checks(config),
+        *_locomo_fast_dataset_checks(config),
     ]
     if config.probe_services:
         checks.extend(_service_probe_checks(config))
@@ -198,7 +212,7 @@ def _dataset_check(dataset_path: Path) -> MemoryComparisonPreflightCheck:
         )
     try:
         size_bytes = dataset_path.stat().st_size
-        payload = json.loads(dataset_path.read_text(encoding="utf-8"))
+        payload = _read_dataset_payload(dataset_path)
     except Exception as exc:
         return _required_check(
             "dataset_readable",
@@ -340,6 +354,61 @@ def _fast_readiness_checks(
             passed=config.report_mode == "compact",
             reason="use --report-mode compact for fast iteration unless debugging cases",
             details={"report_mode": config.report_mode},
+        ),
+    )
+
+
+def _locomo_fast_dataset_checks(
+    config: MemoryComparisonPreflightConfig,
+) -> tuple[MemoryComparisonPreflightCheck, ...]:
+    groups = _FAST_CASE_SET_GROUPS.get(config.case_set)
+    if groups is None:
+        return ()
+    if config.locomo_ingest_mode != "official-turns":
+        return ()
+
+    try:
+        payload = _read_dataset_payload(config.dataset_path)
+        official_case_count, selected_by_group = _locomo_fast_dataset_case_counts(
+            payload,
+            groups=groups,
+        )
+    except Exception as exc:
+        return (
+            _fast_check(
+                "locomo_fast_dataset_case_coverage",
+                passed=False,
+                reason="dataset must load as official LoCoMo cases for fast readiness",
+                reason_code="locomo_fast_dataset_unloadable",
+                details={
+                    "dataset_path_label": config.dataset_path.name,
+                    "error_type": type(exc).__name__,
+                },
+            ),
+        )
+
+    missing_groups = [
+        group
+        for group, count in selected_by_group.items()
+        if count < _FAST_CASES_PER_GROUP
+    ]
+    return (
+        _fast_check(
+            "locomo_fast_dataset_case_coverage",
+            passed=not missing_groups,
+            reason=(
+                "dataset must provide at least 10 scored official-turn LoCoMo "
+                "cases for each requested fast group"
+            ),
+            reason_code="locomo_fast_dataset_insufficient_cases",
+            details={
+                "dataset_path_label": config.dataset_path.name,
+                "official_turn_case_count": official_case_count,
+                "requested_groups": list(groups),
+                "requested_per_group": _FAST_CASES_PER_GROUP,
+                "selected_by_group": selected_by_group,
+                "missing_groups": missing_groups,
+            },
         ),
     )
 
@@ -545,6 +614,131 @@ def _top_level_count(payload: object) -> int:
                 return len(value)
         return len(payload)
     return 0
+
+
+def _read_dataset_payload(dataset_path: Path) -> object:
+    return json.loads(dataset_path.read_text(encoding="utf-8"))
+
+
+def _locomo_fast_dataset_case_counts(
+    payload: object,
+    *,
+    groups: Sequence[str],
+) -> tuple[int, dict[str, int]]:
+    selected_by_group = dict.fromkeys(groups, 0)
+    official_case_count = 0
+    for sample in _official_locomo_samples(payload):
+        if not _official_locomo_sample_has_turns(sample):
+            continue
+        qas = sample.get("qa")
+        if not isinstance(qas, Sequence) or isinstance(qas, str | bytes):
+            continue
+        for qa in qas:
+            if not isinstance(qa, Mapping):
+                continue
+            group = _official_locomo_qa_group(qa)
+            if group is None:
+                continue
+            if not _text_field(qa, "question", "query"):
+                continue
+            if not _has_locomo_answer_or_evidence(qa):
+                continue
+            official_case_count += 1
+            if group in selected_by_group:
+                selected_by_group[group] += 1
+    return official_case_count, selected_by_group
+
+
+def _official_locomo_samples(payload: object) -> tuple[Mapping[str, object], ...]:
+    if isinstance(payload, Mapping):
+        return (payload,) if _is_official_locomo_sample(payload) else ()
+    if isinstance(payload, Sequence) and not isinstance(payload, str | bytes):
+        return tuple(
+            item
+            for item in payload
+            if isinstance(item, Mapping) and _is_official_locomo_sample(item)
+        )
+    return ()
+
+
+def _is_official_locomo_sample(value: Mapping[str, object]) -> bool:
+    qas = value.get("qa")
+    return (
+        isinstance(value.get("conversation"), Mapping)
+        and isinstance(qas, Sequence)
+        and not isinstance(qas, str | bytes)
+    )
+
+
+def _official_locomo_sample_has_turns(sample: Mapping[str, object]) -> bool:
+    conversation = sample.get("conversation")
+    if not isinstance(conversation, Mapping):
+        return False
+    for key, value in conversation.items():
+        if not str(key).startswith("session_"):
+            continue
+        if str(key).endswith("_date_time"):
+            continue
+        if not isinstance(value, Sequence) or isinstance(value, str | bytes):
+            continue
+        if any(
+            isinstance(turn, Mapping)
+            and _text_field(
+                turn,
+                "text",
+                "content",
+                "utterance",
+                "caption",
+                "blip_caption",
+                "query",
+                "image_query",
+                "visual_query",
+            )
+            for turn in value
+        ):
+            return True
+    return False
+
+
+def _official_locomo_qa_group(qa: Mapping[str, object]) -> str | None:
+    category = qa.get("category")
+    if isinstance(category, bool):
+        return None
+    try:
+        category_id = int(category) if category is not None else None
+    except (TypeError, ValueError):
+        return None
+    return {
+        1: "multi-hop",
+        2: "temporal",
+        3: "open-domain",
+        4: "single-hop",
+    }.get(category_id)
+
+
+def _has_locomo_answer_or_evidence(qa: Mapping[str, object]) -> bool:
+    for key in ("answer", "expected_answer", "answers", "evidence"):
+        if _has_text_value(qa.get(key)):
+            return True
+    return False
+
+
+def _text_field(value: Mapping[str, object], *keys: str) -> str:
+    for key in keys:
+        item = value.get(key)
+        if isinstance(item, str) and item.strip():
+            return item.strip()
+    return ""
+
+
+def _has_text_value(value: object) -> bool:
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, Mapping):
+        return any(_has_text_value(item) for item in value.values())
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes):
+        return any(_has_text_value(item) for item in value)
+    return False
 
 
 def _openapi_paths(payload: object) -> frozenset[str]:
