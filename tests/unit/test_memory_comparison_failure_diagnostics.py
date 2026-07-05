@@ -324,6 +324,9 @@ def test_failure_diagnostics_reports_bounded_temporal_grounding_issue_summary() 
         "missing_source_window": 7,
         "missing_temporal_grounding": 7,
     }
+    assert temporal["issue_sample_limit"] == 5
+    assert temporal["issue_sample_count"] == 5
+    assert temporal["issue_sample_omitted_count"] == 2
     assert len(temporal["issue_samples"]) == 5
     assert temporal["issue_samples"][0] == {
         "case_id": "locomo:conv-1:qa:temporal",

@@ -249,6 +249,12 @@ def temporal_grounding_table(items: Sequence[Mapping[str, object]]) -> dict[str,
         "selected_temporal_grounding_issue_reason_counts": dict(
             sorted(issue_reason_counts.items())
         ),
+        "selected_temporal_grounding_issue_sample_limit": _MAX_SAMPLES,
+        "selected_temporal_grounding_issue_sample_count": len(issue_samples),
+        "selected_temporal_grounding_issue_sample_omitted_count": max(
+            0,
+            issue_item_count - len(issue_samples),
+        ),
         "selected_temporal_grounding_issue_samples": issue_samples,
     }
 

@@ -244,6 +244,20 @@ def _temporal_grounding_failure_summary(
     evaluation: Mapping[str, object],
 ) -> dict[str, object]:
     table = _temporal_grounding_table((evaluation,))
+    issue_sample_limit = (
+        _positive_int(table.get("selected_temporal_grounding_issue_sample_limit"))
+        or _MAX_TEMPORAL_GROUNDING_ISSUE_SAMPLES
+    )
+    issue_samples = list(
+        _sequence(table.get("selected_temporal_grounding_issue_samples"))
+    )[:_MAX_TEMPORAL_GROUNDING_ISSUE_SAMPLES]
+    issue_sample_count = _positive_int(
+        table.get("selected_temporal_grounding_issue_sample_count")
+    ) or len(issue_samples)
+    issue_item_count = (
+        _positive_int(table.get("selected_temporal_grounding_issue_item_count"))
+        or 0
+    )
     return {
         "schema_version": "failure_temporal_grounding.v1",
         "temporal_case": _positive_int(table.get("temporal_case_count")) is not None,
@@ -252,16 +266,24 @@ def _temporal_grounding_failure_summary(
             _positive_int(table.get("selected_strong_temporal_grounding_item_count"))
             or 0
         ),
-        "issue_item_count": (
-            _positive_int(table.get("selected_temporal_grounding_issue_item_count"))
-            or 0
-        ),
+        "issue_item_count": issue_item_count,
         "issue_reason_counts": _mapping(
             table.get("selected_temporal_grounding_issue_reason_counts")
         ),
-        "issue_samples": list(
-            _sequence(table.get("selected_temporal_grounding_issue_samples"))
-        )[:_MAX_TEMPORAL_GROUNDING_ISSUE_SAMPLES],
+        "issue_sample_limit": min(
+            issue_sample_limit,
+            _MAX_TEMPORAL_GROUNDING_ISSUE_SAMPLES,
+        ),
+        "issue_sample_count": min(
+            issue_sample_count,
+            _MAX_TEMPORAL_GROUNDING_ISSUE_SAMPLES,
+        ),
+        "issue_sample_omitted_count": max(
+            0,
+            issue_item_count
+            - min(issue_sample_count, _MAX_TEMPORAL_GROUNDING_ISSUE_SAMPLES),
+        ),
+        "issue_samples": issue_samples,
     }
 
 

@@ -268,6 +268,9 @@ def test_temporal_grounding_summarizes_missing_weak_and_conflicting_issues() -> 
         "weak_session_boundary_without_date_or_range": 1,
         "weak_source_window_without_date_or_range": 1,
     }
+    assert table["selected_temporal_grounding_issue_sample_limit"] == 10
+    assert table["selected_temporal_grounding_issue_sample_count"] == 3
+    assert table["selected_temporal_grounding_issue_sample_omitted_count"] == 0
     assert table["selected_temporal_grounding_issue_samples"] == [
         {
             "case_id": "temporal-issues",
@@ -330,3 +333,42 @@ def test_temporal_grounding_summarizes_missing_weak_and_conflicting_issues() -> 
             },
         },
     ]
+
+
+def test_temporal_grounding_reports_issue_sample_omitted_count() -> None:
+    diagnostics = quality_diagnostics(
+        (
+            _item(
+                case_id="temporal-many-issues",
+                group="temporal",
+                retrieval=_retrieval_payload(
+                    evidence_need=("temporal_support",),
+                    bundle_evidence_roles=("primary", "temporal_support"),
+                    relation_categories=("temporal",),
+                    policy_score=0.0,
+                    candidate_features={
+                        "query_roles": ["temporal_support"],
+                        "time_intent_kind": "temporal_lookup",
+                    },
+                ),
+                evidence_bundle={
+                    "items": [
+                        {
+                            "id": f"temporal-gap-{index}",
+                            "role": "temporal_support",
+                            "query_roles": ["temporal_support"],
+                        }
+                        for index in range(12)
+                    ]
+                },
+            ),
+        )
+    )
+
+    table = diagnostics["temporal_grounding_table"]
+
+    assert table["selected_temporal_grounding_issue_item_count"] == 12
+    assert table["selected_temporal_grounding_issue_sample_limit"] == 10
+    assert table["selected_temporal_grounding_issue_sample_count"] == 10
+    assert table["selected_temporal_grounding_issue_sample_omitted_count"] == 2
+    assert len(table["selected_temporal_grounding_issue_samples"]) == 10
