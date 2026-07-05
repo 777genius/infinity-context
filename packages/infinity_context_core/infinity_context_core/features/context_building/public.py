@@ -1,0 +1,67 @@
+"""Public API for the context_building core feature."""
+
+from __future__ import annotations
+
+from infinity_context_core.features.context_building.application import (
+    BuildContextHandler,
+    BuildContextQuery,
+    BuildContextResult,
+    BuildContextUseCase,
+    ContextBuildingUseCases,
+)
+from infinity_context_core.features.context_building.domain import (
+    FEATURE_ID,
+    ContextBudget,
+    ContextBudgetPolicy,
+    ContextBuildingFeature,
+    ContextBundle,
+    ContextConfidence,
+    ContextDropReason,
+    ContextDroppedItem,
+    ContextEvidence,
+    ContextEvidenceRenderer,
+    ContextItem,
+    ContextItemKind,
+    ContextItemRole,
+    ContextPackingPlan,
+    ContextQuery,
+    ContextScope,
+    ContextSourceRef,
+    ContextTrustLevel,
+    EvidenceRenderPolicy,
+    estimate_token_count,
+)
+from infinity_context_core.features.context_building.ports import (
+    ContextCandidateProviderPort,
+    ContextCandidateRequest,
+)
+
+__all__ = (
+    "FEATURE_ID",
+    "BuildContextHandler",
+    "BuildContextQuery",
+    "BuildContextResult",
+    "BuildContextUseCase",
+    "ContextBudget",
+    "ContextBudgetPolicy",
+    "ContextBuildingFeature",
+    "ContextBuildingUseCases",
+    "ContextBundle",
+    "ContextCandidateProviderPort",
+    "ContextCandidateRequest",
+    "ContextConfidence",
+    "ContextDropReason",
+    "ContextDroppedItem",
+    "ContextEvidence",
+    "ContextEvidenceRenderer",
+    "ContextItem",
+    "ContextItemKind",
+    "ContextItemRole",
+    "ContextPackingPlan",
+    "ContextQuery",
+    "ContextScope",
+    "ContextSourceRef",
+    "ContextTrustLevel",
+    "EvidenceRenderPolicy",
+    "estimate_token_count",
+)
