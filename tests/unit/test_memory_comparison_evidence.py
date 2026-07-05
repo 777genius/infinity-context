@@ -1,3 +1,5 @@
+import json
+
 from infinity_context_server.memory_comparison_candidate_fusion import fuse_query_results
 from infinity_context_server.memory_comparison_evidence import (
     evidence_bundle,
@@ -80,6 +82,71 @@ def test_evidence_bundle_uses_metadata_evidence_refs_alias_for_coverage() -> Non
     assert bundle["evidence_term_recall"] == 1.0
     assert bundle["bundle_complete"] is True
     assert bundle["items"][0]["covered_evidence_terms"] == ["D1:1", "D2:3"]
+
+
+def test_evidence_diagnostics_use_safe_refs_for_raw_locomo_and_provider_terms() -> None:
+    raw_locomo_ref = "locomo:conv-private:session_1:D1:2:turn-secret"
+    raw_provider_ref = "provider-auth-private-marker"
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:private-source-ref",
+        question="Where did Alex move after the planning call?",
+        expected_terms=("Denver",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={
+            "category": 4,
+            "evidence_terms": (raw_locomo_ref, raw_provider_ref),
+        },
+    )
+    memories = (
+        RetrievedMemory(
+            text="D1:2 Alex moved to Denver after the planning call.",
+            rank=1,
+            item_id=raw_locomo_ref,
+            source_refs=(raw_locomo_ref, raw_provider_ref),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "answerability_score": 0.9,
+                        "source_locality_score": 1.0,
+                        "direct_speaker_turn": True,
+                        "entity_hits": ["alex"],
+                        "relation_hits": ["moved"],
+                        "source_ref_dedupe_key": (
+                            f"source_refs:{raw_locomo_ref}|{raw_provider_ref}"
+                        ),
+                    }
+                }
+            },
+        ),
+    )
+
+    quality = retrieval_quality(case, memories)
+    bundle = evidence_bundle(case, memories)
+
+    assert quality["evidence_term_count"] == 2
+    assert quality["evidence_term_recall"] == 0.5
+    assert quality["covered_evidence_terms"] == ["session_1:D1:2"]
+    assert quality["unsupported_evidence_term_count"] == 1
+    assert bundle["covered_evidence_terms"] == ["session_1:D1:2"]
+    assert bundle["evidence_term_count"] == 2
+    assert bundle["evidence_term_recall"] == 0.5
+    assert bundle["required_evidence_terms_for_bundle"] == 2
+    assert bundle["unsupported_evidence_term_count"] == 1
+    assert bundle["items"][0]["id"] == "source_session_turn_refs:session_1:D1:2"
+    assert bundle["items"][0]["source_refs"] == [
+        "source_session_turn_refs:session_1:D1:2",
+        "source_turn_refs:D1:2",
+    ]
+    assert bundle["bundle_planner"]["selected_dedupe_keys"] == [
+        "source_identity:"
+        "source_session_turn_refs:session_1:D1:2|source_turn_refs:D1:2"
+    ]
+    serialized = json.dumps((quality, bundle)).lower()
+    assert "locomo:conv-private" not in serialized
+    assert "turn-secret" not in serialized
+    assert raw_provider_ref not in serialized
 
 
 def test_evidence_bundle_includes_feature_backed_entity_disambiguation() -> None:

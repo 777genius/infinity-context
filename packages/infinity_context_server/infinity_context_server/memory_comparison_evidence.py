@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 
 from infinity_context_server.memory_comparison_bundle_planner import (
     EvidenceBundleCandidate,
@@ -16,11 +17,20 @@ from infinity_context_server.memory_comparison_candidate_risks import (
     memory_has_broad_summary,
     memory_has_conflict_or_stale,
 )
+from infinity_context_server.memory_comparison_compact_gap_report import (
+    compact_evidence_ref_list as _compact_evidence_ref_list,
+)
 from infinity_context_server.memory_comparison_intent import infer_bundle_evidence_roles
 from infinity_context_server.memory_comparison_models import RetrievedMemory
 from infinity_context_server.memory_comparison_rerank import (
     query_retrieval_intent,
     query_support_terms,
+)
+from infinity_context_server.memory_comparison_source_identity import (
+    safe_source_refs_for_output as _safe_source_refs_for_output,
+)
+from infinity_context_server.memory_comparison_source_identity import (
+    source_identity_refs_from_dedupe_key as _source_identity_refs_from_dedupe_key,
 )
 from infinity_context_server.public_benchmark_case_diagnostics import (
     case_evidence_refs as _case_evidence_refs,
@@ -59,6 +69,46 @@ _RELATIVE_TEMPORAL_EVIDENCE_RE = re.compile(
     r"last|next|previously|previous|earlier|later|back then|these days)\b",
     re.IGNORECASE,
 )
+_UNSAFE_SOURCE_REF_PREFIXES = (
+    "backend:",
+    "graphiti:",
+    "mem0:",
+    "memory://",
+    "openai:",
+    "provider:",
+    "provider-ref-",
+    "qdrant:",
+)
+_UNSAFE_SOURCE_REF_MARKERS = (
+    "access-token",
+    "access_token",
+    "api-key",
+    "api_key",
+    "auth-payload",
+    "auth_payload",
+    "auth-private",
+    "bearer-token",
+    "bearer_token",
+    "conv-private",
+    "locomo:",
+    "private-token",
+    "private_token",
+    "private-auth",
+    "provider-auth",
+    "provider-secret",
+    "provider_payload",
+    "raw_provider",
+    "refresh-token",
+    "refresh_token",
+    "turn-secret",
+)
+
+
+@dataclass(frozen=True)
+class _EvidenceTerm:
+    raw: str
+    output: str
+    match_terms: tuple[str, ...]
 
 
 def retrieval_quality(
@@ -79,30 +129,38 @@ def retrieval_quality(
         "covered_terms": list(covered_terms),
         "missing_terms": list(missing_terms),
     }
-    evidence_terms = _case_evidence_terms(case)
-    if evidence_terms:
+    evidence_terms, unsupported_evidence_term_count = _case_evidence_term_specs(case)
+    evidence_term_count = len(evidence_terms) + unsupported_evidence_term_count
+    if evidence_terms or unsupported_evidence_term_count:
         evidence_ref_corpus = _normalize_text(
             " ".join(_memory_evidence_surface(memory) for memory in memories)
         )
         covered_evidence_terms = tuple(
             term
             for term in evidence_terms
-            if _normalized_phrase_in_text(evidence_ref_corpus, term)
+            if _evidence_term_in_text(evidence_ref_corpus, term)
+        )
+        missing_evidence_terms = tuple(
+            term for term in evidence_terms if term not in covered_evidence_terms
         )
         quality.update(
             {
-                "evidence_term_count": len(evidence_terms),
+                "evidence_term_count": evidence_term_count,
                 "covered_evidence_term_count": len(covered_evidence_terms),
                 "evidence_term_recall": _ratio(
                     len(covered_evidence_terms),
-                    len(evidence_terms),
+                    evidence_term_count,
                 ),
-                "covered_evidence_terms": list(covered_evidence_terms),
+                "covered_evidence_terms": [
+                    term.output for term in covered_evidence_terms
+                ],
                 "missing_evidence_terms": [
-                    term for term in evidence_terms if term not in covered_evidence_terms
+                    term.output for term in missing_evidence_terms
                 ],
             }
         )
+        if unsupported_evidence_term_count:
+            quality["unsupported_evidence_term_count"] = unsupported_evidence_term_count
     return quality
 
 
@@ -110,7 +168,8 @@ def evidence_bundle(
     case: PublicBenchmarkCase,
     memories: Sequence[RetrievedMemory],
 ) -> dict[str, object]:
-    evidence_terms = _case_evidence_terms(case)
+    evidence_terms, unsupported_evidence_term_count = _case_evidence_term_specs(case)
+    evidence_term_count = len(evidence_terms) + unsupported_evidence_term_count
     support_terms = query_support_terms(case)
     candidates: list[EvidenceBundleCandidate] = []
     covered_expected_terms: set[str] = set()
@@ -131,8 +190,9 @@ def evidence_bundle(
         evidence_hits = tuple(
             term
             for term in evidence_terms
-            if _normalized_phrase_in_text(evidence_ref_text, term)
+            if _evidence_term_in_text(evidence_ref_text, term)
         )
+        evidence_hit_outputs = tuple(term.output for term in evidence_hits)
         support_hits = tuple(
             term for term in support_terms if _support_phrase_in_text(text, term)
         )
@@ -154,7 +214,7 @@ def evidence_bundle(
                 retrieval_order=retrieval_order,
                 item_id=_memory_identifier(memory),
                 covered_expected_terms=expected_hits,
-                covered_evidence_terms=evidence_hits,
+                covered_evidence_terms=evidence_hit_outputs,
                 query_support_terms=support_hits,
                 query_support_score=_ratio(len(support_hits), len(support_terms)),
                 bundle_strength_score=float(strength_score),
@@ -166,10 +226,10 @@ def evidence_bundle(
                     support_hits,
                     features,
                     expected_hits=expected_hits,
-                    evidence_hits=evidence_hits,
+                    evidence_hits=evidence_hit_outputs,
                 ),
                 dedupe_key=_candidate_dedupe_key(memory, features),
-                source_refs=tuple(str(ref) for ref in memory.source_refs if ref),
+                source_refs=_memory_source_refs(memory),
                 source_type=_source_type(memory, features),
                 source_types=_string_sequence(features.get("source_types")),
                 retrieval_sources=_string_sequence(features.get("retrieval_sources")),
@@ -253,7 +313,7 @@ def evidence_bundle(
         covered_support_terms.update(item.candidate.query_support_terms)
     primary_count = sum(1 for item in items if item["role"] == "primary")
     supporting_count = max(0, len(items) - primary_count)
-    required_evidence_terms = min(2, len(evidence_terms)) if evidence_terms else 0
+    required_evidence_terms = min(2, evidence_term_count) if evidence_term_count else 0
     evidence_bundle_complete = (
         len(covered_evidence_terms) >= required_evidence_terms
         if required_evidence_terms
@@ -262,7 +322,7 @@ def evidence_bundle(
     evidence_bundle_complete = (
         evidence_bundle_complete and plan.role_requirement_complete
     )
-    return {
+    bundle: dict[str, object] = {
         "kind": "multi_hop_evidence_bundle"
         if case_group == "multi-hop"
         else "single_evidence_bundle",
@@ -282,12 +342,18 @@ def evidence_bundle(
         "query_support_term_count": len(support_terms),
         "query_support_term_recall": _ratio(len(covered_support_terms), len(support_terms)),
         "expected_term_recall": _ratio(len(covered_expected_terms), len(case.expected_terms)),
-        "evidence_term_recall": _ratio(len(covered_evidence_terms), len(evidence_terms)),
-        "evidence_term_count": len(evidence_terms),
+        "evidence_term_recall": _ratio(
+            len(covered_evidence_terms),
+            evidence_term_count,
+        ),
+        "evidence_term_count": evidence_term_count,
         "required_evidence_terms_for_bundle": required_evidence_terms,
         "bundle_complete": evidence_bundle_complete,
         "items": items,
     }
+    if unsupported_evidence_term_count:
+        bundle["unsupported_evidence_term_count"] = unsupported_evidence_term_count
+    return bundle
 
 
 def _bundle_candidate_eligibility_reasons(
@@ -499,12 +565,14 @@ def _bundle_item_strength(
 
 
 def _bundle_dedupe_key(memory: RetrievedMemory) -> str:
-    if memory.source_refs:
-        refs = tuple(sorted(dict.fromkeys(str(ref) for ref in memory.source_refs if ref)))
+    refs = _memory_source_refs(memory)
+    if refs:
         return f"refs:{'|'.join(refs)}"
     turn_refs = tuple(dict.fromkeys(_TURN_REF_RE.findall(memory.text or "")))
     if 0 < len(turn_refs) <= 3:
         return "source_turn_refs:" + "|".join(sorted(turn_refs))
+    if _looks_like_unsafe_source_ref(memory.text):
+        return f"rank:{memory.rank}"
     return f"text:{_normalize_text(memory.text)[:240]}"
 
 
@@ -514,10 +582,14 @@ def _candidate_dedupe_key(
 ) -> str:
     source_ref_dedupe_key = features.get("source_ref_dedupe_key")
     if isinstance(source_ref_dedupe_key, str) and source_ref_dedupe_key.strip():
-        return source_ref_dedupe_key.strip()
+        safe_key = _safe_dedupe_key(source_ref_dedupe_key)
+        if safe_key:
+            return safe_key
     duplicate_key = features.get("duplicate_key")
     if isinstance(duplicate_key, str) and duplicate_key.strip():
-        return duplicate_key.strip()
+        safe_key = _safe_dedupe_key(duplicate_key)
+        if safe_key:
+            return safe_key
     return _bundle_dedupe_key(memory)
 
 
@@ -598,6 +670,92 @@ def _case_evidence_terms(case: PublicBenchmarkCase) -> tuple[str, ...]:
     return _case_evidence_refs(case)
 
 
+def _case_evidence_term_specs(
+    case: PublicBenchmarkCase,
+) -> tuple[tuple[_EvidenceTerm, ...], int]:
+    terms: list[_EvidenceTerm] = []
+    seen: set[str] = set()
+    unsupported_count = 0
+    for raw_term in _case_evidence_terms(case):
+        output = _evidence_term_output(raw_term)
+        if not output:
+            unsupported_count += 1
+            continue
+        if output in seen:
+            continue
+        seen.add(output)
+        terms.append(
+            _EvidenceTerm(
+                raw=raw_term,
+                output=output,
+                match_terms=_evidence_term_match_terms(raw_term, output),
+            )
+        )
+    return tuple(terms), unsupported_count
+
+
+def _evidence_term_output(term: str) -> str:
+    refs = _compact_evidence_ref_list((term,), item_limit=1)
+    return refs[0] if refs else ""
+
+
+def _evidence_term_match_terms(raw_term: str, output_term: str) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            term
+            for term in (
+                raw_term,
+                output_term,
+                *_TURN_REF_RE.findall(raw_term),
+                *_TURN_REF_RE.findall(output_term),
+            )
+            if str(term).strip()
+        )
+    )
+
+
+def _evidence_term_in_text(
+    normalized_text: str,
+    evidence_term: _EvidenceTerm,
+) -> bool:
+    return any(
+        _normalized_phrase_in_text(normalized_text, term)
+        for term in evidence_term.match_terms
+    )
+
+
+def _memory_source_refs(memory: RetrievedMemory) -> tuple[str, ...]:
+    return _safe_source_refs_for_output(
+        tuple(str(ref).strip() for ref in memory.source_refs if str(ref).strip())
+    )
+
+
+def _safe_dedupe_key(value: object) -> str:
+    key = str(value or "").strip()
+    if not key:
+        return ""
+    if not _looks_like_unsafe_source_ref(key):
+        return key
+    identity_refs = _source_identity_refs_from_dedupe_key(key)
+    if not identity_refs:
+        identity_refs = _safe_source_refs_for_output((key,))
+    if identity_refs:
+        return "source_identity:" + "|".join(identity_refs)
+    turn_refs = tuple(dict.fromkeys(_TURN_REF_RE.findall(key)))
+    if 0 < len(turn_refs) <= 3:
+        return "source_turn_refs:" + "|".join(sorted(turn_refs))
+    return ""
+
+
+def _looks_like_unsafe_source_ref(value: object) -> bool:
+    text = str(value or "").strip().lower()
+    if not text:
+        return False
+    if any(text.startswith(prefix) for prefix in _UNSAFE_SOURCE_REF_PREFIXES):
+        return True
+    return any(marker in text for marker in _UNSAFE_SOURCE_REF_MARKERS)
+
+
 def _metadata_string_sequence(value: object) -> tuple[str, ...]:
     if isinstance(value, str):
         values = (value,)
@@ -610,9 +768,18 @@ def _metadata_string_sequence(value: object) -> tuple[str, ...]:
 
 def _memory_identifier(memory: RetrievedMemory) -> str:
     if memory.item_id:
+        if _looks_like_unsafe_source_ref(memory.item_id):
+            refs = _safe_source_refs_for_output((memory.item_id,))
+            if refs:
+                return refs[0]
+            memory_refs = _memory_source_refs(memory)
+            if memory_refs:
+                return memory_refs[0]
+            return f"rank:{memory.rank}"
         return memory.item_id
-    if memory.source_refs:
-        return memory.source_refs[0]
+    refs = _memory_source_refs(memory)
+    if refs:
+        return refs[0]
     return f"rank:{memory.rank}"
 
 

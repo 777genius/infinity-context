@@ -268,3 +268,32 @@ def test_compact_evidence_bundle_coverage_filters_secret_like_evidence_refs() ->
     assert sample["missing_evidence_refs"] == ["D2:3"]
     assert secret_ref not in serialized
     assert "[redacted]" not in serialized
+
+
+def test_compact_evidence_bundle_coverage_filters_provider_auth_refs() -> None:
+    provider_auth_ref = "provider-auth-private-marker"
+    coverage = benchmark._compact_evidence_bundle_coverage(
+        (
+            {
+                "case_id": "conv-1:qa:provider-auth-ref",
+                "group": "multi-hop",
+                "retrieval_quality": {
+                    "covered_evidence_terms": [provider_auth_ref, "D1:2"],
+                    "missing_evidence_terms": [provider_auth_ref, "D2:3"],
+                },
+                "evidence_bundle": {
+                    "bundle_complete": False,
+                    "item_count": 1,
+                    "evidence_term_recall": 0.0,
+                },
+            },
+        )
+    )
+
+    sample = coverage["incomplete_samples"][0]
+    serialized = json.dumps(sample)
+
+    assert sample["covered_evidence_refs"] == ["D1:2"]
+    assert sample["missing_evidence_refs"] == ["D2:3"]
+    assert provider_auth_ref not in serialized
+    assert "[redacted]" not in serialized
