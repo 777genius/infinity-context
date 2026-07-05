@@ -44,6 +44,15 @@ CLIENT_APP_IMPORTS = frozenset(
 )
 
 FORBIDDEN_IN_CORE = PROVIDER_OR_INFRASTRUCTURE_IMPORTS | CLIENT_APP_IMPORTS
+FORBIDDEN_IN_CONTRACTS = FORBIDDEN_IN_CORE | frozenset(
+    {
+        "alembic",
+        "docling",
+        "faster_whisper",
+        "infinity_context_core",
+        "infinity_context_obsidian_plugin",
+    }
+)
 
 
 def imports_for_file(path: Path) -> list[tuple[str, int, str]]:
@@ -266,6 +275,24 @@ def test_contracts_package_is_importable_without_runtime_layers() -> None:
 
     assert CONTRACTS_ROOT.is_dir()
     assert contracts.__version__ == "0.1.0"
+    assert contracts.HealthResponseDto(status="ok", service="test", deploy_profile="test")
+
+
+def test_contracts_modules_import_with_forbidden_runtime_packages_blocked() -> None:
+    saved_contract_modules = _remove_loaded_modules("infinity_context_contracts")
+    blocker = _ForbiddenImportBlocker(FORBIDDEN_IN_CONTRACTS)
+    sys.meta_path.insert(0, blocker)
+    try:
+        contracts_package = importlib.import_module("infinity_context_contracts")
+        for module_info in pkgutil.walk_packages(
+            contracts_package.__path__,
+            contracts_package.__name__ + ".",
+        ):
+            importlib.import_module(module_info.name)
+    finally:
+        sys.meta_path.remove(blocker)
+        _remove_loaded_modules("infinity_context_contracts")
+        sys.modules.update(saved_contract_modules)
 
 
 def test_routes_do_not_import_provider_adapter_packages() -> None:

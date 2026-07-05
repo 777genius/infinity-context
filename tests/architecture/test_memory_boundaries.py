@@ -51,6 +51,7 @@ CONTRACTS_FORBIDDEN_IMPORT_PREFIXES = (
             "alembic",
             "docling",
             "faster_whisper",
+            "infinity_context_core",
             "infinity_context_obsidian_plugin",
         }
     )
