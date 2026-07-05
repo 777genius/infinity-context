@@ -157,6 +157,28 @@ def test_safe_source_refs_for_output_preserves_safe_refs_with_hyphenated_raw_noi
     )
 
 
+def test_safe_source_refs_for_output_preserves_safe_hyphenated_chunk_ids() -> None:
+    assert safe_source_refs_for_output(
+        ("chunk-D2-6", "document:D3-7", "safe-note-D4:8")
+    ) == ("chunk-D2-6", "document:D3-7", "safe-note-D4:8")
+
+
+def test_safe_source_refs_for_output_preserves_source_identity_wrapped_refs() -> None:
+    assert safe_source_refs_for_output(
+        (
+            "source_identity:"
+            "source_session_turn_refs:session-8:D8-3|"
+            "source_turn_refs:D8-3",
+            "source_identity:source_turn_refs:D8-4|D8-5",
+        )
+    ) == (
+        "source_session_turn_refs:session_8:D8:3",
+        "source_turn_refs:D8:3",
+        "source_turn_refs:D8:4",
+        "source_turn_refs:D8:5",
+    )
+
+
 def test_safe_source_refs_for_output_accepts_single_string_atomically() -> None:
     assert safe_source_refs_for_output("D1:2") == ("D1:2",)
     assert safe_source_refs_for_output("document:profile-note") == (
@@ -432,6 +454,33 @@ def test_source_identity_refs_from_dedupe_key_filters_noisy_prefixed_refs() -> N
     assert source_identity_refs_from_dedupe_key(
         "source_session_turn_refs:SESSION_3:d3:4|provider:private-token"
     ) == ("source_session_turn_refs:session_3:D3:4",)
+
+
+def test_source_identity_refs_from_dedupe_key_preserves_mixed_identity_refs() -> None:
+    assert source_identity_refs_from_dedupe_key(
+        "source_identity:"
+        "source_session_turn_refs:session-8:D8-3|"
+        "source_turn_refs:D8-3"
+    ) == (
+        "source_session_turn_refs:session_8:D8:3",
+        "source_turn_refs:D8:3",
+    )
+    assert source_identity_refs_from_dedupe_key(
+        "source_identity:"
+        "source_turn_refs:D8-3|"
+        "source_session_turn_refs:session-8:D8-3"
+    ) == (
+        "source_turn_refs:D8:3",
+        "source_session_turn_refs:session_8:D8:3",
+    )
+    assert source_identity_refs_from_dedupe_key(
+        "source_identity:"
+        "source_session_turn_refs:session-8:D8-3|"
+        "session-8:D8-4"
+    ) == (
+        "source_session_turn_refs:session_8:D8:3",
+        "source_session_turn_refs:session_8:D8:4",
+    )
 
 
 def test_source_identity_refs_from_source_refs_dedupe_key_normalizes_safely() -> None:

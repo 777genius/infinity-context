@@ -101,3 +101,29 @@ def test_case_evidence_refs_sanitize_private_source_refs() -> None:
         "source_session_turn_refs:session_2:D2:6: D2:6 Priya chose Osaka.",
         "D3:9: D3:9 Nate should clean the tank.",
     )
+
+
+def test_case_evidence_refs_preserve_source_identity_wrapped_refs() -> None:
+    source_identity_ref = (
+        "source_identity:"
+        "source_session_turn_refs:session-2:D2-6|"
+        "source_turn_refs:D2-6"
+    )
+    case = _Case(
+        metadata={
+            "evidence": [source_identity_ref],
+            "evidence_previews": {
+                source_identity_ref: "D2:6 Priya chose Osaka.",
+            },
+        }
+    )
+
+    refs = case_evidence_refs(case)
+
+    assert refs == (
+        "source_session_turn_refs:session_2:D2:6",
+        "source_turn_refs:D2:6",
+    )
+    assert case_evidence_ref_previews(case, refs=refs) == (
+        "source_session_turn_refs:session_2:D2:6: D2:6 Priya chose Osaka.",
+    )

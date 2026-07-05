@@ -144,8 +144,8 @@ def source_identity_refs_from_dedupe_key(value: object) -> tuple[str, ...]:
         return ()
     key_lower = key.lower()
     if key_lower.startswith("source_identity:"):
-        return source_identity_refs_from_dedupe_key(
-            key[len("source_identity:") :]
+        return _identity_refs_from_source_identity_values(
+            _split_identity_refs(key[len("source_identity:") :])
         )
     for prefix in ("source_refs:", "refs:"):
         if key_lower.startswith(prefix):
@@ -179,11 +179,17 @@ def _safe_source_refs_for_output_value(value: object) -> tuple[str, ...]:
     turn_ref = safe_turn_ref(text)
     if turn_ref:
         return (turn_ref,)
+    dedupe_identity_refs = source_identity_refs_from_dedupe_key(text)
+    if dedupe_identity_refs and _looks_like_source_identity_dedupe_key(text):
+        return dedupe_identity_refs
     identity_refs = source_identity_refs_from_source_refs(
         (text,),
         include_exact_turn_refs=True,
     )
     if identity_refs:
+        generic_ref = _safe_generic_source_ref(text)
+        if generic_ref:
+            return (generic_ref,)
         return identity_refs
     if _TURN_REF_RE.search(text):
         return ()
@@ -419,6 +425,54 @@ def _identity_refs_from_source_ref_values(values: Iterable[object]) -> tuple[str
         if generic_ref:
             refs.append(generic_ref)
     return tuple(dict.fromkeys(refs))
+
+
+def _identity_refs_from_source_identity_values(
+    values: Iterable[object],
+) -> tuple[str, ...]:
+    refs: list[str] = []
+    for raw_ref in values:
+        source_ref = str(raw_ref or "").strip()
+        if not source_ref:
+            continue
+        safe_ref = safe_source_identity_ref(source_ref)
+        if safe_ref:
+            refs.append(safe_ref)
+            continue
+        session_safe_ref = safe_source_identity_ref(
+            f"source_session_turn_refs:{source_ref}"
+        )
+        if session_safe_ref:
+            refs.append(session_safe_ref)
+            continue
+        turn_ref = safe_turn_ref(source_ref)
+        if turn_ref:
+            refs.append(f"source_turn_refs:{turn_ref}")
+            continue
+        nested_refs = source_identity_refs_from_dedupe_key(source_ref)
+        if nested_refs:
+            refs.extend(nested_refs)
+            continue
+        refs.extend(
+            source_identity_refs_from_source_refs(
+                (source_ref,),
+                include_exact_turn_refs=True,
+            )
+        )
+    return tuple(dict.fromkeys(refs))
+
+
+def _looks_like_source_identity_dedupe_key(value: str) -> bool:
+    return value.lower().startswith(
+        (
+            "refs:",
+            "source_identity:",
+            "source_refs:",
+            "source_session_turn_refs:",
+            "source_turn_refs:",
+            "turn_refs:",
+        )
+    )
 
 
 def _safe_generic_source_ref(value: object) -> str | None:
