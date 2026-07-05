@@ -7,25 +7,29 @@ from collections.abc import Iterable, Sequence
 
 from infinity_context_core.application.sensitive_text import contains_sensitive_text
 
-_TURN_REF_RE = re.compile(r"\bD\d+:\d+\b", re.IGNORECASE)
+_TURN_REF_RE = re.compile(r"\bD\d+[:-]\d+\b", re.IGNORECASE)
+_TURN_REF_PARTS_RE = re.compile(
+    r"^D(?P<dialogue>\d+)[:-](?P<turn>\d+)$",
+    re.IGNORECASE,
+)
 _SOURCE_SESSION_TURN_RE = re.compile(
-    r"(?:^|:)session_(?P<session>\d+):(?P<turn_ref>D\d+:\d+):"
+    r"(?:^|[:_-])session[-_](?P<session>\d+)[:_-](?P<turn_ref>D\d+[:-]\d+)[:_-]"
     r"(?:turn|chunk|fact)(?:[-_][^:]*)?$",
     re.IGNORECASE,
 )
 _TEXT_SESSION_TURN_RE = re.compile(
-    r"\bsession_(?P<session>\d+)\s+(?:turn\s+)?(?P<turn_ref>D\d+:\d+)\b",
+    r"\bsession[-_](?P<session>\d+)\s+(?:turn\s+)?(?P<turn_ref>D\d+[:-]\d+)\b",
     re.IGNORECASE,
 )
 _TEXT_SESSION_DATE_TURN_RE = re.compile(
-    r"\bsession_(?P<session>\d+)\s+date:\s*[^.\n]{0,80}?\s"
-    r"(?P<turn_ref>D\d+:\d+)\b",
+    r"\bsession[-_](?P<session>\d+)\s+date:\s*[^.\n]{0,80}?\s"
+    r"(?P<turn_ref>D\d+[:-]\d+)\b",
     re.IGNORECASE,
 )
 _SAFE_SOURCE_IDENTITY_REF_RE = re.compile(
-    r"^(?:(?P<turn_prefix>source_turn_refs):(?P<turn_ref>D\d+:\d+)|"
-    r"(?P<session_prefix>source_session_turn_refs):(?P<session>session_\d+):"
-    r"(?P<session_turn_ref>D\d+:\d+))$",
+    r"^(?:(?P<turn_prefix>source_turn_refs):(?P<turn_ref>D\d+[:-]\d+)|"
+    r"(?P<session_prefix>source_session_turn_refs):(?P<session>session[-_]\d+):"
+    r"(?P<session_turn_ref>D\d+[:-]\d+))$",
     re.IGNORECASE,
 )
 _MAX_SAFE_SOURCE_IDENTITY_REF_LENGTH = 80
@@ -54,7 +58,7 @@ def safe_source_identity_ref(value: object) -> str | None:
         return None
     return (
         "source_session_turn_refs:"
-        f"{match.group('session').lower()}:{session_turn_ref}"
+        f"{_normalized_session_ref(match.group('session'))}:{session_turn_ref}"
     )
 
 
@@ -62,9 +66,10 @@ def safe_turn_ref(value: object) -> str | None:
     ref = str(value or "").strip()
     if not ref or len(ref) > _MAX_SAFE_TURN_REF_LENGTH:
         return None
-    if _TURN_REF_RE.fullmatch(ref.upper()) is None:
+    match = _TURN_REF_PARTS_RE.fullmatch(ref)
+    if match is None:
         return None
-    return ref.upper()
+    return f"D{match.group('dialogue')}:{match.group('turn')}"
 
 
 def safe_source_refs_for_output(source_refs: object) -> tuple[str, ...]:
@@ -389,6 +394,7 @@ def _source_session_turn_refs(source_refs: Sequence[str]) -> tuple[str, ...]:
             continue
         match = _SOURCE_SESSION_TURN_RE.search(source_ref)
         if match is None:
+            refs.extend(_session_turn_refs_from_text(source_ref))
             continue
         turn_ref = safe_turn_ref(match.group("turn_ref"))
         if turn_ref:
@@ -444,10 +450,15 @@ def _session_count(session_turn_refs: Sequence[str]) -> int:
             for ref in session_turn_refs
             if (
                 match := re.search(
-                    r"\bsession_(?P<session>\d+):D\d+:\d+\b",
+                    r"\bsession[-_](?P<session>\d+):D\d+[:-]\d+\b",
                     ref,
                     re.IGNORECASE,
                 )
             )
         }
     )
+
+
+def _normalized_session_ref(value: object) -> str:
+    match = re.fullmatch(r"session[-_](?P<session>\d+)", str(value or ""), re.IGNORECASE)
+    return f"session_{match.group('session')}" if match else ""

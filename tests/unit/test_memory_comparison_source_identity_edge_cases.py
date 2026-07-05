@@ -75,6 +75,28 @@ def test_source_identity_refs_normalize_fuzzed_source_refs() -> None:
     )
 
 
+def test_source_identity_refs_normalize_hyphenated_source_ref_variants() -> None:
+    assert safe_turn_ref(" d8-3 ") == "D8:3"
+    assert safe_source_identity_ref(
+        "SOURCE_SESSION_TURN_REFS:SESSION-8:d8-3"
+    ) == "source_session_turn_refs:session_8:D8:3"
+
+    assert source_identity_refs_from_source_refs(
+        (
+            "locomo-conv-private-session_8-D8-3-turn-secret",
+            "backend-locomo-conv-private-session-8-D8-4-chunk-secret",
+            "raw-provider-ref D8-5",
+            "provider-private-payload",
+        )
+    ) == (
+        "source_session_turn_refs:session_8:D8:3",
+        "source_session_turn_refs:session_8:D8:4",
+        "source_turn_refs:D8:3",
+        "source_turn_refs:D8:4",
+        "source_turn_refs:D8:5",
+    )
+
+
 def test_safe_source_refs_for_output_filters_raw_provider_refs() -> None:
     assert safe_source_refs_for_output(
         (
@@ -110,6 +132,23 @@ def test_safe_source_refs_for_output_filters_backend_index_and_provider_refs() -
             "document:profile-note",
         )
     ) == ("document:profile-note",)
+
+
+def test_safe_source_refs_for_output_preserves_safe_refs_with_hyphenated_raw_noise() -> None:
+    assert safe_source_refs_for_output(
+        (
+            "provider-private-payload D6-7",
+            "auth-payload-private-marker session-6 D6-8",
+            "document:profile-note",
+            "profile:caroline-summary",
+        )
+    ) == (
+        "source_turn_refs:D6:7",
+        "source_session_turn_refs:session_6:D6:8",
+        "source_turn_refs:D6:8",
+        "document:profile-note",
+        "profile:caroline-summary",
+    )
 
 
 def test_safe_source_refs_for_output_accepts_single_string_atomically() -> None:
@@ -218,6 +257,13 @@ def test_source_identity_refs_from_text_preserve_turns_with_generic_refs() -> No
         "session_3 turn D3:4 Alex confirmed the planning date.",
         source_refs=("source_session_turn_refs:session_3:D3:4",),
     ) == ()
+    assert source_identity_refs_from_text(
+        "session-3 turn D3-5 Alex confirmed the planning date.",
+        source_refs=("profile:alex-summary",),
+    ) == (
+        "source_session_turn_refs:session_3:D3:5",
+        "source_turn_refs:D3:5",
+    )
 
 
 @pytest.mark.parametrize(
