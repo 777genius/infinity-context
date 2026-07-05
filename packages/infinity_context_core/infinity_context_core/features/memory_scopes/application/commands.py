@@ -1,4 +1,4 @@
-"""Application command/result contracts for memory scope ownership."""
+"""Application command/result contracts for memory scope lifecycle."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from infinity_context_core.features.memory_scopes.domain import (
     MemoryScopeIdentity,
     MemoryScopeOwner,
     MemoryScopeSnapshot,
+    MemoryScopeStatus,
 )
 
 
@@ -51,9 +52,51 @@ class TransferMemoryScopeOwnershipResult:
     previous_owner: MemoryScopeOwner
 
 
+@dataclass(frozen=True, slots=True)
+class ArchiveMemoryScopeCommand:
+    """Request to archive a scope without hard-deleting canonical memory."""
+
+    identity: MemoryScopeIdentity
+    initiated_by: MemoryScopeActor
+    expected_status: MemoryScopeStatus | None = None
+    reason: str | None = None
+    idempotency_key: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ArchiveMemoryScopeResult:
+    """Result returned after a memory scope is archived."""
+
+    scope: MemoryScopeSnapshot
+    previous_status: MemoryScopeStatus
+
+
+@dataclass(frozen=True, slots=True)
+class RestoreMemoryScopeCommand:
+    """Request to restore an archived memory scope to active use."""
+
+    identity: MemoryScopeIdentity
+    initiated_by: MemoryScopeActor
+    expected_status: MemoryScopeStatus | None = None
+    reason: str | None = None
+    idempotency_key: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RestoreMemoryScopeResult:
+    """Result returned after a memory scope is restored."""
+
+    scope: MemoryScopeSnapshot
+    previous_status: MemoryScopeStatus
+
+
 __all__ = (
+    "ArchiveMemoryScopeCommand",
+    "ArchiveMemoryScopeResult",
     "CreateMemoryScopeCommand",
     "CreateMemoryScopeResult",
+    "RestoreMemoryScopeCommand",
+    "RestoreMemoryScopeResult",
     "TransferMemoryScopeOwnershipCommand",
     "TransferMemoryScopeOwnershipResult",
 )

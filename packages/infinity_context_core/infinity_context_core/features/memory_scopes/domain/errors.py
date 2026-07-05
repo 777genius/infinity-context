@@ -11,4 +11,12 @@ class MemoryScopeOwnershipError(MemoryScopeDomainError):
     """Raised when ownership policy blocks a memory scope operation."""
 
 
-__all__ = ("MemoryScopeDomainError", "MemoryScopeOwnershipError")
+class MemoryScopeLifecycleError(MemoryScopeDomainError):
+    """Raised when lifecycle policy blocks a memory scope operation."""
+
+
+__all__ = (
+    "MemoryScopeDomainError",
+    "MemoryScopeLifecycleError",
+    "MemoryScopeOwnershipError",
+)

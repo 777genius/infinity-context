@@ -49,7 +49,10 @@ def test_domain_scope_skeleton_is_imported_and_exported() -> None:
     }
     expected_policy_exports = {
         "MEMORY_SCOPE_ADMIN_CAPABILITY",
+        "MEMORY_SCOPE_LIFECYCLE_CAPABILITY",
         "MEMORY_SCOPE_TRANSFER_CAPABILITY",
+        "MemoryScopeLifecycleDecision",
+        "MemoryScopeLifecyclePolicy",
         "MemoryScopeOwnershipDecision",
         "MemoryScopeOwnershipPolicy",
     }
@@ -81,6 +84,7 @@ def test_scope_domain_shapes_are_frozen_slot_dataclasses() -> None:
         description="Client App default memory scope",
     )
     decision = domain.MemoryScopeOwnershipDecision.allow()
+    lifecycle_decision = domain.MemoryScopeLifecycleDecision.allow()
 
     shapes = (
         (domain.MemoryScopeIdentity, identity, "space_id", "space-2"),
@@ -88,7 +92,9 @@ def test_scope_domain_shapes_are_frozen_slot_dataclasses() -> None:
         (domain.MemoryScopeActor, actor, "principal_id", "actor-2"),
         (domain.MemoryScopeSnapshot, snapshot, "name", "Renamed"),
         (domain.MemoryScopeOwnershipDecision, decision, "allowed", False),
+        (domain.MemoryScopeLifecycleDecision, lifecycle_decision, "allowed", False),
         (domain.MemoryScopeOwnershipPolicy, domain.MemoryScopeOwnershipPolicy(), None, None),
+        (domain.MemoryScopeLifecyclePolicy, domain.MemoryScopeLifecyclePolicy(), None, None),
     )
 
     for shape, value, field_name, replacement in shapes:
@@ -197,11 +203,81 @@ def test_ownership_policy_allows_owner_or_admin_transfer_only_for_active_scope()
     assert unchanged_decision.reason == "owner_unchanged"
 
 
-def test_scope_snapshot_transfer_and_archive_preserve_identity() -> None:
+def test_lifecycle_policy_allows_owner_admin_or_lifecycle_actor() -> None:
+    domain = importlib.import_module(DOMAIN_MODULE)
+
+    owner = domain.MemoryScopeOwner(principal_id="owner-1")
+    scope = domain.MemoryScopeSnapshot(
+        identity=domain.MemoryScopeIdentity(
+            space_id="space-1",
+            memory_scope_id="scope-1",
+        ),
+        name="Default",
+        owner=owner,
+    )
+    archived = scope.archive()
+    deleted = domain.MemoryScopeSnapshot(
+        identity=scope.identity,
+        name=scope.name,
+        owner=owner,
+        status=domain.MEMORY_SCOPE_STATUS_DELETED,
+    )
+    policy = domain.MemoryScopeLifecyclePolicy()
+
+    owner_archive = policy.decide_archive(
+        scope,
+        initiated_by=domain.MemoryScopeActor(principal_id="owner-1"),
+    )
+    lifecycle_archive = policy.decide_archive(
+        scope,
+        initiated_by=domain.MemoryScopeActor(
+            principal_id="manager-1",
+            capabilities=(domain.MEMORY_SCOPE_LIFECYCLE_CAPABILITY,),
+        ),
+    )
+    admin_restore = policy.decide_restore(
+        archived,
+        initiated_by=domain.MemoryScopeActor(
+            principal_id="admin-1",
+            capabilities=(domain.MEMORY_SCOPE_ADMIN_CAPABILITY,),
+        ),
+    )
+    outsider_archive = policy.decide_archive(
+        scope,
+        initiated_by=domain.MemoryScopeActor(principal_id="outsider-1"),
+    )
+    active_restore = policy.decide_restore(
+        scope,
+        initiated_by=domain.MemoryScopeActor(principal_id="owner-1"),
+    )
+    archived_archive = policy.decide_archive(
+        archived,
+        initiated_by=domain.MemoryScopeActor(principal_id="owner-1"),
+    )
+    deleted_restore = policy.decide_restore(
+        deleted,
+        initiated_by=domain.MemoryScopeActor(principal_id="owner-1"),
+    )
+
+    assert owner_archive.allowed
+    assert lifecycle_archive.allowed
+    assert admin_restore.allowed
+    assert not outsider_archive.allowed
+    assert outsider_archive.reason == "actor_cannot_manage_memory_scope_lifecycle"
+    assert not active_restore.allowed
+    assert active_restore.reason == "memory_scope_already_active"
+    assert not archived_archive.allowed
+    assert archived_archive.reason == "memory_scope_already_archived"
+    assert not deleted_restore.allowed
+    assert deleted_restore.reason == "memory_scope_deleted"
+
+
+def test_scope_snapshot_transfer_archive_and_restore_preserve_identity() -> None:
     domain = importlib.import_module(DOMAIN_MODULE)
 
     updated_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
     archived_at = datetime(2026, 1, 2, tzinfo=timezone.utc)
+    restored_at = datetime(2026, 1, 3, tzinfo=timezone.utc)
     identity = domain.MemoryScopeIdentity(
         space_id="space-1",
         memory_scope_id="scope-1",
@@ -217,8 +293,14 @@ def test_scope_snapshot_transfer_and_archive_preserve_identity() -> None:
         transferred_at=updated_at,
     )
     archived = transferred.archive(archived_at=archived_at)
+    restored = archived.restore(restored_at=restored_at)
 
-    assert original.identity == transferred.identity == archived.identity
+    assert (
+        original.identity
+        == transferred.identity
+        == archived.identity
+        == restored.identity
+    )
     assert original.owner.principal_id == "owner-1"
     assert transferred.owner.principal_id == "owner-2"
     assert transferred.updated_at == updated_at
@@ -226,6 +308,47 @@ def test_scope_snapshot_transfer_and_archive_preserve_identity() -> None:
     assert archived.status == domain.MEMORY_SCOPE_STATUS_ARCHIVED
     assert archived.archived_at == archived_at
     assert not archived.is_active()
+    assert archived.is_archived()
+    assert restored.status == domain.MEMORY_SCOPE_STATUS_ACTIVE
+    assert restored.archived_at is None
+    assert restored.updated_at == restored_at
+    assert restored.is_active()
+
+
+def test_invalid_scope_lifecycle_transitions_fail_directly() -> None:
+    domain = importlib.import_module(DOMAIN_MODULE)
+
+    active = domain.MemoryScopeSnapshot(
+        identity=domain.MemoryScopeIdentity(
+            space_id="space-1",
+            memory_scope_id="scope-1",
+        ),
+        name="Default",
+        owner=domain.MemoryScopeOwner(principal_id="owner-1"),
+    )
+    archived = active.archive()
+    deleted = domain.MemoryScopeSnapshot(
+        identity=domain.MemoryScopeIdentity(
+            space_id="space-1",
+            memory_scope_id="scope-1",
+        ),
+        name="Default",
+        owner=domain.MemoryScopeOwner(principal_id="owner-1"),
+        status=domain.MEMORY_SCOPE_STATUS_DELETED,
+    )
+
+    for transition in (
+        archived.archive,
+        active.restore,
+        deleted.archive,
+        deleted.restore,
+    ):
+        try:
+            transition()
+        except domain.MemoryScopeLifecycleError:
+            pass
+        else:  # pragma: no cover - clearer assertion failure branch.
+            raise AssertionError("invalid memory scope lifecycle transition should fail")
 
 
 def test_memory_scopes_feature_has_no_legacy_or_runtime_dependencies() -> None:

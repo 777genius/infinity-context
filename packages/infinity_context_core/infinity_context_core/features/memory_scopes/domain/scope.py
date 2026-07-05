@@ -8,6 +8,7 @@ from typing import Final, TypeAlias
 
 from infinity_context_core.features.memory_scopes.domain.errors import (
     MemoryScopeDomainError,
+    MemoryScopeLifecycleError,
 )
 
 MemoryScopeStatus: TypeAlias = str
@@ -50,7 +51,7 @@ class MemoryScopeOwner:
 
 @dataclass(frozen=True, slots=True)
 class MemoryScopeActor:
-    """Principal attempting a memory scope ownership operation."""
+    """Principal attempting a memory scope management operation."""
 
     principal_id: str
     principal_kind: MemoryScopePrincipalKind = "user"
@@ -103,6 +104,16 @@ class MemoryScopeSnapshot:
 
         return self.status == MEMORY_SCOPE_STATUS_ACTIVE
 
+    def is_archived(self) -> bool:
+        """Return whether this scope is hidden from default memory reads/writes."""
+
+        return self.status == MEMORY_SCOPE_STATUS_ARCHIVED
+
+    def is_deleted(self) -> bool:
+        """Return whether this scope is terminally deleted."""
+
+        return self.status == MEMORY_SCOPE_STATUS_DELETED
+
     def transfer_ownership(
         self,
         new_owner: MemoryScopeOwner,
@@ -116,11 +127,29 @@ class MemoryScopeSnapshot:
     def archive(self, *, archived_at: datetime | None = None) -> MemoryScopeSnapshot:
         """Return a copy archived without hard-deleting canonical memory."""
 
+        if self.is_archived():
+            raise MemoryScopeLifecycleError("memory_scope_already_archived")
+        if self.is_deleted():
+            raise MemoryScopeLifecycleError("deleted_memory_scope_cannot_be_archived")
         return replace(
             self,
             status=MEMORY_SCOPE_STATUS_ARCHIVED,
             updated_at=archived_at,
             archived_at=archived_at,
+        )
+
+    def restore(self, *, restored_at: datetime | None = None) -> MemoryScopeSnapshot:
+        """Return an archived scope to active canonical memory use."""
+
+        if self.is_active():
+            raise MemoryScopeLifecycleError("memory_scope_already_active")
+        if self.is_deleted():
+            raise MemoryScopeLifecycleError("deleted_memory_scope_cannot_be_restored")
+        return replace(
+            self,
+            status=MEMORY_SCOPE_STATUS_ACTIVE,
+            updated_at=restored_at,
+            archived_at=None,
         )
 
 

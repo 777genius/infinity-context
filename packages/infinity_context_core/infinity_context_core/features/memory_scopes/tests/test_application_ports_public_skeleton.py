@@ -39,7 +39,7 @@ FORBIDDEN_IMPORT_PREFIXES = (
 )
 
 
-def test_create_and_transfer_commands_are_frozen_dataclasses() -> None:
+def test_memory_scope_commands_are_frozen_dataclasses() -> None:
     application = importlib.import_module(APPLICATION_MODULE)
     domain = importlib.import_module(DOMAIN_MODULE)
 
@@ -106,6 +106,54 @@ def test_create_and_transfer_commands_are_frozen_dataclasses() -> None:
             ),
             ("scope", "previous_owner"),
         ),
+        (
+            application.ArchiveMemoryScopeCommand,
+            application.ArchiveMemoryScopeCommand(
+                identity=identity,
+                initiated_by=actor,
+                expected_status=domain.MEMORY_SCOPE_STATUS_ACTIVE,
+                reason="hide scope",
+            ),
+            (
+                "identity",
+                "initiated_by",
+                "expected_status",
+                "reason",
+                "idempotency_key",
+            ),
+        ),
+        (
+            application.ArchiveMemoryScopeResult,
+            application.ArchiveMemoryScopeResult(
+                scope=snapshot,
+                previous_status=domain.MEMORY_SCOPE_STATUS_ACTIVE,
+            ),
+            ("scope", "previous_status"),
+        ),
+        (
+            application.RestoreMemoryScopeCommand,
+            application.RestoreMemoryScopeCommand(
+                identity=identity,
+                initiated_by=actor,
+                expected_status=domain.MEMORY_SCOPE_STATUS_ARCHIVED,
+                reason="resume use",
+            ),
+            (
+                "identity",
+                "initiated_by",
+                "expected_status",
+                "reason",
+                "idempotency_key",
+            ),
+        ),
+        (
+            application.RestoreMemoryScopeResult,
+            application.RestoreMemoryScopeResult(
+                scope=snapshot,
+                previous_status=domain.MEMORY_SCOPE_STATUS_ARCHIVED,
+            ),
+            ("scope", "previous_status"),
+        ),
     )
 
     for shape, value, expected_fields in shapes:
@@ -153,16 +201,24 @@ def test_memory_scopes_public_api_exports_domain_application_and_ports() -> None
     public = importlib.import_module(PUBLIC_MODULE)
 
     expected_exports = {
+        "ArchiveMemoryScopeCommand": application,
+        "ArchiveMemoryScopeHandler": application,
+        "ArchiveMemoryScopeResult": application,
+        "ArchiveMemoryScopeUseCase": application,
         "CreateMemoryScopeCommand": application,
         "CreateMemoryScopeHandler": application,
         "CreateMemoryScopeResult": application,
         "CreateMemoryScopeUseCase": application,
+        "MEMORY_SCOPE_LIFECYCLE_CAPABILITY": domain,
         "DuplicateMemoryScopeExternalRefError": application,
         "MemoryScopeActor": domain,
         "MemoryScopeClockPort": ports,
         "MemoryScopeConflictError": application,
         "MemoryScopeIdPort": ports,
         "MemoryScopeIdentity": domain,
+        "MemoryScopeLifecycleDecision": domain,
+        "MemoryScopeLifecycleError": domain,
+        "MemoryScopeLifecyclePolicy": domain,
         "MemoryScopeOwner": domain,
         "MemoryScopeOwnershipPolicy": domain,
         "MemoryScopeRepositoryPort": ports,
@@ -170,6 +226,10 @@ def test_memory_scopes_public_api_exports_domain_application_and_ports() -> None
         "MemoryScopeUnitOfWorkFactoryPort": ports,
         "MemoryScopeUnitOfWorkPort": ports,
         "MemoryScopeUseCases": application,
+        "RestoreMemoryScopeCommand": application,
+        "RestoreMemoryScopeHandler": application,
+        "RestoreMemoryScopeResult": application,
+        "RestoreMemoryScopeUseCase": application,
         "TransferMemoryScopeOwnershipCommand": application,
         "TransferMemoryScopeOwnershipHandler": application,
         "TransferMemoryScopeOwnershipResult": application,
@@ -419,6 +479,178 @@ def test_transfer_handler_rolls_back_policy_denial_without_save() -> None:
         pass
     else:  # pragma: no cover - clearer assertion failure branch.
         raise AssertionError("unauthorized memory scope transfer should fail")
+
+    assert repo.get_stored(identity) == current
+    assert not uow.committed
+    assert uow.rolled_back
+
+
+def test_archive_handler_archives_scope_without_hard_delete() -> None:
+    application = importlib.import_module(APPLICATION_MODULE)
+    domain = importlib.import_module(DOMAIN_MODULE)
+
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    owner = domain.MemoryScopeOwner(principal_id="owner-1")
+    identity = domain.MemoryScopeIdentity(
+        space_id="space-1",
+        memory_scope_id="scope-1",
+    )
+    current = domain.MemoryScopeSnapshot(
+        identity=identity,
+        name="Default",
+        owner=owner,
+        external_ref="default",
+    )
+    repo = _MemoryScopeRepository(current)
+    uow = _MemoryScopeUnitOfWork(repo)
+    handler = application.ArchiveMemoryScopeHandler(
+        uow_factory=_UnitOfWorkFactory(uow),
+        clock=_MemoryScopeClock(now),
+    )
+
+    result = asyncio.run(
+        handler.execute(
+            application.ArchiveMemoryScopeCommand(
+                identity=identity,
+                initiated_by=domain.MemoryScopeActor(principal_id="owner-1"),
+                expected_status=domain.MEMORY_SCOPE_STATUS_ACTIVE,
+            )
+        )
+    )
+
+    assert result.previous_status == domain.MEMORY_SCOPE_STATUS_ACTIVE
+    assert result.scope.identity == identity
+    assert result.scope.owner == owner
+    assert result.scope.status == domain.MEMORY_SCOPE_STATUS_ARCHIVED
+    assert result.scope.archived_at == now
+    assert result.scope.updated_at == now
+    assert repo.get_stored(identity) == result.scope
+    assert uow.committed
+    assert not uow.rolled_back
+
+
+def test_restore_handler_restores_archived_scope() -> None:
+    application = importlib.import_module(APPLICATION_MODULE)
+    domain = importlib.import_module(DOMAIN_MODULE)
+
+    archived_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    restored_at = datetime(2026, 1, 2, tzinfo=timezone.utc)
+    owner = domain.MemoryScopeOwner(principal_id="owner-1")
+    identity = domain.MemoryScopeIdentity(
+        space_id="space-1",
+        memory_scope_id="scope-1",
+    )
+    current = domain.MemoryScopeSnapshot(
+        identity=identity,
+        name="Default",
+        owner=owner,
+        status=domain.MEMORY_SCOPE_STATUS_ARCHIVED,
+        archived_at=archived_at,
+    )
+    repo = _MemoryScopeRepository(current)
+    uow = _MemoryScopeUnitOfWork(repo)
+    handler = application.RestoreMemoryScopeHandler(
+        uow_factory=_UnitOfWorkFactory(uow),
+        clock=_MemoryScopeClock(restored_at),
+    )
+
+    result = asyncio.run(
+        handler.execute(
+            application.RestoreMemoryScopeCommand(
+                identity=identity,
+                initiated_by=domain.MemoryScopeActor(principal_id="owner-1"),
+                expected_status=domain.MEMORY_SCOPE_STATUS_ARCHIVED,
+            )
+        )
+    )
+
+    assert result.previous_status == domain.MEMORY_SCOPE_STATUS_ARCHIVED
+    assert result.scope.identity == identity
+    assert result.scope.status == domain.MEMORY_SCOPE_STATUS_ACTIVE
+    assert result.scope.archived_at is None
+    assert result.scope.updated_at == restored_at
+    assert repo.get_stored(identity) == result.scope
+    assert uow.committed
+    assert not uow.rolled_back
+
+
+def test_archive_handler_rejects_expected_status_conflict_without_save() -> None:
+    application = importlib.import_module(APPLICATION_MODULE)
+    domain = importlib.import_module(DOMAIN_MODULE)
+
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    identity = domain.MemoryScopeIdentity(
+        space_id="space-1",
+        memory_scope_id="scope-1",
+    )
+    current = domain.MemoryScopeSnapshot(
+        identity=identity,
+        name="Default",
+        owner=domain.MemoryScopeOwner(principal_id="owner-1"),
+    )
+    repo = _MemoryScopeRepository(current)
+    uow = _MemoryScopeUnitOfWork(repo)
+    handler = application.ArchiveMemoryScopeHandler(
+        uow_factory=_UnitOfWorkFactory(uow),
+        clock=_MemoryScopeClock(now),
+    )
+
+    try:
+        asyncio.run(
+            handler.execute(
+                application.ArchiveMemoryScopeCommand(
+                    identity=identity,
+                    initiated_by=domain.MemoryScopeActor(principal_id="owner-1"),
+                    expected_status=domain.MEMORY_SCOPE_STATUS_ARCHIVED,
+                )
+            )
+        )
+    except application.MemoryScopeConflictError:
+        pass
+    else:  # pragma: no cover - clearer assertion failure branch.
+        raise AssertionError("stale memory scope status expectation should fail")
+
+    assert repo.get_stored(identity) == current
+    assert not uow.committed
+    assert uow.rolled_back
+
+
+def test_restore_handler_rolls_back_lifecycle_denial_without_save() -> None:
+    application = importlib.import_module(APPLICATION_MODULE)
+    domain = importlib.import_module(DOMAIN_MODULE)
+
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    identity = domain.MemoryScopeIdentity(
+        space_id="space-1",
+        memory_scope_id="scope-1",
+    )
+    current = domain.MemoryScopeSnapshot(
+        identity=identity,
+        name="Default",
+        owner=domain.MemoryScopeOwner(principal_id="owner-1"),
+        status=domain.MEMORY_SCOPE_STATUS_ARCHIVED,
+        archived_at=now,
+    )
+    repo = _MemoryScopeRepository(current)
+    uow = _MemoryScopeUnitOfWork(repo)
+    handler = application.RestoreMemoryScopeHandler(
+        uow_factory=_UnitOfWorkFactory(uow),
+        clock=_MemoryScopeClock(now),
+    )
+
+    try:
+        asyncio.run(
+            handler.execute(
+                application.RestoreMemoryScopeCommand(
+                    identity=identity,
+                    initiated_by=domain.MemoryScopeActor(principal_id="outsider-1"),
+                )
+            )
+        )
+    except domain.MemoryScopeLifecycleError:
+        pass
+    else:  # pragma: no cover - clearer assertion failure branch.
+        raise AssertionError("unauthorized memory scope restore should fail")
 
     assert repo.get_stored(identity) == current
     assert not uow.committed
