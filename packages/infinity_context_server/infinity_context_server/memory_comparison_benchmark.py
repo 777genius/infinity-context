@@ -93,6 +93,12 @@ from infinity_context_server.memory_comparison_query_integrity import (
 from infinity_context_server.memory_comparison_source_identity import (
     safe_source_identity_ref as _safe_source_identity_ref,
 )
+from infinity_context_server.memory_comparison_source_identity import (
+    safe_turn_ref as _safe_exact_turn_ref,
+)
+from infinity_context_server.memory_comparison_source_identity import (
+    source_identity_refs_from_source_refs as _source_identity_refs_from_source_refs,
+)
 from infinity_context_server.public_benchmark import (
     LOCOMO_BENCHMARK_SUITE,
     PUBLIC_MEMORY_BENCHMARK_SUITE,
@@ -2744,10 +2750,16 @@ def _compact_temporal_grounding_issue_samples(
             values = _compact_sample_values(sample.get(key), limit=6)
             if values:
                 compact[key] = values
-        source_refs = _compact_temporal_grounding_source_refs(sample.get("source_refs"))
+        raw_source_refs = _str_tuple(sample.get("source_refs"))
+        source_refs = _compact_temporal_grounding_source_refs(raw_source_refs)
         if source_refs:
             compact["source_refs"] = list(source_refs)
         source_ref_count = _positive_int(sample.get("source_ref_count"))
+        if source_ref_count is None:
+            source_ref_count = _sanitized_source_ref_count(
+                raw_source_refs,
+                safe_source_refs=source_refs,
+            )
         if source_ref_count is not None:
             compact["source_ref_count"] = source_ref_count
         signals = _mapping(sample.get("grounding_signals"))
@@ -2774,9 +2786,17 @@ def _compact_temporal_grounding_source_refs(
     *,
     limit: int = 6,
 ) -> tuple[str, ...]:
+    return _compact_diagnostic_source_refs(value, limit=limit)
+
+
+def _compact_diagnostic_source_refs(
+    value: object,
+    *,
+    limit: int,
+) -> tuple[str, ...]:
     refs: list[str] = []
     for raw_ref in _str_tuple(value):
-        for ref in (_safe_source_identity_ref(raw_ref), _safe_turn_ref(raw_ref)):
+        for ref in _safe_diagnostic_source_refs_for_value(raw_ref):
             if ref and ref not in refs:
                 refs.append(ref)
             if len(refs) >= limit:
@@ -2784,20 +2804,33 @@ def _compact_temporal_grounding_source_refs(
     return tuple(refs)
 
 
+def _safe_diagnostic_source_refs_for_value(value: object) -> tuple[str, ...]:
+    safe_ref = _safe_source_identity_ref(value)
+    if safe_ref:
+        return (safe_ref,)
+    turn_ref = _safe_turn_ref(value)
+    if turn_ref:
+        return (turn_ref,)
+    return tuple(
+        safe_ref
+        for raw_ref in _source_identity_refs_from_source_refs((str(value or ""),))
+        for safe_ref in (_safe_source_identity_ref(raw_ref),)
+        if safe_ref
+    )
+
+
 def _safe_turn_ref(value: object) -> str:
-    text = str(value or "").strip().upper()
-    if not text:
-        return ""
-    day, separator, turn = text.partition(":")
-    if (
-        separator
-        and len(day) > 1
-        and day.startswith("D")
-        and day[1:].isdigit()
-        and turn.isdigit()
-    ):
-        return text
-    return ""
+    return _safe_exact_turn_ref(value) or ""
+
+
+def _sanitized_source_ref_count(
+    raw_source_refs: Sequence[str],
+    *,
+    safe_source_refs: Sequence[str],
+) -> int | None:
+    if raw_source_refs and tuple(raw_source_refs) != tuple(safe_source_refs):
+        return len(raw_source_refs)
+    return None
 
 
 def _compact_rerank_signal_gap_samples(
@@ -2999,6 +3032,11 @@ def _compact_selected_evidence_weakness_samples(
                 compact[key] = sample[key]
         for key in sorted(allowed_sequence_keys):
             if key in sample:
+                if key == "source_refs":
+                    compact[key] = list(
+                        _compact_diagnostic_source_refs(sample.get(key), limit=6)
+                    )
+                    continue
                 compact[key] = list(_str_tuple(sample.get(key))[:6])
         samples.append(compact)
         if len(samples) >= limit:

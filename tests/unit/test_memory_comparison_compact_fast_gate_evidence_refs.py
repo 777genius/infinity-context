@@ -81,6 +81,51 @@ def test_compact_fast_gate_summary_surfaces_evidence_ref_gap_report_safely() -> 
     assert "PRIVATE PROVIDER PAYLOAD" not in serialized
 
 
+def test_compact_fast_gate_summary_sanitizes_selected_weakness_source_refs() -> None:
+    private_refs = [
+        f"locomo:conv-private:session_8:D8:{turn}:turn-secret"
+        for turn in range(1, 5)
+    ]
+
+    summary = _compact_fast_gate_summary(
+        (
+            _item(
+                case_id="selected-weakness-private-refs",
+                retrieval_quality={},
+                evidence_bundle={
+                    "items": [
+                        {
+                            "id": "weak-selected",
+                            "role": "primary",
+                            "answerability_score": 0.1,
+                            "source_locality_score": 0.1,
+                            "source_refs": private_refs,
+                            "text": "PRIVATE SELECTED MEMORY TEXT",
+                        }
+                    ]
+                },
+                retrieval_results=[],
+            ),
+        )
+    )
+
+    sample = summary["selected_evidence_weakness_samples"]["samples"][0]
+
+    assert sample["source_refs"] == [
+        "source_session_turn_refs:session_8:D8:1",
+        "source_turn_refs:D8:1",
+        "source_session_turn_refs:session_8:D8:2",
+        "source_turn_refs:D8:2",
+        "source_session_turn_refs:session_8:D8:3",
+        "source_turn_refs:D8:3",
+    ]
+    assert sample["source_ref_count"] == 4
+    serialized = json.dumps(summary)
+    assert "locomo:conv-private" not in serialized
+    assert "turn-secret" not in serialized
+    assert "PRIVATE SELECTED MEMORY TEXT" not in serialized
+
+
 def _item(
     *,
     case_id: str,

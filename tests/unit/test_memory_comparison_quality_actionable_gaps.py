@@ -561,6 +561,7 @@ def test_answer_context_provenance_samples_include_safe_audit_detail() -> None:
 
 
 def test_actionable_temporal_grounding_samples_filter_unsafe_source_refs() -> None:
+    long_exact_ref = f"D1:{'8' * 120}"
     summary = actionable_gap_summary(
         evaluation_count=1,
         expected_case_count=1,
@@ -584,10 +585,12 @@ def test_actionable_temporal_grounding_samples_filter_unsafe_source_refs() -> No
                     "query_roles": ["temporal_sequence_support"],
                     "source_refs": [
                         "source_turn_refs:D1:2",
+                        "source_turn_refs:D1:2",
                         "locomo:conv-private:session_2:D2:3:turn-secret",
+                        long_exact_ref,
                         f"source_turn_refs:D1:{'9' * 90}",
                     ],
-                    "source_ref_count": 3,
+                    "source_ref_count": 5,
                     "issue_reasons": ["missing_date_or_range"],
                     "grounding_signals": {
                         "source_window": True,
@@ -611,8 +614,12 @@ def test_actionable_temporal_grounding_samples_filter_unsafe_source_refs() -> No
             "role": "temporal_sequence_support",
             "query_roles": ["temporal_sequence_support"],
             "issue_reasons": ["missing_date_or_range"],
-            "source_refs": ["source_turn_refs:D1:2"],
-            "source_ref_count": 3,
+            "source_refs": [
+                "source_turn_refs:D1:2",
+                "source_session_turn_refs:session_2:D2:3",
+                "source_turn_refs:D2:3",
+            ],
+            "source_ref_count": 5,
             "grounding_signals": {
                 "source_window": True,
                 "session_boundary": True,
@@ -623,6 +630,7 @@ def test_actionable_temporal_grounding_samples_filter_unsafe_source_refs() -> No
     serialized = json.dumps(summary)
     assert "locomo:conv-private" not in serialized
     assert "turn-secret" not in serialized
+    assert long_exact_ref not in serialized
     assert "999999999999999999999999999999999999999999999999999999999999" not in (
         serialized
     )

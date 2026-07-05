@@ -6,6 +6,7 @@ from infinity_context_server.memory_comparison_candidate_features import (
 from infinity_context_server.memory_comparison_models import RetrievedMemory
 from infinity_context_server.memory_comparison_source_identity import (
     safe_source_identity_ref,
+    safe_turn_ref,
     source_identity_audit_gap_codes,
     source_identity_refs_from_source_refs,
 )
@@ -22,7 +23,10 @@ def test_safe_source_identity_ref_normalizes_only_bounded_identity_refs() -> Non
     assert safe_source_identity_ref(
         "locomo:conv-private:session_2:D3:4:turn-secret"
     ) is None
+    assert safe_source_identity_ref(f"source_turn_refs:D1:{'9' * 40}") is None
     assert safe_source_identity_ref(f"source_turn_refs:D1:{'9' * 90}") is None
+    assert safe_turn_ref(" d1:7 ") == "D1:7"
+    assert safe_turn_ref(f"D1:{'9' * 40}") is None
 
 
 def test_source_identity_refs_dedupe_noisy_canonical_source_refs() -> None:

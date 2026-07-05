@@ -27,6 +27,7 @@ _SAFE_SOURCE_IDENTITY_REF_RE = re.compile(
     re.IGNORECASE,
 )
 _MAX_SAFE_SOURCE_IDENTITY_REF_LENGTH = 80
+_MAX_SAFE_TURN_REF_LENGTH = 32
 
 
 def safe_source_identity_ref(value: object) -> str | None:
@@ -37,11 +38,24 @@ def safe_source_identity_ref(value: object) -> str | None:
     if match is None:
         return None
     if match.group("turn_ref"):
-        return f"source_turn_refs:{match.group('turn_ref').upper()}"
+        turn_ref = safe_turn_ref(match.group("turn_ref"))
+        return f"source_turn_refs:{turn_ref}" if turn_ref else None
+    session_turn_ref = safe_turn_ref(match.group("session_turn_ref"))
+    if not session_turn_ref:
+        return None
     return (
         "source_session_turn_refs:"
-        f"{match.group('session').lower()}:{match.group('session_turn_ref').upper()}"
+        f"{match.group('session').lower()}:{session_turn_ref}"
     )
+
+
+def safe_turn_ref(value: object) -> str | None:
+    ref = str(value or "").strip()
+    if not ref or len(ref) > _MAX_SAFE_TURN_REF_LENGTH:
+        return None
+    if _TURN_REF_RE.fullmatch(ref.upper()) is None:
+        return None
+    return ref.upper()
 
 
 def source_identity_refs_from_dedupe_key(value: object) -> tuple[str, ...]:

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping, Sequence
 
 from infinity_context_server.memory_comparison_quality_accessors import (
@@ -21,6 +20,15 @@ from infinity_context_server.memory_comparison_quality_accessors import (
 from infinity_context_server.memory_comparison_quality_accessors import (
     str_tuple as _str_tuple,
 )
+from infinity_context_server.memory_comparison_source_identity import (
+    safe_source_identity_ref as _safe_source_identity_ref,
+)
+from infinity_context_server.memory_comparison_source_identity import (
+    safe_turn_ref as _safe_exact_turn_ref,
+)
+from infinity_context_server.memory_comparison_source_identity import (
+    source_identity_refs_from_source_refs as _source_identity_refs_from_source_refs,
+)
 
 _MAX_RANKED_GAPS = 10
 _MAX_SAMPLE_CASE_IDS = 5
@@ -37,12 +45,6 @@ _MAX_EVIDENCE_RECALL_ACTIONABLE_SAMPLES = 3
 _MAX_EVIDENCE_RECALL_ACTIONABLE_SAMPLE_VALUES = 5
 _MAX_TEMPORAL_GROUNDING_ACTIONABLE_SAMPLES = 3
 _MAX_TEMPORAL_GROUNDING_ACTIONABLE_SAMPLE_VALUES = 5
-_SAFE_SOURCE_IDENTITY_REF_RE = re.compile(
-    r"^(?:(?P<turn_prefix>source_turn_refs):(?P<turn_ref>D\d+:\d+)|"
-    r"(?P<session_prefix>source_session_turn_refs):(?P<session>session_\d+):"
-    r"(?P<session_turn_ref>D\d+:\d+))$",
-    re.IGNORECASE,
-)
 
 
 def actionable_gap_summary(
@@ -1112,18 +1114,7 @@ def _compact_answer_context_source_identity_refs(value: object) -> tuple[str, ..
 
 
 def _safe_answer_context_source_identity_ref(value: object) -> str | None:
-    ref = str(value or "").strip()
-    if not ref or len(ref) > 80:
-        return None
-    match = _SAFE_SOURCE_IDENTITY_REF_RE.fullmatch(ref)
-    if match is None:
-        return None
-    if match.group("turn_ref"):
-        return f"source_turn_refs:{match.group('turn_ref').upper()}"
-    return (
-        "source_session_turn_refs:"
-        f"{match.group('session').lower()}:{match.group('session_turn_ref').upper()}"
-    )
+    return _safe_source_identity_ref(value)
 
 
 def _compact_evidence_recall_actionable_samples(
@@ -1211,10 +1202,19 @@ def _compact_temporal_grounding_actionable_samples(
                 compact[key] = list(
                     values[:_MAX_TEMPORAL_GROUNDING_ACTIONABLE_SAMPLE_VALUES]
                 )
-        source_refs = _compact_temporal_grounding_source_refs(sample.get("source_refs"))
+        raw_source_refs = _str_tuple(sample.get("source_refs"))
+        source_refs = _compact_temporal_grounding_source_refs(raw_source_refs)
         if source_refs:
             compact["source_refs"] = list(source_refs)
         source_ref_count = _positive_int(sample.get("source_ref_count")) or 0
+        if not source_ref_count:
+            source_ref_count = (
+                _sanitized_source_ref_count(
+                    raw_source_refs,
+                    safe_source_refs=source_refs,
+                )
+                or 0
+            )
         if source_ref_count:
             compact["source_ref_count"] = source_ref_count
         signals = _mapping(sample.get("grounding_signals"))
@@ -1241,10 +1241,7 @@ def _compact_temporal_grounding_actionable_samples(
 def _compact_temporal_grounding_source_refs(value: object) -> tuple[str, ...]:
     refs: list[str] = []
     for raw_ref in _str_tuple(value):
-        for ref in (
-            _safe_answer_context_source_identity_ref(raw_ref),
-            _safe_turn_ref(raw_ref),
-        ):
+        for ref in _safe_temporal_grounding_source_refs_for_value(raw_ref):
             if ref and ref not in refs:
                 refs.append(ref)
             if len(refs) >= _MAX_TEMPORAL_GROUNDING_ACTIONABLE_SAMPLE_VALUES:
@@ -1252,20 +1249,33 @@ def _compact_temporal_grounding_source_refs(value: object) -> tuple[str, ...]:
     return tuple(refs)
 
 
+def _safe_temporal_grounding_source_refs_for_value(value: object) -> tuple[str, ...]:
+    safe_ref = _safe_source_identity_ref(value)
+    if safe_ref:
+        return (safe_ref,)
+    turn_ref = _safe_turn_ref(value)
+    if turn_ref:
+        return (turn_ref,)
+    return tuple(
+        safe_ref
+        for raw_ref in _source_identity_refs_from_source_refs((str(value or ""),))
+        for safe_ref in (_safe_source_identity_ref(raw_ref),)
+        if safe_ref
+    )
+
+
 def _safe_turn_ref(value: object) -> str:
-    text = str(value or "").strip().upper()
-    if not text:
-        return ""
-    day, separator, turn = text.partition(":")
-    if (
-        separator
-        and len(day) > 1
-        and day.startswith("D")
-        and day[1:].isdigit()
-        and turn.isdigit()
-    ):
-        return text
-    return ""
+    return _safe_exact_turn_ref(value) or ""
+
+
+def _sanitized_source_ref_count(
+    raw_source_refs: Sequence[str],
+    *,
+    safe_source_refs: Sequence[str],
+) -> int | None:
+    if raw_source_refs and tuple(raw_source_refs) != tuple(safe_source_refs):
+        return len(raw_source_refs)
+    return None
 
 
 def _evidence_recall_samples_for_missing(

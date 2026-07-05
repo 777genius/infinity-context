@@ -345,6 +345,49 @@ def test_compact_temporal_grounding_samples_filter_unsafe_refs_and_bound_text() 
     assert "turn-secret" not in serialized
 
 
+def test_temporal_grounding_samples_filter_long_exact_refs_and_report_count() -> None:
+    long_ref = f"D1:{'9' * 120}"
+    item = _item(
+        case_id="temporal-long-exact-ref",
+        group="temporal",
+        retrieval=_retrieval_payload(
+            evidence_need=("temporal_support",),
+            bundle_evidence_roles=("primary", "temporal_support"),
+            relation_categories=("temporal",),
+            policy_score=0.0,
+            candidate_features={
+                "query_roles": ["temporal_support"],
+                "time_intent_kind": "temporal_lookup",
+            },
+        ),
+        evidence_bundle={
+            "items": [
+                {
+                    "id": "long-exact-ref",
+                    "role": "temporal_support",
+                    "query_roles": ["temporal_support"],
+                    "source_refs": [long_ref, "D1:2", "D1:2"],
+                }
+            ]
+        },
+    )
+
+    diagnostics = quality_diagnostics((item,))
+    table_sample = diagnostics["temporal_grounding_table"][
+        "selected_temporal_grounding_issue_samples"
+    ][0]
+    compact_sample = _compact_fast_gate_summary((item,))[
+        "temporal_grounding_issue_samples"
+    ][0]
+
+    assert table_sample["source_refs"] == ["D1:2"]
+    assert table_sample["source_ref_count"] == 2
+    assert compact_sample["source_refs"] == ["D1:2"]
+    assert compact_sample["source_ref_count"] == 2
+    serialized = json.dumps({"diagnostics": diagnostics, "summary": compact_sample})
+    assert long_ref not in serialized
+
+
 def test_temporal_grounding_reports_source_identity_mismatch() -> None:
     diagnostics = quality_diagnostics(
         (

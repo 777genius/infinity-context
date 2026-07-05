@@ -47,6 +47,9 @@ from infinity_context_server.memory_comparison_source_identity import (
     safe_source_identity_ref as _safe_source_identity_ref,
 )
 from infinity_context_server.memory_comparison_source_identity import (
+    safe_turn_ref as _safe_turn_ref,
+)
+from infinity_context_server.memory_comparison_source_identity import (
     source_identity_audit_gap_codes as _source_identity_audit_gap_codes,
 )
 from infinity_context_server.memory_comparison_source_identity import (
@@ -596,8 +599,11 @@ def _grounding_gap_sample(
         "source_refs": list(safe_source_refs),
         "missing_grounding": ["session_boundary", "date_or_range"],
     }
-    if source_refs and not safe_source_refs:
-        sample["source_ref_count"] = len(source_refs)
+    _add_source_ref_count_when_sanitized(
+        sample,
+        source_refs=source_refs,
+        safe_source_refs=safe_source_refs,
+    )
     return sample
 
 
@@ -625,6 +631,12 @@ def _source_window_gap_sample(
     }
     if source_refs and not sample["source_refs"]:
         sample["source_ref_count"] = len(source_refs)
+    else:
+        _add_source_ref_count_when_sanitized(
+            sample,
+            source_refs=source_refs,
+            safe_source_refs=tuple(sample["source_refs"]),
+        )
     return sample
 
 
@@ -658,8 +670,11 @@ def _temporal_grounding_issue_sample(
             "temporal_order": bool(signals.get("temporal_order")),
         },
     }
-    if source_refs and not safe_source_refs:
-        sample["source_ref_count"] = len(source_refs)
+    _add_source_ref_count_when_sanitized(
+        sample,
+        source_refs=source_refs,
+        safe_source_refs=safe_source_refs,
+    )
     if signals.get("relative_date"):
         sample["grounding_signals"]["relative_date"] = True
     if _has_source_identity_mismatch(source_identity_gap_codes):
@@ -687,11 +702,22 @@ def _safe_sample_source_refs_for_value(value: object) -> tuple[str, ...]:
     ref = str(value or "").strip()
     if not ref:
         return ()
-    if _TURN_RE.fullmatch(ref.upper()):
-        return (ref.upper(),)
+    turn_ref = _safe_turn_ref(ref)
+    if turn_ref:
+        return (turn_ref,)
     return tuple(
         safe_ref
         for raw_ref in _source_identity_refs_from_source_refs((ref,))
         for safe_ref in (_safe_source_identity_ref(raw_ref),)
         if safe_ref
     )
+
+
+def _add_source_ref_count_when_sanitized(
+    sample: dict[str, object],
+    *,
+    source_refs: Sequence[str],
+    safe_source_refs: Sequence[str],
+) -> None:
+    if source_refs and tuple(source_refs) != tuple(safe_source_refs):
+        sample["source_ref_count"] = len(source_refs)
