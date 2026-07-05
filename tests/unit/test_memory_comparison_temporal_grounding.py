@@ -456,6 +456,80 @@ def test_temporal_grounding_reports_source_identity_mismatch() -> None:
     ]
 
 
+def test_compact_fast_gate_reports_temporal_source_identity_mismatch_safely() -> None:
+    raw_private_ref = "locomo:conv-private:session_4:D4:3:turn-secret"
+    item = _item(
+        case_id="temporal-source-mismatch-compact",
+        group="temporal",
+        retrieval=_retrieval_payload(
+            evidence_need=("temporal_support",),
+            bundle_evidence_roles=("primary", "temporal_sequence_support"),
+            relation_categories=("temporal",),
+            policy_score=0.2,
+            candidate_features={
+                "query_roles": ["temporal_sequence_support"],
+                "time_intent_kind": "temporal_sequence",
+            },
+        ),
+        evidence_bundle={
+            "bundle_complete": True,
+            "item_count": 1,
+            "primary_evidence_count": 1,
+            "supporting_evidence_count": 0,
+            "items": [
+                {
+                    "id": "mismatched-turn",
+                    "role": "primary",
+                    "query_roles": ["temporal_sequence_support"],
+                    "source_refs": [raw_private_ref],
+                    "text": (
+                        "session_5 date: 9 October, 2022 "
+                        "D4:3 Riley said the workshop happened later."
+                    ),
+                }
+            ],
+        },
+    )
+
+    summary = _compact_fast_gate_summary((item,))
+
+    assert summary["temporal_grounding_counts"]["issue_reason_counts"] == {
+        "source_identity_mismatch": 1
+    }
+    assert any(
+        gap["category"] == "temporal_grounding"
+        and gap["gap"] == "source_identity_mismatch"
+        for gap in summary["top_actionable_gaps"]
+    )
+    assert summary["temporal_grounding_issue_samples"] == [
+        {
+            "case_id": "temporal-source-mismatch-compact",
+            "group": "temporal",
+            "item_id": "mismatched-turn",
+            "role": "primary",
+            "query_roles": ["temporal_sequence_support"],
+            "issue_reasons": ["source_identity_mismatch"],
+            "source_identity_gap_codes": [
+                "source_text_session_turn_mismatch"
+            ],
+            "source_refs": [
+                "source_session_turn_refs:session_4:D4:3",
+                "source_turn_refs:D4:3",
+            ],
+            "grounding_signals": {
+                "source_window": True,
+                "session_boundary": True,
+                "date_or_range": True,
+                "temporal_order": True,
+            },
+        }
+    ]
+    serialized = json.dumps(summary)
+    assert raw_private_ref not in serialized
+    assert "locomo:conv-private" not in serialized
+    assert "turn-secret" not in serialized
+
+
 def test_temporal_grounding_summarizes_missing_weak_and_conflicting_issues() -> None:
     diagnostics = quality_diagnostics(
         (
