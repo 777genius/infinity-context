@@ -24,6 +24,12 @@ _FAST_CASE_SETS = frozenset(
     }
 )
 _REQUIRED_FAST_CUTOFFS = frozenset({10, 20, 50, 200})
+_SAFE_REPORTING_CONTRACTS = (
+    ("quality_diagnostics", "quality_diagnostics.v2"),
+    ("evidence_bundle_gap_report", "evidence_bundle_gap_report.v1"),
+    ("answer_context_provenance", "answer_context_provenance.v1"),
+    ("answer_context_support_gaps", "answer_context_support_gaps.v1"),
+)
 
 
 @dataclass(frozen=True)
@@ -162,6 +168,7 @@ def run_memory_comparison_preflight(
             "judge_provider": config.judge_provider,
             "uses_openai": _uses_openai(config),
             "probe_services": config.probe_services,
+            "safe_reporting_contracts": _safe_reporting_contracts(config.report_mode),
             "secrets": {
                 "auth_token_configured": config.auth_token_configured,
                 config.mem0_api_key_env: _env_is_set(config.env, config.mem0_api_key_env),
@@ -352,6 +359,19 @@ def _service_probe_checks(
             timeout_seconds=config.probe_timeout_seconds,
         ),
     )
+
+
+def _safe_reporting_contracts(report_mode: str) -> list[dict[str, object]]:
+    report_modes = ["compact"] if report_mode == "compact" else [report_mode]
+    return [
+        {
+            "name": name,
+            "schema_version": schema_version,
+            "report_modes": report_modes,
+            "safe_payload": True,
+        }
+        for name, schema_version in _SAFE_REPORTING_CONTRACTS
+    ]
 
 
 def _probe_memo_api(

@@ -32,6 +32,32 @@ def test_memory_comparison_preflight_ready_for_locomo_fast(tmp_path: Path) -> No
     assert result["ready_for_locomo_fast"] is True
     assert result["failed_checks"] == []
     assert result["warnings"] == []
+    assert result["diagnostics"]["safe_reporting_contracts"] == [
+        {
+            "name": "quality_diagnostics",
+            "schema_version": "quality_diagnostics.v2",
+            "report_modes": ["compact"],
+            "safe_payload": True,
+        },
+        {
+            "name": "evidence_bundle_gap_report",
+            "schema_version": "evidence_bundle_gap_report.v1",
+            "report_modes": ["compact"],
+            "safe_payload": True,
+        },
+        {
+            "name": "answer_context_provenance",
+            "schema_version": "answer_context_provenance.v1",
+            "report_modes": ["compact"],
+            "safe_payload": True,
+        },
+        {
+            "name": "answer_context_support_gaps",
+            "schema_version": "answer_context_support_gaps.v1",
+            "report_modes": ["compact"],
+            "safe_payload": True,
+        },
+    ]
 
 
 def test_memory_comparison_preflight_reports_missing_required_gates(
