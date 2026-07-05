@@ -11,6 +11,7 @@ from infinity_context_server.public_benchmark_checkpoint import (
 )
 from infinity_context_server.public_benchmark_metrics import (
     benchmark_summaries,
+    bounded_progress_fields,
     case_failures,
     case_payload,
     coverage_summary,
@@ -128,6 +129,36 @@ def test_public_benchmark_payloads_sanitize_auth_previews_refs_and_item_ids() ->
     assert "turn-secret" not in rendered
     assert "/home/alice" not in rendered
     assert "auth.json" not in rendered
+    assert "safe-chunk" in rendered
+    assert "source_session_turn_refs:session_3:D3:11" in rendered
+    assert "source_turn_refs:D4:5" in rendered
+    assert "[redacted]" in rendered
+
+
+def test_public_benchmark_progress_fields_sanitize_refs_previews_and_item_ids() -> None:
+    bearer_payload = "Bearer " + ("a" * 16)
+    key_payload = "MEMORY_TOKEN=" + ("b" * 16)
+    raw_ref = "locomo:conv-private:session_3:D3:11:turn-secret"
+
+    fields = bounded_progress_fields(
+        {
+            "case_id": f"locomo:conv-26:qa:70 {bearer_payload}",
+            "question_preview": f"Who supports Caroline? {bearer_payload}",
+            "item_ids": [bearer_payload, raw_ref, "safe-chunk"],
+            "evidence_refs": [raw_ref, f"authorization {bearer_payload} D4:5"],
+            "diagnostics": {
+                "answer_preview": f"Her mentors. {key_payload}",
+                "missing_evidence_refs": [raw_ref],
+            },
+        }
+    )
+    rendered = json.dumps(fields, sort_keys=True)
+
+    assert "Bearer" not in rendered
+    assert "MEMORY_TOKEN" not in rendered
+    assert "conv-private" not in rendered
+    assert "turn-secret" not in rendered
+    assert fields["case_id"] == "locomo:conv-26:qa:70 [redacted]"
     assert "safe-chunk" in rendered
     assert "source_session_turn_refs:session_3:D3:11" in rendered
     assert "source_turn_refs:D4:5" in rendered

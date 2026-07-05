@@ -14,6 +14,9 @@ from infinity_context_server.memory_comparison_source_identity import (
     safe_source_refs_for_output as _safe_source_refs_for_output,
 )
 from infinity_context_server.public_benchmark_case_diagnostics import (
+    artifact_text_value as _artifact_text_value,
+)
+from infinity_context_server.public_benchmark_case_diagnostics import (
     preview_value as _preview_value,
 )
 from infinity_context_server.public_benchmark_checkpoint import CaseRunResult
@@ -191,26 +194,29 @@ def _case_coverage_payload(item: CaseRunResult) -> dict[str, object]:
 
 
 def bounded_progress_fields(fields: Mapping[str, object]) -> dict[str, object]:
+    return bounded_public_artifact_fields(fields)
+
+
+def bounded_public_artifact_fields(fields: Mapping[str, object]) -> dict[str, object]:
     bounded: dict[str, object] = {}
-    for key, value in fields.items():
+    for raw_key, value in fields.items():
         if value is None:
             continue
+        key = _safe_field_key(raw_key)
+        if not key:
+            continue
         if isinstance(value, str):
-            bounded[key] = value[:240]
+            safe_value = _safe_artifact_text(key, value, max_chars=240)
+            if safe_value:
+                bounded[key] = safe_value
         elif isinstance(value, bool | int | float):
             bounded[key] = value
         elif isinstance(value, Sequence) and not isinstance(value, str | bytes):
-            bounded[key] = [
-                item[:120] if isinstance(item, str) else item
-                for item in value[:20]
-                if isinstance(item, str | bool | int | float)
-            ]
+            bounded[key] = _safe_artifact_sequence(key, value, max_chars=120)
         elif isinstance(value, Mapping):
-            bounded[key] = {
-                str(map_key)[:80]: map_value[:120] if isinstance(map_value, str) else map_value
-                for map_key, map_value in list(value.items())[:20]
-                if isinstance(map_value, str | bool | int | float)
-            }
+            nested = _safe_artifact_mapping(key, value)
+            if nested:
+                bounded[key] = nested
     return bounded
 
 
@@ -478,6 +484,126 @@ def _safe_source_ref_list(
             if ref and ref not in refs:
                 refs.append(ref[:_TERM_CHARS])
     return refs
+
+
+def _safe_field_key(value: object) -> str:
+    return _artifact_text_value(value, max_chars=80)
+
+
+def _safe_artifact_mapping(
+    parent_key: str,
+    values: Mapping[object, object],
+) -> dict[str, object]:
+    bounded: dict[str, object] = {}
+    for raw_key, raw_value in list(values.items())[:20]:
+        if raw_value is None:
+            continue
+        key = _safe_field_key(raw_key)
+        if not key:
+            continue
+        field_key = f"{parent_key}.{key}"
+        if isinstance(raw_value, str):
+            safe_value = _safe_artifact_text(field_key, raw_value, max_chars=120)
+            if safe_value:
+                bounded[key] = safe_value
+        elif isinstance(raw_value, bool | int | float):
+            bounded[key] = raw_value
+        elif isinstance(raw_value, Sequence) and not isinstance(raw_value, str | bytes):
+            bounded[key] = _safe_artifact_sequence(
+                field_key,
+                raw_value,
+                max_chars=120,
+            )
+        elif isinstance(raw_value, Mapping):
+            nested = _safe_artifact_mapping(field_key, raw_value)
+            if nested:
+                bounded[key] = nested
+    return bounded
+
+
+def _safe_artifact_sequence(
+    key: str,
+    values: Sequence[object],
+    *,
+    max_chars: int,
+) -> list[object]:
+    if _is_preview_field(key):
+        return [
+            preview
+            for item in values[:20]
+            if (preview := _safe_preview_text(item, max_chars=max_chars))
+        ]
+    if _is_source_ref_field(key):
+        refs: list[str] = []
+        for item in values[:20]:
+            if not isinstance(item, str | bool | int | float):
+                continue
+            for ref in _safe_source_refs_for_output((item,)):
+                safe_ref = ref[:max_chars]
+                if safe_ref and safe_ref not in refs:
+                    refs.append(safe_ref)
+                if len(refs) >= 20:
+                    return refs
+        return refs
+    if _is_item_id_field(key):
+        item_ids: list[str] = []
+        for item in values[:20]:
+            if not isinstance(item, str | bool | int | float):
+                continue
+            item_id = _safe_item_id_for_output(item)
+            if not item_id:
+                refs = _safe_source_refs_for_output((item,))
+                item_id = refs[0] if refs else ""
+            item_id = item_id[:max_chars]
+            if item_id and item_id not in item_ids:
+                item_ids.append(item_id)
+        return item_ids
+    result: list[object] = []
+    for item in values[:20]:
+        if isinstance(item, str):
+            text = _safe_scalar_text(item, max_chars=max_chars)
+            if text:
+                result.append(text)
+        elif isinstance(item, bool | int | float):
+            result.append(item)
+        elif isinstance(item, Mapping):
+            nested = _safe_artifact_mapping(key, item)
+            if nested:
+                result.append(nested)
+    return result
+
+
+def _safe_artifact_text(key: str, value: object, *, max_chars: int) -> str:
+    if _is_preview_field(key):
+        return _safe_preview_text(value, max_chars=max_chars)
+    if _is_source_ref_field(key):
+        refs = _safe_source_refs_for_output((value,))
+        return refs[0][:max_chars] if refs else ""
+    if _is_item_id_field(key):
+        item_id = _safe_item_id_for_output(value)
+        if not item_id:
+            refs = _safe_source_refs_for_output((value,))
+            item_id = refs[0] if refs else ""
+        return item_id[:max_chars]
+    return _safe_scalar_text(value, max_chars=max_chars)
+
+
+def _safe_scalar_text(value: object, *, max_chars: int) -> str:
+    return _artifact_text_value(value, max_chars=max_chars)
+
+
+def _is_preview_field(key: str) -> bool:
+    return "preview" in key.casefold()
+
+
+def _is_source_ref_field(key: str) -> bool:
+    normalized = key.casefold()
+    return "evidence_ref" in normalized or "source_ref" in normalized
+
+
+def _is_item_id_field(key: str) -> bool:
+    normalized = key.casefold()
+    return normalized.endswith("item_id") or normalized.endswith("item_ids")
 
 
 def _metric_key_part(value: object) -> str:

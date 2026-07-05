@@ -193,6 +193,21 @@ from infinity_context_server.public_benchmark_results import (
 from infinity_context_server.public_benchmark_results import (
     write_report as _write_report,
 )
+from infinity_context_server.public_benchmark_run_diagnostics import (
+    bounded_case_id_details as _bounded_case_id_details,
+)
+from infinity_context_server.public_benchmark_run_diagnostics import (
+    bounded_checkpoint_failure_case_id_details as _bounded_checkpoint_failure_case_id_details,
+)
+from infinity_context_server.public_benchmark_run_diagnostics import (
+    emit_case_progress_snapshot as _emit_case_progress_snapshot,
+)
+from infinity_context_server.public_benchmark_run_diagnostics import (
+    public_artifact_reports as _public_artifact_reports,
+)
+from infinity_context_server.public_benchmark_run_diagnostics import (
+    public_request_artifact_fields as _public_request_artifact_fields,
+)
 from infinity_context_server.public_benchmark_selection import (
     CASE_SELECTION_FIRST,
     CASE_SELECTION_STRATIFIED,
@@ -253,7 +268,6 @@ _PUBLIC_BENCHMARK_CONTEXT_TOKEN_BUDGET = 4000
 _PUBLIC_BENCHMARK_MAX_FACTS = 20
 _PUBLIC_BENCHMARK_MAX_CHUNKS = 50
 _PUBLIC_BENCHMARK_MAX_REUSE_DETAIL_EVENTS_PER_CASE = 3
-_MAX_RESUME_CASE_ID_DETAILS = 20
 _MAX_LOCOMO_OBSERVATION_EVIDENCE_IDS = 8
 _RESUME_REUSE_POLICY = "successful_cases_only"
 
@@ -335,6 +349,11 @@ def run_public_memory_benchmark(
         first_str=_first_str,
         case_hash=_case_hash,
     )
+    request_artifact_fields = _public_request_artifact_fields(
+        case_selection=case_selection,
+        requested_case_ids=requested_case_ids,
+        requested_capabilities=requested_capabilities,
+    )
 
     duplicate_case_keys = _duplicate_case_keys(cases)
     if duplicate_case_keys:
@@ -344,9 +363,8 @@ def run_public_memory_benchmark(
             duplicate_case_keys=duplicate_case_keys,
         )
         result = _with_public_benchmark_provenance(result, dataset_path=dataset_path)
-        result["case_selection"] = case_selection
-        result["requested_case_ids"] = list(requested_case_ids)
-        result["requested_capabilities"] = list(requested_capabilities)
+        result.update(request_artifact_fields)
+        result["failures"] = _public_artifact_reports(result.get("failures"))
         _write_report(result, report_out)
         return result
 
@@ -376,8 +394,7 @@ def run_public_memory_benchmark(
             "benchmark_scope": "normalized_public_memory_retrieval",
             "evaluation_mode": "retrieved_expected_terms",
             "dataset_path_label": dataset_path.name,
-            "requested_case_ids": list(requested_case_ids),
-            "requested_capabilities": list(requested_capabilities),
+            **request_artifact_fields,
             "checks": {
                 "dataset_loaded": False,
                 "case_count": False,
@@ -395,9 +412,8 @@ def run_public_memory_benchmark(
             },
             "benchmarks": [],
             "cases": [],
-            "failures": failures,
-            "unsupported_cases": unsupported_cases,
-            "case_selection": case_selection,
+            "failures": _public_artifact_reports(failures),
+            "unsupported_cases": _public_artifact_reports(unsupported_cases),
         }
         result = _with_public_benchmark_provenance(result, dataset_path=dataset_path)
         _write_report(result, report_out)
@@ -411,9 +427,8 @@ def run_public_memory_benchmark(
             case_count=len(cases),
         )
         result = _with_public_benchmark_provenance(result, dataset_path=dataset_path)
-        result["case_selection"] = case_selection
-        result["requested_case_ids"] = list(requested_case_ids)
-        result["requested_capabilities"] = list(requested_capabilities)
+        result.update(request_artifact_fields)
+        result["failures"] = _public_artifact_reports(result.get("failures"))
         _write_report(result, report_out)
         return result
 
@@ -462,9 +477,8 @@ def run_public_memory_benchmark(
                 case_count=len(cases),
             )
             result = _with_public_benchmark_provenance(result, dataset_path=dataset_path)
-            result["case_selection"] = case_selection
-            result["requested_case_ids"] = list(requested_case_ids)
-            result["requested_capabilities"] = list(requested_capabilities)
+            result.update(request_artifact_fields)
+            result["failures"] = _public_artifact_reports(result.get("failures"))
             _write_report(result, report_out)
             return result
         from fastapi.testclient import TestClient
@@ -1063,6 +1077,11 @@ def _execute_cases(
         and not capability_selection_failures
     )
     case_keys = tuple(f"{case.benchmark}:{case.case_id}" for case in cases)
+    request_artifact_fields = _public_request_artifact_fields(
+        case_selection=case_selection,
+        requested_case_ids=requested_case_ids,
+        requested_capabilities=requested_capabilities,
+    )
     result: dict[str, object] = {
         "suite": PUBLIC_MEMORY_BENCHMARK_SUITE,
         "status": "ok" if ok else "failed",
@@ -1071,9 +1090,7 @@ def _execute_cases(
         "evaluation_mode": "retrieved_expected_terms",
         "dataset_path_label": dataset_path.name,
         "dataset_hash": dataset_hash,
-        "requested_case_ids": list(requested_case_ids),
-        "requested_capabilities": list(requested_capabilities),
-        "case_selection": dict(case_selection or {}),
+        **request_artifact_fields,
         "dataset_sources": {
             summary["name"]: _dataset_source_metadata(
                 dataset_path=dataset_path,
@@ -1128,13 +1145,13 @@ def _execute_cases(
         "execution_manifest": execution_manifest,
         "benchmarks": benchmarks,
         "cases": [_case_payload(item) for item in run_results],
-        "failures": (
+        "failures": _public_artifact_reports(
             failures
             + case_selection_failures
             + capability_selection_failures
             + _case_failures(run_results)
         ),
-        "unsupported_cases": unsupported_cases,
+        "unsupported_cases": _public_artifact_reports(unsupported_cases),
         "elapsed_ms": round((time.perf_counter() - started) * 1000, 2),
     }
     for summary in benchmarks:
@@ -1144,65 +1161,6 @@ def _execute_cases(
             result["metrics"][f"{name}_accuracy"] = metrics.get("accuracy")
             result["metrics"][f"{name}_case_count"] = metrics.get("case_count")
     return result
-
-
-def _emit_case_progress_snapshot(
-    *,
-    progress: _BenchmarkProgress,
-    run_results: Sequence[CaseRunResult],
-    failures: Sequence[Mapping[str, object]],
-    seeded_source_count: int,
-    seed_stats: _BenchmarkSeedStats,
-    effective_parallelism: int,
-) -> None:
-    processed_case_count = len(run_results)
-    progress.event(
-        "case_progress",
-        processed_case_count=processed_case_count,
-        total_case_count=progress.total_case_count,
-        processed_case_ratio=_ratio(processed_case_count, progress.total_case_count),
-        **_progress_timing_fields(
-            processed_case_count=processed_case_count,
-            total_case_count=progress.total_case_count,
-            started=progress.started,
-        ),
-        accuracy_so_far=_accuracy(run_results),
-        capability_accuracy_so_far=_flat_capability_accuracy(run_results),
-        capability_case_count_so_far=_flat_capability_case_count(run_results),
-        capability_failure_count_so_far=_flat_capability_failure_count(run_results),
-        **_progress_case_outcome_fields(
-            processed_case_count=processed_case_count,
-            run_results=run_results,
-            failures=failures,
-            total_case_count=progress.total_case_count,
-        ),
-        seeded_source_count=seeded_source_count,
-        seed_source_attempt_count=seed_stats.source_attempt_count,
-        seed_cache_hit_count=seed_stats.seed_cache_hit_count,
-        effective_parallelism=effective_parallelism,
-    )
-
-
-def _bounded_case_id_details(cases: Iterable[PublicBenchmarkCase]) -> tuple[list[str], int]:
-    case_ids = [f"{case.benchmark}:{case.case_id}"[:160] for case in cases]
-    return (
-        case_ids[:_MAX_RESUME_CASE_ID_DETAILS],
-        max(0, len(case_ids) - _MAX_RESUME_CASE_ID_DETAILS),
-    )
-
-
-def _bounded_checkpoint_failure_case_id_details(
-    failures: Sequence[Mapping[str, object]],
-) -> tuple[list[str], int]:
-    case_ids = [
-        str(item.get("case_id"))[:160]
-        for item in failures
-        if str(item.get("case_id") or "").strip()
-    ]
-    return (
-        case_ids[:_MAX_RESUME_CASE_ID_DETAILS],
-        max(0, len(case_ids) - _MAX_RESUME_CASE_ID_DETAILS),
-    )
 
 
 def _normalize_request_timeout_seconds(value: float) -> float:

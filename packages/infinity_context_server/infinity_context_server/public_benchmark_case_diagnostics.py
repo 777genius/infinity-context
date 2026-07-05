@@ -35,6 +35,10 @@ def preview_value(value: object, *, max_chars: int = 240) -> str:
     return str(value).strip()[:max_chars]
 
 
+def artifact_text_value(value: object, *, max_chars: int = 240) -> str:
+    return redact_sensitive_text(str(value or "").strip())[:max_chars]
+
+
 def case_question_preview(case: Any) -> str:
     return preview_value(getattr(case, "question", ""))
 
