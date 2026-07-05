@@ -331,7 +331,7 @@ def _safe_generic_source_ref(value: object) -> str | None:
     if _looks_like_raw_ref(ref):
         return None
     if len(ref) > _MAX_SAFE_GENERIC_SOURCE_REF_LENGTH:
-        return f"{ref[: _MAX_SAFE_GENERIC_SOURCE_REF_LENGTH - 3]}..."
+        return None
     return ref
 
 

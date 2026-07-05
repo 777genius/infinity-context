@@ -132,6 +132,11 @@ def test_safe_source_refs_for_output_bounds_generic_refs() -> None:
         )
     ) == ("document:" + ("x" * 119),)
 
+def test_source_identity_refs_from_dedupe_key_drops_overlength_generic_refs() -> None:
+    assert source_identity_refs_from_dedupe_key(
+        "source_refs:document:" + ("x" * 120)
+    ) == ()
+
 
 @pytest.mark.parametrize(
     "raw_ref",
