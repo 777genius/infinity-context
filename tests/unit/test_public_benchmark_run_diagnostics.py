@@ -63,3 +63,21 @@ def test_public_benchmark_request_fields_preserve_safe_nested_diagnostics() -> N
             "reason": "official_locomo.no_retrieval_terms",
         }
     ]
+
+
+def test_public_benchmark_request_fields_bound_requested_lists() -> None:
+    requested_case_ids = tuple(f"locomo:conv-26:qa:{index}" for index in range(25))
+    requested_capabilities = tuple(f"locomo:capability:{index}" for index in range(22))
+
+    fields = public_request_artifact_fields(
+        case_selection={},
+        requested_case_ids=requested_case_ids,
+        requested_capabilities=requested_capabilities,
+    )
+
+    assert fields["requested_case_id_count"] == 25
+    assert fields["requested_case_id_truncated_count"] == 5
+    assert fields["requested_case_ids"] == list(requested_case_ids[:20])
+    assert fields["requested_capability_count"] == 22
+    assert fields["requested_capability_truncated_count"] == 2
+    assert fields["requested_capabilities"] == list(requested_capabilities[:20])

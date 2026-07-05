@@ -166,6 +166,67 @@ def test_fast_gate_metrics_reports_bounded_source_window_samples_without_text() 
     assert "PRIVATE PROVIDER PAYLOAD" not in serialized
 
 
+def test_fast_gate_metrics_uses_text_turn_identity_for_source_window_samples() -> None:
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="locomo-text-source-window",
+                retrieval_quality={"missing_evidence_terms": ["D1:9"]},
+                evidence_bundle={
+                    "bundle_complete": False,
+                    "item_count": 1,
+                    "primary_evidence_count": 1,
+                    "supporting_evidence_count": 0,
+                    "query_support_term_recall": 0.0,
+                    "items": [
+                        {
+                            "id": "selected-nearby",
+                            "role": "primary",
+                            "focused_evidence_score": 0.0,
+                            "source_refs": ["D1:7"],
+                        }
+                    ],
+                },
+                retrieval_results=[
+                    {
+                        "id": "retrieved-text-only",
+                        "text": "D1:8 Caroline: I checked the nearby shelter.",
+                    }
+                ],
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    missing_ref_gap = next(
+        gap
+        for gap in gate["evidence_bundle_gap_report"]["top_coverage_gaps"]
+        if gap["reason"] == "missing_evidence_refs"
+    )
+
+    assert missing_ref_gap["source_window_locality_samples"] == [
+        {
+            "case_id": "locomo-text-source-window",
+            "missing_turn_ref_count": 1,
+            "same_source_missing_count": 1,
+            "near_retrieved_window_count": 1,
+            "source_absent_count": 0,
+            "missing_ref_windows": [
+                {
+                    "ref": "D1:9",
+                    "source_id": "D1",
+                    "retrieved_same_source": True,
+                    "bundle_same_source": True,
+                    "nearest_retrieved_turn_ref": "D1:8",
+                    "nearest_retrieved_turn_distance": 1,
+                    "nearest_bundle_turn_ref": "D1:7",
+                    "nearest_bundle_turn_distance": 2,
+                }
+            ],
+        }
+    ]
+
+
 def test_quality_diagnostics_reports_no_observed_bundle_gaps_for_sourced_bundle() -> None:
     diagnostics = quality_diagnostics(
         (

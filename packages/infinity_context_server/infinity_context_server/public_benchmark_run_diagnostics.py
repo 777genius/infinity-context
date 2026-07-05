@@ -35,6 +35,7 @@ from infinity_context_server.public_benchmark_metrics import (
 )
 
 _MAX_RESUME_CASE_ID_DETAILS = 20
+_MAX_REQUEST_DETAIL_ITEMS = 20
 
 
 class BenchmarkProgressPort(Protocol):
@@ -110,10 +111,20 @@ def public_request_artifact_fields(
     requested_case_ids: Sequence[object],
     requested_capabilities: Sequence[object],
 ) -> dict[str, object]:
+    safe_requested_case_ids, truncated_case_id_count = _bounded_text_list(
+        requested_case_ids
+    )
+    safe_requested_capabilities, truncated_capability_count = _bounded_text_list(
+        requested_capabilities
+    )
     return {
         "case_selection": _bounded_public_artifact_fields(case_selection or {}),
-        "requested_case_ids": _bounded_text_list(requested_case_ids),
-        "requested_capabilities": _bounded_text_list(requested_capabilities),
+        "requested_case_ids": safe_requested_case_ids,
+        "requested_case_id_count": len(requested_case_ids),
+        "requested_case_id_truncated_count": truncated_case_id_count,
+        "requested_capabilities": safe_requested_capabilities,
+        "requested_capability_count": len(requested_capabilities),
+        "requested_capability_truncated_count": truncated_capability_count,
     }
 
 
@@ -134,12 +145,16 @@ def _bounded_details(values: Sequence[str]) -> tuple[list[str], int]:
     )
 
 
-def _bounded_text_list(values: Sequence[object]) -> list[str]:
-    return [
+def _bounded_text_list(values: Sequence[object]) -> tuple[list[str], int]:
+    texts = [
         text
         for value in values
         if (text := _artifact_text_value(value, max_chars=240))
     ]
+    return (
+        texts[:_MAX_REQUEST_DETAIL_ITEMS],
+        max(0, len(texts) - _MAX_REQUEST_DETAIL_ITEMS),
+    )
 
 
 def _ratio(numerator: int, denominator: int) -> float:

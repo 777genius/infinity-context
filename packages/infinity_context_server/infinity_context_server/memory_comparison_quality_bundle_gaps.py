@@ -16,12 +16,6 @@ from infinity_context_server.memory_comparison_quality_accessors import (
     count_mapping as _count_mapping,
 )
 from infinity_context_server.memory_comparison_quality_accessors import (
-    direct_source_refs_from_memory as _direct_source_refs_from_memory,
-)
-from infinity_context_server.memory_comparison_quality_accessors import (
-    fusion_source_refs as _fusion_source_refs,
-)
-from infinity_context_server.memory_comparison_quality_accessors import (
     mapping as _mapping,
 )
 from infinity_context_server.memory_comparison_quality_accessors import (
@@ -48,6 +42,9 @@ from infinity_context_server.memory_comparison_quality_accessors import (
 )
 from infinity_context_server.memory_comparison_quality_accessors import (
     source_refs_from_bundle_item as _source_refs_from_bundle_item,
+)
+from infinity_context_server.memory_comparison_quality_accessors import (
+    source_refs_from_memory as _source_refs_from_memory,
 )
 from infinity_context_server.memory_comparison_quality_accessors import (
     str_tuple as _str_tuple,
@@ -641,14 +638,7 @@ def _missing_ref_window(
 
 
 def _safe_memory_source_refs(memory: Mapping[str, object]) -> tuple[str, ...]:
-    return tuple(
-        dict.fromkeys(
-            (
-                *_direct_source_refs_from_memory(memory),
-                *_fusion_source_refs(memory),
-            )
-        )
-    )
+    return _source_refs_from_memory(memory)
 
 
 def _nearest_turn(

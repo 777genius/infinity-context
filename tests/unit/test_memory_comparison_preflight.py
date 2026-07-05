@@ -288,6 +288,50 @@ def test_memory_comparison_preflight_cli_prints_sanitized_json(
     assert "secret-mem0-token" not in captured.err
 
 
+def test_memory_comparison_preflight_cli_exits_nonzero_when_fast_gate_degraded(
+    monkeypatch,
+    capsys,
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "locomo-mini.json"
+    _write_official_locomo_fast_dataset(dataset)
+    monkeypatch.setenv("MEMORY_SERVICE_TOKEN", "secret-service-token")
+    monkeypatch.setenv("MEM0_API_KEY", "secret-mem0-token")
+
+    with pytest.raises(SystemExit) as excinfo:
+        eval_module.main(
+            [
+                "memory-comparison-benchmark",
+                "--dataset",
+                str(dataset),
+                "--memo-api-url",
+                "http://memo.example",
+                "--mem0-url",
+                "http://mem0.example",
+                "--allow-live",
+                "--case-set",
+                "all",
+                "--locomo-ingest-mode",
+                "official-turns",
+                "--report-mode",
+                "compact",
+                "--top-k",
+                "200",
+                "--preflight-only",
+            ]
+        )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert excinfo.value.code == 2
+    assert payload["ok"] is True
+    assert payload["status"] == "degraded"
+    assert payload["ready_for_locomo_fast"] is False
+    assert payload["fast_readiness_blockers"] == ["locomo_fast_case_set"]
+    assert "secret-service-token" not in captured.out
+    assert "secret-mem0-token" not in captured.out
+
+
 def test_memory_comparison_preflight_probes_service_specific_contracts(
     monkeypatch,
     tmp_path: Path,
