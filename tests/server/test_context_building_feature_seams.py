@@ -33,6 +33,15 @@ LEGACY_CONTEXT_API = (
     / "v1"
     / "context.py"
 )
+LEGACY_DIGEST_API = (
+    REPO_ROOT
+    / "packages"
+    / "infinity_context_server"
+    / "infinity_context_server"
+    / "api"
+    / "v1"
+    / "digest.py"
+)
 
 
 class RecordingBuildContext:
@@ -101,6 +110,7 @@ def test_context_building_server_feature_public_surface_composes_router() -> Non
         "ContextBuildingServerFeature",
         "FEATURE_ID",
         "LegacyContextApiResponseMapper",
+        "LegacyDigestApiResponseMapper",
         "build_context_building_server_feature",
         "build_context_query_from_contract",
         "build_context_result_to_contract",
@@ -295,6 +305,88 @@ def test_context_building_legacy_response_mapper_shapes_context_and_search_paylo
     assert "answer_support" not in disabled_search["data"]
 
 
+def test_context_building_legacy_digest_mapper_shapes_digest_payloads() -> None:
+    mapper = _legacy_digest_response_mapper_for_tests()
+    source_ref = SimpleNamespace(
+        source_type="document",
+        source_id="doc_1",
+        chunk_id="chunk_1",
+        char_start=0,
+        char_end=37,
+        quote_preview="Postgres owns canonical lifecycle.",
+        page_number=2,
+        time_start_ms=None,
+        time_end_ms=None,
+        bbox=None,
+    )
+    item = SimpleNamespace(
+        item_id="ctx 1",
+        item_type="document chunk",
+        text="Postgres owns canonical lifecycle.",
+        score=0.97,
+        source_refs=(source_ref,),
+        is_instruction=False,
+        diagnostics={
+            "memory_scope_id": "scope_1",
+            "retrieval_source": "keyword_chunks",
+            "evidence_kind": "source_quote",
+            "evidence_confidence": 0.9,
+        },
+    )
+    digest = SimpleNamespace(
+        digest_id="dig_1",
+        topic="Canonical lifecycle",
+        rendered_markdown="# Active facts",
+        sections=(
+            SimpleNamespace(
+                title="Active facts",
+                items=(item,),
+                truncated=False,
+            ),
+        ),
+        source_refs=(source_ref,),
+        token_estimate=64,
+        diagnostics={
+            "evidence_only": True,
+            "context_items_used": 1,
+            "provider_response": "not public",
+        },
+    )
+
+    response = mapper.digest_to_response(digest)
+    disabled_response = mapper.empty_digest_response(
+        topic="Canonical lifecycle",
+        policy_mode="disabled",
+        request_id="req_disabled",
+    )
+    scope_not_found_response = mapper.empty_digest_response(
+        topic="Canonical lifecycle",
+        policy_mode="enabled",
+        request_id="req_missing",
+        scope_not_found=True,
+    )
+
+    assert response["digest_id"] == "dig_1"
+    assert response["topic"] == "Canonical lifecycle"
+    assert response["rendered_markdown"] == "# Active facts"
+    assert response["sections"][0]["title"] == "Active facts"
+    assert response["sections"][0]["truncated"] is False
+    assert response["sections"][0]["items"][0]["item_id"] == "ctx 1"
+    assert response["sections"][0]["items"][0]["citations"][0]["citation_id"] == (
+        "document_chunk:ctx_1:citation:1"
+    )
+    assert response["source_refs"][0]["page_number"] == 2
+    assert response["token_estimate"] == 64
+    assert response["diagnostics"]["evidence_only"] is True
+    assert response["diagnostics"]["context_items_used"] == 1
+    assert response["diagnostics"]["provider_response"] == "not public"
+    assert disabled_response["meta"]["request_id"] == "req_disabled"
+    assert disabled_response["data"]["digest_id"] == "dig_disabled"
+    assert disabled_response["data"]["diagnostics"]["retrieval_disabled"] is True
+    assert scope_not_found_response["data"]["digest_id"] == "dig_scope_not_found"
+    assert scope_not_found_response["data"]["diagnostics"]["scope_not_found"] is True
+
+
 def _legacy_response_mapper_for_tests() -> server_public.LegacyContextApiResponseMapper:
     def normalize_context_diagnostics(diagnostics: object) -> dict[str, object]:
         return dict(diagnostics) if isinstance(diagnostics, dict) else {}
@@ -341,6 +433,28 @@ def _legacy_response_mapper_for_tests() -> server_public.LegacyContextApiRespons
         safe_public_metadata=safe_public_metadata,
         safe_public_text=safe_public_text,
         source_ref_to_response=source_ref_to_response,
+    )
+
+
+def _legacy_digest_response_mapper_for_tests() -> server_public.LegacyDigestApiResponseMapper:
+    def normalize_context_diagnostics(diagnostics: object) -> dict[str, object]:
+        return dict(diagnostics) if isinstance(diagnostics, dict) else {}
+
+    def safe_public_metadata(
+        metadata: object,
+        *,
+        max_items: int = 260,
+    ) -> dict[str, Any]:
+        del max_items
+        return dict(metadata) if isinstance(metadata, dict) else {}
+
+    def safe_public_text(value: str, *, limit: int = 500) -> str:
+        return str(value)[:limit]
+
+    return server_public.LegacyDigestApiResponseMapper(
+        normalize_context_diagnostics=normalize_context_diagnostics,
+        safe_public_metadata=safe_public_metadata,
+        safe_public_text=safe_public_text,
     )
 
 
@@ -399,6 +513,34 @@ def test_legacy_context_api_uses_context_building_server_public_seam_only() -> N
             violations.append(f"{LEGACY_CONTEXT_API.relative_to(REPO_ROOT)}: imports {imported}")
         if imported.startswith("infinity_context_core.features.context_building."):
             violations.append(f"{LEGACY_CONTEXT_API.relative_to(REPO_ROOT)}: imports {imported}")
+
+    assert violations == []
+
+
+def test_legacy_digest_api_uses_context_building_server_public_seam_only() -> None:
+    source = LEGACY_DIGEST_API.read_text(encoding="utf-8")
+    assert (
+        "from infinity_context_server.features.context_building "
+        "import public as context_building_server"
+    ) in source
+    assert "context_building_server.LegacyDigestApiResponseMapper" in source
+    assert "_LEGACY_DIGEST_API_RESPONSES.digest_to_response(digest)" in source
+    assert "_LEGACY_DIGEST_API_RESPONSES.empty_digest_response" in source
+    assert "def digest_to_response(" not in source
+    assert "def _empty_digest_response(" not in source
+    assert "def _digest_diagnostics_to_response(" not in source
+    assert "def _digest_section_to_response(" not in source
+    assert "def _digest_context_item_to_response(" not in source
+    assert "def _digest_source_ref_to_response(" not in source
+    assert "from infinity_context_server.api.v1.context import" not in source
+    assert "from infinity_context_server.api.v1.source_refs import" not in source
+
+    violations: list[str] = []
+    for imported in _imports(LEGACY_DIGEST_API):
+        if imported.startswith("infinity_context_server.features.context_building."):
+            violations.append(f"{LEGACY_DIGEST_API.relative_to(REPO_ROOT)}: imports {imported}")
+        if imported.startswith("infinity_context_core.features.context_building."):
+            violations.append(f"{LEGACY_DIGEST_API.relative_to(REPO_ROOT)}: imports {imported}")
 
     assert violations == []
 

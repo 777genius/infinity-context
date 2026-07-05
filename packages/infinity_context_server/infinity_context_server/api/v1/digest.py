@@ -6,33 +6,28 @@ from time import perf_counter
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends
-from infinity_context_core.application import BuildMemoryDigestQuery, ConsistencyMode, MemoryDigest
+from infinity_context_core.application import BuildMemoryDigestQuery, ConsistencyMode
+from infinity_context_core.application.context_diagnostics import (
+    normalize_context_diagnostics,
+)
 from pydantic import BaseModel, ConfigDict, Field
 
 from infinity_context_server.api.auth import require_service_token
 from infinity_context_server.api.dependencies import get_container
 from infinity_context_server.api.policy import should_retrieve
 from infinity_context_server.api.public_payload import safe_public_metadata, safe_public_text
-from infinity_context_server.api.v1.context import context_item_to_response
 from infinity_context_server.api.v1.scope_resolution import resolve_existing_context_scope
-from infinity_context_server.api.v1.source_refs import source_ref_to_response
 from infinity_context_server.composition import Container
+from infinity_context_server.features.context_building import public as context_building_server
 
 router = APIRouter(tags=["digest"], dependencies=[Depends(require_service_token)])
 
-_DIGEST_CONTRACT_DIAGNOSTIC_KEYS = (
-    "evidence_only",
-    "retrieval_disabled",
-    "scope_not_found",
-    "context_items_used",
-    "pending_suggestions_considered",
-    "superseded_facts_considered",
-    "include_pending_suggestions",
-    "include_superseded",
-    "include_related",
-    "dropped_by_char_cap",
-    "truncated",
+_LEGACY_DIGEST_API_RESPONSES = context_building_server.LegacyDigestApiResponseMapper(
+    normalize_context_diagnostics=normalize_context_diagnostics,
+    safe_public_metadata=safe_public_metadata,
+    safe_public_text=safe_public_text,
 )
+digest_to_response = _LEGACY_DIGEST_API_RESPONSES.digest_to_response
 
 
 class DigestRequest(BaseModel):
@@ -65,7 +60,7 @@ async def build_digest(
     started = perf_counter()
     request_id = container.ids.new_id("req")
     if not should_retrieve(container):
-        response = _empty_digest_response(
+        response = _LEGACY_DIGEST_API_RESPONSES.empty_digest_response(
             topic=request.topic,
             policy_mode=container.settings.policy_mode.value,
             request_id=request_id,
@@ -89,7 +84,7 @@ async def build_digest(
         thread_external_ref=request.thread_external_ref,
     )
     if scope is None:
-        response = _empty_digest_response(
+        response = _LEGACY_DIGEST_API_RESPONSES.empty_digest_response(
             topic=request.topic,
             policy_mode=container.settings.policy_mode.value,
             request_id=request_id,
@@ -122,7 +117,7 @@ async def build_digest(
     )
     response = {
         "meta": {"request_id": request_id},
-        "data": digest_to_response(digest),
+        "data": _LEGACY_DIGEST_API_RESPONSES.digest_to_response(digest),
     }
     container.runtime_metrics.record_context(
         latency_ms=_elapsed_ms(started),
@@ -137,71 +132,6 @@ async def build_digest(
             "thread_id": str(scope.thread_id) if scope.thread_id else None,
         },
     )
-    return response
-
-
-def digest_to_response(digest: MemoryDigest) -> dict[str, Any]:
-    return {
-        "digest_id": digest.digest_id,
-        "topic": safe_public_text(digest.topic, limit=500),
-        "rendered_markdown": safe_public_text(digest.rendered_markdown, limit=50000),
-        "sections": [
-            {
-                "title": safe_public_text(section.title, limit=240),
-                "items": [context_item_to_response(item) for item in section.items],
-                "truncated": section.truncated,
-            }
-            for section in digest.sections
-        ],
-        "source_refs": [source_ref_to_response(ref) for ref in digest.source_refs],
-        "token_estimate": digest.token_estimate,
-        "diagnostics": _digest_diagnostics_to_response(digest.diagnostics),
-    }
-
-
-def _empty_digest_response(
-    *,
-    topic: str,
-    policy_mode: str,
-    request_id: str,
-    scope_not_found: bool = False,
-) -> dict[str, Any]:
-    diagnostics: dict[str, object] = {
-        "policy_mode": policy_mode,
-        "retrieval_disabled": True,
-        "evidence_only": True,
-    }
-    if scope_not_found:
-        diagnostics = {
-            "policy_mode": policy_mode,
-            "scope_not_found": True,
-            "retrieval_disabled": False,
-            "evidence_only": True,
-        }
-    return {
-        "meta": {"request_id": request_id},
-        "data": {
-            "digest_id": "dig_disabled" if not scope_not_found else "dig_scope_not_found",
-            "topic": safe_public_text(topic, limit=500),
-            "rendered_markdown": "",
-            "sections": [],
-            "source_refs": [],
-            "token_estimate": 0,
-            "diagnostics": _digest_diagnostics_to_response(diagnostics),
-        },
-    }
-
-
-def _digest_diagnostics_to_response(diagnostics: object) -> dict[str, Any]:
-    response = safe_public_metadata(diagnostics)
-    if not isinstance(diagnostics, dict):
-        return response
-    for key in _DIGEST_CONTRACT_DIAGNOSTIC_KEYS:
-        if key not in diagnostics:
-            continue
-        safe_value = safe_public_metadata({key: diagnostics[key]}, max_items=1)
-        if key in safe_value:
-            response[key] = safe_value[key]
     return response
 
 
