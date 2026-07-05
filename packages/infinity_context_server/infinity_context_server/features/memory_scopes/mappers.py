@@ -14,6 +14,10 @@ from infinity_context_contracts.features.memory_scopes import (
     ScopeIdentityDto,
 )
 
+from infinity_context_server.features.memory_scopes.compatibility import (
+    create_memory_scope_contract_from_http_request,
+    memory_scope_to_response,
+)
 from infinity_context_server.features.memory_scopes.contracts import (
     ArchiveMemoryScopeHttpRequest,
     MemoryScopeActorHttpRequest,
@@ -40,21 +44,6 @@ def create_memory_scope_command_from_contract(
         external_ref=_required_text(request.external_ref, "external_ref"),
         description=_optional_text(request.description),
         idempotency_key=_optional_text(request.idempotency_key),
-    )
-
-
-def create_memory_scope_contract_from_http_request(
-    request: object,
-) -> CreateMemoryScopeRequestDto:
-    """Map a legacy-compatible HTTP request into the public scope contract."""
-
-    return CreateMemoryScopeRequestDto(
-        space_id=_required_text(_value(request, "space_id", None), "space_id"),
-        external_ref=_required_text(
-            _value(request, "external_ref", None),
-            "external_ref",
-        ),
-        name=_required_text(_value(request, "name", None), "name"),
     )
 
 
@@ -172,21 +161,6 @@ def create_memory_scope_result_to_contract(
     )
 
 
-def memory_scope_to_response(memory_scope: object) -> dict[str, Any]:
-    return {
-        "id": str(_required_value(memory_scope, "id")),
-        "space_id": str(_required_value(memory_scope, "space_id")),
-        "external_ref": _required_text(
-            _value(memory_scope, "external_ref", None),
-            "external_ref",
-        ),
-        "name": _required_text(_value(memory_scope, "name", None), "name"),
-        "status": _enum_or_text(_value(memory_scope, "status", "active")),
-        "created_at": _datetime_to_string(_required_value(memory_scope, "created_at")),
-        "updated_at": _datetime_to_string(_required_value(memory_scope, "updated_at")),
-    }
-
-
 def transfer_memory_scope_ownership_result_to_response(
     result: memory_scopes.TransferMemoryScopeOwnershipResult,
 ) -> dict[str, Any]:
@@ -296,11 +270,6 @@ def _datetime_to_string(value: datetime | None) -> str | None:
     if value is None:
         return None
     return value.isoformat()
-
-
-def _enum_or_text(value: object) -> str:
-    raw = getattr(value, "value", value)
-    return str(raw)
 
 
 __all__ = (

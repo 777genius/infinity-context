@@ -11,7 +11,7 @@ from infinity_context_core.application import (
     DeleteMemoryScopeCommand,
     UpdateMemoryScopeCommand,
 )
-from infinity_context_core.domain.entities import MemoryScope, MemoryScopeId, MemorySpace, SpaceId
+from infinity_context_core.domain.entities import MemoryScopeId, MemorySpace, SpaceId
 from infinity_context_core.domain.errors import MemoryValidationError
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -31,19 +31,8 @@ class CreateSpaceRequest(BaseModel):
     name: str = Field(min_length=1, max_length=240)
 
 
-class CreateMemoryScopeRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    space_id: str = Field(min_length=1, max_length=80)
-    external_ref: str = Field(min_length=1, max_length=200)
-    name: str = Field(min_length=1, max_length=240)
-
-
-class UpdateMemoryScopeRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    external_ref: str | None = Field(default=None, min_length=1, max_length=200)
-    name: str | None = Field(default=None, min_length=1, max_length=240)
+CreateMemoryScopeRequest = memory_scopes_feature.CreateMemoryScopeRequest
+UpdateMemoryScopeRequest = memory_scopes_feature.UpdateMemoryScopeRequest
 
 
 def space_to_response(space: MemorySpace) -> dict[str, Any]:
@@ -57,7 +46,7 @@ def space_to_response(space: MemorySpace) -> dict[str, Any]:
     }
 
 
-def memory_scope_to_response(memory_scope: MemoryScope) -> dict[str, Any]:
+def memory_scope_to_response(memory_scope: object) -> dict[str, Any]:
     return memory_scopes_feature.memory_scope_to_response(memory_scope)
 
 
@@ -92,19 +81,21 @@ async def create_memory_scope(
     response: Response,
 ) -> dict[str, Any]:
     ensure_server_writes_enabled(container)
-    contract = memory_scopes_feature.create_memory_scope_contract_from_http_request(
-        request,
+    command_payload = (
+        memory_scopes_feature.create_memory_scope_compatibility_command_from_request(
+            request,
+        )
     )
     result = await container.create_memory_scope.execute(
         CreateMemoryScopeCommand(
-            space_id=SpaceId(contract.space_id or ""),
-            external_ref=contract.external_ref,
-            name=contract.name,
+            space_id=SpaceId(command_payload.space_id),
+            external_ref=command_payload.external_ref,
+            name=command_payload.name,
         )
     )
     if not result.created:
         response.status_code = status.HTTP_200_OK
-    return {"data": memory_scope_to_response(result.memory_scope)}
+    return memory_scopes_feature.memory_scope_compatibility_response(result.memory_scope)
 
 
 @router.get("/memory-scopes")
@@ -117,7 +108,9 @@ async def list_memory_scopes(
         space_id=SpaceId(space_id),
         limit=limit,
     )
-    return {"data": [memory_scope_to_response(memory_scope) for memory_scope in memory_scopes]}
+    return memory_scopes_feature.memory_scope_collection_compatibility_response(
+        memory_scopes,
+    )
 
 
 @router.patch("/memory-scopes/{memory_scope_id}")
@@ -127,16 +120,23 @@ async def update_memory_scope(
     container: Annotated[Container, Depends(get_container)],
 ) -> dict[str, Any]:
     ensure_server_writes_enabled(container)
-    if request.external_ref is None and request.name is None:
-        raise MemoryValidationError("At least one memory_scope field is required")
+    try:
+        command_payload = (
+            memory_scopes_feature.update_memory_scope_compatibility_command_from_request(
+                memory_scope_id,
+                request,
+            )
+        )
+    except ValueError as exc:
+        raise MemoryValidationError(str(exc)) from exc
     result = await container.update_memory_scope.execute(
         UpdateMemoryScopeCommand(
-            memory_scope_id=MemoryScopeId(memory_scope_id),
-            external_ref=request.external_ref,
-            name=request.name,
+            memory_scope_id=MemoryScopeId(command_payload.memory_scope_id),
+            external_ref=command_payload.external_ref,
+            name=command_payload.name,
         )
     )
-    return {"data": memory_scope_to_response(result.memory_scope)}
+    return memory_scopes_feature.memory_scope_compatibility_response(result.memory_scope)
 
 
 @router.delete("/memory-scopes/{memory_scope_id}")
@@ -145,7 +145,14 @@ async def delete_memory_scope(
     container: Annotated[Container, Depends(get_container)],
 ) -> dict[str, Any]:
     ensure_server_writes_enabled(container)
-    result = await container.delete_memory_scope.execute(
-        DeleteMemoryScopeCommand(memory_scope_id=MemoryScopeId(memory_scope_id))
+    command_payload = (
+        memory_scopes_feature.delete_memory_scope_compatibility_command_from_path(
+            memory_scope_id,
+        )
     )
-    return {"data": memory_scope_to_response(result.memory_scope)}
+    result = await container.delete_memory_scope.execute(
+        DeleteMemoryScopeCommand(
+            memory_scope_id=MemoryScopeId(command_payload.memory_scope_id)
+        )
+    )
+    return memory_scopes_feature.memory_scope_compatibility_response(result.memory_scope)

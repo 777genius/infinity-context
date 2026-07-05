@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, status
 import infinity_context_core.features.memory_scopes.public as memory_scopes
+from fastapi import APIRouter, HTTPException, status
 
 from infinity_context_server.features.memory_scopes.contracts import (
     ArchiveMemoryScopeHttpRequest,

@@ -190,6 +190,37 @@ def test_update_memory_scope_rejects_duplicate_ref(tmp_path: Path) -> None:
     assert duplicate.json()["error"]["code"] == "memory.conflict"
 
 
+def test_update_memory_scope_rejects_empty_patch(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        space = client.post(
+            "/v1/spaces",
+            json={"slug": "client-app", "name": "Client App"},
+            headers=auth_headers(),
+        )
+        memory_scope = client.post(
+            "/v1/memory-scopes",
+            json={
+                "space_id": space.json()["data"]["id"],
+                "external_ref": "default",
+                "name": "Default",
+            },
+            headers=auth_headers(),
+        )
+
+        empty_patch = client.patch(
+            f"/v1/memory-scopes/{memory_scope.json()['data']['id']}",
+            json={},
+            headers=auth_headers(),
+        )
+
+    assert empty_patch.status_code == 400
+    assert empty_patch.json()["error"] == {
+        "code": "memory.validation",
+        "message": "At least one memory_scope field is required",
+        "retryable": False,
+    }
+
+
 def test_disabled_policy_blocks_space_memory_scope_writes(tmp_path: Path) -> None:
     with make_client(tmp_path, policy_mode=MemoryPolicyMode.DISABLED) as client:
         response = client.post(

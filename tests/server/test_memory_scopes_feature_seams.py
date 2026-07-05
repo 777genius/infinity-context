@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import ast
 import asyncio
+from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import infinity_context_core.features.memory_scopes.public as memory_scopes
 import pytest
@@ -123,21 +125,30 @@ def test_memory_scopes_server_feature_public_surface_composes_router() -> None:
     assert server_public.FEATURE_ID == "memory_scopes"
     assert server_public.__all__ == (
         "ArchiveMemoryScopeHttpRequest",
+        "CreateMemoryScopeCompatibilityCommand",
         "CreateMemoryScopeHttpRequest",
+        "CreateMemoryScopeRequest",
+        "DeleteMemoryScopeCompatibilityCommand",
         "MemoryScopeActorHttpRequest",
         "MemoryScopeLifecycleHttpRequest",
         "MemoryScopeOwnerHttpRequest",
         "MemoryScopesServerFeature",
         "RestoreMemoryScopeHttpRequest",
         "TransferMemoryScopeOwnershipHttpRequest",
+        "UpdateMemoryScopeCompatibilityCommand",
+        "UpdateMemoryScopeRequest",
         "FEATURE_ID",
         "archive_memory_scope_command_from_http",
         "archive_memory_scope_result_to_response",
         "build_memory_scopes_server_feature",
+        "create_memory_scope_compatibility_command_from_request",
         "create_memory_scope_command_from_contract",
         "create_memory_scope_contract_from_http_request",
         "create_memory_scope_result_to_contract",
         "create_memory_scopes_router",
+        "delete_memory_scope_compatibility_command_from_path",
+        "memory_scope_collection_compatibility_response",
+        "memory_scope_compatibility_response",
         "memory_scope_actor_from_http",
         "memory_scope_owner_from_http",
         "memory_scope_snapshot_to_contract",
@@ -146,6 +157,7 @@ def test_memory_scopes_server_feature_public_surface_composes_router() -> None:
         "restore_memory_scope_result_to_response",
         "transfer_memory_scope_ownership_command_from_http",
         "transfer_memory_scope_ownership_result_to_response",
+        "update_memory_scope_compatibility_command_from_request",
     )
     assert {route.path for route in feature.create_router().routes} == {
         "/memory-scopes-feature/memory-scopes",
@@ -281,6 +293,101 @@ def test_memory_scopes_mapper_requires_resolved_scope_ids() -> None:
 
     with pytest.raises(ValueError, match="space_id is required"):
         server_public.create_memory_scope_command_from_contract(request, owner=owner)
+
+
+def test_memory_scopes_feature_owns_legacy_v1_memory_scope_api_mapping() -> None:
+    api_path = (
+        REPO_ROOT
+        / "packages"
+        / "infinity_context_server"
+        / "infinity_context_server"
+        / "api"
+        / "v1"
+        / "spaces_memory_scopes.py"
+    )
+    api_tree = ast.parse(api_path.read_text(encoding="utf-8"), filename=str(api_path))
+    api_class_names = {
+        node.name for node in ast.walk(api_tree) if isinstance(node, ast.ClassDef)
+    }
+
+    assert "CreateMemoryScopeRequest" not in api_class_names
+    assert "UpdateMemoryScopeRequest" not in api_class_names
+
+    create_request = server_public.CreateMemoryScopeRequest(
+        space_id="space_1",
+        external_ref="default",
+        name="Default",
+    )
+    create_command = (
+        server_public.create_memory_scope_compatibility_command_from_request(
+            create_request,
+        )
+    )
+
+    assert create_command == server_public.CreateMemoryScopeCompatibilityCommand(
+        space_id="space_1",
+        external_ref="default",
+        name="Default",
+    )
+
+    update_request = server_public.UpdateMemoryScopeRequest(
+        external_ref="sales-crm",
+        name="Sales CRM",
+    )
+    update_command = (
+        server_public.update_memory_scope_compatibility_command_from_request(
+            "scope_1",
+            update_request,
+        )
+    )
+    delete_command = server_public.delete_memory_scope_compatibility_command_from_path(
+        "scope_1",
+    )
+
+    assert update_command == server_public.UpdateMemoryScopeCompatibilityCommand(
+        memory_scope_id="scope_1",
+        external_ref="sales-crm",
+        name="Sales CRM",
+    )
+    assert delete_command == server_public.DeleteMemoryScopeCompatibilityCommand(
+        memory_scope_id="scope_1",
+    )
+    with pytest.raises(ValueError, match="At least one memory_scope field is required"):
+        server_public.update_memory_scope_compatibility_command_from_request(
+            "scope_1",
+            server_public.UpdateMemoryScopeRequest(),
+        )
+
+
+def test_memory_scopes_feature_owns_legacy_v1_memory_scope_api_responses() -> None:
+    created_at = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
+    updated_at = datetime(2026, 1, 3, 4, 5, 6, tzinfo=UTC)
+    scope = SimpleNamespace(
+        id="scope_1",
+        space_id="space_1",
+        external_ref="default",
+        name="Default",
+        status="active",
+        created_at=created_at,
+        updated_at=updated_at,
+    )
+    expected_scope = {
+        "id": "scope_1",
+        "space_id": "space_1",
+        "external_ref": "default",
+        "name": "Default",
+        "status": "active",
+        "created_at": created_at.isoformat(),
+        "updated_at": updated_at.isoformat(),
+    }
+
+    assert server_public.memory_scope_to_response(scope) == expected_scope
+    assert server_public.memory_scope_compatibility_response(scope) == {
+        "data": expected_scope,
+    }
+    assert server_public.memory_scope_collection_compatibility_response([scope]) == {
+        "data": [expected_scope],
+    }
 
 
 def test_memory_scopes_routes_map_http_contracts_to_feature_use_cases() -> None:

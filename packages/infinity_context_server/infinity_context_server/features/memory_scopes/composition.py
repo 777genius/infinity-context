@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from fastapi import APIRouter
 import infinity_context_core.features.memory_scopes.public as memory_scopes
+from fastapi import APIRouter
 
 from infinity_context_server.features.memory_scopes.routes import (
     create_memory_scopes_router,
