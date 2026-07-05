@@ -5,6 +5,11 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from infinity_context_server.memory_comparison_source_identity import (
+    safe_item_id_for_output,
+    safe_source_refs_for_output,
+)
+
 
 def preview_value(value: object, *, max_chars: int = 240) -> str:
     if value is None:
@@ -152,8 +157,7 @@ def _item_source_ref_evidence_parts(item: Mapping[str, object]) -> list[str]:
 
 def _source_ref_evidence_parts(ref: object) -> list[str]:
     if isinstance(ref, str):
-        text = ref.strip()
-        return [text[:320]] if text else []
+        return _safe_source_ref_text_parts(ref)
     if not isinstance(ref, Mapping):
         return []
     parts: list[str] = []
@@ -161,6 +165,25 @@ def _source_ref_evidence_parts(ref: object) -> list[str]:
         value = ref.get(key)
         if isinstance(value, str):
             text = value.strip()
-            if text:
+            if not text:
+                continue
+            if key == "source_type":
+                source_type = safe_item_id_for_output(text)
+                if source_type:
+                    parts.append(source_type[:80])
+            elif key == "quote_preview":
                 parts.append(text[:320])
+            else:
+                parts.extend(_safe_source_ref_text_parts(text))
     return parts
+
+
+def _safe_source_ref_text_parts(value: object) -> list[str]:
+    text = str(value or "").strip()
+    if not text:
+        return []
+    refs = safe_source_refs_for_output((text,))
+    if refs:
+        return [ref[:320] for ref in refs]
+    item_id = safe_item_id_for_output(text)
+    return [item_id[:320]] if item_id else []

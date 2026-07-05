@@ -47,6 +47,9 @@ from infinity_context_server.memory_comparison_quality_accessors import (
 from infinity_context_server.memory_comparison_quality_accessors import (
     top_signal_values as _top_signal_values,
 )
+from infinity_context_server.memory_comparison_source_identity import (
+    safe_item_id_for_output as _safe_item_id_for_output,
+)
 
 
 def rerank_signal_gap_breakdown(
@@ -291,7 +294,7 @@ def _positive_unselected_rerank_sample(
         diagnostics=diagnostics,
         score_signals=score_signals,
     )
-    sample["selected_item_ids"] = list(selected_item_ids[:8])
+    sample["selected_item_ids"] = _safe_rerank_item_ids(selected_item_ids, limit=8)
     return sample
 
 
@@ -314,7 +317,7 @@ def _selected_without_positive_rerank_sample(
     sample: dict[str, object] = {
         "case_id": str(item.get("case_id") or ""),
         "group": str(item.get("group") or ""),
-        "item_id": _bundle_item_id(selected_item),
+        "item_id": _safe_item_id_for_output(_bundle_item_id(selected_item)),
         "reason": reason,
         "matched_retrieval_candidate": matched_memory is not None,
         "role": str(selected_item.get("role") or ""),
@@ -353,7 +356,7 @@ def _rerank_gap_candidate_sample(
     sample: dict[str, object] = {
         "case_id": str(item.get("case_id") or ""),
         "group": str(item.get("group") or ""),
-        "item_id": _memory_id(memory),
+        "item_id": _safe_item_id_for_output(_memory_id(memory)),
         "rank": _positive_int(memory.get("rank")) or 0,
         "score": round(_metric_value(memory, "score"), 6),
         "benchmark_rerank_boosted": diagnostics.get("benchmark_rerank_boosted")
@@ -396,6 +399,17 @@ def _candidate_lifted(diagnostics: Mapping[str, object]) -> bool:
 
 def _bundle_item_id(selected_item: Mapping[str, object]) -> str:
     return str(selected_item.get("id") or selected_item.get("item_id") or "").strip()
+
+
+def _safe_rerank_item_ids(values: Sequence[str], *, limit: int) -> list[str]:
+    item_ids: list[str] = []
+    for raw_value in values:
+        item_id = _safe_item_id_for_output(raw_value)
+        if item_id and item_id not in item_ids:
+            item_ids.append(item_id)
+        if len(item_ids) >= limit:
+            break
+    return item_ids
 
 
 def _visible_signal_values(

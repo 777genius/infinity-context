@@ -30,6 +30,9 @@ from infinity_context_server.memory_comparison_quality_accessors import (
 from infinity_context_server.memory_comparison_quality_accessors import (
     top_counts as _top_counts,
 )
+from infinity_context_server.memory_comparison_source_identity import (
+    safe_item_id_for_output as _safe_item_id_for_output,
+)
 
 _SAFE_SOURCE_IDENTITY_REF_RE = re.compile(
     r"^(?:(?P<turn_prefix>source_turn_refs):(?P<turn_ref>D\d+:\d+)|"
@@ -246,7 +249,12 @@ def _support_gap_sample(
 
 
 def _answer_context_sample_identity(context: Mapping[str, object]) -> dict[str, object]:
-    item_ids = _str_tuple(context.get("item_ids"))[:8]
+    item_ids = tuple(
+        item_id
+        for raw_item_id in _str_tuple(context.get("item_ids"))
+        for item_id in (_safe_item_id_for_output(raw_item_id),)
+        if item_id
+    )[:8]
     retrieval_orders = tuple(
         order
         for raw_order in _sequence(context.get("retrieval_orders"))

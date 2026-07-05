@@ -29,6 +29,12 @@ _SAFE_SOURCE_IDENTITY_REF_RE = re.compile(
 _MAX_SAFE_SOURCE_IDENTITY_REF_LENGTH = 80
 _MAX_SAFE_TURN_REF_LENGTH = 32
 _MAX_SAFE_GENERIC_SOURCE_REF_LENGTH = 128
+_MAX_SAFE_ITEM_ID_LENGTH = 128
+_INSTRUCTION_LIKE_ITEM_ID_RE = re.compile(
+    r"\b(?:ignore\s+previous\s+instructions|reveal\s+(?:the\s+)?"
+    r"(?:system|developer)\s+prompt|system\s+prompt|developer\s+message)\b",
+    re.IGNORECASE,
+)
 
 
 def safe_source_identity_ref(value: object) -> str | None:
@@ -71,6 +77,17 @@ def safe_source_refs_for_output(source_refs: Sequence[str]) -> tuple[str, ...]:
 def looks_like_raw_source_ref(value: object) -> bool:
     """Return true for provider/private source references that must not be emitted."""
     return _looks_like_raw_ref(str(value or "").strip())
+
+
+def safe_item_id_for_output(value: object) -> str:
+    item_id = str(value or "").strip()
+    if not item_id:
+        return ""
+    if _looks_like_raw_ref(item_id) or _INSTRUCTION_LIKE_ITEM_ID_RE.search(item_id):
+        return ""
+    if len(item_id) > _MAX_SAFE_ITEM_ID_LENGTH:
+        return f"{item_id[: _MAX_SAFE_ITEM_ID_LENGTH - 3]}..."
+    return item_id
 
 
 def source_identity_refs_from_dedupe_key(value: object) -> tuple[str, ...]:
@@ -309,10 +326,12 @@ def _identity_refs_from_source_ref_values(values: Iterable[object]) -> tuple[str
 
 def _safe_generic_source_ref(value: object) -> str | None:
     ref = str(value or "").strip()
-    if not ref or len(ref) > _MAX_SAFE_GENERIC_SOURCE_REF_LENGTH:
+    if not ref:
         return None
     if _looks_like_raw_ref(ref):
         return None
+    if len(ref) > _MAX_SAFE_GENERIC_SOURCE_REF_LENGTH:
+        return f"{ref[: _MAX_SAFE_GENERIC_SOURCE_REF_LENGTH - 3]}..."
     return ref
 
 

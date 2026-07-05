@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
+from infinity_context_server.memory_comparison_source_identity import (
+    safe_source_refs_for_output as _safe_source_refs_for_output,
+)
+
 _TEMPORAL_EVIDENCE_NEEDS = frozenset(
     {
         "temporal_support",
@@ -608,7 +612,9 @@ def bundle_support_audit_items(
                 "has_substantive_support": _bundle_item_has_substantive_support(item),
                 "answerability_score": _float_value(item.get("answerability_score")),
                 "source_locality_score": _float_value(item.get("source_locality_score")),
-                "source_refs": _bounded_str_tuple(item.get("source_refs")),
+                "source_refs": _safe_source_refs_for_output(
+                    _bounded_str_tuple(item.get("source_refs"))
+                ),
                 "covered_evidence_terms": _bounded_str_tuple(
                     item.get("covered_evidence_terms")
                 ),

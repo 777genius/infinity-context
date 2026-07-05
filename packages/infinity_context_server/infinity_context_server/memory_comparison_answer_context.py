@@ -36,6 +36,9 @@ from infinity_context_server.memory_comparison_candidate_risks import (
 )
 from infinity_context_server.memory_comparison_models import RetrievedMemory
 from infinity_context_server.memory_comparison_source_identity import (
+    safe_item_id_for_output as _safe_item_id_for_output,
+)
+from infinity_context_server.memory_comparison_source_identity import (
     safe_source_identity_ref as _safe_source_identity_ref,
 )
 from infinity_context_server.memory_comparison_source_identity import (
@@ -55,7 +58,6 @@ _SOURCE_TURN_REF_PREFIXES = ("source_turn_refs:", "source_session_turn_refs:")
 _MAX_CONTEXT_SOURCE_IDENTITY_REFS = 8
 _MAX_CONTEXT_SOURCE_IDENTITY_REFS_PER_ITEM = 4
 _MAX_CONTEXT_SOURCE_IDENTITY_ITEMS = 8
-_MAX_CONTEXT_ITEM_ID_LENGTH = 128
 
 
 @dataclass(frozen=True)
@@ -2504,55 +2506,7 @@ def _compacted_fusion_source_ref_stats(memory: RetrievedMemory) -> dict[str, int
 
 
 def _safe_diagnostic_item_id(value: object) -> str:
-    item_id = str(value or "").strip()
-    if not item_id or len(item_id) > _MAX_CONTEXT_ITEM_ID_LENGTH:
-        return ""
-    if _looks_like_raw_provider_ref(item_id):
-        return ""
-    return item_id
-
-
-def _looks_like_raw_provider_ref(value: str) -> bool:
-    text = value.lower()
-    if "locomo:" in text or "conv-private" in text or "turn-secret" in text:
-        return True
-    if any(
-        text.startswith(prefix)
-        for prefix in (
-            "backend:",
-            "graphiti:",
-            "mem0:",
-            "memory://",
-            "openai:",
-            "provider:",
-            "provider-ref-",
-            "qdrant:",
-        )
-    ):
-        return True
-    return any(
-        marker in text
-        for marker in (
-            "access-token",
-            "access_token",
-            "api-key",
-            "api_key",
-            "auth-private",
-            "auth-payload",
-            "auth_payload",
-            "bearer-token",
-            "bearer_token",
-            "private-token",
-            "private_token",
-            "private-auth",
-            "provider-auth",
-            "provider-secret",
-            "provider_payload",
-            "raw_provider",
-            "refresh-token",
-            "refresh_token",
-        )
-    )
+    return _safe_item_id_for_output(value)
 
 
 def _backfill_risk_stats(memories: Sequence[RetrievedMemory]) -> dict[str, object]:

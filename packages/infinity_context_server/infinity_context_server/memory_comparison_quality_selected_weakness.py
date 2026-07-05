@@ -34,6 +34,9 @@ from infinity_context_server.memory_comparison_source_identity import (
     looks_like_raw_source_ref as _looks_like_raw_source_ref,
 )
 from infinity_context_server.memory_comparison_source_identity import (
+    safe_item_id_for_output as _safe_item_id_for_output,
+)
+from infinity_context_server.memory_comparison_source_identity import (
     safe_source_refs_for_output as _safe_source_refs_for_output,
 )
 
@@ -256,7 +259,9 @@ def _selected_evidence_weakness_sample(
         "case_id": _compact_sample_text(case_id),
         "group": _compact_sample_text(group),
         "item_id": _compact_sample_text(
-            str(bundle_item.get("id") or bundle_item.get("item_id") or "")
+            _safe_item_id_for_output(
+                bundle_item.get("id") or bundle_item.get("item_id")
+            )
         ),
         "role": _compact_sample_text(role),
         "query_roles": _sample_value_list(compact_query_roles)[
