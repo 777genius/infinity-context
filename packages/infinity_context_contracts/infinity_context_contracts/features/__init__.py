@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
-from . import memory_facts
+from . import context_building, document_ingestion, memory_facts, memory_scopes
 
-__all__ = ["memory_facts"]
+__all__ = [
+    "context_building",
+    "document_ingestion",
+    "memory_facts",
+    "memory_scopes",
+]
