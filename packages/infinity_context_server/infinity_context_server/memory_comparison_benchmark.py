@@ -2372,6 +2372,9 @@ def _compact_actionable_gaps(
             value_text = str(gap.get(key) or "").strip()
             if value_text:
                 compact[key] = value_text
+        action = _compact_actionable_gap_action(gap.get("action"))
+        if action:
+            compact["action"] = action
         sample_case_ids = list(_str_tuple(gap.get("sample_case_ids")))[:3]
         if sample_case_ids:
             compact["sample_case_ids"] = sample_case_ids
@@ -2380,6 +2383,15 @@ def _compact_actionable_gaps(
         if len(gaps) >= limit:
             break
     return gaps
+
+
+def _compact_actionable_gap_action(value: object, *, limit: int = 180) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if len(text) <= limit:
+        return text
+    return f"{text[: limit - 3]}..."
 
 
 def _compact_answerability_gap_samples(

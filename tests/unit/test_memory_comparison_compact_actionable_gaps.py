@@ -19,7 +19,7 @@ def _ranked_gap(index: int) -> dict[str, object]:
             f"case-{index}-3",
             f"case-{index}-4",
         ],
-        "action": "Verbose remediation text stays out of compact summaries.",
+        "action": "Inspect this gap and adjust the matching policy.",
         "samples": [{"case_id": f"case-{index}-1", "text": "fixture detail"}],
         "evidence": {"sample": "diagnostic detail"},
     }
@@ -40,12 +40,30 @@ def test_compact_actionable_gaps_bounds_and_excludes_verbose_fields() -> None:
         "gap": "gap-1",
         "failed_gate": "query_plan_evidence_roles_clear",
         "source_metric": "query_plan_gap_breakdown.reason_counts",
+        "action": "Inspect this gap and adjust the matching policy.",
         "sample_case_ids": ["case-1-1", "case-1-2", "case-1-3"],
     }
     assert compact[-1]["gap"] == "gap-5"
-    assert all("action" not in gap for gap in compact)
     assert all("samples" not in gap for gap in compact)
     assert all("evidence" not in gap for gap in compact)
+
+
+def test_compact_actionable_gaps_keeps_bounded_action_text() -> None:
+    long_action = "x" * 220
+    compact = benchmark._compact_actionable_gaps(
+        [
+            {
+                "rank": 1,
+                "impact_count": 1,
+                "category": "query_plan",
+                "gap": "missing_bridge",
+                "action": long_action,
+            }
+        ]
+    )
+
+    assert compact[0]["action"] == f"{long_action[:177]}..."
+    assert len(compact[0]["action"]) == 180
 
 
 def test_compact_fast_gate_summary_surfaces_bounded_actionable_gaps(
@@ -80,8 +98,8 @@ def test_compact_fast_gate_summary_surfaces_bounded_actionable_gaps(
         "gap": "gap-1",
         "failed_gate": "query_plan_evidence_roles_clear",
         "source_metric": "query_plan_gap_breakdown.reason_counts",
+        "action": "Inspect this gap and adjust the matching policy.",
         "sample_case_ids": ["case-1-1", "case-1-2", "case-1-3"],
     }
-    assert all("action" not in gap for gap in summary["top_actionable_gaps"])
     assert all("samples" not in gap for gap in summary["top_actionable_gaps"])
     assert all("evidence" not in gap for gap in summary["top_actionable_gaps"])
