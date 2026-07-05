@@ -51,6 +51,7 @@ _SENSITIVE_VALUE_PATTERNS = (
 )
 _USERINFO_PATTERN = re.compile(r"(https?://)[^/@\s]+@")
 JsonScalar = str | int | float | bool | None
+JsonGraphValue = JsonScalar | list[JsonScalar] | dict[str, JsonScalar | list[JsonScalar]]
 
 
 class McpPublicModel(BaseModel):
@@ -398,7 +399,7 @@ class MemoryGraphNodeData(McpDataModel):
     id: str
     type: str
     label: str
-    data: dict[str, JsonScalar] = Field(default_factory=dict)
+    data: dict[str, JsonGraphValue] = Field(default_factory=dict)
 
 
 class MemoryGraphEdgeData(McpDataModel):
@@ -407,7 +408,7 @@ class MemoryGraphEdgeData(McpDataModel):
     source: str
     target: str
     label: str
-    data: dict[str, JsonScalar] = Field(default_factory=dict)
+    data: dict[str, JsonGraphValue] = Field(default_factory=dict)
 
 
 class MemoryGraphExportData(McpDataModel):

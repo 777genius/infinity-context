@@ -442,7 +442,11 @@ def context_bundle_from_response(payload: Mapping[str, object]) -> ContextBundle
     )
     return ContextBundle(
         bundle_id=_safe_text(data.get("bundle_id"), default=""),
-        rendered_text=_safe_text(data.get("rendered_text"), default="", limit=120_000),
+        rendered_text=_safe_text(
+            data.get("rendered_text") or data.get("rendered_context"),
+            default="",
+            limit=120_000,
+        ),
         items=items,
         diagnostics=_bundle_diagnostics_from_payload(data.get("diagnostics")),
         meta=meta,
@@ -576,22 +580,37 @@ def _answer_support_from_payload(payload: object) -> ContextAnswerSupport:
 
 def _context_item_from_payload(payload: Mapping[str, object]) -> ContextItem:
     diagnostics = _item_diagnostics_from_payload(payload.get("diagnostics"))
+    item_type = _safe_text(payload.get("item_type") or payload.get("kind"), default="")
+    source_ref_payloads = _payload_mappings(payload.get("source_refs")) or _payload_mappings(
+        payload.get("evidence")
+    )
+    citation_payloads = _payload_mappings(payload.get("citations"))
+    citations = (
+        tuple(
+            _citation_from_payload(citation)
+            for citation in citation_payloads[:MAX_SOURCE_REFS]
+        )
+        if citation_payloads
+        else tuple(
+            _citation_from_evidence_payload(
+                evidence,
+                item_type=item_type,
+                index=index,
+            )
+            for index, evidence in enumerate(source_ref_payloads[:MAX_SOURCE_REFS])
+        )
+    )
     return ContextItem(
-        item_id=_safe_text(payload.get("item_id"), default=""),
-        item_type=_safe_text(payload.get("item_type"), default=""),
+        item_id=_safe_text(payload.get("item_id") or payload.get("id"), default=""),
+        item_type=item_type,
         memory_scope_id=_optional_text(payload.get("memory_scope_id")),
         text=_safe_text(payload.get("text"), default="", limit=120_000),
         score=_safe_float(payload.get("score")),
         source_refs=tuple(
             _source_ref_from_payload(ref)
-            for ref in _as_list(payload.get("source_refs"))[:MAX_SOURCE_REFS]
-            if isinstance(ref, Mapping)
+            for ref in source_ref_payloads[:MAX_SOURCE_REFS]
         ),
-        citations=tuple(
-            _citation_from_payload(citation)
-            for citation in _as_list(payload.get("citations"))[:MAX_SOURCE_REFS]
-            if isinstance(citation, Mapping)
-        ),
+        citations=citations,
         is_instruction=bool(payload.get("is_instruction")),
         diagnostics=diagnostics,
     )
@@ -622,21 +641,50 @@ def _citation_from_payload(payload: Mapping[str, object]) -> ContextCitation:
         source_id=_safe_text(payload.get("source_id"), default=""),
         chunk_id=_optional_text(payload.get("chunk_id")),
         quote_preview=_optional_text(payload.get("quote_preview")),
-        char_start=_optional_int(char_range.get("start")),
-        char_end=_optional_int(char_range.get("end")),
+        char_start=_first_optional_int(char_range.get("start"), payload.get("char_start")),
+        char_end=_first_optional_int(char_range.get("end"), payload.get("char_end")),
         page_number=_optional_int(payload.get("page_number")),
-        time_start_ms=_optional_int(time_range_ms.get("start")),
-        time_end_ms=_optional_int(time_range_ms.get("end")),
+        time_start_ms=_first_optional_int(
+            time_range_ms.get("start"),
+            payload.get("time_start_ms"),
+        ),
+        time_end_ms=_first_optional_int(time_range_ms.get("end"), payload.get("time_end_ms")),
         bbox=_optional_bbox(payload.get("bbox")),
         evidence_kind=_optional_text(payload.get("evidence_kind"), limit=MAX_KEY_CHARS),
         evidence_modality=_optional_text(payload.get("evidence_modality"), limit=MAX_KEY_CHARS),
-        evidence_confidence=_optional_float(payload.get("evidence_confidence")),
+        evidence_confidence=_optional_float(
+            payload.get("evidence_confidence", payload.get("score"))
+        ),
         retrieval_source=_optional_text(payload.get("retrieval_source"), limit=MAX_KEY_CHARS),
         ranking_reason=_optional_text(
             payload.get("ranking_reason"),
             limit=MAX_RANKING_REASON_CHARS,
         ),
     )
+
+
+def _citation_from_evidence_payload(
+    payload: Mapping[str, object],
+    *,
+    item_type: str,
+    index: int,
+) -> ContextCitation:
+    source_type = _safe_text(payload.get("source_type"), default="source", limit=MAX_KEY_CHARS)
+    source_id = _safe_text(
+        payload.get("source_id") or payload.get("document_id") or payload.get("fact_id"),
+        default=f"evidence_{index}",
+        limit=MAX_STRING_CHARS,
+    )
+    citation_payload = {
+        **payload,
+        "citation_id": payload.get("citation_id") or f"{source_type}:{source_id}:{index}",
+        "label": payload.get("label") or f"{source_type}:{source_id}",
+        "source_type": source_type,
+        "source_id": source_id,
+    }
+    if item_type and "evidence_kind" not in citation_payload:
+        citation_payload["evidence_kind"] = item_type
+    return _citation_from_payload(citation_payload)
 
 
 def _item_diagnostics_from_payload(value: object) -> ContextItemDiagnostics:
@@ -1333,6 +1381,18 @@ def _safe_review_resolution_options(value: object) -> tuple[Mapping[str, str], .
         if len(options) >= MAX_LIST_ITEMS:
             break
     return tuple(options)
+
+
+def _payload_mappings(value: object) -> list[Mapping[str, object]]:
+    return [item for item in _as_list(value) if isinstance(item, Mapping)]
+
+
+def _first_optional_int(*values: object) -> int | None:
+    for value in values:
+        parsed = _optional_int(value)
+        if parsed is not None:
+            return parsed
+    return None
 
 
 def _optional_int(value: object) -> int | None:

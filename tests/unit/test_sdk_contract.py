@@ -4,7 +4,12 @@ from dataclasses import fields
 import httpx
 import infinity_context_sdk._payloads as sdk_payloads
 import pytest
-from infinity_context_contracts.features.context_building import BuildContextRequestDto
+from infinity_context_contracts.features.context_building import (
+    BuildContextRequestDto,
+    BuildContextResultDto,
+    ContextEvidenceDto,
+    ContextItemDto,
+)
 from infinity_context_contracts.features.document_ingestion import IngestDocumentRequestDto
 from infinity_context_contracts.features.memory_facts import (
     RememberFactRequestDto,
@@ -295,6 +300,50 @@ def test_sdk_context_payload_uses_feature_contract_and_keeps_legacy_shape() -> N
     assert payload["max_facts"] == 4
     assert payload["max_chunks"] == 8
     assert "budget" not in payload
+
+
+def test_sdk_typed_context_accepts_feature_contract_result_payload() -> None:
+    response = BuildContextResultDto(
+        rendered_context="Evidence stays evidence.",
+        items=(
+            ContextItemDto(
+                id="ctx_1",
+                text="Evidence stays evidence.",
+                kind="document_chunk",
+                score=0.82,
+                evidence=(
+                    ContextEvidenceDto(
+                        source_type="document",
+                        source_id="doc_1",
+                        document_id="doc_1",
+                        chunk_id="chunk_1",
+                        quote_preview="Evidence stays evidence.",
+                        char_start=0,
+                        char_end=24,
+                        page_number=2,
+                        time_start_ms=100,
+                        time_end_ms=250,
+                        bbox=(1.0, 2.0, 30.0, 40.0),
+                        score=0.9,
+                    ),
+                ),
+            ),
+        ),
+        diagnostics={"retrieval_sources_used": ["contract"], "items_used": 1},
+    ).to_dict()
+
+    bundle = context_bundle_from_response(response)
+    top_evidence = bundle.top_evidence(limit=1)
+
+    assert bundle.rendered_text == "Evidence stays evidence."
+    assert bundle.items[0].item_id == "ctx_1"
+    assert bundle.items[0].item_type == "document_chunk"
+    assert bundle.items[0].source_refs[0].char_start == 0
+    assert bundle.items[0].citations[0].citation_id == "document:doc_1:0"
+    assert bundle.items[0].citations[0].bbox == (1.0, 2.0, 30.0, 40.0)
+    assert bundle.items[0].citations[0].evidence_confidence == 0.9
+    assert bundle.diagnostics.retrieval_sources_used == ("contract",)
+    assert top_evidence[0].reasons[:2] == ("cited_evidence", "quote_preview")
 
 
 def test_sdk_exposes_capability_diagnostics_facade() -> None:
