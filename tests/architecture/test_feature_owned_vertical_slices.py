@@ -35,16 +35,16 @@ FEATURE_ROOTS = (
 )
 
 ADR_PATH = REPO_ROOT / "docs" / "adr" / "ADR-0007-feature-owned-vertical-slices.md"
-SERVER_OUTBOX_WORKER_PATH = (
-    REPO_ROOT / "packages" / "infinity_context_server" / "infinity_context_server" / "worker.py"
-)
-SERVER_PROCESS_ROOT = (
+SERVER_ROOT = (
     REPO_ROOT
     / "packages"
     / "infinity_context_server"
     / "infinity_context_server"
-    / "processes"
 )
+SERVER_API_ROOT = SERVER_ROOT / "api"
+SERVER_FEATURE_ROOT = SERVER_ROOT / "features"
+SERVER_OUTBOX_WORKER_PATH = SERVER_ROOT / "worker.py"
+SERVER_PROCESS_ROOT = SERVER_ROOT / "processes"
 
 CONTRACT_FORBIDDEN_IMPORT_PREFIXES = (
     "fastapi",
@@ -56,6 +56,30 @@ CONTRACT_FORBIDDEN_IMPORT_PREFIXES = (
     "pydantic",
     "qdrant_client",
     "sqlalchemy",
+)
+
+OUTBOX_WORKFLOW_DEFINITION_NAMES = frozenset(
+    {
+        "ExtractionOutboxProcess",
+        "OutboxEventDispatcher",
+        "OutboxEventHandler",
+        "OutboxHandlerRegistry",
+        "ProjectionOutboxProcess",
+        "build_outbox_event_dispatcher",
+        "merge_outbox_handlers",
+    }
+)
+OUTBOX_WORKFLOW_HANDLER_NAMES = frozenset(
+    {
+        "handle_asset_extract",
+        "handle_capture_consolidate",
+        "handle_cognee_document_forget",
+        "handle_cognee_document_ingest",
+        "handle_graph_delete",
+        "handle_graph_upsert",
+        "handle_vector_delete_chunks",
+        "handle_vector_upsert",
+    }
 )
 
 
@@ -84,6 +108,17 @@ def _python_modules(root: Path) -> list[Path]:
     if not root.exists():
         return []
     return sorted(root.rglob("*.py"))
+
+
+def _server_route_modules() -> list[Path]:
+    paths = [
+        *list((SERVER_API_ROOT / "v1").glob("*.py")),
+        *list(SERVER_FEATURE_ROOT.glob("*/routes.py")),
+    ]
+    legacy_client = SERVER_API_ROOT / "legacy_client.py"
+    if legacy_client.exists():
+        paths.append(legacy_client)
+    return sorted(path for path in paths if path.is_file())
 
 
 def _package_context(path: Path) -> str | None:
@@ -185,6 +220,32 @@ def _import_targets(path: Path) -> list[str]:
 
 def _matches_module_prefix(imported: str, prefixes: tuple[str, ...]) -> bool:
     return any(imported == prefix or imported.startswith(f"{prefix}.") for prefix in prefixes)
+
+
+def _is_server_route_import(imported: str) -> bool:
+    if _matches_module_prefix(imported, ("infinity_context_server.api",)):
+        return True
+
+    feature_route_prefix = "infinity_context_server.features."
+    if not imported.startswith(feature_route_prefix):
+        return False
+
+    imported_parts = imported.removeprefix(feature_route_prefix).split(".")
+    return len(imported_parts) >= 2 and imported_parts[1] == "routes"
+
+
+def _outbox_workflow_definition_names(path: Path) -> list[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    names: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
+            continue
+        if (
+            node.name in OUTBOX_WORKFLOW_DEFINITION_NAMES
+            or node.name in OUTBOX_WORKFLOW_HANDLER_NAMES
+        ):
+            names.append(node.name)
+    return names
 
 
 def _is_cross_feature_internal_import(current_feature: str, imported: str) -> bool:
@@ -597,6 +658,49 @@ def test_outbox_worker_event_dispatch_is_owned_by_server_process_boundary() -> N
         _matches_module_prefix(imported, ("fastapi", "infinity_context_server.api"))
         for imported in process_imports
     )
+
+
+def test_outbox_workflow_code_stays_under_server_processes() -> None:
+    violations: list[str] = []
+    for path in _python_modules(SERVER_ROOT):
+        if path.is_relative_to(SERVER_PROCESS_ROOT):
+            continue
+        for name in _outbox_workflow_definition_names(path):
+            rel = path.relative_to(REPO_ROOT)
+            violations.append(f"{rel}: defines {name}")
+
+    assert violations == []
+
+
+def test_server_processes_do_not_import_fastapi_or_routes() -> None:
+    violations: list[str] = []
+    for path in _python_modules(SERVER_PROCESS_ROOT):
+        for imported in _imports(path):
+            if not (
+                _matches_module_prefix(imported, ("fastapi",))
+                or _is_server_route_import(imported)
+            ):
+                continue
+            rel = path.relative_to(REPO_ROOT)
+            violations.append(f"{rel}: imports {imported}")
+
+    assert violations == []
+
+
+def test_route_modules_do_not_dispatch_outbox_event_workflows_directly() -> None:
+    route_outbox_dispatch_imports = (
+        "infinity_context_server.processes",
+        "infinity_context_server.worker",
+    )
+
+    violations: list[str] = []
+    for path in _server_route_modules():
+        for imported in _imports(path):
+            if _matches_module_prefix(imported, route_outbox_dispatch_imports):
+                rel = path.relative_to(REPO_ROOT)
+                violations.append(f"{rel}: imports {imported}")
+
+    assert violations == []
 
 
 def test_relative_core_feature_import_resolves_to_legacy_layer_first_core() -> None:
