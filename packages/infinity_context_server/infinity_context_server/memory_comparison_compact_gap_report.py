@@ -7,6 +7,10 @@ from collections.abc import Mapping, Sequence
 
 from infinity_context_core.application.sensitive_text import redact_sensitive_text
 
+from infinity_context_server.memory_comparison_source_identity import (
+    looks_like_raw_source_ref as _looks_like_raw_source_ref,
+)
+
 _COVERAGE_GAP_LIMIT = 5
 _WEAK_SIGNAL_LIMIT = 5
 _SAMPLE_CASE_ID_LIMIT = 5
@@ -265,48 +269,6 @@ def _source_id_from_turn_ref(ref: str) -> str:
     parts = ref.split(":")
     return ":".join(parts[:-1])
 
-
-def _looks_like_raw_source_ref(value: str) -> bool:
-    text = value.lower()
-    if "locomo:" in text or "conv-private" in text or "turn-secret" in text:
-        return True
-    if any(
-        text.startswith(prefix)
-        for prefix in (
-            "backend:",
-            "graphiti:",
-            "mem0:",
-            "memory://",
-            "openai:",
-            "provider:",
-            "provider-ref-",
-            "qdrant:",
-        )
-    ):
-        return True
-    return any(
-        marker in text
-        for marker in (
-            "access-token",
-            "access_token",
-            "api-key",
-            "api_key",
-            "auth-payload",
-            "auth_payload",
-            "auth-private",
-            "bearer-token",
-            "bearer_token",
-            "private-token",
-            "private_token",
-            "private-auth",
-            "provider-auth",
-            "provider-secret",
-            "provider_payload",
-            "raw_provider",
-            "refresh-token",
-            "refresh_token",
-        )
-    )
 
 
 def _int(value: object) -> int:

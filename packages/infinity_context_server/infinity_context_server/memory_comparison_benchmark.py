@@ -94,6 +94,9 @@ from infinity_context_server.memory_comparison_query_integrity import (
     query_integrity_diagnostics as _query_integrity_diagnostics,
 )
 from infinity_context_server.memory_comparison_source_identity import (
+    looks_like_raw_source_ref as _looks_like_raw_source_ref,
+)
+from infinity_context_server.memory_comparison_source_identity import (
     safe_source_identity_ref as _safe_source_identity_ref,
 )
 from infinity_context_server.memory_comparison_source_identity import (
@@ -2723,6 +2726,8 @@ def _looks_like_unsafe_compact_text(value: object) -> bool:
     text = str(value or "").strip().lower()
     if not text:
         return False
+    if _looks_like_raw_source_ref(text):
+        return True
     if any(text.startswith(prefix) for prefix in _COMPACT_UNSAFE_TEXT_PREFIXES):
         return True
     return any(marker in text for marker in _COMPACT_UNSAFE_TEXT_MARKERS)

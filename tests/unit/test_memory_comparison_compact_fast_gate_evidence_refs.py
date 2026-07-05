@@ -285,6 +285,48 @@ def test_compact_gap_report_redacts_raw_payload_text_fields() -> None:
     assert "[redacted]" in serialized
 
 
+def test_compact_gap_report_redacts_auth_marker_text_fields() -> None:
+    raw_payload = (
+        "auth-payload-private-marker access-token-private-marker "
+        "api-key-private-marker provider-auth-private-marker"
+    )
+    report = compact_evidence_bundle_gap_report(
+        {
+            "schema_version": "evidence_bundle_gap_report.v1",
+            "status": "gaps_found",
+            "evaluation_count": 1,
+            "incomplete_case_count": 1,
+            "top_action": raw_payload,
+            "top_coverage_gaps": [
+                {
+                    "reason": raw_payload,
+                    "count": 1,
+                    "case_rate": 1.0,
+                    "action": raw_payload,
+                    "sample_case_ids": [raw_payload],
+                }
+            ],
+            "weak_provenance_signals": [
+                {
+                    "name": raw_payload,
+                    "count": 1,
+                    "rate": 1.0,
+                    "action": raw_payload,
+                    "sample_case_ids": [raw_payload],
+                }
+            ],
+        }
+    )
+
+    serialized = json.dumps(report)
+
+    assert "auth-payload" not in serialized
+    assert "access-token" not in serialized
+    assert "api-key" not in serialized
+    assert "provider-auth" not in serialized
+    assert "[redacted]" in serialized
+
+
 def test_compact_report_sanitizes_failure_payloads_private_ids_and_refs() -> None:
     raw_locomo_ref = "locomo:conv-private:session_2:D2:3:turn-secret"
     raw_nearest_ref = "locomo:conv-private:session_2:D2:2:turn-secret"
@@ -355,6 +397,54 @@ def test_compact_report_sanitizes_failure_payloads_private_ids_and_refs() -> Non
     provenance = compact["diagnostics"]["failure_provenance_summary"]
     sample_window = provenance["missing_evidence_source_locality"]["sample_windows"][0]
     assert "session_2" in sample_window["ref"]
+
+
+def test_compact_report_sanitizes_auth_markers_without_turn_refs() -> None:
+    auth_marker = "auth-payload-private-marker"
+    provider_auth_marker = "provider-auth-private-marker"
+    access_marker = "access-token-private-marker"
+    api_key_marker = "api-key-private-marker"
+
+    compact = _compact_report(
+        {
+            "schema_version": "memory-comparison-benchmark-v1",
+            "suite": "memory-comparison-benchmark",
+            "source_suite": "public-memory-benchmark",
+            "status": "failed",
+            "ok": False,
+            "evaluations": [],
+            "metadata": {"summary": api_key_marker},
+            "metrics": {},
+            "backend_metrics": {},
+            "backend_comparison": {},
+            "failure_analysis": [
+                {
+                    "case_id": "failure-auth-safety",
+                    "backend": "memo-stack",
+                    "group": "single-hop",
+                    "reason": access_marker,
+                    "diagnostic_reason_codes": ["missing_evidence_refs"],
+                    "diagnostics": {
+                        "item_id": auth_marker,
+                        "item_ids": [provider_auth_marker, "safe-item"],
+                        "source_refs": [auth_marker, access_marker],
+                    },
+                }
+            ],
+            "failures": [{"reason": api_key_marker}],
+            "elapsed_ms": 1.0,
+        },
+        failure_limit=5,
+    )
+
+    serialized = json.dumps(compact, sort_keys=True)
+
+    assert auth_marker not in serialized
+    assert provider_auth_marker not in serialized
+    assert access_marker not in serialized
+    assert api_key_marker not in serialized
+    assert "safe-item" in serialized
+    assert "[redacted]" in serialized
 
 
 def _item(
