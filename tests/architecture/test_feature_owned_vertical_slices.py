@@ -377,6 +377,77 @@ def test_core_feature_public_api_imports_feature_layer_boundaries_only() -> None
     )
 
 
+def test_legacy_core_surfaces_expose_feature_public_api_namespaces() -> None:
+    import infinity_context_core as core  # noqa: PLC0415
+    import infinity_context_core.application as application  # noqa: PLC0415
+    import infinity_context_core.features.context_building.public as context_building_public  # noqa: PLC0415,E501
+    import infinity_context_core.features.document_ingestion.public as document_ingestion_public  # noqa: PLC0415,E501
+    import infinity_context_core.features.memory_facts.public as memory_facts_public  # noqa: PLC0415,E501
+    import infinity_context_core.features.memory_scopes.public as memory_scopes_public  # noqa: PLC0415,E501
+
+    shim_cases = (
+        (
+            "context_building_public",
+            context_building_public,
+            "ContextBuildingUseCases",
+            ("BuildContextQuery", "BuildContextUseCase"),
+        ),
+        (
+            "document_ingestion_public",
+            document_ingestion_public,
+            "DocumentIngestionUseCases",
+            ("IngestDocumentCommand", "IngestDocumentUseCase"),
+        ),
+        (
+            "memory_facts_public",
+            memory_facts_public,
+            "MemoryFactLifecycleUseCases",
+            ("RememberFactCommand", "RememberFactUseCase"),
+        ),
+        (
+            "memory_scopes_public",
+            memory_scopes_public,
+            "MemoryScopeUseCases",
+            ("CreateMemoryScopeCommand", "CreateMemoryScopeUseCase"),
+        ),
+    )
+
+    for surface in (core, application):
+        exported = set(surface.__all__)
+        for namespace_name, public_module, use_case_bundle_name, public_names in shim_cases:
+            namespace = getattr(surface, namespace_name)
+
+            assert namespace is public_module
+            assert namespace_name in exported
+            assert getattr(surface, use_case_bundle_name) is getattr(
+                public_module,
+                use_case_bundle_name,
+            )
+            assert use_case_bundle_name in exported
+            for public_name in public_names:
+                assert getattr(namespace, public_name) is getattr(public_module, public_name)
+
+
+def test_legacy_core_feature_public_shims_do_not_import_feature_internals() -> None:
+    shim_surfaces = (
+        REPO_ROOT / "packages/infinity_context_core/infinity_context_core/__init__.py",
+        REPO_ROOT / "packages/infinity_context_core/infinity_context_core/application/__init__.py",
+    )
+
+    violations: list[str] = []
+    for path in shim_surfaces:
+        for imported in _imports(path):
+            prefix = "infinity_context_core.features."
+            if not imported.startswith(prefix):
+                continue
+            feature_parts = imported.removeprefix(prefix).split(".")
+            if len(feature_parts) != 2 or feature_parts[1] != "public":
+                rel = path.relative_to(REPO_ROOT)
+                violations.append(f"{rel}: imports {imported}")
+
+    assert violations == []
+
+
 def test_relative_core_feature_import_resolves_to_legacy_layer_first_core() -> None:
     path = CORE_FEATURE_ROOT / "memory_facts" / "application" / "use_case.py"
     imports = _imports_from_source(path, "from ....domain.entities import MemoryFact\n")
