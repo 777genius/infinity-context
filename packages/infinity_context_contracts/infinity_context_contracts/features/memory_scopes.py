@@ -136,11 +136,95 @@ class TransferMemoryScopeResultDto:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class ArchiveMemoryScopeRequestDto:
+    """Stable request shape for archiving a memory scope."""
+
+    space_id: str
+    memory_scope_id: str
+    expected_status: str | None = None
+    reason: str | None = None
+    idempotency_key: str | None = None
+    metadata: Mapping[str, JsonValue] = field(default_factory=dict)
+
+    def to_dict(self) -> JsonObject:
+        return {
+            "space_id": self.space_id,
+            "memory_scope_id": self.memory_scope_id,
+            "expected_status": self.expected_status,
+            "reason": self.reason,
+            "idempotency_key": self.idempotency_key,
+            "metadata": json_compatible(self.metadata),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ArchiveMemoryScopeResultDto:
+    """Stable result wrapper for scope archive lifecycle responses."""
+
+    scope: MemoryScopeDescriptorDto
+    previous_status: str
+    archived: bool = True
+
+    def to_dict(self) -> JsonObject:
+        return {
+            "data": {
+                "scope": self.scope.to_dict(),
+                "previous_status": self.previous_status,
+                "archived": self.archived,
+            }
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class RestoreMemoryScopeRequestDto:
+    """Stable request shape for restoring an archived memory scope."""
+
+    space_id: str
+    memory_scope_id: str
+    expected_status: str | None = None
+    reason: str | None = None
+    idempotency_key: str | None = None
+    metadata: Mapping[str, JsonValue] = field(default_factory=dict)
+
+    def to_dict(self) -> JsonObject:
+        return {
+            "space_id": self.space_id,
+            "memory_scope_id": self.memory_scope_id,
+            "expected_status": self.expected_status,
+            "reason": self.reason,
+            "idempotency_key": self.idempotency_key,
+            "metadata": json_compatible(self.metadata),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class RestoreMemoryScopeResultDto:
+    """Stable result wrapper for scope restore lifecycle responses."""
+
+    scope: MemoryScopeDescriptorDto
+    previous_status: str
+    restored: bool = True
+
+    def to_dict(self) -> JsonObject:
+        return {
+            "data": {
+                "scope": self.scope.to_dict(),
+                "previous_status": self.previous_status,
+                "restored": self.restored,
+            }
+        }
+
+
 __all__ = [
     "FEATURE_ID",
+    "ArchiveMemoryScopeRequestDto",
+    "ArchiveMemoryScopeResultDto",
     "CreateMemoryScopeRequestDto",
     "CreateMemoryScopeResultDto",
     "MemoryScopeDescriptorDto",
+    "RestoreMemoryScopeRequestDto",
+    "RestoreMemoryScopeResultDto",
     "ScopeIdentityDto",
     "TransferMemoryScopeRequestDto",
     "TransferMemoryScopeResultDto",

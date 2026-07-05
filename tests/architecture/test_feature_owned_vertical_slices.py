@@ -274,6 +274,31 @@ def test_contract_feature_modules_stay_at_boundary() -> None:
     assert violations == []
 
 
+def test_memory_scope_lifecycle_contracts_use_feature_identity_fields() -> None:
+    from dataclasses import fields  # noqa: PLC0415
+
+    from infinity_context_contracts.features.memory_scopes import (  # noqa: PLC0415
+        ArchiveMemoryScopeRequestDto,
+        RestoreMemoryScopeRequestDto,
+    )
+
+    for dto_type in (ArchiveMemoryScopeRequestDto, RestoreMemoryScopeRequestDto):
+        field_names = {field.name for field in fields(dto_type)}
+
+        assert {"space_id", "memory_scope_id"} <= field_names
+        assert "scope_id" not in field_names
+
+
+def test_memory_scope_contracts_do_not_import_core_lifecycle_internals() -> None:
+    path = CONTRACT_FEATURE_ROOT / "memory_scopes.py"
+
+    assert path.is_file()
+    assert not any(
+        _matches_module_prefix(imported, ("infinity_context_core",))
+        for imported in _imports(path)
+    )
+
+
 def test_core_feature_capsules_expose_public_api_when_created() -> None:
     missing_public_api: list[str] = []
     for path in _feature_dirs("packages/infinity_context_core/infinity_context_core/features"):
