@@ -4,13 +4,16 @@ from __future__ import annotations
 
 from infinity_context_core.features.memory_facts.application import (
     ForgetFactCommand,
+    ForgetFactHandler,
     ForgetFactResult,
     ForgetFactUseCase,
     MemoryFactLifecycleUseCases,
     RememberFactCommand,
+    RememberFactHandler,
     RememberFactResult,
     RememberFactUseCase,
     UpdateFactCommand,
+    UpdateFactHandler,
     UpdateFactResult,
     UpdateFactUseCase,
 )
@@ -42,6 +45,7 @@ from infinity_context_core.features.memory_facts.ports import (
 __all__ = (
     "FEATURE_ID",
     "ForgetFactCommand",
+    "ForgetFactHandler",
     "ForgetFactResult",
     "ForgetFactUseCase",
     "MemoryFactClassification",
@@ -65,9 +69,11 @@ __all__ = (
     "MemoryFactVisibility",
     "MemoryFactsFeature",
     "RememberFactCommand",
+    "RememberFactHandler",
     "RememberFactResult",
     "RememberFactUseCase",
     "UpdateFactCommand",
+    "UpdateFactHandler",
     "UpdateFactResult",
     "UpdateFactUseCase",
 )

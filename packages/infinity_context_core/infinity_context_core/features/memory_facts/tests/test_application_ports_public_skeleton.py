@@ -178,6 +178,7 @@ def test_memory_facts_public_api_exports_application_and_ports() -> None:
 
     expected_exports = {
         "ForgetFactCommand": application,
+        "ForgetFactHandler": application,
         "ForgetFactResult": application,
         "ForgetFactUseCase": application,
         "MemoryFactClockPort": ports,
@@ -192,9 +193,11 @@ def test_memory_facts_public_api_exports_application_and_ports() -> None:
         "MemoryFactUnitOfWorkFactoryPort": ports,
         "MemoryFactUnitOfWorkPort": ports,
         "RememberFactCommand": application,
+        "RememberFactHandler": application,
         "RememberFactResult": application,
         "RememberFactUseCase": application,
         "UpdateFactCommand": application,
+        "UpdateFactHandler": application,
         "UpdateFactResult": application,
         "UpdateFactUseCase": application,
     }

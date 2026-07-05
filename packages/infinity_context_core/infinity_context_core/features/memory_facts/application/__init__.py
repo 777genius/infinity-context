@@ -1,8 +1,4 @@
-"""Application boundary for the memory_facts feature.
-
-Runtime remember/update/forget behavior remains in the compatibility layer until
-that behavior is migrated into this feature capsule.
-"""
+"""Application boundary for the memory_facts feature."""
 
 from infinity_context_core.features.memory_facts.application.commands import (
     ForgetFactCommand,
@@ -11,6 +7,11 @@ from infinity_context_core.features.memory_facts.application.commands import (
     RememberFactResult,
     UpdateFactCommand,
     UpdateFactResult,
+)
+from infinity_context_core.features.memory_facts.application.handlers import (
+    ForgetFactHandler,
+    RememberFactHandler,
+    UpdateFactHandler,
 )
 from infinity_context_core.features.memory_facts.application.use_cases import (
     ForgetFactUseCase,
@@ -21,13 +22,16 @@ from infinity_context_core.features.memory_facts.application.use_cases import (
 
 __all__ = (
     "ForgetFactCommand",
+    "ForgetFactHandler",
     "ForgetFactResult",
     "ForgetFactUseCase",
     "MemoryFactLifecycleUseCases",
     "RememberFactCommand",
+    "RememberFactHandler",
     "RememberFactResult",
     "RememberFactUseCase",
     "UpdateFactCommand",
+    "UpdateFactHandler",
     "UpdateFactResult",
     "UpdateFactUseCase",
 )

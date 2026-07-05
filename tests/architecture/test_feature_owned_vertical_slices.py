@@ -265,6 +265,7 @@ def test_memory_facts_public_api_is_importable_and_narrow() -> None:
     assert public.__all__ == (
         "FEATURE_ID",
         "ForgetFactCommand",
+        "ForgetFactHandler",
         "ForgetFactResult",
         "ForgetFactUseCase",
         "MemoryFactClassification",
@@ -288,9 +289,11 @@ def test_memory_facts_public_api_is_importable_and_narrow() -> None:
         "MemoryFactVisibility",
         "MemoryFactsFeature",
         "RememberFactCommand",
+        "RememberFactHandler",
         "RememberFactResult",
         "RememberFactUseCase",
         "UpdateFactCommand",
+        "UpdateFactHandler",
         "UpdateFactResult",
         "UpdateFactUseCase",
     )
