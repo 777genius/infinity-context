@@ -343,12 +343,13 @@ def test_memory_comparison_preflight_rejects_wrong_memo_service_health(
 
 
 def test_memory_comparison_preflight_check_payload_details_are_bounded_json_safe() -> None:
+    long_text = "x" * 300
     check = MemoryComparisonPreflightCheck(
-        name="unit",
+        name=f"unit-{long_text}",
         passed=False,
-        severity="required",
-        reason="unit reason",
-        reason_code="unit_reason",
+        severity=f"required-{long_text}",
+        reason=f"unit reason {long_text}",
+        reason_code=f"unit_reason_{long_text}",
         details={
             f"key-{index}": float("nan") if index == 0 else "x" * 300
             for index in range(25)
@@ -358,9 +359,51 @@ def test_memory_comparison_preflight_check_payload_details_are_bounded_json_safe
     payload = check.to_payload()
 
     assert len(payload["details"]) == 20
+    assert payload["name"].endswith("...")
+    assert payload["severity"].endswith("...")
+    assert payload["reason"].endswith("...")
+    assert payload["reason_code"].endswith("...")
     assert payload["details"]["key-0"] == "nan"
     assert payload["details"]["key-1"].endswith("...")
     json.dumps(payload, allow_nan=False)
+
+
+def test_memory_comparison_preflight_diagnostics_are_stable_and_bounded(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "locomo-mini.json"
+    dataset.write_text('[{"sample_id":"unit"}]', encoding="utf-8")
+
+    result = run_memory_comparison_preflight(
+        _config(
+            dataset_path=dataset,
+            top_k_cutoffs=tuple(range(1, 41)) + (50, 200),
+            openai_api_key_env="CUSTOM_OPENAI_KEY",
+            mem0_api_key_env="CUSTOM_MEM0_KEY",
+            env={
+                "CUSTOM_OPENAI_KEY": "secret-openai",
+                "CUSTOM_MEM0_KEY": "secret-mem0",
+            },
+        )
+    )
+
+    diagnostics = result["diagnostics"]
+    assert len(diagnostics["top_k_cutoffs"]) == 20
+    assert diagnostics["top_k_cutoff_count"] == 42
+    assert set(diagnostics["secrets"]) == {
+        "auth_token_configured",
+        "fallback_openai_api_key_configured",
+        "fallback_openai_api_key_env",
+        "mem0_api_key_configured",
+        "mem0_api_key_env",
+        "openai_api_key_configured",
+        "openai_api_key_env",
+    }
+    assert diagnostics["secrets"]["mem0_api_key_env"] == "CUSTOM_MEM0_KEY"
+    assert diagnostics["secrets"]["openai_api_key_env"] == "CUSTOM_OPENAI_KEY"
+    serialized = json.dumps(result, sort_keys=True)
+    assert "secret-openai" not in serialized
+    assert "secret-mem0" not in serialized
 
 
 def _config(
@@ -377,6 +420,8 @@ def _config(
     judge_provider: str = "deterministic",
     answerer_model: str | None = None,
     judge_model: str | None = None,
+    openai_api_key_env: str = "MEMORY_OPENAI_API_KEY",
+    mem0_api_key_env: str = "MEM0_API_KEY",
     auth_token_configured: bool = True,
     probe_services: bool = False,
     env: dict[str, str] | None = None,
@@ -396,8 +441,8 @@ def _config(
         judge_provider=judge_provider,
         answerer_model=answerer_model,
         judge_model=judge_model,
-        openai_api_key_env="MEMORY_OPENAI_API_KEY",
-        mem0_api_key_env="MEM0_API_KEY",
+        openai_api_key_env=openai_api_key_env,
+        mem0_api_key_env=mem0_api_key_env,
         auth_token_configured=auth_token_configured,
         probe_services=probe_services,
         env=env or {},

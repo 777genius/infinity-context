@@ -667,6 +667,82 @@ def test_locomo_failure_analysis_summarizes_temporal_grounding_issue_causes() ->
     ) == 2
 
 
+def test_locomo_failure_analysis_summary_bounds_text_lists_and_dynamic_keys() -> None:
+    long_text = "x" * 320
+    failures = [
+        {
+            "case_id": f"case-{index}",
+            "capability": f"capability-{index}",
+            "reason": f"reason-{index}-{long_text}",
+            "question": f"What places are relevant? {long_text}",
+            "diagnostic_reason_codes": [
+                "answer_context_fallback",
+                "answer_context_missing_required_roles",
+                *[f"diagnostic-{item}" for item in range(12)],
+            ],
+            "diagnostics": {
+                "answer_context": {
+                    "present": True,
+                    "source": "retrieval_slice",
+                    "memory_count": 2,
+                    "source_ref_item_count": 0,
+                    "source_refless_item_count": 2,
+                    "backfilled_retrieval_item_count": 1,
+                    "fallback_reason": long_text,
+                    "missing_required_roles": [
+                        f"role-{item}" for item in range(12)
+                    ],
+                    "risk_reason_codes": [f"risk-{item}" for item in range(12)],
+                },
+                "temporal_grounding": {
+                    "issue_item_count": 1,
+                    "issue_reason_counts": {
+                        f"issue-{index}-{item}-{long_text}": 1
+                        for item in range(4)
+                    },
+                    "issue_samples": [
+                        {
+                            "case_id": f"case-{index}",
+                            "source_refs": [f"D1:{item}" for item in range(12)],
+                            "issue_reasons": [
+                                f"issue-{index}-{item}-{long_text}"
+                                for item in range(12)
+                            ],
+                            "grounding_signals": {
+                                f"signal-{item}": True for item in range(30)
+                            },
+                            "text": "raw temporal text must stay out",
+                        }
+                    ],
+                },
+            },
+        }
+        for index in range(6)
+    ]
+
+    summary = _summary(failures, top=3)
+
+    assert len(summary["case_ids"]) == 3
+    assert len(summary["capability_failure_count"]) == 3
+    assert len(summary["reason_count"]) == 3
+    assert len(summary["capability_reason_count"]) == 3
+    assert len(summary["temporal_grounding_issue_reason_count"]) == 3
+    answer_context = summary["root_cause_examples"]["temporal_grounding:issue"][0][
+        "answer_context"
+    ]
+    assert answer_context["fallback_reason"] == f"{long_text[:237]}..."
+    assert len(answer_context["missing_required_roles"]) == 8
+    assert len(answer_context["risk_reason_codes"]) == 8
+    example = next(iter(summary["temporal_grounding_issue_examples"].values()))[0]
+    sample = example["issue_samples"][0]
+    assert len(sample["source_refs"]) == 8
+    assert len(sample["issue_reasons"]) == 8
+    assert len(sample["grounding_signals"]) == 20
+    serialized = json.dumps(summary, sort_keys=True)
+    assert long_text not in serialized
+    assert "raw temporal text must stay out" not in serialized
+
+
 def test_locomo_failure_analysis_limit_makes_small_canary_args(tmp_path) -> None:
     report = {
         "failures": [

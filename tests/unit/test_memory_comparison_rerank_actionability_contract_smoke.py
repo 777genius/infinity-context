@@ -214,6 +214,83 @@ def test_compact_report_output_omits_evaluations_and_limits_failure_rows() -> No
     assert "FULL RETRIEVED MEMORY" not in json.dumps(compact)
 
 
+def test_compact_report_bounds_requested_ids_and_failure_payloads() -> None:
+    long_text = "x" * 320
+    compact = _compact_report(
+        {
+            "schema_version": "memory_comparison_benchmark.v1",
+            "suite": "unit",
+            "status": "failed",
+            "ok": False,
+            "run_id": "compact-boundaries",
+            "requested_case_ids": [f"case-{index}" for index in range(60)],
+            "requested_capabilities": [f"capability-{index}" for index in range(25)],
+            "metadata": {},
+            "case_selection": {
+                "requested_case_ids": [f"case-{index}" for index in range(60)],
+                "missing_case_ids": [f"missing-{index}" for index in range(60)],
+                "requested_capabilities": [
+                    f"capability-{index}" for index in range(25)
+                ],
+                "missing_capabilities": [f"missing-cap-{index}" for index in range(25)],
+                "available_capability_counts": {
+                    f"capability-{index}": 25 - index for index in range(25)
+                },
+            },
+            "metrics": {},
+            "backend_metrics": {},
+            "backend_comparison": {},
+            "evaluations": [],
+            "failure_analysis": [
+                {
+                    "case_id": "case-1",
+                    "reason": long_text,
+                    "missing_terms": [f"term-{index}" for index in range(12)],
+                    "diagnostics": {
+                        "missing_expected_terms": [
+                            f"{long_text}-{index}" for index in range(10)
+                        ],
+                        "large_mapping": {
+                            f"key-{index}": index for index in range(50)
+                        },
+                    },
+                }
+            ],
+            "failures": [
+                {
+                    "case_id": "case-1",
+                    "reason": long_text,
+                    "missing_evidence_terms": [
+                        f"D1:{index}-{long_text}" for index in range(12)
+                    ],
+                }
+            ],
+        },
+        failure_limit=1,
+    )
+
+    assert len(compact["requested_case_ids"]) == 50
+    assert compact["metadata"]["requested_case_id_count"] == 60
+    assert compact["metadata"]["requested_case_ids_omitted"] == 10
+    assert len(compact["requested_capabilities"]) == 20
+    assert compact["metadata"]["requested_capabilities_omitted"] == 5
+    assert len(compact["case_selection"]["requested_case_ids"]) == 50
+    assert compact["case_selection"]["requested_case_ids_omitted"] == 10
+    assert len(compact["case_selection"]["missing_case_ids"]) == 50
+    assert compact["case_selection"]["missing_case_ids_omitted"] == 10
+    assert len(compact["case_selection"]["requested_capabilities"]) == 20
+    assert compact["case_selection"]["requested_capabilities_omitted"] == 5
+    assert len(compact["case_selection"]["missing_capabilities"]) == 20
+    assert len(compact["case_selection"]["available_capability_counts"]) == 20
+    failure = compact["failure_analysis"][0]
+    assert failure["reason"] == f"{long_text[:237]}..."
+    assert len(failure["missing_terms"]) == 8
+    assert len(failure["diagnostics"]["missing_expected_terms"]) == 8
+    assert len(failure["diagnostics"]["large_mapping"]) == 40
+    assert len(compact["failures"][0]["missing_evidence_terms"]) == 8
+    assert long_text not in json.dumps(compact)
+
+
 def _evaluation_item(
     *,
     case_id: str,

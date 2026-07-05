@@ -84,11 +84,19 @@ class MemoryComparisonPreflightCheck:
 
     def to_payload(self) -> dict[str, object]:
         return {
-            "name": self.name,
+            "name": _compact_diagnostic_text(self.name),
             "passed": self.passed,
-            "severity": self.severity,
-            "reason": self.reason,
-            "reason_code": self.reason_code,
+            "severity": _compact_diagnostic_text(self.severity),
+            "reason": (
+                _compact_diagnostic_text(self.reason)
+                if self.reason is not None
+                else None
+            ),
+            "reason_code": (
+                _compact_diagnostic_text(self.reason_code)
+                if self.reason_code is not None
+                else None
+            ),
             "details": _json_safe_mapping(self.details),
         }
 
@@ -98,6 +106,7 @@ def run_memory_comparison_preflight(
 ) -> dict[str, object]:
     """Return a sanitized readiness report without starting benchmark state."""
 
+    normalized_cutoffs = _normalized_cutoffs(config.top_k_cutoffs)
     checks = [
         _dataset_check(config.dataset_path),
         _url_check("memo_api_url_valid", config.memo_api_url),
@@ -177,18 +186,14 @@ def run_memory_comparison_preflight(
             "locomo_ingest_mode": config.locomo_ingest_mode,
             "report_mode": config.report_mode,
             "top_k": config.top_k,
-            "top_k_cutoffs": list(_normalized_cutoffs(config.top_k_cutoffs)),
+            "top_k_cutoffs": list(normalized_cutoffs[:_MAX_DIAGNOSTIC_ITEMS]),
+            "top_k_cutoff_count": len(normalized_cutoffs),
             "answerer_provider": config.answerer_provider,
             "judge_provider": config.judge_provider,
             "uses_openai": _uses_openai(config),
             "probe_services": config.probe_services,
             "safe_reporting_contracts": _safe_reporting_contracts(config.report_mode),
-            "secrets": {
-                "auth_token_configured": config.auth_token_configured,
-                config.mem0_api_key_env: _env_is_set(config.env, config.mem0_api_key_env),
-                config.openai_api_key_env: _env_is_set(config.env, config.openai_api_key_env),
-                "OPENAI_API_KEY": _env_is_set(config.env, "OPENAI_API_KEY"),
-            },
+            "secrets": _secret_diagnostics(config),
         },
     }
 
@@ -282,8 +287,13 @@ def _llm_checks(
             reason=f"set {config.openai_api_key_env} or OPENAI_API_KEY",
             reason_code="openai_api_key_missing",
             details={
-                config.openai_api_key_env: _env_is_set(config.env, config.openai_api_key_env),
-                "OPENAI_API_KEY": _env_is_set(config.env, "OPENAI_API_KEY"),
+                "configured_env_var": config.openai_api_key_env,
+                "configured_env_var_set": _env_is_set(
+                    config.env,
+                    config.openai_api_key_env,
+                ),
+                "fallback_env_var": "OPENAI_API_KEY",
+                "fallback_env_var_set": _env_is_set(config.env, "OPENAI_API_KEY"),
             },
         ),
     ]
@@ -441,6 +451,24 @@ def _safe_reporting_contracts(report_mode: str) -> list[dict[str, object]]:
         }
         for name, schema_version in _SAFE_REPORTING_CONTRACTS
     ]
+
+
+def _secret_diagnostics(config: MemoryComparisonPreflightConfig) -> dict[str, object]:
+    return {
+        "auth_token_configured": config.auth_token_configured,
+        "mem0_api_key_configured": _env_is_set(config.env, config.mem0_api_key_env),
+        "mem0_api_key_env": _compact_diagnostic_text(config.mem0_api_key_env),
+        "openai_api_key_configured": _env_is_set(
+            config.env,
+            config.openai_api_key_env,
+        ),
+        "openai_api_key_env": _compact_diagnostic_text(config.openai_api_key_env),
+        "fallback_openai_api_key_configured": _env_is_set(
+            config.env,
+            "OPENAI_API_KEY",
+        ),
+        "fallback_openai_api_key_env": "OPENAI_API_KEY",
+    }
 
 
 def _probe_memo_api(

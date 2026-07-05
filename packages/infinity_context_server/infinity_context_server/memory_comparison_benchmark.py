@@ -146,6 +146,11 @@ MEMORY_COMPARISON_REPORT_MODES = (
 )
 
 _LOCOMO_FAST_CASES_PER_GROUP = 10
+_MAX_COMPACT_REQUESTED_CASE_IDS = 50
+_MAX_COMPACT_REQUESTED_CAPABILITIES = 20
+_MAX_COMPACT_FAILURE_SEQUENCE_ITEMS = 8
+_MAX_COMPACT_FAILURE_MAPPING_ITEMS = 40
+_MAX_COMPACT_FAILURE_TEXT_CHARS = 240
 _LOCOMO_FAST_CASE_SET_GROUPS = {
     MEMORY_COMPARISON_CASE_SET_LOCOMO_FAST: (
         "multi-hop",
@@ -1940,11 +1945,23 @@ def _compact_report(
         item for item in result.get("failure_analysis", ()) if isinstance(item, Mapping)
     ]
     failures = [item for item in result.get("failures", ()) if isinstance(item, Mapping)]
+    requested_case_ids = _str_tuple(result.get("requested_case_ids", ()))
+    requested_capabilities = _str_tuple(result.get("requested_capabilities", ()))
     metadata = {
         **dict(_mapping(result.get("metadata"))),
         "report_mode": MEMORY_COMPARISON_REPORT_COMPACT,
         "full_evaluation_count": len(evaluations),
         "compact_failure_limit": failure_limit,
+        "requested_case_id_count": len(requested_case_ids),
+        "requested_case_ids_omitted": max(
+            len(requested_case_ids) - _MAX_COMPACT_REQUESTED_CASE_IDS,
+            0,
+        ),
+        "requested_capability_count": len(requested_capabilities),
+        "requested_capabilities_omitted": max(
+            len(requested_capabilities) - _MAX_COMPACT_REQUESTED_CAPABILITIES,
+            0,
+        ),
     }
     diagnostics = _compact_diagnostics(evaluations)
     diagnostics["failure_provenance_summary"] = _compact_failure_provenance_summary(
@@ -1963,16 +1980,25 @@ def _compact_report(
         "run_id": result.get("run_id"),
         "dataset_path_label": result.get("dataset_path_label"),
         "dataset_hash": result.get("dataset_hash"),
-        "requested_case_ids": result.get("requested_case_ids", []),
-        "requested_capabilities": result.get("requested_capabilities", []),
-        "case_selection": result.get("case_selection", {}),
+        "requested_case_ids": _compact_text_list(
+            requested_case_ids,
+            item_limit=_MAX_COMPACT_REQUESTED_CASE_IDS,
+        ),
+        "requested_capabilities": _compact_text_list(
+            requested_capabilities,
+            item_limit=_MAX_COMPACT_REQUESTED_CAPABILITIES,
+        ),
+        "case_selection": _compact_case_selection(result.get("case_selection")),
         "metadata": metadata,
         "metrics": result.get("metrics", {}),
         "backend_metrics": result.get("backend_metrics", {}),
         "backend_comparison": result.get("backend_comparison", {}),
         "diagnostics": diagnostics,
-        "failure_analysis": failure_analysis[:failure_limit],
-        "failures": failures[:failure_limit],
+        "failure_analysis": _compact_failure_entries(
+            failure_analysis,
+            limit=failure_limit,
+        ),
+        "failures": _compact_failure_entries(failures, limit=failure_limit),
         "evaluations": [],
         "elapsed_ms": result.get("elapsed_ms", 0.0),
     }
@@ -1980,6 +2006,74 @@ def _compact_report(
     if isinstance(provenance, Mapping):
         compact["provenance"] = dict(provenance)
     return compact
+
+
+def _compact_failure_entries(
+    entries: Sequence[Mapping[str, object]],
+    *,
+    limit: int,
+) -> list[dict[str, object]]:
+    compact_entries: list[dict[str, object]] = []
+    for entry in entries[: max(0, limit)]:
+        compact = _compact_failure_value(entry)
+        if isinstance(compact, dict):
+            compact_entries.append(compact)
+    return compact_entries
+
+
+def _compact_case_selection(value: object) -> dict[str, object]:
+    selection = dict(_mapping(value))
+    for key, limit in (
+        ("requested_case_ids", _MAX_COMPACT_REQUESTED_CASE_IDS),
+        ("missing_case_ids", _MAX_COMPACT_REQUESTED_CASE_IDS),
+        ("requested_capabilities", _MAX_COMPACT_REQUESTED_CAPABILITIES),
+        ("missing_capabilities", _MAX_COMPACT_REQUESTED_CAPABILITIES),
+    ):
+        values = _str_tuple(selection.get(key))
+        if not values:
+            continue
+        selection[key] = _compact_text_list(values, item_limit=limit)
+        selection[f"{key}_omitted"] = max(len(values) - limit, 0)
+    for key in ("available_capability_counts", "selected_capability_counts"):
+        compact_counts = _compact_count_mapping(selection.get(key), limit=20)
+        if compact_counts:
+            selection[key] = compact_counts
+    return selection
+
+
+def _compact_failure_value(value: object) -> object:
+    if value is None or isinstance(value, bool | int):
+        return value
+    if isinstance(value, float):
+        return value if isfinite(value) else _compact_failure_text(value)
+    if isinstance(value, str):
+        return _compact_failure_text(value)
+    if isinstance(value, Mapping):
+        compact: dict[str, object] = {}
+        for key, raw_value in sorted(value.items(), key=lambda item: str(item[0]))[
+            :_MAX_COMPACT_FAILURE_MAPPING_ITEMS
+        ]:
+            compact[
+                _compact_failure_text(key, limit=_MAX_COMPACT_FAILURE_TEXT_CHARS)
+            ] = _compact_failure_value(raw_value)
+        return compact
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes):
+        return [
+            _compact_failure_value(item)
+            for item in tuple(value)[:_MAX_COMPACT_FAILURE_SEQUENCE_ITEMS]
+        ]
+    return _compact_failure_text(value)
+
+
+def _compact_failure_text(
+    value: object,
+    *,
+    limit: int = _MAX_COMPACT_FAILURE_TEXT_CHARS,
+) -> str:
+    text = " ".join(str(value or "").strip().split())
+    if len(text) <= limit:
+        return text
+    return f"{text[: limit - 3]}..."
 
 
 def _compact_diagnostics(
@@ -2039,9 +2133,9 @@ def _compact_failure_provenance_summary(
             if len(window_samples) >= 8:
                 continue
             sample: dict[str, object] = {
-                "case_id": str(entry.get("case_id") or ""),
-                "ref": str(window.get("ref") or ""),
-                "source_id": source_id,
+                "case_id": _compact_failure_text(entry.get("case_id") or ""),
+                "ref": _compact_failure_text(window.get("ref") or ""),
+                "source_id": _compact_failure_text(source_id),
                 "retrieved_same_source": bool(window.get("retrieved_same_source")),
                 "bundle_same_source": bool(window.get("bundle_same_source")),
             }
@@ -2052,18 +2146,24 @@ def _compact_failure_provenance_summary(
                 "nearest_bundle_turn_distance",
             ):
                 if key in window:
-                    sample[key] = window[key]
+                    sample[key] = _compact_failure_value(window[key])
             window_samples.append(sample)
     return {
         "schema_version": "compact_failure_provenance_summary.v1",
         "failure_count": len(entries),
-        "diagnostic_reason_counts": dict(diagnostic_reasons.most_common()),
+        "diagnostic_reason_counts": _compact_count_mapping(
+            diagnostic_reasons,
+            limit=20,
+        ),
         "missing_evidence_source_locality": {
             "missing_turn_ref_count": missing_turn_ref_count,
             "same_source_missing_count": same_source_missing_count,
             "near_retrieved_window_count": near_retrieved_window_count,
             "source_absent_count": source_absent_count,
-            "top_missing_source_ids": dict(missing_source_ids.most_common(8)),
+            "top_missing_source_ids": {
+                _compact_failure_text(source_id): count
+                for source_id, count in missing_source_ids.most_common(8)
+            },
             "sample_windows": window_samples,
         },
         "selected_source_refless_failure_count": selected_source_refless_failure_count,
@@ -2841,7 +2941,7 @@ def _compact_count_mapping(value: object, *, limit: int = 12) -> dict[str, int]:
         count = _positive_int(raw_count)
         if count is None:
             continue
-        counts[str(key)] = count
+        counts[_compact_failure_text(key)] = count
     ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
     return dict(ranked[:limit])
 
