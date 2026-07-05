@@ -1,0 +1,41 @@
+"""Adapter seams for the document_ingestion feature.
+
+These classes mark feature-owned infrastructure boundaries for canonical
+documents, derived chunk indexes, and extraction-to-ingestion handoff. Runtime
+wiring is intentionally deferred to later composition work.
+"""
+
+from infinity_context_core.features.document_ingestion.public import FEATURE_ID
+
+from infinity_context_adapters.features.document_ingestion.extraction_adapter import (
+    DocumentExtractionIngestionAdapter,
+    ExtractedDocumentText,
+    create_document_extraction_ingestion_adapter,
+)
+from infinity_context_adapters.features.document_ingestion.postgres_document_store import (
+    PostgresDocumentChunkStore,
+    PostgresDocumentIngestionStore,
+    PostgresSourceDocumentStore,
+    create_postgres_document_chunk_store,
+    create_postgres_document_ingestion_store,
+    create_postgres_source_document_store,
+)
+from infinity_context_adapters.features.document_ingestion.qdrant_chunk_index import (
+    QdrantDocumentChunkIndex,
+    create_qdrant_document_chunk_index,
+)
+
+__all__ = (
+    "FEATURE_ID",
+    "DocumentExtractionIngestionAdapter",
+    "ExtractedDocumentText",
+    "PostgresDocumentChunkStore",
+    "PostgresDocumentIngestionStore",
+    "PostgresSourceDocumentStore",
+    "QdrantDocumentChunkIndex",
+    "create_document_extraction_ingestion_adapter",
+    "create_postgres_document_chunk_store",
+    "create_postgres_document_ingestion_store",
+    "create_postgres_source_document_store",
+    "create_qdrant_document_chunk_index",
+)

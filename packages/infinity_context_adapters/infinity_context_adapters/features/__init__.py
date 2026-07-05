@@ -4,4 +4,4 @@ Each package under this namespace mirrors a core feature id and owns only
 infrastructure seams for that feature.
 """
 
-__all__ = ("context_building", "memory_facts")
+__all__ = ("context_building", "document_ingestion", "memory_facts")
