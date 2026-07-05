@@ -2411,6 +2411,12 @@ def _compact_fast_gate_summary(
                 temporal_grounding.get("temporal_scored_case_count")
             )
             or 0,
+            "retrieval_relative_date_grounded_candidate_count": _positive_int(
+                temporal_grounding.get(
+                    "retrieval_relative_date_grounded_candidate_count"
+                )
+            )
+            or 0,
             "selected_item_count": _positive_int(
                 temporal_grounding.get("selected_item_count")
             )
@@ -2718,7 +2724,6 @@ def _compact_temporal_grounding_issue_samples(
     scalar_keys = ("case_id", "group", "item_id", "role")
     list_keys = (
         "query_roles",
-        "source_refs",
         "issue_reasons",
         "source_identity_gap_codes",
     )
@@ -2728,13 +2733,23 @@ def _compact_temporal_grounding_issue_samples(
             continue
         compact: dict[str, object] = {}
         for key in scalar_keys:
-            text = _compact_sample_text(sample.get(key))
-            if text:
-                compact[key] = text
+            raw_value = sample.get(key)
+            if isinstance(raw_value, str):
+                text = _compact_sample_text(raw_value, limit=128)
+                if text:
+                    compact[key] = text
+            elif isinstance(raw_value, int | float | bool):
+                compact[key] = raw_value
         for key in list_keys:
             values = _compact_sample_values(sample.get(key), limit=6)
             if values:
                 compact[key] = values
+        source_refs = _compact_temporal_grounding_source_refs(sample.get("source_refs"))
+        if source_refs:
+            compact["source_refs"] = list(source_refs)
+        source_ref_count = _positive_int(sample.get("source_ref_count"))
+        if source_ref_count is not None:
+            compact["source_ref_count"] = source_ref_count
         signals = _mapping(sample.get("grounding_signals"))
         signal_payload = {
             key: bool(signals.get(key))
@@ -2752,6 +2767,37 @@ def _compact_temporal_grounding_issue_samples(
         if compact:
             samples.append(compact)
     return samples
+
+
+def _compact_temporal_grounding_source_refs(
+    value: object,
+    *,
+    limit: int = 6,
+) -> tuple[str, ...]:
+    refs: list[str] = []
+    for raw_ref in _str_tuple(value):
+        for ref in (_safe_source_identity_ref(raw_ref), _safe_turn_ref(raw_ref)):
+            if ref and ref not in refs:
+                refs.append(ref)
+            if len(refs) >= limit:
+                return tuple(refs)
+    return tuple(refs)
+
+
+def _safe_turn_ref(value: object) -> str:
+    text = str(value or "").strip().upper()
+    if not text:
+        return ""
+    day, separator, turn = text.partition(":")
+    if (
+        separator
+        and len(day) > 1
+        and day.startswith("D")
+        and day[1:].isdigit()
+        and turn.isdigit()
+    ):
+        return text
+    return ""
 
 
 def _compact_rerank_signal_gap_samples(

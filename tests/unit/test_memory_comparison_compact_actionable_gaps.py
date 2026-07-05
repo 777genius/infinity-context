@@ -153,9 +153,7 @@ def test_compact_fast_gate_summary_bounds_temporal_grounding_issue_fields(
                         "query_roles": [
                             f"role-{value}-{long_value}" for value in range(8)
                         ],
-                        "source_refs": [
-                            f"D1:{value}-{long_value}" for value in range(8)
-                        ],
+                        "source_refs": [f"D1:{value}" for value in range(8)],
                         "issue_reasons": [
                             f"missing-{value}-{long_value}" for value in range(8)
                         ],

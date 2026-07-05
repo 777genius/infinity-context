@@ -560,6 +560,74 @@ def test_answer_context_provenance_samples_include_safe_audit_detail() -> None:
     assert "raw memory text must not appear" not in serialized
 
 
+def test_actionable_temporal_grounding_samples_filter_unsafe_source_refs() -> None:
+    summary = actionable_gap_summary(
+        evaluation_count=1,
+        expected_case_count=1,
+        failed_gates=(),
+        query_overlap_count=0,
+        profile_overlap_count=0,
+        intent_overlap_count=0,
+        temporal_grounding={
+            "temporal_case_count": 1,
+            "selected_temporal_grounding_issue_item_count": 1,
+            "selected_strong_temporal_grounding_item_count": 0,
+            "selected_temporal_grounding_issue_reason_counts": {
+                "missing_date_or_range": 1
+            },
+            "selected_temporal_grounding_issue_samples": [
+                {
+                    "case_id": "temporal-actionable",
+                    "group": "temporal",
+                    "item_id": "unsafe-source-item",
+                    "role": "temporal_sequence_support",
+                    "query_roles": ["temporal_sequence_support"],
+                    "source_refs": [
+                        "source_turn_refs:D1:2",
+                        "locomo:conv-private:session_2:D2:3:turn-secret",
+                        f"source_turn_refs:D1:{'9' * 90}",
+                    ],
+                    "source_ref_count": 3,
+                    "issue_reasons": ["missing_date_or_range"],
+                    "grounding_signals": {
+                        "source_window": True,
+                        "session_boundary": True,
+                        "date_or_range": False,
+                    },
+                }
+            ],
+        },
+    )
+
+    gap = summary["top_gap"]
+
+    assert isinstance(gap, dict)
+    assert gap["category"] == "temporal_grounding"
+    assert gap["samples"] == [
+        {
+            "case_id": "temporal-actionable",
+            "group": "temporal",
+            "item_id": "unsafe-source-item",
+            "role": "temporal_sequence_support",
+            "query_roles": ["temporal_sequence_support"],
+            "issue_reasons": ["missing_date_or_range"],
+            "source_refs": ["source_turn_refs:D1:2"],
+            "source_ref_count": 3,
+            "grounding_signals": {
+                "source_window": True,
+                "session_boundary": True,
+                "date_or_range": False,
+            },
+        }
+    ]
+    serialized = json.dumps(summary)
+    assert "locomo:conv-private" not in serialized
+    assert "turn-secret" not in serialized
+    assert "999999999999999999999999999999999999999999999999999999999999" not in (
+        serialized
+    )
+
+
 def test_fast_gate_actionable_summary_reports_rerank_selection_conflicts() -> None:
     long_value = "x" * 200
     retrieval = _retrieval_payload(

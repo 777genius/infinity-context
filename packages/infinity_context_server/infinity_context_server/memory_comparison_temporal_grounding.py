@@ -44,7 +44,13 @@ from infinity_context_server.memory_comparison_quality_accessors import (
     str_tuple as _str_tuple,
 )
 from infinity_context_server.memory_comparison_source_identity import (
+    safe_source_identity_ref as _safe_source_identity_ref,
+)
+from infinity_context_server.memory_comparison_source_identity import (
     source_identity_audit_gap_codes as _source_identity_audit_gap_codes,
+)
+from infinity_context_server.memory_comparison_source_identity import (
+    source_identity_refs_from_source_refs as _source_identity_refs_from_source_refs,
 )
 
 _MAX_SAMPLES = 10
@@ -575,7 +581,9 @@ def _grounding_gap_sample(
     item: Mapping[str, object],
     bundle_item: Mapping[str, object],
 ) -> dict[str, object]:
-    return {
+    source_refs = _source_refs_from_bundle_item(bundle_item)
+    safe_source_refs = _safe_sample_source_refs(source_refs)
+    sample = {
         "case_id": str(item.get("case_id") or ""),
         "group": str(item.get("group") or ""),
         "item_id": str(
@@ -585,9 +593,12 @@ def _grounding_gap_sample(
         ),
         "role": str(bundle_item.get("role") or ""),
         "query_roles": list(_str_tuple(bundle_item.get("query_roles"))),
-        "source_refs": list(_source_refs_from_bundle_item(bundle_item)[:_MAX_SAMPLE_REFS]),
+        "source_refs": list(safe_source_refs),
         "missing_grounding": ["session_boundary", "date_or_range"],
     }
+    if source_refs and not safe_source_refs:
+        sample["source_ref_count"] = len(source_refs)
+    return sample
 
 
 def _has_source_window_ref(source_refs: Sequence[str]) -> bool:
@@ -599,7 +610,7 @@ def _source_window_gap_sample(
     bundle_item: Mapping[str, object],
     source_refs: Sequence[str],
 ) -> dict[str, object]:
-    return {
+    sample = {
         "case_id": str(item.get("case_id") or ""),
         "group": str(item.get("group") or ""),
         "item_id": str(
@@ -609,9 +620,12 @@ def _source_window_gap_sample(
         ),
         "role": str(bundle_item.get("role") or ""),
         "query_roles": list(_str_tuple(bundle_item.get("query_roles"))),
-        "source_refs": list(source_refs[:_MAX_SAMPLE_REFS]),
+        "source_refs": list(_safe_sample_source_refs(source_refs)),
         "missing_source_window": True,
     }
+    if source_refs and not sample["source_refs"]:
+        sample["source_ref_count"] = len(source_refs)
+    return sample
 
 
 def _temporal_grounding_issue_sample(
@@ -624,6 +638,7 @@ def _temporal_grounding_issue_sample(
     source_identity_gap_codes: Sequence[str],
     reasons: Sequence[str],
 ) -> dict[str, object]:
+    safe_source_refs = _safe_sample_source_refs(source_refs)
     sample: dict[str, object] = {
         "case_id": str(item.get("case_id") or ""),
         "group": str(item.get("group") or ""),
@@ -634,7 +649,7 @@ def _temporal_grounding_issue_sample(
         ),
         "role": str(bundle_item.get("role") or ""),
         "query_roles": list(_str_tuple(bundle_item.get("query_roles"))),
-        "source_refs": list(source_refs[:_MAX_SAMPLE_REFS]),
+        "source_refs": list(safe_source_refs),
         "issue_reasons": list(reasons),
         "grounding_signals": {
             "source_window": has_source_window,
@@ -643,6 +658,8 @@ def _temporal_grounding_issue_sample(
             "temporal_order": bool(signals.get("temporal_order")),
         },
     }
+    if source_refs and not safe_source_refs:
+        sample["source_ref_count"] = len(source_refs)
     if signals.get("relative_date"):
         sample["grounding_signals"]["relative_date"] = True
     if _has_source_identity_mismatch(source_identity_gap_codes):
@@ -650,3 +667,31 @@ def _temporal_grounding_issue_sample(
             source_identity_gap_codes[:_MAX_SOURCE_IDENTITY_GAP_CODES]
         )
     return sample
+
+
+def _safe_sample_source_refs(source_refs: Sequence[str]) -> tuple[str, ...]:
+    refs: list[str] = []
+    for raw_ref in source_refs:
+        for ref in _safe_sample_source_refs_for_value(raw_ref):
+            if ref not in refs:
+                refs.append(ref)
+            if len(refs) >= _MAX_SAMPLE_REFS:
+                return tuple(refs)
+    return tuple(refs)
+
+
+def _safe_sample_source_refs_for_value(value: object) -> tuple[str, ...]:
+    safe_ref = _safe_source_identity_ref(value)
+    if safe_ref:
+        return (safe_ref,)
+    ref = str(value or "").strip()
+    if not ref:
+        return ()
+    if _TURN_RE.fullmatch(ref.upper()):
+        return (ref.upper(),)
+    return tuple(
+        safe_ref
+        for raw_ref in _source_identity_refs_from_source_refs((ref,))
+        for safe_ref in (_safe_source_identity_ref(raw_ref),)
+        if safe_ref
+    )

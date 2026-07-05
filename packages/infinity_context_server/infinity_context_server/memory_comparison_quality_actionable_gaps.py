@@ -1196,7 +1196,6 @@ def _compact_temporal_grounding_actionable_samples(
                 compact[key] = value
         for key in (
             "query_roles",
-            "source_refs",
             "issue_reasons",
             "source_identity_gap_codes",
         ):
@@ -1212,6 +1211,12 @@ def _compact_temporal_grounding_actionable_samples(
                 compact[key] = list(
                     values[:_MAX_TEMPORAL_GROUNDING_ACTIONABLE_SAMPLE_VALUES]
                 )
+        source_refs = _compact_temporal_grounding_source_refs(sample.get("source_refs"))
+        if source_refs:
+            compact["source_refs"] = list(source_refs)
+        source_ref_count = _positive_int(sample.get("source_ref_count")) or 0
+        if source_ref_count:
+            compact["source_ref_count"] = source_ref_count
         signals = _mapping(sample.get("grounding_signals"))
         signal_values = {
             key: bool(signals.get(key))
@@ -1231,6 +1236,36 @@ def _compact_temporal_grounding_actionable_samples(
         if len(compact_samples) >= _MAX_TEMPORAL_GROUNDING_ACTIONABLE_SAMPLES:
             break
     return tuple(compact_samples)
+
+
+def _compact_temporal_grounding_source_refs(value: object) -> tuple[str, ...]:
+    refs: list[str] = []
+    for raw_ref in _str_tuple(value):
+        for ref in (
+            _safe_answer_context_source_identity_ref(raw_ref),
+            _safe_turn_ref(raw_ref),
+        ):
+            if ref and ref not in refs:
+                refs.append(ref)
+            if len(refs) >= _MAX_TEMPORAL_GROUNDING_ACTIONABLE_SAMPLE_VALUES:
+                return tuple(refs)
+    return tuple(refs)
+
+
+def _safe_turn_ref(value: object) -> str:
+    text = str(value or "").strip().upper()
+    if not text:
+        return ""
+    day, separator, turn = text.partition(":")
+    if (
+        separator
+        and len(day) > 1
+        and day.startswith("D")
+        and day[1:].isdigit()
+        and turn.isdigit()
+    ):
+        return text
+    return ""
 
 
 def _evidence_recall_samples_for_missing(

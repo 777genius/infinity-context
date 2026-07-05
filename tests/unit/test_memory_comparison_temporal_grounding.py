@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+
+from infinity_context_server.memory_comparison_benchmark import _compact_fast_gate_summary
 from infinity_context_server.memory_comparison_quality_diagnostics import (
     quality_diagnostics,
 )
@@ -237,10 +240,109 @@ def test_temporal_grounding_reports_source_window_audit_gap_separately() -> None
             "item_id": "session-only",
             "role": "temporal_support",
             "query_roles": ["temporal_support"],
-            "source_refs": ["locomo:conv-1:session_4"],
+            "source_refs": [],
+            "source_ref_count": 1,
             "missing_source_window": True,
         }
     ]
+
+
+def test_compact_fast_gate_summary_reports_retrieval_relative_date_counts() -> None:
+    retrieval = _retrieval_payload(
+        evidence_need=("temporal_support",),
+        bundle_evidence_roles=("primary", "relative_temporal_support"),
+        relation_categories=("temporal",),
+        policy_score=0.2,
+        memory_text="Morgan checked in yesterday afternoon.",
+        candidate_features={
+            "query_roles": ["relative_temporal_support"],
+            "time_intent_kind": "relative_time",
+            "has_relative_time_surface": True,
+        },
+    )
+    retrieval["results"][0]["source_refs"] = [
+        "locomo:conv-1:session_7:D7:2:turn"
+    ]
+
+    summary = _compact_fast_gate_summary(
+        (
+            _item(
+                case_id="temporal-relative-compact",
+                group="temporal",
+                retrieval=retrieval,
+                evidence_bundle={
+                    "items": [
+                        {
+                            "id": "relative-grounded",
+                            "role": "relative_temporal_support",
+                            "query_roles": ["relative_temporal_support"],
+                            "source_refs": [
+                                "locomo:conv-1:session_7:D7:2:turn"
+                            ],
+                            "text": "Morgan checked in yesterday afternoon.",
+                        }
+                    ]
+                },
+            ),
+        )
+    )
+
+    counts = summary["temporal_grounding_counts"]
+    assert counts["retrieval_relative_date_grounded_candidate_count"] == 1
+    assert counts["selected_relative_date_grounded_item_count"] == 1
+
+
+def test_compact_temporal_grounding_samples_filter_unsafe_refs_and_bound_text() -> None:
+    long_id = "temporal-item-" + ("x" * 200)
+    private_refs = [
+        f"locomo:conv-private:session_8:D8:{turn}:turn-secret"
+        for turn in range(1, 5)
+    ]
+
+    item = _item(
+        case_id="temporal-private-refs",
+        group="temporal",
+        retrieval=_retrieval_payload(
+            evidence_need=("temporal_support",),
+            bundle_evidence_roles=("primary", "temporal_sequence_support"),
+            relation_categories=("temporal",),
+            policy_score=0.0,
+            candidate_features={
+                "query_roles": ["temporal_sequence_support"],
+                "time_intent_kind": "temporal_sequence",
+            },
+        ),
+        evidence_bundle={
+            "items": [
+                {
+                    "id": long_id,
+                    "role": "temporal_sequence_support",
+                    "query_roles": ["temporal_sequence_support"],
+                    "source_refs": private_refs,
+                }
+            ]
+        },
+    )
+
+    diagnostics = quality_diagnostics((item,))
+    table_sample = diagnostics["temporal_grounding_table"][
+        "selected_temporal_grounding_issue_samples"
+    ][0]
+    summary = _compact_fast_gate_summary((item,))
+    compact_sample = summary["temporal_grounding_issue_samples"][0]
+
+    assert table_sample["source_refs"] == [
+        "source_session_turn_refs:session_8:D8:1",
+        "source_turn_refs:D8:1",
+        "source_session_turn_refs:session_8:D8:2",
+        "source_turn_refs:D8:2",
+        "source_session_turn_refs:session_8:D8:3",
+    ]
+    assert compact_sample["source_refs"] == table_sample["source_refs"]
+    assert compact_sample["item_id"] == f"{long_id[:125]}..."
+    serialized = json.dumps({"diagnostics": diagnostics, "summary": summary})
+    assert "locomo:conv-private" not in serialized
+    assert "turn-secret" not in serialized
 
 
 def test_temporal_grounding_reports_source_identity_mismatch() -> None:
