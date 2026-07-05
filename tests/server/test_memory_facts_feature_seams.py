@@ -35,6 +35,15 @@ API_FACTS_PATH = (
     / "v1"
     / "facts.py"
 )
+API_SUGGESTIONS_PATH = (
+    REPO_ROOT
+    / "packages"
+    / "infinity_context_server"
+    / "infinity_context_server"
+    / "api"
+    / "v1"
+    / "suggestions.py"
+)
 
 
 class RecordingRememberFact:
@@ -129,6 +138,7 @@ def test_memory_facts_server_feature_public_surface_composes_router() -> None:
         "build_memory_facts_server_composition",
         "build_memory_facts_server_feature",
         "create_memory_facts_router",
+        "create_suggestions_batch_to_response",
         "evidence_ref_request_to_public",
         "evidence_ref_to_response",
         "fact_relation_item_to_response",
@@ -152,10 +162,13 @@ def test_memory_facts_server_feature_public_surface_composes_router() -> None:
         "remember_fact_command_from_contract",
         "remember_fact_request_to_command",
         "remember_fact_result_to_contract",
+        "review_suggestions_batch_to_response",
         "source_ref_from_v1_request",
         "source_ref_request_to_public",
         "source_ref_to_contract",
         "source_ref_to_response",
+        "suggestion_result_to_response",
+        "suggestion_to_response",
         "unlink_fact_relation_command_from_v1_path",
         "update_fact_command_from_v1_request",
         "update_fact_command_from_http",
@@ -420,6 +433,130 @@ def test_memory_facts_public_seam_maps_relation_responses() -> None:
     assert related_body["relation_reasons"] == ["ADR support"]
 
 
+def test_memory_facts_public_seam_maps_suggestion_responses_and_batches() -> None:
+    raw_secret = "sk-redacted1234"
+    now = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
+    suggestion = SimpleNamespace(
+        id="sug_1",
+        space_id="space_1",
+        memory_scope_id="scope_1",
+        candidate_text="Duplicate merge candidate.",
+        kind=SimpleNamespace(value="note"),
+        operation=SimpleNamespace(value="add"),
+        status=SimpleNamespace(value="pending"),
+        source_refs=(
+            SimpleNamespace(
+                source_type="manual",
+                source_id="source_1",
+                quote_preview=f"Bearer {raw_secret}",
+            ),
+        ),
+        confidence=SimpleNamespace(value="medium"),
+        trust_level=SimpleNamespace(value="medium"),
+        safe_reason=f"reviewed with Bearer {raw_secret}",
+        target_fact_id="fact_1",
+        target_fact_version=1,
+        category="architecture",
+        tags=("duplicates",),
+        ttl_policy=None,
+        expires_at=None,
+        expiry_reason=None,
+        created_from_capture_id="capture_1",
+        candidate_fingerprint="fingerprint_1",
+        review_payload={
+            "review_kind": "duplicate_fact_merge",
+            "review_events": [
+                {
+                    "event_type": "memory_suggestion_reviewed",
+                    "suggestion_id": "sug_1",
+                    "action": "approve",
+                    "new_status": "approved",
+                    "reason": f"approved with Bearer {raw_secret}",
+                    "authorization": f"Bearer {raw_secret}",
+                }
+            ],
+        },
+        review_reason=f"approved with Bearer {raw_secret}",
+        created_at=now,
+        updated_at=now,
+        reviewed_at=None,
+    )
+    fact = _snapshot(
+        fact_id="fact_1",
+        scope=memory_facts.MemoryFactScope(
+            space_id="space_1",
+            memory_scope_id="scope_1",
+        ),
+        text="Duplicate merge candidate.",
+        source_refs=(_source_ref(),),
+    )
+
+    body = server_public.suggestion_to_response(suggestion)
+    result_body = server_public.suggestion_result_to_response(
+        SimpleNamespace(suggestion=suggestion, fact=fact, indexing_status="pending")
+    )
+    review_batch = server_public.review_suggestions_batch_to_response(
+        SimpleNamespace(
+            applied=1,
+            failed=1,
+            stopped=False,
+            results=(
+                SimpleNamespace(
+                    suggestion_id="sug_1",
+                    action="approve",
+                    status="applied",
+                    result=SimpleNamespace(
+                        suggestion=suggestion,
+                        fact=fact,
+                        indexing_status="pending",
+                    ),
+                ),
+                SimpleNamespace(
+                    suggestion_id="sug_2",
+                    action="reject",
+                    status="failed",
+                    result=None,
+                    error_code="memory.conflict",
+                    error_message="already reviewed",
+                ),
+            ),
+        )
+    )
+    create_batch = server_public.create_suggestions_batch_to_response(
+        SimpleNamespace(
+            created=1,
+            existing=0,
+            failed=0,
+            stopped=False,
+            results=(
+                SimpleNamespace(
+                    index=0,
+                    status="created",
+                    result=SimpleNamespace(suggestion=suggestion),
+                ),
+            ),
+        )
+    )
+
+    assert body["review_kind"] == "duplicate_fact_merge"
+    assert "resolve_duplicate" in body["available_review_actions"]
+    assert body["review_payload"]["duplicate_merge_policy_version"] == (
+        "duplicate-merge-review-v1"
+    )
+    assert body["review_resolution_options"][0]["id"] == "merge_source_refs"
+    assert body["safe_reason"] == "[redacted]"
+    assert body["review_reason"] == "[redacted]"
+    assert body["review_audit"]["events"][0]["reason"] == "[redacted]"
+    assert "authorization" not in body["review_audit"]["events"][0]
+    assert raw_secret not in str(body)
+    assert result_body["suggestion"]["id"] == "sug_1"
+    assert result_body["fact"]["id"] == "fact_1"
+    assert result_body["fact"]["indexing_status"] == "pending"
+    assert review_batch["results"][0]["fact"]["id"] == "fact_1"
+    assert review_batch["results"][1]["error_code"] == "memory.conflict"
+    assert create_batch["results"][0]["suggestion"]["id"] == "sug_1"
+
+
 def test_memory_facts_public_seam_validates_relation_status_filter() -> None:
     server_public.validate_fact_status_filter(None)
     server_public.validate_fact_status_filter("active")
@@ -569,6 +706,38 @@ def test_v1_facts_route_delegates_write_mapping_to_feature_public_seam() -> None
     assert "memory_facts_feature.memory_kind_from_v1_request" in source
     assert "memory_facts_feature.fact_relation_to_response" in source
     assert "memory_facts_feature.related_fact_to_response" in source
+
+
+def test_v1_suggestions_route_delegates_feature_helpers_to_public_seam() -> None:
+    source = API_SUGGESTIONS_PATH.read_text(encoding="utf-8")
+    imports = _imports(API_SUGGESTIONS_PATH)
+    tree = ast.parse(source)
+    memory_facts_imports = [
+        (node.module, tuple(alias.name for alias in node.names))
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom)
+        and node.module
+        and node.module.startswith("infinity_context_server.features.memory_facts")
+    ]
+
+    assert "from infinity_context_server.features.memory_facts import public as " in source
+    assert memory_facts_imports == [
+        ("infinity_context_server.features.memory_facts", ("public",))
+    ]
+    assert "def suggestion_to_response" not in source
+    assert "def _review_batch_to_response" not in source
+    assert "def _create_batch_to_response" not in source
+    assert "review_payload_with_default_contract" not in source
+    assert "infinity_context_server.api.public_payload" not in imports
+    assert "infinity_context_server.api.v1.facts" not in imports
+    assert "infinity_context_server.api.v1.source_refs" not in imports
+    assert "infinity_context_core.application.review_payloads" not in imports
+    assert "memory_facts_feature.suggestion_to_response" in source
+    assert "memory_facts_feature.suggestion_result_to_response" in source
+    assert "memory_facts_feature.create_suggestions_batch_to_response" in source
+    assert "memory_facts_feature.review_suggestions_batch_to_response" in source
+    assert "memory_facts_feature.memory_kind_from_v1_request" in source
+    assert "memory_facts_feature.source_ref_from_v1_request" in source
 
 
 def test_memory_facts_server_slice_uses_only_public_feature_boundaries() -> None:

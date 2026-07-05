@@ -61,6 +61,12 @@ from infinity_context_server.features.memory_facts.mappers import (
 from infinity_context_server.features.memory_facts.routes import (
     create_memory_facts_router,
 )
+from infinity_context_server.features.memory_facts.suggestion_responses import (
+    create_suggestions_batch_to_response,
+    review_suggestions_batch_to_response,
+    suggestion_result_to_response,
+    suggestion_to_response,
+)
 
 FEATURE_ID = memory_facts.FEATURE_ID
 
@@ -79,6 +85,7 @@ __all__ = (
     "build_memory_facts_server_composition",
     "build_memory_facts_server_feature",
     "create_memory_facts_router",
+    "create_suggestions_batch_to_response",
     "evidence_ref_request_to_public",
     "evidence_ref_to_response",
     "fact_relation_item_to_response",
@@ -102,10 +109,13 @@ __all__ = (
     "remember_fact_command_from_contract",
     "remember_fact_request_to_command",
     "remember_fact_result_to_contract",
+    "review_suggestions_batch_to_response",
     "source_ref_from_v1_request",
     "source_ref_request_to_public",
     "source_ref_to_contract",
     "source_ref_to_response",
+    "suggestion_result_to_response",
+    "suggestion_to_response",
     "unlink_fact_relation_command_from_v1_path",
     "update_fact_command_from_v1_request",
     "update_fact_command_from_http",
