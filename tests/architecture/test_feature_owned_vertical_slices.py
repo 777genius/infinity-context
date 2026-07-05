@@ -164,14 +164,11 @@ def _is_allowed_core_feature_import(feature_id: str, path: Path, imported: str) 
         return True
 
     if relative_parts[0] == "public.py":
-        return _matches_module_prefix(
-            imported,
-            (
-                f"{own_feature}.application",
-                f"{own_feature}.domain",
-                f"{own_feature}.ports",
-            ),
-        )
+        return imported in {
+            f"{own_feature}.application",
+            f"{own_feature}.domain",
+            f"{own_feature}.ports",
+        }
 
     layer = relative_parts[0]
     if layer == "domain":
@@ -193,6 +190,8 @@ def _is_allowed_core_feature_import(feature_id: str, path: Path, imported: str) 
                 f"{own_feature}.ports",
             ),
         )
+    if layer == "tests":
+        return _matches_module_prefix(imported, (own_feature,))
 
     return False
 
@@ -296,6 +295,85 @@ def test_memory_facts_public_api_is_importable_and_narrow() -> None:
         "UpdateFactHandler",
         "UpdateFactResult",
         "UpdateFactUseCase",
+    )
+
+
+def test_document_ingestion_public_api_is_importable_and_narrow() -> None:
+    from infinity_context_core.features.document_ingestion import public  # noqa: PLC0415
+
+    assert public.FEATURE_ID == "document_ingestion"
+    assert public.DocumentIngestionFeature().feature_id == "document_ingestion"
+    assert public.__all__ == (
+        "CHUNKING_POLICY_VERSION",
+        "ChunkingPolicy",
+        "DocumentChunk",
+        "DocumentChunkDraft",
+        "DocumentChunkIdentity",
+        "DocumentChunkIndexItem",
+        "DocumentChunkIndexPort",
+        "DocumentChunkKind",
+        "DocumentChunkRepositoryPort",
+        "DocumentChunkStatus",
+        "DocumentChunkUpsertResult",
+        "DocumentIndexingResult",
+        "DocumentIndexingStatus",
+        "DocumentIngestionError",
+        "DocumentIngestionFeature",
+        "DocumentIngestionIdentityFactory",
+        "DocumentIngestionInvariantError",
+        "DocumentIngestionScope",
+        "DocumentIngestionUseCases",
+        "DocumentIngestionValidationError",
+        "DocumentTextRange",
+        "FEATURE_ID",
+        "IngestDocumentCommand",
+        "IngestDocumentHandler",
+        "IngestDocumentResult",
+        "IngestDocumentUseCase",
+        "PreparedDocumentIngestion",
+        "PrepareDocumentIngestionHandler",
+        "PrepareDocumentIngestionUseCase",
+        "SourceDocument",
+        "SourceDocumentClassification",
+        "SourceDocumentContent",
+        "SourceDocumentDraft",
+        "SourceDocumentIdentity",
+        "SourceDocumentOrigin",
+        "SourceDocumentRepositoryPort",
+        "SourceDocumentStatus",
+        "StableDocumentIngestionIdentityFactory",
+        "content_hash_for_text",
+        "estimate_token_count",
+        "normalize_document_text",
+    )
+
+
+def test_core_feature_public_api_imports_feature_layer_boundaries_only() -> None:
+    path = CORE_FEATURE_ROOT / "document_ingestion" / "public.py"
+    layer_imports = _imports_from_source(
+        path,
+        "from .application import IngestDocumentHandler\n"
+        "from .domain import SourceDocument\n"
+        "from .ports import SourceDocumentRepositoryPort\n",
+    )
+    internal_imports = _imports_from_source(
+        path,
+        "from .application.use_cases import IngestDocumentHandler\n"
+        "from .domain.source_document import SourceDocument\n"
+        "from .ports.repositories import SourceDocumentRepositoryPort\n",
+    )
+    legacy_imports = _imports_from_source(
+        path,
+        "from ...application.use_cases import IngestDocumentHandler\n",
+    )
+
+    assert all(
+        _is_allowed_core_feature_import("document_ingestion", path, imported)
+        for imported in layer_imports
+    )
+    assert not any(
+        _is_allowed_core_feature_import("document_ingestion", path, imported)
+        for imported in internal_imports + legacy_imports
     )
 
 

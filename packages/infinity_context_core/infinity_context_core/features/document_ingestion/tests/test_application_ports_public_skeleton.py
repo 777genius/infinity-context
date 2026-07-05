@@ -199,16 +199,28 @@ def test_document_ingestion_public_api_exports_application_domain_and_ports() ->
     public = importlib.import_module(PUBLIC_MODULE)
 
     expected_exports = {
+        "CHUNKING_POLICY_VERSION": domain,
         "ChunkingPolicy": domain,
         "DocumentChunk": domain,
         "DocumentChunkDraft": domain,
+        "DocumentChunkIdentity": domain,
         "DocumentChunkIndexItem": ports,
         "DocumentChunkIndexPort": ports,
+        "DocumentChunkKind": domain,
         "DocumentChunkRepositoryPort": ports,
+        "DocumentChunkStatus": domain,
+        "DocumentChunkUpsertResult": ports,
         "DocumentIndexingResult": ports,
+        "DocumentIndexingStatus": application,
+        "DocumentIngestionError": domain,
+        "DocumentIngestionFeature": domain,
         "DocumentIngestionIdentityFactory": application,
+        "DocumentIngestionInvariantError": domain,
         "DocumentIngestionScope": domain,
         "DocumentIngestionUseCases": application,
+        "DocumentIngestionValidationError": domain,
+        "DocumentTextRange": domain,
+        "FEATURE_ID": domain,
         "IngestDocumentCommand": application,
         "IngestDocumentHandler": application,
         "IngestDocumentResult": application,
@@ -217,13 +229,20 @@ def test_document_ingestion_public_api_exports_application_domain_and_ports() ->
         "PrepareDocumentIngestionHandler": application,
         "PrepareDocumentIngestionUseCase": application,
         "SourceDocument": domain,
+        "SourceDocumentClassification": domain,
+        "SourceDocumentContent": domain,
         "SourceDocumentDraft": domain,
+        "SourceDocumentIdentity": domain,
         "SourceDocumentOrigin": domain,
         "SourceDocumentRepositoryPort": ports,
+        "SourceDocumentStatus": domain,
         "StableDocumentIngestionIdentityFactory": application,
+        "content_hash_for_text": domain,
+        "estimate_token_count": domain,
+        "normalize_document_text": domain,
     }
 
-    assert expected_exports.keys() <= set(public.__all__)
+    assert public.__all__ == tuple(expected_exports)
     for name, module in expected_exports.items():
         assert getattr(public, name) is getattr(module, name)
 
