@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from infinity_context_core.features.context_building.domain import (
     ContextBudget,
     ContextBundle,
+    ContextItem,
     ContextQuery,
 )
 
@@ -32,4 +33,26 @@ class BuildContextResult:
     bundle: ContextBundle
 
 
-__all__ = ("BuildContextQuery", "BuildContextResult")
+@dataclass(frozen=True, slots=True)
+class PackContextQuery:
+    """Request to pack already-hydrated context candidates into prompt evidence."""
+
+    query: ContextQuery
+    budget: ContextBudget
+    candidates: tuple[ContextItem, ...]
+    idempotency_key: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PackContextResult:
+    """Result returned after candidate packing and prompt-safe rendering."""
+
+    bundle: ContextBundle
+
+
+__all__ = (
+    "BuildContextQuery",
+    "BuildContextResult",
+    "PackContextQuery",
+    "PackContextResult",
+)

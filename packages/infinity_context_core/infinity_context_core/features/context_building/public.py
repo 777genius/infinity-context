@@ -8,6 +8,10 @@ from infinity_context_core.features.context_building.application import (
     BuildContextResult,
     BuildContextUseCase,
     ContextBuildingUseCases,
+    PackContextHandler,
+    PackContextQuery,
+    PackContextResult,
+    PackContextUseCase,
 )
 from infinity_context_core.features.context_building.domain import (
     FEATURE_ID,
@@ -63,5 +67,9 @@ __all__ = (
     "ContextSourceRef",
     "ContextTrustLevel",
     "EvidenceRenderPolicy",
+    "PackContextHandler",
+    "PackContextQuery",
+    "PackContextResult",
+    "PackContextUseCase",
     "estimate_token_count",
 )

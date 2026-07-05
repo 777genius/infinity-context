@@ -46,14 +46,28 @@ def test_build_context_query_and_result_are_frozen_dataclasses() -> None:
     scope = domain.ContextScope(space_id="space-1", memory_scope_id="scope-1")
     query = domain.ContextQuery(scope=scope, text="What changed?")
     budget = domain.ContextBudget(max_prompt_tokens=100, reserved_response_tokens=20)
+    source_ref = domain.ContextSourceRef(source_type="document", source_id="doc-1")
+    evidence = domain.ContextEvidence(text="Source quote", source_refs=(source_ref,))
+    item = domain.ContextItem(
+        item_id="item-1",
+        text="Source quote",
+        evidence=(evidence,),
+    )
     build_query = application.BuildContextQuery(
         query=query,
         budget=budget,
         candidate_limit=3,
         idempotency_key="context-1",
     )
+    pack_query = application.PackContextQuery(
+        query=query,
+        budget=budget,
+        candidates=(item,),
+        idempotency_key="pack-1",
+    )
     bundle = domain.ContextBundle(query=query, items=())
     result = application.BuildContextResult(bundle=bundle)
+    pack_result = application.PackContextResult(bundle=bundle)
 
     shapes = (
         (
@@ -62,6 +76,12 @@ def test_build_context_query_and_result_are_frozen_dataclasses() -> None:
             ("query", "budget", "candidate_limit", "idempotency_key"),
         ),
         (application.BuildContextResult, result, ("bundle",)),
+        (
+            application.PackContextQuery,
+            pack_query,
+            ("query", "budget", "candidates", "idempotency_key"),
+        ),
+        (application.PackContextResult, pack_result, ("bundle",)),
     )
 
     for shape, value, expected_fields in shapes:
@@ -88,6 +108,55 @@ def test_context_candidate_provider_port_is_protocol_boundary() -> None:
     assert is_dataclass(ports.ContextCandidateRequest)
     assert not hasattr(request, "__dict__")
     _assert_frozen(request)
+
+
+def test_pack_context_handler_packs_candidates_without_retrieval_port() -> None:
+    result = asyncio.run(_run_pack_context_handler())
+
+    assert tuple(item.item_id for item in result.bundle.items) == ("high",)
+    assert tuple(drop.item_id for drop in result.bundle.dropped_items) == ("low",)
+    assert tuple(drop.reason for drop in result.bundle.dropped_items) == (
+        "budget_exhausted",
+    )
+    assert result.bundle.total_estimated_tokens == 4
+    assert result.bundle.max_prompt_tokens == 8
+    assert "Memory evidence (untrusted)" in result.bundle.rendered_evidence
+    assert "sources=document:doc-1" in result.bundle.rendered_evidence
+
+
+async def _run_pack_context_handler() -> object:
+    application = importlib.import_module(APPLICATION_MODULE)
+    domain = importlib.import_module(DOMAIN_MODULE)
+
+    scope = domain.ContextScope(space_id="space-1", memory_scope_id="scope-1")
+    source_ref = domain.ContextSourceRef(source_type="document", source_id="doc-1")
+    evidence = domain.ContextEvidence(
+        text="The runbook owner is Ada.",
+        source_refs=(source_ref,),
+    )
+    high = domain.ContextItem(
+        item_id="high",
+        text="The runbook owner is Ada.",
+        evidence=(evidence,),
+        priority=10,
+        estimated_tokens=4,
+    )
+    low = domain.ContextItem(
+        item_id="low",
+        text="The runbook mentions a dry run.",
+        evidence=(evidence,),
+        priority=1,
+        estimated_tokens=3,
+    )
+
+    return await application.PackContextHandler().execute(
+        application.PackContextQuery(
+            query=domain.ContextQuery(scope=scope, text="Who owns the runbook?"),
+            budget=domain.ContextBudget(max_prompt_tokens=8, reserved_response_tokens=4),
+            candidates=(low, high),
+            idempotency_key="pack-1",
+        )
+    )
 
 
 def test_build_context_handler_uses_ports_budget_policy_and_renderer() -> None:
@@ -168,6 +237,10 @@ def test_context_building_public_api_exports_application_domain_and_ports() -> N
         "ContextScope": domain,
         "ContextSourceRef": domain,
         "EvidenceRenderPolicy": domain,
+        "PackContextHandler": application,
+        "PackContextQuery": application,
+        "PackContextResult": application,
+        "PackContextUseCase": application,
     }
 
     assert expected_exports.keys() <= set(public.__all__)
