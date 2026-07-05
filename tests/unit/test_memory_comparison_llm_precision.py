@@ -162,6 +162,47 @@ def test_llm_memory_line_merges_bundle_and_item_risk_reasons() -> None:
     ) in line
 
 
+def test_judge_prompt_preserves_answer_context_precision_labels() -> None:
+    prompt = _judge_prompt(
+        PublicBenchmarkCase(
+            benchmark="locomo",
+            case_id="conv-1:qa:1",
+            question="Where did Morgan put the checklist?",
+            expected_terms=("blue notebook",),
+            metadata={"answer_preview": "Morgan put it in the blue notebook."},
+        ),
+        AnswerResult(answer="Morgan put it in the green folder."),
+        (
+            RetrievedMemory(
+                text="D1:4 Morgan put the checklist in the blue notebook.",
+                rank=7,
+                source_refs=("D1:4",),
+                metadata={
+                    "answer_context_role": "primary",
+                    "answer_context_retrieval_order": 2,
+                    "answer_context_answerability_score": 0.82,
+                    "answer_context_source_locality_score": 0.92,
+                    "answer_context_query_roles": ("location_support",),
+                    "answer_context_role_requirement_complete": False,
+                    "answer_context_missing_required_roles": ("contrast",),
+                    "answer_context_risk_reason_codes": (
+                        "risk:missing_required_role",
+                    ),
+                },
+            ),
+        ),
+    )
+
+    assert "Generated answer: Morgan put it in the green folder." in prompt
+    assert "1. [role=primary rank=7 retrieval_order=2" in prompt
+    assert "answerability=0.82" in prompt
+    assert "locality=0.92" in prompt
+    assert "query_roles=location_support" in prompt
+    assert "missing_roles=contrast" in prompt
+    assert "role_complete=false" in prompt
+    assert "risks=risk:missing_required_role" in prompt
+    assert "refs=D1:4" in prompt
+
 def test_judge_prompt_uses_precise_ground_truth_and_evidence_labels() -> None:
     prompt = _judge_prompt(
         PublicBenchmarkCase(
