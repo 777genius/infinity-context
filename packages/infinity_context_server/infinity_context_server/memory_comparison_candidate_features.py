@@ -221,6 +221,8 @@ class CandidateEvidenceFeatures:
     communication_query_speaker: str
     communication_query_addressee: str
     direct_speaker_turn: bool
+    direct_turn_speakers: tuple[str, ...]
+    direct_turn_mentioned_entity_without_speaker_hit: bool
     broad_summary: bool
     focused_turn_surface: bool
     focused_turn_score: float
@@ -329,6 +331,10 @@ class CandidateEvidenceFeatures:
             "relation_hits": list(self.relation_hits),
             "entity_hits": list(self.entity_hits),
             "speaker_hits": list(self.speaker_hits),
+            "direct_turn_speakers": list(self.direct_turn_speakers),
+            "direct_turn_mentioned_entity_without_speaker_hit": (
+                self.direct_turn_mentioned_entity_without_speaker_hit
+            ),
             "is_contrast_query": self.is_contrast_query,
             "has_temporal_surface": self.has_temporal_surface,
             "has_sequence_surface": self.has_sequence_surface,
@@ -422,6 +428,10 @@ def build_candidate_evidence_features(
     )
     broad_summary = memory_has_broad_summary(memory)
     direct_speaker_turn = bool(_DIRECT_TURN_SPEAKER_RE.search(text)) and not broad_summary
+    direct_turn_speakers = _direct_turn_speakers(text)
+    direct_turn_mentioned_entity_without_speaker_hit = bool(
+        direct_speaker_turn and direct_turn_speakers and entity_hits and not speaker_hits
+    )
     communication_grounding = communication_direction_grounding(
         query=question,
         text=text,
@@ -523,6 +533,10 @@ def build_candidate_evidence_features(
         communication_query_speaker=communication_grounding.speaker,
         communication_query_addressee=communication_grounding.addressee,
         direct_speaker_turn=direct_speaker_turn,
+        direct_turn_speakers=direct_turn_speakers,
+        direct_turn_mentioned_entity_without_speaker_hit=(
+            direct_turn_mentioned_entity_without_speaker_hit
+        ),
         broad_summary=broad_summary,
         focused_turn_surface=has_focused_turn_surface,
         focused_turn_score=focused_turn_score,
@@ -1045,6 +1059,15 @@ def _direct_speaker_clause_covers_query_entities(
 def _direct_turn_speaker(memory_text: str) -> str:
     match = _DIRECT_TURN_SPEAKER_CAPTURE_RE.search(memory_text)
     return match.group("speaker").casefold() if match else ""
+
+
+def _direct_turn_speakers(memory_text: str) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            match.group("speaker").casefold()
+            for match in _DIRECT_TURN_SPEAKER_CAPTURE_RE.finditer(memory_text)
+        )
+    )
 
 
 def _direct_turn_speaker_for_clause(memory_text: str, clause: str) -> str:
