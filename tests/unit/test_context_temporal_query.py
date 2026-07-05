@@ -219,6 +219,13 @@ def test_temporal_query_intent_detects_since_and_until_event_sequences() -> None
     before_source_turn = build_temporal_query_intent(
         "What did Riley mention before source turn D12:4?"
     )
+    after_source_ref = build_temporal_query_intent(
+        "What did Riley mention after source ref locomo:conv-1:session_12:D12:4:turn?"
+    )
+    before_source_reference = build_temporal_query_intent(
+        "What did Riley mention before source reference "
+        "locomo:conv-1:session_12:D12:4:turn?"
+    )
 
     assert since_call.after_event is True
     assert since_call.requests_change is True
@@ -254,6 +261,10 @@ def test_temporal_query_intent_detects_since_and_until_event_sequences() -> None
     assert after_source_turn.source_turn_sequence.after_turns[0].label() == "D12:4"
     assert before_source_turn.before_event is True
     assert before_source_turn.source_turn_sequence.before_turns[0].label() == "D12:4"
+    assert after_source_ref.after_event is True
+    assert after_source_ref.source_turn_sequence.after_turns[0].label() == "D12:4"
+    assert before_source_reference.before_event is True
+    assert before_source_reference.source_turn_sequence.before_turns[0].label() == "D12:4"
 
 
 def test_temporal_query_intent_detects_relative_time_hints() -> None:
@@ -1288,6 +1299,49 @@ def test_temporal_query_uses_source_refs_for_source_turn_before_boundary_order()
     assert boosted[1].score == 0.694
     assert boosted[1].diagnostics["temporal_query_intent_reason"] == (
         "query asks for before source turn and item source turn follows boundary"
+    )
+
+
+def test_temporal_query_boosts_full_source_ref_boundary_order() -> None:
+    intent = build_temporal_query_intent(
+        "What did Riley mention after source ref locomo:conv-1:session_12:D12:4:turn?"
+    )
+    after_item = ContextItem(
+        item_id="after",
+        item_type="fact",
+        text="Riley said the studio visit was confirmed.",
+        score=0.7,
+        source_refs=(
+            SourceRef(
+                source_type="document",
+                source_id="locomo:conv-1:session_12:D12:5:turn",
+            ),
+        ),
+        diagnostics={"retrieval_source": "canonical_anchors"},
+    )
+    before_item = ContextItem(
+        item_id="before",
+        item_type="fact",
+        text="Riley was still waiting on Morgan.",
+        score=0.72,
+        source_refs=(
+            SourceRef(
+                source_type="document",
+                source_id="locomo:conv-1:session_12:D12:3:turn",
+            ),
+        ),
+        diagnostics={"retrieval_source": "canonical_anchors"},
+    )
+
+    boosted = apply_temporal_query_intent_boosts((after_item, before_item), intent=intent)
+
+    assert boosted[0].score == 0.74
+    assert boosted[0].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for after source turn and item source turn follows boundary"
+    )
+    assert boosted[1].score == 0.694
+    assert boosted[1].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for after source turn and item source turn precedes boundary"
     )
 
 

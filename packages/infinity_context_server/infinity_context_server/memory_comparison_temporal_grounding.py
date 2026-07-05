@@ -68,7 +68,7 @@ _SOURCE_IDENTITY_MISMATCH_GAP_CODES = frozenset(
     }
 )
 _SESSION_RE = re.compile(r"\bsession[_ -]?\d+\b", re.IGNORECASE)
-_TURN_RE = re.compile(r"\bD\d+:\d+\b")
+_TURN_RE = re.compile(r"\bD\d+[:-]\d+\b")
 _SOURCE_WINDOW_REF_RE = re.compile(
     r"(?:^|:)session_\d+:D\d+:\d+\b|^source_(?:session_)?turn_refs:",
     re.IGNORECASE,

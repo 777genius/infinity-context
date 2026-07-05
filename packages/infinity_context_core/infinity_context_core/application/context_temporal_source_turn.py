@@ -46,14 +46,16 @@ _SOURCE_TURN_RE = re.compile(
 )
 _AFTER_SOURCE_TURN_RE = re.compile(
     r"\b(?:right\s+after|immediately\s+after|shortly\s+after|after|following|since)"
-    r"\s+(?:the\s+)?(?:source\s+)?(?:turn\s+)?"
-    r"(?P<ref>D\d{1,4}:\d{1,4})\b",
+    r"\s+(?:the\s+)?(?:(?:source\s+)?(?:ref|reference)\s+)?"
+    r"(?:source\s+)?(?:turn\s+)?"
+    r"(?P<ref>(?:[^\s:]+:)*D\d{1,4}:\d{1,4}(?::turn)?)\b",
     re.IGNORECASE,
 )
 _BEFORE_SOURCE_TURN_RE = re.compile(
     r"\b(?:right\s+before|immediately\s+before|shortly\s+before|before|prior\s+to|"
-    r"until|up\s+to)\s+(?:the\s+)?(?:source\s+)?(?:turn\s+)?"
-    r"(?P<ref>D\d{1,4}:\d{1,4})\b",
+    r"until|up\s+to)\s+(?:the\s+)?(?:(?:source\s+)?(?:ref|reference)\s+)?"
+    r"(?:source\s+)?(?:turn\s+)?"
+    r"(?P<ref>(?:[^\s:]+:)*D\d{1,4}:\d{1,4}(?::turn)?)\b",
     re.IGNORECASE,
 )
 
@@ -169,7 +171,7 @@ def _source_turns_from_values(values: tuple[str, ...]) -> tuple[SourceTurnRef, .
 
 
 def _source_turn_from_label(value: str) -> SourceTurnRef | None:
-    match = _SOURCE_TURN_RE.fullmatch(value.strip())
+    match = _SOURCE_TURN_RE.search(value.strip())
     if match is None:
         return None
     return SourceTurnRef(
