@@ -45,6 +45,7 @@ SERVER_API_ROOT = SERVER_ROOT / "api"
 SERVER_FEATURE_ROOT = SERVER_ROOT / "features"
 SERVER_OUTBOX_WORKER_PATH = SERVER_ROOT / "worker.py"
 SERVER_PROCESS_ROOT = SERVER_ROOT / "processes"
+SERVER_COMPOSITION_MODULES = (SERVER_ROOT / "composition.py",)
 
 CONTRACT_FORBIDDEN_IMPORT_PREFIXES = (
     "fastapi",
@@ -121,6 +122,14 @@ def _server_route_modules() -> list[Path]:
     return sorted(path for path in paths if path.is_file())
 
 
+def _server_api_and_composition_modules() -> list[Path]:
+    paths = [
+        *_python_modules(SERVER_API_ROOT),
+        *SERVER_COMPOSITION_MODULES,
+    ]
+    return sorted(path for path in paths if path.is_file())
+
+
 def _package_context(path: Path) -> str | None:
     try:
         relative = path.relative_to(REPO_ROOT / "packages")
@@ -183,8 +192,11 @@ def _imports(path: Path) -> list[str]:
     return _imports_from_tree(path, tree)
 
 
-def _is_core_feature_package_root(imported: str) -> bool:
-    prefix = "infinity_context_core.features."
+def _is_feature_namespace_root(imported: str, prefix: str) -> bool:
+    return imported == prefix.removesuffix(".")
+
+
+def _is_feature_package_root(imported: str, prefix: str) -> bool:
     if not imported.startswith(prefix):
         return False
 
@@ -201,7 +213,15 @@ def _import_targets_from_tree(path: Path, tree: ast.AST) -> list[str]:
             imported = _resolve_import_from(path, node)
             if imported is None:
                 continue
-            if _is_core_feature_package_root(imported):
+            feature_prefixes = (
+                "infinity_context_core.features.",
+                "infinity_context_server.features.",
+            )
+            if any(
+                _is_feature_namespace_root(imported, prefix)
+                or _is_feature_package_root(imported, prefix)
+                for prefix in feature_prefixes
+            ):
                 imports.extend(f"{imported}.{alias.name}" for alias in node.names)
             else:
                 imports.append(imported)
@@ -260,6 +280,20 @@ def _is_cross_feature_internal_import(current_feature: str, imported: str) -> bo
     imported_feature = imported_parts[0]
     imports_public_api = len(imported_parts) > 1 and imported_parts[1] == "public"
     return imported_feature != current_feature and not imports_public_api
+
+
+def _is_external_server_feature_internal_import(imported: str) -> bool:
+    prefix = "infinity_context_server.features."
+    if not imported.startswith(prefix):
+        return False
+
+    imported_parts = imported.removeprefix(prefix).split(".")
+    if not imported_parts or imported_parts[0] not in FEATURE_IDS:
+        return False
+
+    imports_package_public = len(imported_parts) == 1
+    imports_public_api = len(imported_parts) > 1 and imported_parts[1] == "public"
+    return not (imports_package_public or imports_public_api)
 
 
 def _is_allowed_core_feature_import(feature_id: str, path: Path, imported: str) -> bool:
@@ -699,6 +733,18 @@ def test_route_modules_do_not_dispatch_outbox_event_workflows_directly() -> None
             if _matches_module_prefix(imported, route_outbox_dispatch_imports):
                 rel = path.relative_to(REPO_ROOT)
                 violations.append(f"{rel}: imports {imported}")
+
+    assert violations == []
+
+
+def test_non_feature_server_api_and_composition_import_feature_public_seams() -> None:
+    violations: list[str] = []
+    for path in _server_api_and_composition_modules():
+        for imported in _import_targets(path):
+            if not _is_external_server_feature_internal_import(imported):
+                continue
+            rel = path.relative_to(REPO_ROOT)
+            violations.append(f"{rel}: imports {imported}")
 
     assert violations == []
 
