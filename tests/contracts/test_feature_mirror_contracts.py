@@ -17,6 +17,7 @@ from infinity_context_contracts.features.context_building import (
 from infinity_context_contracts.features.document_ingestion import (
     DocumentChunkDto,
     DocumentIdentityDto,
+    DocumentSourceDto,
     IngestDocumentRequestDto,
     IngestDocumentResultDto,
     MemoryDocumentDto,
@@ -24,8 +25,12 @@ from infinity_context_contracts.features.document_ingestion import (
 from infinity_context_contracts.features.memory_scopes import (
     CreateMemoryScopeRequestDto,
     CreateMemoryScopeResultDto,
+    MemoryScopeActorDto,
     MemoryScopeDescriptorDto,
+    MemoryScopeOwnerDto,
     ScopeIdentityDto,
+    TransferMemoryScopeOwnershipRequestDto,
+    TransferMemoryScopeOwnershipResultDto,
     TransferMemoryScopeRequestDto,
     TransferMemoryScopeResultDto,
 )
@@ -36,8 +41,8 @@ def test_non_memory_feature_mirror_modules_are_publicly_importable() -> None:
     assert document_ingestion.FEATURE_ID == "document_ingestion"
     assert memory_scopes.FEATURE_ID == "memory_scopes"
     assert "ContextItemDto" in context_building.__all__
-    assert "DocumentChunkDto" in document_ingestion.__all__
-    assert "MemoryScopeDescriptorDto" in memory_scopes.__all__
+    assert "DocumentSourceDto" in document_ingestion.__all__
+    assert "MemoryScopeOwnerDto" in memory_scopes.__all__
 
 
 def test_context_building_contracts_serialize_to_plain_json_dicts() -> None:
@@ -53,6 +58,10 @@ def test_context_building_contracts_serialize_to_plain_json_dicts() -> None:
         document_id="doc_1",
         chunk_id="chunk_1",
         quote_preview="Postgres owns canonical lifecycle.",
+        char_start=0,
+        char_end=36,
+        page_number=2,
+        bbox=(0.0, 1.0, 120.0, 40.0),
         score=0.91,
         trust_level="high",
         metadata={"page": 2},
@@ -76,6 +85,7 @@ def test_context_building_contracts_serialize_to_plain_json_dicts() -> None:
         include_kinds=("fact", "document_chunk"),
         tags=("architecture",),
         policy_mode="active_context",
+        include_diagnostics=True,
     )
     result = BuildContextResultDto(
         items=(item,),
@@ -103,6 +113,7 @@ def test_context_building_contracts_serialize_to_plain_json_dicts() -> None:
         "include_kinds": ["fact", "document_chunk"],
         "tags": ["architecture"],
         "policy_mode": "active_context",
+        "include_diagnostics": True,
         "metadata": {},
     }
     assert result.to_dict()["data"]["items"][0]["evidence"][0] == {
@@ -112,6 +123,13 @@ def test_context_building_contracts_serialize_to_plain_json_dicts() -> None:
         "document_id": "doc_1",
         "chunk_id": "chunk_1",
         "quote_preview": "Postgres owns canonical lifecycle.",
+        "char_start": 0,
+        "char_end": 36,
+        "page_number": 2,
+        "time_start_ms": None,
+        "time_end_ms": None,
+        "bbox": [0.0, 1.0, 120.0, 40.0],
+        "occurred_at": None,
         "score": 0.91,
         "trust_level": "high",
         "metadata": {"page": 2},
@@ -120,6 +138,12 @@ def test_context_building_contracts_serialize_to_plain_json_dicts() -> None:
 
 
 def test_document_ingestion_contracts_serialize_to_plain_json_dicts() -> None:
+    source = DocumentSourceDto(
+        source_type="document",
+        source_external_id="architecture-notes",
+        source_uri="file:///notes/architecture.md",
+        classification="internal",
+    )
     document = MemoryDocumentDto(
         identity=DocumentIdentityDto(
             id="doc_1",
@@ -128,7 +152,9 @@ def test_document_ingestion_contracts_serialize_to_plain_json_dicts() -> None:
             thread_id="thread_1",
         ),
         title="Architecture Notes",
+        source=source,
         source_uri="file:///notes/architecture.md",
+        classification="internal",
         status="processed",
         content_hash="sha256:abc",
         metadata={"source": "manual"},
@@ -146,7 +172,10 @@ def test_document_ingestion_contracts_serialize_to_plain_json_dicts() -> None:
     request = IngestDocumentRequestDto(
         text="Postgres is canonical truth.",
         title="Architecture Notes",
+        source_type="document",
+        source_external_id="architecture-notes",
         source_uri="file:///notes/architecture.md",
+        classification="internal",
         space_slug="client-app",
         memory_scope_external_ref="default",
         idempotency_key="ingest_1",
@@ -168,8 +197,16 @@ def test_document_ingestion_contracts_serialize_to_plain_json_dicts() -> None:
                 "memory_scope_id": "memory_scope_default",
                 "thread_id": "thread_1",
                 "title": "Architecture Notes",
+                "source": {
+                    "source_type": "document",
+                    "source_external_id": "architecture-notes",
+                    "source_uri": "file:///notes/architecture.md",
+                    "media_type": "text/plain",
+                    "classification": "internal",
+                },
                 "source_uri": "file:///notes/architecture.md",
                 "media_type": "text/plain",
+                "classification": "internal",
                 "status": "processed",
                 "content_hash": "sha256:abc",
                 "created_at": None,
@@ -197,6 +234,7 @@ def test_document_ingestion_contracts_serialize_to_plain_json_dicts() -> None:
 
 
 def test_memory_scope_contracts_serialize_create_and_transfer_shapes() -> None:
+    owner = MemoryScopeOwnerDto(principal_id="user_1")
     created_scope = MemoryScopeDescriptorDto(
         identity=ScopeIdentityDto(
             id="memory_scope_default",
@@ -204,6 +242,7 @@ def test_memory_scope_contracts_serialize_create_and_transfer_shapes() -> None:
             external_ref="default",
         ),
         name="Default",
+        owner=owner,
         description="Default client app memory scope.",
         policy_mode="manual_only",
         metadata={"owner": "client-app"},
@@ -215,12 +254,14 @@ def test_memory_scope_contracts_serialize_create_and_transfer_shapes() -> None:
             external_ref="backend-team",
         ),
         name="Default",
+        owner=MemoryScopeOwnerDto(principal_id="team_backend", principal_kind="team"),
         policy_mode="active_context",
     )
     create_request = CreateMemoryScopeRequestDto(
         space_slug="client-app",
         external_ref="default",
         name="Default",
+        owner=owner,
         description="Default client app memory scope.",
         idempotency_key="scope_1",
     )
@@ -236,6 +277,7 @@ def test_memory_scope_contracts_serialize_create_and_transfer_shapes() -> None:
         "space_slug": "client-app",
         "external_ref": "default",
         "name": "Default",
+        "owner": {"principal_id": "user_1", "principal_kind": "user"},
         "description": "Default client app memory scope.",
         "policy_mode": "manual_only",
         "idempotency_key": "scope_1",
@@ -248,6 +290,7 @@ def test_memory_scope_contracts_serialize_create_and_transfer_shapes() -> None:
             "space_id": "space_client_app",
             "external_ref": "default",
             "name": "Default",
+            "owner": {"principal_id": "user_1", "principal_kind": "user"},
             "description": "Default client app memory scope.",
             "status": "active",
             "policy_mode": "manual_only",
@@ -262,3 +305,60 @@ def test_memory_scope_contracts_serialize_create_and_transfer_shapes() -> None:
         previous_space_id="space_client_app",
     ).to_dict()["data"]["previous_space_id"] == "space_client_app"
     json.dumps(CreateMemoryScopeResultDto(scope=created_scope).to_dict(), sort_keys=True)
+
+
+def test_memory_scope_ownership_transfer_contract_serializes_public_shape() -> None:
+    previous_owner = MemoryScopeOwnerDto(principal_id="user_1")
+    new_owner = MemoryScopeOwnerDto(principal_id="team_backend", principal_kind="team")
+    actor = MemoryScopeActorDto(
+        principal_id="admin_1",
+        capabilities=("memory_scope.transfer",),
+    )
+    scope = MemoryScopeDescriptorDto(
+        identity=ScopeIdentityDto(
+            id="memory_scope_default",
+            space_id="space_client_app",
+            external_ref="default",
+        ),
+        name="Default",
+        owner=new_owner,
+    )
+    request = TransferMemoryScopeOwnershipRequestDto(
+        space_id="space_client_app",
+        memory_scope_id="memory_scope_default",
+        new_owner=new_owner,
+        initiated_by=actor,
+        expected_current_owner=previous_owner,
+        reason="move reusable project memory",
+        idempotency_key="transfer_owner_1",
+    )
+    result = TransferMemoryScopeOwnershipResultDto(
+        scope=scope,
+        previous_owner=previous_owner,
+    )
+
+    assert request.to_dict() == {
+        "space_id": "space_client_app",
+        "memory_scope_id": "memory_scope_default",
+        "new_owner": {
+            "principal_id": "team_backend",
+            "principal_kind": "team",
+        },
+        "initiated_by": {
+            "principal_id": "admin_1",
+            "principal_kind": "user",
+            "capabilities": ["memory_scope.transfer"],
+        },
+        "expected_current_owner": {
+            "principal_id": "user_1",
+            "principal_kind": "user",
+        },
+        "reason": "move reusable project memory",
+        "idempotency_key": "transfer_owner_1",
+        "metadata": {},
+    }
+    assert result.to_dict()["data"]["previous_owner"] == {
+        "principal_id": "user_1",
+        "principal_kind": "user",
+    }
+    json.dumps(result.to_dict(), sort_keys=True)

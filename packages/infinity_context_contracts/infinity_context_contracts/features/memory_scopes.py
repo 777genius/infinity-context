@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
 from .._json import JsonObject, JsonValue, json_compatible
@@ -27,11 +27,42 @@ class ScopeIdentityDto:
 
 
 @dataclass(frozen=True, slots=True)
+class MemoryScopeOwnerDto:
+    """Stable owner principal shape for memory scope write contracts."""
+
+    principal_id: str
+    principal_kind: str = "user"
+
+    def to_dict(self) -> JsonObject:
+        return {
+            "principal_id": self.principal_id,
+            "principal_kind": self.principal_kind,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class MemoryScopeActorDto:
+    """Stable actor principal shape for memory scope lifecycle commands."""
+
+    principal_id: str
+    principal_kind: str = "user"
+    capabilities: Sequence[str] = field(default_factory=tuple)
+
+    def to_dict(self) -> JsonObject:
+        return {
+            "principal_id": self.principal_id,
+            "principal_kind": self.principal_kind,
+            "capabilities": json_compatible(self.capabilities),
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class MemoryScopeDescriptorDto:
     """Stable descriptor for a memory scope."""
 
     identity: ScopeIdentityDto
     name: str
+    owner: MemoryScopeOwnerDto | Mapping[str, JsonValue] | None = None
     description: str | None = None
     status: str = "active"
     policy_mode: str = "manual_only"
@@ -43,6 +74,7 @@ class MemoryScopeDescriptorDto:
         return {
             **self.identity.to_dict(),
             "name": self.name,
+            "owner": json_compatible(_owner_from_fields(self.owner, self.metadata)),
             "description": self.description,
             "status": self.status,
             "policy_mode": self.policy_mode,
@@ -58,6 +90,7 @@ class CreateMemoryScopeRequestDto:
 
     external_ref: str
     name: str
+    owner: MemoryScopeOwnerDto | Mapping[str, JsonValue] | None = None
     space_id: str | None = None
     space_slug: str | None = None
     description: str | None = None
@@ -71,6 +104,7 @@ class CreateMemoryScopeRequestDto:
             "space_slug": self.space_slug,
             "external_ref": self.external_ref,
             "name": self.name,
+            "owner": json_compatible(self.owner),
             "description": self.description,
             "policy_mode": self.policy_mode,
             "idempotency_key": self.idempotency_key,
@@ -137,11 +171,56 @@ class TransferMemoryScopeResultDto:
 
 
 @dataclass(frozen=True, slots=True)
+class TransferMemoryScopeOwnershipRequestDto:
+    """Stable request shape for transferring scope ownership."""
+
+    space_id: str
+    memory_scope_id: str
+    new_owner: MemoryScopeOwnerDto | Mapping[str, JsonValue]
+    initiated_by: MemoryScopeActorDto | Mapping[str, JsonValue]
+    expected_current_owner: MemoryScopeOwnerDto | Mapping[str, JsonValue] | None = None
+    reason: str | None = None
+    idempotency_key: str | None = None
+    metadata: Mapping[str, JsonValue] = field(default_factory=dict)
+
+    def to_dict(self) -> JsonObject:
+        return {
+            "space_id": self.space_id,
+            "memory_scope_id": self.memory_scope_id,
+            "new_owner": json_compatible(self.new_owner),
+            "initiated_by": json_compatible(self.initiated_by),
+            "expected_current_owner": json_compatible(self.expected_current_owner),
+            "reason": self.reason,
+            "idempotency_key": self.idempotency_key,
+            "metadata": json_compatible(self.metadata),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class TransferMemoryScopeOwnershipResultDto:
+    """Stable result wrapper for scope ownership transfer."""
+
+    scope: MemoryScopeDescriptorDto
+    previous_owner: MemoryScopeOwnerDto | Mapping[str, JsonValue]
+    transferred: bool = True
+
+    def to_dict(self) -> JsonObject:
+        return {
+            "data": {
+                "scope": self.scope.to_dict(),
+                "previous_owner": json_compatible(self.previous_owner),
+                "transferred": self.transferred,
+            }
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class ArchiveMemoryScopeRequestDto:
     """Stable request shape for archiving a memory scope."""
 
     space_id: str
     memory_scope_id: str
+    initiated_by: MemoryScopeActorDto | Mapping[str, JsonValue] | None = None
     expected_status: str | None = None
     reason: str | None = None
     idempotency_key: str | None = None
@@ -151,6 +230,7 @@ class ArchiveMemoryScopeRequestDto:
         return {
             "space_id": self.space_id,
             "memory_scope_id": self.memory_scope_id,
+            "initiated_by": json_compatible(self.initiated_by),
             "expected_status": self.expected_status,
             "reason": self.reason,
             "idempotency_key": self.idempotency_key,
@@ -182,6 +262,7 @@ class RestoreMemoryScopeRequestDto:
 
     space_id: str
     memory_scope_id: str
+    initiated_by: MemoryScopeActorDto | Mapping[str, JsonValue] | None = None
     expected_status: str | None = None
     reason: str | None = None
     idempotency_key: str | None = None
@@ -191,6 +272,7 @@ class RestoreMemoryScopeRequestDto:
         return {
             "space_id": self.space_id,
             "memory_scope_id": self.memory_scope_id,
+            "initiated_by": json_compatible(self.initiated_by),
             "expected_status": self.expected_status,
             "reason": self.reason,
             "idempotency_key": self.idempotency_key,
@@ -216,16 +298,32 @@ class RestoreMemoryScopeResultDto:
         }
 
 
+def _owner_from_fields(
+    owner: MemoryScopeOwnerDto | Mapping[str, JsonValue] | None,
+    metadata: Mapping[str, JsonValue],
+) -> MemoryScopeOwnerDto | Mapping[str, JsonValue] | None:
+    if owner is not None:
+        return owner
+    metadata_owner = metadata.get("owner")
+    if isinstance(metadata_owner, Mapping):
+        return metadata_owner
+    return None
+
+
 __all__ = [
     "FEATURE_ID",
     "ArchiveMemoryScopeRequestDto",
     "ArchiveMemoryScopeResultDto",
     "CreateMemoryScopeRequestDto",
     "CreateMemoryScopeResultDto",
+    "MemoryScopeActorDto",
     "MemoryScopeDescriptorDto",
+    "MemoryScopeOwnerDto",
     "RestoreMemoryScopeRequestDto",
     "RestoreMemoryScopeResultDto",
     "ScopeIdentityDto",
+    "TransferMemoryScopeOwnershipRequestDto",
+    "TransferMemoryScopeOwnershipResultDto",
     "TransferMemoryScopeRequestDto",
     "TransferMemoryScopeResultDto",
 ]

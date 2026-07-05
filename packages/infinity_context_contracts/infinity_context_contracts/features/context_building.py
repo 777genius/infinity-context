@@ -38,11 +38,19 @@ class ContextEvidenceDto:
     document_id: str | None = None
     chunk_id: str | None = None
     quote_preview: str | None = None
+    char_start: int | None = None
+    char_end: int | None = None
+    page_number: int | None = None
+    time_start_ms: int | None = None
+    time_end_ms: int | None = None
+    bbox: Sequence[float] | None = None
+    occurred_at: str | None = None
     score: float | None = None
     trust_level: str = "medium"
     metadata: Mapping[str, JsonValue] = field(default_factory=dict)
 
     def to_dict(self) -> JsonObject:
+        metadata = json_compatible(self.metadata)
         return {
             "source_type": self.source_type,
             "source_id": self.source_id,
@@ -50,9 +58,24 @@ class ContextEvidenceDto:
             "document_id": self.document_id,
             "chunk_id": self.chunk_id,
             "quote_preview": self.quote_preview,
+            "char_start": _explicit_or_metadata(
+                self.char_start,
+                metadata,
+                "char_start",
+            ),
+            "char_end": _explicit_or_metadata(self.char_end, metadata, "char_end"),
+            "page_number": self.page_number,
+            "time_start_ms": self.time_start_ms,
+            "time_end_ms": self.time_end_ms,
+            "bbox": json_compatible(self.bbox),
+            "occurred_at": _explicit_or_metadata(
+                self.occurred_at,
+                metadata,
+                "occurred_at",
+            ),
             "score": self.score,
             "trust_level": self.trust_level,
-            "metadata": json_compatible(self.metadata),
+            "metadata": metadata,
         }
 
 
@@ -103,6 +126,7 @@ class BuildContextRequestDto:
     include_kinds: Sequence[str] = field(default_factory=tuple)
     tags: Sequence[str] = field(default_factory=tuple)
     policy_mode: str | None = None
+    include_diagnostics: bool = False
     metadata: Mapping[str, JsonValue] = field(default_factory=dict)
 
     def to_dict(self) -> JsonObject:
@@ -118,6 +142,7 @@ class BuildContextRequestDto:
             "include_kinds": json_compatible(self.include_kinds),
             "tags": json_compatible(self.tags),
             "policy_mode": self.policy_mode,
+            "include_diagnostics": self.include_diagnostics,
             "metadata": json_compatible(self.metadata),
         }
 
@@ -165,6 +190,22 @@ def _items_to_dicts(
     return json_compatible(
         [item.to_dict() if isinstance(item, ContextItemDto) else dict(item) for item in items]
     )
+
+
+def _metadata_value(metadata: JsonValue, key: str) -> JsonValue:
+    if isinstance(metadata, dict):
+        return metadata.get(key)
+    return None
+
+
+def _explicit_or_metadata(
+    value: JsonValue,
+    metadata: JsonValue,
+    key: str,
+) -> JsonValue:
+    if value is not None:
+        return value
+    return _metadata_value(metadata, key)
 
 
 __all__ = [

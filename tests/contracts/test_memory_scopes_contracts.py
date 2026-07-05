@@ -4,10 +4,12 @@ import json
 
 from infinity_context_contracts.features import memory_scopes
 from infinity_context_contracts.features.memory_scopes import (
+    FEATURE_ID,
     ArchiveMemoryScopeRequestDto,
     ArchiveMemoryScopeResultDto,
-    FEATURE_ID,
+    MemoryScopeActorDto,
     MemoryScopeDescriptorDto,
+    MemoryScopeOwnerDto,
     RestoreMemoryScopeRequestDto,
     RestoreMemoryScopeResultDto,
     ScopeIdentityDto,
@@ -18,10 +20,16 @@ def test_memory_scopes_feature_module_is_publicly_importable() -> None:
     assert memory_scopes.FEATURE_ID == "memory_scopes"
     assert FEATURE_ID == "memory_scopes"
     assert "ArchiveMemoryScopeRequestDto" in memory_scopes.__all__
+    assert "MemoryScopeActorDto" in memory_scopes.__all__
+    assert "MemoryScopeOwnerDto" in memory_scopes.__all__
     assert "RestoreMemoryScopeResultDto" in memory_scopes.__all__
 
 
 def test_memory_scope_archive_contract_uses_feature_identity_fields() -> None:
+    actor = MemoryScopeActorDto(
+        principal_id="admin_1",
+        capabilities=("memory_scope.lifecycle",),
+    )
     archived_scope = MemoryScopeDescriptorDto(
         identity=ScopeIdentityDto(
             id="memory_scope_default",
@@ -29,6 +37,7 @@ def test_memory_scope_archive_contract_uses_feature_identity_fields() -> None:
             external_ref="default",
         ),
         name="Default",
+        owner=MemoryScopeOwnerDto(principal_id="user_1"),
         status="archived",
         policy_mode="manual_only",
         metadata={"owner": "client-app"},
@@ -36,6 +45,7 @@ def test_memory_scope_archive_contract_uses_feature_identity_fields() -> None:
     request = ArchiveMemoryScopeRequestDto(
         space_id="space_client_app",
         memory_scope_id="memory_scope_default",
+        initiated_by=actor,
         expected_status="active",
         reason="project completed",
         idempotency_key="archive_scope_1",
@@ -49,6 +59,11 @@ def test_memory_scope_archive_contract_uses_feature_identity_fields() -> None:
     assert request.to_dict() == {
         "space_id": "space_client_app",
         "memory_scope_id": "memory_scope_default",
+        "initiated_by": {
+            "principal_id": "admin_1",
+            "principal_kind": "user",
+            "capabilities": ["memory_scope.lifecycle"],
+        },
         "expected_status": "active",
         "reason": "project completed",
         "idempotency_key": "archive_scope_1",
@@ -62,6 +77,7 @@ def test_memory_scope_archive_contract_uses_feature_identity_fields() -> None:
                 "space_id": "space_client_app",
                 "external_ref": "default",
                 "name": "Default",
+                "owner": {"principal_id": "user_1", "principal_kind": "user"},
                 "description": None,
                 "status": "archived",
                 "policy_mode": "manual_only",
@@ -84,6 +100,7 @@ def test_memory_scope_restore_contract_uses_feature_identity_fields() -> None:
             external_ref="default",
         ),
         name="Default",
+        owner=MemoryScopeOwnerDto(principal_id="user_1"),
         status="active",
         policy_mode="manual_only",
     )
@@ -102,6 +119,7 @@ def test_memory_scope_restore_contract_uses_feature_identity_fields() -> None:
     assert request.to_dict() == {
         "space_id": "space_client_app",
         "memory_scope_id": "memory_scope_default",
+        "initiated_by": None,
         "expected_status": "archived",
         "reason": "project restarted",
         "idempotency_key": "restore_scope_1",
@@ -114,6 +132,7 @@ def test_memory_scope_restore_contract_uses_feature_identity_fields() -> None:
             "space_id": "space_client_app",
             "external_ref": "default",
             "name": "Default",
+            "owner": {"principal_id": "user_1", "principal_kind": "user"},
             "description": None,
             "status": "active",
             "policy_mode": "manual_only",
