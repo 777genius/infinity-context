@@ -195,6 +195,46 @@ def test_temporal_grounding_counts_relative_date_surfaces_as_grounded_ranges() -
     assert table["selected_temporal_grounding_issue_item_count"] == 0
 
 
+def test_temporal_grounding_counts_exact_turn_refs_as_source_windows() -> None:
+    diagnostics = quality_diagnostics(
+        (
+            _item(
+                case_id="temporal-exact-turn-ref",
+                group="temporal",
+                retrieval=_retrieval_payload(
+                    evidence_need=("temporal_support",),
+                    bundle_evidence_roles=("primary", "relative_temporal_support"),
+                    relation_categories=("temporal",),
+                    policy_score=0.2,
+                    candidate_features={
+                        "query_roles": ["relative_temporal_support"],
+                        "time_intent_kind": "relative_time",
+                    },
+                ),
+                evidence_bundle={
+                    "items": [
+                        {
+                            "id": "exact-turn-ref",
+                            "role": "relative_temporal_support",
+                            "query_roles": ["relative_temporal_support"],
+                            "source_refs": ["D7:2"],
+                            "text": "Morgan checked in yesterday afternoon.",
+                        }
+                    ]
+                },
+            ),
+        )
+    )
+
+    table = diagnostics["temporal_grounding_table"]
+
+    assert table["selected_source_window_item_count"] == 1
+    assert table["selected_missing_source_window_item_count"] == 0
+    assert table["selected_strong_temporal_grounding_item_count"] == 1
+    assert table["selected_temporal_grounding_issue_item_count"] == 0
+    assert table["selected_temporal_grounding_issue_reason_counts"] == {}
+
+
 def test_temporal_grounding_reports_source_window_audit_gap_separately() -> None:
     diagnostics = quality_diagnostics(
         (

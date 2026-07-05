@@ -122,6 +122,22 @@ def test_source_identity_refs_from_source_refs_dedupe_key_normalizes_safely() ->
     assert "provider:private-token-abc123" not in refs
 
 
+def test_source_identity_refs_from_source_refs_dedupe_key_bounds_generic_refs() -> None:
+    long_ref = "document-" + ("x" * 200)
+
+    refs = source_identity_refs_from_dedupe_key(
+        "source_refs:"
+        "provider-ref-abc123|"
+        "document:profile-note|"
+        f"{long_ref}|"
+        "D1:2"
+    )
+
+    assert refs == ("document:profile-note", "source_turn_refs:D1:2")
+    assert "provider-ref-abc123" not in refs
+    assert long_ref not in refs
+
+
 def test_source_identity_audit_distinguishes_missing_source_ids() -> None:
     assert source_identity_audit_gap_codes(source_refs=(), text="No turn marker") == (
         "missing_source_refs",

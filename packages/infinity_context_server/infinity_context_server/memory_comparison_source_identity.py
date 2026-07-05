@@ -117,10 +117,9 @@ def _safe_source_refs_for_output_value(value: object) -> tuple[str, ...]:
         return identity_refs
     if _TURN_REF_RE.search(text):
         return ()
-    if len(text) <= _MAX_SAFE_GENERIC_SOURCE_REF_LENGTH and not _looks_like_raw_ref(
-        text
-    ):
-        return (text,)
+    generic_ref = _safe_generic_source_ref(text)
+    if generic_ref:
+        return (generic_ref,)
     return ()
 
 
@@ -283,38 +282,19 @@ def _identity_refs_from_source_ref_values(values: Iterable[object]) -> tuple[str
         if identity_refs:
             refs.extend(identity_refs)
             continue
-        if _looks_like_unsafe_source_ref(source_ref):
-            continue
-        refs.append(source_ref)
+        generic_ref = _safe_generic_source_ref(source_ref)
+        if generic_ref:
+            refs.append(generic_ref)
     return tuple(dict.fromkeys(refs))
 
 
-def _looks_like_unsafe_source_ref(value: str) -> bool:
-    text = value.lower()
-    if "locomo:" in text or "conv-private" in text or "turn-secret" in text:
-        return True
-    if any(
-        text.startswith(prefix)
-        for prefix in (
-            "backend:",
-            "graphiti:",
-            "mem0:",
-            "memory://",
-            "openai:",
-            "provider:",
-            "qdrant:",
-        )
-    ):
-        return True
-    return any(
-        marker in text
-        for marker in (
-            "private-token",
-            "provider-secret",
-            "provider_payload",
-            "raw_provider",
-        )
-    )
+def _safe_generic_source_ref(value: object) -> str | None:
+    ref = str(value or "").strip()
+    if not ref or len(ref) > _MAX_SAFE_GENERIC_SOURCE_REF_LENGTH:
+        return None
+    if _looks_like_raw_ref(ref):
+        return None
+    return ref
 
 
 def _source_turn_refs(
