@@ -79,6 +79,9 @@ def test_safe_source_refs_for_output_filters_raw_provider_refs() -> None:
             "D2:3",
             "document:profile-note",
             "provider:private-token-abc123",
+            "provider-auth-private-marker",
+            "auth-payload-private-marker",
+            "auth_payload_private_marker",
             "provider-ref-abc123",
             f"D5:{'9' * 90}",
         )

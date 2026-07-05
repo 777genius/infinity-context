@@ -2533,10 +2533,24 @@ def _looks_like_raw_provider_ref(value: str) -> bool:
     return any(
         marker in text
         for marker in (
+            "access-token",
+            "access_token",
+            "api-key",
+            "api_key",
+            "auth-private",
+            "auth-payload",
+            "auth_payload",
+            "bearer-token",
+            "bearer_token",
             "private-token",
+            "private_token",
+            "private-auth",
+            "provider-auth",
             "provider-secret",
             "provider_payload",
             "raw_provider",
+            "refresh-token",
+            "refresh_token",
         )
     )
 
@@ -2710,16 +2724,20 @@ def _source_identity_refs_from_memory(
         )
     )
     output_source_refs = _safe_source_refs_for_output(source_refs)
+    source_identity_refs = _source_identity_refs_from_source_refs(source_refs)
     return tuple(
         dict.fromkeys(
             (
                 *output_source_refs,
-                *_source_identity_refs_from_source_refs(source_refs),
+                *source_identity_refs,
                 *_source_identity_refs_from_dedupe_key(
                     features.get("source_ref_dedupe_key")
                 ),
                 *_source_identity_refs_from_dedupe_key(fusion.get("dedupe_key")),
-                *_source_identity_refs_from_text(memory.text, source_refs=source_refs),
+                *_source_identity_refs_from_text(
+                    memory.text,
+                    source_refs=(*output_source_refs, *source_identity_refs),
+                ),
             )
         )
     )

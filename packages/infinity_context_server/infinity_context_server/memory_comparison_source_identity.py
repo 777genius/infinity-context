@@ -144,10 +144,24 @@ def _looks_like_raw_ref(value: str) -> bool:
     return any(
         marker in text
         for marker in (
+            "access-token",
+            "access_token",
+            "api-key",
+            "api_key",
+            "auth-private",
+            "auth-payload",
+            "auth_payload",
+            "bearer-token",
+            "bearer_token",
             "private-token",
+            "private_token",
+            "private-auth",
+            "provider-auth",
             "provider-secret",
             "provider_payload",
             "raw_provider",
+            "refresh-token",
+            "refresh_token",
         )
     )
 

@@ -832,16 +832,20 @@ def _memory_source_refs(
         )
     )
     output_source_refs = _safe_source_refs_for_output(source_refs)
+    source_identity_refs = _source_identity_refs_from_source_refs(source_refs)
     return tuple(
         dict.fromkeys(
             (
                 *output_source_refs,
-                *_source_identity_refs_from_source_refs(source_refs),
+                *source_identity_refs,
                 *_source_identity_refs_from_dedupe_key(
                     features.get("source_ref_dedupe_key")
                 ),
                 *_source_identity_refs_from_dedupe_key(fusion.get("dedupe_key")),
-                *_source_identity_refs_from_text(memory.text, source_refs=source_refs),
+                *_source_identity_refs_from_text(
+                    memory.text,
+                    source_refs=(*output_source_refs, *source_identity_refs),
+                ),
             )
         )
     )

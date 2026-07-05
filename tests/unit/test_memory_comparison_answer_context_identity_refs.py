@@ -196,6 +196,96 @@ def test_answer_context_matches_source_refs_dedupe_key_with_safe_identity_refs()
     assert "locomo:conv-private" not in serialized.lower()
     assert "turn-secret" not in serialized.lower()
     assert "provider:private-token" not in serialized
+
+
+def test_answer_context_filters_auth_source_payloads_without_losing_text_identity() -> None:
+    context = answer_context_from_evidence_bundle(
+        (
+            RetrievedMemory(
+                text=(
+                    "session_1 turn D1:2 source identity is in text while the "
+                    "provider auth marker must stay out."
+                ),
+                rank=1,
+                item_id="provider-auth-private-marker",
+                source_refs=("provider-auth-private-marker",),
+            ),
+        ),
+        {},
+        cutoff=1,
+    )
+
+    diagnostics = context.to_diagnostics()
+
+    assert context.memories[0].source_refs == (
+        "source_session_turn_refs:session_1:D1:2",
+        "source_turn_refs:D1:2",
+    )
+    assert diagnostics["item_ids"] == []
+    assert diagnostics["source_ref_count"] == 2
+    assert diagnostics["source_identity_refs"] == [
+        "source_session_turn_refs:session_1:D1:2",
+        "source_turn_refs:D1:2",
+    ]
+    serialized = json.dumps((context.memories[0].source_refs, diagnostics))
+    assert "provider-auth-private-marker" not in serialized
+
+
+def test_answer_context_backfill_filters_auth_source_payloads_without_losing_identity() -> None:
+    context = answer_context_from_evidence_bundle(
+        (
+            RetrievedMemory(
+                text="D1:1 Caroline asked about the support group.",
+                rank=1,
+                item_id="primary-turn",
+                source_refs=("D1:1",),
+            ),
+            RetrievedMemory(
+                text="session_1 turn D1:2 Caroline confirmed the support group date.",
+                rank=2,
+                item_id="provider-auth-private-marker",
+                source_refs=("provider-auth-private-marker",),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.91,
+                            "source_locality_score": 0.9,
+                            "query_roles": ["event_support"],
+                            "relation_category_hits": ["participation_event"],
+                        }
+                    }
+                },
+            ),
+        ),
+        {
+            "required_roles": ["event_support"],
+            "role_requirement_complete": False,
+            "missing_required_roles": ["event_support"],
+            "items": [
+                {
+                    "id": "primary-turn",
+                    "retrieval_order": 1,
+                    "role": "primary",
+                    "source_refs": ["D1:1"],
+                }
+            ],
+        },
+        cutoff=2,
+    )
+
+    assert [memory.metadata["answer_context_role"] for memory in context.memories] == [
+        "primary",
+        "retrieval_backfill",
+    ]
+    assert context.memories[1].source_refs == (
+        "source_session_turn_refs:session_1:D1:2",
+        "source_turn_refs:D1:2",
+    )
+    diagnostics = context.to_diagnostics()
+    serialized = json.dumps((context.memories[1].source_refs, diagnostics))
+    assert "provider-auth-private-marker" not in serialized
+
+
 def test_answer_context_diagnostics_filters_raw_provider_item_ids() -> None:
     context = answer_context_from_evidence_bundle(
         (
