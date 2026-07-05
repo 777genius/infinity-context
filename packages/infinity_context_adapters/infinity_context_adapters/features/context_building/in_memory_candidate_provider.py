@@ -16,6 +16,9 @@ from infinity_context_core.features.context_building.public import (
 from infinity_context_adapters.features.context_building.records import (
     ContextCandidateRecord,
 )
+from infinity_context_adapters.features.context_building.query_request import (
+    ContextCandidateAdapterQuery,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,8 +34,9 @@ class InMemoryContextCandidateProvider:
         self,
         request: ContextCandidateRequest,
     ) -> tuple[ContextItem, ...]:
+        adapter_query = ContextCandidateAdapterQuery.from_candidate_request(request)
         matching_records = [
-            record for record in self.records if record.matches_request(request)
+            record for record in self.records if record.matches_request(adapter_query)
         ]
         ranked_records = sorted(
             enumerate(matching_records),
@@ -40,7 +44,7 @@ class InMemoryContextCandidateProvider:
         )
         return tuple(
             record.to_context_item()
-            for _, record in ranked_records[: request.limit]
+            for _, record in ranked_records[: adapter_query.limit]
         )
 
 

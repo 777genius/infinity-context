@@ -11,6 +11,10 @@ from infinity_context_core.features.context_building.public import (
     ContextSourceRef,
 )
 
+from infinity_context_adapters.features.context_building.query_request import (
+    ContextCandidateAdapterQuery,
+)
+
 
 @dataclass(frozen=True, slots=True)
 class ContextCandidateRecord:
@@ -49,17 +53,25 @@ class ContextCandidateRecord:
         if self.estimated_tokens is not None and self.estimated_tokens < 1:
             raise ValueError("Context candidate record token estimate must be positive")
 
-    def matches_request(self, request: ContextCandidateRequest) -> bool:
+    def matches_request(
+        self,
+        request: ContextCandidateRequest | ContextCandidateAdapterQuery,
+    ) -> bool:
         """Return whether this candidate is eligible for the requested scope."""
 
-        scope = request.query.scope
+        adapter_query = (
+            request
+            if isinstance(request, ContextCandidateAdapterQuery)
+            else ContextCandidateAdapterQuery.from_candidate_request(request)
+        )
+        scope = adapter_query.scope
         if self.space_id != scope.space_id:
             return False
         if self.memory_scope_id != scope.memory_scope_id:
             return False
         if scope.thread_id is not None and self.thread_id not in (None, scope.thread_id):
             return False
-        if request.query.tags and not set(request.query.tags).intersection(self.tags):
+        if adapter_query.tags and not _has_tag_overlap(adapter_query.tags, self.tags):
             return False
         return True
 
@@ -86,6 +98,14 @@ class ContextCandidateRecord:
             estimated_tokens=self.estimated_tokens,
             tags=self.tags,
         )
+
+
+def _has_tag_overlap(
+    requested_tags: tuple[str, ...],
+    record_tags: tuple[str, ...],
+) -> bool:
+    record_tag_set = {tag.casefold() for tag in record_tags}
+    return any(tag.casefold() in record_tag_set for tag in requested_tags)
 
 
 __all__ = ("ContextCandidateRecord",)

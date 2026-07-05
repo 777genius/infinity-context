@@ -27,12 +27,17 @@ from infinity_context_adapters.features.context_building.qdrant_candidate_provid
     QdrantContextCandidateProvider,
     create_qdrant_context_candidate_provider,
 )
+from infinity_context_adapters.features.context_building.query_request import (
+    ContextCandidateAdapterQuery,
+    context_candidate_adapter_query_from_request,
+)
 from infinity_context_adapters.features.context_building.records import (
     ContextCandidateRecord,
 )
 
 __all__ = (
     "FEATURE_ID",
+    "ContextCandidateAdapterQuery",
     "ContextCandidateProviderChain",
     "ContextCandidateRecord",
     "GraphitiContextCandidateProvider",
@@ -44,4 +49,5 @@ __all__ = (
     "create_in_memory_context_candidate_provider",
     "create_postgres_context_candidate_provider",
     "create_qdrant_context_candidate_provider",
+    "context_candidate_adapter_query_from_request",
 )

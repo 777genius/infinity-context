@@ -18,6 +18,7 @@ from infinity_context_core.features.context_building.public import (
     ContextCandidateRequest,
     ContextItem,
     ContextQuery,
+    ContextQueryExpansionPolicy,
     ContextScope,
     ContextSourceRef,
 )
@@ -51,6 +52,7 @@ def test_context_building_adapter_package_mirrors_feature_id() -> None:
 
     assert "context_building" in features.__all__
     assert module.FEATURE_ID == FEATURE_ID == "context_building"
+    assert module.ContextCandidateAdapterQuery
     assert module.InMemoryContextCandidateProvider.feature_id == FEATURE_ID
     assert module.ContextCandidateProviderChain.feature_id == FEATURE_ID
     assert module.PostgresContextCandidateProvider.feature_id == FEATURE_ID
@@ -154,6 +156,54 @@ def test_in_memory_candidate_provider_maps_records_through_context_port() -> Non
     assert all(isinstance(item, ContextItem) for item in items)
     assert items[0].evidence[0].source_refs == (source_ref,)
     assert items[0].evidence[0].trust_level == "untrusted"
+
+
+def test_adapter_query_maps_feature_owned_candidate_request_plan() -> None:
+    module = importlib.import_module(
+        "infinity_context_adapters.features.context_building"
+    )
+    original_query = _query(tags=("Deploy Ops", "deploy ops"))
+    query_plan = ContextQueryExpansionPolicy().plan(original_query)
+    request = ContextCandidateRequest(
+        query=original_query,
+        limit=7,
+        query_plan=query_plan,
+    )
+
+    adapter_query = module.ContextCandidateAdapterQuery.from_candidate_request(request)
+    factory_query = module.context_candidate_adapter_query_from_request(request)
+
+    assert adapter_query == factory_query
+    assert adapter_query.limit == 7
+    assert adapter_query.scope == query_plan.normalized_query.scope
+    assert adapter_query.text == query_plan.normalized_query.text
+    assert adapter_query.search_texts == query_plan.search_texts
+    assert adapter_query.terms == query_plan.terms
+    assert adapter_query.tags == ("deploy-ops",)
+    assert adapter_query.query_plan == query_plan
+
+
+def test_records_match_candidate_request_query_plan_normalized_tags() -> None:
+    module = importlib.import_module(
+        "infinity_context_adapters.features.context_building"
+    )
+    source_ref = ContextSourceRef(source_type="document", source_id="doc-1")
+    record = module.ContextCandidateRecord(
+        item_id="normalized-tag",
+        space_id="space-1",
+        memory_scope_id="scope-1",
+        text="Deploy runbook",
+        source_refs=(source_ref,),
+        tags=("deploy-ops",),
+    )
+    query_plan = ContextQueryExpansionPolicy().plan(_query(tags=("Deploy Ops",)))
+    request = ContextCandidateRequest(
+        query=_query(tags=("Deploy Ops",)),
+        limit=5,
+        query_plan=query_plan,
+    )
+
+    assert record.matches_request(request)
 
 
 def test_in_memory_provider_can_drive_core_build_context_handler() -> None:
