@@ -2116,6 +2116,9 @@ def _compact_fast_gate_summary(
         "evaluation_count": _positive_int(gate.get("evaluation_count")) or 0,
         "expected_case_count": _positive_int(gate.get("expected_case_count")) or 0,
         "top_gap": actionable.get("top_gap"),
+        "top_actionable_gaps": _compact_actionable_gaps(
+            actionable.get("ranked_gaps")
+        ),
         "blocking_gap_count": _positive_int(actionable.get("blocking_gap_count")) or 0,
         "diagnostic_gap_count": _positive_int(actionable.get("diagnostic_gap_count")) or 0,
         "selected_evidence_weakness_counts": {
@@ -2343,6 +2346,40 @@ def _nested_schema_versions(payload: Mapping[str, object]) -> dict[str, str]:
         if schema_version:
             versions[str(key)] = schema_version
     return versions
+
+
+def _compact_actionable_gaps(
+    value: object,
+    *,
+    limit: int = 5,
+) -> list[dict[str, object]]:
+    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
+        return []
+    gaps: list[dict[str, object]] = []
+    for raw_gap in value:
+        gap = _mapping(raw_gap)
+        if not gap:
+            continue
+        compact: dict[str, object] = {}
+        for key in ("rank", "impact_count"):
+            count = _positive_int(gap.get(key))
+            if count is not None:
+                compact[key] = count
+        impact_rate = gap.get("impact_rate")
+        if isinstance(impact_rate, (int, float)) and not isinstance(impact_rate, bool):
+            compact["impact_rate"] = round(float(impact_rate), 6)
+        for key in ("severity", "category", "gap", "failed_gate", "source_metric"):
+            value_text = str(gap.get(key) or "").strip()
+            if value_text:
+                compact[key] = value_text
+        sample_case_ids = list(_str_tuple(gap.get("sample_case_ids")))[:3]
+        if sample_case_ids:
+            compact["sample_case_ids"] = sample_case_ids
+        if compact:
+            gaps.append(compact)
+        if len(gaps) >= limit:
+            break
+    return gaps
 
 
 def _compact_answerability_gap_samples(
