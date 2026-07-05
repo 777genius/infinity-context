@@ -68,6 +68,9 @@ def test_evidence_role_query_families_covers_aliases_and_profile_roles() -> None
         "temporal_support",
         "expanded_focus",
     )
+    assert evidence_role_query_families("negative_support") == (
+        "negative_support",
+    )
     assert evidence_role_query_families("health_support") == (
         "relation_compact",
         "expanded_focus",

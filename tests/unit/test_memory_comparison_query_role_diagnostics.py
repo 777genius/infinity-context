@@ -717,6 +717,36 @@ def test_query_plan_integrity_requires_answer_shape_query_families() -> None:
     ] == ["missing-list", "missing-value", "missing-count"]
 
 
+def test_query_plan_integrity_requires_negative_support_query_family() -> None:
+    items = (
+        _query_plan_item(
+            "missing-negative",
+            required_role="negative_support",
+            selected_role_families=("base_query",),
+        ),
+        _query_plan_item(
+            "has-negative",
+            required_role="negative_support",
+            selected_role_families=("base_query", "negative_support"),
+        ),
+    )
+
+    table = quality_diagnostics(items)["query_plan_integrity_table"]
+
+    assert table["missing_evidence_role_query_family_counts"] == {
+        "negative_support": 1
+    }
+    samples = [
+        sample
+        for sample in table["samples"]
+        if "missing_evidence_role_query_family" in sample["gap_reasons"]
+    ]
+    assert [sample["case_id"] for sample in samples] == ["missing-negative"]
+    assert samples[0]["missing_evidence_role_query_families"] == (
+        "negative_support",
+    )
+
+
 def _memory(
     item_id: str,
     *,

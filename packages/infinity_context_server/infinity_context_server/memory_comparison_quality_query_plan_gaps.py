@@ -124,6 +124,7 @@ _EVIDENCE_ROLE_QUERY_FAMILIES = {
     "visual_support": _VISUAL_QUERY_FAMILIES,
     "contrast": _CONTRAST_QUERY_FAMILIES,
     "contrast_support": _CONTRAST_QUERY_FAMILIES,
+    "negative_support": ("negative_support",),
     "compact_relation": _RELATION_QUERY_FAMILIES,
     "entity_disambiguation": (
         "base_query",
