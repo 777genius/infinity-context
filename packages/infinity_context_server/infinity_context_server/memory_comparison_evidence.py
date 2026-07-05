@@ -573,7 +573,7 @@ def _bundle_item_strength(
 def _bundle_dedupe_key(memory: RetrievedMemory) -> str:
     refs = _memory_source_refs(memory)
     if refs:
-        return f"refs:{'|'.join(refs)}"
+        return f"refs:{'|'.join(sorted(refs))}"
     turn_refs = tuple(dict.fromkeys(_TURN_REF_RE.findall(memory.text or "")))
     if 0 < len(turn_refs) <= 3:
         return "source_turn_refs:" + "|".join(sorted(turn_refs))

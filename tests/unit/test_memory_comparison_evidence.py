@@ -936,6 +936,71 @@ def test_evidence_bundle_uses_text_turn_refs_for_source_proximity() -> None:
     assert quality["source_proximity_distance_counts"] == {"2": 1}
 
 
+def test_evidence_bundle_dedupes_mirrored_source_refs_regardless_of_order() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:mirror-ref-order",
+        question="What did Caroline say about the support group?",
+        expected_terms=("support group",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={
+            "category": 4,
+            "answer_preview": "support group",
+            "evidence_terms": ("D4:2",),
+        },
+    )
+
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text="D4:2 Caroline found the LGBTQ support group helpful.",
+                rank=1,
+                item_id="source-order-a",
+                source_refs=("D4:2", "document:profile-note"),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.91,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "entity_hits": ["caroline"],
+                            "relation_hits": ["support", "group"],
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+            RetrievedMemory(
+                text="D4:2 Caroline found the LGBTQ support group helpful.",
+                rank=2,
+                item_id="source-order-b",
+                source_refs=("document:profile-note", "D4:2"),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.88,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "entity_hits": ["caroline"],
+                            "relation_hits": ["support", "group"],
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+        ),
+    )
+
+    assert bundle["candidate_item_count"] == 2
+    assert bundle["item_count"] == 1
+    assert bundle["deduplicated_item_count"] == 1
+    assert bundle["bundle_planner"]["selected_dedupe_keys"] == [
+        "refs:D4:2|document:profile-note"
+    ]
+
+
 def test_evidence_bundle_dedupes_mirrored_items_by_canonical_source_ref() -> None:
     case = PublicBenchmarkCase(
         benchmark="locomo",
