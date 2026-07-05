@@ -8,6 +8,7 @@ from infinity_context_server.memory_comparison_source_identity import (
     safe_source_identity_ref,
     safe_turn_ref,
     source_identity_audit_gap_codes,
+    source_identity_refs_from_dedupe_key,
     source_identity_refs_from_source_refs,
 )
 
@@ -42,6 +43,43 @@ def test_source_identity_refs_dedupe_noisy_canonical_source_refs() -> None:
         "source_session_turn_refs:session_1:D1:2",
         "source_turn_refs:D1:2",
     )
+
+
+def test_source_identity_refs_normalize_fuzzed_source_refs() -> None:
+    assert source_identity_refs_from_source_refs(
+        (
+            "",
+            "LoCoMo:conv-private:SESSION_8:d8:1:TURN-secret",
+            "locomo:conv-private:session_8:D8:1:turn-secret",
+            f"locomo:conv-private:session_8:D8:{'9' * 90}:turn-secret",
+            "provider:private-token-abc123",
+        )
+    ) == (
+        "source_session_turn_refs:session_8:D8:1",
+        "source_turn_refs:D8:1",
+    )
+
+    assert source_identity_refs_from_source_refs(
+        (" source_turn_refs:d8:2 ",)
+    ) == ("source_turn_refs:D8:2",)
+    assert source_identity_refs_from_source_refs(
+        (" SOURCE_SESSION_TURN_REFS:SESSION_8:d8:3 ",)
+    ) == (
+        "source_session_turn_refs:session_8:D8:3",
+        "source_turn_refs:D8:3",
+    )
+
+
+def test_source_identity_refs_from_dedupe_key_filters_noisy_prefixed_refs() -> None:
+    assert source_identity_refs_from_dedupe_key(
+        "SOURCE_IDENTITY:SOURCE_TURN_REFS:d2:8|D2:8|D2:9"
+    ) == ("source_turn_refs:D2:8", "source_turn_refs:D2:9")
+    assert source_identity_refs_from_dedupe_key(
+        f"source_turn_refs:D1:{'9' * 90}|D1:2"
+    ) == ("source_turn_refs:D1:2",)
+    assert source_identity_refs_from_dedupe_key(
+        "source_session_turn_refs:SESSION_3:d3:4|provider:private-token"
+    ) == ("source_session_turn_refs:session_3:D3:4",)
 
 
 def test_source_identity_audit_distinguishes_missing_source_ids() -> None:

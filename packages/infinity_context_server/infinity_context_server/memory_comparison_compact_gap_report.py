@@ -251,7 +251,30 @@ def _source_id_from_turn_ref(ref: str) -> str:
 
 def _looks_like_raw_source_ref(value: str) -> bool:
     text = value.lower()
-    return "locomo:" in text or "conv-private" in text
+    if "locomo:" in text or "conv-private" in text or "turn-secret" in text:
+        return True
+    if any(
+        text.startswith(prefix)
+        for prefix in (
+            "backend:",
+            "graphiti:",
+            "mem0:",
+            "memory://",
+            "openai:",
+            "provider:",
+            "qdrant:",
+        )
+    ):
+        return True
+    return any(
+        marker in text
+        for marker in (
+            "private-token",
+            "provider-secret",
+            "provider_payload",
+            "raw_provider",
+        )
+    )
 
 
 def _int(value: object) -> int:

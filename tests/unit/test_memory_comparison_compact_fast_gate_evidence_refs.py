@@ -129,6 +129,72 @@ def test_compact_fast_gate_summary_sanitizes_selected_weakness_source_refs() -> 
     assert "PRIVATE SELECTED MEMORY TEXT" not in serialized
 
 
+def test_compact_fast_gate_summary_normalizes_fuzzed_refs_without_provider_leak() -> None:
+    raw_private_ref = "LoCoMo:conv-private:SESSION_4:d4:5:TURN-secret"
+    invalid_provider_ref = "provider:private-token-abc123"
+    raw_long_ref = f"D5:{'9' * 220}"
+
+    summary = _compact_fast_gate_summary(
+        (
+            _item(
+                case_id="fuzzed-source-refs",
+                retrieval_quality={
+                    "expected_term_recall": 1.0,
+                    "evidence_term_recall": 0.0,
+                    "covered_evidence_terms": [
+                        "",
+                        raw_private_ref,
+                        "source_turn_refs:d1:2",
+                        invalid_provider_ref,
+                        raw_private_ref,
+                    ],
+                    "missing_evidence_terms": [
+                        "SOURCE_SESSION_TURN_REFS:SESSION_2:d2:3",
+                        raw_long_ref,
+                        invalid_provider_ref,
+                    ],
+                },
+                evidence_bundle={
+                    "bundle_complete": False,
+                    "item_count": 1,
+                    "items": [
+                        {
+                            "id": "weak-selected",
+                            "role": "primary",
+                            "answerability_score": 0.1,
+                            "source_locality_score": 0.1,
+                            "source_refs": [
+                                "",
+                                "source_turn_refs:d1:2",
+                                "SOURCE_SESSION_TURN_REFS:SESSION_1:d1:3",
+                                raw_private_ref,
+                                invalid_provider_ref,
+                                f"source_turn_refs:D1:{'9' * 90}",
+                                "source_turn_refs:D1:2",
+                            ],
+                        }
+                    ],
+                },
+                retrieval_results=[],
+            ),
+        )
+    )
+
+    weakness_sample = summary["selected_evidence_weakness_samples"]["samples"][0]
+
+    assert weakness_sample["source_refs"] == [
+        "source_session_turn_refs:session_1:D1:3",
+        "source_session_turn_refs:session_4:D4:5",
+        "source_turn_refs:D1:2",
+    ]
+
+    serialized = json.dumps(summary)
+    assert "locomo:conv-private" not in serialized.lower()
+    assert "turn-secret" not in serialized.lower()
+    assert invalid_provider_ref not in serialized
+    assert raw_long_ref not in serialized
+
+
 def test_compact_gap_report_normalizes_locality_window_private_refs() -> None:
     raw_ref = "locomo:conv-private:session_2:D2:3:turn-secret"
     raw_nearest_ref = "locomo:conv-private:session_2:D2:2:turn-secret"

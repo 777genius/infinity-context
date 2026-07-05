@@ -155,6 +155,7 @@ def test_compact_evidence_bundle_coverage_normalizes_raw_locomo_refs() -> None:
     assert "turn-secret" not in serialized
 
 
+
 def test_compact_evidence_bundle_coverage_bounds_incomplete_samples() -> None:
     coverage = benchmark._compact_evidence_bundle_coverage(
         tuple(
@@ -181,3 +182,56 @@ def test_compact_evidence_bundle_coverage_bounds_incomplete_samples() -> None:
     assert coverage["bundle_incomplete_count"] == 8
     assert len(samples) == 5
     assert samples[-1]["case_id"] == "conv-1:qa:incomplete-4"
+
+
+def test_compact_evidence_bundle_coverage_filters_fuzzed_source_refs() -> None:
+    raw_private_ref = "LoCoMo:conv-private:SESSION_4:d4:5:TURN-secret"
+    invalid_provider_ref = "provider:private-token-abc123"
+    raw_long_ref = f"D5:{'9' * 220}"
+    compact_long_ref = f"D5:{'9' * 122}..."
+    coverage = benchmark._compact_evidence_bundle_coverage(
+        (
+            {
+                "case_id": "conv-1:qa:fuzzed-refs",
+                "group": "multi-hop",
+                "retrieval_quality": {
+                    "covered_evidence_terms": [
+                        "",
+                        raw_private_ref,
+                        "source_turn_refs:d1:2",
+                        invalid_provider_ref,
+                        raw_private_ref,
+                    ],
+                    "missing_evidence_terms": [
+                        "SOURCE_SESSION_TURN_REFS:SESSION_2:d2:3",
+                        raw_long_ref,
+                        invalid_provider_ref,
+                    ],
+                },
+                "evidence_bundle": {
+                    "bundle_complete": False,
+                    "item_count": 1,
+                    "evidence_term_recall": 0.0,
+                },
+            },
+        )
+    )
+
+    sample = coverage["incomplete_samples"][0]
+
+    assert sample["evidence_refs"] == [
+        "session_4:D4:5",
+        "D1:2",
+        "session_2:D2:3",
+        compact_long_ref,
+    ]
+    assert sample["covered_evidence_refs"] == ["session_4:D4:5", "D1:2"]
+    assert sample["missing_evidence_refs"] == [
+        "session_2:D2:3",
+        compact_long_ref,
+    ]
+    serialized = json.dumps(sample)
+    assert "locomo:conv-private" not in serialized.lower()
+    assert "turn-secret" not in serialized.lower()
+    assert invalid_provider_ref not in serialized
+    assert raw_long_ref not in serialized
