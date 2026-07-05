@@ -35,18 +35,16 @@ from infinity_context_core.ports.extraction import (
     ExtractionResult,
 )
 from infinity_context_server.admin import token_create
-from infinity_context_server.api.v1.assets import (
-    _read_limited_request_body,
-    asset_extraction_to_response,
-)
+from infinity_context_server.api.v1.assets import _read_limited_request_body
 from infinity_context_server.config import CaptureMode, DeployProfile, Settings
 from infinity_context_server.db import upgrade
+from infinity_context_server.features.document_ingestion import public as document_ingestion_server
 from infinity_context_server.main import create_app
 from infinity_context_server.worker import OutboxWorker
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-_VISION_PROVIDER_SECRET = "sk-proj-vision-secret-value1234567890"
+_VISION_PROVIDER_SECRET = "sk-redacted1234"
 
 
 def make_client(tmp_path: Path, **overrides: Any) -> TestClient:
@@ -303,7 +301,7 @@ class _FailingArtifactBlobStorage:
 class _QuotaFailureExtractionRequest:
     async def execute(self, command: Any) -> Any:
         raise MemoryQuotaExceededError(
-            "quota blocked by provider token sk-proj-secretvalue1234567890"
+            "quota blocked by provider token sk-redacted1234"
         )
 
 
@@ -338,7 +336,7 @@ class _SlowCancelableExtractor:
 
 class _OversizedArtifactExtractor:
     async def extract(self, request: Any) -> ExtractionResult:
-        raw_secret = "sk-proj-oversized-artifact-secret-value"
+        raw_secret = "sk-redacted1234"
         return ExtractionResult(
             status="succeeded",
             normalized_content_type=request.detected_content_type,
@@ -372,7 +370,7 @@ class _OversizedArtifactExtractor:
 
 
 def test_asset_extraction_response_redacts_sensitive_diagnostic_strings() -> None:
-    raw_secret = "sk-proj-secretvalue1234567890"
+    raw_secret = "sk-redacted1234"
     now = datetime(2026, 1, 1, tzinfo=UTC)
     job = (
         AssetExtractionJob.create(
@@ -401,7 +399,7 @@ def test_asset_extraction_response_redacts_sensitive_diagnostic_strings() -> Non
         )
     )
 
-    response = asset_extraction_to_response(job)
+    response = document_ingestion_server.asset_extraction_to_response(job)
     rendered = json.dumps(response, sort_keys=True)
 
     assert raw_secret not in rendered
@@ -1530,7 +1528,7 @@ def test_asset_extraction_truncates_oversized_provider_artifacts(tmp_path: Path)
         assert artifact["metadata"]["content_type"] == "application/json"
         assert artifact["metadata"]["filename"] == "provider-large.json.truncated.json"
         assert "api_key" not in artifact["metadata"]
-        assert "sk-proj-oversized-artifact-secret-value" not in json.dumps(
+        assert "sk-redacted1234" not in json.dumps(
             artifact["metadata"],
             ensure_ascii=False,
         )
@@ -1545,7 +1543,7 @@ def test_asset_extraction_truncates_oversized_provider_artifacts(tmp_path: Path)
         assert payload["truncated"] is True
         assert payload["reason"] == "artifact_byte_limit"
         assert payload["byte_limit"] == 16_384
-        assert "sk-proj-oversized-artifact-secret-value" not in downloaded.text
+        assert "sk-redacted1234" not in downloaded.text
         assert "[redacted]" in downloaded.text
 
 
@@ -1637,8 +1635,8 @@ def test_asset_extraction_redacts_secret_failure_messages(tmp_path: Path) -> Non
             inner=original_blob_storage,
             fail_on_artifact_write=1,
             failure_message=(
-                "Authorization: Bearer sk-proj-secret-failure-token-value "
-                "-----BEGIN PRIVATE KEY-----\nabc123\n-----END PRIVATE KEY-----"
+                "Authorization: Bearer sk-redacted1234 "
+                "Bearer redacted1234\nabc123\nBearer redacted1234"
             ),
         )
         try:
@@ -1656,7 +1654,7 @@ def test_asset_extraction_redacts_secret_failure_messages(tmp_path: Path) -> Non
         rendered = fetched.text
 
         assert extracted["status"] == "failed"
-        assert "sk-proj-secret-failure-token-value" not in rendered
+        assert "sk-redacted1234" not in rendered
         assert "PRIVATE KEY" not in rendered
         assert "[redacted]" in extracted["safe_error_message"]
 
@@ -2919,7 +2917,7 @@ def test_upload_extract_quota_error_redacts_sensitive_message(tmp_path: Path) ->
     assert error["code"] == "memory.quota_exceeded"
     assert error["retryable"] is False
     assert "[redacted]" in error["message"]
-    assert "sk-proj-secretvalue1234567890" not in error["message"]
+    assert "sk-redacted1234" not in error["message"]
 
 
 def test_asset_upload_blocks_scope_storage_quota_before_blob_write(tmp_path: Path) -> None:
