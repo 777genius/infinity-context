@@ -42,6 +42,7 @@ _SAFE_REPORTING_CONTRACTS = (
     ("evidence_bundle_gap_report", "evidence_bundle_gap_report.v1"),
     ("answer_context_provenance", "answer_context_provenance.v1"),
     ("answer_context_support_gaps", "answer_context_support_gaps.v1"),
+    ("temporal_grounding_table", "temporal_grounding.v1"),
 )
 
 

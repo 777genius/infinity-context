@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from infinity_context_server import memory_comparison_benchmark as benchmark
 
 
@@ -116,3 +118,126 @@ def test_compact_fast_gate_summary_surfaces_bounded_actionable_gaps(
     assert "evidence" not in summary["top_gap"]
     assert all("samples" not in gap for gap in summary["top_actionable_gaps"])
     assert all("evidence" not in gap for gap in summary["top_actionable_gaps"])
+
+
+def test_compact_fast_gate_summary_bounds_temporal_grounding_issue_fields(
+    monkeypatch,
+) -> None:
+    long_value = "x" * 240
+
+    def truncated(prefix: str) -> str:
+        return f"{prefix}{long_value[: 177 - len(prefix)]}..."
+
+    def fast_gate_metrics(_: object) -> dict[str, object]:
+        return {
+            "schema_version": "fast_gate.v1",
+            "ready_for_full_locomo": False,
+            "failed_gates": [],
+            "evaluation_count": 4,
+            "expected_case_count": 4,
+            "temporal_grounding_table": {
+                "schema_version": "temporal_grounding.v1",
+                "temporal_case_count": 4,
+                "temporal_scored_case_count": 4,
+                "selected_item_count": 4,
+                "selected_temporal_grounding_issue_item_count": 4,
+                "selected_temporal_grounding_issue_reason_counts": {
+                    f"missing_{long_value}": 4,
+                },
+                "selected_temporal_grounding_issue_samples": [
+                    {
+                        "case_id": f"case-{index}-{long_value}",
+                        "group": f"temporal-{long_value}",
+                        "item_id": f"item-{index}-{long_value}",
+                        "role": f"role-{long_value}",
+                        "query_roles": [
+                            f"role-{value}-{long_value}" for value in range(8)
+                        ],
+                        "source_refs": [
+                            f"D1:{value}-{long_value}" for value in range(8)
+                        ],
+                        "issue_reasons": [
+                            f"missing-{value}-{long_value}" for value in range(8)
+                        ],
+                        "source_identity_gap_codes": [
+                            f"gap-{value}-{long_value}" for value in range(8)
+                        ],
+                        "grounding_signals": {
+                            "source_window": False,
+                            "session_boundary": False,
+                            "date_or_range": False,
+                            "relative_date": True,
+                            "temporal_order": False,
+                        },
+                        "text": "raw temporal text must stay out",
+                    }
+                    for index in range(5)
+                ],
+            },
+            "actionable_gap_summary": {
+                "schema_version": "actionable_gap_summary.v1",
+                "blocking_gap_count": 0,
+                "diagnostic_gap_count": 1,
+                "ranked_gaps": [
+                    {
+                        "rank": 1,
+                        "impact_count": 4,
+                        "impact_rate": 1.0,
+                        "severity": "diagnostic",
+                        "category": f"temporal-{long_value}",
+                        "gap": f"missing-{long_value}",
+                        "failed_gate": "",
+                        "source_metric": f"temporal_grounding_table.{long_value}",
+                        "action": f"Fix temporal grounding {long_value}",
+                        "sample_case_ids": [
+                            f"case-{index}-{long_value}" for index in range(5)
+                        ],
+                        "samples": [{"case_id": "verbose"}],
+                        "evidence": {"raw": "verbose"},
+                    }
+                ],
+            },
+        }
+
+    monkeypatch.setattr(benchmark, "_fast_gate_metrics", fast_gate_metrics)
+
+    summary = benchmark._compact_fast_gate_summary(({"case_id": "case-1"},))
+
+    top_gap = summary["top_gap"]
+    assert top_gap["category"] == truncated("temporal-")
+    assert top_gap["gap"] == truncated("missing-")
+    assert top_gap["source_metric"] == truncated("temporal_grounding_table.")
+    assert len(top_gap["sample_case_ids"]) == 3
+    assert all(len(case_id) <= 180 for case_id in top_gap["sample_case_ids"])
+    samples = summary["temporal_grounding_issue_samples"]
+    assert len(samples) == 3
+    assert len(samples[0]["query_roles"]) == 6
+    assert len(samples[0]["source_refs"]) == 6
+    assert len(samples[0]["issue_reasons"]) == 6
+    assert len(samples[0]["source_identity_gap_codes"]) == 6
+    assert all(
+        len(value) <= 180
+        for sample in samples
+        for key in (
+            "case_id",
+            "group",
+            "item_id",
+            "role",
+        )
+        for value in (sample[key],)
+    )
+    assert all(
+        len(value) <= 180
+        for sample in samples
+        for key in (
+            "query_roles",
+            "source_refs",
+            "issue_reasons",
+            "source_identity_gap_codes",
+        )
+        for value in sample[key]
+    )
+    assert "text" not in samples[0]
+    serialized = json.dumps(summary, sort_keys=True)
+    assert long_value not in serialized
+    assert "raw temporal text must stay out" not in serialized

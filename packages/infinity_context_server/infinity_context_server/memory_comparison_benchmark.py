@@ -151,6 +151,7 @@ _MAX_COMPACT_REQUESTED_CAPABILITIES = 20
 _MAX_COMPACT_FAILURE_SEQUENCE_ITEMS = 8
 _MAX_COMPACT_FAILURE_MAPPING_ITEMS = 40
 _MAX_COMPACT_FAILURE_TEXT_CHARS = 240
+_MAX_COMPACT_SAMPLE_TEXT_CHARS = 180
 _LOCOMO_FAST_CASE_SET_GROUPS = {
     MEMORY_COMPARISON_CASE_SET_LOCOMO_FAST: (
         "multi-hop",
@@ -2549,13 +2550,16 @@ def _compact_actionable_gaps(
         if isinstance(impact_rate, (int, float)) and not isinstance(impact_rate, bool):
             compact["impact_rate"] = round(float(impact_rate), 6)
         for key in ("severity", "category", "gap", "failed_gate", "source_metric"):
-            value_text = str(gap.get(key) or "").strip()
+            value_text = _compact_sample_text(gap.get(key))
             if value_text:
                 compact[key] = value_text
         action = _compact_actionable_gap_action(gap.get("action"))
         if action:
             compact["action"] = action
-        sample_case_ids = list(_str_tuple(gap.get("sample_case_ids")))[:3]
+        sample_case_ids = _compact_sample_values(
+            gap.get("sample_case_ids"),
+            limit=3,
+        )
         if sample_case_ids:
             compact["sample_case_ids"] = sample_case_ids
         if compact:
@@ -2566,12 +2570,31 @@ def _compact_actionable_gaps(
 
 
 def _compact_actionable_gap_action(value: object, *, limit: int = 180) -> str:
+    return _compact_sample_text(value, limit=limit)
+
+
+def _compact_sample_text(
+    value: object,
+    *,
+    limit: int = _MAX_COMPACT_SAMPLE_TEXT_CHARS,
+) -> str:
     text = str(value or "").strip()
     if not text:
         return ""
     if len(text) <= limit:
         return text
     return f"{text[: limit - 3]}..."
+
+
+def _compact_sample_values(value: object, *, limit: int) -> list[str]:
+    values: list[str] = []
+    for raw_value in _str_tuple(value):
+        text = _compact_sample_text(raw_value)
+        if text:
+            values.append(text)
+        if len(values) >= limit:
+            break
+    return values
 
 
 def _compact_answerability_gap_samples(
@@ -2703,18 +2726,15 @@ def _compact_temporal_grounding_issue_samples(
         sample = _mapping(raw_sample)
         if not sample:
             continue
-        compact = {
-            key: sample[key]
-            for key in scalar_keys
-            if isinstance(sample.get(key), str | int | float | bool)
-        }
-        compact.update(
-            {
-                key: list(_str_tuple(sample.get(key))[:6])
-                for key in list_keys
-                if _str_tuple(sample.get(key))
-            }
-        )
+        compact: dict[str, object] = {}
+        for key in scalar_keys:
+            text = _compact_sample_text(sample.get(key))
+            if text:
+                compact[key] = text
+        for key in list_keys:
+            values = _compact_sample_values(sample.get(key), limit=6)
+            if values:
+                compact[key] = values
         signals = _mapping(sample.get("grounding_signals"))
         signal_payload = {
             key: bool(signals.get(key))

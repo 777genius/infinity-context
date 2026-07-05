@@ -57,6 +57,12 @@ def test_memory_comparison_preflight_ready_for_locomo_fast(tmp_path: Path) -> No
             "report_modes": ["compact"],
             "safe_payload": True,
         },
+        {
+            "name": "temporal_grounding_table",
+            "schema_version": "temporal_grounding.v1",
+            "report_modes": ["compact"],
+            "safe_payload": True,
+        },
     ]
 
 
