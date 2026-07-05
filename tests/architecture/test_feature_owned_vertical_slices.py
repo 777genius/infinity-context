@@ -9,6 +9,13 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 CORE_FEATURE_ROOT = (
     REPO_ROOT / "packages" / "infinity_context_core" / "infinity_context_core" / "features"
 )
+CONTRACT_FEATURE_ROOT = (
+    REPO_ROOT
+    / "packages"
+    / "infinity_context_contracts"
+    / "infinity_context_contracts"
+    / "features"
+)
 CORE_FEATURE_LAYERS = ("domain", "application", "ports")
 
 FEATURE_IDS = frozenset(
@@ -29,12 +36,40 @@ FEATURE_ROOTS = (
 
 ADR_PATH = REPO_ROOT / "docs" / "adr" / "ADR-0007-feature-owned-vertical-slices.md"
 
+CONTRACT_FORBIDDEN_IMPORT_PREFIXES = (
+    "fastapi",
+    "graphiti",
+    "infinity_context_adapters",
+    "infinity_context_core",
+    "infinity_context_server",
+    "openai",
+    "pydantic",
+    "qdrant_client",
+    "sqlalchemy",
+)
+
 
 def _feature_dirs(root: str) -> list[Path]:
     path = REPO_ROOT / root
     if not path.exists():
         return []
     return sorted(child for child in path.iterdir() if child.is_dir() and not child.name.startswith("_"))
+
+
+def _feature_modules(root: Path) -> list[Path]:
+    if not root.exists():
+        return []
+    return sorted(
+        child
+        for child in root.glob("*.py")
+        if child.stem != "__init__" and not child.name.startswith("_")
+    )
+
+
+def _python_modules(root: Path) -> list[Path]:
+    if not root.exists():
+        return []
+    return sorted(root.rglob("*.py"))
 
 
 def _package_context(path: Path) -> str | None:
@@ -179,6 +214,30 @@ def test_feature_directories_use_known_feature_ids() -> None:
                 unexpected.append(str(path.relative_to(REPO_ROOT)))
 
     assert unexpected == []
+
+
+def test_contract_feature_modules_use_known_feature_ids() -> None:
+    unexpected: list[str] = []
+    for path in _feature_modules(CONTRACT_FEATURE_ROOT):
+        if path.stem not in FEATURE_IDS:
+            unexpected.append(str(path.relative_to(REPO_ROOT)))
+
+    assert unexpected == []
+
+
+def test_contract_feature_modules_stay_at_boundary() -> None:
+    path = CONTRACT_FEATURE_ROOT / "memory_facts.py"
+
+    assert path.is_file()
+
+    violations: list[str] = []
+    for module_path in _python_modules(CONTRACT_FEATURE_ROOT):
+        for imported in _imports(module_path):
+            if _matches_module_prefix(imported, CONTRACT_FORBIDDEN_IMPORT_PREFIXES):
+                rel = module_path.relative_to(REPO_ROOT)
+                violations.append(f"{rel}: imports {imported}")
+
+    assert violations == []
 
 
 def test_core_feature_capsules_expose_public_api_when_created() -> None:
