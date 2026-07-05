@@ -153,3 +153,31 @@ def test_compact_evidence_bundle_coverage_normalizes_raw_locomo_refs() -> None:
     serialized = json.dumps(sample)
     assert "locomo:conv-private" not in serialized
     assert "turn-secret" not in serialized
+
+
+def test_compact_evidence_bundle_coverage_bounds_incomplete_samples() -> None:
+    coverage = benchmark._compact_evidence_bundle_coverage(
+        tuple(
+            {
+                "case_id": f"conv-1:qa:incomplete-{index}",
+                "group": "multi-hop",
+                "retrieval_quality": {
+                    "covered_evidence_terms": [f"D1:{index}"],
+                    "missing_evidence_terms": [f"D2:{index}"],
+                    "missing_terms": [f"expected-{index}"],
+                },
+                "evidence_bundle": {
+                    "bundle_complete": False,
+                    "item_count": 1,
+                    "evidence_term_recall": 0.0,
+                },
+            }
+            for index in range(8)
+        )
+    )
+
+    samples = coverage["incomplete_samples"]
+
+    assert coverage["bundle_incomplete_count"] == 8
+    assert len(samples) == 5
+    assert samples[-1]["case_id"] == "conv-1:qa:incomplete-4"

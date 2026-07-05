@@ -369,3 +369,105 @@ def test_compact_fast_gate_summary_bounds_remaining_gap_sample_fields(
         )
         == 6
     )
+
+
+def test_compact_fast_gate_summary_keeps_selected_weakness_diagnostics_bounded(
+    monkeypatch,
+) -> None:
+    long_value = "x" * 260
+    raw_memory_text = "RAW SELECTED MEMORY TEXT MUST STAY OUT"
+
+    def fast_gate_metrics(_: object) -> dict[str, object]:
+        return {
+            "schema_version": "fast_gate.v1",
+            "evaluation_count": 6,
+            "expected_case_count": 6,
+            "selected_evidence_weakness": {
+                "samples": [
+                    {
+                        "case_id": f"weakness-{index}-{long_value}",
+                        "group": f"group-{long_value}",
+                        "item_id": f"item-{index}-{long_value}",
+                        "role": f"role-{long_value}",
+                        "answerability_score": 0.12,
+                        "source_locality_score": 0.34,
+                        "broad_summary": True,
+                        "conflict_or_stale": True,
+                        "source_ref_count": 8,
+                        "risk_reason_count": 8,
+                        "planner_reason_count": 8,
+                        "answerability_reason_count": 8,
+                        "source_locality_reason_count": 8,
+                        "retrieval_source_count": 8,
+                        "source_type_count": 8,
+                        "relation_category_count": 8,
+                        "relation_category_hit_count": 8,
+                        "source_type": f"source-type-{long_value}",
+                        "stale_reason": f"stale-{long_value}",
+                        "conflict_reason": f"conflict-{long_value}",
+                        "query_roles": [
+                            f"query-role-{value}-{long_value}"
+                            for value in range(8)
+                        ],
+                        "source_refs": [f"D1:{value}" for value in range(8)],
+                        "risk_reason_codes": [
+                            f"risk-{value}-{long_value}" for value in range(8)
+                        ],
+                        "planner_reason_codes": [
+                            f"planner-{value}-{long_value}" for value in range(8)
+                        ],
+                        "answerability_reason_codes": [
+                            f"answerability-{value}-{long_value}"
+                            for value in range(8)
+                        ],
+                        "source_locality_reason_codes": [
+                            f"locality-{value}-{long_value}" for value in range(8)
+                        ],
+                        "retrieval_sources": [
+                            f"source-{value}-{long_value}" for value in range(8)
+                        ],
+                        "source_types": [
+                            f"type-{value}-{long_value}" for value in range(8)
+                        ],
+                        "relation_categories": [
+                            f"category-{value}-{long_value}" for value in range(8)
+                        ],
+                        "relation_category_hits": [
+                            f"hit-{value}-{long_value}" for value in range(8)
+                        ],
+                        "text": raw_memory_text,
+                    }
+                    for index in range(4)
+                ],
+            },
+        }
+
+    monkeypatch.setattr(benchmark, "_fast_gate_metrics", fast_gate_metrics)
+
+    summary = benchmark._compact_fast_gate_summary(({"case_id": "case-1"},))
+    samples = summary["selected_evidence_weakness_samples"]["samples"]
+    sample = samples[0]
+
+    assert len(samples) == 3
+    assert sample["answerability_score"] == 0.12
+    assert sample["source_locality_score"] == 0.34
+    assert sample["broad_summary"] is True
+    assert sample["conflict_or_stale"] is True
+    assert sample["source_ref_count"] == 8
+    assert sample["source_refs"] == [f"D1:{value}" for value in range(6)]
+    for key in (
+        "query_roles",
+        "risk_reason_codes",
+        "planner_reason_codes",
+        "answerability_reason_codes",
+        "source_locality_reason_codes",
+        "retrieval_sources",
+        "source_types",
+        "relation_categories",
+        "relation_category_hits",
+    ):
+        assert len(sample[key]) == 6
+        assert all(len(value) <= 180 for value in sample[key])
+    serialized = json.dumps(summary, sort_keys=True)
+    assert long_value not in serialized
+    assert raw_memory_text not in serialized
