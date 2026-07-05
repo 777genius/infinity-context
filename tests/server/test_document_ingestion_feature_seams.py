@@ -10,6 +10,16 @@ import pytest
 from infinity_context_contracts.features.document_ingestion import (
     IngestDocumentRequestDto,
 )
+from infinity_context_core.domain.entities import (
+    MemoryChunk,
+    MemoryChunkId,
+    MemoryChunkKind,
+    MemoryDocument,
+    MemoryDocumentId,
+    MemoryScopeId,
+    SpaceId,
+    ThreadId,
+)
 from infinity_context_server.features.document_ingestion import public as server_public
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -98,7 +108,9 @@ def test_document_ingestion_server_feature_public_surface_composes_router() -> N
         "FEATURE_ID",
         "IngestDocumentHttpRequest",
         "build_document_ingestion_server_feature",
+        "chunk_to_response",
         "create_document_ingestion_router",
+        "document_to_response",
         "ingest_document_command_from_contract",
         "ingest_document_result_to_contract",
     )
@@ -216,6 +228,125 @@ def test_document_ingestion_route_maps_http_contract_to_feature_use_case() -> No
     assert chunk["metadata"]["status"] == "active"
 
 
+def test_document_ingestion_public_seam_maps_legacy_document_api_responses() -> None:
+    now = datetime(2026, 1, 2, 3, 4, 5)
+    document = MemoryDocument.create(
+        document_id=MemoryDocumentId("doc_1"),
+        space_id=SpaceId("space_1"),
+        memory_scope_id=MemoryScopeId("scope_1"),
+        thread_id=ThreadId("thread_1"),
+        title="Architecture Notes",
+        source_type="markdown",
+        source_external_id="notes/architecture.md",
+        content_hash="hash_document",
+        classification="internal",
+        now=now,
+    )
+    chunks = (
+        MemoryChunk.create(
+            chunk_id=MemoryChunkId("chunk_1"),
+            space_id=SpaceId("space_1"),
+            memory_scope_id=MemoryScopeId("scope_1"),
+            thread_id=ThreadId("thread_1"),
+            document_id=MemoryDocumentId("doc_1"),
+            source_type="markdown",
+            source_external_id="notes/architecture.md",
+            source_hash="hash_source",
+            kind=MemoryChunkKind.DOCUMENT_CLAIM,
+            text="Postgres owns canonical document lifecycle.",
+            normalized_text="postgres owns canonical document lifecycle.",
+            sequence=0,
+            char_start=0,
+            char_end=43,
+            token_estimate=6,
+            metadata={
+                "node_kind": "claim",
+                "source_refs": [
+                    {
+                        "source_type": "asset_extraction",
+                        "source_id": "extract-atlas-review",
+                        "quote_preview": "OCR region says Project Atlas invoice review.",
+                        "api_key": "sk-" + "secret-key-that-should-not-leak",
+                    }
+                ],
+            },
+            classification="internal",
+            now=now,
+        ),
+        MemoryChunk.create(
+            chunk_id=MemoryChunkId("chunk_2"),
+            space_id=SpaceId("space_1"),
+            memory_scope_id=MemoryScopeId("scope_1"),
+            thread_id=ThreadId("thread_1"),
+            document_id=MemoryDocumentId("doc_1"),
+            source_type="markdown",
+            source_external_id="notes/architecture.md",
+            source_hash="hash_source",
+            kind=MemoryChunkKind.DOCUMENT_RISK,
+            text="Request-path graph projections are too slow.",
+            normalized_text="request-path graph projections are too slow.",
+            sequence=1,
+            char_start=44,
+            char_end=88,
+            token_estimate=7,
+            metadata={"node_kind": "risk"},
+            classification="internal",
+            now=now,
+        ),
+    )
+
+    body = server_public.document_to_response(
+        document,
+        chunks=2,
+        chunk_items=chunks,
+        duplicate_chunks=1,
+        indexing_status="queued",
+        deleted_chunks=3,
+        deleted_facts=4,
+    )
+    chunk = server_public.chunk_to_response(chunks[0])
+
+    assert body == {
+        "id": "doc_1",
+        "space_id": "space_1",
+        "memory_scope_id": "scope_1",
+        "thread_id": "thread_1",
+        "title": "Architecture Notes",
+        "source_type": "markdown",
+        "source_external_id": "notes/architecture.md",
+        "content_hash": "hash_document",
+        "classification": "internal",
+        "status": "active",
+        "created_at": "2026-01-02T03:04:05",
+        "updated_at": "2026-01-02T03:04:05",
+        "chunks": 2,
+        "fragment_summary": {
+            "fragment_count": 2,
+            "node_counts": {"claim": 1, "risk": 1},
+            "node_map": {"claim": [0], "risk": [1]},
+        },
+        "duplicate_chunks": 1,
+        "indexing_status": "queued",
+        "deleted_chunks": 3,
+        "deleted_facts": 4,
+    }
+    assert chunk["id"] == "chunk_1"
+    assert chunk["document_id"] == "doc_1"
+    assert chunk["episode_id"] is None
+    assert chunk["kind"] == "document_claim"
+    assert chunk["sequence"] == 0
+    assert chunk["status"] == "active"
+    assert chunk["classification"] == "internal"
+    assert chunk["source_refs"] == [
+        {
+            "source_type": "asset_extraction",
+            "source_id": "extract-atlas-review",
+            "quote_preview": "OCR region says Project Atlas invoice review.",
+        }
+    ]
+    assert "api_key" not in chunk["metadata"]["source_refs"][0]
+
+
 def test_document_ingestion_server_slice_uses_only_public_feature_boundaries() -> None:
     violations: list[str] = []
     forbidden_prefixes = (
@@ -258,6 +389,12 @@ def test_legacy_documents_api_delegates_ingest_mapping_to_public_server_seam() -
     ) in source
     assert "document_ingestion_server.IngestDocumentHttpRequest(" in source
     assert "document_ingestion_server.ingest_document_command_from_contract(" in source
+    assert "document_ingestion_server.document_to_response(" in source
+    assert "document_ingestion_server.chunk_to_response(" in source
+    assert "def document_to_response(" not in source
+    assert "def chunk_to_response(" not in source
+    assert "document_fragment_summary_from_nodes" not in source
+    assert "safe_public_metadata" not in source
     assert "infinity_context_core.features.document_ingestion" not in source
     assert "infinity_context_server.features.document_ingestion." not in source
 

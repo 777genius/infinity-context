@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from datetime import datetime
+from typing import Any
 
+import infinity_context_core.features.document_ingestion.public as document_ingestion
 from infinity_context_contracts.features.document_ingestion import (
     DocumentChunkDto,
     DocumentIdentityDto,
@@ -12,7 +14,8 @@ from infinity_context_contracts.features.document_ingestion import (
     IngestDocumentResultDto,
     MemoryDocumentDto,
 )
-import infinity_context_core.features.document_ingestion.public as document_ingestion
+
+from infinity_context_server.api.public_payload import safe_public_metadata
 
 DEFAULT_DOCUMENT_CLASSIFICATION = "unknown"
 DEFAULT_DOCUMENT_SOURCE_TYPE = "document"
@@ -64,6 +67,71 @@ def ingest_document_result_to_contract(
         created=True,
         indexing_status=result.indexing_status,
     )
+
+
+def document_to_response(
+    document: Any,
+    *,
+    chunks: int | None = None,
+    chunk_items: Iterable[Any] = (),
+    duplicate_chunks: int | None = None,
+    indexing_status: str | None = None,
+    deleted_chunks: int | None = None,
+    deleted_facts: int | None = None,
+) -> dict[str, Any]:
+    """Map the legacy document read model to the stable v1 HTTP response."""
+
+    body: dict[str, Any] = {
+        "id": str(document.id),
+        "space_id": str(document.space_id),
+        "memory_scope_id": str(document.memory_scope_id),
+        "thread_id": str(document.thread_id) if document.thread_id else None,
+        "title": document.title,
+        "source_type": document.source_type,
+        "source_external_id": document.source_external_id,
+        "content_hash": document.content_hash,
+        "classification": document.classification,
+        "status": _raw_value(document.status),
+        "created_at": document.created_at.isoformat(),
+        "updated_at": document.updated_at.isoformat(),
+    }
+    if chunks is not None:
+        body["chunks"] = chunks
+        chunk_tuple = tuple(chunk_items)
+        if chunk_tuple:
+            body["fragment_summary"] = _document_fragment_summary_from_nodes(
+                (_chunk_node_kind(chunk), chunk.sequence) for chunk in chunk_tuple
+            )
+    if duplicate_chunks is not None:
+        body["duplicate_chunks"] = duplicate_chunks
+    if indexing_status is not None:
+        body["indexing_status"] = indexing_status
+    if deleted_chunks is not None:
+        body["deleted_chunks"] = deleted_chunks
+    if deleted_facts is not None:
+        body["deleted_facts"] = deleted_facts
+    return body
+
+
+def chunk_to_response(chunk: Any) -> dict[str, Any]:
+    """Map the legacy chunk read model to the stable v1 HTTP response."""
+
+    return {
+        "id": str(chunk.id),
+        "document_id": str(chunk.document_id) if chunk.document_id else None,
+        "episode_id": str(chunk.episode_id) if chunk.episode_id else None,
+        "source_type": chunk.source_type,
+        "source_external_id": chunk.source_external_id,
+        "text": chunk.text,
+        "kind": _raw_value(chunk.kind),
+        "sequence": chunk.sequence,
+        "char_start": chunk.char_start,
+        "char_end": chunk.char_end,
+        "status": _raw_value(chunk.status),
+        "classification": chunk.classification,
+        "source_refs": _source_refs_from_metadata(chunk.metadata),
+        "metadata": safe_public_metadata(chunk.metadata),
+    }
 
 
 def _document_to_contract(
@@ -166,9 +234,47 @@ def _datetime_to_string(value: datetime | None) -> str | None:
     return value.isoformat()
 
 
+def _chunk_node_kind(chunk: Any) -> str:
+    metadata = chunk.metadata if isinstance(chunk.metadata, Mapping) else {}
+    node_kind = metadata.get("node_kind")
+    if node_kind:
+        return str(node_kind)
+    return str(_raw_value(chunk.kind))
+
+
+def _document_fragment_summary_from_nodes(
+    nodes: Iterable[tuple[str, int]],
+) -> dict[str, Any]:
+    counts: dict[str, int] = {}
+    node_map: dict[str, list[int]] = {}
+    total = 0
+    for node_kind, sequence in nodes:
+        counts[node_kind] = counts.get(node_kind, 0) + 1
+        node_map.setdefault(node_kind, []).append(sequence)
+        total += 1
+    return {
+        "fragment_count": total,
+        "node_counts": counts,
+        "node_map": node_map,
+    }
+
+
+def _source_refs_from_metadata(metadata: Any) -> list[dict[str, Any]]:
+    refs = metadata.get("source_refs") if isinstance(metadata, Mapping) else None
+    if not isinstance(refs, list):
+        return []
+    return [safe_public_metadata(item) for item in refs if isinstance(item, Mapping)]
+
+
+def _raw_value(value: Any) -> Any:
+    return getattr(value, "value", value)
+
+
 __all__ = (
     "DEFAULT_DOCUMENT_CLASSIFICATION",
     "DEFAULT_DOCUMENT_SOURCE_TYPE",
+    "chunk_to_response",
+    "document_to_response",
     "ingest_document_command_from_contract",
     "ingest_document_result_to_contract",
 )
