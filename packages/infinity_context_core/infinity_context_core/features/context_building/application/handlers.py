@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from infinity_context_core.features.context_building.application.queries import (
     BuildContextQuery,
     BuildContextResult,
+    LoadContextCandidatesQuery,
+    LoadContextCandidatesResult,
     PackContextQuery,
     PackContextResult,
     PlanContextPipelineQuery,
@@ -71,13 +73,16 @@ class BuildContextHandler:
     )
 
     async def execute(self, query: BuildContextQuery) -> BuildContextResult:
-        query_plan = self.query_expansion_policy.plan(query.query)
-        request = ContextCandidateRequest(
-            query=query_plan.normalized_query,
-            limit=query.candidate_limit,
-            query_plan=query_plan,
+        candidate_result = await LoadContextCandidatesHandler(
+            candidate_provider=self.candidate_provider,
+            query_expansion_policy=self.query_expansion_policy,
+        ).execute(
+            LoadContextCandidatesQuery(
+                query=query.query,
+                candidate_limit=query.candidate_limit,
+                idempotency_key=query.idempotency_key,
+            )
         )
-        candidates = await self.candidate_provider.find_candidates(request)
         pack_result = await PackContextHandler(
             budget_policy=self.budget_policy,
             evidence_renderer=self.evidence_renderer,
@@ -86,12 +91,39 @@ class BuildContextHandler:
             PackContextQuery(
                 query=query.query,
                 budget=query.budget,
-                candidates=candidates,
+                candidates=candidate_result.candidates,
                 idempotency_key=query.idempotency_key,
-                query_plan=query_plan,
+                query_plan=candidate_result.query_plan,
             )
         )
         return BuildContextResult(bundle=pack_result.bundle)
+
+
+@dataclass(frozen=True, slots=True)
+class LoadContextCandidatesHandler:
+    """Plan provider query shape and load candidates through the feature port."""
+
+    candidate_provider: ContextCandidateProviderPort
+    query_expansion_policy: ContextQueryExpansionPolicy = field(
+        default_factory=ContextQueryExpansionPolicy
+    )
+
+    async def execute(
+        self,
+        query: LoadContextCandidatesQuery,
+    ) -> LoadContextCandidatesResult:
+        query_plan = self.query_expansion_policy.plan(query.query)
+        request = ContextCandidateRequest(
+            query=query_plan.normalized_query,
+            limit=query.candidate_limit,
+            query_plan=query_plan,
+        )
+        candidates = await self.candidate_provider.find_candidates(request)
+        return LoadContextCandidatesResult(
+            query_plan=query_plan,
+            candidate_request=request,
+            candidates=candidates,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,4 +147,9 @@ class PlanContextPipelineHandler:
         )
 
 
-__all__ = ("BuildContextHandler", "PackContextHandler", "PlanContextPipelineHandler")
+__all__ = (
+    "BuildContextHandler",
+    "LoadContextCandidatesHandler",
+    "PackContextHandler",
+    "PlanContextPipelineHandler",
+)

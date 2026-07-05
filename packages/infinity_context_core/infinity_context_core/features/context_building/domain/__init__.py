@@ -8,8 +8,8 @@ from infinity_context_core.features.context_building.domain.budget import (
 from infinity_context_core.features.context_building.domain.context import (
     ContextBundle,
     ContextConfidence,
-    ContextDropReason,
     ContextDroppedItem,
+    ContextDropReason,
     ContextEvidence,
     ContextItem,
     ContextItemKind,

@@ -7,7 +7,6 @@ import importlib
 from dataclasses import FrozenInstanceError, fields, is_dataclass
 from pathlib import Path
 
-
 DOMAIN_MODULE = "infinity_context_core.features.context_building.domain"
 CONTEXT_MODULE = f"{DOMAIN_MODULE}.context"
 PROMPT_SECTIONS_MODULE = f"{DOMAIN_MODULE}.prompt_sections"

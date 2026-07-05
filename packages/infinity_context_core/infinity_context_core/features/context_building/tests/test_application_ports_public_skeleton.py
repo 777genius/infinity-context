@@ -9,7 +9,6 @@ import inspect
 from dataclasses import FrozenInstanceError, fields, is_dataclass
 from pathlib import Path
 
-
 APPLICATION_MODULE = "infinity_context_core.features.context_building.application"
 DOMAIN_MODULE = "infinity_context_core.features.context_building.domain"
 PORTS_MODULE = "infinity_context_core.features.context_building.ports"
@@ -65,6 +64,11 @@ def test_build_context_query_and_result_are_frozen_dataclasses() -> None:
         candidates=(item,),
         idempotency_key="pack-1",
     )
+    load_query = application.LoadContextCandidatesQuery(
+        query=query,
+        candidate_limit=4,
+        idempotency_key="load-1",
+    )
     pipeline_query = application.PlanContextPipelineQuery(
         query=query,
         candidates=(item,),
@@ -74,6 +78,16 @@ def test_build_context_query_and_result_are_frozen_dataclasses() -> None:
     result = application.BuildContextResult(bundle=bundle)
     pack_result = application.PackContextResult(bundle=bundle)
     query_plan = domain.ContextQueryExpansionPolicy().plan(query)
+    candidate_request = importlib.import_module(PORTS_MODULE).ContextCandidateRequest(
+        query=query_plan.normalized_query,
+        limit=4,
+        query_plan=query_plan,
+    )
+    load_result = application.LoadContextCandidatesResult(
+        query_plan=query_plan,
+        candidate_request=candidate_request,
+        candidates=(item,),
+    )
     prompt_section_plan = domain.PromptSectionPlanner().plan((item,))
     pipeline_result = application.PlanContextPipelineResult(
         query_plan=query_plan,
@@ -93,6 +107,16 @@ def test_build_context_query_and_result_are_frozen_dataclasses() -> None:
             ("query", "budget", "candidates", "idempotency_key", "query_plan"),
         ),
         (application.PackContextResult, pack_result, ("bundle",)),
+        (
+            application.LoadContextCandidatesQuery,
+            load_query,
+            ("query", "candidate_limit", "idempotency_key"),
+        ),
+        (
+            application.LoadContextCandidatesResult,
+            load_result,
+            ("query_plan", "candidate_request", "candidates"),
+        ),
         (
             application.PlanContextPipelineQuery,
             pipeline_query,
@@ -130,6 +154,53 @@ def test_context_candidate_provider_port_is_protocol_boundary() -> None:
     assert not hasattr(request, "__dict__")
     assert request.query_plan is None
     _assert_frozen(request)
+
+
+def test_context_candidate_provider_pipeline_dedupes_in_feature_order() -> None:
+    result, first, second = asyncio.run(_run_context_candidate_provider_pipeline())
+
+    assert tuple(item.item_id for item in result) == (
+        "duplicate",
+        "first-only",
+        "second-only",
+    )
+    assert first.requested_limits == [3]
+    assert second.requested_limits == [3]
+
+
+async def _run_context_candidate_provider_pipeline() -> tuple[object, object, object]:
+    application = importlib.import_module(APPLICATION_MODULE)
+    domain = importlib.import_module(DOMAIN_MODULE)
+    ports = importlib.import_module(PORTS_MODULE)
+
+    first = _CandidateProvider(
+        candidates=(
+            _item(domain, item_id="duplicate"),
+            _item(domain, item_id="first-only"),
+        )
+    )
+    second = _CandidateProvider(
+        candidates=(
+            _item(domain, item_id="duplicate"),
+            _item(domain, item_id="second-only"),
+        )
+    )
+    pipeline = application.ContextCandidateProviderPipeline(providers=(first, second))
+
+    result = await pipeline.find_candidates(
+        ports.ContextCandidateRequest(
+            query=domain.ContextQuery(
+                scope=domain.ContextScope(
+                    space_id="space-1",
+                    memory_scope_id="scope-1",
+                ),
+                text="deploy",
+            ),
+            limit=3,
+        )
+    )
+
+    return result, first, second
 
 
 def test_pack_context_handler_packs_candidates_without_retrieval_port() -> None:
@@ -204,6 +275,43 @@ def test_build_context_handler_uses_ports_budget_policy_and_renderer() -> None:
     assert "sources=document:doc-1#chunk-1" in result.bundle.rendered_evidence
 
 
+def test_load_context_candidates_handler_plans_query_and_uses_provider() -> None:
+    result, provider = asyncio.run(_run_load_context_candidates_handler())
+
+    assert provider.requests[0] is result.candidate_request
+    assert result.candidate_request.limit == 5
+    assert result.candidate_request.query == result.query_plan.normalized_query
+    assert result.candidate_request.query_plan is result.query_plan
+    assert result.query_plan.search_texts == (
+        "Who owns the deploy?",
+        "owns deploy",
+    )
+    assert tuple(item.item_id for item in result.candidates) == ("candidate",)
+
+
+async def _run_load_context_candidates_handler() -> tuple[object, object]:
+    application = importlib.import_module(APPLICATION_MODULE)
+    domain = importlib.import_module(DOMAIN_MODULE)
+
+    provider = _CandidateProvider(candidates=(_item(domain, item_id="candidate"),))
+    handler = application.LoadContextCandidatesHandler(candidate_provider=provider)
+
+    result = await handler.execute(
+        application.LoadContextCandidatesQuery(
+            query=domain.ContextQuery(
+                scope=domain.ContextScope(
+                    space_id="space-1",
+                    memory_scope_id="scope-1",
+                ),
+                text=" Who owns   the deploy? ",
+            ),
+            candidate_limit=5,
+        )
+    )
+
+    return result, provider
+
+
 async def _run_build_context_handler() -> tuple[object, object]:
     application = importlib.import_module(APPLICATION_MODULE)
     domain = importlib.import_module(DOMAIN_MODULE)
@@ -257,6 +365,7 @@ def test_context_building_public_api_exports_application_domain_and_ports() -> N
         "BuildContextQuery": application,
         "BuildContextResult": application,
         "BuildContextUseCase": application,
+        "ContextCandidateProviderPipeline": application,
         "CRITICAL_SECTION_ID": domain,
         "DEFAULT_QUERY_STOP_WORDS": domain,
         "ContextBudget": domain,
@@ -277,6 +386,10 @@ def test_context_building_public_api_exports_application_domain_and_ports() -> N
         "ContextScope": domain,
         "ContextSourceRef": domain,
         "EvidenceRenderPolicy": domain,
+        "LoadContextCandidatesHandler": application,
+        "LoadContextCandidatesQuery": application,
+        "LoadContextCandidatesResult": application,
+        "LoadContextCandidatesUseCase": application,
         "LOW_TRUST_SECTION_ID": domain,
         "NormalizedContextQuery": domain,
         "PackContextHandler": application,
@@ -293,6 +406,7 @@ def test_context_building_public_api_exports_application_domain_and_ports() -> N
         "PromptSectionPlanner": domain,
         "PromptSectionPolicy": domain,
         "SUPPORTING_SECTION_ID": domain,
+        "create_context_candidate_provider_pipeline": application,
     }
 
     assert expected_exports.keys() <= set(public.__all__)
@@ -373,6 +487,26 @@ class _CandidateProvider:
     async def find_candidates(self, request: object) -> tuple[object, ...]:
         self.requests.append(request)
         return self._candidates
+
+    @property
+    def requested_limits(self) -> list[int]:
+        return [request.limit for request in self.requests]
+
+
+def _item(
+    domain: object,
+    *,
+    item_id: str,
+    text: str = "Project detail",
+) -> object:
+    source_ref = domain.ContextSourceRef(source_type="document", source_id="doc-1")
+    evidence = domain.ContextEvidence(text=text, source_refs=(source_ref,))
+    return domain.ContextItem(
+        item_id=item_id,
+        text=text,
+        evidence=(evidence,),
+        estimated_tokens=2,
+    )
 
 
 def _assert_frozen(value: object) -> None:

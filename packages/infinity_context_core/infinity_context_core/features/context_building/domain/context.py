@@ -127,8 +127,8 @@ class ContextBundle:
     rendered_evidence: str = ""
     max_prompt_tokens: int | None = None
     total_estimated_tokens: int = 0
-    query_plan: "ContextQueryPlan | None" = None
-    prompt_section_plan: "PromptSectionPlan | None" = None
+    query_plan: ContextQueryPlan | None = None
+    prompt_section_plan: PromptSectionPlan | None = None
 
 
 def estimate_token_count(text: str) -> int:
