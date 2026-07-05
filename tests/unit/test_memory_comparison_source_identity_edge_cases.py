@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from infinity_context_server.memory_comparison_candidate_features import (
     build_candidate_evidence_features,
 )
@@ -94,6 +95,86 @@ def test_safe_source_refs_for_output_filters_raw_provider_refs() -> None:
     )
 
 
+def test_safe_source_refs_for_output_filters_backend_index_and_provider_refs() -> None:
+    assert safe_source_refs_for_output(
+        (
+            "backend:source:opaque-id",
+            "graphiti:episode:opaque-id",
+            "qdrant:point:opaque-id",
+            "openai:response:opaque-id",
+            "mem0:memory:opaque-id",
+            "provider-ref-opaque-id",
+            "document:profile-note",
+        )
+    ) == ("document:profile-note",)
+
+
+def test_safe_source_refs_for_output_extracts_identity_from_raw_refs_only() -> None:
+    assert safe_source_refs_for_output(
+        (
+            "backend:locomo:conv-private:session_9:D9:2:turn-secret",
+            "graphiti:locomo:conv-private:session_9:D9:2:turn-secret",
+            "qdrant:locomo:conv-private:session_9:D9:2:turn-secret",
+            "openai:locomo:conv-private:session_9:D9:2:turn-secret",
+            "mem0:locomo:conv-private:session_9:D9:2:turn-secret",
+        )
+    ) == (
+        "source_session_turn_refs:session_9:D9:2",
+        "source_turn_refs:D9:2",
+    )
+
+
+def test_safe_source_refs_for_output_bounds_generic_refs() -> None:
+    assert safe_source_refs_for_output(
+        (
+            "document:" + ("x" * 119),
+            "document:" + ("x" * 120),
+        )
+    ) == ("document:" + ("x" * 119),)
+
+
+@pytest.mark.parametrize(
+    "raw_ref",
+    (
+        "backend:source:opaque-id",
+        "graphiti:episode:opaque-id",
+        "qdrant:point:opaque-id",
+        "openai:response:opaque-id",
+        "mem0:memory:opaque-id",
+        "provider-ref-opaque-id",
+    ),
+)
+def test_source_identity_refs_from_source_refs_filter_opaque_raw_refs(
+    raw_ref: str,
+) -> None:
+    assert source_identity_refs_from_source_refs((raw_ref,)) == ()
+
+
+def test_source_identity_refs_from_source_refs_preserve_raw_ref_turn_identity() -> None:
+    refs = source_identity_refs_from_source_refs(
+        (
+            "backend:locomo:conv-private:session_6:D6:7:turn-secret",
+            "graphiti:locomo:conv-private:session_6:D6:7:turn-secret",
+            "qdrant:locomo:conv-private:session_6:D6:7:turn-secret",
+            "openai:locomo:conv-private:session_6:D6:7:turn-secret",
+            "mem0:locomo:conv-private:session_6:D6:7:turn-secret",
+        )
+    )
+
+    assert refs == (
+        "source_session_turn_refs:session_6:D6:7",
+        "source_turn_refs:D6:7",
+    )
+
+
+def test_source_identity_refs_from_source_refs_do_not_promote_exact_turn_refs() -> None:
+    assert source_identity_refs_from_source_refs((" D1:2 ", "d1:2")) == ()
+    assert safe_source_refs_for_output((" D1:2 ", "d1:2")) == ("D1:2",)
+    assert source_identity_refs_from_dedupe_key("source_refs:D1:2|d1:2") == (
+        "source_turn_refs:D1:2",
+    )
+
+
 def test_source_identity_refs_from_dedupe_key_filters_noisy_prefixed_refs() -> None:
     assert source_identity_refs_from_dedupe_key(
         "SOURCE_IDENTITY:SOURCE_TURN_REFS:d2:8|D2:8|D2:9"
@@ -127,17 +208,22 @@ def test_source_identity_refs_from_source_refs_dedupe_key_normalizes_safely() ->
 
 def test_source_identity_refs_from_source_refs_dedupe_key_bounds_generic_refs() -> None:
     long_ref = "document-" + ("x" * 200)
+    raw_refs = (
+        "backend:source:opaque-id",
+        "graphiti:episode:opaque-id",
+        "qdrant:point:opaque-id",
+        "openai:response:opaque-id",
+        "mem0:memory:opaque-id",
+        "provider-ref-abc123",
+    )
 
     refs = source_identity_refs_from_dedupe_key(
-        "source_refs:"
-        "provider-ref-abc123|"
-        "document:profile-note|"
-        f"{long_ref}|"
-        "D1:2"
+        "source_refs:" + "|".join((*raw_refs, "document:profile-note", long_ref, "D1:2"))
     )
 
     assert refs == ("document:profile-note", "source_turn_refs:D1:2")
-    assert "provider-ref-abc123" not in refs
+    for raw_ref in raw_refs:
+        assert raw_ref not in refs
     assert long_ref not in refs
 
 
