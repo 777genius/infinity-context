@@ -1,7 +1,85 @@
 from infinity_context_server.memory_comparison_candidate_fusion import fuse_query_results
-from infinity_context_server.memory_comparison_evidence import evidence_bundle
+from infinity_context_server.memory_comparison_evidence import (
+    evidence_bundle,
+    retrieval_quality,
+)
 from infinity_context_server.memory_comparison_models import RetrievedMemory
 from infinity_context_server.public_benchmark_models import PublicBenchmarkCase
+
+
+def test_retrieval_quality_uses_metadata_evidence_refs_alias() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:evidence-alias",
+        question="Which note connects Morgan's checklist and the studio desk?",
+        expected_terms=("blue notebook",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={"category": 4, "evidence": ["D1:1", ["D2:3"]]},
+    )
+
+    quality = retrieval_quality(
+        case,
+        (
+            RetrievedMemory(
+                text="Morgan put the checklist in the blue notebook.",
+                rank=1,
+                item_id="memory-d1",
+                source_refs=("locomo-conv-1:D1:1",),
+            ),
+        ),
+    )
+
+    assert quality["evidence_term_count"] == 2
+    assert quality["covered_evidence_terms"] == ["D1:1"]
+    assert quality["missing_evidence_terms"] == ["D2:3"]
+    assert quality["evidence_term_recall"] == 0.5
+
+
+def test_evidence_bundle_uses_metadata_evidence_refs_alias_for_coverage() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:evidence-bundle-alias",
+        question="Which note connects Morgan's checklist and the studio desk?",
+        expected_terms=("blue notebook",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={"category": 4, "evidence": ["D1:1", ["D2:3"]]},
+    )
+
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text=(
+                    "Morgan put the checklist in the blue notebook, and the "
+                    "studio desk had the same notebook."
+                ),
+                rank=1,
+                item_id="memory-with-evidence-refs",
+                source_refs=("locomo-conv-1:D1:1", "locomo-conv-1:D2:3"),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.9,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "entity_hits": ["morgan"],
+                            "relation_hits": ["checklist", "studio desk"],
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+        ),
+    )
+
+    assert bundle["evidence_term_count"] == 2
+    assert bundle["required_evidence_terms_for_bundle"] == 2
+    assert bundle["covered_evidence_terms"] == ["D1:1", "D2:3"]
+    assert bundle["evidence_term_recall"] == 1.0
+    assert bundle["bundle_complete"] is True
+    assert bundle["items"][0]["covered_evidence_terms"] == ["D1:1", "D2:3"]
 
 
 def test_evidence_bundle_includes_feature_backed_entity_disambiguation() -> None:

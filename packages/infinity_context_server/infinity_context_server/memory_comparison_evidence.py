@@ -22,6 +22,9 @@ from infinity_context_server.memory_comparison_rerank import (
     query_retrieval_intent,
     query_support_terms,
 )
+from infinity_context_server.public_benchmark_case_diagnostics import (
+    case_evidence_refs as _case_evidence_refs,
+)
 from infinity_context_server.public_benchmark_models import PublicBenchmarkCase
 
 _TURN_REF_RE = re.compile(r"\bD\d+:\d+\b")
@@ -76,7 +79,7 @@ def retrieval_quality(
         "covered_terms": list(covered_terms),
         "missing_terms": list(missing_terms),
     }
-    evidence_terms = _metadata_terms(case, "evidence_terms")
+    evidence_terms = _case_evidence_terms(case)
     if evidence_terms:
         evidence_ref_corpus = _normalize_text(
             " ".join(_memory_evidence_surface(memory) for memory in memories)
@@ -107,7 +110,7 @@ def evidence_bundle(
     case: PublicBenchmarkCase,
     memories: Sequence[RetrievedMemory],
 ) -> dict[str, object]:
-    evidence_terms = _metadata_terms(case, "evidence_terms")
+    evidence_terms = _case_evidence_terms(case)
     support_terms = query_support_terms(case)
     candidates: list[EvidenceBundleCandidate] = []
     covered_expected_terms: set[str] = set()
@@ -586,6 +589,13 @@ def _metadata_terms(case: PublicBenchmarkCase, key: str) -> tuple[str, ...]:
         for term in case.metadata.get(key, ())
         if str(term).strip()
     )
+
+
+def _case_evidence_terms(case: PublicBenchmarkCase) -> tuple[str, ...]:
+    evidence_terms = _metadata_terms(case, "evidence_terms")
+    if evidence_terms:
+        return evidence_terms
+    return _case_evidence_refs(case)
 
 
 def _metadata_string_sequence(value: object) -> tuple[str, ...]:
