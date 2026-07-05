@@ -58,10 +58,12 @@ def compact_text_list(
         return []
     items: Sequence[object] = (value,) if isinstance(value, str) else _sequence(value)
     values = []
+    seen: set[str] = set()
     for item in items:
         text = _text(item, limit=text_limit)
-        if text:
+        if text and text not in seen:
             values.append(text)
+            seen.add(text)
         if len(values) >= limit:
             break
     return values

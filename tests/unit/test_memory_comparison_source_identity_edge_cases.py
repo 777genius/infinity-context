@@ -4,6 +4,49 @@ from infinity_context_server.memory_comparison_candidate_features import (
     build_candidate_evidence_features,
 )
 from infinity_context_server.memory_comparison_models import RetrievedMemory
+from infinity_context_server.memory_comparison_source_identity import (
+    safe_source_identity_ref,
+    source_identity_audit_gap_codes,
+    source_identity_refs_from_source_refs,
+)
+
+
+def test_safe_source_identity_ref_normalizes_only_bounded_identity_refs() -> None:
+    assert safe_source_identity_ref(" source_turn_refs:d1:7 ") == (
+        "source_turn_refs:D1:7"
+    )
+    assert safe_source_identity_ref(
+        "SOURCE_SESSION_TURN_REFS:SESSION_2:d3:4"
+    ) == "source_session_turn_refs:session_2:D3:4"
+
+    assert safe_source_identity_ref(
+        "locomo:conv-private:session_2:D3:4:turn-secret"
+    ) is None
+    assert safe_source_identity_ref(f"source_turn_refs:D1:{'9' * 90}") is None
+
+
+def test_source_identity_refs_dedupe_noisy_canonical_source_refs() -> None:
+    refs = source_identity_refs_from_source_refs(
+        (
+            "locomo:conv-private:session_1:D1:2:turn-secret",
+            "locomo:conv-private:session_1:D1:2:turn-secret",
+            "generic-conversation-id",
+        )
+    )
+
+    assert refs == (
+        "source_session_turn_refs:session_1:D1:2",
+        "source_turn_refs:D1:2",
+    )
+
+
+def test_source_identity_audit_distinguishes_missing_source_ids() -> None:
+    assert source_identity_audit_gap_codes(source_refs=(), text="No turn marker") == (
+        "missing_source_refs",
+    )
+    assert source_identity_audit_gap_codes(source_refs=(), text="D5:7 Alex: hello") == (
+        "missing_source_refs_with_text_turn_identity",
+    )
 
 
 def test_candidate_features_report_mentioned_person_without_speaker_hit() -> None:

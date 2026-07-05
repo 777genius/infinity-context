@@ -63,6 +63,32 @@ def test_compact_evidence_bundle_coverage_bounds_evidence_refs() -> None:
     assert sample["missing_evidence_refs"] == refs[7:]
 
 
+def test_compact_evidence_bundle_coverage_dedupes_evidence_refs() -> None:
+    coverage = benchmark._compact_evidence_bundle_coverage(
+        (
+            {
+                "case_id": "conv-1:qa:deduped",
+                "group": "multi-hop",
+                "retrieval_quality": {
+                    "covered_evidence_terms": ["D1:1", "D1:1"],
+                    "missing_evidence_terms": ["D2:3", "D2:3", "D1:1"],
+                },
+                "evidence_bundle": {
+                    "bundle_complete": False,
+                    "item_count": 1,
+                    "evidence_term_recall": 0.0,
+                },
+            },
+        )
+    )
+
+    sample = coverage["incomplete_samples"][0]
+
+    assert sample["evidence_refs"] == ["D1:1", "D2:3"]
+    assert sample["covered_evidence_refs"] == ["D1:1"]
+    assert sample["missing_evidence_refs"] == ["D2:3", "D1:1"]
+
+
 def test_compact_evidence_bundle_coverage_truncates_long_evidence_refs() -> None:
     raw_covered_ref = f"D1:{'8' * 220}"
     raw_missing_ref = f"D2:{'9' * 220}"

@@ -90,6 +90,9 @@ from infinity_context_server.memory_comparison_quality_diagnostics import (
 from infinity_context_server.memory_comparison_query_integrity import (
     query_integrity_diagnostics as _query_integrity_diagnostics,
 )
+from infinity_context_server.memory_comparison_source_identity import (
+    safe_source_identity_ref as _safe_source_identity_ref,
+)
 from infinity_context_server.public_benchmark import (
     LOCOMO_BENCHMARK_SUITE,
     PUBLIC_MEMORY_BENCHMARK_SUITE,
@@ -2481,7 +2484,6 @@ def _compact_answer_context_support_gap_samples(
         "missing_required_roles",
         "risk_reason_codes",
         "item_ids",
-        "source_identity_refs",
     )
     for raw_sample in value[:limit]:
         sample = _mapping(raw_sample)
@@ -2499,12 +2501,22 @@ def _compact_answer_context_support_gap_samples(
                 if _str_tuple(sample.get(key))
             }
         )
+        source_identity_refs = _compact_source_identity_refs(
+            sample.get("source_identity_refs")
+        )
+        if source_identity_refs:
+            compact["source_identity_refs"] = list(source_identity_refs)
         retrieval_orders = _positive_ints(sample.get("retrieval_orders"))[:8]
         if retrieval_orders:
             compact["retrieval_orders"] = list(retrieval_orders)
         if compact:
             samples.append(compact)
     return samples
+
+
+def _compact_source_identity_refs(value: object, *, limit: int = 8) -> tuple[str, ...]:
+    refs = (_safe_source_identity_ref(raw_ref) for raw_ref in _str_tuple(value))
+    return tuple(dict.fromkeys(ref for ref in refs if ref))[:limit]
 
 
 def _compact_rerank_signal_gap_samples(
@@ -2748,7 +2760,9 @@ def _compact_evidence_bundle_coverage(
         missing_evidence_refs = tuple(
             _compact_text_list(quality.get("missing_evidence_terms"), item_limit=8)
         )
-        evidence_refs = (*covered_evidence_refs, *missing_evidence_refs)
+        evidence_refs = tuple(
+            dict.fromkeys((*covered_evidence_refs, *missing_evidence_refs))
+        )
         sample: dict[str, object] = {
             "case_id": str(item.get("case_id") or ""),
             "group": str(item.get("group") or ""),

@@ -69,6 +69,39 @@ def test_compact_answer_context_support_gap_samples_keeps_identity_refs() -> Non
     assert "raw_payload" not in samples[0]
 
 
+def test_compact_answer_context_support_gap_samples_filters_unsafe_identity_refs() -> None:
+    samples = benchmark._compact_answer_context_support_gap_samples(
+        [
+            {
+                "case_id": "case-answer-context",
+                "source_identity_refs": [
+                    "source_turn_refs:D1:1",
+                    "source_turn_refs:d1:1",
+                    "source_session_turn_refs:session_2:D3:4",
+                    "locomo:conv-private:session_2:D3:4:turn-secret",
+                    f"source_turn_refs:D1:{'9' * 90}",
+                ],
+            }
+        ]
+    )
+
+    assert samples == [
+        {
+            "case_id": "case-answer-context",
+            "source_identity_refs": [
+                "source_turn_refs:D1:1",
+                "source_session_turn_refs:session_2:D3:4",
+            ],
+        }
+    ]
+    serialized = json.dumps(samples)
+    assert "locomo:conv-private" not in serialized
+    assert "turn-secret" not in serialized
+    assert "999999999999999999999999999999999999999999999999999999999999" not in (
+        serialized
+    )
+
+
 def test_compact_fast_gate_summary_keeps_safe_identity_refs_end_to_end() -> None:
     context = answer_context_from_evidence_bundle(
         (

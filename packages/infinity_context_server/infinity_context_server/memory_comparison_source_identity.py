@@ -20,6 +20,28 @@ _TEXT_SESSION_DATE_TURN_RE = re.compile(
     r"(?P<turn_ref>D\d+:\d+)\b",
     re.IGNORECASE,
 )
+_SAFE_SOURCE_IDENTITY_REF_RE = re.compile(
+    r"^(?:(?P<turn_prefix>source_turn_refs):(?P<turn_ref>D\d+:\d+)|"
+    r"(?P<session_prefix>source_session_turn_refs):(?P<session>session_\d+):"
+    r"(?P<session_turn_ref>D\d+:\d+))$",
+    re.IGNORECASE,
+)
+_MAX_SAFE_SOURCE_IDENTITY_REF_LENGTH = 80
+
+
+def safe_source_identity_ref(value: object) -> str | None:
+    ref = str(value or "").strip()
+    if not ref or len(ref) > _MAX_SAFE_SOURCE_IDENTITY_REF_LENGTH:
+        return None
+    match = _SAFE_SOURCE_IDENTITY_REF_RE.fullmatch(ref)
+    if match is None:
+        return None
+    if match.group("turn_ref"):
+        return f"source_turn_refs:{match.group('turn_ref').upper()}"
+    return (
+        "source_session_turn_refs:"
+        f"{match.group('session').lower()}:{match.group('session_turn_ref').upper()}"
+    )
 
 
 def source_identity_refs_from_dedupe_key(value: object) -> tuple[str, ...]:
