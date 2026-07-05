@@ -47,6 +47,16 @@ from infinity_context_server.features.memory_scopes.mappers import (
 from infinity_context_server.features.memory_scopes.routes import (
     create_memory_scopes_router,
 )
+from infinity_context_server.features.memory_scopes.snapshot_compatibility import (
+    ImportMemoryScopeSnapshotRequest,
+    MemoryScopeSnapshotCompatibilityError,
+    PreviewMemoryScopeSnapshotRequest,
+    memory_scope_snapshot_export_response,
+    memory_scope_snapshot_transfer_response,
+    validate_memory_scope_snapshot_import_request,
+    validate_memory_scope_snapshot_preview_request,
+    verify_memory_scope_snapshot_manifest,
+)
 
 FEATURE_ID = memory_scopes.FEATURE_ID
 
@@ -56,10 +66,13 @@ __all__ = (
     "CreateMemoryScopeHttpRequest",
     "CreateMemoryScopeRequest",
     "DeleteMemoryScopeCompatibilityCommand",
+    "ImportMemoryScopeSnapshotRequest",
     "MemoryScopeActorHttpRequest",
     "MemoryScopeLifecycleHttpRequest",
     "MemoryScopeOwnerHttpRequest",
     "MemoryScopesServerFeature",
+    "MemoryScopeSnapshotCompatibilityError",
+    "PreviewMemoryScopeSnapshotRequest",
     "RestoreMemoryScopeHttpRequest",
     "TransferMemoryScopeOwnershipHttpRequest",
     "UpdateMemoryScopeCompatibilityCommand",
@@ -78,6 +91,8 @@ __all__ = (
     "memory_scope_compatibility_response",
     "memory_scope_actor_from_http",
     "memory_scope_owner_from_http",
+    "memory_scope_snapshot_export_response",
+    "memory_scope_snapshot_transfer_response",
     "memory_scope_snapshot_to_contract",
     "memory_scope_to_response",
     "restore_memory_scope_command_from_http",
@@ -85,4 +100,7 @@ __all__ = (
     "transfer_memory_scope_ownership_command_from_http",
     "transfer_memory_scope_ownership_result_to_response",
     "update_memory_scope_compatibility_command_from_request",
+    "validate_memory_scope_snapshot_import_request",
+    "validate_memory_scope_snapshot_preview_request",
+    "verify_memory_scope_snapshot_manifest",
 )

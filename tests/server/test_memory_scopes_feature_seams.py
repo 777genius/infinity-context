@@ -22,6 +22,15 @@ FEATURE_ROOT = (
     / "features"
     / "memory_scopes"
 )
+EXPORT_API_PATH = (
+    REPO_ROOT
+    / "packages"
+    / "infinity_context_server"
+    / "infinity_context_server"
+    / "api"
+    / "v1"
+    / "export.py"
+)
 
 
 class RecordingCreateMemoryScope:
@@ -129,10 +138,13 @@ def test_memory_scopes_server_feature_public_surface_composes_router() -> None:
         "CreateMemoryScopeHttpRequest",
         "CreateMemoryScopeRequest",
         "DeleteMemoryScopeCompatibilityCommand",
+        "ImportMemoryScopeSnapshotRequest",
         "MemoryScopeActorHttpRequest",
         "MemoryScopeLifecycleHttpRequest",
         "MemoryScopeOwnerHttpRequest",
         "MemoryScopesServerFeature",
+        "MemoryScopeSnapshotCompatibilityError",
+        "PreviewMemoryScopeSnapshotRequest",
         "RestoreMemoryScopeHttpRequest",
         "TransferMemoryScopeOwnershipHttpRequest",
         "UpdateMemoryScopeCompatibilityCommand",
@@ -151,6 +163,8 @@ def test_memory_scopes_server_feature_public_surface_composes_router() -> None:
         "memory_scope_compatibility_response",
         "memory_scope_actor_from_http",
         "memory_scope_owner_from_http",
+        "memory_scope_snapshot_export_response",
+        "memory_scope_snapshot_transfer_response",
         "memory_scope_snapshot_to_contract",
         "memory_scope_to_response",
         "restore_memory_scope_command_from_http",
@@ -158,6 +172,9 @@ def test_memory_scopes_server_feature_public_surface_composes_router() -> None:
         "transfer_memory_scope_ownership_command_from_http",
         "transfer_memory_scope_ownership_result_to_response",
         "update_memory_scope_compatibility_command_from_request",
+        "validate_memory_scope_snapshot_import_request",
+        "validate_memory_scope_snapshot_preview_request",
+        "verify_memory_scope_snapshot_manifest",
     )
     assert {route.path for route in feature.create_router().routes} == {
         "/memory-scopes-feature/memory-scopes",
@@ -357,6 +374,194 @@ def test_memory_scopes_feature_owns_legacy_v1_memory_scope_api_mapping() -> None
             "scope_1",
             server_public.UpdateMemoryScopeRequest(),
         )
+
+
+def test_memory_scopes_feature_owns_snapshot_compatibility_api_mapping() -> None:
+    api_source = EXPORT_API_PATH.read_text(encoding="utf-8")
+    api_tree = ast.parse(api_source, filename=str(EXPORT_API_PATH))
+    api_class_names = {
+        node.name for node in ast.walk(api_tree) if isinstance(node, ast.ClassDef)
+    }
+    api_function_names = {
+        node.name
+        for node in ast.walk(api_tree)
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+    }
+
+    assert "ImportMemoryScopeSnapshotRequest" not in api_class_names
+    assert "PreviewMemoryScopeSnapshotRequest" not in api_class_names
+    assert "_verify_memory_scope_snapshot_manifest" not in api_function_names
+    assert "_validate_memory_scope_snapshot_import_request" not in api_function_names
+    assert "_validate_memory_scope_snapshot_preview_request" not in api_function_names
+    assert "graph_export_to_response" in api_function_names
+    assert "infinity_context_core.memory_scope_snapshots" not in _imports(EXPORT_API_PATH)
+    assert "infinity_context_server.features.memory_scopes" in _imports(EXPORT_API_PATH)
+    assert "memory_scopes_feature.memory_scope_snapshot_export_response" in api_source
+    assert "memory_scopes_feature.validate_memory_scope_snapshot_import_request" in api_source
+    assert "memory_scopes_feature.validate_memory_scope_snapshot_preview_request" in api_source
+    assert "memory_scopes_feature.graph_export_to_response" not in api_source
+    assert "graph_export_to_response" not in server_public.__all__
+
+
+def test_export_route_delegates_snapshot_export_envelope_to_memory_scopes_public(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from infinity_context_server.api.v1 import export as export_api
+
+    calls: list[tuple[str, object]] = []
+
+    async def fake_export_memory_scope_payload(**kwargs: object) -> dict[str, object]:
+        calls.append(("transfer", kwargs))
+        return {
+            "status": "ok",
+            "snapshot": {"schema_version": 9, "redacted": True},
+            "counts": {"facts": 0},
+            "redacted": True,
+        }
+
+    def fake_export_response(
+        *,
+        result: dict[str, object],
+        space_slug: str,
+        memory_scope_external_ref: str,
+    ) -> dict[str, object]:
+        calls.append(("response", result))
+        return {
+            "delegated": True,
+            "space_slug": space_slug,
+            "memory_scope_external_ref": memory_scope_external_ref,
+        }
+
+    monkeypatch.setattr(
+        export_api,
+        "export_memory_scope_payload",
+        fake_export_memory_scope_payload,
+    )
+    monkeypatch.setattr(
+        export_api.memory_scopes_feature,
+        "memory_scope_snapshot_export_response",
+        fake_export_response,
+    )
+
+    response = asyncio.run(
+        export_api.export_memory_scope_snapshot(
+            SimpleNamespace(engine="engine", blob_storage="blob_storage"),
+            space_slug="team",
+            memory_scope_external_ref="atlas",
+            redacted=True,
+        )
+    )
+
+    assert response == {
+        "delegated": True,
+        "space_slug": "team",
+        "memory_scope_external_ref": "atlas",
+    }
+    assert [name for name, _payload in calls] == ["transfer", "response"]
+    assert calls[0][1] == {
+        "engine": "engine",
+        "space_slug": "team",
+        "memory_scope_external_ref": "atlas",
+        "redacted": True,
+        "blob_storage": "blob_storage",
+    }
+
+
+def test_import_route_delegates_snapshot_validation_and_envelope_to_memory_scopes_public(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from infinity_context_server.api.v1 import export as export_api
+
+    now = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
+    calls: list[tuple[str, object]] = []
+
+    def fake_validate(
+        request: server_public.ImportMemoryScopeSnapshotRequest,
+        *,
+        supported_merge_strategies: object,
+    ) -> None:
+        calls.append(
+            (
+                "validate",
+                {
+                    "merge_strategy": request.merge_strategy,
+                    "supported": supported_merge_strategies,
+                },
+            )
+        )
+
+    async def fake_resolve_existing_single_scope(
+        _container: object,
+        **kwargs: object,
+    ) -> SimpleNamespace:
+        calls.append(("resolve", kwargs))
+        return SimpleNamespace(space_id="space_1", memory_scope_id="scope_1")
+
+    async def fake_import_memory_scope_payload(**kwargs: object) -> dict[str, object]:
+        calls.append(("transfer", kwargs))
+        return {"status": "dry_run", "conflicts": []}
+
+    def fake_transfer_response(result: dict[str, object]) -> dict[str, object]:
+        calls.append(("response", result))
+        return {"delegated": result}
+
+    monkeypatch.setattr(
+        export_api.memory_scopes_feature,
+        "validate_memory_scope_snapshot_import_request",
+        fake_validate,
+    )
+    monkeypatch.setattr(
+        export_api,
+        "resolve_existing_single_scope",
+        fake_resolve_existing_single_scope,
+    )
+    monkeypatch.setattr(
+        export_api,
+        "import_memory_scope_payload",
+        fake_import_memory_scope_payload,
+    )
+    monkeypatch.setattr(
+        export_api.memory_scopes_feature,
+        "memory_scope_snapshot_transfer_response",
+        fake_transfer_response,
+    )
+
+    request = export_api.memory_scopes_feature.ImportMemoryScopeSnapshotRequest(
+        space_slug="team",
+        memory_scope_external_ref="atlas",
+        snapshot={"schema_version": 9},
+        dry_run=True,
+        merge_strategy="fail_on_conflict",
+    )
+    response = asyncio.run(
+        export_api.import_memory_scope_snapshot(
+            request,
+            SimpleNamespace(
+                engine="engine",
+                clock=SimpleNamespace(now=lambda: now),
+                blob_storage="blob_storage",
+            ),
+        )
+    )
+
+    assert response == {"delegated": {"status": "dry_run", "conflicts": []}}
+    assert [name for name, _payload in calls] == [
+        "validate",
+        "resolve",
+        "transfer",
+        "response",
+    ]
+    assert calls[2][1] == {
+        "engine": "engine",
+        "now": now,
+        "space_id": "space_1",
+        "memory_scope_id": "scope_1",
+        "payload": {"schema_version": 9},
+        "dry_run": True,
+        "merge_strategy": "fail_on_conflict",
+        "source_name": "api-memory_scope-snapshot",
+        "blob_storage": "blob_storage",
+    }
 
 
 def test_memory_scopes_feature_owns_legacy_v1_memory_scope_api_responses() -> None:
