@@ -58,4 +58,47 @@ class IngestDocumentHttpRequest(BaseModel):
         )
 
 
-__all__ = ("IngestDocumentHttpRequest",)
+class LegacyDocumentSourceRefRequest(BaseModel):
+    """Source reference shape accepted by the legacy /v1/documents route."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_type: str = Field(min_length=1, max_length=80)
+    source_id: str = Field(min_length=1, max_length=160)
+    chunk_id: str | None = Field(default=None, max_length=160)
+    char_start: int | None = Field(default=None, ge=0)
+    char_end: int | None = Field(default=None, ge=0)
+    quote_preview: str | None = Field(default=None, max_length=240)
+    page_number: int | None = Field(default=None, ge=1)
+    time_start_ms: int | None = Field(default=None, ge=0)
+    time_end_ms: int | None = Field(default=None, ge=0)
+    bbox: tuple[float, float, float, float] | None = None
+
+
+class LegacyIngestDocumentRequest(BaseModel):
+    """Compatibility request model for the legacy /v1/documents ingest route."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    space_id: str | None = Field(default=None, min_length=1, max_length=80)
+    memory_scope_id: str | None = Field(default=None, min_length=1, max_length=80)
+    thread_id: str | None = Field(default=None, max_length=80)
+    space_slug: str | None = Field(default=None, min_length=1, max_length=160)
+    memory_scope_external_ref: str | None = Field(default=None, min_length=1, max_length=200)
+    thread_external_ref: str | None = Field(default=None, min_length=1, max_length=200)
+    title: str = Field(min_length=1, max_length=300)
+    text: str = Field(min_length=1, max_length=500_000)
+    source_type: str = Field(default="document", min_length=1, max_length=80)
+    source_external_id: str = Field(min_length=1, max_length=240)
+    classification: str = Field(default="unknown", max_length=40)
+    source_refs: list[LegacyDocumentSourceRefRequest] = Field(
+        default_factory=list,
+        max_length=24,
+    )
+
+
+__all__ = (
+    "IngestDocumentHttpRequest",
+    "LegacyDocumentSourceRefRequest",
+    "LegacyIngestDocumentRequest",
+)

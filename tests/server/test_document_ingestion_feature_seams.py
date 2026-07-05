@@ -107,12 +107,15 @@ def test_document_ingestion_server_feature_public_surface_composes_router() -> N
         "DocumentIngestionServerFeature",
         "FEATURE_ID",
         "IngestDocumentHttpRequest",
+        "LegacyDocumentSourceRefRequest",
+        "LegacyIngestDocumentRequest",
         "build_document_ingestion_server_feature",
         "chunk_to_response",
         "create_document_ingestion_router",
         "document_to_response",
         "ingest_document_command_from_contract",
         "ingest_document_result_to_contract",
+        "legacy_ingest_document_command_from_request",
     )
     assert server_public.FEATURE_ID == "document_ingestion"
     assert {route.path for route in feature.create_router().routes} == {
@@ -167,6 +170,66 @@ def test_document_ingestion_mapper_requires_resolved_scope_ids() -> None:
 
     with pytest.raises(ValueError, match="space_id is required"):
         server_public.ingest_document_command_from_contract(request)
+
+
+def test_document_ingestion_mapper_builds_legacy_documents_command() -> None:
+    class LegacyCommand:
+        def __init__(self, **kwargs: object) -> None:
+            self.kwargs = kwargs
+
+    request = server_public.LegacyIngestDocumentRequest(
+        title="  Architecture Notes  ",
+        text="Postgres owns canonical document lifecycle.",
+        source_type="markdown",
+        source_external_id="notes/architecture.md",
+        classification="internal",
+        source_refs=[
+            server_public.LegacyDocumentSourceRefRequest(
+                source_type="asset_extraction",
+                source_id="extract-atlas-review",
+                quote_preview="OCR region says Project Atlas invoice review.",
+                page_number=2,
+                time_start_ms=1200,
+                time_end_ms=5400,
+                bbox=(12.0, 32.0, 300.0, 88.0),
+            )
+        ],
+    )
+
+    command = server_public.legacy_ingest_document_command_from_request(
+        request,
+        command_factory=LegacyCommand,
+        space_id="space_1",
+        memory_scope_id="scope_1",
+        thread_id="thread_1",
+        idempotency_key="ingest_1",
+    )
+
+    assert command.kwargs == {
+        "space_id": "space_1",
+        "memory_scope_id": "scope_1",
+        "thread_id": "thread_1",
+        "title": "Architecture Notes",
+        "text": "Postgres owns canonical document lifecycle.",
+        "source_type": "markdown",
+        "source_external_id": "notes/architecture.md",
+        "idempotency_key": "ingest_1",
+        "classification": "internal",
+        "chunk_metadata": {
+            "source_refs": [
+                {
+                    "source_type": "asset_extraction",
+                    "source_id": "extract-atlas-review",
+                    "quote_preview": "OCR region says Project Atlas invoice review.",
+                    "page_number": 2,
+                    "time_start_ms": 1200,
+                    "time_end_ms": 5400,
+                    "bbox": [12.0, 32.0, 300.0, 88.0],
+                }
+            ],
+            "source_ref_count": 1,
+        },
+    }
 
 
 def test_document_ingestion_route_maps_http_contract_to_feature_use_case() -> None:
@@ -387,12 +450,17 @@ def test_legacy_documents_api_delegates_ingest_mapping_to_public_server_seam() -
         "from infinity_context_server.features.document_ingestion import "
         "public as document_ingestion_server"
     ) in source
-    assert "document_ingestion_server.IngestDocumentHttpRequest(" in source
-    assert "document_ingestion_server.ingest_document_command_from_contract(" in source
+    assert "class IngestDocumentRequest(" in source
+    assert "document_ingestion_server.LegacyIngestDocumentRequest" in source
+    assert "document_ingestion_server.legacy_ingest_document_command_from_request(" in source
     assert "document_ingestion_server.document_to_response(" in source
     assert "document_ingestion_server.chunk_to_response(" in source
     assert "def document_to_response(" not in source
     assert "def chunk_to_response(" not in source
+    assert "def _document_chunk_metadata(" not in source
+    assert "def _document_ingestion_feature_request(" not in source
+    assert "def _legacy_ingest_document_command(" not in source
+    assert "SourceRefRequest" not in source
     assert "document_fragment_summary_from_nodes" not in source
     assert "safe_public_metadata" not in source
     assert "infinity_context_core.features.document_ingestion" not in source

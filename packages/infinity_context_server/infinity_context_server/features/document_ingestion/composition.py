@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from fastapi import APIRouter
 import infinity_context_core.features.document_ingestion.public as document_ingestion
+from fastapi import APIRouter
 
 from infinity_context_server.features.document_ingestion.routes import (
     create_document_ingestion_router,

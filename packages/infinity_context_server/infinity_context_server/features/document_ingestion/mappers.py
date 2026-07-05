@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
@@ -16,9 +17,42 @@ from infinity_context_contracts.features.document_ingestion import (
 )
 
 from infinity_context_server.api.public_payload import safe_public_metadata
+from infinity_context_server.features.document_ingestion.contracts import (
+    IngestDocumentHttpRequest,
+    LegacyDocumentSourceRefRequest,
+    LegacyIngestDocumentRequest,
+)
 
 DEFAULT_DOCUMENT_CLASSIFICATION = "unknown"
 DEFAULT_DOCUMENT_SOURCE_TYPE = "document"
+
+
+@dataclass(frozen=True, slots=True)
+class _LegacyIngestDocumentCommandPayload:
+    space_id: Any
+    memory_scope_id: Any
+    title: str
+    text: str
+    source_type: str
+    source_external_id: str
+    thread_id: Any
+    idempotency_key: str | None
+    classification: str
+    chunk_metadata: dict[str, object] | None
+
+    def to_kwargs(self) -> dict[str, Any]:
+        return {
+            "space_id": self.space_id,
+            "memory_scope_id": self.memory_scope_id,
+            "thread_id": self.thread_id,
+            "title": self.title,
+            "text": self.text,
+            "source_type": self.source_type,
+            "source_external_id": self.source_external_id,
+            "idempotency_key": self.idempotency_key,
+            "classification": self.classification,
+            "chunk_metadata": self.chunk_metadata,
+        }
 
 
 def ingest_document_command_from_contract(
@@ -54,6 +88,41 @@ def ingest_document_command_from_contract(
         ),
         idempotency_key=_optional_text(request.idempotency_key),
     )
+
+
+def legacy_ingest_document_command_from_request(
+    request: LegacyIngestDocumentRequest,
+    *,
+    command_factory: Callable[..., Any],
+    space_id: Any,
+    memory_scope_id: Any,
+    thread_id: Any,
+    idempotency_key: str | None,
+) -> Any:
+    """Map legacy /v1/documents input into the command consumed by the route."""
+
+    feature_command = ingest_document_command_from_contract(
+        _legacy_ingest_document_http_request(
+            request,
+            space_id=str(space_id),
+            memory_scope_id=str(memory_scope_id),
+            thread_id=str(thread_id) if thread_id else None,
+            idempotency_key=idempotency_key,
+        ).to_contract()
+    )
+    payload = _LegacyIngestDocumentCommandPayload(
+        space_id=space_id,
+        memory_scope_id=memory_scope_id,
+        thread_id=thread_id,
+        title=feature_command.title,
+        text=feature_command.text,
+        source_type=feature_command.origin.source_type,
+        source_external_id=feature_command.origin.source_external_id,
+        idempotency_key=feature_command.idempotency_key,
+        classification=feature_command.classification,
+        chunk_metadata=_legacy_document_chunk_metadata(request.source_refs),
+    )
+    return command_factory(**payload.to_kwargs())
 
 
 def ingest_document_result_to_contract(
@@ -266,6 +335,41 @@ def _source_refs_from_metadata(metadata: Any) -> list[dict[str, Any]]:
     return [safe_public_metadata(item) for item in refs if isinstance(item, Mapping)]
 
 
+def _legacy_ingest_document_http_request(
+    request: LegacyIngestDocumentRequest,
+    *,
+    space_id: str,
+    memory_scope_id: str,
+    thread_id: str | None,
+    idempotency_key: str | None,
+) -> IngestDocumentHttpRequest:
+    return IngestDocumentHttpRequest(
+        space_id=space_id,
+        memory_scope_id=memory_scope_id,
+        thread_id=thread_id,
+        title=request.title,
+        text=request.text,
+        source_type=request.source_type,
+        source_external_id=request.source_external_id,
+        classification=request.classification,
+        idempotency_key=idempotency_key,
+    )
+
+
+def _legacy_document_chunk_metadata(
+    source_refs: Sequence[LegacyDocumentSourceRefRequest],
+) -> dict[str, object] | None:
+    refs = tuple(source_refs[:24])
+    if not refs:
+        return None
+    return {
+        "source_refs": [
+            item.model_dump(exclude_none=True, mode="json") for item in refs
+        ],
+        "source_ref_count": len(refs),
+    }
+
+
 def _raw_value(value: Any) -> Any:
     return getattr(value, "value", value)
 
@@ -277,4 +381,5 @@ __all__ = (
     "document_to_response",
     "ingest_document_command_from_contract",
     "ingest_document_result_to_contract",
+    "legacy_ingest_document_command_from_request",
 )

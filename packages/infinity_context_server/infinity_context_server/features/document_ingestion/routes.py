@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, status
 import infinity_context_core.features.document_ingestion.public as document_ingestion
+from fastapi import APIRouter, HTTPException, status
 
 from infinity_context_server.features.document_ingestion.contracts import (
     IngestDocumentHttpRequest,

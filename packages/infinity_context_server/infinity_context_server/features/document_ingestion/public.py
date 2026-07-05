@@ -10,12 +10,15 @@ from infinity_context_server.features.document_ingestion.composition import (
 )
 from infinity_context_server.features.document_ingestion.contracts import (
     IngestDocumentHttpRequest,
+    LegacyDocumentSourceRefRequest,
+    LegacyIngestDocumentRequest,
 )
 from infinity_context_server.features.document_ingestion.mappers import (
     chunk_to_response,
     document_to_response,
     ingest_document_command_from_contract,
     ingest_document_result_to_contract,
+    legacy_ingest_document_command_from_request,
 )
 from infinity_context_server.features.document_ingestion.routes import (
     create_document_ingestion_router,
@@ -27,10 +30,13 @@ __all__ = (
     "DocumentIngestionServerFeature",
     "FEATURE_ID",
     "IngestDocumentHttpRequest",
+    "LegacyDocumentSourceRefRequest",
+    "LegacyIngestDocumentRequest",
     "build_document_ingestion_server_feature",
     "chunk_to_response",
     "create_document_ingestion_router",
     "document_to_response",
     "ingest_document_command_from_contract",
     "ingest_document_result_to_contract",
+    "legacy_ingest_document_command_from_request",
 )
