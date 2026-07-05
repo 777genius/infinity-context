@@ -206,9 +206,11 @@ def test_document_ingestion_public_api_exports_application_domain_and_ports() ->
         "DocumentChunkIndexPort": ports,
         "DocumentChunkRepositoryPort": ports,
         "DocumentIndexingResult": ports,
+        "DocumentIngestionIdentityFactory": application,
         "DocumentIngestionScope": domain,
         "DocumentIngestionUseCases": application,
         "IngestDocumentCommand": application,
+        "IngestDocumentHandler": application,
         "IngestDocumentResult": application,
         "IngestDocumentUseCase": application,
         "PreparedDocumentIngestion": application,
@@ -218,6 +220,7 @@ def test_document_ingestion_public_api_exports_application_domain_and_ports() ->
         "SourceDocumentDraft": domain,
         "SourceDocumentOrigin": domain,
         "SourceDocumentRepositoryPort": ports,
+        "StableDocumentIngestionIdentityFactory": application,
     }
 
     assert expected_exports.keys() <= set(public.__all__)

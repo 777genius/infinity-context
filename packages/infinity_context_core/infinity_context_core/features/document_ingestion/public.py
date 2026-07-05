@@ -4,13 +4,16 @@ from __future__ import annotations
 
 from infinity_context_core.features.document_ingestion.application import (
     DocumentIndexingStatus,
+    DocumentIngestionIdentityFactory,
     DocumentIngestionUseCases,
     IngestDocumentCommand,
+    IngestDocumentHandler,
     IngestDocumentResult,
     IngestDocumentUseCase,
     PreparedDocumentIngestion,
     PrepareDocumentIngestionHandler,
     PrepareDocumentIngestionUseCase,
+    StableDocumentIngestionIdentityFactory,
 )
 from infinity_context_core.features.document_ingestion.domain import (
     CHUNKING_POLICY_VERSION,
@@ -63,6 +66,7 @@ __all__ = (
     "DocumentIndexingStatus",
     "DocumentIngestionError",
     "DocumentIngestionFeature",
+    "DocumentIngestionIdentityFactory",
     "DocumentIngestionInvariantError",
     "DocumentIngestionScope",
     "DocumentIngestionUseCases",
@@ -70,6 +74,7 @@ __all__ = (
     "DocumentTextRange",
     "FEATURE_ID",
     "IngestDocumentCommand",
+    "IngestDocumentHandler",
     "IngestDocumentResult",
     "IngestDocumentUseCase",
     "PreparedDocumentIngestion",
@@ -83,6 +88,7 @@ __all__ = (
     "SourceDocumentOrigin",
     "SourceDocumentRepositoryPort",
     "SourceDocumentStatus",
+    "StableDocumentIngestionIdentityFactory",
     "content_hash_for_text",
     "estimate_token_count",
     "normalize_document_text",
