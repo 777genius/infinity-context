@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -37,6 +36,15 @@ from infinity_context_server.memory_comparison_candidate_risks import (
 )
 from infinity_context_server.memory_comparison_models import RetrievedMemory
 from infinity_context_server.memory_comparison_source_identity import (
+    safe_item_id_for_output as _safe_item_id_for_output,
+)
+from infinity_context_server.memory_comparison_source_identity import (
+    safe_source_identity_ref as _safe_source_identity_ref,
+)
+from infinity_context_server.memory_comparison_source_identity import (
+    safe_source_refs_for_output as _safe_source_refs_for_output,
+)
+from infinity_context_server.memory_comparison_source_identity import (
     source_identity_refs_from_dedupe_key as _source_identity_refs_from_dedupe_key,
 )
 from infinity_context_server.memory_comparison_source_identity import (
@@ -50,12 +58,6 @@ _SOURCE_TURN_REF_PREFIXES = ("source_turn_refs:", "source_session_turn_refs:")
 _MAX_CONTEXT_SOURCE_IDENTITY_REFS = 8
 _MAX_CONTEXT_SOURCE_IDENTITY_REFS_PER_ITEM = 4
 _MAX_CONTEXT_SOURCE_IDENTITY_ITEMS = 8
-_SAFE_SOURCE_IDENTITY_REF_RE = re.compile(
-    r"^(?:(?P<turn_prefix>source_turn_refs):(?P<turn_ref>D\d+:\d+)|"
-    r"(?P<session_prefix>source_session_turn_refs):(?P<session>session_\d+):"
-    r"(?P<session_turn_ref>D\d+:\d+))$",
-    re.IGNORECASE,
-)
 
 
 @dataclass(frozen=True)
@@ -239,9 +241,10 @@ class AnswerContext:
             "inspection_flags": list(inspection_flags),
             "fallback_reason": self.fallback_reason,
             "item_ids": [
-                memory.item_id
+                item_id
                 for memory in self.memories
-                if memory.item_id is not None and memory.item_id.strip()
+                for item_id in (_safe_diagnostic_item_id(memory.item_id),)
+                if item_id
             ],
             "retrieval_orders": [
                 int(memory.metadata["answer_context_retrieval_order"])
@@ -2322,12 +2325,19 @@ def _source_identity_key_overlaps(
     )
     for selected_key in selected_source_identity_keys:
         if source_identity_refs.intersection(selected_key):
-            return True
+            selected_turn_refs = _unqualified_source_turn_refs(selected_key)
+            if (
+                not source_identity_turn_refs
+                or source_identity_turn_refs.issubset(selected_turn_refs)
+            ):
+                return True
+            continue
         selected_has_session_refs = _has_session_source_turn_refs(selected_key)
         if source_identity_has_session_refs and selected_has_session_refs:
             continue
-        if source_identity_turn_refs.intersection(
-            _unqualified_source_turn_refs(selected_key)
+        selected_turn_refs = _unqualified_source_turn_refs(selected_key)
+        if source_identity_turn_refs and source_identity_turn_refs.issubset(
+            selected_turn_refs
         ):
             return True
     return False
@@ -2452,7 +2462,7 @@ def _source_identity_stats(memories: Sequence[RetrievedMemory]) -> dict[str, obj
                 memory_refs[:_MAX_CONTEXT_SOURCE_IDENTITY_REFS_PER_ITEM]
             )
         }
-        item_id = str(memory.item_id or "").strip()
+        item_id = _safe_diagnostic_item_id(memory.item_id)
         if item_id:
             item["item_id"] = item_id
         retrieval_order = _positive_int(
@@ -2471,21 +2481,6 @@ def _source_identity_stats(memories: Sequence[RetrievedMemory]) -> dict[str, obj
         ),
         "source_identity_items": source_identity_items,
     }
-
-
-def _safe_source_identity_ref(value: object) -> str | None:
-    ref = str(value or "").strip()
-    if not ref or len(ref) > 80:
-        return None
-    match = _SAFE_SOURCE_IDENTITY_REF_RE.fullmatch(ref)
-    if match is None:
-        return None
-    if match.group("turn_ref"):
-        return f"source_turn_refs:{match.group('turn_ref').upper()}"
-    return (
-        "source_session_turn_refs:"
-        f"{match.group('session').lower()}:{match.group('session_turn_ref').upper()}"
-    )
 
 
 def _compacted_fusion_source_ref_stats(memory: RetrievedMemory) -> dict[str, int]:
@@ -2508,6 +2503,10 @@ def _compacted_fusion_source_ref_stats(memory: RetrievedMemory) -> dict[str, int
         "selected_count": len(selected_refs),
         "saved_count": max(0, len(original_refs) - len(selected_refs)),
     }
+
+
+def _safe_diagnostic_item_id(value: object) -> str:
+    return _safe_item_id_for_output(value)
 
 
 def _backfill_risk_stats(memories: Sequence[RetrievedMemory]) -> dict[str, object]:
@@ -2678,16 +2677,21 @@ def _source_identity_refs_from_memory(
             )
         )
     )
+    output_source_refs = _safe_source_refs_for_output(source_refs)
+    source_identity_refs = _source_identity_refs_from_source_refs(source_refs)
     return tuple(
         dict.fromkeys(
             (
-                *source_refs,
-                *_source_identity_refs_from_source_refs(source_refs),
+                *output_source_refs,
+                *source_identity_refs,
                 *_source_identity_refs_from_dedupe_key(
                     features.get("source_ref_dedupe_key")
                 ),
                 *_source_identity_refs_from_dedupe_key(fusion.get("dedupe_key")),
-                *_source_identity_refs_from_text(memory.text, source_refs=source_refs),
+                *_source_identity_refs_from_text(
+                    memory.text,
+                    source_refs=(*output_source_refs, *source_identity_refs),
+                ),
             )
         )
     )
@@ -2745,10 +2749,11 @@ def _source_identity_refs_from_bundle_item(
     item: Mapping[str, object],
 ) -> tuple[str, ...]:
     source_refs = _string_tuple(item.get("source_refs"))
+    output_source_refs = _safe_source_refs_for_output(source_refs)
     return tuple(
         dict.fromkeys(
             (
-                *source_refs,
+                *output_source_refs,
                 *_source_identity_refs_from_source_refs(source_refs),
                 *_source_identity_refs_from_dedupe_key(
                     item.get("source_ref_dedupe_key")

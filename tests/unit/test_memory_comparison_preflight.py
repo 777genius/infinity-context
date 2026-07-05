@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from infinity_context_server import eval as eval_module
 from infinity_context_server.memory_comparison_preflight import (
     MEMORY_COMPARISON_PREFLIGHT_SUITE,
@@ -16,7 +17,7 @@ from infinity_context_server.memory_comparison_preflight import (
 
 def test_memory_comparison_preflight_ready_for_locomo_fast(tmp_path: Path) -> None:
     dataset = tmp_path / "locomo-mini.json"
-    dataset.write_text('[{"sample_id":"unit"}]', encoding="utf-8")
+    _write_official_locomo_fast_dataset(dataset)
 
     result = run_memory_comparison_preflight(
         _config(
@@ -57,7 +58,109 @@ def test_memory_comparison_preflight_ready_for_locomo_fast(tmp_path: Path) -> No
             "report_modes": ["compact"],
             "safe_payload": True,
         },
+        {
+            "name": "temporal_grounding_table",
+            "schema_version": "temporal_grounding.v1",
+            "report_modes": ["compact"],
+            "safe_payload": True,
+        },
     ]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        [{"sample_id": "unit"}],
+        {"cases": [{"id": "unit"}], "metadata": {"source": "not-locomo"}},
+    ],
+    ids=("list", "object"),
+)
+def test_memory_comparison_preflight_blocks_non_locomo_json_fast_readiness(
+    tmp_path: Path,
+    payload: object,
+) -> None:
+    dataset = tmp_path / "not-locomo.json"
+    dataset.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = run_memory_comparison_preflight(
+        _config(
+            dataset_path=dataset,
+            env={"MEM0_API_KEY": "secret-mem0"},
+        )
+    )
+
+    assert result["ok"] is True
+    assert result["safe_to_run_live"] is True
+    assert result["ready_for_locomo_fast"] is False
+    assert result["fast_readiness_blockers"] == [
+        "locomo_fast_dataset_case_coverage"
+    ]
+    check = _check(result, "locomo_fast_dataset_case_coverage")
+    assert check["reason_code"] == "locomo_fast_dataset_insufficient_cases"
+    assert check["details"]["official_turn_case_count"] == 0
+    assert check["details"]["missing_groups"] == [
+        "multi-hop",
+        "temporal",
+        "open-domain",
+        "single-hop",
+    ]
+
+
+def test_memory_comparison_preflight_blocks_underfilled_locomo_fast_dataset(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "locomo-underfilled.json"
+    _write_official_locomo_fast_dataset(dataset, cases_per_group=2)
+
+    result = run_memory_comparison_preflight(
+        _config(
+            dataset_path=dataset,
+            case_set="locomo-fast-temporal",
+            env={"MEM0_API_KEY": "secret-mem0"},
+        )
+    )
+
+    assert result["ok"] is True
+    assert result["ready_for_locomo_fast"] is False
+    assert result["fast_readiness_blockers"] == [
+        "locomo_fast_dataset_case_coverage"
+    ]
+    check = _check(result, "locomo_fast_dataset_case_coverage")
+    assert check["details"]["requested_groups"] == ["temporal"]
+    assert check["details"]["requested_per_group"] == 10
+    assert check["details"]["selected_by_group"] == {"temporal": 2}
+    assert check["details"]["missing_groups"] == ["temporal"]
+
+
+def test_memory_comparison_preflight_blocks_any_underfilled_requested_group(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "locomo-one-underfilled-group.json"
+    _write_official_locomo_fast_dataset(
+        dataset,
+        cases_per_group_by_category={1: 10, 2: 9, 3: 10, 4: 10},
+    )
+
+    result = run_memory_comparison_preflight(
+        _config(
+            dataset_path=dataset,
+            env={"MEM0_API_KEY": "secret-mem0"},
+        )
+    )
+
+    assert result["ok"] is True
+    assert result["ready_for_locomo_fast"] is False
+    assert result["fast_readiness_blockers"] == [
+        "locomo_fast_dataset_case_coverage"
+    ]
+    check = _check(result, "locomo_fast_dataset_case_coverage")
+    assert check["details"]["selected_by_group"] == {
+        "multi-hop": 10,
+        "temporal": 9,
+        "open-domain": 10,
+        "single-hop": 10,
+    }
+    assert check["details"]["missing_groups"] == ["temporal"]
 
 
 def test_memory_comparison_preflight_reports_missing_required_gates(
@@ -148,7 +251,7 @@ def test_memory_comparison_preflight_cli_prints_sanitized_json(
     tmp_path: Path,
 ) -> None:
     dataset = tmp_path / "locomo-mini.json"
-    dataset.write_text('[{"sample_id":"unit"}]', encoding="utf-8")
+    _write_official_locomo_fast_dataset(dataset)
     monkeypatch.setenv("MEMORY_SERVICE_TOKEN", "secret-service-token")
     monkeypatch.setenv("MEM0_API_KEY", "secret-mem0-token")
 
@@ -190,7 +293,7 @@ def test_memory_comparison_preflight_probes_service_specific_contracts(
     tmp_path: Path,
 ) -> None:
     dataset = tmp_path / "locomo-mini.json"
-    dataset.write_text('[{"sample_id":"unit"}]', encoding="utf-8")
+    _write_official_locomo_fast_dataset(dataset)
     requests: list[tuple[str, str]] = []
     _install_fake_httpx(
         monkeypatch,
@@ -287,12 +390,13 @@ def test_memory_comparison_preflight_rejects_wrong_memo_service_health(
 
 
 def test_memory_comparison_preflight_check_payload_details_are_bounded_json_safe() -> None:
+    long_text = "x" * 300
     check = MemoryComparisonPreflightCheck(
-        name="unit",
+        name=f"unit-{long_text}",
         passed=False,
-        severity="required",
-        reason="unit reason",
-        reason_code="unit_reason",
+        severity=f"required-{long_text}",
+        reason=f"unit reason {long_text}",
+        reason_code=f"unit_reason_{long_text}",
         details={
             f"key-{index}": float("nan") if index == 0 else "x" * 300
             for index in range(25)
@@ -302,9 +406,51 @@ def test_memory_comparison_preflight_check_payload_details_are_bounded_json_safe
     payload = check.to_payload()
 
     assert len(payload["details"]) == 20
+    assert payload["name"].endswith("...")
+    assert payload["severity"].endswith("...")
+    assert payload["reason"].endswith("...")
+    assert payload["reason_code"].endswith("...")
     assert payload["details"]["key-0"] == "nan"
     assert payload["details"]["key-1"].endswith("...")
     json.dumps(payload, allow_nan=False)
+
+
+def test_memory_comparison_preflight_diagnostics_are_stable_and_bounded(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "locomo-mini.json"
+    dataset.write_text('[{"sample_id":"unit"}]', encoding="utf-8")
+
+    result = run_memory_comparison_preflight(
+        _config(
+            dataset_path=dataset,
+            top_k_cutoffs=tuple(range(1, 41)) + (50, 200),
+            openai_api_key_env="CUSTOM_OPENAI_KEY",
+            mem0_api_key_env="CUSTOM_MEM0_KEY",
+            env={
+                "CUSTOM_OPENAI_KEY": "secret-openai",
+                "CUSTOM_MEM0_KEY": "secret-mem0",
+            },
+        )
+    )
+
+    diagnostics = result["diagnostics"]
+    assert len(diagnostics["top_k_cutoffs"]) == 20
+    assert diagnostics["top_k_cutoff_count"] == 42
+    assert set(diagnostics["secrets"]) == {
+        "auth_token_configured",
+        "fallback_openai_api_key_configured",
+        "fallback_openai_api_key_env",
+        "mem0_api_key_configured",
+        "mem0_api_key_env",
+        "openai_api_key_configured",
+        "openai_api_key_env",
+    }
+    assert diagnostics["secrets"]["mem0_api_key_env"] == "CUSTOM_MEM0_KEY"
+    assert diagnostics["secrets"]["openai_api_key_env"] == "CUSTOM_OPENAI_KEY"
+    serialized = json.dumps(result, sort_keys=True)
+    assert "secret-openai" not in serialized
+    assert "secret-mem0" not in serialized
 
 
 def _config(
@@ -321,6 +467,8 @@ def _config(
     judge_provider: str = "deterministic",
     answerer_model: str | None = None,
     judge_model: str | None = None,
+    openai_api_key_env: str = "MEMORY_OPENAI_API_KEY",
+    mem0_api_key_env: str = "MEM0_API_KEY",
     auth_token_configured: bool = True,
     probe_services: bool = False,
     env: dict[str, str] | None = None,
@@ -340,11 +488,58 @@ def _config(
         judge_provider=judge_provider,
         answerer_model=answerer_model,
         judge_model=judge_model,
-        openai_api_key_env="MEMORY_OPENAI_API_KEY",
-        mem0_api_key_env="MEM0_API_KEY",
+        openai_api_key_env=openai_api_key_env,
+        mem0_api_key_env=mem0_api_key_env,
         auth_token_configured=auth_token_configured,
         probe_services=probe_services,
         env=env or {},
+    )
+
+
+def _write_official_locomo_fast_dataset(
+    path: Path,
+    *,
+    cases_per_group: int = 10,
+    cases_per_group_by_category: dict[int, int] | None = None,
+) -> None:
+    qas: list[dict[str, object]] = []
+    for category in (1, 2, 3, 4):
+        category_case_count = (
+            cases_per_group_by_category.get(category, cases_per_group)
+            if cases_per_group_by_category is not None
+            else cases_per_group
+        )
+        for index in range(category_case_count):
+            qas.append(
+                {
+                    "question": (
+                        f"What answer is needed for category {category} case {index}?"
+                    ),
+                    "answer": f"answer-{category}-{index}",
+                    "category": category,
+                }
+            )
+    path.write_text(
+        json.dumps(
+            [
+                {
+                    "sample_id": "unit-locomo",
+                    "conversation": {
+                        "speaker_a": "A",
+                        "session_1_date_time": "2023-01-01",
+                        "session_1": [
+                            {
+                                "dia_id": "D1:1",
+                                "speaker": "A",
+                                "text": "A compact LoCoMo fixture turn.",
+                            }
+                        ],
+                    },
+                    "qa": qas,
+                }
+            ]
+        ),
+        encoding="utf-8",
     )
 
 

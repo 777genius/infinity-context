@@ -167,6 +167,9 @@ from infinity_context_server.memory_comparison_quality_rerank_gaps import (
 from infinity_context_server.memory_comparison_quality_selected_weakness import (
     selected_evidence_weakness_breakdown as _selected_evidence_weakness_breakdown,
 )
+from infinity_context_server.memory_comparison_source_identity import (
+    safe_item_id_for_output as _safe_item_id_for_output,
+)
 from infinity_context_server.memory_comparison_temporal_grounding import (
     temporal_grounding_table as _temporal_grounding_table,
 )
@@ -303,6 +306,7 @@ def fast_gate_metrics(
     answer_context_support_gaps = _answer_context_support_gap_summary(items)
     answerability_gap_breakdown = _answerability_gap_breakdown(items)
     selected_evidence_weakness = _selected_evidence_weakness_breakdown(items)
+    temporal_grounding = _temporal_grounding_table(items)
     candidate_fusion = _candidate_fusion_table(items)
     rerank_signal_gaps = _rerank_signal_gap_breakdown(items)
     query_role_gap_breakdown = _query_role_gap_breakdown(
@@ -431,6 +435,7 @@ def fast_gate_metrics(
         "source_ref_provenance": source_ref_provenance,
         "answer_context_provenance": answer_context_provenance,
         "answer_context_support_gap_summary": answer_context_support_gaps,
+        "temporal_grounding_table": temporal_grounding,
         "candidate_fusion": candidate_fusion,
         "rerank_signal_gap_breakdown": rerank_signal_gaps,
         "risk_flag_table": risk_flag_table,
@@ -450,6 +455,7 @@ def fast_gate_metrics(
             query_role_gap_breakdown=query_role_gap_breakdown,
             query_plan_gap_breakdown=query_plan_gap_breakdown,
             rerank_signal_gap_breakdown=rerank_signal_gaps,
+            temporal_grounding=temporal_grounding,
             source_ref_provenance=source_ref_provenance,
             answer_context_provenance=answer_context_provenance,
         ),
@@ -818,7 +824,9 @@ def _answerability_gap_breakdown(
                         {
                             "case_id": case_id,
                             "group": group,
-                            "memory_id": _memory_id(memory),
+                            "memory_id": _safe_item_id_for_output(
+                                _memory_id(memory)
+                            ),
                             "rank": _positive_int(memory.get("rank")),
                             "lifted": lifted,
                             "positive_policy_score": round(
@@ -868,7 +876,7 @@ def _answerability_gap_breakdown(
                     {
                         "case_id": case_id,
                         "group": group,
-                        "memory_id": _memory_id(memory),
+                        "memory_id": _safe_item_id_for_output(_memory_id(memory)),
                         "rank": _positive_int(memory.get("rank")),
                         "reasons": list(reasons),
                         "answerability_reason_codes": [
@@ -1149,10 +1157,8 @@ def _source_ref_provenance_table(
                 source_refless_selected_samples.append(
                     {
                         "case_id": str(item.get("case_id") or ""),
-                        "item_id": str(
-                            bundle_item.get("id")
-                            or bundle_item.get("item_id")
-                            or ""
+                        "item_id": _safe_item_id_for_output(
+                            bundle_item.get("id") or bundle_item.get("item_id")
                         ),
                         "role": str(bundle_item.get("role") or ""),
                         "retrieval_order": (
@@ -1982,9 +1988,12 @@ def _answer_contexts(
 
 
 def _answer_context_sample_identity(context: Mapping[str, object]) -> dict[str, object]:
-    item_ids = _str_tuple(context.get("item_ids"))[
-        :_ANSWER_CONTEXT_SAMPLE_IDENTITY_LIMIT
-    ]
+    item_ids = tuple(
+        item_id
+        for raw_item_id in _str_tuple(context.get("item_ids"))
+        for item_id in (_safe_item_id_for_output(raw_item_id),)
+        if item_id
+    )[:_ANSWER_CONTEXT_SAMPLE_IDENTITY_LIMIT]
     retrieval_orders = tuple(
         order
         for raw_order in _sequence(context.get("retrieval_orders"))
@@ -2043,8 +2052,8 @@ def _safe_answer_context_source_identity_items(
         if not refs:
             continue
         compact: dict[str, object] = {"source_identity_refs": list(refs[:4])}
-        item_id = str(item.get("item_id") or "").strip()
-        if item_id and len(item_id) <= 128:
+        item_id = _safe_item_id_for_output(item.get("item_id"))
+        if item_id:
             compact["item_id"] = item_id
         retrieval_order = _positive_int(item.get("retrieval_order"))
         if retrieval_order is not None:
@@ -2470,7 +2479,7 @@ def _rerank_lift_sample(
     sample: dict[str, object] = {
         "case_id": str(item.get("case_id") or ""),
         "group": str(item.get("group") or ""),
-        "item_id": _memory_id(memory),
+        "item_id": _safe_item_id_for_output(_memory_id(memory)),
         "rank": _positive_int(memory.get("rank")) or 0,
         "score": round(_metric_value(memory, "score"), 6),
         "positive_policy_score": round(positive_policy_score, 6),

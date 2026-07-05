@@ -101,7 +101,11 @@ swapped ports fail before ingest or search state is touched. The LoCoMo dataset
 is not vendored in this repository; stage it at the path passed to `--dataset`
 or update that flag before treating preflight output as service readiness. The
 preflight prints only boolean secret readiness, never token values. Treat
-`ready_for_locomo_fast=false` as a blocker for long LoCoMo runs.
+`ready_for_locomo_fast=false` as a blocker for the short LoCoMo fast run and
+any longer LoCoMo run. For `--locomo-ingest-mode official-turns`, fast readiness
+also requires an official LoCoMo-shaped JSON dataset with conversation session
+turns and at least 10 scored QA cases in each requested fast group; arbitrary
+non-LoCoMo JSON and underfilled groups leave `ready_for_locomo_fast=false`.
 
 ```sh
 MEMORY_SERVICE_TOKEN=local-dev-token \
@@ -775,8 +779,9 @@ Model defaults:
   endpoints.
 - `--preflight-only` prints sanitized dataset, auth, URL, LLM and fast-readiness
   checks without ingesting, searching or resetting live benchmark state.
-- `--preflight-probe-services` adds unauthenticated HTTP root probes to the
-  preflight report when local Docker services should already be running.
+- `--preflight-probe-services` adds unauthenticated memo-stack health and mem0
+  OpenAPI contract probes to the preflight report when local Docker services
+  should already be running.
 - `--allow-paid-llm` is required before OpenAI answerer or judge calls.
 - `--answerer-provider codex` / `--judge-provider codex` do not require
   `--allow-paid-llm` or an OpenAI API key, but they do consume the local Codex

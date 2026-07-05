@@ -10,12 +10,21 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from infinity_context_server.memory_comparison_source_identity import (
+    safe_source_refs_for_output as _safe_source_refs_for_output,
+)
+from infinity_context_server.public_benchmark_case_diagnostics import (
+    preview_value as _preview_value,
+)
+
 _MAX_CHECKPOINT_BYTES = 64 * 1024 * 1024
 _MAX_CHECKPOINT_CASES = 50_000
 _MAX_CHECKPOINT_FAILURE_DIAGNOSTICS = 200
 _MAX_FAILURE_TERMS = 20
 _MAX_FAILURE_TEXT_CHARS = 240
 _MAX_FAILURE_REASON_CHARS = 80
+_MAX_FAILURE_REF_CHARS = 120
+_MAX_FAILURE_EVIDENCE_PREVIEW_CHARS = 360
 
 
 @dataclass(frozen=True)
@@ -491,7 +500,7 @@ def _checkpoint_failure_diagnostic(
         "case_id": result.case_id,
         "category": result.benchmark,
         "capability": result.capability,
-        "reason": reason[:_MAX_FAILURE_REASON_CHARS],
+        "reason": _safe_preview(reason, max_chars=_MAX_FAILURE_REASON_CHARS),
         "missing_terms": _bounded_str_list(result.missing_terms),
         "leaked_terms": _bounded_str_list(result.leaked_terms),
         "checkpoint_status": "failed",
@@ -502,12 +511,12 @@ def _checkpoint_failure_diagnostic(
         _non_empty_str(report.get("question_preview")) if report is not None else None
     )
     if question_preview:
-        payload["question_preview"] = question_preview[:_MAX_FAILURE_TEXT_CHARS]
+        payload["question_preview"] = _safe_preview(question_preview)
     answer_preview = result.answer_preview or (
         _non_empty_str(report.get("answer_preview")) if report is not None else None
     )
     if answer_preview:
-        payload["answer_preview"] = answer_preview[:_MAX_FAILURE_TEXT_CHARS]
+        payload["answer_preview"] = _safe_preview(answer_preview)
     expected_terms_preview = result.expected_terms_preview or (
         _str_tuple(report.get("expected_terms_preview")) if report is not None else ()
     )
@@ -517,7 +526,7 @@ def _checkpoint_failure_diagnostic(
         _str_tuple(report.get("evidence_refs")) if report is not None else ()
     )
     if evidence_refs:
-        payload["evidence_refs"] = _bounded_str_list(evidence_refs)
+        payload["evidence_refs"] = _bounded_source_ref_list(evidence_refs)
     evidence_ref_previews = result.evidence_ref_previews or (
         _str_tuple(report.get("evidence_ref_previews")) if report is not None else ()
     )
@@ -535,12 +544,14 @@ def _checkpoint_failure_diagnostic(
         _str_tuple(report.get("covered_evidence_refs")) if report is not None else ()
     )
     if covered_evidence_refs:
-        payload["covered_evidence_refs"] = _bounded_str_list(covered_evidence_refs)
+        payload["covered_evidence_refs"] = _bounded_source_ref_list(covered_evidence_refs)
     missing_evidence_refs = result.missing_evidence_refs or (
         _str_tuple(report.get("missing_evidence_refs")) if report is not None else ()
     )
     if missing_evidence_refs:
-        payload["missing_evidence_refs"] = _bounded_str_list(missing_evidence_refs)
+        payload["missing_evidence_refs"] = _bounded_source_ref_list(
+            missing_evidence_refs
+        )
     missing_evidence_ref_previews = result.missing_evidence_ref_previews or (
         _str_tuple(report.get("missing_evidence_ref_previews")) if report is not None else ()
     )
@@ -565,11 +576,31 @@ def _failure_reason_from_result(result: CaseRunResult) -> str:
 
 
 def _bounded_str_list(values: Sequence[str], *, max_chars: int = 120) -> list[str]:
-    return [
-        str(item)[:max_chars]
-        for item in values[:_MAX_FAILURE_TERMS]
-        if item is not None
-    ]
+    result: list[str] = []
+    for item in values[:_MAX_FAILURE_TERMS]:
+        if item is None:
+            continue
+        text = _safe_preview(item, max_chars=max_chars)
+        if text:
+            result.append(text)
+    return result
+
+
+def _bounded_source_ref_list(values: Sequence[str]) -> list[str]:
+    refs: list[str] = []
+    for item in values[:_MAX_FAILURE_TERMS]:
+        for ref in _safe_source_refs_for_output((item,)):
+            if ref and ref not in refs:
+                refs.append(ref[:_MAX_FAILURE_REF_CHARS])
+    return refs
+
+
+def _safe_preview(
+    value: object,
+    *,
+    max_chars: int = _MAX_FAILURE_TEXT_CHARS,
+) -> str:
+    return _preview_value(value, max_chars=max_chars)
 
 
 def _as_sequence(value: object) -> Sequence[object]:

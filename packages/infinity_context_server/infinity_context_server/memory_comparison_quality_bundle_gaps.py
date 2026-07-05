@@ -191,6 +191,7 @@ _EVIDENCE_NEED_GAP_REASONS = frozenset(
     }
 )
 _COVERAGE_GAP_LIMIT = 5
+_REF_SAMPLE_LIMIT = 8
 _WEAK_PROVENANCE_LIMIT = 5
 _SOURCE_LOCALITY_SAMPLE_LIMIT = 5
 _SOURCE_LOCALITY_WINDOW_LIMIT = 3
@@ -235,10 +236,10 @@ def bundle_incomplete_diagnostics(
                     "unmeasured_selected_source_locality_count": (
                         _unmeasured_selected_source_locality_count(item)
                     ),
-                    "covered_evidence_terms": _str_tuple(
+                    "covered_evidence_terms": _bounded_refs(
                         bundle.get("covered_evidence_terms")
                     ),
-                    "missing_evidence_terms": _str_tuple(
+                    "missing_evidence_terms": _bounded_refs(
                         _mapping(item.get("retrieval_quality")).get(
                             "missing_evidence_terms"
                         )
@@ -496,6 +497,10 @@ def _coverage_gap_action(reason: str) -> str:
     if reason.startswith("missing_"):
         return "Add evidence selection for this missing coverage role."
     return "Review bundle planner coverage for this gap reason."
+
+
+def _bounded_refs(value: object) -> tuple[str, ...]:
+    return _str_tuple(value)[:_REF_SAMPLE_LIMIT]
 
 
 def _sample_case_ids_for_reason(

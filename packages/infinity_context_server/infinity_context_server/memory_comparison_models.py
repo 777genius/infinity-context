@@ -7,9 +7,40 @@ from dataclasses import dataclass, field
 from math import isfinite
 from typing import Any, Literal, Protocol
 
+from infinity_context_server.memory_comparison_source_identity import (
+    looks_like_raw_source_ref as _looks_like_raw_source_ref,
+)
+from infinity_context_server.memory_comparison_source_identity import (
+    safe_item_id_for_output as _safe_item_id_for_output,
+)
+from infinity_context_server.memory_comparison_source_identity import (
+    safe_source_refs_for_output as _safe_source_refs_for_output,
+)
+from infinity_context_server.memory_comparison_source_identity import (
+    source_identity_refs_from_dedupe_key as _source_identity_refs_from_dedupe_key,
+)
 from infinity_context_server.public_benchmark_models import PublicBenchmarkCase
 
 Verdict = Literal["correct", "incorrect", "error"]
+_REDACTED_OUTPUT_TEXT = "[redacted]"
+_RAW_PROVIDER_PAYLOAD_KEYS = frozenset(
+    {
+        "payload",
+        "provider_payload",
+        "raw_payload",
+        "raw_provider",
+        "raw_provider_payload",
+    }
+)
+_SOURCE_REF_KEYS = frozenset(
+    {
+        "raw_source_ref",
+        "raw_source_refs",
+        "source_ref",
+        "source_refs",
+    }
+)
+_DEDUPE_KEY_KEYS = frozenset({"dedupe_key", "source_ref_dedupe_key"})
 
 
 @dataclass(frozen=True)
@@ -192,13 +223,19 @@ def retrieved_memory_payload(memory: RetrievedMemory) -> dict[str, object]:
         "score": memory.score,
     }
     if memory.item_id:
-        payload["id"] = memory.item_id
+        item_id = _safe_output_item_id(memory.item_id)
+        if item_id:
+            payload["id"] = item_id
     if memory.created_at:
         payload["created_at"] = memory.created_at
     if memory.source_refs:
-        payload["source_refs"] = list(memory.source_refs)
+        source_refs = _safe_source_refs_for_output(memory.source_refs)
+        if source_refs:
+            payload["source_refs"] = list(source_refs)
     if memory.metadata:
-        payload["metadata"] = dict(memory.metadata)
+        metadata = _safe_output_metadata(memory.metadata)
+        if metadata:
+            payload["metadata"] = metadata
     return payload
 
 
@@ -219,13 +256,25 @@ def ingestion_payload(result: BackendIngestResult) -> dict[str, object]:
                 "success": operation.success,
                 "latency_ms": operation.latency_ms,
                 **({"memory": operation.memory} if operation.memory else {}),
-                **({"id": operation.item_id} if operation.item_id else {}),
-                **({"metadata": dict(operation.metadata)} if operation.metadata else {}),
+                **(
+                    {"id": item_id}
+                    if operation.item_id
+                    and (item_id := _safe_output_item_id(operation.item_id))
+                    else {}
+                ),
+                **(
+                    {"metadata": metadata}
+                    if operation.metadata
+                    and (metadata := _safe_output_metadata(operation.metadata))
+                    else {}
+                ),
             }
             for operation in result.operations
         ]
     if result.metadata:
-        payload["metadata"] = dict(result.metadata)
+        metadata = _safe_output_metadata(result.metadata)
+        if metadata:
+            payload["metadata"] = metadata
     return payload
 
 
@@ -241,8 +290,78 @@ def search_payload(result: BackendSearchResult) -> dict[str, object]:
     if result.context_token_count is not None:
         payload["context_token_count"] = result.context_token_count
     if result.metadata:
-        payload["metadata"] = dict(result.metadata)
+        metadata = _safe_output_metadata(result.metadata)
+        if metadata:
+            payload["metadata"] = metadata
     return payload
+
+
+def _safe_output_metadata(value: Mapping[str, object]) -> dict[str, object]:
+    metadata: dict[str, object] = {}
+    for key, raw_value in value.items():
+        safe_value = _safe_output_value(
+            raw_value,
+            key=str(key).strip().casefold(),
+        )
+        if safe_value is not None:
+            metadata[str(key)] = safe_value
+    return metadata
+
+
+def _safe_output_value(value: object, *, key: str = "") -> object | None:
+    if key in _RAW_PROVIDER_PAYLOAD_KEYS or key.endswith("_payload"):
+        return None
+    if key in _SOURCE_REF_KEYS or key.endswith(("_source_ref", "_source_refs")):
+        refs = _safe_source_refs_for_output(value)
+        if refs:
+            return list(refs) if key.endswith("s") else refs[0]
+        return None
+    if key in _DEDUPE_KEY_KEYS:
+        return _safe_output_dedupe_key(value)
+    if key == "id" or key == "item_id" or key.endswith("_item_id"):
+        return _safe_output_item_id(value)
+    if isinstance(value, Mapping):
+        nested: dict[str, object] = {}
+        for nested_key, raw_value in value.items():
+            safe_value = _safe_output_value(
+                raw_value,
+                key=str(nested_key).strip().casefold(),
+            )
+            if safe_value is not None:
+                nested[str(nested_key)] = safe_value
+        return nested or None
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes):
+        nested_values = [
+            safe_value
+            for item in value
+            if (safe_value := _safe_output_value(item)) is not None
+        ]
+        return nested_values
+    if isinstance(value, str) and _looks_like_raw_source_ref(value):
+        return _REDACTED_OUTPUT_TEXT
+    return value
+
+
+def _safe_output_item_id(value: object) -> str | None:
+    item_id = _safe_item_id_for_output(value)
+    if item_id:
+        return item_id
+    refs = _safe_source_refs_for_output((value,))
+    return refs[0] if refs else None
+
+
+def _safe_output_dedupe_key(value: object) -> str | None:
+    raw_key = str(value or "").strip()
+    if not raw_key:
+        return None
+    identity_refs = _source_identity_refs_from_dedupe_key(raw_key)
+    if identity_refs:
+        return "source_identity:" + "|".join(identity_refs)
+    refs = _safe_source_refs_for_output((raw_key,))
+    if refs:
+        return "source_identity:" + "|".join(refs)
+    item_id = _safe_item_id_for_output(raw_key)
+    return item_id or None
 
 
 def answer_payload(result: AnswerResult) -> dict[str, object]:
@@ -253,7 +372,9 @@ def answer_payload(result: AnswerResult) -> dict[str, object]:
         "token_usage": token_usage_payload(result.token_usage),
     }
     if result.metadata:
-        payload["metadata"] = dict(result.metadata)
+        metadata = _safe_output_metadata(result.metadata)
+        if metadata:
+            payload["metadata"] = metadata
     return payload
 
 
@@ -267,7 +388,9 @@ def judge_payload(result: JudgeResult) -> dict[str, object]:
         "token_usage": token_usage_payload(result.token_usage),
     }
     if result.metadata:
-        payload["metadata"] = dict(result.metadata)
+        metadata = _safe_output_metadata(result.metadata)
+        if metadata:
+            payload["metadata"] = metadata
     return payload
 
 

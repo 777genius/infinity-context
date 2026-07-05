@@ -1,0 +1,289 @@
+"""Compact memory-comparison gap report payloads."""
+
+from __future__ import annotations
+
+import re
+from collections.abc import Mapping, Sequence
+
+from infinity_context_core.application.sensitive_text import redact_sensitive_text
+
+from infinity_context_server.memory_comparison_source_identity import (
+    looks_like_raw_source_ref as _looks_like_raw_source_ref,
+)
+
+_COVERAGE_GAP_LIMIT = 5
+_WEAK_SIGNAL_LIMIT = 5
+_SAMPLE_CASE_ID_LIMIT = 5
+_LOCALITY_SAMPLE_LIMIT = 5
+_LOCALITY_WINDOW_LIMIT = 3
+_REF_TEXT_LIMIT = 128
+_TEXT_LIMIT = 180
+_REDACTED_TEXT = "[redacted]"
+_SAFE_SOURCE_REF_RE = re.compile(
+    r"(?<![A-Za-z0-9_])(?:(?P<session>session_\d+):)?"
+    r"(?P<source>D\d+)(?::(?P<turn>\d+))?(?![A-Za-z0-9_])",
+    re.IGNORECASE,
+)
+_SAFE_TURN_REF_RE = re.compile(
+    r"(?<![A-Za-z0-9_])(?:(?P<session>session_\d+):)?"
+    r"(?P<source>D\d+):(?P<turn>\d+)(?![A-Za-z0-9_])",
+    re.IGNORECASE,
+)
+
+
+def compact_evidence_bundle_gap_report(value: object) -> dict[str, object]:
+    """Return the compact-safe subset of the evidence bundle gap report."""
+    report = _mapping(value)
+    if not report:
+        return {}
+    return {
+        "schema_version": _text(report.get("schema_version")),
+        "status": _text(report.get("status")),
+        "evaluation_count": _int(report.get("evaluation_count")),
+        "incomplete_case_count": _int(report.get("incomplete_case_count")),
+        "coverage_gap_reason_total": _int(report.get("coverage_gap_reason_total")),
+        "coverage_gap_count": _int(report.get("coverage_gap_count")),
+        "weak_provenance_signal_count": _int(
+            report.get("weak_provenance_signal_count")
+        ),
+        "top_coverage_gaps": [
+            _compact_coverage_gap(gap)
+            for gap in _sequence(report.get("top_coverage_gaps"))[
+                :_COVERAGE_GAP_LIMIT
+            ]
+            if _mapping(gap)
+        ],
+        "weak_provenance_signals": [
+            _compact_weak_signal(signal)
+            for signal in _sequence(report.get("weak_provenance_signals"))[
+                :_WEAK_SIGNAL_LIMIT
+            ]
+            if _mapping(signal)
+        ],
+        "top_action": _safe_text(report.get("top_action")),
+    }
+
+
+def compact_text_list(
+    value: object,
+    *,
+    item_limit: int,
+    text_limit: int = _REF_TEXT_LIMIT,
+) -> list[str]:
+    """Return compact, bounded strings from a sequence-like payload."""
+    limit = max(0, item_limit)
+    if limit == 0:
+        return []
+    items: Sequence[object] = (value,) if isinstance(value, str) else _sequence(value)
+    values = []
+    seen: set[str] = set()
+    for item in items:
+        text = _safe_text(item, limit=text_limit)
+        if text and text not in seen:
+            values.append(text)
+            seen.add(text)
+        if len(values) >= limit:
+            break
+    return values
+
+
+def compact_evidence_ref_list(
+    value: object,
+    *,
+    item_limit: int,
+    text_limit: int = _REF_TEXT_LIMIT,
+) -> list[str]:
+    """Return compact evidence refs, normalizing raw source IDs when possible."""
+    limit = max(0, item_limit)
+    if limit == 0:
+        return []
+    items: Sequence[object] = (value,) if isinstance(value, str) else _sequence(value)
+    values = []
+    seen: set[str] = set()
+    for item in items:
+        text = _safe_turn_ref(item, limit=text_limit)
+        if not text:
+            text = _safe_text(item, limit=text_limit)
+            if text == _REDACTED_TEXT:
+                continue
+        if text and text not in seen:
+            values.append(text)
+            seen.add(text)
+        if len(values) >= limit:
+            break
+    return values
+
+
+def _compact_coverage_gap(value: object) -> dict[str, object]:
+    gap = _mapping(value)
+    payload: dict[str, object] = {
+        "reason": _safe_text(gap.get("reason")),
+        "count": _int(gap.get("count")),
+        "case_rate": _number(gap.get("case_rate")),
+        "action": _safe_text(gap.get("action")),
+        "sample_case_ids": _text_list(
+            gap.get("sample_case_ids"),
+            limit=_SAMPLE_CASE_ID_LIMIT,
+        ),
+    }
+    locality_samples = _source_window_locality_samples(
+        gap.get("source_window_locality_samples")
+    )
+    if locality_samples:
+        payload["source_window_locality_samples"] = locality_samples
+    return payload
+
+
+def _compact_weak_signal(value: object) -> dict[str, object]:
+    signal = _mapping(value)
+    return {
+        "name": _safe_text(signal.get("name")),
+        "count": _int(signal.get("count")),
+        "rate": _number(signal.get("rate")),
+        "action": _safe_text(signal.get("action")),
+        "sample_case_ids": _text_list(
+            signal.get("sample_case_ids"),
+            limit=_SAMPLE_CASE_ID_LIMIT,
+        ),
+    }
+
+
+def _source_window_locality_samples(value: object) -> list[dict[str, object]]:
+    samples: list[dict[str, object]] = []
+    for raw_sample in _sequence(value)[:_LOCALITY_SAMPLE_LIMIT]:
+        sample = _mapping(raw_sample)
+        if not sample:
+            continue
+        payload: dict[str, object] = {
+            "case_id": _safe_text(sample.get("case_id")),
+            "missing_turn_ref_count": _int(sample.get("missing_turn_ref_count")),
+            "same_source_missing_count": _int(
+                sample.get("same_source_missing_count")
+            ),
+            "near_retrieved_window_count": _int(
+                sample.get("near_retrieved_window_count")
+            ),
+            "source_absent_count": _int(sample.get("source_absent_count")),
+            "missing_ref_windows": _missing_ref_windows(
+                sample.get("missing_ref_windows")
+            ),
+        }
+        samples.append(payload)
+    return samples
+
+
+def _missing_ref_windows(value: object) -> list[dict[str, object]]:
+    windows: list[dict[str, object]] = []
+    for raw_window in _sequence(value)[:_LOCALITY_WINDOW_LIMIT]:
+        window = _mapping(raw_window)
+        if not window:
+            continue
+        payload: dict[str, object] = {}
+        ref = _safe_turn_ref(window.get("ref"), limit=_TEXT_LIMIT)
+        if ref:
+            payload["ref"] = ref
+        source_id = _safe_source_id(window.get("source_id"), limit=_TEXT_LIMIT)
+        if not source_id:
+            source_id = _source_id_from_turn_ref(ref)
+        if source_id:
+            payload["source_id"] = source_id
+        for key in ("retrieved_same_source", "bundle_same_source"):
+            if key in window:
+                payload[key] = bool(window.get(key))
+        for key in ("nearest_retrieved_turn_ref", "nearest_bundle_turn_ref"):
+            text = _safe_turn_ref(window.get(key), limit=_TEXT_LIMIT)
+            if text:
+                payload[key] = text
+        for key in ("nearest_retrieved_turn_distance", "nearest_bundle_turn_distance"):
+            if key in window:
+                payload[key] = _int(window.get(key))
+        if payload:
+            windows.append(payload)
+    return windows
+
+
+def _mapping(value: object) -> Mapping[str, object]:
+    return value if isinstance(value, Mapping) else {}
+
+
+def _sequence(value: object) -> Sequence[object]:
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes):
+        return value
+    return ()
+
+
+def _text_list(value: object, *, limit: int) -> list[str]:
+    return compact_text_list(value, item_limit=limit, text_limit=_TEXT_LIMIT)
+
+
+def _safe_text(value: object, *, limit: int = _TEXT_LIMIT) -> str:
+    text = " ".join(redact_sensitive_text(str(value or "")).strip().split())
+    if not text:
+        return ""
+    if _looks_like_raw_source_ref(text):
+        return _REDACTED_TEXT
+    return _bounded_text(text, limit=limit)
+
+
+def _text(value: object, *, limit: int = _TEXT_LIMIT) -> str:
+    text = str(value or "").strip()
+    return _bounded_text(text, limit=limit)
+
+
+def _bounded_text(value: str, *, limit: int) -> str:
+    text = str(value or "").strip()
+    if len(text) <= limit:
+        return text
+    return f"{text[: limit - 3]}..."
+
+
+def _safe_turn_ref(value: object, *, limit: int) -> str:
+    match = _SAFE_TURN_REF_RE.search(str(value or "").strip())
+    if match is None:
+        return ""
+    return _text(_turn_ref(match), limit=limit)
+
+
+def _safe_source_id(value: object, *, limit: int) -> str:
+    match = _SAFE_SOURCE_REF_RE.search(str(value or "").strip())
+    if match is None:
+        return ""
+    return _text(_source_id(match), limit=limit)
+
+
+def _turn_ref(match: re.Match[str]) -> str:
+    return f"{_source_id(match)}:{match.group('turn')}"
+
+
+def _source_id(match: re.Match[str]) -> str:
+    source = match.group("source").upper()
+    session = match.group("session")
+    if session:
+        return f"{session.lower()}:{source}"
+    return source
+
+
+def _source_id_from_turn_ref(ref: str) -> str:
+    if not ref:
+        return ""
+    parts = ref.split(":")
+    return ":".join(parts[:-1])
+
+
+
+def _int(value: object) -> int:
+    if isinstance(value, bool):
+        return 0
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _number(value: object) -> float:
+    if isinstance(value, bool):
+        return 0.0
+    try:
+        return round(float(value), 6)
+    except (TypeError, ValueError):
+        return 0.0

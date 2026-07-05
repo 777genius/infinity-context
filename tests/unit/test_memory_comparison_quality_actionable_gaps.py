@@ -560,6 +560,86 @@ def test_answer_context_provenance_samples_include_safe_audit_detail() -> None:
     assert "raw memory text must not appear" not in serialized
 
 
+def test_actionable_temporal_grounding_samples_filter_unsafe_source_refs() -> None:
+    long_exact_ref = f"D1:{'8' * 120}"
+    summary = actionable_gap_summary(
+        evaluation_count=1,
+        expected_case_count=1,
+        failed_gates=(),
+        query_overlap_count=0,
+        profile_overlap_count=0,
+        intent_overlap_count=0,
+        temporal_grounding={
+            "temporal_case_count": 1,
+            "selected_temporal_grounding_issue_item_count": 1,
+            "selected_strong_temporal_grounding_item_count": 0,
+            "selected_temporal_grounding_issue_reason_counts": {
+                "missing_date_or_range": 1
+            },
+            "selected_temporal_grounding_issue_samples": [
+                {
+                    "case_id": "temporal-actionable",
+                    "group": "temporal",
+                    "item_id": "unsafe-source-item",
+                    "role": "temporal_sequence_support",
+                    "query_roles": ["temporal_sequence_support"],
+                    "source_refs": [
+                        "source_turn_refs:D1:2",
+                        "source_turn_refs:D1:2",
+                        f"D2:{'8' * 120}",
+                        "locomo:conv-private:session_2:D2:3:turn-secret",
+                        long_exact_ref,
+                        f"source_turn_refs:D1:{'9' * 90}",
+                    ],
+                    "source_ref_count": 5,
+                    "issue_reasons": ["missing_date_or_range"],
+                    "grounding_signals": {
+                        "source_window": True,
+                        "session_boundary": True,
+                        "date_or_range": False,
+                    },
+                }
+            ],
+        },
+    )
+
+    gap = summary["top_gap"]
+
+    assert isinstance(gap, dict)
+    assert gap["category"] == "temporal_grounding"
+    assert gap["samples"] == [
+        {
+            "case_id": "temporal-actionable",
+            "group": "temporal",
+            "item_id": "unsafe-source-item",
+            "role": "temporal_sequence_support",
+            "query_roles": ["temporal_sequence_support"],
+            "issue_reasons": ["missing_date_or_range"],
+            "source_refs": [
+                "source_turn_refs:D1:2",
+                "source_session_turn_refs:session_2:D2:3",
+                "source_turn_refs:D2:3",
+            ],
+            "source_ref_count": 5,
+            "grounding_signals": {
+                "source_window": True,
+                "session_boundary": True,
+                "date_or_range": False,
+            },
+        }
+    ]
+    serialized = json.dumps(summary)
+    assert "locomo:conv-private" not in serialized
+    assert "turn-secret" not in serialized
+    assert long_exact_ref not in serialized
+    assert "888888888888888888888888888888888888888888888888888888888888" not in (
+        serialized
+    )
+    assert "999999999999999999999999999999999999999999999999999999999999" not in (
+        serialized
+    )
+
+
 def test_fast_gate_actionable_summary_reports_rerank_selection_conflicts() -> None:
     long_value = "x" * 200
     retrieval = _retrieval_payload(
@@ -862,7 +942,7 @@ def test_actionable_gap_summary_includes_selected_weakness_sample_payloads() -> 
         ],
         "risk_reason_codes": ["risk:low_answerability"],
         "query_roles": ["original_question", f"role-{long_value[:120]}..."],
-        "source_refs": ["D1:1", f"D1:{long_value[:122]}..."],
+        "source_refs": ["D1:1"],
         "retrieval_order": 4,
         "source_ref_count": 2,
         "answerability_score": 0.123457,
@@ -871,6 +951,92 @@ def test_actionable_gap_summary_includes_selected_weakness_sample_payloads() -> 
     assert "unlisted_field" not in selected_gap["samples"][0]
     assert selected_gap["samples"][1]["case_id"] == "weak-answerability-2"
     assert locality_gap["samples"] == [selected_gap["samples"][0]]
+    assert f"D1:{long_value[:122]}..." not in json.dumps(summary)
+
+
+def test_actionable_selected_evidence_samples_filter_unsafe_source_refs() -> None:
+    long_ref = f"D3:{'7' * 120}"
+    summary = actionable_gap_summary(
+        evaluation_count=1,
+        expected_case_count=1,
+        failed_gates=("selected_low_answerability_clear",),
+        query_overlap_count=0,
+        profile_overlap_count=0,
+        intent_overlap_count=0,
+        selected_evidence_weakness={
+            "reason_counts": {"selected_low_answerability": 1},
+            "samples": [
+                {
+                    "case_id": "unsafe-selected-source",
+                    "group": "multi-hop",
+                    "item_id": "selected-evidence",
+                    "role": "supporting",
+                    "reasons": ["selected_low_answerability"],
+                    "source_refs": [
+                        "source_turn_refs:D1:2",
+                        "locomo:conv-private:session_2:D2:3:turn-secret",
+                        "provider-private-payload",
+                        long_ref,
+                    ],
+                    "source_ref_count": 4,
+                    "answerability_score": 0.2,
+                }
+            ],
+        },
+    )
+
+    gap = summary["top_gap"]
+
+    assert isinstance(gap, dict)
+    assert gap["samples"] == [
+        {
+            "case_id": "unsafe-selected-source",
+            "group": "multi-hop",
+            "item_id": "selected-evidence",
+            "role": "supporting",
+            "reasons": ["selected_low_answerability"],
+            "source_refs": [
+                "source_turn_refs:D1:2",
+                "source_session_turn_refs:session_2:D2:3",
+                "source_turn_refs:D2:3",
+            ],
+            "source_ref_count": 4,
+            "answerability_score": 0.2,
+        }
+    ]
+    serialized = json.dumps(summary)
+    assert "locomo:conv-private" not in serialized
+    assert "turn-secret" not in serialized
+    assert "provider-private-payload" not in serialized
+    assert long_ref not in serialized
+
+
+def test_actionable_gap_summary_filters_raw_selected_weakness_source_refs() -> None:
+    raw_provider_ref = "provider:private-token:selected-evidence"
+    summary = actionable_gap_summary(
+        evaluation_count=1,
+        expected_case_count=1,
+        failed_gates=(),
+        query_overlap_count=0,
+        profile_overlap_count=0,
+        intent_overlap_count=0,
+        selected_evidence_weakness={
+            "reason_counts": {"selected_low_answerability": 1},
+            "samples": [
+                {
+                    "case_id": "raw-provider-selected",
+                    "reasons": ["selected_low_answerability"],
+                    "source_refs": [raw_provider_ref, raw_provider_ref, "D1:1"],
+                }
+            ],
+        },
+    )
+
+    sample = summary["top_gap"]["samples"][0]
+
+    assert sample["source_refs"] == ["D1:1"]
+    assert sample["source_ref_count"] == 2
+    assert raw_provider_ref not in json.dumps(summary, sort_keys=True)
 
 
 def test_actionable_gap_summary_caps_query_plan_actionable_samples() -> None:

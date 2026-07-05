@@ -9,6 +9,7 @@ from dataclasses import dataclass, replace
 
 from infinity_context_server.memory_comparison_models import RetrievedMemory
 from infinity_context_server.memory_comparison_source_identity import (
+    safe_turn_ref,
     source_identity_refs_from_dedupe_key,
     source_identity_refs_from_source_refs,
     source_identity_refs_from_text,
@@ -353,6 +354,7 @@ def _evidence_selection_reason_codes(
 
 
 def _evidence_selection_sample(fusion: Mapping[str, object]) -> dict[str, object]:
+    source_refs = _string_sequence(fusion.get("source_refs"))
     return {
         "dedupe_key": str(fusion.get("dedupe_key") or ""),
         "reason_codes": list(
@@ -380,9 +382,34 @@ def _evidence_selection_sample(fusion: Mapping[str, object]) -> dict[str, object
             float(fusion.get("selected_evidence_quality_score") or 0.0),
             6,
         ),
-        "source_ref_count": len(_string_sequence(fusion.get("source_refs"))),
-        "source_refs_sample": list(_string_sequence(fusion.get("source_refs"))[:6]),
+        "source_ref_count": len(source_refs),
+        "source_refs_sample": list(_diagnostic_source_ref_sample(source_refs)),
     }
+
+
+def _diagnostic_source_ref_sample(
+    source_refs: Sequence[str],
+    *,
+    limit: int = 6,
+) -> tuple[str, ...]:
+    refs: list[str] = []
+    for raw_ref in source_refs:
+        for ref in _safe_diagnostic_source_refs_for_value(raw_ref):
+            if ref and ref not in refs:
+                refs.append(ref)
+            if len(refs) >= limit:
+                return tuple(refs)
+    return tuple(refs)
+
+
+def _safe_diagnostic_source_refs_for_value(value: object) -> tuple[str, ...]:
+    turn_ref = safe_turn_ref(value)
+    if turn_ref:
+        return (turn_ref,)
+    return source_identity_refs_from_source_refs(
+        (str(value or ""),),
+        include_exact_turn_refs=True,
+    )
 
 
 def _query_role_focus_score(role: str) -> float:

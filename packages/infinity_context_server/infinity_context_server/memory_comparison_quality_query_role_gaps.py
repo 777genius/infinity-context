@@ -48,6 +48,9 @@ from infinity_context_server.memory_comparison_quality_accessors import (
 from infinity_context_server.memory_comparison_quality_query_roles import (
     _query_role_families,
 )
+from infinity_context_server.memory_comparison_source_identity import (
+    safe_item_id_for_output as _safe_item_id_for_output,
+)
 
 _QUERY_ROLE_GAP_SAMPLE_LIMIT = 10
 _QUERY_ROLE_GAP_SELECTED_LIST_LIMIT = 6
@@ -614,7 +617,7 @@ def _query_role_gap_samples(
                         gap_role_families=gap_role_families,
                         role_family_gaps=role_family_gaps,
                     ),
-                    "memory_id": _memory_id(memory),
+                    "memory_id": _safe_item_id_for_output(_memory_id(memory)),
                     "rank": _positive_int(memory.get("rank")) or 0,
                     "lifted": _candidate_lifted(diagnostics),
                     "positive_policy_score": round(

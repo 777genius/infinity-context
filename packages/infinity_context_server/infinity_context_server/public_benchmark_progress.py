@@ -19,6 +19,9 @@ from infinity_context_server.public_benchmark_metrics import (
     bounded_progress_fields as _bounded_progress_fields,
 )
 from infinity_context_server.public_benchmark_metrics import (
+    bounded_public_artifact_fields as _bounded_public_artifact_fields,
+)
+from infinity_context_server.public_benchmark_metrics import (
     case_payload as _case_payload,
 )
 from infinity_context_server.public_benchmark_metrics import (
@@ -172,9 +175,11 @@ class _BenchmarkProgress:
             },
             "metrics_so_far": _run_metric_summary(run_results),
             "cases": [_case_payload(item) for item in run_results],
-            "failures": list(failures),
+            "failures": [_bounded_public_artifact_fields(item) for item in failures],
             "recent_cases": [_case_payload(item) for item in run_results[-20:]],
-            "recent_failures": list(failures[-20:]),
+            "recent_failures": [
+                _bounded_public_artifact_fields(item) for item in failures[-20:]
+            ],
         }
         if self.selected_case_fingerprint:
             payload["selected_case_fingerprint"] = self.selected_case_fingerprint

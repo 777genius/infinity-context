@@ -6,6 +6,8 @@ from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
 from math import isfinite
 
+from infinity_context_core.application.sensitive_text import redact_sensitive_text
+
 from infinity_context_server.memory_comparison_answer_context_risks import (
     is_measured_low_answerability as _is_measured_low_answerability,
 )
@@ -30,11 +32,21 @@ from infinity_context_server.memory_comparison_quality_accessors import (
 from infinity_context_server.memory_comparison_quality_accessors import (
     str_tuple as _str_tuple,
 )
+from infinity_context_server.memory_comparison_source_identity import (
+    looks_like_raw_source_ref as _looks_like_raw_source_ref,
+)
+from infinity_context_server.memory_comparison_source_identity import (
+    safe_item_id_for_output as _safe_item_id_for_output,
+)
+from infinity_context_server.memory_comparison_source_identity import (
+    safe_source_refs_for_output as _safe_source_refs_for_output,
+)
 
 _SELECTED_WEAKNESS_SAMPLE_LIMIT = 10
 _SELECTED_WEAKNESS_REASON_LIMIT = 6
 _SELECTED_WEAKNESS_QUERY_ROLE_LIMIT = 6
-_SELECTED_WEAKNESS_SOURCE_REF_LIMIT = 5
+_SELECTED_WEAKNESS_SOURCE_REF_LIMIT = 6
+_SELECTED_WEAKNESS_CATEGORY_SOURCE_REF_LIMIT = 5
 _SELECTED_WEAKNESS_CATEGORY_SAMPLE_LIMIT = 5
 _SELECTED_WEAKNESS_TEXT_VALUE_LIMIT = 120
 _BROAD_SUMMARY_RISK_CODES = frozenset(
@@ -153,25 +165,33 @@ def selected_evidence_weakness_breakdown(
                 and len(low_answerability_samples)
                 < _SELECTED_WEAKNESS_CATEGORY_SAMPLE_LIMIT
             ):
-                low_answerability_samples.append(sample)
+                low_answerability_samples.append(
+                    _selected_evidence_weakness_category_sample(sample)
+                )
             if (
                 "selected_weak_source_locality" in reasons
                 and len(weak_source_locality_samples)
                 < _SELECTED_WEAKNESS_CATEGORY_SAMPLE_LIMIT
             ):
-                weak_source_locality_samples.append(sample)
+                weak_source_locality_samples.append(
+                    _selected_evidence_weakness_category_sample(sample)
+                )
             if (
                 "selected_broad_summary" in reasons
                 and len(broad_summary_samples)
                 < _SELECTED_WEAKNESS_CATEGORY_SAMPLE_LIMIT
             ):
-                broad_summary_samples.append(sample)
+                broad_summary_samples.append(
+                    _selected_evidence_weakness_category_sample(sample)
+                )
             if (
                 "selected_conflict_or_stale" in reasons
                 and len(conflict_or_stale_samples)
                 < _SELECTED_WEAKNESS_CATEGORY_SAMPLE_LIMIT
             ):
-                conflict_or_stale_samples.append(sample)
+                conflict_or_stale_samples.append(
+                    _selected_evidence_weakness_category_sample(sample)
+                )
 
     weak_case_ids = (
         low_answerability_case_ids
@@ -234,13 +254,16 @@ def _selected_evidence_weakness_sample(
     source_locality_score: float,
 ) -> dict[str, object]:
     source_refs = _source_refs_from_bundle_item(bundle_item)
+    source_ref_count = len(_compact_sample_values(source_refs))
     compact_query_roles = _compact_sample_values(query_roles)
-    compact_source_refs = _compact_sample_values(source_refs)
+    compact_source_refs = _safe_selected_source_refs(source_refs)
     sample: dict[str, object] = {
         "case_id": _compact_sample_text(case_id),
         "group": _compact_sample_text(group),
         "item_id": _compact_sample_text(
-            str(bundle_item.get("id") or bundle_item.get("item_id") or "")
+            _safe_item_id_for_output(
+                bundle_item.get("id") or bundle_item.get("item_id")
+            )
         ),
         "role": _compact_sample_text(role),
         "query_roles": _sample_value_list(compact_query_roles)[
@@ -272,7 +295,7 @@ def _selected_evidence_weakness_sample(
         "source_refs": _sample_value_list(compact_source_refs)[
             :_SELECTED_WEAKNESS_SOURCE_REF_LIMIT
         ],
-        "source_ref_count": len(compact_source_refs),
+        "source_ref_count": source_ref_count,
     }
     _add_compact_sample_list(
         sample,
@@ -308,6 +331,18 @@ def _selected_evidence_weakness_sample(
         if value:
             sample[key] = value
     return sample
+
+
+def _selected_evidence_weakness_category_sample(
+    sample: Mapping[str, object],
+) -> dict[str, object]:
+    category_sample = dict(sample)
+    source_refs = category_sample.get("source_refs")
+    if isinstance(source_refs, Sequence) and not isinstance(source_refs, str | bytes):
+        category_sample["source_refs"] = list(source_refs)[
+            :_SELECTED_WEAKNESS_CATEGORY_SOURCE_REF_LIMIT
+        ]
+    return category_sample
 
 
 def _has_selected_broad_summary_risk(
@@ -371,8 +406,31 @@ def _compact_sample_values(values: Sequence[str]) -> tuple[str, ...]:
     )
 
 
+def _safe_selected_source_refs(values: Sequence[str]) -> tuple[str, ...]:
+    refs: list[str] = []
+    for raw_ref in values:
+        for ref in _safe_selected_source_refs_for_value(raw_ref):
+            if ref and ref not in refs:
+                refs.append(ref)
+    return tuple(refs)
+
+
+def _safe_selected_source_refs_for_value(value: object) -> tuple[str, ...]:
+    text = str(value or "").strip()
+    safe_refs = _safe_source_refs_for_output((text,))
+    if safe_refs:
+        return safe_refs
+    if not text or _looks_like_raw_source_ref(text):
+        return ()
+    return (_compact_sample_text(text),)
+
+
 def _sample_value_list(values: Sequence[str]) -> list[str]:
-    return [_compact_sample_text(value) for value in values]
+    return [
+        compact
+        for value in values
+        if (compact := _compact_sample_text(value))
+    ]
 
 
 def _sample_metric_value(value: float) -> float:
@@ -382,7 +440,9 @@ def _sample_metric_value(value: float) -> float:
 
 
 def _compact_sample_text(value: str) -> str:
-    stripped = value.strip()
+    stripped = redact_sensitive_text(value.strip())
+    if _looks_like_raw_source_ref(stripped):
+        return ""
     if len(stripped) <= _SELECTED_WEAKNESS_TEXT_VALUE_LIMIT:
         return stripped
     return f"{stripped[:_SELECTED_WEAKNESS_TEXT_VALUE_LIMIT - 3]}..."

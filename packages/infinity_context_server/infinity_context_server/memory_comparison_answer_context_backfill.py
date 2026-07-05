@@ -27,6 +27,9 @@ from infinity_context_server.memory_comparison_candidate_risks import (
 )
 from infinity_context_server.memory_comparison_models import RetrievedMemory
 from infinity_context_server.memory_comparison_source_identity import (
+    safe_source_refs_for_output as _safe_source_refs_for_output,
+)
+from infinity_context_server.memory_comparison_source_identity import (
     source_identity_refs_from_dedupe_key as _source_identity_refs_from_dedupe_key,
 )
 from infinity_context_server.memory_comparison_source_identity import (
@@ -828,16 +831,21 @@ def _memory_source_refs(
             )
         )
     )
+    output_source_refs = _safe_source_refs_for_output(source_refs)
+    source_identity_refs = _source_identity_refs_from_source_refs(source_refs)
     return tuple(
         dict.fromkeys(
             (
-                *source_refs,
-                *_source_identity_refs_from_source_refs(source_refs),
+                *output_source_refs,
+                *source_identity_refs,
                 *_source_identity_refs_from_dedupe_key(
                     features.get("source_ref_dedupe_key")
                 ),
                 *_source_identity_refs_from_dedupe_key(fusion.get("dedupe_key")),
-                *_source_identity_refs_from_text(memory.text, source_refs=source_refs),
+                *_source_identity_refs_from_text(
+                    memory.text,
+                    source_refs=(*output_source_refs, *source_identity_refs),
+                ),
             )
         )
     )

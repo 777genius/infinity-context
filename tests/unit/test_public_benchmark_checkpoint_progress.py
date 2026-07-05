@@ -12,6 +12,7 @@ from infinity_context_server.public_benchmark_checkpoint import (
     BenchmarkSeedStats,
     CaseRunResult,
 )
+from infinity_context_server.public_benchmark_manifest import build_execution_manifest
 
 
 def _case_result(
@@ -120,6 +121,54 @@ def test_public_benchmark_progress_checkpoint_includes_recent_failure_diagnostic
     assert payload["progress"]["last_case_id"] == "case-failed"
     assert payload["progress"]["last_case_status"] == "failed"
     assert payload["progress"]["last_question_preview"] == "Who supports Caroline?"
+
+
+def test_public_benchmark_checkpoint_sanitizes_failure_artifact_fields(
+    tmp_path: Path,
+) -> None:
+    bearer_payload = "Bearer " + ("a" * 16)
+    key_payload = "MEMORY_TOKEN=" + ("b" * 16)
+    raw_ref = "locomo:conv-private:session_3:D3:11:turn-secret"
+    checkpoint = tmp_path / "checkpoint.json"
+    progress = _BenchmarkProgress(
+        dataset_path=tmp_path / "dataset.json",
+        dataset_hash="dataset-hash",
+        total_case_count=1,
+        case_selection=None,
+        started=time.perf_counter() - 10,
+        checkpoint_out=checkpoint,
+        checkpoint_every_cases=1,
+    )
+
+    progress.checkpoint(
+        processed_case_count=1,
+        run_results=(_case_result("case-failed", ok=False),),
+        failures=(
+            {
+                "case_id": f"case-failed {bearer_payload}",
+                "reason": key_payload,
+                "question_preview": f"Who supports Caroline? {bearer_payload}",
+                "item_ids": [bearer_payload, raw_ref, "safe-chunk"],
+                "evidence_refs": [raw_ref, f"authorization {bearer_payload} D4:5"],
+            },
+        ),
+        seeded_source_count=1,
+    )
+
+    payload = json.loads(checkpoint.read_text(encoding="utf-8"))
+    rendered = json.dumps(
+        {"failures": payload["failures"], "recent_failures": payload["recent_failures"]},
+        sort_keys=True,
+    )
+
+    assert "Bearer" not in rendered
+    assert "MEMORY_TOKEN" not in rendered
+    assert "conv-private" not in rendered
+    assert "turn-secret" not in rendered
+    assert payload["failures"][0]["case_id"] == "case-failed [redacted]"
+    assert "safe-chunk" in rendered
+    assert "source_session_turn_refs:session_3:D3:11" in rendered
+    assert "source_turn_refs:D4:5" in rendered
 
 
 def test_public_benchmark_progress_event_includes_actionable_outcome_snapshot(
@@ -255,3 +304,42 @@ def test_public_benchmark_checkpoint_includes_execution_manifest(
         "execution_fingerprint": "execution-fingerprint",
         "manifest_fingerprint": "manifest-fingerprint",
     }
+
+
+def test_public_benchmark_execution_manifest_redacts_requested_case_ids(
+    tmp_path: Path,
+) -> None:
+    bearer_payload = "Bearer " + ("a" * 16)
+
+    manifest = build_execution_manifest(
+        suite="public-memory-benchmark",
+        evaluation_mode="retrieved_expected_terms",
+        dataset_path=tmp_path / "dataset.json",
+        dataset_hash="dataset-hash",
+        selected_case_count=1,
+        selected_case_fingerprint="selected-fingerprint",
+        case_selection={
+            "requested_case_ids": [f"locomo:conv-26:qa:70 {bearer_payload}"],
+        },
+        requested_case_ids=(f"locomo:conv-26:qa:70 {bearer_payload}",),
+        requested_capabilities=(),
+        transport_mode="custom_adapter",
+        requested_parallelism=1,
+        effective_parallelism=1,
+        parallelism_degraded_reason=None,
+        request_timeout_seconds=30.0,
+        checkpoint_every_cases=1,
+        checkpoint_min_interval_seconds=0.0,
+        resume_from_checkpoint=True,
+        resume_reuse_policy="successful_cases_only",
+        retrieval_contract={},
+    )
+    rendered = json.dumps(manifest, sort_keys=True)
+
+    assert "Bearer" not in rendered
+    assert manifest["selection"]["requested_case_ids"] == [
+        "locomo:conv-26:qa:70 [redacted]"
+    ]
+    assert manifest["selection"]["case_selection"]["requested_case_ids"] == [
+        "locomo:conv-26:qa:70 [redacted]"
+    ]

@@ -12,6 +12,10 @@ from infinity_context_server.memory_comparison_quality_accessors import (
     positive_int,
     retrieval_metadata,
 )
+from infinity_context_server.memory_comparison_source_identity import (
+    safe_item_id_for_output,
+    safe_source_refs_for_output,
+)
 
 
 def bundle_source_proximity_summary(
@@ -178,10 +182,12 @@ def _bounded_selection_samples(value: object) -> tuple[dict[str, object], ...]:
             continue
         samples.append(
             {
-                "dedupe_key": str(sample.get("dedupe_key") or ""),
+                "dedupe_key": _safe_fusion_identifier(sample.get("dedupe_key")),
                 "reason_codes": _string_list(sample.get("reason_codes"), limit=6),
                 "query_match_count": positive_int(sample.get("query_match_count")) or 0,
-                "score_winner_item_id": str(sample.get("score_winner_item_id") or ""),
+                "score_winner_item_id": safe_item_id_for_output(
+                    sample.get("score_winner_item_id")
+                ),
                 "score_winner_query_role": str(
                     sample.get("score_winner_query_role") or ""
                 ),
@@ -189,8 +195,8 @@ def _bounded_selection_samples(value: object) -> tuple[dict[str, object], ...]:
                     sample.get("score_winner_source_type") or ""
                 ),
                 "winner_score": round(metric_value(sample, "winner_score"), 6),
-                "selected_evidence_item_id": str(
-                    sample.get("selected_evidence_item_id") or ""
+                "selected_evidence_item_id": safe_item_id_for_output(
+                    sample.get("selected_evidence_item_id")
                 ),
                 "selected_evidence_query_role": str(
                     sample.get("selected_evidence_query_role") or ""
@@ -207,9 +213,10 @@ def _bounded_selection_samples(value: object) -> tuple[dict[str, object], ...]:
                     6,
                 ),
                 "source_ref_count": positive_int(sample.get("source_ref_count")) or 0,
-                "source_refs_sample": _string_list(
-                    sample.get("source_refs_sample"),
-                    limit=6,
+                "source_refs_sample": list(
+                    safe_source_refs_for_output(
+                        _string_list(sample.get("source_refs_sample"), limit=6)
+                    )[:6]
                 ),
             }
         )
@@ -222,3 +229,13 @@ def _string_list(value: object, *, limit: int) -> list[str]:
     if not isinstance(value, Sequence) or isinstance(value, str | bytes):
         return []
     return [str(item) for item in value if str(item).strip()][:limit]
+
+
+def _safe_fusion_identifier(value: object) -> str:
+    item_id = safe_item_id_for_output(value)
+    if item_id:
+        return item_id
+    refs = safe_source_refs_for_output((str(value or ""),))
+    if refs:
+        return "|".join(refs[:3])
+    return ""

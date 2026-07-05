@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 
 from infinity_context_server.memory_comparison_quality_diagnostics import (
@@ -1961,6 +1962,48 @@ def test_quality_diagnostics_propagates_selected_evidence_risk_reasons() -> None
     ]
     assert breakdown["samples"][0]["broad_summary"] is True
     assert breakdown["samples"][0]["conflict_or_stale"] is True
+
+
+def test_quality_diagnostics_filters_raw_selected_source_refs() -> None:
+    raw_provider_ref = "provider:private-token:selected-evidence"
+    harmless_long_ref = "diagnostic-source-" + ("x" * 160)
+    compact_harmless_ref = "diagnostic-source-" + ("x" * 99) + "..."
+    gate = fast_gate_metrics(
+        (
+            _item(
+                case_id="selected-raw-source-ref",
+                evidence_bundle={
+                    "items": [
+                        {
+                            "id": "selected",
+                            "role": "support",
+                            "answerability_score": 0.4,
+                            "source_refs": [
+                                raw_provider_ref,
+                                raw_provider_ref,
+                                harmless_long_ref,
+                                "D1:1",
+                            ],
+                        }
+                    ]
+                },
+            ),
+        ),
+        expected_case_count=1,
+    )
+
+    sample = gate["selected_evidence_weakness"]["samples"][0]
+
+    assert sample["source_refs"] == [compact_harmless_ref, "D1:1"]
+    assert sample["source_ref_count"] == 3
+    assert raw_provider_ref not in json.dumps(
+        gate["selected_evidence_weakness"],
+        sort_keys=True,
+    )
+    assert harmless_long_ref not in json.dumps(
+        gate["selected_evidence_weakness"],
+        sort_keys=True,
+    )
 
 
 def test_quality_diagnostics_reports_empty_bundle_quality_table() -> None:

@@ -917,7 +917,6 @@ def test_answer_context_matches_canonical_source_ref_to_source_turn_key() -> Non
         "Caroline found the support group helpful."
     ]
     assert context.memories[0].source_refs == (
-        "locomo:conv-19:session_4:D4:2:chunk",
         "source_session_turn_refs:session_4:D4:2",
         "source_turn_refs:D4:2",
     )
@@ -1358,12 +1357,10 @@ def test_answer_context_keeps_cross_session_canonical_chunk_sources() -> None:
         "session-eleven",
     ]
     assert context.memories[0].source_refs == (
-        "locomo:conv-19:session_1:D1:8:chunk-a",
         "source_session_turn_refs:session_1:D1:8",
         "source_turn_refs:D1:8",
     )
     assert context.memories[1].source_refs == (
-        "locomo:conv-19:session_11:D1:8:chunk-b",
         "source_session_turn_refs:session_11:D1:8",
         "source_turn_refs:D1:8",
     )

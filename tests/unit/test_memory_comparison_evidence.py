@@ -1,7 +1,241 @@
+import json
+
 from infinity_context_server.memory_comparison_candidate_fusion import fuse_query_results
-from infinity_context_server.memory_comparison_evidence import evidence_bundle
+from infinity_context_server.memory_comparison_evidence import (
+    evidence_bundle,
+    retrieval_quality,
+)
 from infinity_context_server.memory_comparison_models import RetrievedMemory
 from infinity_context_server.public_benchmark_models import PublicBenchmarkCase
+
+
+def test_retrieval_quality_uses_metadata_evidence_refs_alias() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:evidence-alias",
+        question="Which note connects Morgan's checklist and the studio desk?",
+        expected_terms=("blue notebook",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={"category": 4, "evidence": ["D1:1", ["D2:3"]]},
+    )
+
+    quality = retrieval_quality(
+        case,
+        (
+            RetrievedMemory(
+                text="Morgan put the checklist in the blue notebook.",
+                rank=1,
+                item_id="memory-d1",
+                source_refs=("locomo-conv-1:D1:1",),
+            ),
+        ),
+    )
+
+    assert quality["evidence_term_count"] == 2
+    assert quality["covered_evidence_terms"] == ["D1:1"]
+    assert quality["missing_evidence_terms"] == ["D2:3"]
+    assert quality["evidence_term_recall"] == 0.5
+
+
+def test_evidence_bundle_uses_metadata_evidence_refs_alias_for_coverage() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:evidence-bundle-alias",
+        question="Which note connects Morgan's checklist and the studio desk?",
+        expected_terms=("blue notebook",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={"category": 4, "evidence": ["D1:1", ["D2:3"]]},
+    )
+
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text=(
+                    "Morgan put the checklist in the blue notebook, and the "
+                    "studio desk had the same notebook."
+                ),
+                rank=1,
+                item_id="memory-with-evidence-refs",
+                source_refs=("locomo-conv-1:D1:1", "locomo-conv-1:D2:3"),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.9,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "entity_hits": ["morgan"],
+                            "relation_hits": ["checklist", "studio desk"],
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+        ),
+    )
+
+    assert bundle["evidence_term_count"] == 2
+    assert bundle["required_evidence_terms_for_bundle"] == 2
+    assert bundle["covered_evidence_terms"] == ["D1:1", "D2:3"]
+    assert bundle["evidence_term_recall"] == 1.0
+    assert bundle["bundle_complete"] is True
+    assert bundle["items"][0]["covered_evidence_terms"] == ["D1:1", "D2:3"]
+
+
+def test_evidence_diagnostics_use_safe_refs_for_raw_locomo_and_provider_terms() -> None:
+    raw_locomo_ref = "locomo:conv-private:session_1:D1:2:turn-secret"
+    raw_provider_ref = "provider-auth-private-marker"
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:private-source-ref",
+        question="Where did Alex move after the planning call?",
+        expected_terms=("Denver",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={
+            "category": 4,
+            "evidence_terms": (raw_locomo_ref, raw_provider_ref),
+        },
+    )
+    memories = (
+        RetrievedMemory(
+            text="D1:2 Alex moved to Denver after the planning call.",
+            rank=1,
+            item_id=raw_locomo_ref,
+            source_refs=(raw_locomo_ref, raw_provider_ref),
+            metadata={
+                "diagnostics": {
+                    "benchmark_candidate_features": {
+                        "answerability_score": 0.9,
+                        "source_locality_score": 1.0,
+                        "direct_speaker_turn": True,
+                        "entity_hits": ["alex"],
+                        "relation_hits": ["moved"],
+                        "source_ref_dedupe_key": (
+                            f"source_refs:{raw_locomo_ref}|{raw_provider_ref}"
+                        ),
+                    }
+                }
+            },
+        ),
+    )
+
+    quality = retrieval_quality(case, memories)
+    bundle = evidence_bundle(case, memories)
+
+    assert quality["evidence_term_count"] == 2
+    assert quality["evidence_term_recall"] == 0.5
+    assert quality["covered_evidence_terms"] == ["session_1:D1:2"]
+    assert quality["unsupported_evidence_term_count"] == 1
+    assert bundle["covered_evidence_terms"] == ["session_1:D1:2"]
+    assert bundle["evidence_term_count"] == 2
+    assert bundle["evidence_term_recall"] == 0.5
+    assert bundle["required_evidence_terms_for_bundle"] == 2
+    assert bundle["unsupported_evidence_term_count"] == 1
+    assert bundle["items"][0]["id"] == "source_session_turn_refs:session_1:D1:2"
+    assert bundle["items"][0]["source_refs"] == [
+        "source_session_turn_refs:session_1:D1:2",
+        "source_turn_refs:D1:2",
+    ]
+    assert bundle["bundle_planner"]["selected_dedupe_keys"] == [
+        "source_identity:"
+        "source_session_turn_refs:session_1:D1:2|source_turn_refs:D1:2"
+    ]
+    serialized = json.dumps((quality, bundle)).lower()
+    assert "locomo:conv-private" not in serialized
+    assert "turn-secret" not in serialized
+    assert raw_provider_ref not in serialized
+
+
+def test_evidence_bundle_filters_hyphenated_raw_provider_source_refs() -> None:
+    raw_provider_refs = ("provider-private-payload", "raw-provider-ref")
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:hyphen-provider-source-ref",
+        question="Where did Priya choose to go?",
+        expected_terms=("Osaka",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={"category": 4, "evidence_terms": ("D2:6",)},
+    )
+
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text="D2:6 Priya chose Osaka for the conference.",
+                rank=1,
+                item_id="safe-memory-id",
+                source_refs=(*raw_provider_refs, "D2:6"),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.9,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "entity_hits": ["priya"],
+                            "relation_hits": ["chose"],
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+        ),
+    )
+
+    assert bundle["items"][0]["source_refs"] == ["D2:6"]
+    serialized = json.dumps(bundle, sort_keys=True)
+    for raw_ref in raw_provider_refs:
+        assert raw_ref not in serialized
+
+
+def test_evidence_bundle_preserves_source_identity_wrapped_source_refs() -> None:
+    source_identity_ref = (
+        "source_identity:"
+        "source_session_turn_refs:session-2:D2-6|"
+        "source_turn_refs:D2-6"
+    )
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:source-identity-source-ref",
+        question="Where did Priya choose to go?",
+        expected_terms=("Osaka",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={"category": 4, "evidence_terms": ("D2:6",)},
+    )
+
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text="D2:6 Priya chose Osaka for the conference.",
+                rank=1,
+                item_id="safe-memory-id",
+                source_refs=(source_identity_ref,),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.9,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "entity_hits": ["priya"],
+                            "relation_hits": ["chose"],
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+        ),
+    )
+
+    assert bundle["items"][0]["source_refs"] == [
+        "source_session_turn_refs:session_2:D2:6",
+        "source_turn_refs:D2:6",
+    ]
+    assert source_identity_ref not in json.dumps(bundle, sort_keys=True)
 
 
 def test_evidence_bundle_includes_feature_backed_entity_disambiguation() -> None:
@@ -789,6 +1023,71 @@ def test_evidence_bundle_uses_text_turn_refs_for_source_proximity() -> None:
     assert quality["source_proximity_support_count"] == 1
     assert quality["source_proximity_closest_distance"] == 2
     assert quality["source_proximity_distance_counts"] == {"2": 1}
+
+
+def test_evidence_bundle_dedupes_mirrored_source_refs_regardless_of_order() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:mirror-ref-order",
+        question="What did Caroline say about the support group?",
+        expected_terms=("support group",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={
+            "category": 4,
+            "answer_preview": "support group",
+            "evidence_terms": ("D4:2",),
+        },
+    )
+
+    bundle = evidence_bundle(
+        case,
+        (
+            RetrievedMemory(
+                text="D4:2 Caroline found the LGBTQ support group helpful.",
+                rank=1,
+                item_id="source-order-a",
+                source_refs=("D4:2", "document:profile-note"),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.91,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "entity_hits": ["caroline"],
+                            "relation_hits": ["support", "group"],
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+            RetrievedMemory(
+                text="D4:2 Caroline found the LGBTQ support group helpful.",
+                rank=2,
+                item_id="source-order-b",
+                source_refs=("document:profile-note", "D4:2"),
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "answerability_score": 0.88,
+                            "source_locality_score": 1.0,
+                            "direct_speaker_turn": True,
+                            "entity_hits": ["caroline"],
+                            "relation_hits": ["support", "group"],
+                            "source_type": "raw_turn",
+                        }
+                    }
+                },
+            ),
+        ),
+    )
+
+    assert bundle["candidate_item_count"] == 2
+    assert bundle["item_count"] == 1
+    assert bundle["deduplicated_item_count"] == 1
+    assert bundle["bundle_planner"]["selected_dedupe_keys"] == [
+        "refs:D4:2|document:profile-note"
+    ]
 
 
 def test_evidence_bundle_dedupes_mirrored_items_by_canonical_source_ref() -> None:

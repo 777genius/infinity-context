@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+
+from infinity_context_server.memory_comparison_benchmark import _compact_fast_gate_summary
 from infinity_context_server.memory_comparison_quality_diagnostics import (
     quality_diagnostics,
 )
@@ -142,6 +145,160 @@ def test_quality_diagnostics_reports_temporal_grounding_gaps() -> None:
     ]
 
 
+def test_temporal_grounding_counts_relative_date_surfaces_as_grounded_ranges() -> None:
+    retrieval = _retrieval_payload(
+        evidence_need=("temporal_support",),
+        bundle_evidence_roles=("primary", "relative_temporal_support"),
+        relation_categories=("temporal",),
+        policy_score=0.2,
+        memory_text="Morgan checked in yesterday afternoon.",
+        candidate_features={
+            "query_roles": ["relative_temporal_support"],
+            "time_intent_kind": "relative_time",
+            "has_relative_time_surface": True,
+        },
+    )
+    retrieval["results"][0]["source_refs"] = [
+        "locomo:conv-1:session_7:D7:2:turn"
+    ]
+
+    diagnostics = quality_diagnostics(
+        (
+            _item(
+                case_id="temporal-relative-grounded",
+                group="temporal",
+                retrieval=retrieval,
+                evidence_bundle={
+                    "items": [
+                        {
+                            "id": "relative-grounded",
+                            "role": "relative_temporal_support",
+                            "query_roles": ["relative_temporal_support"],
+                            "source_refs": [
+                                "locomo:conv-1:session_7:D7:2:turn"
+                            ],
+                            "text": "Morgan checked in yesterday afternoon.",
+                        }
+                    ]
+                },
+            ),
+        )
+    )
+
+    table = diagnostics["temporal_grounding_table"]
+
+    assert table["retrieval_relative_date_grounded_candidate_count"] == 1
+    assert table["retrieval_range_grounded_candidate_count"] == 1
+    assert table["selected_relative_date_grounded_item_count"] == 1
+    assert table["selected_range_grounded_item_count"] == 1
+    assert table["selected_strong_temporal_grounding_item_count"] == 1
+    assert table["selected_temporal_grounding_issue_item_count"] == 0
+
+
+def test_temporal_grounding_counts_exact_turn_refs_as_source_windows() -> None:
+    diagnostics = quality_diagnostics(
+        (
+            _item(
+                case_id="temporal-exact-turn-ref",
+                group="temporal",
+                retrieval=_retrieval_payload(
+                    evidence_need=("temporal_support",),
+                    bundle_evidence_roles=("primary", "relative_temporal_support"),
+                    relation_categories=("temporal",),
+                    policy_score=0.2,
+                    candidate_features={
+                        "query_roles": ["relative_temporal_support"],
+                        "time_intent_kind": "relative_time",
+                    },
+                ),
+                evidence_bundle={
+                    "items": [
+                        {
+                            "id": "exact-turn-ref",
+                            "role": "relative_temporal_support",
+                            "query_roles": ["relative_temporal_support"],
+                            "source_refs": ["D7:2"],
+                            "text": "Morgan checked in yesterday afternoon.",
+                        }
+                    ]
+                },
+            ),
+        )
+    )
+
+    table = diagnostics["temporal_grounding_table"]
+
+    assert table["selected_source_window_item_count"] == 1
+    assert table["selected_missing_source_window_item_count"] == 0
+    assert table["selected_strong_temporal_grounding_item_count"] == 1
+    assert table["selected_temporal_grounding_issue_item_count"] == 0
+    assert table["selected_temporal_grounding_issue_reason_counts"] == {}
+
+
+def test_temporal_grounding_keeps_exact_turn_window_unqualified() -> None:
+    diagnostics = quality_diagnostics(
+        (
+            _item(
+                case_id="temporal-exact-turn-with-session-text",
+                group="temporal",
+                retrieval=_retrieval_payload(
+                    evidence_need=("temporal_support",),
+                    bundle_evidence_roles=("primary", "temporal_sequence_support"),
+                    relation_categories=("temporal",),
+                    policy_score=0.2,
+                    candidate_features={
+                        "query_roles": ["temporal_sequence_support"],
+                        "time_intent_kind": "temporal_sequence",
+                    },
+                ),
+                evidence_bundle={
+                    "items": [
+                        {
+                            "id": "exact-turn-with-session-text",
+                            "role": "temporal_sequence_support",
+                            "query_roles": ["temporal_sequence_support"],
+                            "source_refs": ["D7:2"],
+                            "text": "session_9 D7:2 Morgan checked in.",
+                        }
+                    ]
+                },
+            ),
+        )
+    )
+
+    table = diagnostics["temporal_grounding_table"]
+
+    assert table["selected_source_window_item_count"] == 1
+    assert table["selected_missing_source_window_item_count"] == 0
+    assert table["selected_strong_temporal_grounding_item_count"] == 0
+    assert table["selected_temporal_grounding_issue_reason_counts"] == {
+        "missing_date_or_range": 1,
+        "weak_session_boundary_without_date_or_range": 1,
+        "weak_source_window_without_date_or_range": 1,
+    }
+    assert table["selected_temporal_grounding_issue_samples"] == [
+        {
+            "case_id": "temporal-exact-turn-with-session-text",
+            "group": "temporal",
+            "item_id": "exact-turn-with-session-text",
+            "role": "temporal_sequence_support",
+            "query_roles": ["temporal_sequence_support"],
+            "source_refs": ["D7:2"],
+            "issue_reasons": [
+                "missing_date_or_range",
+                "weak_source_window_without_date_or_range",
+                "weak_session_boundary_without_date_or_range",
+            ],
+            "grounding_signals": {
+                "source_window": True,
+                "session_boundary": True,
+                "date_or_range": False,
+                "temporal_order": True,
+            },
+        }
+    ]
+
+
 def test_temporal_grounding_reports_source_window_audit_gap_separately() -> None:
     diagnostics = quality_diagnostics(
         (
@@ -187,10 +344,294 @@ def test_temporal_grounding_reports_source_window_audit_gap_separately() -> None
             "item_id": "session-only",
             "role": "temporal_support",
             "query_roles": ["temporal_support"],
-            "source_refs": ["locomo:conv-1:session_4"],
+            "source_refs": [],
+            "source_ref_count": 1,
             "missing_source_window": True,
         }
     ]
+
+
+def test_compact_fast_gate_summary_reports_retrieval_relative_date_counts() -> None:
+    retrieval = _retrieval_payload(
+        evidence_need=("temporal_support",),
+        bundle_evidence_roles=("primary", "relative_temporal_support"),
+        relation_categories=("temporal",),
+        policy_score=0.2,
+        memory_text="Morgan checked in yesterday afternoon.",
+        candidate_features={
+            "query_roles": ["relative_temporal_support"],
+            "time_intent_kind": "relative_time",
+            "has_relative_time_surface": True,
+        },
+    )
+    retrieval["results"][0]["source_refs"] = [
+        "locomo:conv-1:session_7:D7:2:turn"
+    ]
+
+    summary = _compact_fast_gate_summary(
+        (
+            _item(
+                case_id="temporal-relative-compact",
+                group="temporal",
+                retrieval=retrieval,
+                evidence_bundle={
+                    "items": [
+                        {
+                            "id": "relative-grounded",
+                            "role": "relative_temporal_support",
+                            "query_roles": ["relative_temporal_support"],
+                            "source_refs": [
+                                "locomo:conv-1:session_7:D7:2:turn"
+                            ],
+                            "text": "Morgan checked in yesterday afternoon.",
+                        }
+                    ]
+                },
+            ),
+        )
+    )
+
+    counts = summary["temporal_grounding_counts"]
+    assert counts["retrieval_relative_date_grounded_candidate_count"] == 1
+    assert counts["selected_relative_date_grounded_item_count"] == 1
+
+
+def test_compact_temporal_grounding_samples_filter_unsafe_refs_and_bound_text() -> None:
+    long_id = "temporal-item-" + ("x" * 200)
+    private_refs = [
+        f"locomo:conv-private:session_8:D8:{turn}:turn-secret"
+        for turn in range(1, 5)
+    ]
+
+    item = _item(
+        case_id="temporal-private-refs",
+        group="temporal",
+        retrieval=_retrieval_payload(
+            evidence_need=("temporal_support",),
+            bundle_evidence_roles=("primary", "temporal_sequence_support"),
+            relation_categories=("temporal",),
+            policy_score=0.0,
+            candidate_features={
+                "query_roles": ["temporal_sequence_support"],
+                "time_intent_kind": "temporal_sequence",
+            },
+        ),
+        evidence_bundle={
+            "items": [
+                {
+                    "id": long_id,
+                    "role": "temporal_sequence_support",
+                    "query_roles": ["temporal_sequence_support"],
+                    "source_refs": private_refs,
+                }
+            ]
+        },
+    )
+
+    diagnostics = quality_diagnostics((item,))
+    table_sample = diagnostics["temporal_grounding_table"][
+        "selected_temporal_grounding_issue_samples"
+    ][0]
+    summary = _compact_fast_gate_summary((item,))
+    compact_sample = summary["temporal_grounding_issue_samples"][0]
+
+    assert table_sample["source_refs"] == [
+        "source_session_turn_refs:session_8:D8:1",
+        "source_turn_refs:D8:1",
+        "source_session_turn_refs:session_8:D8:2",
+        "source_turn_refs:D8:2",
+        "source_session_turn_refs:session_8:D8:3",
+    ]
+    assert compact_sample["source_refs"] == table_sample["source_refs"]
+    assert compact_sample["item_id"] == f"{long_id[:125]}..."
+    serialized = json.dumps({"diagnostics": diagnostics, "summary": summary})
+    assert "locomo:conv-private" not in serialized
+    assert "turn-secret" not in serialized
+
+
+def test_temporal_grounding_samples_filter_long_exact_refs_and_report_count() -> None:
+    long_ref = f"D1:{'9' * 120}"
+    item = _item(
+        case_id="temporal-long-exact-ref",
+        group="temporal",
+        retrieval=_retrieval_payload(
+            evidence_need=("temporal_support",),
+            bundle_evidence_roles=("primary", "temporal_support"),
+            relation_categories=("temporal",),
+            policy_score=0.0,
+            candidate_features={
+                "query_roles": ["temporal_support"],
+                "time_intent_kind": "temporal_lookup",
+            },
+        ),
+        evidence_bundle={
+            "items": [
+                {
+                    "id": "long-exact-ref",
+                    "role": "temporal_support",
+                    "query_roles": ["temporal_support"],
+                    "source_refs": [long_ref, "D1:2", "D1:2"],
+                }
+            ]
+        },
+    )
+
+    diagnostics = quality_diagnostics((item,))
+    table_sample = diagnostics["temporal_grounding_table"][
+        "selected_temporal_grounding_issue_samples"
+    ][0]
+    compact_sample = _compact_fast_gate_summary((item,))[
+        "temporal_grounding_issue_samples"
+    ][0]
+
+    assert table_sample["source_refs"] == ["D1:2"]
+    assert table_sample["source_ref_count"] == 2
+    assert compact_sample["source_refs"] == ["D1:2"]
+    assert compact_sample["source_ref_count"] == 2
+    serialized = json.dumps({"diagnostics": diagnostics, "summary": compact_sample})
+    assert long_ref not in serialized
+
+
+def test_temporal_grounding_reports_source_identity_mismatch() -> None:
+    diagnostics = quality_diagnostics(
+        (
+            _item(
+                case_id="temporal-source-mismatch",
+                group="temporal",
+                retrieval=_retrieval_payload(
+                    evidence_need=("temporal_support",),
+                    bundle_evidence_roles=("primary", "temporal_sequence_support"),
+                    relation_categories=("temporal",),
+                    policy_score=0.0,
+                    candidate_features={
+                        "query_roles": ["temporal_sequence_support"],
+                        "time_intent_kind": "temporal_sequence",
+                    },
+                ),
+                evidence_bundle={
+                    "items": [
+                        {
+                            "id": "mismatched-turn",
+                            "role": "temporal_sequence_support",
+                            "query_roles": ["temporal_sequence_support"],
+                            "source_refs": [
+                                "locomo:conv-1:session_4:D4:3:turn"
+                            ],
+                            "text": (
+                                "session_5 date: 9 October, 2022 "
+                                "D4:3 Riley said the workshop happened later."
+                            ),
+                        }
+                    ]
+                },
+            ),
+        )
+    )
+
+    table = diagnostics["temporal_grounding_table"]
+
+    assert table["selected_strong_temporal_grounding_item_count"] == 0
+    assert table["selected_temporal_grounding_issue_item_count"] == 1
+    assert table["selected_temporal_grounding_issue_reason_counts"] == {
+        "source_identity_mismatch": 1
+    }
+    assert table["selected_temporal_grounding_issue_samples"] == [
+        {
+            "case_id": "temporal-source-mismatch",
+            "group": "temporal",
+            "item_id": "mismatched-turn",
+            "role": "temporal_sequence_support",
+            "query_roles": ["temporal_sequence_support"],
+            "source_refs": [
+                "source_session_turn_refs:session_4:D4:3",
+                "source_turn_refs:D4:3",
+            ],
+            "issue_reasons": ["source_identity_mismatch"],
+            "grounding_signals": {
+                "source_window": True,
+                "session_boundary": True,
+                "date_or_range": True,
+                "temporal_order": True,
+            },
+            "source_identity_gap_codes": [
+                "source_text_session_turn_mismatch"
+            ],
+        }
+    ]
+
+
+def test_compact_fast_gate_reports_temporal_source_identity_mismatch_safely() -> None:
+    raw_private_ref = "locomo:conv-private:session_4:D4:3:turn-secret"
+    item = _item(
+        case_id="temporal-source-mismatch-compact",
+        group="temporal",
+        retrieval=_retrieval_payload(
+            evidence_need=("temporal_support",),
+            bundle_evidence_roles=("primary", "temporal_sequence_support"),
+            relation_categories=("temporal",),
+            policy_score=0.2,
+            candidate_features={
+                "query_roles": ["temporal_sequence_support"],
+                "time_intent_kind": "temporal_sequence",
+            },
+        ),
+        evidence_bundle={
+            "bundle_complete": True,
+            "item_count": 1,
+            "primary_evidence_count": 1,
+            "supporting_evidence_count": 0,
+            "items": [
+                {
+                    "id": "mismatched-turn",
+                    "role": "primary",
+                    "query_roles": ["temporal_sequence_support"],
+                    "source_refs": [raw_private_ref],
+                    "text": (
+                        "session_5 date: 9 October, 2022 "
+                        "D4:3 Riley said the workshop happened later."
+                    ),
+                }
+            ],
+        },
+    )
+
+    summary = _compact_fast_gate_summary((item,))
+
+    assert summary["temporal_grounding_counts"]["issue_reason_counts"] == {
+        "source_identity_mismatch": 1
+    }
+    assert any(
+        gap["category"] == "temporal_grounding"
+        and gap["gap"] == "source_identity_mismatch"
+        for gap in summary["top_actionable_gaps"]
+    )
+    assert summary["temporal_grounding_issue_samples"] == [
+        {
+            "case_id": "temporal-source-mismatch-compact",
+            "group": "temporal",
+            "item_id": "mismatched-turn",
+            "role": "primary",
+            "query_roles": ["temporal_sequence_support"],
+            "issue_reasons": ["source_identity_mismatch"],
+            "source_identity_gap_codes": [
+                "source_text_session_turn_mismatch"
+            ],
+            "source_refs": [
+                "source_session_turn_refs:session_4:D4:3",
+                "source_turn_refs:D4:3",
+            ],
+            "grounding_signals": {
+                "source_window": True,
+                "session_boundary": True,
+                "date_or_range": True,
+                "temporal_order": True,
+            },
+        }
+    ]
+    serialized = json.dumps(summary)
+    assert raw_private_ref not in serialized
+    assert "locomo:conv-private" not in serialized
+    assert "turn-secret" not in serialized
 
 
 def test_temporal_grounding_summarizes_missing_weak_and_conflicting_issues() -> None:

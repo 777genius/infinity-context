@@ -23,12 +23,26 @@ _FAST_CASE_SETS = frozenset(
         "locomo-fast-single-hop",
     }
 )
+_FAST_CASES_PER_GROUP = 10
+_FAST_CASE_SET_GROUPS = {
+    "locomo-fast": (
+        "multi-hop",
+        "temporal",
+        "open-domain",
+        "single-hop",
+    ),
+    "locomo-fast-multi-hop": ("multi-hop",),
+    "locomo-fast-temporal": ("temporal",),
+    "locomo-fast-open-domain": ("open-domain",),
+    "locomo-fast-single-hop": ("single-hop",),
+}
 _REQUIRED_FAST_CUTOFFS = frozenset({10, 20, 50, 200})
 _SAFE_REPORTING_CONTRACTS = (
     ("quality_diagnostics", "quality_diagnostics.v2"),
     ("evidence_bundle_gap_report", "evidence_bundle_gap_report.v1"),
     ("answer_context_provenance", "answer_context_provenance.v1"),
     ("answer_context_support_gaps", "answer_context_support_gaps.v1"),
+    ("temporal_grounding_table", "temporal_grounding.v1"),
 )
 
 
@@ -71,11 +85,19 @@ class MemoryComparisonPreflightCheck:
 
     def to_payload(self) -> dict[str, object]:
         return {
-            "name": self.name,
+            "name": _compact_diagnostic_text(self.name),
             "passed": self.passed,
-            "severity": self.severity,
-            "reason": self.reason,
-            "reason_code": self.reason_code,
+            "severity": _compact_diagnostic_text(self.severity),
+            "reason": (
+                _compact_diagnostic_text(self.reason)
+                if self.reason is not None
+                else None
+            ),
+            "reason_code": (
+                _compact_diagnostic_text(self.reason_code)
+                if self.reason_code is not None
+                else None
+            ),
             "details": _json_safe_mapping(self.details),
         }
 
@@ -85,6 +107,7 @@ def run_memory_comparison_preflight(
 ) -> dict[str, object]:
     """Return a sanitized readiness report without starting benchmark state."""
 
+    normalized_cutoffs = _normalized_cutoffs(config.top_k_cutoffs)
     checks = [
         _dataset_check(config.dataset_path),
         _url_check("memo_api_url_valid", config.memo_api_url),
@@ -113,6 +136,7 @@ def run_memory_comparison_preflight(
             },
         ),
         *_fast_readiness_checks(config),
+        *_locomo_fast_dataset_checks(config),
     ]
     if config.probe_services:
         checks.extend(_service_probe_checks(config))
@@ -163,18 +187,14 @@ def run_memory_comparison_preflight(
             "locomo_ingest_mode": config.locomo_ingest_mode,
             "report_mode": config.report_mode,
             "top_k": config.top_k,
-            "top_k_cutoffs": list(_normalized_cutoffs(config.top_k_cutoffs)),
+            "top_k_cutoffs": list(normalized_cutoffs[:_MAX_DIAGNOSTIC_ITEMS]),
+            "top_k_cutoff_count": len(normalized_cutoffs),
             "answerer_provider": config.answerer_provider,
             "judge_provider": config.judge_provider,
             "uses_openai": _uses_openai(config),
             "probe_services": config.probe_services,
             "safe_reporting_contracts": _safe_reporting_contracts(config.report_mode),
-            "secrets": {
-                "auth_token_configured": config.auth_token_configured,
-                config.mem0_api_key_env: _env_is_set(config.env, config.mem0_api_key_env),
-                config.openai_api_key_env: _env_is_set(config.env, config.openai_api_key_env),
-                "OPENAI_API_KEY": _env_is_set(config.env, "OPENAI_API_KEY"),
-            },
+            "secrets": _secret_diagnostics(config),
         },
     }
 
@@ -198,7 +218,7 @@ def _dataset_check(dataset_path: Path) -> MemoryComparisonPreflightCheck:
         )
     try:
         size_bytes = dataset_path.stat().st_size
-        payload = json.loads(dataset_path.read_text(encoding="utf-8"))
+        payload = _read_dataset_payload(dataset_path)
     except Exception as exc:
         return _required_check(
             "dataset_readable",
@@ -268,8 +288,13 @@ def _llm_checks(
             reason=f"set {config.openai_api_key_env} or OPENAI_API_KEY",
             reason_code="openai_api_key_missing",
             details={
-                config.openai_api_key_env: _env_is_set(config.env, config.openai_api_key_env),
-                "OPENAI_API_KEY": _env_is_set(config.env, "OPENAI_API_KEY"),
+                "configured_env_var": config.openai_api_key_env,
+                "configured_env_var_set": _env_is_set(
+                    config.env,
+                    config.openai_api_key_env,
+                ),
+                "fallback_env_var": "OPENAI_API_KEY",
+                "fallback_env_var_set": _env_is_set(config.env, "OPENAI_API_KEY"),
             },
         ),
     ]
@@ -344,6 +369,61 @@ def _fast_readiness_checks(
     )
 
 
+def _locomo_fast_dataset_checks(
+    config: MemoryComparisonPreflightConfig,
+) -> tuple[MemoryComparisonPreflightCheck, ...]:
+    groups = _FAST_CASE_SET_GROUPS.get(config.case_set)
+    if groups is None:
+        return ()
+    if config.locomo_ingest_mode != "official-turns":
+        return ()
+
+    try:
+        payload = _read_dataset_payload(config.dataset_path)
+        official_case_count, selected_by_group = _locomo_fast_dataset_case_counts(
+            payload,
+            groups=groups,
+        )
+    except Exception as exc:
+        return (
+            _fast_check(
+                "locomo_fast_dataset_case_coverage",
+                passed=False,
+                reason="dataset must load as official LoCoMo cases for fast readiness",
+                reason_code="locomo_fast_dataset_unloadable",
+                details={
+                    "dataset_path_label": config.dataset_path.name,
+                    "error_type": type(exc).__name__,
+                },
+            ),
+        )
+
+    missing_groups = [
+        group
+        for group, count in selected_by_group.items()
+        if count < _FAST_CASES_PER_GROUP
+    ]
+    return (
+        _fast_check(
+            "locomo_fast_dataset_case_coverage",
+            passed=not missing_groups,
+            reason=(
+                "dataset must provide at least 10 scored official-turn LoCoMo "
+                "cases for each requested fast group"
+            ),
+            reason_code="locomo_fast_dataset_insufficient_cases",
+            details={
+                "dataset_path_label": config.dataset_path.name,
+                "official_turn_case_count": official_case_count,
+                "requested_groups": list(groups),
+                "requested_per_group": _FAST_CASES_PER_GROUP,
+                "selected_by_group": selected_by_group,
+                "missing_groups": missing_groups,
+            },
+        ),
+    )
+
+
 def _service_probe_checks(
     config: MemoryComparisonPreflightConfig,
 ) -> tuple[MemoryComparisonPreflightCheck, ...]:
@@ -372,6 +452,24 @@ def _safe_reporting_contracts(report_mode: str) -> list[dict[str, object]]:
         }
         for name, schema_version in _SAFE_REPORTING_CONTRACTS
     ]
+
+
+def _secret_diagnostics(config: MemoryComparisonPreflightConfig) -> dict[str, object]:
+    return {
+        "auth_token_configured": config.auth_token_configured,
+        "mem0_api_key_configured": _env_is_set(config.env, config.mem0_api_key_env),
+        "mem0_api_key_env": _compact_diagnostic_text(config.mem0_api_key_env),
+        "openai_api_key_configured": _env_is_set(
+            config.env,
+            config.openai_api_key_env,
+        ),
+        "openai_api_key_env": _compact_diagnostic_text(config.openai_api_key_env),
+        "fallback_openai_api_key_configured": _env_is_set(
+            config.env,
+            "OPENAI_API_KEY",
+        ),
+        "fallback_openai_api_key_env": "OPENAI_API_KEY",
+    }
 
 
 def _probe_memo_api(
@@ -545,6 +643,131 @@ def _top_level_count(payload: object) -> int:
                 return len(value)
         return len(payload)
     return 0
+
+
+def _read_dataset_payload(dataset_path: Path) -> object:
+    return json.loads(dataset_path.read_text(encoding="utf-8"))
+
+
+def _locomo_fast_dataset_case_counts(
+    payload: object,
+    *,
+    groups: Sequence[str],
+) -> tuple[int, dict[str, int]]:
+    selected_by_group = dict.fromkeys(groups, 0)
+    official_case_count = 0
+    for sample in _official_locomo_samples(payload):
+        if not _official_locomo_sample_has_turns(sample):
+            continue
+        qas = sample.get("qa")
+        if not isinstance(qas, Sequence) or isinstance(qas, str | bytes):
+            continue
+        for qa in qas:
+            if not isinstance(qa, Mapping):
+                continue
+            group = _official_locomo_qa_group(qa)
+            if group is None:
+                continue
+            if not _text_field(qa, "question", "query"):
+                continue
+            if not _has_locomo_answer_or_evidence(qa):
+                continue
+            official_case_count += 1
+            if group in selected_by_group:
+                selected_by_group[group] += 1
+    return official_case_count, selected_by_group
+
+
+def _official_locomo_samples(payload: object) -> tuple[Mapping[str, object], ...]:
+    if isinstance(payload, Mapping):
+        return (payload,) if _is_official_locomo_sample(payload) else ()
+    if isinstance(payload, Sequence) and not isinstance(payload, str | bytes):
+        return tuple(
+            item
+            for item in payload
+            if isinstance(item, Mapping) and _is_official_locomo_sample(item)
+        )
+    return ()
+
+
+def _is_official_locomo_sample(value: Mapping[str, object]) -> bool:
+    qas = value.get("qa")
+    return (
+        isinstance(value.get("conversation"), Mapping)
+        and isinstance(qas, Sequence)
+        and not isinstance(qas, str | bytes)
+    )
+
+
+def _official_locomo_sample_has_turns(sample: Mapping[str, object]) -> bool:
+    conversation = sample.get("conversation")
+    if not isinstance(conversation, Mapping):
+        return False
+    for key, value in conversation.items():
+        if not str(key).startswith("session_"):
+            continue
+        if str(key).endswith("_date_time"):
+            continue
+        if not isinstance(value, Sequence) or isinstance(value, str | bytes):
+            continue
+        if any(
+            isinstance(turn, Mapping)
+            and _text_field(
+                turn,
+                "text",
+                "content",
+                "utterance",
+                "caption",
+                "blip_caption",
+                "query",
+                "image_query",
+                "visual_query",
+            )
+            for turn in value
+        ):
+            return True
+    return False
+
+
+def _official_locomo_qa_group(qa: Mapping[str, object]) -> str | None:
+    category = qa.get("category")
+    if isinstance(category, bool):
+        return None
+    try:
+        category_id = int(category) if category is not None else None
+    except (TypeError, ValueError):
+        return None
+    return {
+        1: "multi-hop",
+        2: "temporal",
+        3: "open-domain",
+        4: "single-hop",
+    }.get(category_id)
+
+
+def _has_locomo_answer_or_evidence(qa: Mapping[str, object]) -> bool:
+    for key in ("answer", "expected_answer", "answers", "evidence"):
+        if _has_text_value(qa.get(key)):
+            return True
+    return False
+
+
+def _text_field(value: Mapping[str, object], *keys: str) -> str:
+    for key in keys:
+        item = value.get(key)
+        if isinstance(item, str) and item.strip():
+            return item.strip()
+    return ""
+
+
+def _has_text_value(value: object) -> bool:
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, Mapping):
+        return any(_has_text_value(item) for item in value.values())
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes):
+        return any(_has_text_value(item) for item in value)
+    return False
 
 
 def _openapi_paths(payload: object) -> frozenset[str]:

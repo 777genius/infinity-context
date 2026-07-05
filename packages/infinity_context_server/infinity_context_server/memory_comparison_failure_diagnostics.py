@@ -12,6 +12,9 @@ from infinity_context_server.memory_comparison_quality_accessors import (
 from infinity_context_server.memory_comparison_quality_accessors import (
     source_refs_from_memory as _source_refs_from_memory,
 )
+from infinity_context_server.memory_comparison_source_identity import (
+    safe_item_id_for_output as _safe_item_id_for_output,
+)
 from infinity_context_server.memory_comparison_temporal_grounding import (
     temporal_grounding_table as _temporal_grounding_table,
 )
@@ -369,7 +372,7 @@ def _answer_context_failure_summary(
         ),
         "missing_required_roles": _str_tuple(context.get("missing_required_roles")),
         "risk_reason_codes": risk_reason_codes,
-        "item_ids": _str_tuple(context.get("item_ids"))[:8],
+        "item_ids": _safe_item_ids(context.get("item_ids"), limit=8),
         "retrieval_orders": tuple(
             order
             for raw_order in _sequence(context.get("retrieval_orders"))
@@ -405,7 +408,7 @@ def _safe_source_identity_items(value: object) -> tuple[dict[str, object], ...]:
         if not refs:
             continue
         payload: dict[str, object] = {"source_identity_refs": refs}
-        item_id = _bounded_string(item.get("item_id"), limit=120)
+        item_id = _safe_item_id_for_output(item.get("item_id"))
         if item_id:
             payload["item_id"] = item_id
         retrieval_order = _positive_int(item.get("retrieval_order"))
@@ -432,11 +435,15 @@ def _safe_source_identity_ref(value: object) -> str | None:
     )
 
 
-def _bounded_string(value: object, *, limit: int) -> str:
-    text = str(value or "").strip()
-    if not text:
-        return ""
-    return text[:limit]
+def _safe_item_ids(value: object, *, limit: int) -> tuple[str, ...]:
+    item_ids: list[str] = []
+    for raw_item_id in _str_tuple(value):
+        item_id = _safe_item_id_for_output(raw_item_id)
+        if item_id and item_id not in item_ids:
+            item_ids.append(item_id)
+        if len(item_ids) >= limit:
+            break
+    return tuple(item_ids)
 
 
 def _retrieval_source_counts(evaluation: Mapping[str, object]) -> dict[str, int]:
@@ -680,11 +687,29 @@ def _selected_bundle_source_ref_stats(
 
 
 def _result_source_refs(result: Mapping[str, object]) -> tuple[str, ...]:
-    return _str_tuple(result.get("source_refs")) or _source_refs_from_memory(result)
+    return _source_refs_with_identity_fallback(
+        direct_refs=_str_tuple(result.get("source_refs")),
+        derived_refs=_source_refs_from_memory(result),
+    )
 
 
 def _bundle_item_source_refs(item: Mapping[str, object]) -> tuple[str, ...]:
-    return _str_tuple(item.get("source_refs")) or _source_refs_from_bundle_item(item)
+    return _source_refs_with_identity_fallback(
+        direct_refs=_str_tuple(item.get("source_refs")),
+        derived_refs=_source_refs_from_bundle_item(item),
+    )
+
+
+def _source_refs_with_identity_fallback(
+    *,
+    direct_refs: Sequence[str],
+    derived_refs: Sequence[str],
+) -> tuple[str, ...]:
+    if not direct_refs:
+        return tuple(derived_refs)
+    if _turn_refs(direct_refs):
+        return tuple(direct_refs)
+    return tuple(dict.fromkeys((*direct_refs, *derived_refs)))
 
 
 def _is_measured_low_answerability(score: float) -> bool:

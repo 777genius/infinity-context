@@ -214,6 +214,215 @@ def test_compact_report_output_omits_evaluations_and_limits_failure_rows() -> No
     assert "FULL RETRIEVED MEMORY" not in json.dumps(compact)
 
 
+def test_compact_report_bounds_requested_ids_and_failure_payloads() -> None:
+    long_text = "x" * 320
+    compact = _compact_report(
+        {
+            "schema_version": "memory_comparison_benchmark.v1",
+            "suite": "unit",
+            "status": "failed",
+            "ok": False,
+            "run_id": "compact-boundaries",
+            "requested_case_ids": [f"case-{index}" for index in range(60)],
+            "requested_capabilities": [f"capability-{index}" for index in range(25)],
+            "metadata": {},
+            "case_selection": {
+                "requested_case_ids": [f"case-{index}" for index in range(60)],
+                "missing_case_ids": [f"missing-{index}" for index in range(60)],
+                "requested_capabilities": [
+                    f"capability-{index}" for index in range(25)
+                ],
+                "missing_capabilities": [f"missing-cap-{index}" for index in range(25)],
+                "available_capability_counts": {
+                    f"capability-{index}": 25 - index for index in range(25)
+                },
+            },
+            "metrics": {},
+            "backend_metrics": {},
+            "backend_comparison": {},
+            "evaluations": [],
+            "failure_analysis": [
+                {
+                    "case_id": "case-1",
+                    "reason": long_text,
+                    "missing_terms": [f"term-{index}" for index in range(12)],
+                    "diagnostics": {
+                        "missing_expected_terms": [
+                            f"{long_text}-{index}" for index in range(10)
+                        ],
+                        "large_mapping": {
+                            f"key-{index}": index for index in range(50)
+                        },
+                    },
+                }
+            ],
+            "failures": [
+                {
+                    "case_id": "case-1",
+                    "reason": long_text,
+                    "missing_evidence_terms": [
+                        f"D1:{index}-{long_text}" for index in range(12)
+                    ],
+                }
+            ],
+        },
+        failure_limit=1,
+    )
+
+    assert len(compact["requested_case_ids"]) == 50
+    assert compact["metadata"]["requested_case_id_count"] == 60
+    assert compact["metadata"]["requested_case_ids_omitted"] == 10
+    assert len(compact["requested_capabilities"]) == 20
+    assert compact["metadata"]["requested_capabilities_omitted"] == 5
+    assert len(compact["case_selection"]["requested_case_ids"]) == 50
+    assert compact["case_selection"]["requested_case_ids_omitted"] == 10
+    assert len(compact["case_selection"]["missing_case_ids"]) == 50
+    assert compact["case_selection"]["missing_case_ids_omitted"] == 10
+    assert len(compact["case_selection"]["requested_capabilities"]) == 20
+    assert compact["case_selection"]["requested_capabilities_omitted"] == 5
+    assert len(compact["case_selection"]["missing_capabilities"]) == 20
+    assert len(compact["case_selection"]["available_capability_counts"]) == 20
+    failure = compact["failure_analysis"][0]
+    assert failure["reason"] == f"{long_text[:237]}..."
+    assert len(failure["missing_terms"]) == 8
+    assert len(failure["diagnostics"]["missing_expected_terms"]) == 8
+    assert len(failure["diagnostics"]["large_mapping"]) == 40
+    assert len(compact["failures"][0]["missing_evidence_terms"]) == 8
+    assert long_text not in json.dumps(compact)
+
+
+def test_compact_report_omits_raw_backend_diagnostic_payloads() -> None:
+    raw_memory_text = "RAW BACKEND MEMORY TEXT MUST STAY OUT"
+    compact = _compact_report(
+        {
+            "schema_version": "memory_comparison_benchmark.v1",
+            "suite": "unit",
+            "status": "failed",
+            "ok": False,
+            "run_id": "compact-backend-metrics",
+            "metadata": {},
+            "metrics": {"accuracy": 0.5},
+            "backend_metrics": {
+                "memo-stack": {
+                    "ok": False,
+                    "total": 1,
+                    "accuracy": 0.5,
+                    "quality_diagnostics": {
+                        "samples": [{"text": raw_memory_text}],
+                    },
+                    "fast_gate": {
+                        "actionable_gap_summary": {
+                            "ranked_gaps": [
+                                {"samples": [{"text": raw_memory_text}]}
+                            ],
+                        },
+                    },
+                }
+            },
+            "backend_comparison": {"winner": "memo-stack"},
+            "evaluations": [],
+            "failure_analysis": [],
+            "failures": [],
+        },
+        failure_limit=1,
+    )
+
+    assert compact["backend_metrics"] == {
+        "memo-stack": {"ok": False, "total": 1, "accuracy": 0.5}
+    }
+    serialized = json.dumps(compact)
+    assert raw_memory_text not in serialized
+    assert "quality_diagnostics" not in serialized
+    assert "fast_gate" not in serialized
+
+
+def test_compact_report_backend_metrics_allowlist_is_summary_only_and_bounded() -> None:
+    long_text = "x" * 320
+    allowed_metrics = {
+        "ok": False,
+        "total": 3,
+        "unscored": 1,
+        "passed": 1,
+        "failed": 2,
+        "accuracy": 0.333333,
+        "avg_score": 0.4,
+        "avg_retrieved_count": 7.0,
+        "avg_search_latency_ms": 12.0,
+        "avg_ingest_latency_ms": 10.0,
+        "avg_generation_latency_ms": 20.0,
+        "avg_judge_latency_ms": 5.0,
+        "avg_context_tokens": 128.0,
+        "expected_term_recall": 0.5,
+        "evidence_term_recall": 0.25,
+        "evidence_term_recall_evaluation_count": 2,
+        "token_usage": {"prompt_tokens": 100, "completion_tokens": 20},
+        "token_cost": {"usd": 0.01},
+        "by_category": {
+            f"category-{index}-{long_text}": index for index in range(45)
+        },
+        "by_group": {"multi-hop": {"accuracy": 0.5}},
+        "by_cutoff": {"2024-01-01": {"accuracy": 0.5}},
+    }
+    compact = _compact_report(
+        {
+            "schema_version": "memory_comparison_benchmark.v1",
+            "suite": "unit",
+            "status": "failed",
+            "ok": False,
+            "run_id": "compact-backend-allowlist",
+            "metadata": {},
+            "metrics": {},
+            "backend_metrics": {
+                "memo-stack": {
+                    **allowed_metrics,
+                    "fast_gate": {"raw": long_text},
+                    "quality_diagnostics": {"raw": long_text},
+                    "diagnostic_samples": [{"raw": long_text}],
+                    "raw_provider_payload": long_text,
+                }
+            },
+            "backend_comparison": {},
+            "evaluations": [],
+            "failure_analysis": [],
+            "failures": [],
+        },
+        failure_limit=1,
+    )
+
+    metrics = compact["backend_metrics"]["memo-stack"]
+
+    assert set(metrics) == {
+        "ok",
+        "total",
+        "unscored",
+        "passed",
+        "failed",
+        "accuracy",
+        "avg_score",
+        "avg_retrieved_count",
+        "avg_search_latency_ms",
+        "avg_ingest_latency_ms",
+        "avg_generation_latency_ms",
+        "avg_judge_latency_ms",
+        "avg_context_tokens",
+        "expected_term_recall",
+        "evidence_term_recall",
+        "evidence_term_recall_evaluation_count",
+        "token_usage",
+        "token_cost",
+        "by_category",
+        "by_group",
+        "by_cutoff",
+    }
+    assert len(metrics["by_category"]) == 40
+    serialized = json.dumps(compact, sort_keys=True)
+    assert long_text not in serialized
+    assert "fast_gate" not in serialized
+    assert "quality_diagnostics" not in serialized
+    assert "diagnostic_samples" not in serialized
+    assert "raw_provider_payload" not in serialized
+
+
 def _evaluation_item(
     *,
     case_id: str,

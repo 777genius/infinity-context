@@ -38,6 +38,9 @@ _LIST_QUESTION_MARKERS = (
 )
 _MAX_TEMPORAL_GROUNDING_EXAMPLES = 5
 _MAX_TEMPORAL_GROUNDING_SAMPLE_EXAMPLES = 2
+_MAX_SUMMARY_TEXT_CHARS = 240
+_MAX_SUMMARY_LIST_ITEMS = 8
+_MAX_SUMMARY_MAPPING_ITEMS = 20
 _TEMPORAL_GROUNDING_SAMPLE_KEYS = (
     "case_id",
     "group",
@@ -133,6 +136,7 @@ def _failures(report: Mapping[str, object]) -> tuple[Mapping[str, object], ...]:
 
 
 def _summary(failures: Sequence[Mapping[str, object]], *, top: int) -> dict[str, object]:
+    top_limit = max(0, top)
     capabilities: Counter[str] = Counter()
     reasons: Counter[str] = Counter()
     missing_terms: Counter[str] = Counter()
@@ -154,8 +158,10 @@ def _summary(failures: Sequence[Mapping[str, object]], *, top: int) -> dict[str,
         defaultdict(list)
     )
     for failure in failures:
-        capability = str(failure.get("capability") or failure.get("category") or "unknown")
-        reason = str(failure.get("reason") or "unknown")
+        capability = _compact_summary_text(
+            failure.get("capability") or failure.get("category") or "unknown"
+        )
+        reason = _compact_summary_text(failure.get("reason") or "unknown")
         answer_shape = _answer_shape(failure)
         root_tags = _root_cause_tags(failure)
         primary_root_cause = root_tags[0]
@@ -198,47 +204,60 @@ def _summary(failures: Sequence[Mapping[str, object]], *, top: int) -> dict[str,
 
     return {
         "failure_count": len(failures),
-        "case_ids": [str(item.get("case_id")) for item in failures[:top] if item.get("case_id")],
-        "capability_failure_count": dict(capabilities.most_common()),
-        "reason_count": dict(reasons.most_common()),
-        "answer_shape_count": dict(answer_shapes.most_common()),
-        "answer_shape_component_count": dict(answer_shape_components.most_common()),
+        "case_ids": [
+            _compact_summary_text(item.get("case_id"))
+            for item in failures[:top_limit]
+            if item.get("case_id")
+        ],
+        "capability_failure_count": dict(capabilities.most_common(top_limit)),
+        "reason_count": dict(reasons.most_common(top_limit)),
+        "answer_shape_count": dict(answer_shapes.most_common(top_limit)),
+        "answer_shape_component_count": dict(
+            answer_shape_components.most_common(top_limit)
+        ),
         "failure_pattern_count": {
             f"{capability}:{reason}": count
-            for (capability, reason), count in failure_patterns.most_common(top)
+            for (capability, reason), count in failure_patterns.most_common(top_limit)
         },
-        "primary_root_cause_count": dict(primary_root_causes.most_common(top)),
-        "root_cause_tag_count": dict(root_cause_tags.most_common(top)),
-        "provenance_gap_cause_count": dict(provenance_gap_causes.most_common(top)),
+        "primary_root_cause_count": dict(primary_root_causes.most_common(top_limit)),
+        "root_cause_tag_count": dict(root_cause_tags.most_common(top_limit)),
+        "provenance_gap_cause_count": dict(
+            provenance_gap_causes.most_common(top_limit)
+        ),
         "answer_context_provenance_count": dict(
-            answer_context_provenance.most_common(top)
+            answer_context_provenance.most_common(top_limit)
         ),
         "root_cause_examples": {
             root_cause: examples
             for root_cause, examples in sorted(root_cause_examples.items())
+            if root_cause in dict(primary_root_causes.most_common(top_limit))
         },
         "temporal_grounding_issue_reason_count": dict(
-            temporal_grounding_issue_reasons.most_common(top)
+            temporal_grounding_issue_reasons.most_common(top_limit)
         ),
         "temporal_grounding_issue_examples": {
             issue_reason: examples
             for issue_reason, examples in sorted(
                 temporal_grounding_issue_examples.items()
             )
+            if issue_reason
+            in dict(temporal_grounding_issue_reasons.most_common(top_limit))
         },
-        "query_pattern_count": dict(query_patterns.most_common(top)),
+        "query_pattern_count": dict(query_patterns.most_common(top_limit)),
         "query_pattern_examples": {
             pattern: examples
             for pattern, examples in sorted(query_pattern_examples.items())
+            if pattern in dict(query_patterns.most_common(top_limit))
         },
         "capability_reason_count": {
-            capability: dict(counter.most_common())
+            capability: dict(counter.most_common(top_limit))
             for capability, counter in sorted(capability_reasons.items())
+            if capability in dict(capabilities.most_common(top_limit))
         },
-        "top_missing_terms": dict(missing_terms.most_common(top)),
-        "top_missing_evidence_refs": dict(missing_evidence_refs.most_common(top)),
+        "top_missing_terms": dict(missing_terms.most_common(top_limit)),
+        "top_missing_evidence_refs": dict(missing_evidence_refs.most_common(top_limit)),
         "top_missing_evidence_ref_previews": dict(
-            missing_evidence_ref_previews.most_common(top)
+            missing_evidence_ref_previews.most_common(top_limit)
         ),
     }
 
@@ -246,7 +265,9 @@ def _summary(failures: Sequence[Mapping[str, object]], *, top: int) -> dict[str,
 def _strings(value: object) -> tuple[str, ...]:
     if not isinstance(value, Sequence) or isinstance(value, str | bytes):
         return ()
-    return tuple(str(item) for item in value if isinstance(item, str) and item)
+    return tuple(
+        _compact_summary_text(item) for item in value if isinstance(item, str) and item
+    )
 
 
 def _mapping(value: object) -> Mapping[str, object]:
@@ -257,6 +278,34 @@ def _sequence(value: object) -> Sequence[object]:
     if isinstance(value, Sequence) and not isinstance(value, str | bytes):
         return value
     return ()
+
+
+def _compact_summary_text(
+    value: object,
+    *,
+    limit: int = _MAX_SUMMARY_TEXT_CHARS,
+) -> str:
+    text = " ".join(str(value or "").strip().split())
+    if len(text) <= limit:
+        return text
+    return f"{text[: limit - 3]}..."
+
+
+def _safe_summary_value(value: object) -> object:
+    if value is None or isinstance(value, bool | int | float):
+        return value
+    if isinstance(value, str):
+        return _compact_summary_text(value)
+    if isinstance(value, Mapping):
+        return {
+            _compact_summary_text(key): _safe_summary_value(raw_value)
+            for key, raw_value in sorted(value.items(), key=lambda item: str(item[0]))[
+                :_MAX_SUMMARY_MAPPING_ITEMS
+            ]
+        }
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes):
+        return [_safe_summary_value(item) for item in value[:_MAX_SUMMARY_LIST_ITEMS]]
+    return _compact_summary_text(value)
 
 
 def _missing_evidence_refs(failure: Mapping[str, object]) -> tuple[str, ...]:
@@ -343,23 +392,27 @@ def _root_cause_example(
     root_tags: Sequence[str],
 ) -> dict[str, object]:
     payload: dict[str, object] = {
-        "case_id": str(failure.get("case_id") or ""),
-        "capability": str(
+        "case_id": _compact_summary_text(failure.get("case_id") or ""),
+        "capability": _compact_summary_text(
             failure.get("capability") or failure.get("category") or "unknown"
         ),
-        "reason": str(failure.get("reason") or "unknown"),
-        "root_cause_tags": list(root_tags),
+        "reason": _compact_summary_text(failure.get("reason") or "unknown"),
+        "root_cause_tags": list(root_tags[:_MAX_SUMMARY_LIST_ITEMS]),
     }
     question = _question_text(failure)
     if question:
         payload["question"] = question
     diagnostic_reason_codes = _diagnostic_reason_codes(failure)
     if diagnostic_reason_codes:
-        payload["diagnostic_reason_codes"] = list(diagnostic_reason_codes)
+        payload["diagnostic_reason_codes"] = list(
+            diagnostic_reason_codes[:_MAX_SUMMARY_LIST_ITEMS]
+        )
     bundle = _mapping(_mapping(failure.get("diagnostics")).get("bundle"))
     missing_roles = _strings(bundle.get("missing_required_roles"))
     if missing_roles:
-        payload["missing_required_roles"] = list(missing_roles)
+        payload["missing_required_roles"] = list(
+            missing_roles[:_MAX_SUMMARY_LIST_ITEMS]
+        )
     missing_evidence_refs = _missing_evidence_refs(failure)
     if missing_evidence_refs:
         payload["missing_evidence_ref_count"] = len(missing_evidence_refs)
@@ -444,10 +497,12 @@ def _count_mapping(value: object) -> dict[str, int]:
     if not isinstance(value, Mapping):
         return {}
     counts: dict[str, int] = {}
-    for key, raw_count in value.items():
+    for key, raw_count in sorted(value.items(), key=lambda item: str(item[0]))[
+        :_MAX_SUMMARY_MAPPING_ITEMS
+    ]:
         count = _positive_int(raw_count) or 0
         if count > 0:
-            counts[str(key)] = count
+            counts[_compact_summary_text(key)] = count
     return counts
 
 
@@ -484,13 +539,15 @@ def _answer_context_summary(failure: Mapping[str, object]) -> dict[str, object] 
         summary["source_identity_item_count"] = source_identity_item_count
     fallback_reason = str(context.get("fallback_reason") or "")
     if fallback_reason:
-        summary["fallback_reason"] = fallback_reason
+        summary["fallback_reason"] = _compact_summary_text(fallback_reason)
     missing_roles = _strings(context.get("missing_required_roles"))
     if missing_roles:
-        summary["missing_required_roles"] = list(missing_roles)
+        summary["missing_required_roles"] = list(
+            missing_roles[:_MAX_SUMMARY_LIST_ITEMS]
+        )
     risk_reasons = _strings(context.get("risk_reason_codes"))
     if risk_reasons:
-        summary["risk_reason_codes"] = list(risk_reasons)
+        summary["risk_reason_codes"] = list(risk_reasons[:_MAX_SUMMARY_LIST_ITEMS])
     return summary
 
 
@@ -572,7 +629,7 @@ def _temporal_grounding_issue_reason_counts(
 ) -> dict[str, int]:
     counts = _mapping(_failure_temporal_grounding(failure).get("issue_reason_counts"))
     return {
-        str(reason): count
+        _compact_summary_text(reason): count
         for reason, raw_count in counts.items()
         if (count := _positive_int(raw_count)) is not None
     }
@@ -584,12 +641,12 @@ def _temporal_grounding_issue_example(
 ) -> dict[str, object]:
     counts = _temporal_grounding_issue_reason_counts(failure)
     payload: dict[str, object] = {
-        "case_id": str(failure.get("case_id") or ""),
-        "capability": str(
+        "case_id": _compact_summary_text(failure.get("case_id") or ""),
+        "capability": _compact_summary_text(
             failure.get("capability") or failure.get("category") or "unknown"
         ),
-        "reason": str(failure.get("reason") or "unknown"),
-        "issue_reason": issue_reason,
+        "reason": _compact_summary_text(failure.get("reason") or "unknown"),
+        "issue_reason": _compact_summary_text(issue_reason),
         "issue_reason_count": counts.get(issue_reason, 0),
     }
     samples = _temporal_grounding_issue_samples(failure, issue_reason=issue_reason)
@@ -619,7 +676,7 @@ def _safe_temporal_grounding_issue_sample(
     sample: Mapping[str, object],
 ) -> dict[str, object]:
     return {
-        key: sample[key]
+        key: _safe_summary_value(sample[key])
         for key in _TEMPORAL_GROUNDING_SAMPLE_KEYS
         if key in sample
     }
@@ -631,7 +688,7 @@ def _failure_temporal_grounding(failure: Mapping[str, object]) -> Mapping[str, o
 
 def _normalize_tag_value(value: object) -> str:
     normalized = str(value or "unknown").strip().lower().replace(" ", "_")
-    return normalized or "unknown"
+    return _compact_summary_text(normalized or "unknown", limit=120)
 
 
 def _positive_int(value: object) -> int | None:
@@ -772,11 +829,11 @@ def _query_patterns(failure: Mapping[str, object]) -> tuple[str, ...]:
 
 
 def _question_text(failure: Mapping[str, object]) -> str:
-    return str(
+    return _compact_summary_text(
         failure.get("question")
         or failure.get("question_preview")
         or failure.get("query")
-        or ""
+        or "",
     )
 
 

@@ -5,12 +5,22 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from infinity_context_core.application.sensitive_text import redact_sensitive_text
+
+from infinity_context_server.memory_comparison_source_identity import (
+    looks_like_raw_source_ref,
+    safe_item_id_for_output,
+    safe_source_refs_for_output,
+)
+
+_REDACTED_TEXT = "[redacted]"
+
 
 def preview_value(value: object, *, max_chars: int = 240) -> str:
     if value is None:
         return ""
     if isinstance(value, str):
-        return value.strip()[:max_chars]
+        return _safe_preview_text(value, max_chars=max_chars)
     if isinstance(value, int | float | bool):
         return str(value)[:max_chars]
     if isinstance(value, Sequence) and not isinstance(value, str | bytes):
@@ -25,8 +35,12 @@ def preview_value(value: object, *, max_chars: int = 240) -> str:
     return str(value).strip()[:max_chars]
 
 
+def artifact_text_value(value: object, *, max_chars: int = 240) -> str:
+    return redact_sensitive_text(str(value or "").strip())[:max_chars]
+
+
 def case_question_preview(case: Any) -> str:
-    return str(getattr(case, "question", "") or "")[:240]
+    return preview_value(getattr(case, "question", ""))
 
 
 def case_answer_preview(case: Any) -> str:
@@ -41,9 +55,9 @@ def case_expected_terms_preview(case: Any) -> tuple[str, ...]:
     if not isinstance(expected_terms, Sequence) or isinstance(expected_terms, str | bytes):
         return ()
     return tuple(
-        str(value).strip()[:120]
+        preview
         for value in expected_terms[:20]
-        if str(value).strip()
+        if (preview := preview_value(value, max_chars=120))
     )
 
 
@@ -56,11 +70,12 @@ def case_evidence_refs(case: Any) -> tuple[str, ...]:
         evidence = metadata.get("evidence_terms")
     if not isinstance(evidence, Sequence) or isinstance(evidence, str | bytes):
         return ()
-    return tuple(
-        str(value).strip()[:120]
-        for value in _flatten_scalar_values(evidence)[:20]
-        if str(value).strip()
-    )
+    refs: list[str] = []
+    for value in _flatten_scalar_values(evidence)[:20]:
+        for ref in safe_source_refs_for_output(value):
+            if ref and ref not in refs:
+                refs.append(ref[:120])
+    return tuple(refs)
 
 
 def case_evidence_ref_previews(
@@ -90,14 +105,14 @@ def response_evidence_text(data: Mapping[str, object]) -> str:
     texts: list[str] = []
     rendered = data.get("rendered_text")
     if isinstance(rendered, str):
-        texts.append(rendered)
+        texts.append(_safe_evidence_text(rendered))
     items = data.get("items")
     if isinstance(items, Sequence) and not isinstance(items, str | bytes):
         for item in items:
             if not isinstance(item, Mapping):
                 continue
             if isinstance(item.get("text"), str):
-                texts.append(item["text"])
+                texts.append(_safe_evidence_text(item["text"]))
             texts.extend(_item_source_ref_evidence_parts(item))
     return "\n".join(texts)
 
@@ -107,7 +122,7 @@ def _evidence_preview_lookup(value: object) -> dict[str, str]:
         return {
             ref: text
             for raw_ref, raw_text in value.items()
-            if (ref := str(raw_ref).strip()[:120])
+            if (ref := _safe_preview_ref(raw_ref))
             and (text := preview_value(raw_text, max_chars=240))
         }
     if isinstance(value, Sequence) and not isinstance(value, str | bytes):
@@ -115,7 +130,7 @@ def _evidence_preview_lookup(value: object) -> dict[str, str]:
         for item in value[:20]:
             if not isinstance(item, Mapping):
                 continue
-            ref = str(item.get("ref") or "").strip()[:120]
+            ref = _safe_preview_ref(item.get("ref"))
             text = preview_value(item.get("text"), max_chars=240)
             if ref and text:
                 previews[ref] = text
@@ -152,8 +167,7 @@ def _item_source_ref_evidence_parts(item: Mapping[str, object]) -> list[str]:
 
 def _source_ref_evidence_parts(ref: object) -> list[str]:
     if isinstance(ref, str):
-        text = ref.strip()
-        return [text[:320]] if text else []
+        return _safe_source_ref_text_parts(ref)
     if not isinstance(ref, Mapping):
         return []
     parts: list[str] = []
@@ -161,6 +175,57 @@ def _source_ref_evidence_parts(ref: object) -> list[str]:
         value = ref.get(key)
         if isinstance(value, str):
             text = value.strip()
-            if text:
-                parts.append(text[:320])
+            if not text:
+                continue
+            if key == "source_type":
+                source_type = safe_item_id_for_output(text)
+                if source_type:
+                    parts.append(source_type[:80])
+            elif key == "quote_preview":
+                quote = preview_value(text, max_chars=320)
+                if quote:
+                    parts.append(quote)
+            else:
+                item_id = safe_item_id_for_output(text)
+                if item_id:
+                    parts.append(item_id[:320])
+                for part in _safe_source_ref_text_parts(text):
+                    if part not in parts:
+                        parts.append(part)
     return parts
+
+
+def _safe_source_ref_text_parts(value: object) -> list[str]:
+    text = str(value or "").strip()
+    if not text:
+        return []
+    refs = safe_source_refs_for_output((text,))
+    if refs:
+        return [ref[:320] for ref in refs]
+    item_id = safe_item_id_for_output(text)
+    return [item_id[:320]] if item_id else []
+
+
+def _safe_preview_ref(value: object) -> str:
+    refs = safe_source_refs_for_output(value)
+    if refs:
+        return refs[0][:120]
+    return ""
+
+
+def _safe_preview_text(value: object, *, max_chars: int) -> str:
+    text = redact_sensitive_text(str(value or "").strip())
+    if not text:
+        return ""
+    if looks_like_raw_source_ref(text):
+        return _REDACTED_TEXT
+    return text[:max_chars]
+
+
+def _safe_evidence_text(value: object) -> str:
+    text = redact_sensitive_text(str(value or "").strip())
+    if not text:
+        return ""
+    if looks_like_raw_source_ref(text):
+        return _REDACTED_TEXT
+    return text
