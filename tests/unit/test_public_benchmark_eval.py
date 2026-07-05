@@ -4066,6 +4066,58 @@ def test_public_memory_benchmark_accepts_nested_official_locomo_qa_evidence(
     assert case.expected_terms == ("D1:1", "D1:4")
 
 
+def test_public_memory_benchmark_accepts_structured_official_locomo_qa_evidence(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "locomo10-structured-qa-evidence-mini.json"
+    dataset.write_text(
+        json.dumps(
+            [
+                {
+                    "sample_id": "conv-structured-qa-evidence-mini",
+                    "conversation": {
+                        "session_1": [
+                            {
+                                "speaker": "Caroline",
+                                "dia_id": "D1:2",
+                                "text": "I picked pottery as my next creative workshop.",
+                            },
+                            {
+                                "speaker": "Caroline",
+                                "dia_id": "D1:5",
+                                "text": "The wheel-throwing class starts next Friday.",
+                            },
+                        ],
+                    },
+                    "qa": [
+                        {
+                            "question": "Which creative workshop did Caroline choose?",
+                            "answer": "pottery",
+                            "evidence": [
+                                {"dia_id": "D1:2"},
+                                {"turn_ids": ["D1:5", "D1:missing"]},
+                            ],
+                            "category": 2,
+                        }
+                    ],
+                    "observation": [],
+                    "event_summary": [],
+                    "session_summary": [],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    case = _load_cases(dataset)[0]
+
+    assert case.expected_terms == ("D1:2", "D1:5")
+    assert case.metadata["evidence_previews"] == {
+        "D1:2": "I picked pottery as my next creative workshop.",
+        "D1:5": "The wheel-throwing class starts next Friday.",
+    }
+
+
 def test_public_memory_benchmark_recalls_locomo_career_intent_synonyms(
     tmp_path: Path,
 ) -> None:

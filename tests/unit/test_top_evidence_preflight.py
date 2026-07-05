@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from infinity_context_server import top_evidence_preflight
 from infinity_context_server.top_evidence_preflight import run_top_evidence_preflight
 
 
@@ -122,6 +123,32 @@ def test_top_evidence_preflight_accepts_openai_key_file_without_leak(
     assert "sk-test-secret-from-file" not in rendered
     assert str(key_file) not in rendered
     assert str(tmp_path) not in rendered
+
+
+def test_top_evidence_preflight_falls_back_to_standard_docker_path_when_path_is_restricted(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    docker = bin_dir / "docker"
+    docker.write_text("#!/bin/sh\n", encoding="utf-8")
+    docker.chmod(0o755)
+    monkeypatch.setattr(
+        top_evidence_preflight,
+        "TOP_EVIDENCE_EXECUTABLE_FALLBACK_DIRS",
+        (bin_dir,),
+    )
+
+    result = run_top_evidence_preflight(
+        env=_top_evidence_env(tmp_path, PATH=""),
+        cwd=tmp_path,
+        git={"commit": "abc123", "dirty": False},
+    )
+
+    assert result.ok is True
+    assert result.checks["docker_available"] is True
+    assert result.sanitized_config["docker_available"] is True
 
 
 def test_top_evidence_preflight_rejects_dirty_worktree_without_override(
