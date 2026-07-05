@@ -286,6 +286,46 @@ def test_answer_context_backfill_filters_auth_source_payloads_without_losing_ide
     assert "provider-auth-private-marker" not in serialized
 
 
+def test_answer_context_keeps_exact_turn_identity_unqualified_when_text_has_session() -> None:
+    context = answer_context_from_evidence_bundle(
+        (
+            RetrievedMemory(
+                text="session_9 D7:2 Morgan checked in about the workshop.",
+                rank=1,
+                item_id="exact-turn-with-session-text",
+                source_refs=("D7:2",),
+            ),
+        ),
+        {
+            "items": [
+                {
+                    "id": "exact-turn-with-session-text",
+                    "retrieval_order": 1,
+                    "role": "relative_temporal_support",
+                    "source_refs": ["D7:2"],
+                }
+            ]
+        },
+        cutoff=1,
+    )
+
+    diagnostics = context.to_diagnostics()
+
+    assert context.memories[0].source_refs == ("D7:2",)
+    assert diagnostics["source_identity_refs"] == ["source_turn_refs:D7:2"]
+    assert diagnostics["source_identity_items"] == [
+        {
+            "source_identity_refs": ["source_turn_refs:D7:2"],
+            "item_id": "exact-turn-with-session-text",
+            "retrieval_order": 1,
+        }
+    ]
+    assert not any(
+        ref.startswith("source_session_turn_refs:")
+        for ref in diagnostics["source_identity_refs"]
+    )
+
+
 def test_answer_context_diagnostics_filters_raw_provider_item_ids() -> None:
     context = answer_context_from_evidence_bundle(
         (
