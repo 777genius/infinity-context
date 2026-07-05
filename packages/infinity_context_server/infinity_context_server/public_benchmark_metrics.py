@@ -271,17 +271,17 @@ def progress_case_outcome_fields(
         "failure_report_count": len(failures),
         "failure_case_ratio": _ratio(failed_case_count, bounded_processed_case_count),
         "recent_failed_case_ids": [
-            item.case_id for item in run_results if not item.ok
+            _safe_progress_identifier(item.case_id) for item in run_results if not item.ok
         ][-10:],
     }
     if run_results:
         last = run_results[-1]
         result.update(
             {
-                "last_case_benchmark": last.benchmark,
-                "last_case_id": last.case_id,
+                "last_case_benchmark": _safe_progress_identifier(last.benchmark),
+                "last_case_id": _safe_progress_identifier(last.case_id),
                 "last_case_status": "ok" if last.ok else "failed",
-                "last_case_capability": last.capability,
+                "last_case_capability": _safe_progress_identifier(last.capability),
                 "last_case_latency_ms": round(last.latency_ms, 2),
             }
         )
@@ -445,6 +445,10 @@ def _ratio(numerator: int, denominator: int) -> float:
 
 def _safe_preview_text(value: object, *, max_chars: int) -> str:
     return _preview_value(value, max_chars=max_chars)
+
+
+def _safe_progress_identifier(value: object) -> str:
+    return _safe_preview_text(value, max_chars=_PREVIEW_CHARS)
 
 
 def _safe_preview_list(

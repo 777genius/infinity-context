@@ -18,13 +18,15 @@ from infinity_context_server.public_benchmark_manifest import build_execution_ma
 def _case_result(
     case_id: str = "case-one",
     *,
+    benchmark: str = "locomo",
+    capability: str = "locomo:temporal_reasoning",
     ok: bool = True,
     question_preview: str = "",
 ) -> CaseRunResult:
     return CaseRunResult(
-        benchmark="locomo",
+        benchmark=benchmark,
         case_id=case_id,
-        capability="locomo:temporal_reasoning",
+        capability=capability,
         ok=ok,
         expected_ok=ok,
         forbidden_ok=True,
@@ -169,6 +171,49 @@ def test_public_benchmark_checkpoint_sanitizes_failure_artifact_fields(
     assert "safe-chunk" in rendered
     assert "source_session_turn_refs:session_3:D3:11" in rendered
     assert "source_turn_refs:D4:5" in rendered
+
+
+def test_public_benchmark_checkpoint_sanitizes_progress_case_identifiers(
+    tmp_path: Path,
+) -> None:
+    bearer_payload = "Bearer " + ("a" * 16)
+    raw_ref = "locomo:conv-private:session_3:D3:11:turn-secret"
+    checkpoint = tmp_path / "checkpoint.json"
+    progress = _BenchmarkProgress(
+        dataset_path=tmp_path / "dataset.json",
+        dataset_hash="dataset-hash",
+        total_case_count=2,
+        case_selection=None,
+        started=time.perf_counter() - 10,
+        checkpoint_out=checkpoint,
+        checkpoint_every_cases=1,
+    )
+
+    progress.checkpoint(
+        processed_case_count=2,
+        run_results=(
+            _case_result(f"case-ok {bearer_payload}"),
+            _case_result(
+                raw_ref,
+                benchmark=f"locomo {bearer_payload}",
+                capability=f"locomo:temporal_reasoning {bearer_payload}",
+                ok=False,
+            ),
+        ),
+        failures=({"case_id": raw_ref, "reason": "missing_expected_terms"},),
+        seeded_source_count=1,
+    )
+
+    payload = json.loads(checkpoint.read_text(encoding="utf-8"))
+    rendered = json.dumps(payload["progress"], sort_keys=True)
+
+    assert "Bearer" not in rendered
+    assert "conv-private" not in rendered
+    assert "turn-secret" not in rendered
+    assert payload["progress"]["recent_failed_case_ids"] == ["[redacted]"]
+    assert payload["progress"]["last_case_benchmark"] == "locomo [redacted]"
+    assert payload["progress"]["last_case_id"] == "[redacted]"
+    assert payload["progress"]["last_case_capability"] == "[redacted]"
 
 
 def test_public_benchmark_progress_event_includes_actionable_outcome_snapshot(
