@@ -577,7 +577,7 @@ def bundle_weak_support_reasons(bundle: Mapping[str, object]) -> tuple[str, ...]
         reasons.append("all_selected_support_weak")
     elif weak_items:
         reasons.append("weak_selected_support")
-    for item in support_items:
+    for item in weak_items:
         reasons.extend(_support_quality_risk_reasons(item))
     if (
         support_items

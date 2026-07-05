@@ -235,6 +235,48 @@ def test_temporal_grounding_counts_exact_turn_refs_as_source_windows() -> None:
     assert table["selected_temporal_grounding_issue_reason_counts"] == {}
 
 
+def test_temporal_grounding_counts_hyphenated_raw_refs_as_source_windows() -> None:
+    diagnostics = quality_diagnostics(
+        (
+            _item(
+                case_id="temporal-hyphenated-raw-ref",
+                group="temporal",
+                retrieval=_retrieval_payload(
+                    evidence_need=("temporal_support",),
+                    bundle_evidence_roles=("primary", "temporal_sequence_support"),
+                    relation_categories=("temporal",),
+                    policy_score=0.2,
+                    candidate_features={
+                        "query_roles": ["temporal_sequence_support"],
+                        "time_intent_kind": "temporal_sequence",
+                    },
+                ),
+                evidence_bundle={
+                    "items": [
+                        {
+                            "id": "hyphenated-raw-ref",
+                            "role": "temporal_sequence_support",
+                            "query_roles": ["temporal_sequence_support"],
+                            "source_refs": [
+                                "locomo-conv-private-session_8-D8-3-turn-secret"
+                            ],
+                            "text": "session_8 date: 9 October, 2022",
+                        }
+                    ]
+                },
+            ),
+        )
+    )
+
+    table = diagnostics["temporal_grounding_table"]
+
+    assert table["selected_source_window_item_count"] == 1
+    assert table["selected_missing_source_window_item_count"] == 0
+    assert table["selected_strong_temporal_grounding_item_count"] == 1
+    assert table["selected_temporal_grounding_issue_item_count"] == 0
+    assert table["selected_temporal_grounding_issue_reason_counts"] == {}
+
+
 def test_temporal_grounding_keeps_exact_turn_window_unqualified() -> None:
     diagnostics = quality_diagnostics(
         (

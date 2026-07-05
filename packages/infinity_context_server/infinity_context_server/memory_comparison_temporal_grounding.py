@@ -609,7 +609,12 @@ def _grounding_gap_sample(
 
 def _has_source_window_ref(source_refs: Sequence[str]) -> bool:
     return any(
-        _safe_turn_ref(ref) is not None or _SOURCE_WINDOW_REF_RE.search(ref)
+        _safe_turn_ref(ref) is not None
+        or _SOURCE_WINDOW_REF_RE.search(ref)
+        or _source_identity_refs_from_source_refs(
+            (ref,),
+            include_exact_turn_refs=True,
+        )
         for ref in source_refs
     )
 
