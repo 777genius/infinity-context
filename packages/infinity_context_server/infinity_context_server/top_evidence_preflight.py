@@ -38,6 +38,11 @@ REQUIRED_MULTIMODAL_AUDIO_TYPES = frozenset({".mp3", ".wav"})
 REQUIRED_AGENT_SCENARIO_SET = "all"
 TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 SAFE_VISION_DETAILS = frozenset({"auto", "high", "low"})
+TOP_EVIDENCE_EXECUTABLE_FALLBACK_DIRS = (
+    Path("/usr/bin"),
+    Path("/bin"),
+    Path("/usr/local/bin"),
+)
 
 
 @dataclass(frozen=True)
@@ -73,7 +78,9 @@ def run_top_evidence_preflight(
 ) -> TopEvidencePreflightResult:
     env = os.environ if env is None else env
     cwd = cwd or _repository_root()
-    docker_path = docker_path if docker_path is not None else shutil.which("docker")
+    docker_path = (
+        docker_path if docker_path is not None else _find_executable("docker", env=env)
+    )
     git = git if git is not None else git_metadata(cwd=cwd)
     allow_dirty = _bool_env(env, "MEMORY_QUALITY_EVIDENCE_ALLOW_DIRTY_TOP")
     requested_public_case_floor = _positive_int_env(
@@ -546,6 +553,17 @@ def _api_key_file_present(env: Mapping[str, str]) -> bool:
         return path.is_file() and bool(path.read_text(encoding="utf-8").strip())
     except OSError:
         return False
+
+
+def _find_executable(name: str, *, env: Mapping[str, str]) -> str | None:
+    resolved = shutil.which(name, path=env.get("PATH"))
+    if resolved:
+        return resolved
+    for directory in TOP_EVIDENCE_EXECUTABLE_FALLBACK_DIRS:
+        candidate = directory / name
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+    return None
 
 
 def _dataset_profile(path: Path | None, *, benchmark: str) -> dict[str, object] | None:

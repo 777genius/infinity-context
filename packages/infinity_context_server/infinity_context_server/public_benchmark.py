@@ -1680,10 +1680,8 @@ def _official_locomo_evidence_terms(
     qa: Mapping[str, object],
     evidence_lookup: Mapping[str, str],
 ) -> tuple[str, ...]:
-    evidence = qa.get("evidence")
     terms: list[str] = []
-    for item in _flatten_benchmark_scalar_values(evidence):
-        evidence_id = str(item).strip()
+    for evidence_id in _official_locomo_qa_evidence_ids(qa.get("evidence")):
         if evidence_id and evidence_id in evidence_lookup:
             terms.append(evidence_id)
     return tuple(_unique(terms))
@@ -1695,12 +1693,43 @@ def _official_locomo_evidence_previews(
     evidence_lookup: Mapping[str, str],
 ) -> dict[str, str]:
     previews: dict[str, str] = {}
-    for item in _flatten_benchmark_scalar_values(qa.get("evidence")):
-        evidence_id = str(item).strip()
+    for evidence_id in _official_locomo_qa_evidence_ids(qa.get("evidence")):
         evidence_text = evidence_lookup.get(evidence_id)
         if evidence_id and evidence_text:
             previews[evidence_id] = _preview_value(evidence_text, max_chars=240)
     return previews
+
+
+def _official_locomo_qa_evidence_ids(evidence: object) -> tuple[str, ...]:
+    values: list[str] = []
+    for item in _official_locomo_qa_evidence_values(evidence):
+        evidence_id = str(item).strip()
+        if evidence_id:
+            values.append(evidence_id)
+    return tuple(_unique(values))
+
+
+def _official_locomo_qa_evidence_values(evidence: object) -> tuple[object, ...]:
+    if isinstance(evidence, Mapping):
+        values: list[object] = []
+        for key in (
+            "dia_id",
+            "evidence",
+            "evidence_id",
+            "evidence_ids",
+            "id",
+            "turn_id",
+            "turn_ids",
+        ):
+            if key in evidence:
+                values.extend(_official_locomo_qa_evidence_values(evidence.get(key)))
+        return tuple(values)
+    if isinstance(evidence, Sequence) and not isinstance(evidence, str | bytes):
+        flattened: list[object] = []
+        for item in evidence:
+            flattened.extend(_official_locomo_qa_evidence_values(item))
+        return tuple(flattened)
+    return (evidence,) if evidence is not None else ()
 
 
 def _official_locomo_supported_answer_terms(
