@@ -206,6 +206,64 @@ def test_query_plan_gap_breakdown_reports_gap_reason_details() -> None:
     ] == ["fanout-gap-1"]
 
 
+def test_query_plan_gap_breakdown_explains_missing_recommended_family_causes() -> None:
+    samples = (
+        {
+            "case_id": "fanout-dropped-temporal",
+            "missing_recommended_role_families": ("temporal_support",),
+            "dropped_roles": ("temporal_support",),
+            "fanout_limit_hit": True,
+        },
+        {
+            "case_id": "absent-temporal",
+            "missing_recommended_role_families": ("temporal_support",),
+        },
+        {
+            "case_id": "type-dropped-location",
+            "missing_recommended_role_families": ("location_support",),
+            "dropped_role_families": ("location_support",),
+            "type_limit_hit": True,
+        },
+    )
+
+    breakdown = query_plan_gap_breakdown(
+        {
+            "plan_count": 3,
+            "plan_gap_case_count": 3,
+            "missing_recommended_role_family_total": 3,
+            "missing_recommended_role_family_counts": {
+                "temporal_support": 2,
+                "location_support": 1,
+            },
+            "samples": samples,
+        }
+    )
+
+    details = breakdown["missing_recommended_role_family_details"]
+    assert list(details) == ["temporal_support", "location_support"]
+    assert details["temporal_support"] == {
+        "role_family": "temporal_support",
+        "role_family_label": "temporal support",
+        "impact_count": 2,
+        "sample_cause_counts": {
+            "dropped_by_fanout_limit": 1,
+            "candidate_absent": 1,
+        },
+        "action": (
+            "Preserve temporal support queries before the query fanout cap "
+            "drops lower-priority recommended coverage."
+        ),
+        "sample_case_ids": ["fanout-dropped-temporal", "absent-temporal"],
+    }
+    assert details["location_support"]["sample_cause_counts"] == {
+        "dropped_by_type_limit": 1
+    }
+    assert details["location_support"]["action"] == (
+        "Preserve location support queries when type limits replace or drop "
+        "candidate query families."
+    )
+
+
 def test_query_plan_gap_breakdown_compact_samples_cap_text_payloads() -> None:
     long_text = "x" * 200
     samples = tuple(
@@ -216,6 +274,10 @@ def test_query_plan_gap_breakdown_compact_samples_cap_text_payloads() -> None:
             "missing_evidence_role_query_families": (f"location-{long_text}",),
             "selected_role_families": tuple(
                 f"family-{family_index}-{long_text}" for family_index in range(7)
+            ),
+            "dropped_role_families": tuple(
+                f"dropped-family-{family_index}-{long_text}"
+                for family_index in range(7)
             ),
             "required_evidence_roles": (
                 "primary",
@@ -244,6 +306,7 @@ def test_query_plan_gap_breakdown_compact_samples_cap_text_payloads() -> None:
     assert compact_samples[0]["case_id"].endswith("...")
     assert compact_samples[0]["group"].endswith("...")
     assert len(compact_samples[0]["selected_role_families"]) == 5
+    assert len(compact_samples[0]["dropped_role_families"]) == 5
     assert all(
         len(value) <= 128
         for sample in compact_samples
@@ -252,6 +315,7 @@ def test_query_plan_gap_breakdown_compact_samples_cap_text_payloads() -> None:
             sample["group"],
             *sample["missing_evidence_role_query_families"],
             *sample["selected_role_families"],
+            *sample["dropped_role_families"],
             *sample["required_evidence_roles"],
         )
     )

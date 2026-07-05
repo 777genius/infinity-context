@@ -84,9 +84,9 @@ def benchmark_summaries(
 
 def case_payload(item: CaseRunResult) -> dict[str, object]:
     payload: dict[str, object] = {
-        "benchmark": item.benchmark,
-        "case_id": item.case_id,
-        "capability": item.capability,
+        "benchmark": _safe_scalar_text(item.benchmark, max_chars=_TERM_CHARS),
+        "case_id": _safe_scalar_text(item.case_id, max_chars=_TERM_CHARS),
+        "capability": _safe_scalar_text(item.capability, max_chars=_TERM_CHARS),
         "status": "ok" if item.ok else "failed",
         "expected_ok": item.expected_ok,
         "forbidden_ok": item.forbidden_ok,
@@ -134,9 +134,9 @@ def case_failures(run_results: Sequence[CaseRunResult]) -> list[dict[str, object
 
 def _case_failure_payload(item: CaseRunResult) -> dict[str, object]:
     payload: dict[str, object] = {
-        "case_id": item.case_id,
-        "category": item.benchmark,
-        "capability": item.capability,
+        "case_id": _safe_scalar_text(item.case_id, max_chars=_TERM_CHARS),
+        "category": _safe_scalar_text(item.benchmark, max_chars=_TERM_CHARS),
+        "capability": _safe_scalar_text(item.capability, max_chars=_TERM_CHARS),
         "reason": "missing_expected_terms" if item.missing_terms else "forbidden_terms_leaked",
         "missing_terms": _safe_preview_list(item.missing_terms),
         "leaked_terms": _safe_preview_list(item.leaked_terms),

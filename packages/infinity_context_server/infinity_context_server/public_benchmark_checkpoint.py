@@ -518,9 +518,9 @@ def _checkpoint_failure_diagnostic(
     raw_reason = _non_empty_str(report.get("reason")) if report is not None else None
     reason = raw_reason or _failure_reason_from_result(result)
     payload: dict[str, object] = {
-        "case_id": result.case_id,
-        "category": result.benchmark,
-        "capability": result.capability,
+        "case_id": _safe_preview(result.case_id, max_chars=_MAX_FAILURE_REF_CHARS),
+        "category": _safe_preview(result.benchmark, max_chars=_MAX_FAILURE_REASON_CHARS),
+        "capability": _safe_preview(result.capability, max_chars=_MAX_FAILURE_REF_CHARS),
         "reason": _safe_preview(reason, max_chars=_MAX_FAILURE_REASON_CHARS),
         "missing_terms": _bounded_str_list(result.missing_terms),
         "leaked_terms": _bounded_str_list(result.leaked_terms),

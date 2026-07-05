@@ -139,7 +139,9 @@ def test_public_benchmark_checkpoint_sanitizes_failure_artifact_fields(
         dataset_path=tmp_path / "dataset.json",
         dataset_hash="dataset-hash",
         total_case_count=1,
-        case_selection=None,
+        case_selection={
+            "requested_case_ids": [f"case-failed {bearer_payload}"],
+        },
         started=time.perf_counter() - 10,
         checkpoint_out=checkpoint,
         checkpoint_every_cases=1,
@@ -147,7 +149,7 @@ def test_public_benchmark_checkpoint_sanitizes_failure_artifact_fields(
 
     progress.checkpoint(
         processed_case_count=1,
-        run_results=(_case_result("case-failed", ok=False),),
+        run_results=(_case_result(f"case-failed {bearer_payload}", ok=False),),
         failures=(
             {
                 "case_id": f"case-failed {bearer_payload}",
@@ -162,7 +164,14 @@ def test_public_benchmark_checkpoint_sanitizes_failure_artifact_fields(
 
     payload = json.loads(checkpoint.read_text(encoding="utf-8"))
     rendered = json.dumps(
-        {"failures": payload["failures"], "recent_failures": payload["recent_failures"]},
+        {
+            "case_selection": payload["case_selection"],
+            "cases": payload["cases"],
+            "failures": payload["failures"],
+            "progress": payload["progress"],
+            "recent_cases": payload["recent_cases"],
+            "recent_failures": payload["recent_failures"],
+        },
         sort_keys=True,
     )
 
@@ -170,6 +179,12 @@ def test_public_benchmark_checkpoint_sanitizes_failure_artifact_fields(
     assert "MEMORY_TOKEN" not in rendered
     assert "conv-private" not in rendered
     assert "turn-secret" not in rendered
+    assert payload["case_selection"]["requested_case_ids"] == [
+        "case-failed [redacted]"
+    ]
+    assert payload["progress"]["last_case_id"] == "case-failed [redacted]"
+    assert payload["progress"]["recent_failed_case_ids"] == ["case-failed [redacted]"]
+    assert payload["cases"][0]["case_id"] == "case-failed [redacted]"
     assert payload["failures"][0]["case_id"] == "case-failed [redacted]"
     assert "safe-chunk" in rendered
     assert "source_session_turn_refs:session_3:D3:11" in rendered
