@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 from infinity_context_server.public_benchmark import (
@@ -11,6 +12,8 @@ from infinity_context_server.public_benchmark import (
 from infinity_context_server.public_benchmark_checkpoint import (
     BenchmarkSeedStats,
     CaseRunResult,
+    load_checkpoint_resume_state_with_diagnostics,
+    selected_case_fingerprint,
 )
 from infinity_context_server.public_benchmark_manifest import build_execution_manifest
 
@@ -216,6 +219,58 @@ def test_public_benchmark_checkpoint_sanitizes_progress_case_identifiers(
     assert payload["progress"]["last_case_capability"] == "[redacted]"
 
 
+def test_public_benchmark_checkpoint_sanitizes_case_selection_and_resumes(
+    tmp_path: Path,
+) -> None:
+    bearer_payload = "Bearer " + ("a" * 16)
+    raw_case_selection = {
+        "strategy": "first",
+        "requested_case_ids": [f"locomo:conv-26:qa:70 {bearer_payload}"],
+        "missing_case_ids": [f"locomo:missing {bearer_payload}"],
+    }
+    case = _ResumeCase(benchmark="locomo", case_id="case-one")
+    checkpoint = tmp_path / "checkpoint.json"
+    progress = _BenchmarkProgress(
+        dataset_path=tmp_path / "dataset.json",
+        dataset_hash="dataset-hash",
+        total_case_count=1,
+        case_selection=raw_case_selection,
+        started=time.perf_counter() - 10,
+        checkpoint_out=checkpoint,
+        checkpoint_every_cases=1,
+        selected_case_fingerprint=selected_case_fingerprint((case,)),
+    )
+
+    progress.checkpoint(
+        processed_case_count=1,
+        run_results=(_case_result("case-one"),),
+        failures=(),
+        seeded_source_count=1,
+    )
+
+    payload = json.loads(checkpoint.read_text(encoding="utf-8"))
+    rendered = json.dumps(payload, sort_keys=True)
+
+    assert "Bearer" not in rendered
+    assert payload["case_selection"] == {
+        "strategy": "first",
+        "requested_case_ids": ["locomo:conv-26:qa:70 [redacted]"],
+        "missing_case_ids": ["locomo:missing [redacted]"],
+    }
+    assert isinstance(payload["case_selection_fingerprint"], str)
+
+    loaded = load_checkpoint_resume_state_with_diagnostics(
+        checkpoint_out=checkpoint,
+        dataset_hash="dataset-hash",
+        case_selection=raw_case_selection,
+        cases=(case,),
+    )
+
+    assert loaded.status == "loaded"
+    assert loaded.state is not None
+    assert [result.case_id for result in loaded.state.run_results] == ["case-one"]
+
+
 def test_public_benchmark_progress_event_includes_actionable_outcome_snapshot(
     tmp_path: Path,
 ) -> None:
@@ -388,3 +443,13 @@ def test_public_benchmark_execution_manifest_redacts_requested_case_ids(
     assert manifest["selection"]["case_selection"]["requested_case_ids"] == [
         "locomo:conv-26:qa:70 [redacted]"
     ]
+
+
+@dataclass(frozen=True)
+class _ResumeCase:
+    benchmark: str
+    case_id: str
+    memory_scope_external_ref: str | None = None
+    thread_external_ref: str | None = None
+    memories: tuple[object, ...] = ()
+    documents: tuple[object, ...] = ()

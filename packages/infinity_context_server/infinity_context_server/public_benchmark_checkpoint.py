@@ -150,7 +150,18 @@ def load_checkpoint_resume_state_with_diagnostics(
             "dataset_hash_mismatch",
             selected_case_count=selected_case_count,
         )
-    if dict(_as_mapping(payload.get("case_selection"))) != dict(case_selection or {}):
+    checkpoint_case_selection_fingerprint = _non_empty_str(
+        payload.get("case_selection_fingerprint")
+    )
+    if checkpoint_case_selection_fingerprint is not None:
+        case_selection_matches = checkpoint_case_selection_fingerprint == (
+            case_selection_fingerprint(case_selection)
+        )
+    else:
+        case_selection_matches = dict(_as_mapping(payload.get("case_selection"))) == dict(
+            case_selection or {}
+        )
+    if not case_selection_matches:
         return _resume_load_skipped(
             "case_selection_mismatch",
             selected_case_count=selected_case_count,
@@ -337,6 +348,16 @@ def selected_case_fingerprint(cases: Sequence[Any]) -> str:
             }
             for case in cases
         ],
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def case_selection_fingerprint(case_selection: Mapping[str, object] | None) -> str:
+    encoded = json.dumps(
+        case_selection or {},
         ensure_ascii=False,
         separators=(",", ":"),
         sort_keys=True,

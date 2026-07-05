@@ -13,8 +13,8 @@ _TURN_REF_PARTS_RE = re.compile(
     re.IGNORECASE,
 )
 _SOURCE_SESSION_TURN_RE = re.compile(
-    r"(?:^|[:_-])session[-_](?P<session>\d+)[:_-](?P<turn_ref>D\d+[:-]\d+)[:_-]"
-    r"(?:turn|chunk|fact)(?:[-_][^:]*)?$",
+    r"(?:^|[:_-])session[-_](?P<session>\d+)[:_-](?P<turn_ref>D\d+[:-]\d+)"
+    r"(?:$|[:_-](?:turn|chunk|fact)(?:[-_][^:]*)?$)",
     re.IGNORECASE,
 )
 _TEXT_SESSION_TURN_RE = re.compile(

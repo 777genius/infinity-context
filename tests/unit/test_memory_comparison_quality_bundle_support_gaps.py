@@ -31,6 +31,25 @@ def test_bundle_weak_support_reasons_marks_role_label_only_support() -> None:
     assert bundle_weak_support_reasons(bundle) == ("role_label_only_support",)
 
 
+def test_bundle_weak_support_reasons_marks_negative_role_label_only_support() -> None:
+    bundle = {
+        "items": [
+            {
+                "role": "primary",
+                "covered_evidence_terms": ["D1:1"],
+                "focused_evidence_score": 1.0,
+            },
+            {
+                "role": "negative_support",
+                "planner_reason_codes": ["role:negative_support"],
+                "answerability_score": 0.8,
+            },
+        ]
+    }
+
+    assert bundle_weak_support_reasons(bundle) == ("role_label_only_support",)
+
+
 def test_bundle_support_audit_items_reports_redacted_support_facts() -> None:
     bundle = {
         "items": [
@@ -70,6 +89,40 @@ def test_bundle_support_audit_items_reports_redacted_support_facts() -> None:
             "relation_hit_count": 0,
             "relation_category_hits": (),
             "planner_reason_codes": ("role:preference_support",),
+        },
+    )
+
+
+def test_bundle_support_audit_items_reports_negative_support_facts() -> None:
+    bundle = {
+        "items": [
+            {
+                "role": "negative_support",
+                "retrieval_order": 1,
+                "planner_reason_codes": ["negative_absence_support"],
+                "answerability_score": 0.42,
+                "source_locality_score": 0.8,
+            }
+        ]
+    }
+
+    assert bundle_support_audit_items(bundle) == (
+        {
+            "item_index": 1,
+            "role": "negative_support",
+            "retrieval_order": 1,
+            "support_quality_passed": False,
+            "support_risk_reasons": ("low_answerability_support",),
+            "has_substantive_support": False,
+            "answerability_score": 0.42,
+            "source_locality_score": 0.8,
+            "source_refs": (),
+            "covered_evidence_terms": (),
+            "entity_hit_count": 0,
+            "speaker_hit_count": 0,
+            "relation_hit_count": 0,
+            "relation_category_hits": (),
+            "planner_reason_codes": ("negative_absence_support",),
         },
     )
 
