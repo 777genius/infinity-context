@@ -2216,6 +2216,7 @@ def _compact_fast_gate_summary(
     answerability_gaps = _mapping(gate.get("answerability_gap_breakdown"))
     rerank_signal_gaps = _mapping(gate.get("rerank_signal_gap_breakdown"))
     answer_context_gaps = _mapping(gate.get("answer_context_support_gap_summary"))
+    temporal_grounding = _mapping(gate.get("temporal_grounding_table"))
     actionable = _mapping(gate.get("actionable_gap_summary"))
     top_actionable_gaps = _compact_actionable_gaps(actionable.get("ranked_gaps"))
     compact_top_gap = (
@@ -2398,6 +2399,70 @@ def _compact_fast_gate_summary(
         "answer_context_support_gap_samples": (
             _compact_answer_context_support_gap_samples(
                 answer_context_gaps.get("samples")
+            )
+        ),
+        "temporal_grounding_counts": {
+            "temporal_case_count": _positive_int(
+                temporal_grounding.get("temporal_case_count")
+            )
+            or 0,
+            "temporal_scored_case_count": _positive_int(
+                temporal_grounding.get("temporal_scored_case_count")
+            )
+            or 0,
+            "selected_item_count": _positive_int(
+                temporal_grounding.get("selected_item_count")
+            )
+            or 0,
+            "selected_source_window_item_count": _positive_int(
+                temporal_grounding.get("selected_source_window_item_count")
+            )
+            or 0,
+            "selected_relative_date_grounded_item_count": _positive_int(
+                temporal_grounding.get("selected_relative_date_grounded_item_count")
+            )
+            or 0,
+            "selected_strong_temporal_grounding_item_count": _positive_int(
+                temporal_grounding.get(
+                    "selected_strong_temporal_grounding_item_count"
+                )
+            )
+            or 0,
+            "selected_temporal_grounding_issue_item_count": _positive_int(
+                temporal_grounding.get(
+                    "selected_temporal_grounding_issue_item_count"
+                )
+            )
+            or 0,
+            "selected_missing_temporal_grounding_issue_item_count": _positive_int(
+                temporal_grounding.get(
+                    "selected_missing_temporal_grounding_issue_item_count"
+                )
+            )
+            or 0,
+            "selected_weak_temporal_grounding_issue_item_count": _positive_int(
+                temporal_grounding.get(
+                    "selected_weak_temporal_grounding_issue_item_count"
+                )
+            )
+            or 0,
+            "selected_conflicting_temporal_grounding_issue_item_count": (
+                _positive_int(
+                    temporal_grounding.get(
+                        "selected_conflicting_temporal_grounding_issue_item_count"
+                    )
+                )
+                or 0
+            ),
+            "issue_reason_counts": _compact_count_mapping(
+                temporal_grounding.get(
+                    "selected_temporal_grounding_issue_reason_counts"
+                )
+            ),
+        },
+        "temporal_grounding_issue_samples": (
+            _compact_temporal_grounding_issue_samples(
+                temporal_grounding.get("selected_temporal_grounding_issue_samples")
             )
         ),
         "rerank_signal_gap_counts": {
@@ -2617,6 +2682,56 @@ def _compact_answer_context_support_gap_samples(
 def _compact_source_identity_refs(value: object, *, limit: int = 8) -> tuple[str, ...]:
     refs = (_safe_source_identity_ref(raw_ref) for raw_ref in _str_tuple(value))
     return tuple(dict.fromkeys(ref for ref in refs if ref))[:limit]
+
+
+def _compact_temporal_grounding_issue_samples(
+    value: object,
+    *,
+    limit: int = 3,
+) -> list[dict[str, object]]:
+    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
+        return []
+    samples: list[dict[str, object]] = []
+    scalar_keys = ("case_id", "group", "item_id", "role")
+    list_keys = (
+        "query_roles",
+        "source_refs",
+        "issue_reasons",
+        "source_identity_gap_codes",
+    )
+    for raw_sample in value[:limit]:
+        sample = _mapping(raw_sample)
+        if not sample:
+            continue
+        compact = {
+            key: sample[key]
+            for key in scalar_keys
+            if isinstance(sample.get(key), str | int | float | bool)
+        }
+        compact.update(
+            {
+                key: list(_str_tuple(sample.get(key))[:6])
+                for key in list_keys
+                if _str_tuple(sample.get(key))
+            }
+        )
+        signals = _mapping(sample.get("grounding_signals"))
+        signal_payload = {
+            key: bool(signals.get(key))
+            for key in (
+                "source_window",
+                "session_boundary",
+                "date_or_range",
+                "relative_date",
+                "temporal_order",
+            )
+            if key in signals
+        }
+        if signal_payload:
+            compact["grounding_signals"] = signal_payload
+        if compact:
+            samples.append(compact)
+    return samples
 
 
 def _compact_rerank_signal_gap_samples(

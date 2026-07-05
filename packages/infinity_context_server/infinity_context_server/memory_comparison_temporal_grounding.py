@@ -77,6 +77,21 @@ _RANGE_TEXT_RE = re.compile(
     r"\b(?:between|from|until|through|during|last|next|previous)\b",
     re.IGNORECASE,
 )
+_RELATIVE_DATE_TEXT_RE = re.compile(
+    r"\b(?:today|tonight|yesterday|tomorrow|"
+    r"this\s+(?:morning|afternoon|evening|weekend|week|month|quarter|year)|"
+    r"(?:earlier|later)\s+(?:today|tonight|this\s+"
+    r"(?:morning|afternoon|evening|weekend|week|month|quarter|year))|"
+    r"(?:last|next|previous)\s+(?:morning|afternoon|evening|night|weekend|week|month|"
+    r"quarter|year|monday|tuesday|wednesday|thursday|friday|saturday|sunday|"
+    r"jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"
+    r"jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|"
+    r"dec(?:ember)?)|"
+    r"(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)"
+    r"\s+(?:minutes?|hours?|days?|weeks?|weekends?|months?|quarters?|years?)\s+ago"
+    r")\b",
+    re.IGNORECASE,
+)
 _TEMPORAL_TEXT_KEYS = (
     "memory",
     "text",
@@ -135,10 +150,12 @@ def temporal_grounding_table(items: Sequence[Mapping[str, object]]) -> dict[str,
     selected_item_count = 0
     retrieval_session_boundary_count = 0
     retrieval_date_count = 0
+    retrieval_relative_date_count = 0
     retrieval_range_count = 0
     retrieval_order_count = 0
     selected_session_boundary_count = 0
     selected_date_count = 0
+    selected_relative_date_count = 0
     selected_range_count = 0
     selected_order_count = 0
     selected_ungrounded_count = 0
@@ -170,6 +187,7 @@ def temporal_grounding_table(items: Sequence[Mapping[str, object]]) -> dict[str,
             signals = _memory_grounding_signals(memory)
             retrieval_session_boundary_count += int(signals["session_boundary"])
             retrieval_date_count += int(signals["date"])
+            retrieval_relative_date_count += int(signals["relative_date"])
             retrieval_range_count += int(signals["range"])
             retrieval_order_count += int(signals["temporal_order"])
 
@@ -190,6 +208,7 @@ def temporal_grounding_table(items: Sequence[Mapping[str, object]]) -> dict[str,
             signals = _bundle_item_grounding_signals(bundle_item)
             selected_session_boundary_count += int(signals["session_boundary"])
             selected_date_count += int(signals["date"])
+            selected_relative_date_count += int(signals["relative_date"])
             selected_range_count += int(signals["range"])
             selected_order_count += int(signals["temporal_order"])
             issue_reasons = _temporal_grounding_issue_reasons(
@@ -241,11 +260,15 @@ def temporal_grounding_table(items: Sequence[Mapping[str, object]]) -> dict[str,
         "retrieval_candidate_count": retrieval_candidate_count,
         "retrieval_session_boundary_candidate_count": retrieval_session_boundary_count,
         "retrieval_date_grounded_candidate_count": retrieval_date_count,
+        "retrieval_relative_date_grounded_candidate_count": (
+            retrieval_relative_date_count
+        ),
         "retrieval_range_grounded_candidate_count": retrieval_range_count,
         "retrieval_temporal_order_candidate_count": retrieval_order_count,
         "selected_item_count": selected_item_count,
         "selected_session_boundary_item_count": selected_session_boundary_count,
         "selected_date_grounded_item_count": selected_date_count,
+        "selected_relative_date_grounded_item_count": selected_relative_date_count,
         "selected_range_grounded_item_count": selected_range_count,
         "selected_temporal_order_item_count": selected_order_count,
         "selected_ungrounded_temporal_item_count": selected_ungrounded_count,
@@ -356,12 +379,19 @@ def _memory_grounding_signals(memory: Mapping[str, object]) -> dict[str, bool]:
     refs = _source_refs_from_memory(memory)
     text = " ".join((*values, *refs))
     date = _has_any_field(diagnostics, _DATE_FIELD_KEYS) or _has_date_text(text)
+    relative_date = _has_relative_date_text(text)
     range_grounded = (
         _has_any_field(diagnostics, _RANGE_FIELD_KEYS)
         or _has_range_text(text)
+        or relative_date
         or any(features.get(key) is True for key in ("has_duration_surface",))
     )
-    return _grounding_signal_payload(text, date=date, range_grounded=range_grounded)
+    return _grounding_signal_payload(
+        text,
+        date=date,
+        relative_date=relative_date,
+        range_grounded=range_grounded,
+    )
 
 
 def _bundle_item_grounding_signals(item: Mapping[str, object]) -> dict[str, bool]:
@@ -369,8 +399,18 @@ def _bundle_item_grounding_signals(item: Mapping[str, object]) -> dict[str, bool
     refs = _source_refs_from_bundle_item(item)
     text = " ".join((*values, *refs))
     date = _has_any_field(item, _DATE_FIELD_KEYS) or _has_date_text(text)
-    range_grounded = _has_any_field(item, _RANGE_FIELD_KEYS) or _has_range_text(text)
-    return _grounding_signal_payload(text, date=date, range_grounded=range_grounded)
+    relative_date = _has_relative_date_text(text)
+    range_grounded = (
+        _has_any_field(item, _RANGE_FIELD_KEYS)
+        or _has_range_text(text)
+        or relative_date
+    )
+    return _grounding_signal_payload(
+        text,
+        date=date,
+        relative_date=relative_date,
+        range_grounded=range_grounded,
+    )
 
 
 def _temporal_grounding_issue_reasons(
@@ -466,12 +506,14 @@ def _grounding_signal_payload(
     text: str,
     *,
     date: bool,
+    relative_date: bool,
     range_grounded: bool,
 ) -> dict[str, bool]:
     session_boundary = bool(_SESSION_RE.search(text) or _TURN_RE.search(text))
     return {
         "session_boundary": session_boundary,
         "date": date,
+        "relative_date": relative_date,
         "range": range_grounded,
         "temporal_order": session_boundary,
     }
@@ -513,6 +555,10 @@ def _has_date_text(text: str) -> bool:
 
 def _has_range_text(text: str) -> bool:
     return bool(_RANGE_TEXT_RE.search(text))
+
+
+def _has_relative_date_text(text: str) -> bool:
+    return bool(_RELATIVE_DATE_TEXT_RE.search(text))
 
 
 def _positive_int(value: object) -> int | None:
@@ -597,6 +643,8 @@ def _temporal_grounding_issue_sample(
             "temporal_order": bool(signals.get("temporal_order")),
         },
     }
+    if signals.get("relative_date"):
+        sample["grounding_signals"]["relative_date"] = True
     if _has_source_identity_mismatch(source_identity_gap_codes):
         sample["source_identity_gap_codes"] = list(
             source_identity_gap_codes[:_MAX_SOURCE_IDENTITY_GAP_CODES]

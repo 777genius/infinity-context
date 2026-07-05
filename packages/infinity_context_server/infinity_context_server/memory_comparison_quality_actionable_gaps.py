@@ -35,6 +35,8 @@ _MAX_RERANK_SIGNAL_ACTIONABLE_SAMPLES = 3
 _MAX_RERANK_SIGNAL_ACTIONABLE_SAMPLE_VALUES = 5
 _MAX_EVIDENCE_RECALL_ACTIONABLE_SAMPLES = 3
 _MAX_EVIDENCE_RECALL_ACTIONABLE_SAMPLE_VALUES = 5
+_MAX_TEMPORAL_GROUNDING_ACTIONABLE_SAMPLES = 3
+_MAX_TEMPORAL_GROUNDING_ACTIONABLE_SAMPLE_VALUES = 5
 _SAFE_SOURCE_IDENTITY_REF_RE = re.compile(
     r"^(?:(?P<turn_prefix>source_turn_refs):(?P<turn_ref>D\d+:\d+)|"
     r"(?P<session_prefix>source_session_turn_refs):(?P<session>session_\d+):"
@@ -60,6 +62,7 @@ def actionable_gap_summary(
     query_role_gap_breakdown: Mapping[str, object] | None = None,
     query_plan_gap_breakdown: Mapping[str, object] | None = None,
     rerank_signal_gap_breakdown: Mapping[str, object] | None = None,
+    temporal_grounding: Mapping[str, object] | None = None,
     source_ref_provenance: Mapping[str, object] | None = None,
     answer_context_provenance: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
@@ -73,6 +76,7 @@ def actionable_gap_summary(
     query_role_gap_breakdown = _mapping(query_role_gap_breakdown)
     query_plan_gap_breakdown = _mapping(query_plan_gap_breakdown)
     rerank_signal_gap_breakdown = _mapping(rerank_signal_gap_breakdown)
+    temporal_grounding = _mapping(temporal_grounding)
     source_ref_provenance = _mapping(source_ref_provenance)
     answer_context_provenance = _mapping(answer_context_provenance)
     gaps: list[dict[str, object]] = []
@@ -131,6 +135,11 @@ def actionable_gap_summary(
         gaps,
         evaluation_count=evaluation_count,
         breakdown=query_role_gap_breakdown,
+    )
+    _append_temporal_grounding_gaps(
+        gaps,
+        evaluation_count=evaluation_count,
+        temporal_grounding=temporal_grounding,
     )
     _append_rerank_signal_gaps(
         gaps,
@@ -508,6 +517,62 @@ def _append_query_role_gaps(
         )
 
 
+def _append_temporal_grounding_gaps(
+    gaps: list[dict[str, object]],
+    *,
+    evaluation_count: int,
+    temporal_grounding: Mapping[str, object],
+) -> None:
+    reason_counts = _count_mapping(
+        temporal_grounding.get("selected_temporal_grounding_issue_reason_counts")
+    )
+    if not reason_counts:
+        return
+    samples = _sequence(
+        temporal_grounding.get("selected_temporal_grounding_issue_samples")
+    )
+    for reason, count in sorted(reason_counts.items()):
+        matched_samples = _samples_for_gap(samples, str(reason))
+        compact_samples = _compact_temporal_grounding_actionable_samples(
+            matched_samples
+        )
+        _append_actionable_gap(
+            gaps,
+            evaluation_count=evaluation_count,
+            category="temporal_grounding",
+            gap=str(reason),
+            impact_count=count,
+            source_metric=(
+                "temporal_grounding_table."
+                "selected_temporal_grounding_issue_reason_counts"
+            ),
+            action=_temporal_grounding_action(str(reason)),
+            evidence={
+                "temporal_case_count": (
+                    _positive_int(temporal_grounding.get("temporal_case_count")) or 0
+                ),
+                "selected_temporal_grounding_issue_item_count": (
+                    _positive_int(
+                        temporal_grounding.get(
+                            "selected_temporal_grounding_issue_item_count"
+                        )
+                    )
+                    or 0
+                ),
+                "selected_strong_temporal_grounding_item_count": (
+                    _positive_int(
+                        temporal_grounding.get(
+                            "selected_strong_temporal_grounding_item_count"
+                        )
+                    )
+                    or 0
+                ),
+            },
+            samples=matched_samples,
+            sample_payloads=compact_samples,
+        )
+
+
 def _append_query_leakage_gaps(
     gaps: list[dict[str, object]],
     *,
@@ -788,6 +853,7 @@ def _samples_for_gap(
             gap in _str_tuple(sample.get("reasons"))
             or gap in _str_tuple(sample.get("reason_codes"))
             or gap in _str_tuple(sample.get("gap_reasons"))
+            or gap in _str_tuple(sample.get("issue_reasons"))
         )
     ]
     if matched:
@@ -1118,6 +1184,55 @@ def _compact_evidence_recall_count_mapping(value: object) -> dict[str, int]:
     return compact
 
 
+def _compact_temporal_grounding_actionable_samples(
+    samples: Sequence[Mapping[str, object]],
+) -> tuple[dict[str, object], ...]:
+    compact_samples: list[dict[str, object]] = []
+    for sample in samples:
+        compact: dict[str, object] = {}
+        for key in ("case_id", "group", "item_id", "role"):
+            value = _compact_query_plan_sample_text(sample.get(key))
+            if value:
+                compact[key] = value
+        for key in (
+            "query_roles",
+            "source_refs",
+            "issue_reasons",
+            "source_identity_gap_codes",
+        ):
+            values = tuple(
+                value
+                for value in (
+                    _compact_query_plan_sample_text(raw_value)
+                    for raw_value in _str_tuple(sample.get(key))
+                )
+                if value
+            )
+            if values:
+                compact[key] = list(
+                    values[:_MAX_TEMPORAL_GROUNDING_ACTIONABLE_SAMPLE_VALUES]
+                )
+        signals = _mapping(sample.get("grounding_signals"))
+        signal_values = {
+            key: bool(signals.get(key))
+            for key in (
+                "source_window",
+                "session_boundary",
+                "date_or_range",
+                "relative_date",
+                "temporal_order",
+            )
+            if key in signals
+        }
+        if signal_values:
+            compact["grounding_signals"] = signal_values
+        if compact:
+            compact_samples.append(compact)
+        if len(compact_samples) >= _MAX_TEMPORAL_GROUNDING_ACTIONABLE_SAMPLES:
+            break
+    return tuple(compact_samples)
+
+
 def _evidence_recall_samples_for_missing(
     samples: Sequence[Mapping[str, object]],
 ) -> tuple[Mapping[str, object], ...]:
@@ -1291,6 +1406,44 @@ def _query_plan_reason_action(reason: str) -> str:
             "selection."
         ),
     }.get(reason, "Fix query-plan gaps that drop required retrieval routes.")
+
+
+def _temporal_grounding_action(reason: str) -> str:
+    return {
+        "missing_source_window": (
+            "Keep session/turn source-window refs on temporal evidence."
+        ),
+        "missing_session_boundary": (
+            "Preserve session or turn boundaries for selected temporal evidence."
+        ),
+        "missing_date_or_range": (
+            "Preserve explicit or relative date/range evidence on selected "
+            "temporal items."
+        ),
+        "missing_temporal_grounding": (
+            "Add temporal evidence with source windows plus explicit or relative "
+            "date/range grounding."
+        ),
+        "weak_source_window_without_date_or_range": (
+            "Pair temporal source windows with explicit or relative date/range text."
+        ),
+        "weak_session_boundary_without_date_or_range": (
+            "Pair session-bound temporal evidence with explicit or relative "
+            "date/range text."
+        ),
+        "weak_date_or_range_without_session_boundary": (
+            "Pair date/range temporal evidence with session or turn boundaries."
+        ),
+        "source_identity_mismatch": (
+            "Fix selected temporal evidence whose text and source identity disagree."
+        ),
+        "conflicting_or_stale": (
+            "Avoid stale or conflicting selected evidence for temporal answers."
+        ),
+        "weak_broad_summary": (
+            "Prefer localized temporal turns over broad summary evidence."
+        ),
+    }.get(reason, "Fix temporal grounding issues in selected evidence.")
 
 
 def _role_family_label(family: str) -> str:

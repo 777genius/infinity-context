@@ -142,6 +142,56 @@ def test_quality_diagnostics_reports_temporal_grounding_gaps() -> None:
     ]
 
 
+def test_temporal_grounding_counts_relative_date_surfaces_as_grounded_ranges() -> None:
+    retrieval = _retrieval_payload(
+        evidence_need=("temporal_support",),
+        bundle_evidence_roles=("primary", "relative_temporal_support"),
+        relation_categories=("temporal",),
+        policy_score=0.2,
+        memory_text="Morgan checked in yesterday afternoon.",
+        candidate_features={
+            "query_roles": ["relative_temporal_support"],
+            "time_intent_kind": "relative_time",
+            "has_relative_time_surface": True,
+        },
+    )
+    retrieval["results"][0]["source_refs"] = [
+        "locomo:conv-1:session_7:D7:2:turn"
+    ]
+
+    diagnostics = quality_diagnostics(
+        (
+            _item(
+                case_id="temporal-relative-grounded",
+                group="temporal",
+                retrieval=retrieval,
+                evidence_bundle={
+                    "items": [
+                        {
+                            "id": "relative-grounded",
+                            "role": "relative_temporal_support",
+                            "query_roles": ["relative_temporal_support"],
+                            "source_refs": [
+                                "locomo:conv-1:session_7:D7:2:turn"
+                            ],
+                            "text": "Morgan checked in yesterday afternoon.",
+                        }
+                    ]
+                },
+            ),
+        )
+    )
+
+    table = diagnostics["temporal_grounding_table"]
+
+    assert table["retrieval_relative_date_grounded_candidate_count"] == 1
+    assert table["retrieval_range_grounded_candidate_count"] == 1
+    assert table["selected_relative_date_grounded_item_count"] == 1
+    assert table["selected_range_grounded_item_count"] == 1
+    assert table["selected_strong_temporal_grounding_item_count"] == 1
+    assert table["selected_temporal_grounding_issue_item_count"] == 0
+
+
 def test_temporal_grounding_reports_source_window_audit_gap_separately() -> None:
     diagnostics = quality_diagnostics(
         (

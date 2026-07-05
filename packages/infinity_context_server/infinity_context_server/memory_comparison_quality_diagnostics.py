@@ -303,6 +303,7 @@ def fast_gate_metrics(
     answer_context_support_gaps = _answer_context_support_gap_summary(items)
     answerability_gap_breakdown = _answerability_gap_breakdown(items)
     selected_evidence_weakness = _selected_evidence_weakness_breakdown(items)
+    temporal_grounding = _temporal_grounding_table(items)
     candidate_fusion = _candidate_fusion_table(items)
     rerank_signal_gaps = _rerank_signal_gap_breakdown(items)
     query_role_gap_breakdown = _query_role_gap_breakdown(
@@ -431,6 +432,7 @@ def fast_gate_metrics(
         "source_ref_provenance": source_ref_provenance,
         "answer_context_provenance": answer_context_provenance,
         "answer_context_support_gap_summary": answer_context_support_gaps,
+        "temporal_grounding_table": temporal_grounding,
         "candidate_fusion": candidate_fusion,
         "rerank_signal_gap_breakdown": rerank_signal_gaps,
         "risk_flag_table": risk_flag_table,
@@ -450,6 +452,7 @@ def fast_gate_metrics(
             query_role_gap_breakdown=query_role_gap_breakdown,
             query_plan_gap_breakdown=query_plan_gap_breakdown,
             rerank_signal_gap_breakdown=rerank_signal_gaps,
+            temporal_grounding=temporal_grounding,
             source_ref_provenance=source_ref_provenance,
             answer_context_provenance=answer_context_provenance,
         ),

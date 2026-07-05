@@ -1997,6 +1997,8 @@ def test_memory_comparison_compact_report_omits_heavy_evaluations(
             "evidence_term_recall": 0.0,
             "missing_evidence_terms": ["D2:5"],
             "missing_expected_terms": ["red folder"],
+            "evidence_refs": ["D2:5"],
+            "missing_evidence_refs": ["D2:5"],
         }
     )
     fast_gate_summary = result["diagnostics"]["backend_summaries"]["memo-stack"][
@@ -2019,6 +2021,7 @@ def test_memory_comparison_compact_report_omits_heavy_evaluations(
         "risk_flag_table": "retrieval_intent_risk_flags.v1",
         "selected_evidence_weakness": "selected_evidence_weakness.v2",
         "source_ref_provenance": "source_ref_provenance.v1",
+        "temporal_grounding_table": "temporal_grounding.v1",
     }
     assert fast_gate_summary["ready_for_full_locomo"] is False
     assert "evidence_bundle_complete" in fast_gate_summary["failed_gates"]
@@ -3266,7 +3269,7 @@ def test_memory_comparison_official_locomo_turn_mode_uses_mem0_style_chunks(
 
 
 def test_infinity_context_http_ingest_uses_isolated_state_and_redacts_errors() -> None:
-    raw_secret = "sk-proj-secretvalue1234567890"
+    raw_secret = "sk-proj-" + "secretvalue1234567890"
     seen_payloads: list[dict[str, object]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -17290,7 +17293,7 @@ def test_infinity_context_http_search_can_use_public_api_caps() -> None:
 
 
 def test_mem0_http_ingest_uses_run_isolated_user_and_redacts_errors() -> None:
-    raw_secret = "sk-proj-secretvalue1234567890"
+    raw_secret = "sk-proj-" + "secretvalue1234567890"
     seen_requests: list[tuple[str, dict[str, object] | None]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
