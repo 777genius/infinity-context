@@ -58,6 +58,13 @@ ASSETS_API_PATH = (
     / "v1"
     / "assets.py"
 )
+SERVER_COMPOSITION_PATH = (
+    REPO_ROOT
+    / "packages"
+    / "infinity_context_server"
+    / "infinity_context_server"
+    / "composition.py"
+)
 
 
 class RecordingPrepareDocumentIngestion:
@@ -667,6 +674,23 @@ def test_assets_api_delegates_response_mapping_to_public_server_seam() -> None:
             violations.append(f"imports {imported}")
 
     assert violations == []
+
+
+def test_server_composition_uses_document_ingestion_adapter_composition_seam() -> None:
+    source = SERVER_COMPOSITION_PATH.read_text(encoding="utf-8")
+
+    assert (
+        "from infinity_context_adapters.features import "
+        "document_ingestion as document_ingestion_adapters"
+    ) in source
+    assert (
+        "document_ingestion_adapters.create_document_ingestion_extraction_components("
+        in source
+    )
+    assert "detector=extraction_components.detector" in source
+    assert "extractor=extraction_components.extractor" in source
+    assert "SimpleFileTypeDetector" not in source
+    assert "build_standard_extractor" not in source
 
 
 def _imports(path: Path) -> list[str]:

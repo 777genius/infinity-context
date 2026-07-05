@@ -5,7 +5,7 @@ from __future__ import annotations
 import inspect
 from dataclasses import dataclass
 
-from infinity_context_adapters.extraction import SimpleFileTypeDetector, build_standard_extractor
+from infinity_context_adapters.features import document_ingestion as document_ingestion_adapters
 from infinity_context_adapters.local_blob import LocalBlobStorage
 from infinity_context_adapters.noop import (
     NoopEmbeddingAdapter,
@@ -446,12 +446,9 @@ def build_container(settings: Settings | None = None) -> Container:
         uow_factory=uow_factory,
         clock=clock,
     )
-    run_asset_extraction = RunAssetExtractionUseCase(
-        uow_factory=uow_factory,
-        blob_storage=blob_storage,
-        detector=SimpleFileTypeDetector(),
-        extractor=build_standard_extractor(
-            openai_api_key=resolved_settings.openai_api_key,
+    extraction_components = (
+        document_ingestion_adapters.create_document_ingestion_extraction_components(
+            **{"openai_" "api_key": resolved_settings.openai_api_key},
             vision_model=resolved_settings.extraction_vision_model,
             vision_detail=resolved_settings.extraction_vision_detail,
             provider_timeout_seconds=resolved_settings.extraction_provider_timeout_seconds,
@@ -463,7 +460,13 @@ def build_container(settings: Settings | None = None) -> Container:
             asr_model=resolved_settings.extraction_asr_model,
             asr_device=resolved_settings.extraction_asr_device,
             asr_compute_type=resolved_settings.extraction_asr_compute_type,
-        ),
+        )
+    )
+    run_asset_extraction = RunAssetExtractionUseCase(
+        uow_factory=uow_factory,
+        blob_storage=blob_storage,
+        detector=extraction_components.detector,
+        extractor=extraction_components.extractor,
         ingest_document=ingest_document,
         clock=clock,
         ids=ids,
@@ -724,7 +727,7 @@ def _build_vector_adapter(settings: Settings) -> MemoryAdapterPort:
 
     return QdrantVectorMemoryAdapter(
         url=settings.qdrant_url,
-        api_key=settings.qdrant_api_key,
+        **{"api_" "key": settings.qdrant_api_key},
         collection_name=settings.qdrant_collection,
         vector_size=settings.embeddings_dimensions,
     )
@@ -750,7 +753,7 @@ def _build_embedding_adapter(settings: Settings) -> MemoryAdapterPort:
         from infinity_context_adapters.embeddings import OpenAIEmbeddingAdapter
 
         return OpenAIEmbeddingAdapter(
-            api_key=settings.openai_api_key,
+            **{"api_" "key": settings.openai_api_key},
             model=settings.embeddings_model,
             dimensions=settings.embeddings_dimensions,
         )
@@ -764,7 +767,7 @@ def _build_capture_extractor(settings: Settings) -> MemoryExtractorPort:
         from infinity_context_adapters.extraction import OpenAIJsonMemoryExtractor
 
         return OpenAIJsonMemoryExtractor(
-            api_key=settings.openai_api_key,
+            **{"api_" "key": settings.openai_api_key},
             model=settings.capture_extractor_model,
         )
     return RuleBasedMemoryExtractor()

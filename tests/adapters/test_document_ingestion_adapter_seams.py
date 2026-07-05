@@ -58,6 +58,7 @@ def test_document_ingestion_adapter_package_mirrors_feature_id() -> None:
     assert module.PostgresDocumentIngestionStore.feature_id == FEATURE_ID
     assert module.QdrantDocumentChunkIndex.feature_id == FEATURE_ID
     assert module.DocumentExtractionIngestionAdapter.feature_id == FEATURE_ID
+    assert module.DocumentIngestionExtractionComponents.feature_id == FEATURE_ID
 
 
 def test_document_ingestion_adapter_imports_do_not_load_provider_sdks() -> None:
@@ -84,6 +85,38 @@ def test_document_ingestion_adapter_imports_only_public_core_feature_api() -> No
                 violations.append(f"{path.relative_to(FEATURE_ROOT)}: imports {imported}")
 
     assert violations == []
+
+
+def test_document_ingestion_extraction_composition_builds_standard_components() -> None:
+    for module_name in ("sqlalchemy", "qdrant_client", "docling", "openai", "graphiti"):
+        sys.modules.pop(module_name, None)
+
+    module = importlib.import_module(
+        "infinity_context_adapters.features.document_ingestion"
+    )
+
+    components = module.create_document_ingestion_extraction_components(
+        openai_api_key=None,
+        vision_model="gpt-4.1-mini",
+        vision_detail="high",
+        provider_timeout_seconds=60,
+        transcription_provider="openai",
+        transcription_model="gpt-4o-mini-transcribe",
+        transcription_max_upload_bytes=25 * 1024 * 1024,
+        asr_model="base",
+        asr_device="auto",
+        asr_compute_type="default",
+    )
+
+    assert components.feature_id == FEATURE_ID
+    assert components.adapter_name == "standard_asset_extraction"
+    assert hasattr(components.detector, "detect")
+    assert hasattr(components.extractor, "extract")
+    assert "sqlalchemy" not in sys.modules
+    assert "qdrant_client" not in sys.modules
+    assert "docling" not in sys.modules
+    assert "openai" not in sys.modules
+    assert "graphiti" not in sys.modules
 
 
 def test_in_memory_document_store_persists_and_queries_documents_and_chunks() -> None:

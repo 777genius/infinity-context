@@ -2,11 +2,16 @@
 
 These classes mark feature-owned infrastructure boundaries for canonical
 documents, derived chunk indexes, and extraction-to-ingestion handoff. Runtime
-wiring is intentionally deferred to later composition work.
+construction that can reach provider-capable adapters is kept behind lazy
+factories.
 """
 
 from infinity_context_core.features.document_ingestion.public import FEATURE_ID
 
+from infinity_context_adapters.features.document_ingestion.composition import (
+    DocumentIngestionExtractionComponents,
+    create_document_ingestion_extraction_components,
+)
 from infinity_context_adapters.features.document_ingestion.extraction_adapter import (
     DocumentExtractionIngestionAdapter,
     ExtractedDocumentText,
@@ -40,6 +45,7 @@ from infinity_context_adapters.features.document_ingestion.records import (
 __all__ = (
     "FEATURE_ID",
     "DocumentChunkIndexProjection",
+    "DocumentIngestionExtractionComponents",
     "DocumentExtractionIngestionAdapter",
     "ExtractedDocumentText",
     "InMemoryDocumentChunkStore",
@@ -50,6 +56,7 @@ __all__ = (
     "PostgresSourceDocumentStore",
     "QdrantDocumentChunkIndex",
     "create_document_extraction_ingestion_adapter",
+    "create_document_ingestion_extraction_components",
     "create_in_memory_document_chunk_store",
     "create_in_memory_document_ingestion_store",
     "create_in_memory_source_document_store",
