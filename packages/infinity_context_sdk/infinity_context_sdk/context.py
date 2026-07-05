@@ -28,6 +28,58 @@ _SENSITIVE_KEY_MARKERS = (
     "bearer",
 )
 
+_EXTRA_BUNDLE_COUNTER_KEYS = (
+    "anchor_lookup_keys_considered",
+    "anchors_dropped_by_query_intent_conflict",
+    "anchors_loaded_by_lookup",
+    "anchors_used_by_query_intent",
+    "answer_support_families_considered",
+    "answer_support_families_used",
+    "answer_support_items_used",
+    "dropped_by_source_group_cap",
+    "exact_query_object_turn_items_used",
+    "exact_source_sibling_answer_evidence_repair_added",
+    "exact_source_sibling_answer_evidence_repair_candidates",
+    "exact_source_sibling_answer_evidence_repair_existing",
+    "final_rank_candidate_item_count",
+    "final_rank_source_item_count",
+    "graph_query_count",
+    "graph_query_degraded_count",
+    "graph_query_limit",
+    "keyword_aggregation_chunks_considered",
+    "keyword_aggregation_chunks_skipped",
+    "keyword_aggregation_chunks_used",
+    "keyword_neighbor_chunks_considered",
+    "keyword_neighbor_chunks_skipped",
+    "keyword_neighbor_chunks_used",
+    "keyword_query_count",
+    "keyword_source_sibling_answer_evidence_extra_used",
+    "keyword_source_sibling_candidate_limit",
+    "keyword_source_sibling_chunks_considered",
+    "keyword_source_sibling_chunks_skipped",
+    "keyword_source_sibling_chunks_used",
+    "keyword_source_sibling_companion_extra_used",
+    "keyword_source_sibling_group_count",
+    "keyword_source_sibling_precise_support_extra_used",
+    "query_anchor_event_hint_count",
+    "query_anchor_event_type_hint_count",
+    "query_anchor_hint_count",
+    "query_anchor_organization_hint_count",
+    "query_anchor_person_hint_count",
+    "query_anchor_project_hint_count",
+    "query_anchor_temporal_hint_count",
+    "rag_candidate_count",
+    "rag_hydrated_count",
+    "rag_query_count",
+    "rag_query_degraded_count",
+    "rag_query_limit",
+    "vector_embedding_vector_count",
+    "vector_query_count",
+    "vector_query_degraded_count",
+    "vector_query_limit",
+    "vector_search_count",
+)
+
 
 @dataclass(frozen=True)
 class ContextSourceRef:
@@ -161,6 +213,55 @@ class ContextBundleDiagnostics:
     dropped_by_char_cap: int
     diagnostics_truncated: bool
     raw: Mapping[str, object]
+    anchor_lookup_keys_considered: int = 0
+    anchors_dropped_by_query_intent_conflict: int = 0
+    anchors_loaded_by_lookup: int = 0
+    anchors_used_by_query_intent: int = 0
+    answer_support_families_considered: int = 0
+    answer_support_families_used: int = 0
+    answer_support_items_used: int = 0
+    dropped_by_source_group_cap: int = 0
+    exact_query_object_turn_items_used: int = 0
+    exact_source_sibling_answer_evidence_repair_added: int = 0
+    exact_source_sibling_answer_evidence_repair_candidates: int = 0
+    exact_source_sibling_answer_evidence_repair_existing: int = 0
+    final_rank_candidate_item_count: int = 0
+    final_rank_source_item_count: int = 0
+    graph_query_count: int = 0
+    graph_query_degraded_count: int = 0
+    graph_query_limit: int = 0
+    keyword_aggregation_chunks_considered: int = 0
+    keyword_aggregation_chunks_skipped: int = 0
+    keyword_aggregation_chunks_used: int = 0
+    keyword_neighbor_chunks_considered: int = 0
+    keyword_neighbor_chunks_skipped: int = 0
+    keyword_neighbor_chunks_used: int = 0
+    keyword_query_count: int = 0
+    keyword_source_sibling_answer_evidence_extra_used: int = 0
+    keyword_source_sibling_candidate_limit: int = 0
+    keyword_source_sibling_chunks_considered: int = 0
+    keyword_source_sibling_chunks_skipped: int = 0
+    keyword_source_sibling_chunks_used: int = 0
+    keyword_source_sibling_companion_extra_used: int = 0
+    keyword_source_sibling_group_count: int = 0
+    keyword_source_sibling_precise_support_extra_used: int = 0
+    query_anchor_event_hint_count: int = 0
+    query_anchor_event_type_hint_count: int = 0
+    query_anchor_hint_count: int = 0
+    query_anchor_organization_hint_count: int = 0
+    query_anchor_person_hint_count: int = 0
+    query_anchor_project_hint_count: int = 0
+    query_anchor_temporal_hint_count: int = 0
+    rag_candidate_count: int = 0
+    rag_hydrated_count: int = 0
+    rag_query_count: int = 0
+    rag_query_degraded_count: int = 0
+    rag_query_limit: int = 0
+    vector_embedding_vector_count: int = 0
+    vector_query_count: int = 0
+    vector_query_degraded_count: int = 0
+    vector_query_limit: int = 0
+    vector_search_count: int = 0
     vector_status: str = "unknown"
     graph_status: str = "unknown"
     rag_status: str = "unknown"
@@ -653,6 +754,16 @@ def _item_diagnostics_from_payload(value: object) -> ContextItemDiagnostics:
 def _bundle_diagnostics_from_payload(value: object) -> ContextBundleDiagnostics:
     payload = _as_mapping(value)
     raw = _bounded_mapping(value, max_items=MAX_BUNDLE_DIAGNOSTIC_ITEMS)
+    for key in ContextBundleDiagnostics.__dataclass_fields__:
+        if key not in payload or key in raw:
+            continue
+        item = _bounded_value(
+            payload[key],
+            max_items=MAX_BUNDLE_DIAGNOSTIC_ITEMS,
+            depth=0,
+        )
+        if _is_safe_value(item):
+            raw[key] = item
     provenance_summary = _bounded_mapping(
         payload.get("provenance_summary"),
         max_items=MAX_BUNDLE_DIAGNOSTIC_ITEMS,
@@ -756,6 +867,7 @@ def _bundle_diagnostics_from_payload(value: object) -> ContextBundleDiagnostics:
         dropped_by_char_cap=_non_negative_int(raw.get("dropped_by_char_cap")),
         diagnostics_truncated=bool(raw.get("diagnostics_truncated")),
         raw=safe_raw,
+        **_bundle_counter_values(raw, _EXTRA_BUNDLE_COUNTER_KEYS),
         vector_status=_safe_text(raw.get("vector_status"), default="unknown"),
         graph_status=_safe_text(raw.get("graph_status"), default="unknown"),
         rag_status=_safe_text(raw.get("rag_status"), default="unknown"),
@@ -1035,6 +1147,13 @@ def _bundle_diagnostics_from_payload(value: object) -> ContextBundleDiagnostics:
         retrieval_quality_summary=retrieval_quality_summary,
         retrieval_trace=retrieval_trace,
     )
+
+
+def _bundle_counter_values(
+    payload: Mapping[str, object],
+    keys: tuple[str, ...],
+) -> dict[str, int]:
+    return {key: _non_negative_int(payload.get(key)) for key in keys}
 
 
 def _retrieval_trace_entry_from_payload(

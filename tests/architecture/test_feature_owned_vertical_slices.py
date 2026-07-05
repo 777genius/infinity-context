@@ -53,7 +53,11 @@ def _feature_dirs(root: str) -> list[Path]:
     path = REPO_ROOT / root
     if not path.exists():
         return []
-    return sorted(child for child in path.iterdir() if child.is_dir() and not child.name.startswith("_"))
+    return sorted(
+        child
+        for child in path.iterdir()
+        if child.is_dir() and not child.name.startswith("_")
+    )
 
 
 def _feature_modules(root: Path) -> list[Path]:
@@ -297,6 +301,46 @@ def test_memory_scope_contracts_do_not_import_core_lifecycle_internals() -> None
         _matches_module_prefix(imported, ("infinity_context_core",))
         for imported in _imports(path)
     )
+
+
+def test_sdk_and_mcp_contract_payload_boundaries_do_not_import_core() -> None:
+    checked_paths = (
+        REPO_ROOT / "packages/infinity_context_sdk/infinity_context_sdk/__init__.py",
+        REPO_ROOT / "packages/infinity_context_sdk/infinity_context_sdk/_payloads.py",
+        REPO_ROOT / "packages/infinity_context_sdk/infinity_context_sdk/context.py",
+        REPO_ROOT / "packages/infinity_context_sdk/infinity_context_sdk/scopes.py",
+        REPO_ROOT
+        / "packages/infinity_context_mcp/infinity_context_mcp/adapters/http_gateway.py",
+        REPO_ROOT / "packages/infinity_context_mcp/infinity_context_mcp/domain/models.py",
+    )
+
+    violations: list[str] = []
+    for path in checked_paths:
+        for imported in _imports(path):
+            if _matches_module_prefix(imported, ("infinity_context_core",)):
+                violations.append(f"{path.relative_to(REPO_ROOT)}: imports {imported}")
+
+    assert violations == []
+
+
+def test_sdk_and_mcp_payload_helpers_depend_on_feature_public_contracts() -> None:
+    sdk_imports = set(
+        _imports(REPO_ROOT / "packages/infinity_context_sdk/infinity_context_sdk/_payloads.py")
+    )
+    mcp_imports = set(
+        _imports(
+            REPO_ROOT
+            / "packages/infinity_context_mcp/infinity_context_mcp/adapters/http_gateway.py"
+        )
+    )
+
+    expected = {
+        "infinity_context_contracts.features.document_ingestion",
+        "infinity_context_contracts.features.memory_facts",
+    }
+    assert expected <= sdk_imports
+    assert expected <= mcp_imports
+    assert "infinity_context_contracts.features.memory_scopes" in sdk_imports
 
 
 def test_core_feature_capsules_expose_public_api_when_created() -> None:

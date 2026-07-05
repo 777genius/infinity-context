@@ -70,11 +70,11 @@ class InfinityContextClient(
         return self._request(
             "POST",
             "/v1/memory-scopes",
-            json={
-                "space_id": space_id,
-                "external_ref": external_ref,
-                "name": name,
-            },
+            json=_payloads.create_memory_scope_body(
+                space_id=space_id,
+                external_ref=external_ref,
+                name=name,
+            ),
         )
 
     def list_memory_scopes(self, *, space_id: str) -> dict[str, Any]:
@@ -111,22 +111,19 @@ class InfinityContextClient(
                 thread_external_ref=thread_external_ref,
             )
         )
-        payload = {
-            **scope_payload,
-            "text": text,
-            "kind": kind,
-            "source_refs": source_refs,
-            "classification": classification,
-            "category": category,
-            "ttl_policy": ttl_policy,
-        }
-        if tags is not None:
-            payload["tags"] = tags
-
         return self._request(
             "POST",
             "/v1/facts",
-            json=_payloads.without_none(payload),
+            json=_payloads.remember_fact_body(
+                scope_payload=scope_payload,
+                text=text,
+                kind=kind,
+                source_refs=source_refs,
+                classification=classification,
+                category=category,
+                tags=tags,
+                ttl_policy=ttl_policy,
+            ),
             idempotency_key=idempotency_key,
         )
 
@@ -142,12 +139,12 @@ class InfinityContextClient(
         return self._request(
             "PATCH",
             f"/v1/facts/{fact_id}",
-            json={
-                "expected_version": expected_version,
-                "text": text,
-                "reason": reason,
-                "source_refs": source_refs,
-            },
+            json=_payloads.update_fact_body(
+                expected_version=expected_version,
+                text=text,
+                reason=reason,
+                source_refs=source_refs,
+            ),
         )
 
     def forget_fact(self, fact_id: str) -> dict[str, Any]:
@@ -351,21 +348,19 @@ class InfinityContextClient(
         return self._request(
             "POST",
             "/v1/documents",
-            json=_payloads.without_none(
-                {
-                    "space_id": space_id,
-                    "memory_scope_id": memory_scope_id,
-                    "thread_id": thread_id,
-                    "space_slug": space_slug,
-                    "memory_scope_external_ref": memory_scope_external_ref,
-                    "thread_external_ref": thread_external_ref,
-                    "title": title,
-                    "text": text,
-                    "source_type": source_type,
-                    "source_external_id": source_external_id,
-                    "classification": classification,
-                    "source_refs": source_refs,
-                }
+            json=_payloads.ingest_document_body(
+                space_id=space_id,
+                memory_scope_id=memory_scope_id,
+                thread_id=thread_id,
+                space_slug=space_slug,
+                memory_scope_external_ref=memory_scope_external_ref,
+                thread_external_ref=thread_external_ref,
+                title=title,
+                text=text,
+                source_type=source_type,
+                source_external_id=source_external_id,
+                classification=classification,
+                source_refs=source_refs,
             ),
             idempotency_key=idempotency_key,
         )

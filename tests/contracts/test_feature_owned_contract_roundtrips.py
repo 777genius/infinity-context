@@ -5,6 +5,7 @@ import json
 from infinity_context_contracts.features import (
     context_building,
     document_ingestion,
+    memory_facts,
     memory_scopes,
 )
 from infinity_context_contracts.features.context_building import (
@@ -22,6 +23,11 @@ from infinity_context_contracts.features.document_ingestion import (
     IngestDocumentResultDto,
     MemoryDocumentDto,
 )
+from infinity_context_contracts.features.memory_facts import (
+    MemoryFactSourceRefDto,
+    RememberFactRequestDto,
+    UpdateFactRequestDto,
+)
 from infinity_context_contracts.features.memory_scopes import (
     CreateMemoryScopeRequestDto,
     MemoryScopeActorDto,
@@ -36,6 +42,7 @@ from infinity_context_contracts.features.memory_scopes import (
 def test_feature_package_public_exports_include_owned_contract_modules() -> None:
     assert context_building.__name__.endswith(".context_building")
     assert document_ingestion.__name__.endswith(".document_ingestion")
+    assert memory_facts.__name__.endswith(".memory_facts")
     assert memory_scopes.__name__.endswith(".memory_scopes")
 
 
@@ -122,6 +129,35 @@ def test_document_ingestion_dtos_roundtrip_to_plain_json_payloads() -> None:
     assert _json_roundtrip(result.to_dict()) == result.to_dict()
 
 
+def test_memory_fact_request_dtos_roundtrip_to_plain_json_payloads() -> None:
+    source_ref = MemoryFactSourceRefDto(
+        source_type="manual",
+        source_id="note_1",
+        quote_preview="Fact evidence remains evidence.",
+    )
+    remember_request = RememberFactRequestDto(
+        space_id="space_1",
+        memory_scope_id="scope_1",
+        thread_id="thread_1",
+        text="Postgres owns canonical memory fact lifecycle.",
+        kind="architecture_decision",
+        source_refs=(source_ref,),
+        classification="internal",
+        category="architecture",
+        tags=("postgres", "canonical"),
+        ttl_policy="durable",
+    )
+    update_request = UpdateFactRequestDto(
+        expected_version=2,
+        text="Postgres remains canonical memory fact lifecycle.",
+        reason="tighten wording",
+        source_refs=(source_ref,),
+    )
+
+    assert _json_roundtrip(remember_request.to_dict()) == remember_request.to_dict()
+    assert _json_roundtrip(update_request.to_dict()) == update_request.to_dict()
+
+
 def test_memory_scope_owner_actor_and_transfer_contracts_roundtrip() -> None:
     owner = MemoryScopeOwnerDto(principal_id="user_1")
     actor = MemoryScopeActorDto(
@@ -177,6 +213,11 @@ def test_feature_modules_export_all_public_dtos() -> None:
         "IngestDocumentResultDto",
         "MemoryDocumentDto",
     } <= set(document_ingestion.__all__)
+    assert {
+        "MemoryFactSourceRefDto",
+        "RememberFactRequestDto",
+        "UpdateFactRequestDto",
+    } <= set(memory_facts.__all__)
     assert {
         "MemoryScopeActorDto",
         "MemoryScopeOwnerDto",

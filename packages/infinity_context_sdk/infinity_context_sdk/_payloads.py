@@ -4,9 +4,117 @@ from __future__ import annotations
 
 from typing import Any
 
+from infinity_context_contracts.features.document_ingestion import IngestDocumentRequestDto
+from infinity_context_contracts.features.memory_facts import (
+    RememberFactRequestDto,
+    UpdateFactRequestDto,
+)
+from infinity_context_contracts.features.memory_scopes import CreateMemoryScopeRequestDto
+
 
 def without_none(values: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in values.items() if value is not None}
+
+
+def without_none_or_empty_contract_defaults(values: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in values.items()
+        if value is not None and value not in ({}, (), [])
+    }
+
+
+def create_memory_scope_body(
+    *,
+    space_id: str,
+    external_ref: str,
+    name: str,
+) -> dict[str, Any]:
+    contract = CreateMemoryScopeRequestDto(
+        space_id=space_id,
+        external_ref=external_ref,
+        name=name,
+    ).to_dict()
+    contract.pop("policy_mode", None)
+    return without_none_or_empty_contract_defaults(contract)
+
+
+def remember_fact_body(
+    *,
+    scope_payload: dict[str, Any],
+    text: str,
+    kind: str,
+    source_refs: list[dict[str, Any]],
+    classification: str,
+    category: str | None,
+    tags: list[str] | None,
+    ttl_policy: str | None,
+) -> dict[str, Any]:
+    contract = RememberFactRequestDto(
+        **scope_payload,
+        text=text,
+        kind=kind,
+        source_refs=source_refs,
+        classification=classification,
+        category=category,
+        tags=tags or (),
+        ttl_policy=ttl_policy,
+    ).to_dict()
+    payload = without_none(contract)
+    if tags is None:
+        payload.pop("tags", None)
+    return payload
+
+
+def update_fact_body(
+    *,
+    expected_version: int,
+    text: str,
+    reason: str,
+    source_refs: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return UpdateFactRequestDto(
+        expected_version=expected_version,
+        text=text,
+        reason=reason,
+        source_refs=source_refs,
+    ).to_dict()
+
+
+def ingest_document_body(
+    *,
+    space_id: str | None,
+    memory_scope_id: str | None,
+    thread_id: str | None,
+    space_slug: str | None,
+    memory_scope_external_ref: str | None,
+    thread_external_ref: str | None,
+    title: str,
+    text: str,
+    source_type: str,
+    source_external_id: str,
+    classification: str,
+    source_refs: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    contract = IngestDocumentRequestDto(
+        space_id=space_id,
+        memory_scope_id=memory_scope_id,
+        thread_id=thread_id,
+        space_slug=space_slug,
+        memory_scope_external_ref=memory_scope_external_ref,
+        thread_external_ref=thread_external_ref,
+        title=title,
+        text=text,
+        source_type=source_type,
+        source_external_id=source_external_id,
+        classification=classification,
+    ).to_dict()
+    contract.pop("media_type", None)
+    contract.pop("metadata", None)
+    payload = without_none(contract)
+    if source_refs is not None:
+        payload["source_refs"] = source_refs
+    return payload
 
 
 def single_scope_body(

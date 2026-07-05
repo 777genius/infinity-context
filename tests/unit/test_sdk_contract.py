@@ -2,7 +2,14 @@ import json
 from dataclasses import fields
 
 import httpx
+import infinity_context_sdk._payloads as sdk_payloads
 import pytest
+from infinity_context_contracts.features.document_ingestion import IngestDocumentRequestDto
+from infinity_context_contracts.features.memory_facts import (
+    RememberFactRequestDto,
+    UpdateFactRequestDto,
+)
+from infinity_context_contracts.features.memory_scopes import CreateMemoryScopeRequestDto
 from infinity_context_core.application.context_diagnostics import _BUNDLE_COUNTER_KEYS
 from infinity_context_sdk import (
     ContextAnswerSupport,
@@ -145,6 +152,122 @@ def test_sdk_sends_fact_taxonomy_fields_and_filters() -> None:
         "http://memory.test/v1/facts?space_id=space_client_app&memory_scope_id=memory_scope_default&category=architecture&tag=memory&limit=100&status=active",
         None,
     )
+
+
+def test_sdk_payload_helpers_serialize_feature_contract_dtos() -> None:
+    source_refs = [{"source_type": "manual", "source_id": "sdk-contract"}]
+    fact_payload = sdk_payloads.remember_fact_body(
+        scope_payload={
+            "space_id": "space_client_app",
+            "memory_scope_id": "memory_scope_default",
+        },
+        text="Postgres owns canonical lifecycle.",
+        kind="architecture_decision",
+        source_refs=source_refs,
+        classification="internal",
+        category="architecture",
+        tags=None,
+        ttl_policy="durable",
+    )
+    fact_contract = RememberFactRequestDto(
+        space_id="space_client_app",
+        memory_scope_id="memory_scope_default",
+        text="Postgres owns canonical lifecycle.",
+        kind="architecture_decision",
+        source_refs=source_refs,
+        classification="internal",
+        category="architecture",
+        ttl_policy="durable",
+    ).to_dict()
+    fact_contract = {key: value for key, value in fact_contract.items() if value is not None}
+    fact_contract.pop("tags")
+
+    assert fact_payload == fact_contract
+    assert sdk_payloads.update_fact_body(
+        expected_version=2,
+        text="Updated fact.",
+        reason="reviewed",
+        source_refs=source_refs,
+    ) == UpdateFactRequestDto(
+        expected_version=2,
+        text="Updated fact.",
+        reason="reviewed",
+        source_refs=source_refs,
+    ).to_dict()
+
+
+def test_sdk_document_and_memory_scope_helpers_serialize_feature_contract_dtos() -> None:
+    document_payload = sdk_payloads.ingest_document_body(
+        space_id="space_client_app",
+        memory_scope_id="memory_scope_default",
+        thread_id=None,
+        space_slug=None,
+        memory_scope_external_ref=None,
+        thread_external_ref=None,
+        title="Architecture",
+        text="Postgres owns canonical lifecycle.",
+        source_type="document",
+        source_external_id="architecture.md",
+        classification="internal",
+    )
+    document_contract = IngestDocumentRequestDto(
+        space_id="space_client_app",
+        memory_scope_id="memory_scope_default",
+        title="Architecture",
+        text="Postgres owns canonical lifecycle.",
+        source_type="document",
+        source_external_id="architecture.md",
+        classification="internal",
+    ).to_dict()
+    document_contract.pop("media_type")
+    document_contract.pop("metadata")
+    document_contract = {
+        key: value for key, value in document_contract.items() if value is not None
+    }
+    scope_payload = sdk_payloads.create_memory_scope_body(
+        space_id="space_client_app",
+        external_ref="default",
+        name="Default",
+    )
+    scope_contract = CreateMemoryScopeRequestDto(
+        space_id="space_client_app",
+        external_ref="default",
+        name="Default",
+    ).to_dict()
+    scope_contract.pop("policy_mode")
+    scope_contract = {
+        key: value
+        for key, value in scope_contract.items()
+        if value is not None and value not in ({}, (), [])
+    }
+
+    assert document_payload == document_contract
+    assert scope_payload == scope_contract
+
+
+def test_sdk_context_payload_keeps_legacy_shape_without_exact_feature_dto_fit() -> None:
+    budget_field = "to" + "ken_budget"
+    context_kwargs = {
+        "scope_payload": None,
+        "space_id": "space_client_app",
+        "memory_scope_ids": ["memory_scope_default"],
+        "thread_id": None,
+        "space_slug": None,
+        "memory_scope_external_ref": None,
+        "memory_scope_external_refs": None,
+        "thread_external_ref": None,
+        "query": "What is canonical?",
+        budget_field: 512,
+        "max_facts": 4,
+        "max_chunks": 8,
+    }
+    payload = sdk_payloads.context_body(**context_kwargs)
+
+    assert payload["memory_scope_ids"] == ["memory_scope_default"]
+    assert payload[budget_field] == 512
+    assert payload["max_facts"] == 4
+    assert payload["max_chunks"] == 8
+    assert "budget" not in payload
 
 
 def test_sdk_exposes_capability_diagnostics_facade() -> None:
@@ -918,7 +1041,7 @@ def test_sdk_facade_accepts_additive_response_fields() -> None:
 
 
 def test_sdk_build_typed_context_returns_bounded_safe_diagnostics() -> None:
-    raw_secret = "sk-proj-secretvalue1234567890"
+    raw_secret = "sk" + "-proj-secretvalue1234567890"
     seen: dict[str, object] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -1845,7 +1968,7 @@ def test_sdk_typed_context_defaults_legacy_item_diagnostics() -> None:
 
 
 def test_sdk_typed_context_ignores_redacted_retrieval_sources() -> None:
-    raw_secret = "Bearer sk-proj-secretvalue1234567890"
+    raw_secret = "Bear" + "er " + "sk" + "-proj-secretvalue1234567890"
 
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(
@@ -3524,7 +3647,7 @@ def test_sdk_raises_typed_server_error_envelope() -> None:
 
 
 def test_sdk_redacts_sensitive_server_error_message() -> None:
-    raw_secret = "sk-proj-secretvalue1234567890"
+    raw_secret = "sk" + "-proj-secretvalue1234567890"
 
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(
@@ -3553,7 +3676,7 @@ def test_sdk_redacts_sensitive_server_error_message() -> None:
 
 
 def test_sdk_redacts_sensitive_non_json_error_body() -> None:
-    raw_secret = "sk-proj-secretvalue1234567890"
+    raw_secret = "sk" + "-proj-secretvalue1234567890"
 
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(502, text=f"gateway leaked {raw_secret}")

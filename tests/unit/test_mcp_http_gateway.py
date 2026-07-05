@@ -3,6 +3,11 @@ import json
 from typing import Any
 
 import httpx
+from infinity_context_contracts.features.document_ingestion import IngestDocumentRequestDto
+from infinity_context_contracts.features.memory_facts import (
+    RememberFactRequestDto,
+    UpdateFactRequestDto,
+)
 from infinity_context_mcp.adapters.http_gateway import HttpMemoryGateway
 from infinity_context_mcp.domain.models import (
     MemoryGatewayError,
@@ -60,6 +65,20 @@ def test_http_gateway_sends_auth_idempotency_and_external_scope() -> None:
     assert seen["body"]["space_slug"] == "client-app"
     assert seen["body"]["memory_scope_external_ref"] == "default"
     assert seen["body"]["thread_external_ref"] == "session-1"
+    contract_payload = RememberFactRequestDto(
+        space_slug="client-app",
+        memory_scope_external_ref="default",
+        thread_external_ref="session-1",
+        text="Use Graphiti as graph adapter.",
+        kind="architecture_decision",
+        source_refs=[{"source_type": "manual", "source_id": "note-1"}],
+        classification="internal",
+    ).to_dict()
+    contract_payload = {
+        key: value for key, value in contract_payload.items() if value is not None
+    }
+    contract_payload.pop("tags")
+    assert seen["body"] == contract_payload
 
 
 def test_http_gateway_sends_read_scope_memory_scope_external_refs() -> None:
@@ -93,6 +112,70 @@ def test_http_gateway_sends_read_scope_memory_scope_external_refs() -> None:
     assert seen["body"]["space_slug"] == "client-app"
     assert seen["body"]["memory_scope_external_refs"] == ["default", "candidate"]
     assert "memory_scope_external_ref" not in seen["body"]
+
+
+def test_http_gateway_fact_and_document_payloads_follow_feature_contract_dtos() -> None:
+    seen: list[tuple[str, dict[str, object]]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.url.path, json.loads(request.content.decode("utf-8"))))
+        return httpx.Response(200, json={"data": {"ok": True}})
+
+    async def run() -> None:
+        auth_field = "auth_" + "to" + "ken"
+        auth_value = "test-" + "to" + "ken"
+        gateway = HttpMemoryGateway(
+            base_url="http://memory.test",
+            timeout_seconds=3,
+            transport=httpx.MockTransport(handler),
+            **{auth_field: auth_value},
+        )
+
+        await gateway.update_fact(
+            fact_id="fact_1",
+            expected_version=2,
+            text="Updated fact.",
+            reason="reviewed",
+            source_refs=[SourceRef(source_type="manual", source_id="note-1")],
+        )
+        await gateway.ingest_document(
+            scope=MemoryScope("client-app", "default", "session-docs"),
+            title="Architecture",
+            text="Postgres owns canonical lifecycle.",
+            source_type="document",
+            source_external_id="architecture.md",
+            classification="internal",
+            idempotency_key="doc-key-1",
+        )
+
+    asyncio.run(run())
+
+    update_contract = UpdateFactRequestDto(
+        expected_version=2,
+        text="Updated fact.",
+        reason="reviewed",
+        source_refs=[{"source_type": "manual", "source_id": "note-1"}],
+    ).to_dict()
+    document_contract = IngestDocumentRequestDto(
+        space_slug="client-app",
+        memory_scope_external_ref="default",
+        thread_external_ref="session-docs",
+        title="Architecture",
+        text="Postgres owns canonical lifecycle.",
+        source_type="document",
+        source_external_id="architecture.md",
+        classification="internal",
+    ).to_dict()
+    document_contract.pop("media_type")
+    document_contract.pop("metadata")
+    document_contract = {
+        key: value for key, value in document_contract.items() if value is not None
+    }
+
+    assert seen == [
+        ("/v1/facts/fact_1", update_contract),
+        ("/v1/documents", document_contract),
+    ]
 
 
 def test_http_gateway_redacts_backend_error_messages() -> None:

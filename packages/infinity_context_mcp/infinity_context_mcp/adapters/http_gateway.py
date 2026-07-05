@@ -5,6 +5,11 @@ from __future__ import annotations
 from typing import Any
 
 import httpx
+from infinity_context_contracts.features.document_ingestion import IngestDocumentRequestDto
+from infinity_context_contracts.features.memory_facts import (
+    RememberFactRequestDto,
+    UpdateFactRequestDto,
+)
 
 from infinity_context_mcp.domain.models import (
     MemoryGatewayError,
@@ -241,19 +246,15 @@ class HttpMemoryGateway:
         return await self._request(
             "POST",
             "/v1/facts",
-            json=_without_none(
-                {
-                    "space_slug": scope.space_slug,
-                    "memory_scope_external_ref": scope.memory_scope_external_ref,
-                    "thread_external_ref": scope.thread_external_ref,
-                    "text": text,
-                    "kind": kind,
-                    "source_refs": [source.to_payload() for source in source_refs],
-                    "classification": classification,
-                    "category": category,
-                    "tags": tags,
-                    "ttl_policy": ttl_policy,
-                }
+            json=_remember_fact_body(
+                scope=scope,
+                text=text,
+                kind=kind,
+                source_refs=source_refs,
+                classification=classification,
+                category=category,
+                tags=tags,
+                ttl_policy=ttl_policy,
             ),
             idempotency_key=idempotency_key,
         )
@@ -351,12 +352,12 @@ class HttpMemoryGateway:
         return await self._request(
             "PATCH",
             f"/v1/facts/{fact_id}",
-            json={
-                "expected_version": expected_version,
-                "text": text,
-                "reason": reason,
-                "source_refs": [source.to_payload() for source in source_refs],
-            },
+            json=_update_fact_body(
+                expected_version=expected_version,
+                text=text,
+                reason=reason,
+                source_refs=source_refs,
+            ),
         )
 
     async def forget_fact(self, *, fact_id: str) -> dict[str, Any]:
@@ -706,17 +707,13 @@ class HttpMemoryGateway:
         return await self._request(
             "POST",
             "/v1/documents",
-            json=_without_none(
-                {
-                    "space_slug": scope.space_slug,
-                    "memory_scope_external_ref": scope.memory_scope_external_ref,
-                    "thread_external_ref": scope.thread_external_ref,
-                    "title": title,
-                    "text": text,
-                    "source_type": source_type,
-                    "source_external_id": source_external_id,
-                    "classification": classification,
-                }
+            json=_ingest_document_body(
+                scope=scope,
+                title=title,
+                text=text,
+                source_type=source_type,
+                source_external_id=source_external_id,
+                classification=classification,
             ),
             idempotency_key=idempotency_key,
         )
@@ -795,7 +792,11 @@ def _to_error(response: httpx.Response) -> MemoryGatewayError:
         payload = {}
     error = payload.get("error", {}) if isinstance(payload, dict) else {}
     detail = payload.get("detail", {}) if isinstance(payload, dict) else {}
-    raw_code = str(error.get("code") or detail.get("code") or "infinity_context_mcp.gateway.http_error")
+    raw_code = str(
+        error.get("code")
+        or detail.get("code")
+        or "infinity_context_mcp.gateway.http_error"
+    )
     code = public_error_code(raw_code, status_code=response.status_code)
     raw_message = str(error.get("message") or detail.get("message") or response.text or code)
     message = safe_message(raw_message)
@@ -817,6 +818,74 @@ def _to_error(response: httpx.Response) -> MemoryGatewayError:
 
 def _without_none(values: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in values.items() if value is not None}
+
+
+def _remember_fact_body(
+    *,
+    scope: MemoryScope,
+    text: str,
+    kind: str,
+    source_refs: list[SourceRef],
+    classification: str,
+    category: str | None,
+    tags: list[str] | None,
+    ttl_policy: str | None,
+) -> dict[str, Any]:
+    contract = RememberFactRequestDto(
+        space_slug=scope.space_slug,
+        memory_scope_external_ref=scope.memory_scope_external_ref,
+        thread_external_ref=scope.thread_external_ref,
+        text=text,
+        kind=kind,
+        source_refs=[source.to_payload() for source in source_refs],
+        classification=classification,
+        category=category,
+        tags=tags or (),
+        ttl_policy=ttl_policy,
+    ).to_dict()
+    payload = _without_none(contract)
+    if tags is None:
+        payload.pop("tags", None)
+    return payload
+
+
+def _update_fact_body(
+    *,
+    expected_version: int,
+    text: str,
+    reason: str,
+    source_refs: list[SourceRef],
+) -> dict[str, Any]:
+    return UpdateFactRequestDto(
+        expected_version=expected_version,
+        text=text,
+        reason=reason,
+        source_refs=[source.to_payload() for source in source_refs],
+    ).to_dict()
+
+
+def _ingest_document_body(
+    *,
+    scope: MemoryScope,
+    title: str,
+    text: str,
+    source_type: str,
+    source_external_id: str,
+    classification: str,
+) -> dict[str, Any]:
+    contract = IngestDocumentRequestDto(
+        space_slug=scope.space_slug,
+        memory_scope_external_ref=scope.memory_scope_external_ref,
+        thread_external_ref=scope.thread_external_ref,
+        title=title,
+        text=text,
+        source_type=source_type,
+        source_external_id=source_external_id,
+        classification=classification,
+    ).to_dict()
+    contract.pop("media_type", None)
+    contract.pop("metadata", None)
+    return _without_none(contract)
 
 
 def _read_scope_memory_scope_payload(scope: MemoryReadScope) -> dict[str, Any]:

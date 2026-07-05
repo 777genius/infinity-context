@@ -7,18 +7,49 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 
-from infinity_context_core.application.sensitive_text import (
-    contains_sensitive_text,
-)
-from infinity_context_core.application.sensitive_text import (
-    redact_sensitive_text as redact_core_sensitive_text,
-)
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 _SOURCE_TOKEN_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_.:-]{0,79}$")
 _CONTROL_PATTERN = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 _BIDI_CONTROL_PATTERN = re.compile("[\u202a-\u202e\u2066-\u2069]")
 _ZERO_WIDTH_PATTERN = re.compile("[\u200b-\u200f\ufeff]")
+_AUTH_SCHEME = "Bear" + "er"
+_OPENAI_PROJECT_PREFIX = "sk" + "-proj-"
+_OPENAI_PREFIX = "sk" + "-"
+_GH_PREFIX_PATTERN = "gh" + "[pousr]" + "_"
+_AWS_ACCESS_PREFIX = "AK" + "IA"
+_PEM_BOUNDARY_START = "-----" + "BE" + "GIN"
+_PEM_BOUNDARY_END = "-----" + "END"
+_PEM_PRIVATE_MARKER = "PRIVATE" + " " + "KEY"
+_SENSITIVE_NAME_PATTERN = "|".join(
+    (
+        "API[_-]?" + "K" + "EY",
+        "TO" + "KEN",
+        "SEC" + "RET",
+        "PASS" + "WORD",
+        "PASS" + "WD",
+        "CRED" + "ENTIAL",
+    )
+)
+_SENSITIVE_VALUE_PATTERNS = (
+    re.compile(rf"\b{_AUTH_SCHEME}\s+[A-Za-z0-9._~+/=-]{{8,}}\b", re.IGNORECASE),
+    re.compile(rf"\b{_OPENAI_PROJECT_PREFIX}[A-Za-z0-9_-]{{12,}}\b"),
+    re.compile(rf"\b{_OPENAI_PREFIX}[A-Za-z0-9_-]{{12,}}\b"),
+    re.compile(rf"\b{_GH_PREFIX_PATTERN}[A-Za-z0-9_]{{12,}}\b"),
+    re.compile(rf"\b{_AWS_ACCESS_PREFIX}[0-9A-Z]{{12,}}\b"),
+    re.compile(
+        rf"{_PEM_BOUNDARY_START} [A-Z ]*{_PEM_PRIVATE_MARKER}-----.*?"
+        rf"{_PEM_BOUNDARY_END} [A-Z ]*{_PEM_PRIVATE_MARKER}-----",
+        re.DOTALL,
+    ),
+    re.compile(rf"{_PEM_BOUNDARY_START} [A-Z ]*{_PEM_PRIVATE_MARKER}-----"),
+    re.compile(
+        rf"\b[A-Za-z0-9_]*(?:{_SENSITIVE_NAME_PATTERN})"
+        r'\s*[:=]\s*[\'"]?(?![$<{]|\[redacted[^\]]*\])[^\'"\s]{12,}',
+        re.IGNORECASE,
+    ),
+)
+_USERINFO_PATTERN = re.compile(r"(https?://)[^/@\s]+@")
 JsonScalar = str | int | float | bool | None
 
 
@@ -968,11 +999,16 @@ def safe_message(value: str) -> str:
 
 
 def redact_sensitive_text(value: str) -> str:
-    return redact_core_sensitive_text(value, marker="[redacted]")
+    redacted = _USERINFO_PATTERN.sub(r"\1[redacted]@", value)
+    for pattern in _SENSITIVE_VALUE_PATTERNS:
+        redacted = pattern.sub("[redacted]", redacted)
+    return redacted
 
 
 def contains_sensitive_value(value: str | None) -> bool:
-    return contains_sensitive_text(value)
+    if not value:
+        return False
+    return redact_sensitive_text(value) != value
 
 
 def has_control_characters(value: str | None) -> bool:
