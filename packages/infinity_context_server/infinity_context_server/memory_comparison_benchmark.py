@@ -27,6 +27,9 @@ from infinity_context_server.memory_comparison_answer_context import (
 from infinity_context_server.memory_comparison_compact_gap_report import (
     compact_evidence_bundle_gap_report as _compact_evidence_bundle_gap_report,
 )
+from infinity_context_server.memory_comparison_compact_gap_report import (
+    compact_text_list as _compact_text_list,
+)
 from infinity_context_server.memory_comparison_evidence import (
     evidence_bundle as build_evidence_bundle,
 )
@@ -2737,10 +2740,14 @@ def _compact_evidence_bundle_coverage(
         if len(incomplete_samples) >= 5:
             break
         quality = _mapping(item.get("retrieval_quality"))
-        covered_evidence_refs = _str_tuple(
-            quality.get("covered_evidence_terms")
-        ) or _str_tuple(bundle.get("covered_evidence_terms"))
-        missing_evidence_refs = _str_tuple(quality.get("missing_evidence_terms"))
+        covered_evidence_refs = tuple(
+            _compact_text_list(quality.get("covered_evidence_terms"), item_limit=8)
+        ) or tuple(
+            _compact_text_list(bundle.get("covered_evidence_terms"), item_limit=8)
+        )
+        missing_evidence_refs = tuple(
+            _compact_text_list(quality.get("missing_evidence_terms"), item_limit=8)
+        )
         evidence_refs = (*covered_evidence_refs, *missing_evidence_refs)
         sample: dict[str, object] = {
             "case_id": str(item.get("case_id") or ""),
@@ -2750,7 +2757,7 @@ def _compact_evidence_bundle_coverage(
                 _metric_value(bundle, "evidence_term_recall"),
                 4,
             ),
-            "missing_evidence_terms": list(missing_evidence_refs[:8]),
+            "missing_evidence_terms": list(missing_evidence_refs),
             "missing_expected_terms": list(
                 _str_tuple(quality.get("missing_terms"))[:8]
             ),
@@ -2758,9 +2765,9 @@ def _compact_evidence_bundle_coverage(
         if evidence_refs:
             sample["evidence_refs"] = list(evidence_refs[:8])
         if covered_evidence_refs:
-            sample["covered_evidence_refs"] = list(covered_evidence_refs[:8])
+            sample["covered_evidence_refs"] = list(covered_evidence_refs)
         if missing_evidence_refs:
-            sample["missing_evidence_refs"] = list(missing_evidence_refs[:8])
+            sample["missing_evidence_refs"] = list(missing_evidence_refs)
         incomplete_samples.append(sample)
     return {
         "schema_version": "compact_evidence_bundle_coverage.v1",

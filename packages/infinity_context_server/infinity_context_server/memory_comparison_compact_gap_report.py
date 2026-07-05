@@ -9,6 +9,7 @@ _WEAK_SIGNAL_LIMIT = 5
 _SAMPLE_CASE_ID_LIMIT = 5
 _LOCALITY_SAMPLE_LIMIT = 5
 _LOCALITY_WINDOW_LIMIT = 3
+_REF_TEXT_LIMIT = 128
 _TEXT_LIMIT = 180
 
 
@@ -43,6 +44,27 @@ def compact_evidence_bundle_gap_report(value: object) -> dict[str, object]:
         ],
         "top_action": _text(report.get("top_action")),
     }
+
+
+def compact_text_list(
+    value: object,
+    *,
+    item_limit: int,
+    text_limit: int = _REF_TEXT_LIMIT,
+) -> list[str]:
+    """Return compact, bounded strings from a sequence-like payload."""
+    limit = max(0, item_limit)
+    if limit == 0:
+        return []
+    items: Sequence[object] = (value,) if isinstance(value, str) else _sequence(value)
+    values = []
+    for item in items:
+        text = _text(item, limit=text_limit)
+        if text:
+            values.append(text)
+        if len(values) >= limit:
+            break
+    return values
 
 
 def _compact_coverage_gap(value: object) -> dict[str, object]:
@@ -140,14 +162,7 @@ def _sequence(value: object) -> Sequence[object]:
 
 
 def _text_list(value: object, *, limit: int) -> list[str]:
-    values = []
-    for item in _sequence(value):
-        text = _text(item)
-        if text:
-            values.append(text)
-        if len(values) >= limit:
-            break
-    return values
+    return compact_text_list(value, item_limit=limit, text_limit=_TEXT_LIMIT)
 
 
 def _text(value: object, *, limit: int = _TEXT_LIMIT) -> str:
