@@ -12,6 +12,9 @@ from infinity_context_contracts.features.memory_facts import (
     MemoryFactSourceRefDto,
     RememberFactRequestDto,
 )
+from infinity_context_core import application as legacy_application
+from infinity_context_core.domain import entities as legacy_entities
+from infinity_context_core.domain.errors import MemoryValidationError
 from infinity_context_server.features.memory_facts import public as server_public
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -113,10 +116,14 @@ def test_memory_facts_server_feature_public_surface_composes_router() -> None:
     assert server_public.FEATURE_ID == "memory_facts"
     assert server_public.__all__ == (
         "ForgetFactHttpRequest",
+        "LinkFactRequest",
         "MemoryFactSourceRefHttpRequest",
         "MemoryFactsServerComposition",
         "MemoryFactsServerFeature",
+        "RememberFactRequest",
         "RememberFactHttpRequest",
+        "SourceRefRequest",
+        "UpdateFactRequest",
         "UpdateFactHttpRequest",
         "FEATURE_ID",
         "build_memory_facts_server_composition",
@@ -128,25 +135,33 @@ def test_memory_facts_server_feature_public_surface_composes_router() -> None:
         "fact_relation_to_response",
         "fact_result_to_response",
         "fact_to_response",
+        "forget_fact_command_from_v1_path",
         "forget_fact_command_from_http",
         "forget_fact_request_to_command",
         "forget_fact_result_to_contract",
         "legacy_memory_fact_to_response",
+        "link_fact_relation_command_from_v1_request",
+        "memory_kind_from_v1_request",
         "memory_fact_result_to_response",
         "memory_fact_scope_from_contract",
         "memory_fact_scope_from_ids",
         "memory_fact_snapshot_to_contract",
         "memory_fact_snapshot_to_response",
         "related_fact_to_response",
+        "remember_fact_command_from_v1_request",
         "remember_fact_command_from_contract",
         "remember_fact_request_to_command",
         "remember_fact_result_to_contract",
+        "source_ref_from_v1_request",
         "source_ref_request_to_public",
         "source_ref_to_contract",
         "source_ref_to_response",
+        "unlink_fact_relation_command_from_v1_path",
+        "update_fact_command_from_v1_request",
         "update_fact_command_from_http",
         "update_fact_request_to_command",
         "update_fact_result_to_contract",
+        "validate_fact_status_filter",
         "validate_fact_relation_status_filter",
     )
     assert {route.path for route in feature.create_router().routes} == {
@@ -250,6 +265,95 @@ def test_memory_facts_mapper_requires_resolved_scope_ids() -> None:
         server_public.remember_fact_command_from_contract(request)
 
 
+def test_memory_facts_mapper_builds_legacy_v1_write_commands() -> None:
+    scope = SimpleNamespace(
+        space_id="space_1",
+        memory_scope_id="scope_1",
+        thread_id="thread_1",
+    )
+    remember_request = server_public.RememberFactRequest(
+        space_id="space_slug_is_resolved_before_mapping",
+        memory_scope_id="scope_slug_is_resolved_before_mapping",
+        thread_id=None,
+        text="Postgres owns canonical lifecycle.",
+        kind="architecture_decision",
+        classification="internal",
+        category="architecture",
+        tags=["postgres"],
+        ttl_policy="retain",
+        source_refs=[server_public.SourceRefRequest(**_source_ref_json())],
+    )
+
+    remember_command = server_public.remember_fact_command_from_v1_request(
+        remember_request,
+        resolved_scope=scope,
+        idempotency_key="remember_1",
+    )
+
+    assert isinstance(remember_command, legacy_application.RememberFactCommand)
+    assert remember_command.space_id == "space_1"
+    assert remember_command.memory_scope_id == "scope_1"
+    assert remember_command.thread_id == "thread_1"
+    assert remember_command.kind is legacy_entities.MemoryKind.ARCHITECTURE_DECISION
+    assert isinstance(remember_command.source_refs[0], legacy_entities.SourceRef)
+    assert remember_command.source_refs[0].source_id == "doc_1"
+    assert remember_command.category == "architecture"
+    assert remember_command.tags == ("postgres",)
+    assert remember_command.ttl_policy == "retain"
+    assert remember_command.idempotency_key == "remember_1"
+
+    update_request = server_public.UpdateFactRequest(
+        expected_version=1,
+        text="Postgres remains the canonical lifecycle store.",
+        reason="clarify owner",
+        source_refs=[server_public.SourceRefRequest(**_source_ref_json())],
+    )
+    update_command = server_public.update_fact_command_from_v1_request(
+        "fact_1",
+        update_request,
+    )
+
+    assert isinstance(update_command, legacy_application.UpdateFactCommand)
+    assert update_command.fact_id == "fact_1"
+    assert update_command.expected_version == 1
+    assert update_command.reason == "clarify owner"
+
+    link_request = server_public.LinkFactRequest(
+        target_fact_id="fact_2",
+        relation_type="supports",
+        reason="ADR support",
+    )
+    link_command = server_public.link_fact_relation_command_from_v1_request(
+        "fact_1",
+        link_request,
+    )
+
+    assert isinstance(link_command, legacy_application.LinkFactsCommand)
+    assert link_command.source_fact_id == "fact_1"
+    assert link_command.target_fact_id == "fact_2"
+    assert link_command.relation_type == "supports"
+
+    forget_command = server_public.forget_fact_command_from_v1_path("fact_1")
+    unlink_command = server_public.unlink_fact_relation_command_from_v1_path("relation_1")
+
+    assert isinstance(forget_command, legacy_application.ForgetFactCommand)
+    assert forget_command.fact_id == "fact_1"
+    assert isinstance(unlink_command, legacy_application.UnlinkFactRelationCommand)
+    assert unlink_command.relation_id == "relation_1"
+
+    with pytest.raises(MemoryValidationError, match="Unknown memory kind"):
+        server_public.remember_fact_command_from_v1_request(
+            server_public.RememberFactRequest(
+                space_id="space_1",
+                memory_scope_id="scope_1",
+                text="Unknown kind should stay a validation error.",
+                kind="unknown_kind",
+                source_refs=[server_public.SourceRefRequest(**_source_ref_json())],
+            ),
+            resolved_scope=scope,
+        )
+
+
 def test_memory_facts_public_seam_maps_relation_responses() -> None:
     created_at = datetime(2026, 1, 2, 3, 4, 5)
     valid_to = datetime(2026, 2, 1, 0, 0, tzinfo=UTC)
@@ -317,6 +421,13 @@ def test_memory_facts_public_seam_maps_relation_responses() -> None:
 
 
 def test_memory_facts_public_seam_validates_relation_status_filter() -> None:
+    server_public.validate_fact_status_filter(None)
+    server_public.validate_fact_status_filter("active")
+    server_public.validate_fact_status_filter("deleted")
+
+    with pytest.raises(ValueError, match="Unknown fact status"):
+        server_public.validate_fact_status_filter("archived")
+
     server_public.validate_fact_relation_status_filter(None)
     server_public.validate_fact_relation_status_filter("active")
     server_public.validate_fact_relation_status_filter("deleted")
@@ -433,13 +544,29 @@ def test_memory_facts_routes_map_http_contracts_to_feature_use_cases() -> None:
     assert forget_body["data"]["version"] == 3
 
 
-def test_v1_facts_route_delegates_relation_response_mapping_to_feature_public_seam() -> None:
+def test_v1_facts_route_delegates_write_mapping_to_feature_public_seam() -> None:
     source = API_FACTS_PATH.read_text(encoding="utf-8")
 
+    assert "class RememberFactRequest" not in source
+    assert "class UpdateFactRequest" not in source
+    assert "class LinkFactRequest" not in source
+    assert "def map_memory_kind" not in source
+    assert "RememberFactCommand(" not in source
+    assert "UpdateFactCommand(" not in source
+    assert "ForgetFactCommand(" not in source
+    assert "LinkFactsCommand(" not in source
+    assert "UnlinkFactRelationCommand(" not in source
+    assert "map_source_ref" not in source
     assert "def related_fact_to_response" not in source
     assert "def fact_relation_to_response" not in source
     assert "def fact_relation_item_to_response" not in source
     assert "infinity_context_server.api.public_payload" not in _imports(API_FACTS_PATH)
+    assert "memory_facts_feature.remember_fact_command_from_v1_request" in source
+    assert "memory_facts_feature.update_fact_command_from_v1_request" in source
+    assert "memory_facts_feature.forget_fact_command_from_v1_path" in source
+    assert "memory_facts_feature.link_fact_relation_command_from_v1_request" in source
+    assert "memory_facts_feature.unlink_fact_relation_command_from_v1_path" in source
+    assert "memory_facts_feature.memory_kind_from_v1_request" in source
     assert "memory_facts_feature.fact_relation_to_response" in source
     assert "memory_facts_feature.related_fact_to_response" in source
 
@@ -458,10 +585,17 @@ def test_memory_facts_server_slice_uses_only_public_feature_boundaries() -> None
         "qdrant_client",
         "sqlalchemy",
     )
+    legacy_v1_compat_imports = {
+        "infinity_context_core.application",
+        "infinity_context_core.domain.entities",
+        "infinity_context_core.domain.errors",
+    }
 
     for path in sorted(FEATURE_ROOT.rglob("*.py")):
         for imported in _imports(path):
             rel = path.relative_to(REPO_ROOT)
+            if path.name == "compatibility.py" and imported in legacy_v1_compat_imports:
+                continue
             if imported.startswith(
                 "infinity_context_core.features."
             ) and not imported.endswith(".public"):

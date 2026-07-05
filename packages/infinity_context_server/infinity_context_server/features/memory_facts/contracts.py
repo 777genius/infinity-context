@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from infinity_context_contracts.features.memory_facts import (
     MemoryFactSourceRefDto,
     RememberFactRequestDto,
@@ -39,6 +41,67 @@ class MemoryFactSourceRefHttpRequest(BaseModel):
             time_end_ms=self.time_end_ms,
             bbox=self.bbox,
         )
+
+
+class SourceRefRequest(BaseModel):
+    """Legacy /v1 source reference request shape owned by the facts seam."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_type: str = Field(min_length=1, max_length=80)
+    source_id: str = Field(min_length=1, max_length=160)
+    chunk_id: str | None = Field(default=None, max_length=160)
+    char_start: int | None = Field(default=None, ge=0)
+    char_end: int | None = Field(default=None, ge=0)
+    quote_preview: str | None = Field(default=None, max_length=240)
+    page_number: int | None = Field(default=None, ge=1)
+    time_start_ms: int | None = Field(default=None, ge=0)
+    time_end_ms: int | None = Field(default=None, ge=0)
+    bbox: tuple[float, float, float, float] | None = None
+
+
+class RememberFactRequest(BaseModel):
+    """Legacy /v1 fact creation request shape."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    space_id: str | None = Field(default=None, min_length=1, max_length=80)
+    memory_scope_id: str | None = Field(default=None, min_length=1, max_length=80)
+    thread_id: str | None = Field(default=None, max_length=80)
+    space_slug: str | None = Field(default=None, min_length=1, max_length=160)
+    memory_scope_external_ref: str | None = Field(default=None, min_length=1, max_length=200)
+    thread_external_ref: str | None = Field(default=None, min_length=1, max_length=200)
+    text: str = Field(min_length=1, max_length=4000)
+    kind: str = "note"
+    source_refs: list[SourceRefRequest] = Field(min_length=1)
+    classification: str = Field(default="internal", max_length=40)
+    category: str | None = Field(default=None, max_length=80)
+    tags: list[str] = Field(default_factory=list, max_length=10)
+    ttl_policy: str | None = Field(default=None, max_length=80)
+
+
+class UpdateFactRequest(BaseModel):
+    """Legacy /v1 fact update request shape."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_version: int = Field(ge=1)
+    text: str = Field(min_length=1, max_length=4000)
+    reason: str = Field(min_length=1, max_length=240)
+    source_refs: list[SourceRefRequest] = Field(min_length=1)
+
+
+class LinkFactRequest(BaseModel):
+    """Legacy /v1 fact relation write request shape."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    target_fact_id: str = Field(min_length=1, max_length=160)
+    relation_type: str = Field(default="related_to", max_length=80)
+    reason: str = Field(min_length=1, max_length=320)
+    observed_at: datetime | None = None
+    valid_from: datetime | None = None
+    valid_to: datetime | None = None
 
 
 class RememberFactHttpRequest(BaseModel):
@@ -114,7 +177,11 @@ class ForgetFactHttpRequest(BaseModel):
 
 __all__ = (
     "ForgetFactHttpRequest",
+    "LinkFactRequest",
     "MemoryFactSourceRefHttpRequest",
+    "RememberFactRequest",
     "RememberFactHttpRequest",
+    "SourceRefRequest",
+    "UpdateFactRequest",
     "UpdateFactHttpRequest",
 )

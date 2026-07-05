@@ -4,6 +4,16 @@ from __future__ import annotations
 
 import infinity_context_core.features.memory_facts.public as memory_facts
 
+from infinity_context_server.features.memory_facts.compatibility import (
+    forget_fact_command_from_v1_path,
+    link_fact_relation_command_from_v1_request,
+    memory_kind_from_v1_request,
+    remember_fact_command_from_v1_request,
+    source_ref_from_v1_request,
+    unlink_fact_relation_command_from_v1_path,
+    update_fact_command_from_v1_request,
+    validate_fact_status_filter,
+)
 from infinity_context_server.features.memory_facts.composition import (
     MemoryFactsServerComposition,
     MemoryFactsServerFeature,
@@ -12,9 +22,13 @@ from infinity_context_server.features.memory_facts.composition import (
 )
 from infinity_context_server.features.memory_facts.contracts import (
     ForgetFactHttpRequest,
+    LinkFactRequest,
     MemoryFactSourceRefHttpRequest,
     RememberFactHttpRequest,
+    RememberFactRequest,
+    SourceRefRequest,
     UpdateFactHttpRequest,
+    UpdateFactRequest,
 )
 from infinity_context_server.features.memory_facts.mappers import (
     evidence_ref_request_to_public,
@@ -52,10 +66,14 @@ FEATURE_ID = memory_facts.FEATURE_ID
 
 __all__ = (
     "ForgetFactHttpRequest",
+    "LinkFactRequest",
     "MemoryFactSourceRefHttpRequest",
     "MemoryFactsServerComposition",
     "MemoryFactsServerFeature",
+    "RememberFactRequest",
     "RememberFactHttpRequest",
+    "SourceRefRequest",
+    "UpdateFactRequest",
     "UpdateFactHttpRequest",
     "FEATURE_ID",
     "build_memory_facts_server_composition",
@@ -67,24 +85,32 @@ __all__ = (
     "fact_relation_to_response",
     "fact_result_to_response",
     "fact_to_response",
+    "forget_fact_command_from_v1_path",
     "forget_fact_command_from_http",
     "forget_fact_request_to_command",
     "forget_fact_result_to_contract",
     "legacy_memory_fact_to_response",
+    "link_fact_relation_command_from_v1_request",
+    "memory_kind_from_v1_request",
     "memory_fact_result_to_response",
     "memory_fact_scope_from_contract",
     "memory_fact_scope_from_ids",
     "memory_fact_snapshot_to_contract",
     "memory_fact_snapshot_to_response",
     "related_fact_to_response",
+    "remember_fact_command_from_v1_request",
     "remember_fact_command_from_contract",
     "remember_fact_request_to_command",
     "remember_fact_result_to_contract",
+    "source_ref_from_v1_request",
     "source_ref_request_to_public",
     "source_ref_to_contract",
     "source_ref_to_response",
+    "unlink_fact_relation_command_from_v1_path",
+    "update_fact_command_from_v1_request",
     "update_fact_command_from_http",
     "update_fact_request_to_command",
     "update_fact_result_to_contract",
+    "validate_fact_status_filter",
     "validate_fact_relation_status_filter",
 )
