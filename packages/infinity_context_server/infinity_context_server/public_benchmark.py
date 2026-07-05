@@ -1524,7 +1524,7 @@ def _run_case(
         leaked_terms=leaked,
         item_ids=item_ids,
         latency_ms=latency_ms,
-        question_preview=case.question[:240],
+        question_preview=_preview_value(case.question),
         answer_preview=_case_answer_preview(case),
         expected_terms_preview=_case_expected_terms_preview(case),
         evidence_refs=evidence_refs,

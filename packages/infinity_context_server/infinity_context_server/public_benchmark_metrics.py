@@ -7,7 +7,21 @@ from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
+from infinity_context_server.memory_comparison_source_identity import (
+    safe_item_id_for_output as _safe_item_id_for_output,
+)
+from infinity_context_server.memory_comparison_source_identity import (
+    safe_source_refs_for_output as _safe_source_refs_for_output,
+)
+from infinity_context_server.public_benchmark_case_diagnostics import (
+    preview_value as _preview_value,
+)
 from infinity_context_server.public_benchmark_checkpoint import CaseRunResult
+
+_PREVIEW_CHARS = 240
+_TERM_CHARS = 120
+_EVIDENCE_PREVIEW_CHARS = 360
+_MAX_TERM_VALUES = 20
 
 
 def run_metric_summary(run_results: Sequence[CaseRunResult]) -> dict[str, object]:
@@ -73,37 +87,41 @@ def case_payload(item: CaseRunResult) -> dict[str, object]:
         "status": "ok" if item.ok else "failed",
         "expected_ok": item.expected_ok,
         "forbidden_ok": item.forbidden_ok,
-        "missing_terms": list(item.missing_terms),
-        "leaked_terms": list(item.leaked_terms),
-        "item_ids": list(item.item_ids),
+        "missing_terms": _safe_preview_list(item.missing_terms),
+        "leaked_terms": _safe_preview_list(item.leaked_terms),
+        "item_ids": _safe_item_id_list(item.item_ids),
         "latency_ms": item.latency_ms,
         "coverage": _case_coverage_payload(item),
-        "covered_terms": [value[:120] for value in item.covered_terms[:20]],
-        "covered_evidence_refs": [
-            value[:120] for value in item.covered_evidence_refs[:20]
-        ],
-        "missing_evidence_refs": [
-            value[:120] for value in item.missing_evidence_refs[:20]
-        ],
+        "covered_terms": _safe_preview_list(item.covered_terms),
+        "covered_evidence_refs": _safe_source_ref_list(item.covered_evidence_refs),
+        "missing_evidence_refs": _safe_source_ref_list(item.missing_evidence_refs),
     }
     if item.question_preview:
-        payload["question_preview"] = item.question_preview[:240]
+        payload["question_preview"] = _safe_preview_text(
+            item.question_preview,
+            max_chars=_PREVIEW_CHARS,
+        )
     if not item.ok and item.answer_preview:
-        payload["answer_preview"] = item.answer_preview[:240]
+        payload["answer_preview"] = _safe_preview_text(
+            item.answer_preview,
+            max_chars=_PREVIEW_CHARS,
+        )
     if not item.ok and item.expected_terms_preview:
-        payload["expected_terms_preview"] = [
-            value[:120] for value in item.expected_terms_preview[:20]
-        ]
+        payload["expected_terms_preview"] = _safe_preview_list(
+            item.expected_terms_preview
+        )
     if not item.ok and item.evidence_refs:
-        payload["evidence_refs"] = [value[:120] for value in item.evidence_refs[:20]]
+        payload["evidence_refs"] = _safe_source_ref_list(item.evidence_refs)
     if not item.ok and item.evidence_ref_previews:
-        payload["evidence_ref_previews"] = [
-            value[:360] for value in item.evidence_ref_previews[:20]
-        ]
+        payload["evidence_ref_previews"] = _safe_preview_list(
+            item.evidence_ref_previews,
+            max_chars=_EVIDENCE_PREVIEW_CHARS,
+        )
     if not item.ok and item.missing_evidence_ref_previews:
-        payload["missing_evidence_ref_previews"] = [
-            value[:360] for value in item.missing_evidence_ref_previews[:20]
-        ]
+        payload["missing_evidence_ref_previews"] = _safe_preview_list(
+            item.missing_evidence_ref_previews,
+            max_chars=_EVIDENCE_PREVIEW_CHARS,
+        )
     return payload
 
 
@@ -117,37 +135,45 @@ def _case_failure_payload(item: CaseRunResult) -> dict[str, object]:
         "category": item.benchmark,
         "capability": item.capability,
         "reason": "missing_expected_terms" if item.missing_terms else "forbidden_terms_leaked",
-        "missing_terms": list(item.missing_terms),
-        "leaked_terms": list(item.leaked_terms),
+        "missing_terms": _safe_preview_list(item.missing_terms),
+        "leaked_terms": _safe_preview_list(item.leaked_terms),
     }
     if item.question_preview:
-        payload["question_preview"] = item.question_preview[:240]
+        payload["question_preview"] = _safe_preview_text(
+            item.question_preview,
+            max_chars=_PREVIEW_CHARS,
+        )
     if item.answer_preview:
-        payload["answer_preview"] = item.answer_preview[:240]
+        payload["answer_preview"] = _safe_preview_text(
+            item.answer_preview,
+            max_chars=_PREVIEW_CHARS,
+        )
     if item.expected_terms_preview:
-        payload["expected_terms_preview"] = [
-            value[:120] for value in item.expected_terms_preview[:20]
-        ]
+        payload["expected_terms_preview"] = _safe_preview_list(
+            item.expected_terms_preview
+        )
     if item.evidence_refs:
-        payload["evidence_refs"] = [value[:120] for value in item.evidence_refs[:20]]
+        payload["evidence_refs"] = _safe_source_ref_list(item.evidence_refs)
     if item.evidence_ref_previews:
-        payload["evidence_ref_previews"] = [
-            value[:360] for value in item.evidence_ref_previews[:20]
-        ]
+        payload["evidence_ref_previews"] = _safe_preview_list(
+            item.evidence_ref_previews,
+            max_chars=_EVIDENCE_PREVIEW_CHARS,
+        )
     if item.covered_terms:
-        payload["covered_terms"] = [value[:120] for value in item.covered_terms[:20]]
+        payload["covered_terms"] = _safe_preview_list(item.covered_terms)
     if item.covered_evidence_refs:
-        payload["covered_evidence_refs"] = [
-            value[:120] for value in item.covered_evidence_refs[:20]
-        ]
+        payload["covered_evidence_refs"] = _safe_source_ref_list(
+            item.covered_evidence_refs
+        )
     if item.missing_evidence_refs:
-        payload["missing_evidence_refs"] = [
-            value[:120] for value in item.missing_evidence_refs[:20]
-        ]
+        payload["missing_evidence_refs"] = _safe_source_ref_list(
+            item.missing_evidence_refs
+        )
     if item.missing_evidence_ref_previews:
-        payload["missing_evidence_ref_previews"] = [
-            value[:360] for value in item.missing_evidence_ref_previews[:20]
-        ]
+        payload["missing_evidence_ref_previews"] = _safe_preview_list(
+            item.missing_evidence_ref_previews,
+            max_chars=_EVIDENCE_PREVIEW_CHARS,
+        )
     return payload
 
 
@@ -254,7 +280,10 @@ def progress_case_outcome_fields(
             }
         )
         if last.question_preview:
-            result["last_question_preview"] = last.question_preview[:240]
+            result["last_question_preview"] = _safe_preview_text(
+                last.question_preview,
+                max_chars=_PREVIEW_CHARS,
+            )
     return result
 
 
@@ -406,6 +435,49 @@ def _ratio(numerator: int, denominator: int) -> float:
     if denominator <= 0:
         return 0.0
     return round(numerator / denominator, 4)
+
+
+def _safe_preview_text(value: object, *, max_chars: int) -> str:
+    return _preview_value(value, max_chars=max_chars)
+
+
+def _safe_preview_list(
+    values: Sequence[str],
+    *,
+    max_chars: int = _TERM_CHARS,
+    limit: int = _MAX_TERM_VALUES,
+) -> list[str]:
+    previews: list[str] = []
+    for value in values[:limit]:
+        preview = _safe_preview_text(value, max_chars=max_chars)
+        if preview:
+            previews.append(preview)
+    return previews
+
+
+def _safe_item_id_list(values: Sequence[str], *, limit: int = _MAX_TERM_VALUES) -> list[str]:
+    item_ids: list[str] = []
+    for value in values[:limit]:
+        item_id = _safe_item_id_for_output(value)
+        if not item_id:
+            refs = _safe_source_refs_for_output((value,))
+            item_id = refs[0] if refs else ""
+        if item_id and item_id not in item_ids:
+            item_ids.append(item_id)
+    return item_ids
+
+
+def _safe_source_ref_list(
+    values: Sequence[str],
+    *,
+    limit: int = _MAX_TERM_VALUES,
+) -> list[str]:
+    refs: list[str] = []
+    for value in values[:limit]:
+        for ref in _safe_source_refs_for_output((value,)):
+            if ref and ref not in refs:
+                refs.append(ref[:_TERM_CHARS])
+    return refs
 
 
 def _metric_key_part(value: object) -> str:
