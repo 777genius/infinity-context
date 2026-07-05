@@ -31,19 +31,17 @@ from infinity_context_server.memory_comparison_quality_accessors import (
     str_tuple as _str_tuple,
 )
 from infinity_context_server.memory_comparison_source_identity import (
-    safe_source_identity_ref as _safe_source_identity_ref,
+    looks_like_raw_source_ref as _looks_like_raw_source_ref,
 )
 from infinity_context_server.memory_comparison_source_identity import (
-    safe_turn_ref as _safe_turn_ref,
-)
-from infinity_context_server.memory_comparison_source_identity import (
-    source_identity_refs_from_source_refs as _source_identity_refs_from_source_refs,
+    safe_source_refs_for_output as _safe_source_refs_for_output,
 )
 
 _SELECTED_WEAKNESS_SAMPLE_LIMIT = 10
 _SELECTED_WEAKNESS_REASON_LIMIT = 6
 _SELECTED_WEAKNESS_QUERY_ROLE_LIMIT = 6
 _SELECTED_WEAKNESS_SOURCE_REF_LIMIT = 6
+_SELECTED_WEAKNESS_CATEGORY_SOURCE_REF_LIMIT = 5
 _SELECTED_WEAKNESS_CATEGORY_SAMPLE_LIMIT = 5
 _SELECTED_WEAKNESS_TEXT_VALUE_LIMIT = 120
 _BROAD_SUMMARY_RISK_CODES = frozenset(
@@ -162,25 +160,33 @@ def selected_evidence_weakness_breakdown(
                 and len(low_answerability_samples)
                 < _SELECTED_WEAKNESS_CATEGORY_SAMPLE_LIMIT
             ):
-                low_answerability_samples.append(sample)
+                low_answerability_samples.append(
+                    _selected_evidence_weakness_category_sample(sample)
+                )
             if (
                 "selected_weak_source_locality" in reasons
                 and len(weak_source_locality_samples)
                 < _SELECTED_WEAKNESS_CATEGORY_SAMPLE_LIMIT
             ):
-                weak_source_locality_samples.append(sample)
+                weak_source_locality_samples.append(
+                    _selected_evidence_weakness_category_sample(sample)
+                )
             if (
                 "selected_broad_summary" in reasons
                 and len(broad_summary_samples)
                 < _SELECTED_WEAKNESS_CATEGORY_SAMPLE_LIMIT
             ):
-                broad_summary_samples.append(sample)
+                broad_summary_samples.append(
+                    _selected_evidence_weakness_category_sample(sample)
+                )
             if (
                 "selected_conflict_or_stale" in reasons
                 and len(conflict_or_stale_samples)
                 < _SELECTED_WEAKNESS_CATEGORY_SAMPLE_LIMIT
             ):
-                conflict_or_stale_samples.append(sample)
+                conflict_or_stale_samples.append(
+                    _selected_evidence_weakness_category_sample(sample)
+                )
 
     weak_case_ids = (
         low_answerability_case_ids
@@ -320,6 +326,18 @@ def _selected_evidence_weakness_sample(
     return sample
 
 
+def _selected_evidence_weakness_category_sample(
+    sample: Mapping[str, object],
+) -> dict[str, object]:
+    category_sample = dict(sample)
+    source_refs = category_sample.get("source_refs")
+    if isinstance(source_refs, Sequence) and not isinstance(source_refs, str | bytes):
+        category_sample["source_refs"] = list(source_refs)[
+            :_SELECTED_WEAKNESS_CATEGORY_SOURCE_REF_LIMIT
+        ]
+    return category_sample
+
+
 def _has_selected_broad_summary_risk(
     bundle_item: Mapping[str, object],
     *,
@@ -391,18 +409,13 @@ def _safe_selected_source_refs(values: Sequence[str]) -> tuple[str, ...]:
 
 
 def _safe_selected_source_refs_for_value(value: object) -> tuple[str, ...]:
-    safe_ref = _safe_source_identity_ref(value)
-    if safe_ref:
-        return (safe_ref,)
-    turn_ref = _safe_turn_ref(value)
-    if turn_ref:
-        return (turn_ref,)
-    return tuple(
-        safe_ref
-        for raw_ref in _source_identity_refs_from_source_refs((str(value or ""),))
-        for safe_ref in (_safe_source_identity_ref(raw_ref),)
-        if safe_ref
-    )
+    text = str(value or "").strip()
+    safe_refs = _safe_source_refs_for_output((text,))
+    if safe_refs:
+        return safe_refs
+    if not text or _looks_like_raw_source_ref(text):
+        return ()
+    return (_compact_sample_text(text),)
 
 
 def _sample_value_list(values: Sequence[str]) -> list[str]:

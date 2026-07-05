@@ -68,6 +68,11 @@ def safe_source_refs_for_output(source_refs: Sequence[str]) -> tuple[str, ...]:
     return tuple(refs)
 
 
+def looks_like_raw_source_ref(value: object) -> bool:
+    """Return true for provider/private source references that must not be emitted."""
+    return _looks_like_raw_ref(str(value or "").strip())
+
+
 def source_identity_refs_from_dedupe_key(value: object) -> tuple[str, ...]:
     key = str(value or "").strip()
     if not key:

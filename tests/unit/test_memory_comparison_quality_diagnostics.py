@@ -1966,6 +1966,8 @@ def test_quality_diagnostics_propagates_selected_evidence_risk_reasons() -> None
 
 def test_quality_diagnostics_filters_raw_selected_source_refs() -> None:
     raw_provider_ref = "provider:private-token:selected-evidence"
+    harmless_long_ref = "diagnostic-source-" + ("x" * 160)
+    compact_harmless_ref = "diagnostic-source-" + ("x" * 99) + "..."
     gate = fast_gate_metrics(
         (
             _item(
@@ -1976,7 +1978,12 @@ def test_quality_diagnostics_filters_raw_selected_source_refs() -> None:
                             "id": "selected",
                             "role": "support",
                             "answerability_score": 0.4,
-                            "source_refs": [raw_provider_ref, raw_provider_ref, "D1:1"],
+                            "source_refs": [
+                                raw_provider_ref,
+                                raw_provider_ref,
+                                harmless_long_ref,
+                                "D1:1",
+                            ],
                         }
                     ]
                 },
@@ -1987,9 +1994,13 @@ def test_quality_diagnostics_filters_raw_selected_source_refs() -> None:
 
     sample = gate["selected_evidence_weakness"]["samples"][0]
 
-    assert sample["source_refs"] == ["D1:1"]
-    assert sample["source_ref_count"] == 2
+    assert sample["source_refs"] == [compact_harmless_ref, "D1:1"]
+    assert sample["source_ref_count"] == 3
     assert raw_provider_ref not in json.dumps(
+        gate["selected_evidence_weakness"],
+        sort_keys=True,
+    )
+    assert harmless_long_ref not in json.dumps(
         gate["selected_evidence_weakness"],
         sort_keys=True,
     )
