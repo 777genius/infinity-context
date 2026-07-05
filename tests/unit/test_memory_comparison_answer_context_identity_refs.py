@@ -326,6 +326,34 @@ def test_answer_context_keeps_exact_turn_identity_unqualified_when_text_has_sess
     )
 
 
+def test_answer_context_preserves_text_turn_identity_with_generic_source_ref() -> None:
+    context = answer_context_from_evidence_bundle(
+        (
+            RetrievedMemory(
+                text="session_3 turn D3:4 Alex confirmed the planning date.",
+                rank=1,
+                item_id="generic-source-ref-turn",
+                source_refs=("document:profile-note",),
+            ),
+        ),
+        {},
+        cutoff=1,
+    )
+
+    diagnostics = context.to_diagnostics()
+
+    assert context.memories[0].source_refs == (
+        "document:profile-note",
+        "source_session_turn_refs:session_3:D3:4",
+        "source_turn_refs:D3:4",
+    )
+    assert diagnostics["source_ref_count"] == 3
+    assert diagnostics["source_identity_refs"] == [
+        "source_session_turn_refs:session_3:D3:4",
+        "source_turn_refs:D3:4",
+    ]
+
+
 def test_answer_context_diagnostics_filters_raw_provider_item_ids() -> None:
     context = answer_context_from_evidence_bundle(
         (

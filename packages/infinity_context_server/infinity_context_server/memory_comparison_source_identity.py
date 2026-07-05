@@ -197,7 +197,12 @@ def source_identity_refs_from_text(
     *,
     source_refs: Sequence[str],
 ) -> tuple[str, ...]:
-    if source_refs:
+    refs = tuple(
+        str(ref).strip()
+        for ref in source_refs
+        if str(ref).strip()
+    )
+    if _source_turn_refs(refs, include_exact_turn_refs=True):
         return ()
     session_turn_refs = _session_turn_refs_from_text(text)
     if 0 < len(session_turn_refs) <= 3:

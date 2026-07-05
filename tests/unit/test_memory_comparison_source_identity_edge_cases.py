@@ -14,6 +14,7 @@ from infinity_context_server.memory_comparison_source_identity import (
     source_identity_audit_gap_codes,
     source_identity_refs_from_dedupe_key,
     source_identity_refs_from_source_refs,
+    source_identity_refs_from_text,
 )
 
 
@@ -181,9 +182,28 @@ def test_safe_source_refs_for_output_bounds_generic_refs() -> None:
         )
     ) == ("document:" + ("x" * 119),)
 
+
 def test_source_identity_refs_from_dedupe_key_drops_overlength_generic_refs() -> None:
     assert source_identity_refs_from_dedupe_key(
         "source_refs:document:" + ("x" * 120)
+    ) == ()
+
+
+def test_source_identity_refs_from_text_preserve_turns_with_generic_refs() -> None:
+    assert source_identity_refs_from_text(
+        "session_3 turn D3:4 Alex confirmed the planning date.",
+        source_refs=("document:profile-note",),
+    ) == (
+        "source_session_turn_refs:session_3:D3:4",
+        "source_turn_refs:D3:4",
+    )
+    assert source_identity_refs_from_text(
+        "session_3 turn D3:4 Alex confirmed the planning date.",
+        source_refs=("D3:4",),
+    ) == ()
+    assert source_identity_refs_from_text(
+        "session_3 turn D3:4 Alex confirmed the planning date.",
+        source_refs=("source_session_turn_refs:session_3:D3:4",),
     ) == ()
 
 
