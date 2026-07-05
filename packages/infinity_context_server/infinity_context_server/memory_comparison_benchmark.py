@@ -158,6 +158,31 @@ _MAX_COMPACT_FAILURE_SEQUENCE_ITEMS = 8
 _MAX_COMPACT_FAILURE_MAPPING_ITEMS = 40
 _MAX_COMPACT_FAILURE_TEXT_CHARS = 240
 _MAX_COMPACT_SAMPLE_TEXT_CHARS = 180
+_COMPACT_BACKEND_METRIC_KEYS = frozenset(
+    {
+        "ok",
+        "total",
+        "unscored",
+        "passed",
+        "failed",
+        "accuracy",
+        "avg_score",
+        "avg_retrieved_count",
+        "avg_search_latency_ms",
+        "avg_ingest_latency_ms",
+        "avg_generation_latency_ms",
+        "avg_judge_latency_ms",
+        "avg_context_tokens",
+        "expected_term_recall",
+        "evidence_term_recall",
+        "evidence_term_recall_evaluation_count",
+        "token_usage",
+        "token_cost",
+        "by_category",
+        "by_group",
+        "by_cutoff",
+    }
+)
 _LOCOMO_FAST_CASE_SET_GROUPS = {
     MEMORY_COMPARISON_CASE_SET_LOCOMO_FAST: (
         "multi-hop",
@@ -1970,6 +1995,8 @@ def _compact_report(
             0,
         ),
     }
+    compact_metadata = _compact_failure_value(metadata)
+    metadata = compact_metadata if isinstance(compact_metadata, dict) else {}
     diagnostics = _compact_diagnostics(evaluations)
     diagnostics["failure_provenance_summary"] = _compact_failure_provenance_summary(
         failure_analysis,
@@ -1997,9 +2024,11 @@ def _compact_report(
         ),
         "case_selection": _compact_case_selection(result.get("case_selection")),
         "metadata": metadata,
-        "metrics": result.get("metrics", {}),
-        "backend_metrics": result.get("backend_metrics", {}),
-        "backend_comparison": result.get("backend_comparison", {}),
+        "metrics": _compact_failure_value(result.get("metrics", {})),
+        "backend_metrics": _compact_backend_metrics(result.get("backend_metrics")),
+        "backend_comparison": _compact_failure_value(
+            result.get("backend_comparison", {})
+        ),
         "diagnostics": diagnostics,
         "failure_analysis": _compact_failure_entries(
             failure_analysis,
@@ -2026,6 +2055,24 @@ def _compact_failure_entries(
         if isinstance(compact, dict):
             compact_entries.append(compact)
     return compact_entries
+
+
+def _compact_backend_metrics(value: object) -> dict[str, object]:
+    compact: dict[str, object] = {}
+    for backend_name, raw_metrics in sorted(
+        _mapping(value).items(),
+        key=lambda item: str(item[0]),
+    ):
+        backend_key = _compact_sample_text(backend_name)
+        metrics = _mapping(raw_metrics)
+        if not backend_key or not metrics:
+            continue
+        compact_metrics: dict[str, object] = {}
+        for key in sorted(_COMPACT_BACKEND_METRIC_KEYS):
+            if key in metrics:
+                compact_metrics[key] = _compact_failure_value(metrics[key])
+        compact[backend_key] = compact_metrics
+    return compact
 
 
 def _compact_case_selection(value: object) -> dict[str, object]:
@@ -2297,15 +2344,13 @@ def _compact_fast_gate_summary(
                 query_role_gaps.get("required_role_coverage_gap_count")
             )
             or 0,
-            "bridge_hit_roles_without_selected_items": list(
-                _str_tuple(query_role_gaps.get("bridge_hit_roles_without_selected_items"))
+            "bridge_hit_roles_without_selected_items": _compact_sample_values(
+                query_role_gaps.get("bridge_hit_roles_without_selected_items"),
+                limit=8,
             ),
-            "bridge_hit_role_families_without_selected_items": list(
-                _str_tuple(
-                    query_role_gaps.get(
-                        "bridge_hit_role_families_without_selected_items"
-                    )
-                )
+            "bridge_hit_role_families_without_selected_items": _compact_sample_values(
+                query_role_gaps.get("bridge_hit_role_families_without_selected_items"),
+                limit=8,
             ),
         },
         "query_plan_gap_counts": {
@@ -2598,10 +2643,25 @@ def _compact_sample_text(
     return f"{text[: limit - 3]}..."
 
 
-def _compact_sample_values(value: object, *, limit: int) -> list[str]:
+def _compact_sample_scalar(value: object) -> object | None:
+    if isinstance(value, bool | int):
+        return value
+    if isinstance(value, float):
+        return value if isfinite(value) else None
+    if isinstance(value, str):
+        return _compact_sample_text(value) or None
+    return None
+
+
+def _compact_sample_values(
+    value: object,
+    *,
+    limit: int,
+    text_limit: int = _MAX_COMPACT_SAMPLE_TEXT_CHARS,
+) -> list[str]:
     values: list[str] = []
     for raw_value in _str_tuple(value):
-        text = _compact_sample_text(raw_value)
+        text = _compact_sample_text(raw_value, limit=text_limit)
         if text:
             values.append(text)
         if len(values) >= limit:
@@ -2642,10 +2702,12 @@ def _compact_answerability_gap_samples(
         compact: dict[str, object] = {}
         for key in sorted(scalar_keys):
             if key in sample:
-                compact[key] = sample[key]
+                compact_value = _compact_sample_scalar(sample[key])
+                if compact_value is not None:
+                    compact[key] = compact_value
         for key in sorted(sequence_keys):
             if key in sample:
-                values = list(_str_tuple(sample.get(key))[:6])
+                values = _compact_sample_values(sample.get(key), limit=6)
                 if values:
                     compact[key] = values
         if compact:
@@ -2689,18 +2751,17 @@ def _compact_answer_context_support_gap_samples(
         sample = _mapping(raw_sample)
         if not sample:
             continue
-        compact = {
-            key: sample[key]
-            for key in scalar_keys
-            if isinstance(sample.get(key), str | int | float | bool)
-        }
-        compact.update(
-            {
-                key: list(_str_tuple(sample.get(key)))
-                for key in list_keys
-                if _str_tuple(sample.get(key))
-            }
-        )
+        compact: dict[str, object] = {}
+        for key in scalar_keys:
+            if key not in sample:
+                continue
+            compact_value = _compact_sample_scalar(sample[key])
+            if compact_value is not None:
+                compact[key] = compact_value
+        for key in list_keys:
+            values = _compact_sample_values(sample.get(key), limit=8)
+            if values:
+                compact[key] = values
         source_identity_refs = _compact_source_identity_refs(
             sample.get("source_identity_refs")
         )
@@ -2892,7 +2953,9 @@ def _compact_rerank_selection_conflict_samples(
             "selected_without_positive_rerank_count",
         ):
             if key in sample:
-                compact[key] = sample[key]
+                compact_value = _compact_sample_scalar(sample[key])
+                if compact_value is not None:
+                    compact[key] = compact_value
         signal_counts = _compact_count_mapping(
             sample.get("positive_unselected_signal_counts"),
             limit=6,
@@ -2947,11 +3010,13 @@ def _compact_rerank_gap_sample(sample: Mapping[str, object]) -> dict[str, object
     }
     for key in sorted(scalar_keys):
         if key in sample:
-            compact[key] = sample[key]
+            compact_value = _compact_sample_scalar(sample[key])
+            if compact_value is not None:
+                compact[key] = compact_value
     for key in sorted(sequence_keys):
         if key not in sample:
             continue
-        values = list(_str_tuple(sample.get(key))[:6])
+        values = _compact_sample_values(sample.get(key), limit=6)
         if values:
             compact[key] = values
     for key in sorted(mapping_keys):
@@ -2968,12 +3033,17 @@ def _compact_scalar_mapping(value: object, *, limit: int = 6) -> dict[str, objec
     for key, raw_value in sorted(value.items(), key=lambda item: str(item[0])):
         if len(compact) >= limit:
             break
+        compact_key = _compact_sample_text(key)
+        if not compact_key:
+            continue
         if isinstance(raw_value, bool | int | float | str):
-            compact[str(key)] = raw_value
+            compact_value = _compact_sample_scalar(raw_value)
+            if compact_value is not None:
+                compact[compact_key] = compact_value
         elif isinstance(raw_value, Sequence) and not isinstance(raw_value, str | bytes):
-            values = list(_str_tuple(raw_value)[:6])
+            values = _compact_sample_values(raw_value, limit=6)
             if values:
-                compact[str(key)] = values
+                compact[compact_key] = values
     return compact
 
 
@@ -3029,16 +3099,20 @@ def _compact_selected_evidence_weakness_samples(
         compact: dict[str, object] = {}
         for key in sorted(allowed_scalar_keys):
             if key in sample:
-                compact[key] = sample[key]
+                compact_value = _compact_sample_scalar(sample[key])
+                if compact_value is not None:
+                    compact[key] = compact_value
         for key in sorted(allowed_sequence_keys):
-            if key in sample:
-                if key == "source_refs":
-                    compact[key] = list(
-                        _compact_diagnostic_source_refs(sample.get(key), limit=6)
-                    )
-                    continue
-                compact[key] = list(_str_tuple(sample.get(key))[:6])
-        samples.append(compact)
+            if key not in sample:
+                continue
+            if key == "source_refs":
+                values = list(_compact_diagnostic_source_refs(sample.get(key), limit=6))
+            else:
+                values = _compact_sample_values(sample.get(key), limit=6)
+            if values:
+                compact[key] = values
+        if compact:
+            samples.append(compact)
         if len(samples) >= limit:
             break
     return samples
@@ -3083,8 +3157,8 @@ def _compact_evidence_bundle_coverage(
             dict.fromkeys((*covered_evidence_refs, *missing_evidence_refs))
         )
         sample: dict[str, object] = {
-            "case_id": str(item.get("case_id") or ""),
-            "group": str(item.get("group") or ""),
+            "case_id": _compact_sample_text(item.get("case_id")),
+            "group": _compact_sample_text(item.get("group")),
             "item_count": _positive_int(bundle.get("item_count")) or 0,
             "evidence_term_recall": round(
                 _metric_value(bundle, "evidence_term_recall"),
@@ -3092,7 +3166,7 @@ def _compact_evidence_bundle_coverage(
             ),
             "missing_evidence_terms": list(missing_evidence_refs),
             "missing_expected_terms": list(
-                _str_tuple(quality.get("missing_terms"))[:8]
+                _compact_text_list(quality.get("missing_terms"), item_limit=8)
             ),
         }
         if evidence_refs:
@@ -3122,8 +3196,8 @@ def _compact_evidence_bundle_coverage(
         ),
         "evidence_term_count": evidence_term_count,
         "covered_evidence_term_count": covered_evidence_term_count,
-        "missing_required_role_counts": dict(
-            sorted(missing_required_role_counts.items())
+        "missing_required_role_counts": _compact_count_mapping(
+            missing_required_role_counts
         ),
         "incomplete_samples": incomplete_samples,
     }

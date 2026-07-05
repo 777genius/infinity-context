@@ -291,6 +291,51 @@ def test_compact_report_bounds_requested_ids_and_failure_payloads() -> None:
     assert long_text not in json.dumps(compact)
 
 
+def test_compact_report_omits_raw_backend_diagnostic_payloads() -> None:
+    raw_memory_text = "RAW BACKEND MEMORY TEXT MUST STAY OUT"
+    compact = _compact_report(
+        {
+            "schema_version": "memory_comparison_benchmark.v1",
+            "suite": "unit",
+            "status": "failed",
+            "ok": False,
+            "run_id": "compact-backend-metrics",
+            "metadata": {},
+            "metrics": {"accuracy": 0.5},
+            "backend_metrics": {
+                "memo-stack": {
+                    "ok": False,
+                    "total": 1,
+                    "accuracy": 0.5,
+                    "quality_diagnostics": {
+                        "samples": [{"text": raw_memory_text}],
+                    },
+                    "fast_gate": {
+                        "actionable_gap_summary": {
+                            "ranked_gaps": [
+                                {"samples": [{"text": raw_memory_text}]}
+                            ],
+                        },
+                    },
+                }
+            },
+            "backend_comparison": {"winner": "memo-stack"},
+            "evaluations": [],
+            "failure_analysis": [],
+            "failures": [],
+        },
+        failure_limit=1,
+    )
+
+    assert compact["backend_metrics"] == {
+        "memo-stack": {"ok": False, "total": 1, "accuracy": 0.5}
+    }
+    serialized = json.dumps(compact)
+    assert raw_memory_text not in serialized
+    assert "quality_diagnostics" not in serialized
+    assert "fast_gate" not in serialized
+
+
 def _evaluation_item(
     *,
     case_id: str,

@@ -586,6 +586,7 @@ def test_actionable_temporal_grounding_samples_filter_unsafe_source_refs() -> No
                     "source_refs": [
                         "source_turn_refs:D1:2",
                         "source_turn_refs:D1:2",
+                        f"D2:{'8' * 120}",
                         "locomo:conv-private:session_2:D2:3:turn-secret",
                         long_exact_ref,
                         f"source_turn_refs:D1:{'9' * 90}",
@@ -631,6 +632,9 @@ def test_actionable_temporal_grounding_samples_filter_unsafe_source_refs() -> No
     assert "locomo:conv-private" not in serialized
     assert "turn-secret" not in serialized
     assert long_exact_ref not in serialized
+    assert "888888888888888888888888888888888888888888888888888888888888" not in (
+        serialized
+    )
     assert "999999999999999999999999999999999999999999999999999999999999" not in (
         serialized
     )

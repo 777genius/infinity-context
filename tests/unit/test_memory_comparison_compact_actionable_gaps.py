@@ -153,7 +153,11 @@ def test_compact_fast_gate_summary_bounds_temporal_grounding_issue_fields(
                         "query_roles": [
                             f"role-{value}-{long_value}" for value in range(8)
                         ],
-                        "source_refs": [f"D1:{value}" for value in range(8)],
+                        "source_refs": [
+                            "D1:0",
+                            f"D1:{'9' * 120}",
+                            *[f"D1:{value}" for value in range(1, 8)],
+                        ],
                         "issue_reasons": [
                             f"missing-{value}-{long_value}" for value in range(8)
                         ],
@@ -238,4 +242,130 @@ def test_compact_fast_gate_summary_bounds_temporal_grounding_issue_fields(
     assert "text" not in samples[0]
     serialized = json.dumps(summary, sort_keys=True)
     assert long_value not in serialized
+    assert "9" * 120 not in serialized
     assert "raw temporal text must stay out" not in serialized
+
+
+def test_compact_fast_gate_summary_bounds_remaining_gap_sample_fields(
+    monkeypatch,
+) -> None:
+    long_value = "x" * 260
+    raw_memory_text = "RAW MEMORY TEXT MUST STAY OUT"
+    raw_provider_ref = "provider-ref-" + long_value
+
+    def fast_gate_metrics(_: object) -> dict[str, object]:
+        return {
+            "schema_version": "fast_gate.v1",
+            "ready_for_full_locomo": False,
+            "failed_gates": [],
+            "evaluation_count": 2,
+            "expected_case_count": 2,
+            "query_role_gap_breakdown": {
+                "bridge_hit_roles_without_selected_items": [
+                    f"role-{index}-{long_value}" for index in range(10)
+                ],
+                "bridge_hit_role_families_without_selected_items": [
+                    f"family-{index}-{long_value}" for index in range(10)
+                ],
+            },
+            "answerability_gap_breakdown": {
+                "samples": [
+                    {
+                        "case_id": f"answerability-{long_value}",
+                        "group": f"group-{long_value}",
+                        "memory_id": f"memory-{long_value}",
+                        "reasons": [
+                            f"reason-{index}-{long_value}" for index in range(8)
+                        ],
+                        "query_roles": [
+                            f"role-{index}-{long_value}" for index in range(8)
+                        ],
+                        "raw_text": raw_memory_text,
+                    }
+                ],
+            },
+            "answer_context_support_gap_summary": {
+                "samples": [
+                    {
+                        "case_id": f"context-{long_value}",
+                        "group": f"group-{long_value}",
+                        "cutoff": f"cutoff-{long_value}",
+                        "source": f"source-{long_value}",
+                        "item_ids": [
+                            f"item-{index}-{long_value}" for index in range(10)
+                        ],
+                        "gap_reasons": [
+                            f"gap-{index}-{long_value}" for index in range(10)
+                        ],
+                        "memory_text": raw_memory_text,
+                    }
+                ],
+            },
+            "selected_evidence_weakness": {
+                "samples": [
+                    {
+                        "case_id": f"weak-{long_value}",
+                        "group": f"group-{long_value}",
+                        "item_id": f"item-{long_value}",
+                        "role": f"role-{long_value}",
+                        "source_refs": [raw_provider_ref],
+                        "query_roles": [
+                            f"query-role-{index}-{long_value}"
+                            for index in range(8)
+                        ],
+                        "text": raw_memory_text,
+                    }
+                ],
+            },
+            "rerank_signal_gap_breakdown": {
+                "positive_unselected_samples": [
+                    {
+                        "case_id": f"rerank-{long_value}",
+                        "group": f"group-{long_value}",
+                        "item_id": f"candidate-{long_value}",
+                        "selected_item_ids": [
+                            f"selected-{index}-{long_value}" for index in range(8)
+                        ],
+                        "top_signals": {
+                            f"signal-{index}-{long_value}": f"value-{long_value}"
+                            for index in range(8)
+                        },
+                        "memory_text": raw_memory_text,
+                    }
+                ],
+                "selection_conflict_samples": [
+                    {
+                        "case_id": f"conflict-{long_value}",
+                        "group": f"group-{long_value}",
+                        "positive_unselected_signal_counts": {
+                            f"signal-{index}-{long_value}": index
+                            for index in range(8)
+                        },
+                    }
+                ],
+            },
+        }
+
+    monkeypatch.setattr(benchmark, "_fast_gate_metrics", fast_gate_metrics)
+
+    summary = benchmark._compact_fast_gate_summary(({"case_id": "case-1"},))
+    serialized = json.dumps(summary, sort_keys=True)
+
+    assert raw_memory_text not in serialized
+    assert long_value not in serialized
+    assert len(
+        summary["query_role_gap_counts"]["bridge_hit_roles_without_selected_items"]
+    ) == 8
+    assert len(summary["answerability_gap_samples"]["samples"][0]["reasons"]) == 6
+    assert len(summary["answer_context_support_gap_samples"][0]["item_ids"]) == 8
+    weakness_sample = summary["selected_evidence_weakness_samples"]["samples"][0]
+    assert "source_refs" not in weakness_sample
+    assert raw_provider_ref not in serialized
+    assert (
+        len(
+            summary["rerank_signal_gap_samples"]["positive_unselected_samples"][0][
+                "top_signals"
+            ]
+        )
+        == 6
+    )
