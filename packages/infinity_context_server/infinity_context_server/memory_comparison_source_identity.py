@@ -69,7 +69,9 @@ def source_identity_refs_from_dedupe_key(value: object) -> tuple[str, ...]:
         )
     for prefix in ("source_refs:", "refs:"):
         if key_lower.startswith(prefix):
-            return _split_identity_refs(key[len(prefix) :])
+            return _identity_refs_from_source_ref_values(
+                _split_identity_refs(key[len(prefix) :])
+            )
     for prefix in ("source_turn_refs:", "turn_refs:"):
         if not key_lower.startswith(prefix):
             continue
@@ -200,6 +202,53 @@ def _safe_turn_refs(values: Iterable[object]) -> tuple[str, ...]:
             for raw_ref in values
             for ref in (safe_turn_ref(raw_ref),)
             if ref
+        )
+    )
+
+
+def _identity_refs_from_source_ref_values(values: Iterable[object]) -> tuple[str, ...]:
+    refs: list[str] = []
+    for raw_ref in values:
+        source_ref = str(raw_ref or "").strip()
+        if not source_ref:
+            continue
+        identity_refs = source_identity_refs_from_source_refs(
+            (source_ref,),
+            include_exact_turn_refs=True,
+        )
+        if identity_refs:
+            refs.extend(identity_refs)
+            continue
+        if _looks_like_unsafe_source_ref(source_ref):
+            continue
+        refs.append(source_ref)
+    return tuple(dict.fromkeys(refs))
+
+
+def _looks_like_unsafe_source_ref(value: str) -> bool:
+    text = value.lower()
+    if "locomo:" in text or "conv-private" in text or "turn-secret" in text:
+        return True
+    if any(
+        text.startswith(prefix)
+        for prefix in (
+            "backend:",
+            "graphiti:",
+            "mem0:",
+            "memory://",
+            "openai:",
+            "provider:",
+            "qdrant:",
+        )
+    ):
+        return True
+    return any(
+        marker in text
+        for marker in (
+            "private-token",
+            "provider-secret",
+            "provider_payload",
+            "raw_provider",
         )
     )
 

@@ -147,3 +147,52 @@ def test_compact_fast_gate_summary_keeps_safe_identity_refs_end_to_end() -> None
     assert "locomo:conv-private" not in serialized
     assert "turn-secret" not in serialized
     assert "provider-auth-private-marker" not in serialized
+
+
+def test_answer_context_matches_source_refs_dedupe_key_with_safe_identity_refs() -> None:
+    context = answer_context_from_evidence_bundle(
+        (
+            RetrievedMemory(
+                text="session_4 D4:5 Caroline confirmed the support group.",
+                rank=1,
+                item_id="safe-session-turn",
+                metadata={
+                    "diagnostics": {
+                        "benchmark_candidate_features": {
+                            "source_ref_dedupe_key": (
+                                "source_session_turn_refs:session_4:D4:5"
+                            )
+                        }
+                    }
+                },
+            ),
+        ),
+        {
+            "items": [
+                {
+                    "role": "primary",
+                    "source_ref_dedupe_key": (
+                        "source_refs:"
+                        "LoCoMo:conv-private:SESSION_4:d4:5:TURN-secret|"
+                        "provider:private-token-abc123"
+                    ),
+                }
+            ]
+        },
+        cutoff=1,
+    )
+
+    assert [memory.item_id for memory in context.memories] == ["safe-session-turn"]
+    assert context.memories[0].source_refs == (
+        "source_session_turn_refs:session_4:D4:5",
+        "source_turn_refs:D4:5",
+    )
+    diagnostics = context.to_diagnostics()
+    assert diagnostics["source_identity_refs"] == [
+        "source_session_turn_refs:session_4:D4:5",
+        "source_turn_refs:D4:5",
+    ]
+    serialized = json.dumps((context.memories[0].source_refs, diagnostics))
+    assert "locomo:conv-private" not in serialized.lower()
+    assert "turn-secret" not in serialized.lower()
+    assert "provider:private-token" not in serialized

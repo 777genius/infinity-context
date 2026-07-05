@@ -82,6 +82,25 @@ def test_source_identity_refs_from_dedupe_key_filters_noisy_prefixed_refs() -> N
     ) == ("source_session_turn_refs:session_3:D3:4",)
 
 
+def test_source_identity_refs_from_source_refs_dedupe_key_normalizes_safely() -> None:
+    refs = source_identity_refs_from_dedupe_key(
+        "source_refs:"
+        "LoCoMo:conv-private:SESSION_4:d4:5:TURN-secret|"
+        "source_turn_refs:d1:2|"
+        "provider:private-token-abc123|"
+        "SOURCE_SESSION_TURN_REFS:SESSION_2:d2:3"
+    )
+
+    assert refs == (
+        "source_session_turn_refs:session_4:D4:5",
+        "source_turn_refs:D4:5",
+        "source_turn_refs:D1:2",
+        "source_session_turn_refs:session_2:D2:3",
+        "source_turn_refs:D2:3",
+    )
+    assert "provider:private-token-abc123" not in refs
+
+
 def test_source_identity_audit_distinguishes_missing_source_ids() -> None:
     assert source_identity_audit_gap_codes(source_refs=(), text="No turn marker") == (
         "missing_source_refs",

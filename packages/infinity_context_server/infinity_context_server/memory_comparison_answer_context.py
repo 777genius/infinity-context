@@ -2318,12 +2318,19 @@ def _source_identity_key_overlaps(
     )
     for selected_key in selected_source_identity_keys:
         if source_identity_refs.intersection(selected_key):
-            return True
+            selected_turn_refs = _unqualified_source_turn_refs(selected_key)
+            if (
+                not source_identity_turn_refs
+                or source_identity_turn_refs.issubset(selected_turn_refs)
+            ):
+                return True
+            continue
         selected_has_session_refs = _has_session_source_turn_refs(selected_key)
         if source_identity_has_session_refs and selected_has_session_refs:
             continue
-        if source_identity_turn_refs.intersection(
-            _unqualified_source_turn_refs(selected_key)
+        selected_turn_refs = _unqualified_source_turn_refs(selected_key)
+        if source_identity_turn_refs and source_identity_turn_refs.issubset(
+            selected_turn_refs
         ):
             return True
     return False
