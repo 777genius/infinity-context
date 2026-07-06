@@ -11,6 +11,14 @@ from infinity_context_adapters.features.memory_facts.graphiti_fact_projection im
     GraphitiMemoryFactProjection,
     create_graphiti_memory_fact_projection,
 )
+from infinity_context_adapters.features.memory_facts.in_memory_fact_store import (
+    InMemoryMemoryFactOutbox,
+    InMemoryMemoryFactRepository,
+    InMemoryMemoryFactUnitOfWork,
+    InMemoryMemoryFactUnitOfWorkFactory,
+    create_in_memory_memory_fact_store,
+    create_in_memory_memory_fact_unit_of_work_factory,
+)
 from infinity_context_adapters.features.memory_facts.postgres_fact_store import (
     PostgresMemoryFactOutbox,
     PostgresMemoryFactStore,
@@ -27,12 +35,18 @@ from infinity_context_adapters.features.memory_facts.qdrant_fact_projection impo
 __all__ = (
     "FEATURE_ID",
     "GraphitiMemoryFactProjection",
+    "InMemoryMemoryFactOutbox",
+    "InMemoryMemoryFactRepository",
+    "InMemoryMemoryFactUnitOfWork",
+    "InMemoryMemoryFactUnitOfWorkFactory",
     "PostgresMemoryFactOutbox",
     "PostgresMemoryFactStore",
     "PostgresMemoryFactUnitOfWork",
     "PostgresMemoryFactUnitOfWorkFactory",
     "QdrantMemoryFactProjection",
     "create_graphiti_memory_fact_projection",
+    "create_in_memory_memory_fact_store",
+    "create_in_memory_memory_fact_unit_of_work_factory",
     "create_postgres_memory_fact_store",
     "create_postgres_memory_fact_unit_of_work_factory",
     "create_qdrant_memory_fact_projection",
