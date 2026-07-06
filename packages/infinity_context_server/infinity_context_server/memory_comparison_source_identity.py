@@ -48,6 +48,12 @@ _TEXT_TURN_PUNCT_SESSION_RE = re.compile(
     r"(?:session|dialogue|dialog)(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)\b",
     re.IGNORECASE,
 )
+_TEXT_TURN_PAREN_SESSION_RE = re.compile(
+    r"\b(?:turn\s*[:#-]?\s+)?(?P<turn_ref>D\d+[:-]\d+)\b"
+    r"\s*\(\s*(?:the\s+)?"
+    r"(?:session|dialogue|dialog)(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)\s*\)",
+    re.IGNORECASE,
+)
 _SAFE_SOURCE_IDENTITY_REF_RE = re.compile(
     r"^(?:(?P<turn_prefix>source_turn_refs):(?P<turn_ref>D\d+[:-]\d+)|"
     r"(?P<session_prefix>source_session_turn_refs):(?P<session>session[-_]\d+):"
@@ -1205,6 +1211,7 @@ def _session_turn_refs_from_text(
                 _TEXT_SESSION_DATE_TURN_RE,
                 _TEXT_TURN_SESSION_RE,
                 _TEXT_TURN_PUNCT_SESSION_RE,
+                _TEXT_TURN_PAREN_SESSION_RE,
             )
             for match in pattern.finditer(text or "")
             for turn_ref in (safe_turn_ref(match.group("turn_ref")),)

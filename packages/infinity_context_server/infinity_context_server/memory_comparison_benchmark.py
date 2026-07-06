@@ -2985,15 +2985,7 @@ def _compact_answer_context_support_gap_samples(
 
 
 def _compact_source_identity_refs(value: object, *, limit: int = 8) -> tuple[str, ...]:
-    refs = _compact_diagnostic_source_refs(value, limit=limit)
-    if not refs:
-        return refs
-    return tuple(
-        _drop_redundant_unqualified_turn_refs(
-            refs,
-            source_ref_count=len(_str_tuple(value)),
-        )
-    )
+    return _compact_diagnostic_source_refs(value, limit=limit)
 
 
 def _compact_temporal_grounding_issue_samples(
@@ -3367,10 +3359,7 @@ def _compact_selected_evidence_weakness_samples(
             if sanitized_source_ref_count is not None:
                 source_ref_count = sanitized_source_ref_count
         if source_refs and source_ref_count is not None:
-            compact["source_refs"] = _drop_redundant_unqualified_turn_refs(
-                source_refs,
-                source_ref_count=source_ref_count,
-            )
+            compact["source_refs"] = list(source_refs)
         if source_ref_count is not None:
             compact["source_ref_count"] = source_ref_count
         if compact:
@@ -3378,36 +3367,6 @@ def _compact_selected_evidence_weakness_samples(
         if len(samples) >= limit:
             break
     return samples
-
-
-def _drop_redundant_unqualified_turn_refs(
-    refs: Sequence[str],
-    *,
-    source_ref_count: int,
-) -> list[str]:
-    session_turn_refs = {
-        _source_turn_from_session_ref(ref)
-        for ref in refs
-        if ref.startswith("source_session_turn_refs:")
-    }
-    session_turn_refs.discard("")
-    if source_ref_count > len(refs):
-        return list(refs)
-    return [
-        ref
-        for ref in refs
-        if not (
-            ref.startswith("source_turn_refs:")
-            and ref.removeprefix("source_turn_refs:") in session_turn_refs
-        )
-    ]
-
-
-def _source_turn_from_session_ref(ref: str) -> str:
-    parts = ref.split(":")
-    if len(parts) < 4:
-        return ""
-    return f"{parts[-2]}:{parts[-1]}"
 
 
 def _compact_evidence_bundle_coverage(
