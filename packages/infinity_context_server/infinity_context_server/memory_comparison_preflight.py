@@ -680,7 +680,11 @@ def _locomo_fast_dataset_case_counts(
 
 def _official_locomo_samples(payload: object) -> tuple[Mapping[str, object], ...]:
     if isinstance(payload, Mapping):
-        return (payload,) if _is_official_locomo_sample(payload) else ()
+        if _is_official_locomo_sample(payload):
+            return (payload,)
+        raw_samples = payload.get("data") or payload.get("cases") or payload.get("items")
+        if raw_samples is not None:
+            return _official_locomo_samples(raw_samples)
     if isinstance(payload, Sequence) and not isinstance(payload, str | bytes):
         return tuple(
             item

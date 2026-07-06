@@ -3298,6 +3298,55 @@ def test_memory_comparison_official_locomo_turn_mode_uses_mem0_style_chunks(
     assert case.metadata["evidence_terms"] == ("D1:1",)
 
 
+def test_memory_comparison_official_locomo_turn_mode_accepts_wrapped_dataset(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "locomo10-wrapped.json"
+    dataset.write_text(
+        json.dumps(
+            {
+                "data": [
+                    {
+                        "sample_id": "conv-wrapped-turns",
+                        "conversation": {
+                            "speaker_a": "Caroline",
+                            "session_1": [
+                                {
+                                    "speaker": "Caroline",
+                                    "dia_id": "D1:1",
+                                    "text": "I keep the launch notes in the blue binder.",
+                                }
+                            ],
+                        },
+                        "qa": [
+                            {
+                                "question": "Where are the launch notes?",
+                                "answer": "blue binder",
+                                "evidence": ["D1:1"],
+                                "category": 4,
+                            }
+                        ],
+                    }
+                ],
+                "metadata": {"source": "locomo"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    cases = _load_memory_comparison_cases(
+        dataset,
+        locomo_ingest_mode=LOCOMO_INGEST_OFFICIAL_TURNS,
+    )
+
+    assert len(cases) == 1
+    assert cases[0].case_id == "conv-wrapped-turns:qa:1"
+    assert cases[0].memories[0].source_external_id == (
+        "locomo:conv-wrapped-turns:session_1:D1:1:turn"
+    )
+    assert cases[0].expected_terms == ("blue binder",)
+
+
 def test_memory_comparison_official_locomo_turn_mode_normalizes_speaker_identity(
     tmp_path: Path,
 ) -> None:

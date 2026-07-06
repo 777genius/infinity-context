@@ -67,6 +67,35 @@ def test_memory_comparison_preflight_ready_for_locomo_fast(tmp_path: Path) -> No
     ]
 
 
+def test_memory_comparison_preflight_accepts_wrapped_locomo_fast_dataset(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "locomo-wrapped.json"
+    wrapped = {
+        "data": _official_locomo_fast_dataset_payload(),
+        "metadata": {"source": "locomo"},
+    }
+    dataset.write_text(json.dumps(wrapped), encoding="utf-8")
+
+    result = run_memory_comparison_preflight(
+        _config(
+            dataset_path=dataset,
+            env={"MEM0_API_KEY": "secret-mem0"},
+        )
+    )
+
+    assert result["ready_for_locomo_fast"] is True
+    check = _check(result, "locomo_fast_dataset_case_coverage")
+    assert check["passed"] is True
+    assert check["details"]["official_turn_case_count"] == 40
+    assert check["details"]["selected_by_group"] == {
+        "multi-hop": 10,
+        "temporal": 10,
+        "open-domain": 10,
+        "single-hop": 10,
+    }
+
+
 @pytest.mark.parametrize(
     "payload",
     [
@@ -609,6 +638,22 @@ def _write_official_locomo_fast_dataset(
     cases_per_group: int = 10,
     cases_per_group_by_category: dict[int, int] | None = None,
 ) -> None:
+    path.write_text(
+        json.dumps(
+            _official_locomo_fast_dataset_payload(
+                cases_per_group=cases_per_group,
+                cases_per_group_by_category=cases_per_group_by_category,
+            )
+        ),
+        encoding="utf-8",
+    )
+
+
+def _official_locomo_fast_dataset_payload(
+    *,
+    cases_per_group: int = 10,
+    cases_per_group_by_category: dict[int, int] | None = None,
+) -> list[dict[str, object]]:
     qas: list[dict[str, object]] = []
     for category in (1, 2, 3, 4):
         category_case_count = (
@@ -626,28 +671,23 @@ def _write_official_locomo_fast_dataset(
                     "category": category,
                 }
             )
-    path.write_text(
-        json.dumps(
-            [
-                {
-                    "sample_id": "unit-locomo",
-                    "conversation": {
-                        "speaker_a": "A",
-                        "session_1_date_time": "2023-01-01",
-                        "session_1": [
-                            {
-                                "dia_id": "D1:1",
-                                "speaker": "A",
-                                "text": "A compact LoCoMo fixture turn.",
-                            }
-                        ],
-                    },
-                    "qa": qas,
-                }
-            ]
-        ),
-        encoding="utf-8",
-    )
+    return [
+        {
+            "sample_id": "unit-locomo",
+            "conversation": {
+                "speaker_a": "A",
+                "session_1_date_time": "2023-01-01",
+                "session_1": [
+                    {
+                        "dia_id": "D1:1",
+                        "speaker": "A",
+                        "text": "A compact LoCoMo fixture turn.",
+                    }
+                ],
+            },
+            "qa": qas,
+        }
+    ]
 
 
 def _check(result: dict[str, object], name: str) -> dict[str, object]:

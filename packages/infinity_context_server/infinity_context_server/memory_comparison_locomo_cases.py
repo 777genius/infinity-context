@@ -62,6 +62,10 @@ def _load_memory_comparison_cases(
 def _official_locomo_turn_cases_from_payload(payload: object) -> tuple[PublicBenchmarkCase, ...]:
     if isinstance(payload, Mapping) and _is_official_locomo_sample(payload):
         return _official_locomo_turn_cases(payload)
+    if isinstance(payload, Mapping):
+        raw_samples = payload.get("data") or payload.get("cases") or payload.get("items")
+        if raw_samples is not None:
+            return _official_locomo_turn_cases_from_payload(raw_samples)
     if isinstance(payload, Sequence) and not isinstance(payload, str | bytes):
         cases: list[PublicBenchmarkCase] = []
         for item in payload:
