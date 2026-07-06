@@ -407,25 +407,25 @@ def test_memory_scopes_feature_owns_legacy_v1_spaces_memory_scope_api_mapping() 
         )
 
 
-def test_memory_browser_route_uses_memory_scopes_public_response_mapping() -> None:
+def test_memory_browser_route_uses_public_feature_response_mapping() -> None:
     source = MEMORY_BROWSER_API_PATH.read_text(encoding="utf-8")
     api_tree = ast.parse(source, filename=str(MEMORY_BROWSER_API_PATH))
-    public_import_aliases = [
-        alias.asname
+    public_import_aliases = {
+        node.module: alias.asname
         for node in ast.walk(api_tree)
         if isinstance(node, ast.ImportFrom)
-        and node.module == "infinity_context_server.features.memory_scopes"
+        and node.module
+        and node.module.startswith("infinity_context_server.features.")
         for alias in node.names
         if alias.name == "public"
-    ]
-    public_calls = [
-        node.func.attr
+    }
+    public_calls = {
+        (node.func.value.id, node.func.attr)
         for node in ast.walk(api_tree)
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
         and isinstance(node.func.value, ast.Name)
-        and node.func.value.id == "memory_scopes_feature"
-    ]
+    }
     api_function_names = {
         node.name
         for node in ast.walk(api_tree)
@@ -438,9 +438,29 @@ def test_memory_browser_route_uses_memory_scopes_public_response_mapping() -> No
     assert "infinity_context_core.domain.entities" not in _imports(
         MEMORY_BROWSER_API_PATH,
     )
-    assert public_import_aliases == ["memory_scopes_feature"]
-    assert "memory_scope_to_response" in public_calls
-    assert "thread_to_response" in public_calls
+    assert "infinity_context_server.api.v1.assets" not in _imports(
+        MEMORY_BROWSER_API_PATH,
+    )
+    assert "infinity_context_server.api.v1.documents" not in _imports(
+        MEMORY_BROWSER_API_PATH,
+    )
+    assert "infinity_context_server.api.v1.facts" not in _imports(
+        MEMORY_BROWSER_API_PATH,
+    )
+    assert public_import_aliases == {
+        "infinity_context_server.features.document_ingestion": (
+            "document_ingestion_feature"
+        ),
+        "infinity_context_server.features.memory_facts": "memory_facts_feature",
+        "infinity_context_server.features.memory_scopes": "memory_scopes_feature",
+    }
+    assert ("memory_scopes_feature", "memory_scope_to_response") in public_calls
+    assert ("memory_scopes_feature", "thread_to_response") in public_calls
+    assert ("memory_facts_feature", "fact_to_response") in public_calls
+    assert ("document_ingestion_feature", "document_to_response") in public_calls
+    assert ("document_ingestion_feature", "chunk_to_response") in public_calls
+    assert ("document_ingestion_feature", "asset_to_response") in public_calls
+    assert ("document_ingestion_feature", "asset_extraction_to_response") in public_calls
     assert "thread_to_response" not in api_function_names
 
 

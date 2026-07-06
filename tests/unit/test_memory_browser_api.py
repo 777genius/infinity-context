@@ -100,6 +100,116 @@ def test_memory_browser_delegates_thread_mapping_to_memory_scopes_public(
     assert mapped_threads == [thread]
 
 
+def test_memory_browser_delegates_target_feature_mapping_to_public_seams(
+    monkeypatch: Any,
+) -> None:
+    fact = SimpleNamespace(id="fact_1")
+    document = SimpleNamespace(id="doc_1")
+    chunk = SimpleNamespace(id="chunk_1")
+    extraction_job = SimpleNamespace(id="extraction_1")
+    asset = SimpleNamespace(id="asset_1")
+    result = _browser_result(
+        memory_scope=_memory_scope(),
+        facts=(fact,),
+        documents=(document,),
+        chunks=(chunk,),
+        extraction_jobs=(extraction_job,),
+        assets=(asset,),
+    )
+    browser = RecordingBuildMemoryBrowser(result)
+    container = SimpleNamespace(build_memory_browser=browser)
+    mapped: dict[str, list[object]] = {
+        "facts": [],
+        "documents": [],
+        "chunks": [],
+        "extraction_jobs": [],
+        "assets": [],
+    }
+
+    async def resolve_scope(_container: object, **_kwargs: object) -> object:
+        return SimpleNamespace(space_id="space_1", memory_scope_id="scope_1")
+
+    def public_fact_response(item: object) -> dict[str, str]:
+        mapped["facts"].append(item)
+        return {"mapped_by": "memory_facts_public"}
+
+    def public_document_response(item: object) -> dict[str, str]:
+        mapped["documents"].append(item)
+        return {"mapped_by": "document_ingestion_public_document"}
+
+    def public_chunk_response(item: object) -> dict[str, str]:
+        mapped["chunks"].append(item)
+        return {"mapped_by": "document_ingestion_public_chunk"}
+
+    def public_extraction_response(item: object) -> dict[str, str]:
+        mapped["extraction_jobs"].append(item)
+        return {"mapped_by": "document_ingestion_public_extraction"}
+
+    def public_asset_response(item: object) -> dict[str, str]:
+        mapped["assets"].append(item)
+        return {"mapped_by": "document_ingestion_public_asset"}
+
+    monkeypatch.setattr(
+        memory_browser_api,
+        "resolve_existing_single_scope",
+        resolve_scope,
+    )
+    monkeypatch.setattr(
+        memory_browser_api.memory_facts_feature,
+        "fact_to_response",
+        public_fact_response,
+    )
+    monkeypatch.setattr(
+        memory_browser_api.document_ingestion_feature,
+        "document_to_response",
+        public_document_response,
+    )
+    monkeypatch.setattr(
+        memory_browser_api.document_ingestion_feature,
+        "chunk_to_response",
+        public_chunk_response,
+    )
+    monkeypatch.setattr(
+        memory_browser_api.document_ingestion_feature,
+        "asset_extraction_to_response",
+        public_extraction_response,
+    )
+    monkeypatch.setattr(
+        memory_browser_api.document_ingestion_feature,
+        "asset_to_response",
+        public_asset_response,
+    )
+
+    response = asyncio.run(
+        memory_browser_api.get_memory_browser(
+            container=container,
+            space_id="space_1",
+            memory_scope_id="scope_1",
+        )
+    )
+
+    assert response["data"]["facts"] == [{"mapped_by": "memory_facts_public"}]
+    assert response["data"]["documents"] == [
+        {"mapped_by": "document_ingestion_public_document"}
+    ]
+    assert response["data"]["chunks"] == [
+        {"mapped_by": "document_ingestion_public_chunk"}
+    ]
+    assert response["data"]["extraction_jobs"] == [
+        {"mapped_by": "document_ingestion_public_extraction"}
+    ]
+    assert response["data"]["assets"] == [
+        {"mapped_by": "document_ingestion_public_asset"}
+    ]
+    assert mapped == {
+        "facts": [fact],
+        "documents": [document],
+        "chunks": [chunk],
+        "extraction_jobs": [extraction_job],
+        "assets": [asset],
+    }
+
+
 def test_memory_browser_returns_scope_threads_and_visual_summary(
     monkeypatch: Any,
 ) -> None:
@@ -262,7 +372,12 @@ def test_memory_browser_empty_scope_response_includes_visual_next_action(
 def _browser_result(
     *,
     memory_scope: object,
+    facts: tuple[object, ...] = (),
+    documents: tuple[object, ...] = (),
+    chunks: tuple[object, ...] = (),
+    extraction_jobs: tuple[object, ...] = (),
     threads: tuple[object, ...] = (),
+    assets: tuple[object, ...] = (),
     stats: dict[str, int] | None = None,
     visual_summary: dict[str, object] | None = None,
     quick_actions: tuple[dict[str, object], ...] = (),
@@ -270,14 +385,14 @@ def _browser_result(
     return SimpleNamespace(
         generated_at=_now(),
         memory_scope=memory_scope,
-        facts=[],
+        facts=facts,
         episodes=[],
-        documents=[],
-        chunks=[],
-        extraction_jobs=[],
+        documents=documents,
+        chunks=chunks,
+        extraction_jobs=extraction_jobs,
         threads=threads,
         captures=[],
-        assets=[],
+        assets=assets,
         anchors=[],
         context_links=[],
         context_link_suggestions=[],
