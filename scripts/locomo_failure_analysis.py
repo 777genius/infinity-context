@@ -759,12 +759,25 @@ def _query_role_gap_summary(failure: Mapping[str, object]) -> dict[str, object] 
         summary["gap_reason_counts"] = dict(reason_counts.most_common(_MAX_SUMMARY_LIST_ITEMS))
     if role_counts:
         summary["gap_role_counts"] = dict(role_counts.most_common(_MAX_SUMMARY_LIST_ITEMS))
-    top_role_gaps = _safe_query_role_gaps(_mapping(breakdown.get("role_gaps")))
+    role_gaps = _mapping(breakdown.get("role_gaps"))
+    top_role_gaps = _safe_query_role_gaps(role_gaps)
     if top_role_gaps:
         summary["top_role_gaps"] = top_role_gaps
-    top_family_gaps = _safe_query_role_gaps(_mapping(breakdown.get("role_family_gaps")))
+        omitted_count = _query_role_gap_omitted_count(role_gaps, shown_count=len(top_role_gaps))
+        if omitted_count:
+            summary["top_role_gap_omitted_count"] = omitted_count
+            summary["top_role_gap_sample_limit"] = _MAX_SUMMARY_LIST_ITEMS
+    role_family_gaps = _mapping(breakdown.get("role_family_gaps"))
+    top_family_gaps = _safe_query_role_gaps(role_family_gaps)
     if top_family_gaps:
         summary["top_role_family_gaps"] = top_family_gaps
+        omitted_count = _query_role_gap_omitted_count(
+            role_family_gaps,
+            shown_count=len(top_family_gaps),
+        )
+        if omitted_count:
+            summary["top_role_family_gap_omitted_count"] = omitted_count
+            summary["top_role_family_gap_sample_limit"] = _MAX_SUMMARY_LIST_ITEMS
     return summary or None
 
 
@@ -804,6 +817,19 @@ def _safe_query_role_gaps(
         if len(safe_gaps) >= _MAX_SUMMARY_LIST_ITEMS:
             break
     return safe_gaps
+
+
+def _query_role_gap_omitted_count(
+    role_gaps: Mapping[str, object],
+    *,
+    shown_count: int,
+) -> int:
+    eligible_count = sum(
+        1
+        for raw_gap in role_gaps.values()
+        if _strings(_mapping(raw_gap).get("gap_reasons"))
+    )
+    return max(eligible_count - shown_count, 0)
 
 
 def _temporal_grounding_summary(

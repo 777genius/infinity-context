@@ -921,6 +921,57 @@ def test_locomo_failure_analysis_summarizes_query_role_gap_causes() -> None:
     assert "raw text must not be copied" not in json.dumps(summary)
 
 
+def test_locomo_failure_analysis_reports_query_role_gap_sample_bounds() -> None:
+    report = {
+        "failures": [
+            {
+                "case_id": "many-query-role-gaps",
+                "capability": "locomo_category_2",
+                "reason": "expected_terms_missing",
+                "diagnostics": {
+                    "query_role_gap_breakdown": {
+                        "role_gap_count": 10,
+                        "role_family_gap_count": 9,
+                        "role_gaps": {
+                            f"role-{index:02d}": {
+                                "candidate_count": 1,
+                                "selected_item_count": 0,
+                                "gap_reasons": ["not_selected"],
+                                "samples": [f"raw role sample {index} must stay out"],
+                            }
+                            for index in range(10)
+                        },
+                        "role_family_gaps": {
+                            f"family-{index:02d}": {
+                                "candidate_count": 1,
+                                "selected_item_count": 0,
+                                "gap_reasons": ["family_not_selected"],
+                                "samples": [f"raw family sample {index} must stay out"],
+                            }
+                            for index in range(9)
+                        },
+                    }
+                },
+            }
+        ]
+    }
+
+    summary = _summary(_failures(report), top=10)
+
+    query_role_gap = summary["root_cause_examples"]["query_role_gap:present"][0][
+        "query_role_gap"
+    ]
+    assert len(query_role_gap["top_role_gaps"]) == 8
+    assert query_role_gap["top_role_gap_omitted_count"] == 2
+    assert query_role_gap["top_role_gap_sample_limit"] == 8
+    assert len(query_role_gap["top_role_family_gaps"]) == 8
+    assert query_role_gap["top_role_family_gap_omitted_count"] == 1
+    assert query_role_gap["top_role_family_gap_sample_limit"] == 8
+    serialized = json.dumps(summary, sort_keys=True)
+    assert "raw role sample" not in serialized
+    assert "raw family sample" not in serialized
+
+
 def test_locomo_failure_analysis_summary_bounds_text_lists_and_dynamic_keys() -> None:
     long_text = "x" * 320
     failures = [
