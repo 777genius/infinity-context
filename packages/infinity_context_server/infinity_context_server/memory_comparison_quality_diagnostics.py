@@ -174,7 +174,13 @@ from infinity_context_server.memory_comparison_quality_selected_weakness import 
     selected_evidence_weakness_breakdown as _selected_evidence_weakness_breakdown,
 )
 from infinity_context_server.memory_comparison_source_identity import (
+    looks_like_raw_source_ref as _looks_like_raw_source_ref,
+)
+from infinity_context_server.memory_comparison_source_identity import (
     safe_item_id_for_output as _safe_item_id_for_output,
+)
+from infinity_context_server.memory_comparison_source_identity import (
+    safe_source_refs_for_output as _safe_source_refs_for_output,
 )
 from infinity_context_server.memory_comparison_temporal_grounding import (
     temporal_grounding_table as _temporal_grounding_table,
@@ -594,8 +600,10 @@ def _evidence_recall_gap_summary(
     missing_term_counts: Counter[str] = Counter()
     for item in missing_ref_items:
         missing_term_counts.update(
-            _str_tuple(
-                _mapping(item.get("retrieval_quality")).get("missing_evidence_terms")
+            _safe_evidence_ref_terms(
+                _mapping(item.get("retrieval_quality")).get(
+                    "missing_evidence_terms"
+                )
             )
         )
     return {
@@ -656,21 +664,32 @@ def _evidence_recall_gap_samples(
         quality = _mapping(item.get("retrieval_quality"))
         measured = _has_evidence_recall(item)
         missing_terms = _str_tuple(quality.get("missing_evidence_terms"))
+        sample_missing_terms = _safe_evidence_ref_terms(
+            missing_terms[:_EVIDENCE_RECALL_MISSING_TERM_SAMPLE_LIMIT]
+        )
         sample: dict[str, object] = {
             "case_id": str(item.get("case_id") or ""),
             "group": str(item.get("group") or ""),
             "expected_term_recall": round(_expected_recall(item), 6),
             "evidence_term_recall_measured": measured,
             "missing_evidence_term_count": len(missing_terms),
-            "missing_evidence_terms": list(
-                missing_terms[:_EVIDENCE_RECALL_MISSING_TERM_SAMPLE_LIMIT]
-            ),
+            "missing_evidence_terms": list(sample_missing_terms),
             "bundle_complete": _bundle_complete(item),
         }
         if measured:
             sample["evidence_term_recall"] = round(_evidence_recall(item), 6)
         samples.append(sample)
     return samples
+
+
+def _safe_evidence_ref_terms(value: object) -> tuple[str, ...]:
+    terms: list[str] = []
+    for term in _str_tuple(value):
+        if not _looks_like_raw_source_ref(term):
+            terms.append(term)
+            continue
+        terms.extend(_safe_source_refs_for_output((term,)))
+    return tuple(dict.fromkeys(terms))
 
 
 def _risk_flag_table(items: Sequence[Mapping[str, object]]) -> dict[str, object]:

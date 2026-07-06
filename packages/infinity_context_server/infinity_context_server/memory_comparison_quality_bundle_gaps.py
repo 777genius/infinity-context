@@ -139,6 +139,12 @@ from infinity_context_server.memory_comparison_quality_support import (
 from infinity_context_server.memory_comparison_quality_support import (
     typed_relation_support_roles as _typed_relation_support_roles,
 )
+from infinity_context_server.memory_comparison_source_identity import (
+    looks_like_raw_source_ref as _looks_like_raw_source_ref,
+)
+from infinity_context_server.memory_comparison_source_identity import (
+    safe_source_refs_for_output as _safe_source_refs_for_output,
+)
 
 _BRIDGE_GAP_REASONS = frozenset(
     {
@@ -497,7 +503,13 @@ def _coverage_gap_action(reason: str) -> str:
 
 
 def _bounded_refs(value: object) -> tuple[str, ...]:
-    return _str_tuple(value)[:_REF_SAMPLE_LIMIT]
+    refs: list[str] = []
+    for ref in _str_tuple(value)[:_REF_SAMPLE_LIMIT]:
+        if not _looks_like_raw_source_ref(ref):
+            refs.append(ref)
+            continue
+        refs.extend(_safe_source_refs_for_output((ref,)))
+    return tuple(dict.fromkeys(refs))
 
 
 def _sample_case_ids_for_reason(

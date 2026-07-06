@@ -156,6 +156,40 @@ def test_bundle_support_audit_items_bounds_ref_like_fields() -> None:
     assert "PRIVATE PROVIDER PAYLOAD" not in serialized
 
 
+def test_bundle_support_audit_items_sanitizes_raw_evidence_ref_terms() -> None:
+    raw_locomo_ref = "locomo:conv-private:session_1:D1:2:turn-secret"
+    raw_provider_ref = "provider-auth-private-marker"
+    bundle = {
+        "items": [
+            {
+                "role": "supporting",
+                "source_refs": [raw_locomo_ref, raw_provider_ref, "D2:3"],
+                "covered_evidence_terms": [
+                    raw_locomo_ref,
+                    raw_provider_ref,
+                    "D2:3",
+                ],
+            }
+        ]
+    }
+
+    rows = bundle_support_audit_items(bundle)
+
+    assert rows[0]["source_refs"] == (
+        "source_session_turn_refs:session_1:D1:2",
+        "source_turn_refs:D1:2",
+        "D2:3",
+    )
+    assert rows[0]["covered_evidence_terms"] == (
+        "source_session_turn_refs:session_1:D1:2",
+        "source_turn_refs:D1:2",
+        "D2:3",
+    )
+    serialized = json.dumps(rows)
+    assert "locomo:conv-private" not in serialized
+    assert raw_provider_ref not in serialized
+
+
 def test_bundle_weak_support_reasons_marks_low_answerability_support() -> None:
     bundle = {
         "items": [
