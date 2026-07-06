@@ -1391,6 +1391,85 @@ def test_candidate_features_keep_single_session_source_refs_dedupe_qualified() -
     assert first_session.source_ref_dedupe_key != second_session.source_ref_dedupe_key
 
 
+def test_candidate_features_normalize_hyphenated_locomo_session_source_refs() -> None:
+    features = build_candidate_evidence_features(
+        RetrievedMemory(
+            item_id="hyphenated-session-source-refs",
+            rank=1,
+            text="Caroline compared adoption agencies with a friend.",
+            source_refs=(
+                "locomo-conv-private-session-8-D8-3-turn-secret",
+                "backend-locomo-conv-private-session-8-D8-4-chunk-secret",
+            ),
+            metadata={"item_type": "chunk"},
+        ),
+        memory_terms={"caroline", "adoption", "agency", "friend"},
+        query_terms=("caroline", "adoption", "agency"),
+        relation_terms=("adoption", "agency"),
+        relation_variant_terms=("friend",),
+        entities=("caroline",),
+        entity_hits=("caroline",),
+        speaker_hits=(),
+        high_signal_relation_terms={"agency"},
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=True,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=False,
+    )
+
+    assert features.source_turn_refs == ("D8:3", "D8:4")
+    assert features.turn_ref_count == 2
+    assert features.source_turn_span == 2
+    assert features.source_locality_reason_codes == ("proximate_source_turn_refs",)
+    assert features.source_ref_dedupe_key == (
+        "source_session_turn_refs:session_8:D8:3|session_8:D8:4"
+    )
+    assert features.source_identity_audit_gap_codes == ()
+
+
+def test_candidate_features_use_hyphenated_text_session_turn_refs_for_dedupe() -> None:
+    features = build_candidate_evidence_features(
+        RetrievedMemory(
+            item_id="hyphenated-text-session-turn",
+            rank=1,
+            text="session-3 turn D3-5 Alex confirmed the planning date.",
+            source_refs=("document:planning-note",),
+            metadata={"item_type": "fact"},
+        ),
+        memory_terms={"alex", "confirm", "planning", "date"},
+        query_terms=("alex", "planning", "date"),
+        relation_terms=("planning", "date"),
+        relation_variant_terms=("confirm",),
+        entities=("alex",),
+        entity_hits=("alex",),
+        speaker_hits=("alex",),
+        high_signal_relation_terms={"date"},
+        is_temporal_query=True,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=True,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+
+    assert features.turn_ref_count == 1
+    assert features.source_locality_reason_codes == ("localized_turn_refs",)
+    assert features.source_ref_dedupe_key == (
+        "source_session_turn_refs:session_3:D3:5"
+    )
+    assert features.source_identity_audit_gap_codes == (
+        "generic_source_refs_with_text_turn_identity",
+    )
+
+
 def _features_for_session_source_ref(source_ref: str):
     return build_candidate_evidence_features(
         RetrievedMemory(
