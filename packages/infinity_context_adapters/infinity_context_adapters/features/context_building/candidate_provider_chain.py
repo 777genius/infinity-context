@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import ClassVar
 
 from infinity_context_core.features.context_building.public import (
@@ -39,7 +39,10 @@ class ContextCandidateProviderChain:
             if remaining < 1:
                 break
 
-            for item in await provider.find_candidates(request):
+            provider_request = (
+                request if remaining == request.limit else replace(request, limit=remaining)
+            )
+            for item in await provider.find_candidates(provider_request):
                 if item.item_id in seen_ids:
                     continue
 

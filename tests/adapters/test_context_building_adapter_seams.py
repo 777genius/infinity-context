@@ -264,15 +264,44 @@ def test_candidate_provider_chain_deduplicates_and_respects_limit() -> None:
     )
     chain = module.ContextCandidateProviderChain(providers=(first, second))
 
-    items = asyncio.run(chain.find_candidates(_request(limit=3)))
+    items = asyncio.run(chain.find_candidates(_request(limit=4)))
 
     assert tuple(item.item_id for item in items) == (
         "duplicate",
         "first-only",
         "second-only",
     )
+    assert first.requested_limits == [4]
+    assert second.requested_limits == [2]
+
+
+def test_candidate_provider_chain_requests_remaining_limit_from_later_providers() -> None:
+    module = importlib.import_module(
+        "infinity_context_adapters.features.context_building"
+    )
+    first = _StaticProvider(
+        (
+            _item(module, "first-a"),
+            _item(module, "first-b"),
+        )
+    )
+    second = _StaticProvider(
+        (
+            _item(module, "second-a"),
+            _item(module, "second-b"),
+        )
+    )
+    chain = module.ContextCandidateProviderChain(providers=(first, second))
+
+    items = asyncio.run(chain.find_candidates(_request(limit=3)))
+
+    assert tuple(item.item_id for item in items) == (
+        "first-a",
+        "first-b",
+        "second-a",
+    )
     assert first.requested_limits == [3]
-    assert second.requested_limits == [3]
+    assert second.requested_limits == [1]
 
 
 def test_placeholder_candidate_providers_are_explicit_deferred_seams() -> None:
