@@ -170,6 +170,8 @@ def _summary(failures: Sequence[Mapping[str, object]], *, top: int) -> dict[str,
     temporal_grounding_issue_examples: dict[str, list[dict[str, object]]] = (
         defaultdict(list)
     )
+    query_role_gap_reasons: Counter[str] = Counter()
+    query_role_gap_roles: Counter[str] = Counter()
     for failure in failures:
         capability = _compact_summary_text(
             failure.get("capability") or failure.get("category") or "unknown"
@@ -192,6 +194,8 @@ def _summary(failures: Sequence[Mapping[str, object]], *, top: int) -> dict[str,
         answer_context_risk_reasons.update(
             _answer_context_risk_reason_counts(failure)
         )
+        query_role_gap_reasons.update(_query_role_gap_reason_counts(failure))
+        query_role_gap_roles.update(_query_role_gap_role_counts(failure))
         if len(root_cause_examples[primary_root_cause]) < 5:
             root_cause_examples[primary_root_cause].append(
                 _root_cause_example(failure, root_tags)
@@ -264,6 +268,10 @@ def _summary(failures: Sequence[Mapping[str, object]], *, top: int) -> dict[str,
             if issue_reason
             in dict(temporal_grounding_issue_reasons.most_common(top_limit))
         },
+        "query_role_gap_reason_count": dict(
+            query_role_gap_reasons.most_common(top_limit)
+        ),
+        "query_role_gap_role_count": dict(query_role_gap_roles.most_common(top_limit)),
         "query_pattern_count": dict(query_patterns.most_common(top_limit)),
         "query_pattern_examples": {
             pattern: examples
@@ -414,6 +422,14 @@ def _root_cause_tags(failure: Mapping[str, object]) -> tuple[str, ...]:
         tags.append("answer_context:risk_reasons")
     for reason in _answer_context_risk_reason_counts(failure):
         tags.append(f"answer_context:{_normalize_tag_value(reason)}")
+    query_role_gap_reasons = _query_role_gap_reason_counts(failure)
+    if query_role_gap_reasons:
+        tags.append("query_role_gap:present")
+    for reason in query_role_gap_reasons:
+        tags.append(f"query_role_gap:{_normalize_tag_value(reason)}")
+    query_role_gap = _query_role_gap_breakdown(failure)
+    if (_positive_int(query_role_gap.get("required_role_coverage_gap_count")) or 0) > 0:
+        tags.append("query_role_gap:required_role_coverage")
     for role in _strings(bundle.get("missing_required_roles")):
         tags.append(f"bundle:missing_role:{_normalize_tag_value(role)}")
     if "bundle_incomplete" in reason_codes:
@@ -471,6 +487,9 @@ def _root_cause_example(
     temporal_grounding = _temporal_grounding_summary(failure)
     if temporal_grounding:
         payload["temporal_grounding"] = temporal_grounding
+    query_role_gap = _query_role_gap_summary(failure)
+    if query_role_gap:
+        payload["query_role_gap"] = query_role_gap
     return payload
 
 
@@ -656,6 +675,105 @@ def _selected_evidence_weakness_summary(
         or 0,
     }
     return summary if any(summary.values()) else None
+
+
+def _query_role_gap_breakdown(failure: Mapping[str, object]) -> Mapping[str, object]:
+    diagnostics = _mapping(failure.get("diagnostics"))
+    direct = _mapping(diagnostics.get("query_role_gap_breakdown"))
+    if direct:
+        return direct
+    return _mapping(failure.get("query_role_gap_breakdown"))
+
+
+def _query_role_gap_reason_counts(failure: Mapping[str, object]) -> Counter[str]:
+    breakdown = _query_role_gap_breakdown(failure)
+    if not breakdown:
+        return Counter()
+    counts: Counter[str] = Counter()
+    for gap in _query_role_gap_payloads(breakdown):
+        counts.update(_strings(gap.get("gap_reasons")))
+    return counts
+
+
+def _query_role_gap_role_counts(failure: Mapping[str, object]) -> Counter[str]:
+    breakdown = _query_role_gap_breakdown(failure)
+    if not breakdown:
+        return Counter()
+    counts: Counter[str] = Counter()
+    for key in ("role_gaps", "role_family_gaps"):
+        for role, gap in _mapping(breakdown.get(key)).items():
+            if _mapping(gap).get("gap_reasons"):
+                counts[_compact_summary_text(role)] += 1
+    return counts
+
+
+def _query_role_gap_summary(failure: Mapping[str, object]) -> dict[str, object] | None:
+    breakdown = _query_role_gap_breakdown(failure)
+    if not breakdown:
+        return None
+    role_gap_count = _positive_int(breakdown.get("role_gap_count")) or 0
+    role_family_gap_count = _positive_int(breakdown.get("role_family_gap_count")) or 0
+    required_role_coverage_gap_count = (
+        _positive_int(breakdown.get("required_role_coverage_gap_count")) or 0
+    )
+    reason_counts = _query_role_gap_reason_counts(failure)
+    role_counts = _query_role_gap_role_counts(failure)
+    summary: dict[str, object] = {}
+    if role_gap_count:
+        summary["role_gap_count"] = role_gap_count
+    if role_family_gap_count:
+        summary["role_family_gap_count"] = role_family_gap_count
+    if required_role_coverage_gap_count:
+        summary["required_role_coverage_gap_count"] = required_role_coverage_gap_count
+    if reason_counts:
+        summary["gap_reason_counts"] = dict(reason_counts.most_common(_MAX_SUMMARY_LIST_ITEMS))
+    if role_counts:
+        summary["gap_role_counts"] = dict(role_counts.most_common(_MAX_SUMMARY_LIST_ITEMS))
+    top_role_gaps = _safe_query_role_gaps(_mapping(breakdown.get("role_gaps")))
+    if top_role_gaps:
+        summary["top_role_gaps"] = top_role_gaps
+    top_family_gaps = _safe_query_role_gaps(_mapping(breakdown.get("role_family_gaps")))
+    if top_family_gaps:
+        summary["top_role_family_gaps"] = top_family_gaps
+    return summary or None
+
+
+def _query_role_gap_payloads(
+    breakdown: Mapping[str, object],
+) -> tuple[Mapping[str, object], ...]:
+    payloads: list[Mapping[str, object]] = []
+    for key in ("role_gaps", "role_family_gaps"):
+        payloads.extend(_mapping(item) for item in _mapping(breakdown.get(key)).values())
+    return tuple(payload for payload in payloads if payload)
+
+
+def _safe_query_role_gaps(
+    role_gaps: Mapping[str, object],
+) -> list[dict[str, object]]:
+    safe_gaps: list[dict[str, object]] = []
+    for role, raw_gap in sorted(role_gaps.items(), key=lambda item: str(item[0])):
+        gap = _mapping(raw_gap)
+        reasons = _strings(gap.get("gap_reasons"))
+        if not reasons:
+            continue
+        payload: dict[str, object] = {
+            "role": _compact_summary_text(role),
+            "gap_reasons": list(reasons[:_MAX_SUMMARY_LIST_ITEMS]),
+        }
+        for key in (
+            "candidate_count",
+            "lifted_candidate_count",
+            "selected_item_count",
+            "bridge_query_hit_candidate_count",
+            "bridge_query_hit_selected_count",
+        ):
+            count = _positive_int(gap.get(key))
+            if count is not None:
+                payload[key] = count
+        safe_gaps.append(payload)
+        if len(safe_gaps) >= _MAX_SUMMARY_LIST_ITEMS:
+            break
+    return safe_gaps
 
 
 def _temporal_grounding_summary(
