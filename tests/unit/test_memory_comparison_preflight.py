@@ -282,6 +282,12 @@ def test_memory_comparison_preflight_cli_prints_sanitized_json(
     assert payload["suite"] == MEMORY_COMPARISON_PREFLIGHT_SUITE
     assert payload["ok"] is True
     assert payload["ready_for_locomo_fast"] is True
+    assert payload["diagnostics"]["cli_readiness"] == {
+        "preflight_only": True,
+        "ready_to_run_live_benchmark": True,
+        "exit_code": 0,
+        "exit_reason": "ready",
+    }
     assert "secret-service-token" not in captured.out
     assert "secret-mem0-token" not in captured.out
     assert "secret-service-token" not in captured.err
@@ -328,8 +334,65 @@ def test_memory_comparison_preflight_cli_exits_nonzero_when_fast_gate_degraded(
     assert payload["status"] == "degraded"
     assert payload["ready_for_locomo_fast"] is False
     assert payload["fast_readiness_blockers"] == ["locomo_fast_case_set"]
+    assert payload["diagnostics"]["cli_readiness"] == {
+        "preflight_only": True,
+        "ready_to_run_live_benchmark": False,
+        "exit_code": 2,
+        "exit_reason": "fast_readiness_blockers",
+    }
     assert "secret-service-token" not in captured.out
     assert "secret-mem0-token" not in captured.out
+
+
+def test_memory_comparison_preflight_cli_reports_failed_readiness_exit(
+    monkeypatch,
+    capsys,
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "locomo-mini.json"
+    _write_official_locomo_fast_dataset(dataset)
+    monkeypatch.delenv("MEMORY_EVAL_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("MEMORY_SERVICE_TOKEN", raising=False)
+    monkeypatch.setenv("MEM0_API_KEY", "secret-mem0-token")
+
+    with pytest.raises(SystemExit) as excinfo:
+        eval_module.main(
+            [
+                "memory-comparison-benchmark",
+                "--dataset",
+                str(dataset),
+                "--memo-api-url",
+                "http://memo.example",
+                "--mem0-url",
+                "http://mem0.example",
+                "--case-set",
+                "locomo-fast",
+                "--locomo-ingest-mode",
+                "official-turns",
+                "--report-mode",
+                "compact",
+                "--top-k",
+                "200",
+                "--preflight-only",
+            ]
+        )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert excinfo.value.code == 1
+    assert payload["ok"] is False
+    assert set(payload["failed_checks"]) == {
+        "allow_live_gate",
+        "memo_auth_token_configured",
+    }
+    assert payload["diagnostics"]["cli_readiness"] == {
+        "preflight_only": True,
+        "ready_to_run_live_benchmark": False,
+        "exit_code": 1,
+        "exit_reason": "failed_checks",
+    }
+    assert "secret-mem0-token" not in captured.out
+    assert "secret-mem0-token" not in captured.err
 
 
 def test_memory_comparison_preflight_probes_service_specific_contracts(

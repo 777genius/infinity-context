@@ -2865,6 +2865,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             result = run_memory_comparison_preflight(
                 _memory_comparison_preflight_config_from_args(args)
             )
+            result = _memory_comparison_preflight_cli_result(result)
         else:
             if not args.allow_live:
                 raise SystemExit(
@@ -2984,14 +2985,14 @@ def main(argv: Sequence[str] | None = None) -> None:
     else:
         raise SystemExit("Unsupported eval command")
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
-    if not result["ok"]:
-        raise SystemExit(1)
     if (
         args.command == "memory-comparison-benchmark"
         and args.preflight_only
-        and result.get("ready_for_locomo_fast") is False
+        and int(result["diagnostics"]["cli_readiness"]["exit_code"]) != 0
     ):
-        raise SystemExit(2)
+        raise SystemExit(int(result["diagnostics"]["cli_readiness"]["exit_code"]))
+    if not result["ok"]:
+        raise SystemExit(1)
 
 
 def _memory_comparison_preflight_config_from_args(
@@ -3019,6 +3020,36 @@ def _memory_comparison_preflight_config_from_args(
         probe_timeout_seconds=float(args.preflight_timeout_seconds),
         env=os.environ,
     )
+
+
+def _memory_comparison_preflight_cli_result(
+    result: dict[str, object],
+) -> dict[str, object]:
+    diagnostics = dict(result.get("diagnostics") or {})
+    exit_code = _memory_comparison_preflight_cli_exit_code(result)
+    if exit_code == 0:
+        exit_reason = "ready"
+    elif result.get("ok") is not True:
+        exit_reason = "failed_checks"
+    else:
+        exit_reason = "fast_readiness_blockers"
+    diagnostics["cli_readiness"] = {
+        "preflight_only": True,
+        "ready_to_run_live_benchmark": exit_code == 0,
+        "exit_code": exit_code,
+        "exit_reason": exit_reason,
+    }
+    enriched = dict(result)
+    enriched["diagnostics"] = diagnostics
+    return enriched
+
+
+def _memory_comparison_preflight_cli_exit_code(result: dict[str, object]) -> int:
+    if result.get("ok") is not True:
+        return 1
+    if result.get("ready_for_locomo_fast") is False:
+        return 2
+    return 0
 
 
 def _safe_cli_error(exc: Exception) -> str:
