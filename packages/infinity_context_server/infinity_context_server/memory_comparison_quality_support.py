@@ -777,6 +777,14 @@ def _passes_support_quality(item: Mapping[str, object]) -> bool:
 
 def _support_quality_risk_reasons(item: Mapping[str, object]) -> tuple[str, ...]:
     reasons: list[str] = []
+    planner_reasons = set(_str_tuple(item.get("planner_reason_codes")))
+    if item.get("broad_summary") is True or "broad_summary" in planner_reasons:
+        reasons.append("broad_summary_support")
+    if (
+        item.get("conflict_or_stale") is True
+        or "conflict_or_stale" in planner_reasons
+    ):
+        reasons.append("conflict_or_stale_support")
     answerability_score = _float_value(item.get("answerability_score"))
     if answerability_score is not None and 0 < answerability_score < 0.55:
         reasons.append("low_answerability_support")
