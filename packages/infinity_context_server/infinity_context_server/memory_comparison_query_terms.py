@@ -1588,6 +1588,23 @@ def _relation_query_terms(
     elif {"book", "bookshelf"}.issubset(relation_term_set):
         delayed_base_terms = tuple(term for term in base_terms if term == "bookshelf")
         base_terms = tuple(term for term in base_terms if term not in delayed_base_terms)
+    elif {"lgbtq", "support", "group", "go"}.issubset(relation_term_set):
+        delayed_base_terms = tuple(term for term in base_terms if term == "lgbtq")
+        base_terms = tuple(term for term in base_terms if term not in delayed_base_terms)
+    elif {"transgender", "conference"}.issubset(relation_term_set):
+        base_terms = tuple(
+            dict.fromkeys(
+                (
+                    "conference",
+                    "transgender",
+                    *(
+                        term
+                        for term in base_terms
+                        if term not in {"conference", "transgender"}
+                    ),
+                )
+            )
+        )
     elif "marry" in relation_term_set:
         delayed_base_terms = base_terms
         base_terms = ()

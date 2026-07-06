@@ -6491,7 +6491,9 @@ def test_query_decomposition_expands_temporal_action_queries() -> None:
         destress_case
     )
 
-    assert support_group_queries[1] == "caroline lgbtq support group go went inclusive"
+    assert support_group_queries[1] == (
+        "caroline support group go went lgbtq inclusive"
+    )
     assert "go" in support_group_metadata["query_profile"]["relation_terms"]
     assert "went" in support_group_metadata["query_profile"]["relation_variant_terms"]
     assert generic_support_group_queries[1] == (
@@ -6536,7 +6538,7 @@ def test_query_decomposition_expands_temporal_action_queries() -> None:
     assert "paint" in sunrise_metadata["query_profile"]["relation_terms"]
     assert "sunrise" in sunrise_metadata["query_profile"]["relation_terms"]
     assert conference_queries[1] == (
-        "caroline transgender conference going month event attend"
+        "caroline conference transgender going month event attend"
     )
     assert "conference" in conference_metadata["query_profile"]["relation_terms"]
     assert "transgender" in conference_metadata["query_profile"]["lexical_terms"]
@@ -6731,7 +6733,7 @@ def test_query_decomposition_expands_location_profile_queries() -> None:
     assert living_queries[1] == "alex live liv bas home city place"
     assert living_metadata["query_profile"]["relation_terms"] == ("live",)
     assert living_metadata["query_profile"]["evidence_need"] == ("location_support",)
-    assert current_city_queries[1] == "alex current live known year been exist ongo liv bas"
+    assert current_city_queries[2] == "alex current live known year been exist ongo liv bas"
     assert current_city_metadata["query_profile"]["relation_terms"] == (
         "current",
         "live",

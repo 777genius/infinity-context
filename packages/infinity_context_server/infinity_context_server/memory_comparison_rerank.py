@@ -887,7 +887,10 @@ def decomposed_search_queries(
         if "location_support" in intent.evidence_need
         and (
             "current" not in relation_terms
-            or _has_current_location_query(intent.question)
+            or (
+                _has_current_location_query(intent.question)
+                and "city" not in lexical_terms
+            )
         )
         else ()
     )

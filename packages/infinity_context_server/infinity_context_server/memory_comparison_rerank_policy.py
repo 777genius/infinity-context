@@ -505,15 +505,7 @@ def _provenance_safety_cap(
     )
     for reason, cap in missing_evidence_caps.items():
         if reason in answerability_reasons:
-            if (
-                reason == "missing_relative_temporal_evidence"
-                and "current_goal" in features.relation_category_hits
-                and _float_signal(
-                    score_signals,
-                    "benchmark_current_goal_context_boost",
-                )
-                > 0
-            ):
+            if _current_goal_temporal_context_grounded(features, reason):
                 continue
             if count_list_answer_grounding and reason in {
                 "missing_activity_evidence",
@@ -533,6 +525,22 @@ def _provenance_safety_cap(
         return None, ()
     safety_cap = min(cap for cap, _reason in caps)
     return safety_cap, tuple(reason for _cap, reason in caps)
+
+
+def _current_goal_temporal_context_grounded(
+    features: BenchmarkRerankFeatures,
+    reason: str,
+) -> bool:
+    return bool(
+        reason == "missing_relative_temporal_evidence"
+        and "current_goal" in set(features.evidence_need)
+        and {"current_goal", "temporal"} <= set(features.relation_category_hits)
+        and features.direct_speaker_turn
+        and (
+            features.source_locality_score >= 0.65
+            or _has_unmeasured_source_ref_locality(features)
+        )
+    )
 
 
 def _has_precise_grounding(
