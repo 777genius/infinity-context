@@ -1013,6 +1013,7 @@ def _rank_actionable_gaps(
             key=lambda gap: (
                 -(_positive_int(gap.get("impact_count")) or 0),
                 0 if gap.get("severity") == "blocking" else 1,
+                _actionable_gap_category_rank(str(gap.get("category") or "")),
                 str(gap.get("category") or ""),
                 str(gap.get("gap") or ""),
                 str(gap.get("source_metric") or ""),
@@ -1022,6 +1023,14 @@ def _rank_actionable_gaps(
     for index, gap in enumerate(ranked, start=1):
         gap["rank"] = index
     return ranked
+
+
+def _actionable_gap_category_rank(category: str) -> int:
+    return {
+        "answer_context_required_role": 10,
+        "answer_context_support": 11,
+        "answer_context_risk": 12,
+    }.get(category, 100)
 
 
 def _samples_for_gap(

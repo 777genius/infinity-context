@@ -280,13 +280,6 @@ def _support_gap_sample(
         "skipped_redundant_risky_backfill_count": (
             _positive_int(context.get("skipped_redundant_risky_backfill_count")) or 0
         ),
-        "skipped_duplicate_source_bundle_item_count": (
-            _positive_int(context.get("skipped_duplicate_source_bundle_item_count"))
-            or 0
-        ),
-        "skipped_noisy_overlap_bundle_item_count": (
-            _positive_int(context.get("skipped_noisy_overlap_bundle_item_count")) or 0
-        ),
         "avg_measured_answerability_score": round(
             _metric_scalar(context.get("avg_measured_answerability_score")),
             6,
@@ -296,6 +289,20 @@ def _support_gap_sample(
             6,
         ),
     }
+    skipped_duplicate_source_bundle_item_count = (
+        _positive_int(context.get("skipped_duplicate_source_bundle_item_count")) or 0
+    )
+    if skipped_duplicate_source_bundle_item_count:
+        sample["skipped_duplicate_source_bundle_item_count"] = (
+            skipped_duplicate_source_bundle_item_count
+        )
+    skipped_noisy_overlap_bundle_item_count = (
+        _positive_int(context.get("skipped_noisy_overlap_bundle_item_count")) or 0
+    )
+    if skipped_noisy_overlap_bundle_item_count:
+        sample["skipped_noisy_overlap_bundle_item_count"] = (
+            skipped_noisy_overlap_bundle_item_count
+        )
     fallback_reason = str(context.get("fallback_reason") or "").strip()
     if fallback_reason:
         sample["fallback_reason"] = fallback_reason

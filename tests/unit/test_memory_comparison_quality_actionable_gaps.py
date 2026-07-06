@@ -556,6 +556,39 @@ def test_actionable_summary_reports_answer_context_support_gaps() -> None:
     assert "raw_provider_payload" not in json.dumps(role_gap, sort_keys=True)
 
 
+
+def test_actionable_summary_prioritizes_answer_context_support_before_risk_ties() -> None:
+    summary = actionable_gap_summary(
+        evaluation_count=1,
+        expected_case_count=1,
+        failed_gates=(),
+        query_overlap_count=0,
+        profile_overlap_count=0,
+        intent_overlap_count=0,
+        answer_context_support_gap_summary={
+            "support_gap_context_count": 1,
+            "gap_reason_counts": {"missing_context_source_refs": 1},
+            "risk_reason_counts": {"risk:missing_required_role": 1},
+            "source_counts": {"evidence_bundle": 1},
+        },
+    )
+
+    ranked_gaps = summary["ranked_gaps"]
+    support_index = next(
+        index
+        for index, gap in enumerate(ranked_gaps)
+        if gap["category"] == "answer_context_support"
+        and gap["gap"] == "missing_context_source_refs"
+    )
+    risk_index = next(
+        index
+        for index, gap in enumerate(ranked_gaps)
+        if gap["category"] == "answer_context_risk"
+        and gap["gap"] == "risk:missing_required_role"
+    )
+
+    assert support_index < risk_index
+
 def test_actionable_summary_reports_answer_context_risk_reason_gaps() -> None:
     summary = actionable_gap_summary(
         evaluation_count=3,

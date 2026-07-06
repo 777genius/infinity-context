@@ -173,6 +173,34 @@ def test_answer_context_support_gap_samples_include_skipped_bundle_counts() -> N
     assert sample["skipped_noisy_overlap_bundle_item_count"] == 2
 
 
+
+def test_answer_context_support_gap_samples_omit_zero_skipped_bundle_counts() -> None:
+    summary = answer_context_support_gap_summary(
+        (
+            {
+                "case_id": "zero-skipped-answer-context-support",
+                "cutoff_results": {
+                    "5": {
+                        "answer_context": {
+                            "source": "evidence_bundle",
+                            "memory_count": 2,
+                            "source_ref_item_count": 0,
+                            "source_refless_item_count": 2,
+                            "skipped_duplicate_source_bundle_item_count": 0,
+                            "skipped_noisy_overlap_bundle_item_count": 0,
+                        }
+                    }
+                },
+            },
+        )
+    )
+
+    sample = summary["samples"][0]
+
+    assert sample["source_refless_item_count"] == 2
+    assert "skipped_duplicate_source_bundle_item_count" not in sample
+    assert "skipped_noisy_overlap_bundle_item_count" not in sample
+
 def test_answer_context_support_gaps_report_missing_and_unsupported_contexts() -> None:
     summary = answer_context_support_gap_summary(
         (
