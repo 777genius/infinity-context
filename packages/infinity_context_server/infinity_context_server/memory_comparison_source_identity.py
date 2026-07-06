@@ -536,6 +536,7 @@ def _dialogue_number_from_mapping(value: Mapping[object, object]) -> str:
         "dialogue",
         "dia_id",
         "source_dia_id",
+        "source_session_id",
         "session_key",
         "session_id",
     ):
