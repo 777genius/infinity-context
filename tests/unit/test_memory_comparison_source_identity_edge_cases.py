@@ -396,6 +396,43 @@ def test_source_identity_refs_qualify_numeric_evidence_aliases_with_session() ->
         )
 
 
+def test_source_identity_refs_qualify_prefixed_turn_aliases_with_session() -> None:
+    for turn_key in ("source_turn_ref", "turn_ref"):
+        for turn_ref in ("turn-6", "utt_6", "utterance:6"):
+            assert safe_source_refs_for_output(
+                (
+                    {
+                        "source_external_id": "locomo:conv-private:turn-secret",
+                        "session_key": "session_4",
+                        turn_key: turn_ref,
+                    },
+                )
+            ) == (
+                "source_session_turn_refs:session_4:D4:6",
+                "source_turn_refs:D4:6",
+            )
+
+
+def test_source_identity_refs_qualify_prefixed_plural_turn_aliases_with_session() -> None:
+    for turn_key in ("source_evidence_refs", "turn_ids"):
+        assert safe_source_refs_for_output(
+            (
+                {
+                    "source_external_id": "locomo:conv-private:turn-secret",
+                    "session_key": "session_4",
+                    turn_key: ("turn-6", "utt_7", "utterance:8"),
+                },
+            )
+        ) == (
+            "source_session_turn_refs:session_4:D4:6",
+            "source_session_turn_refs:session_4:D4:7",
+            "source_session_turn_refs:session_4:D4:8",
+            "source_turn_refs:D4:6",
+            "source_turn_refs:D4:7",
+            "source_turn_refs:D4:8",
+        )
+
+
 def test_source_identity_refs_qualify_numeric_plural_evidence_aliases_with_session() -> None:
     for evidence_key in (
         "evidence_refs",
