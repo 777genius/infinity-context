@@ -131,6 +131,46 @@ def test_query_role_gap_samples_use_deterministic_roles_and_families() -> None:
     assert samples[2]["gap_reasons"] == ["not_selected", "not_lifted"]
 
 
+def test_query_role_gap_samples_include_candidate_role_context() -> None:
+    item = {
+        "case_id": "candidate-role-context",
+        "group": "single-hop",
+        "retrieval": {
+            "results": [
+                _memory(
+                    "mixed-candidate",
+                    query_roles=(
+                        "visual_temporal_support",
+                        "location_support",
+                        "multi_hop_bridge",
+                    ),
+                    lifted=True,
+                ),
+            ],
+        },
+        "evidence_bundle": {"items": []},
+    }
+
+    sample = fast_gate_metrics((item,), expected_case_count=1)[
+        "query_role_gap_breakdown"
+    ]["samples"][0]
+
+    assert sample["candidate_query_roles"] == [
+        "location_support",
+        "multi_hop_bridge",
+        "visual_temporal_support",
+    ]
+    assert sample["candidate_query_role_count"] == 3
+    assert sample["candidate_query_role_families"] == [
+        "location_support",
+        "multi_hop",
+        "relation_compact",
+        "temporal_support",
+        "visual_support",
+    ]
+    assert sample["candidate_query_role_family_count"] == 5
+
+
 def test_query_role_gap_samples_sort_selected_bundle_role_lists() -> None:
     item = {
         "case_id": "deterministic-selected-role-lists",

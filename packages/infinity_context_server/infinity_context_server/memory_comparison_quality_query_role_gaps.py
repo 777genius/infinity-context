@@ -586,9 +586,15 @@ def _query_role_gap_samples(
             if not isinstance(memory, Mapping):
                 continue
             features = _candidate_features(memory)
+            all_candidate_roles = tuple(
+                sorted(set(_str_tuple(features.get("query_roles"))))
+            )
+            all_candidate_role_families = _query_role_families_for_roles(
+                all_candidate_roles
+            )
             candidate_roles = tuple(
                 role
-                for role in sorted(_str_tuple(features.get("query_roles")))
+                for role in all_candidate_roles
                 if role in gap_roles
                 or set(_query_role_families(role)).intersection(gap_families)
             )
@@ -611,6 +617,18 @@ def _query_role_gap_samples(
                     "query_role": query_role,
                     "query_role_families": list(query_role_families),
                     "query_role_gap_families": list(gap_role_families),
+                    "candidate_query_roles": _sample_value_list(
+                        all_candidate_roles[:_QUERY_ROLE_GAP_SELECTED_LIST_LIMIT]
+                    ),
+                    "candidate_query_role_count": len(all_candidate_roles),
+                    "candidate_query_role_families": _sample_value_list(
+                        all_candidate_role_families[
+                            :_QUERY_ROLE_GAP_SELECTED_LIST_LIMIT
+                        ]
+                    ),
+                    "candidate_query_role_family_count": len(
+                        all_candidate_role_families
+                    ),
                     "gap_reasons": _sample_gap_reasons(
                         query_role=query_role,
                         role_gaps=role_gaps,
