@@ -9,6 +9,7 @@ from infinity_context_core.application.context_diagnostics import safe_diagnosti
 from infinity_context_core.application.context_temporal_source_identity import (
     conversation_source_scope_identity_from_label,
     direct_source_scope_identity_from_label,
+    explicit_session_scope_identity_from_value,
     source_identity_from_label,
     source_identity_matches,
     source_scope_identity_from_label,
@@ -864,8 +865,7 @@ def _identified_source_turns_from_mapping(
     mapping: Mapping[str, object],
 ) -> tuple[SourceTurnRef, ...]:
     turns: list[SourceTurnRef] = []
-    scope_identity = source_scope_identity_from_mapping(mapping)
-    if scope_identity:
+    for scope_identity in _source_scope_identities_from_mapping(mapping):
         turns.extend(
             source_turn
             for value in _string_values(mapping)
@@ -877,6 +877,46 @@ def _identified_source_turns_from_mapping(
     for value in mapping.values():
         turns.extend(_identified_source_turns_from_diagnostic_value(value))
     return _prefer_identified_source_turns(_dedupe_source_turns(turns))
+
+
+def _source_scope_identities_from_mapping(mapping: Mapping[str, object]) -> tuple[str, ...]:
+    identities: list[str] = []
+    primary_identity = source_scope_identity_from_mapping(mapping)
+    if primary_identity:
+        identities.append(primary_identity)
+    if primary_identity and _source_identity_has_session_scope(primary_identity):
+        return tuple(identities)
+    for key in (
+        "locomo_session_index",
+        "locomo_session_key",
+        "locomo_session_number",
+        "source_session_id",
+        "source_session_index",
+        "source_session_key",
+        "source_session_number",
+        "session_index",
+        "session_key",
+        "session_number",
+        "session_order",
+    ):
+        value = mapping.get(key)
+        session_identity = explicit_session_scope_identity_from_value(value)
+        if session_identity and not any(
+            source_identity_matches(session_identity, existing) for existing in identities
+        ):
+            identities.append(session_identity)
+    value = mapping.get("session_id")
+    if isinstance(value, str):
+        session_identity = conversation_source_scope_identity_from_label(value)
+        if session_identity and not any(
+            source_identity_matches(session_identity, existing) for existing in identities
+        ):
+            identities.append(session_identity)
+    return tuple(identities)
+
+
+def _source_identity_has_session_scope(value: str) -> bool:
+    return bool(re.search(r"(?:^|[:_-])session[-_:]?\d", value, re.IGNORECASE))
 
 
 def _identified_source_turns_from_diagnostic_value(
@@ -955,31 +995,107 @@ def _strings_from_diagnostic_value(value: object) -> tuple[str, ...]:
 
 
 def _structured_source_turn_label(value: Mapping[str, object]) -> str:
-    dialogue = _positive_int_value(
-        value.get("dialogue")
-        or value.get("dialogue_id")
-        or value.get("dialogue_index")
-        or value.get("dia_id")
-        or value.get("source_dialogue")
-        or value.get("source_dialogue_id")
-        or value.get("source_dialogue_index")
+    dia_id = (
+        value.get("dia_id")
         or value.get("source_dia_id")
-        or value.get("session")
-        or value.get("session_id")
+        or value.get("dialogue_turn_id")
+    )
+    source_scope = (
+        value.get("source_id")
+        or value.get("source_external_id")
+        or value.get("source_ref")
+        or value.get("source_ref_id")
+        or value.get("source_identity")
+        or value.get("source_key")
+        or value.get("locomo_session_index")
+        or value.get("locomo_session_key")
+        or value.get("locomo_session_number")
+        or value.get("source_session_id")
+        or value.get("source_session_index")
+        or value.get("source_session_key")
+        or value.get("source_session_number")
         or value.get("session_index")
+        or value.get("session_key")
+        or value.get("session_number")
         or value.get("session_order")
     )
-    turn = _positive_int_value(
-        value.get("turn")
-        or value.get("turn_id")
-        or value.get("turn_index")
-        or value.get("source_turn")
-        or value.get("source_turn_id")
-        or value.get("source_turn_index")
+    dialogue = _first_dialogue_int_value(
+        value.get("dialogue"),
+        value.get("dialogue_id"),
+        value.get("dialogue_index"),
+        value.get("source_dialogue"),
+        value.get("source_dialogue_id"),
+        value.get("source_dialogue_index"),
+        value.get("locomo_session_index"),
+        value.get("locomo_session_key"),
+        value.get("locomo_session_number"),
+        value.get("source_session_id"),
+        value.get("source_session_index"),
+        value.get("source_session_key"),
+        value.get("source_session_number"),
+        value.get("session"),
+        value.get("session_id"),
+        value.get("session_key"),
+        value.get("session_index"),
+        value.get("session_number"),
+        value.get("session_order"),
+        dia_id,
+        source_scope,
+    )
+    turn = _first_turn_int_value(
+        value.get("turn"),
+        value.get("turn_id"),
+        value.get("turn_index"),
+        value.get("source_turn"),
+        value.get("source_turn_id"),
+        value.get("source_turn_index"),
+        dia_id,
+        source_scope,
     )
     if not dialogue or not turn:
         return ""
     return f"D{dialogue}:{turn}"
+
+
+def _first_dialogue_int_value(*values: object) -> int:
+    for value in values:
+        if parsed := _dialogue_int_value(value):
+            return parsed
+    return 0
+
+
+def _first_turn_int_value(*values: object) -> int:
+    for value in values:
+        if parsed := _turn_int_value(value):
+            return parsed
+    return 0
+
+
+def _dialogue_int_value(value: object) -> int:
+    if direct_value := _positive_int_value(value):
+        return direct_value
+    text = str(value or "").strip()
+    match = re.search(
+        r"\b(?:d|dia|dialogue|session)[_:\-\s#]*(?P<value>\d{1,4})\b",
+        text,
+        re.IGNORECASE,
+    )
+    return int(match.group("value")) if match else 0
+
+
+def _turn_int_value(value: object) -> int:
+    if direct_value := _positive_int_value(value):
+        return direct_value
+    text = str(value or "").strip()
+    match = re.search(
+        r"\b(?:turn|t)[_:\-\s#]*(?P<value>\d{1,4})\b|"
+        r"\bD\d{1,4}[:\-](?P<dia_turn>\d{1,4})\b",
+        text,
+        re.IGNORECASE,
+    )
+    if match is None:
+        return 0
+    return int(match.group("value") or match.group("dia_turn"))
 
 
 def _positive_int_value(value: object) -> int:

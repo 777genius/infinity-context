@@ -59,6 +59,7 @@ def conversation_source_scope_identity_from_label(value: str) -> str:
 def source_scope_identity_from_mapping(mapping: Mapping[str, object]) -> str:
     for key in (
         "source_id",
+        "source_external_id",
         "source_ref",
         "source_ref_id",
         "source_identity",
@@ -69,6 +70,45 @@ def source_scope_identity_from_mapping(mapping: Mapping[str, object]) -> str:
             scope_identity := source_scope_identity_from_label(value)
         ):
             return scope_identity
+    for key in (
+        "locomo_session_index",
+        "locomo_session_key",
+        "locomo_session_number",
+        "source_session_id",
+        "source_session_index",
+        "source_session_key",
+        "source_session_number",
+        "session_index",
+        "session_number",
+        "session_order",
+        "session_key",
+    ):
+        value = mapping.get(key)
+        if scope_identity := explicit_session_scope_identity_from_value(value):
+            return scope_identity
+    value = mapping.get("session_id")
+    if isinstance(value, str) and (
+        scope_identity := conversation_source_scope_identity_from_label(value)
+    ):
+        return scope_identity
+    return ""
+
+
+def explicit_session_scope_identity_from_value(value: object) -> str:
+    if isinstance(value, bool) or value is None:
+        return ""
+    if isinstance(value, str):
+        if scope_identity := conversation_source_scope_identity_from_label(value):
+            return scope_identity
+        text = value.strip()
+    elif isinstance(value, int):
+        text = str(value)
+    elif isinstance(value, float) and value.is_integer():
+        text = str(int(value))
+    else:
+        return ""
+    if re.fullmatch(r"\d{1,4}", text) and int(text) > 0:
+        return f"session_{int(text)}"
     return ""
 
 

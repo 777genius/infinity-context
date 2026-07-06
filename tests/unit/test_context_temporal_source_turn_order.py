@@ -859,6 +859,68 @@ def test_temporal_query_uses_top_level_structured_diagnostic_source_turn_refs() 
     assert by_id["outside_top_level_structured_diagnostics"].score == 0.694
 
 
+def test_temporal_query_uses_locomo_session_id_structured_turn_refs() -> None:
+    intent = build_temporal_query_intent(
+        "What did Riley mention between D12:4 and D12:8?"
+    )
+    inside_item = ContextItem(
+        item_id="inside_locomo_session_id",
+        item_type="fact",
+        text="Riley said the studio visit was confirmed.",
+        score=0.7,
+        source_refs=(SourceRef(source_type="document", source_id="conversation-summary"),),
+        diagnostics={
+            "retrieval_source": "canonical_anchors",
+            "metadata": {"session_id": "session_12", "turn_id": "turn-6"},
+        },
+    )
+    outside_item = ContextItem(
+        item_id="outside_locomo_session_id",
+        item_type="fact",
+        text="Riley changed the topic to dinner plans.",
+        score=0.72,
+        source_refs=(SourceRef(source_type="document", source_id="conversation-summary"),),
+        diagnostics={
+            "retrieval_source": "canonical_anchors",
+            "metadata": {"session_id": "session_12", "turn_id": "turn-9"},
+        },
+    )
+
+    boosted = apply_temporal_query_intent_boosts(
+        (outside_item, inside_item),
+        intent=intent,
+    )
+    by_id = {item.item_id: item for item in boosted}
+
+    assert by_id["inside_locomo_session_id"].score == 0.74
+    assert by_id["inside_locomo_session_id"].diagnostics[
+        "temporal_query_intent_reason"
+    ] == "query asks for source-turn window and item source turn is inside boundaries"
+    assert by_id["outside_locomo_session_id"].score == 0.694
+
+
+def test_temporal_query_uses_dia_id_structured_turn_refs() -> None:
+    intent = build_temporal_query_intent("What did Riley mention after D12:4?")
+    after_item = ContextItem(
+        item_id="after_dia_id",
+        item_type="fact",
+        text="Riley said the studio visit was confirmed.",
+        score=0.7,
+        source_refs=(SourceRef(source_type="document", source_id="conversation-summary"),),
+        diagnostics={
+            "retrieval_source": "canonical_anchors",
+            "metadata": {"dia_id": "D12:5"},
+        },
+    )
+
+    boosted = apply_temporal_query_intent_boosts((after_item,), intent=intent)
+
+    assert boosted[0].score == 0.74
+    assert boosted[0].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for after source turn and item source turn follows boundary"
+    )
+
+
 def test_temporal_query_uses_official_locomo_dia_id_with_turn_id() -> None:
     intent = build_temporal_query_intent(
         "What did Riley mention between D12:4 and D12:8?"
