@@ -3347,6 +3347,57 @@ def test_memory_comparison_official_locomo_turn_mode_accepts_wrapped_dataset(
     assert cases[0].expected_terms == ("blue binder",)
 
 
+def test_memory_comparison_official_locomo_turn_mode_synthesizes_missing_dia_ids(
+    tmp_path: Path,
+) -> None:
+    dataset = tmp_path / "locomo10-missing-dia.json"
+    dataset.write_text(
+        json.dumps(
+            [
+                {
+                    "sample_id": "conv-missing-dia",
+                    "conversation": {
+                        "speaker_a": "Caroline",
+                        "session_2": [
+                            {
+                                "speaker": "Caroline",
+                                "text": "I left the museum pass on the hall table.",
+                            },
+                            {
+                                "speaker": "Melanie",
+                                "id": "7",
+                                "text": "I moved it into the red envelope.",
+                            },
+                        ],
+                    },
+                    "qa": [
+                        {
+                            "question": "Where is the museum pass?",
+                            "answer": "red envelope",
+                            "evidence": ["D2:1", "D2:7"],
+                            "category": 4,
+                        }
+                    ],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    cases = _load_memory_comparison_cases(
+        dataset,
+        locomo_ingest_mode=LOCOMO_INGEST_OFFICIAL_TURNS,
+    )
+
+    assert len(cases) == 1
+    assert [memory.source_external_id for memory in cases[0].memories] == [
+        "locomo:conv-missing-dia:session_2:D2:1:turn",
+        "locomo:conv-missing-dia:session_2:D2:7:turn",
+    ]
+    assert "D2:1 Caroline:" in cases[0].memories[0].text
+    assert "D2:7 Melanie:" in cases[0].memories[1].text
+
+
 def test_memory_comparison_official_locomo_turn_mode_normalizes_speaker_identity(
     tmp_path: Path,
 ) -> None:
