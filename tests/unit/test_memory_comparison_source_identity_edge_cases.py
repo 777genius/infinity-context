@@ -144,6 +144,30 @@ def test_source_identity_refs_normalize_spaced_session_text_variants() -> None:
     ) == ("generic_source_refs_with_text_turn_identity",)
 
 
+def test_source_identity_refs_normalize_punctuated_session_text_variants() -> None:
+    assert source_identity_refs_from_text(
+        "Session 12, date: March 7, 2024 D12:4 Melanie discussed camping.",
+        source_refs=("conversation-summary",),
+    ) == (
+        "source_session_turn_refs:session_12:D12:4",
+        "source_turn_refs:D12:4",
+    )
+    assert source_identity_refs_from_text(
+        "Session 3, turn D3:6 Alex confirmed the planning date.",
+        source_refs=("profile:alex-summary",),
+    ) == (
+        "source_session_turn_refs:session_3:D3:6",
+        "source_turn_refs:D3:6",
+    )
+    assert source_identity_refs_from_text(
+        "Session 3: D3:7 Alex confirmed the planning date.",
+        source_refs=("profile:alex-summary",),
+    ) == (
+        "source_session_turn_refs:session_3:D3:7",
+        "source_turn_refs:D3:7",
+    )
+
+
 def test_safe_source_refs_for_output_filters_raw_provider_refs() -> None:
     assert safe_source_refs_for_output(
         (

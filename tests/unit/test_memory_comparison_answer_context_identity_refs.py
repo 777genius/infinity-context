@@ -381,6 +381,33 @@ def test_answer_context_preserves_human_labeled_session_turn_identity() -> None:
     ]
 
 
+def test_answer_context_preserves_punctuated_session_turn_identity() -> None:
+    context = answer_context_from_evidence_bundle(
+        (
+            RetrievedMemory(
+                text="Session 3, turn D3:6 Alex confirmed the planning date.",
+                rank=1,
+                item_id="punctuated-session-label-turn",
+                source_refs=("document:profile-note",),
+            ),
+        ),
+        {},
+        cutoff=1,
+    )
+
+    diagnostics = context.to_diagnostics()
+
+    assert context.memories[0].source_refs == (
+        "document:profile-note",
+        "source_session_turn_refs:session_3:D3:6",
+        "source_turn_refs:D3:6",
+    )
+    assert diagnostics["source_identity_refs"] == [
+        "source_session_turn_refs:session_3:D3:6",
+        "source_turn_refs:D3:6",
+    ]
+
+
 def test_answer_context_diagnostics_filters_raw_provider_item_ids() -> None:
     context = answer_context_from_evidence_bundle(
         (
