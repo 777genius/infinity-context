@@ -40,22 +40,23 @@ class SourceTurnSequenceSignal:
         return self.boost == 0.0
 
 
+_SOURCE_TURN_LABEL_PATTERN = r"D\d{1,4}[:-]\d{1,4}"
 _SOURCE_TURN_RE = re.compile(
-    r"\bD(?P<dialogue>\d{1,4}):(?P<turn>\d{1,4})\b",
+    r"\bD(?P<dialogue>\d{1,4})[:-](?P<turn>\d{1,4})\b",
     re.IGNORECASE,
 )
 _AFTER_SOURCE_TURN_RE = re.compile(
     r"\b(?:right\s+after|immediately\s+after|shortly\s+after|after|following|since)"
     r"\s+(?:the\s+)?(?:(?:source\s+)?(?:ref|reference)\s+)?"
     r"(?:source\s+)?(?:turn\s+)?"
-    r"(?P<ref>(?:[^\s:]+:)*D\d{1,4}:\d{1,4}(?::turn)?)\b",
+    rf"(?P<ref>(?:[^\s:]+:)*{_SOURCE_TURN_LABEL_PATTERN}(?::turn)?)\b",
     re.IGNORECASE,
 )
 _BEFORE_SOURCE_TURN_RE = re.compile(
     r"\b(?:right\s+before|immediately\s+before|shortly\s+before|before|prior\s+to|"
     r"until|up\s+to)\s+(?:the\s+)?(?:(?:source\s+)?(?:ref|reference)\s+)?"
     r"(?:source\s+)?(?:turn\s+)?"
-    r"(?P<ref>(?:[^\s:]+:)*D\d{1,4}:\d{1,4}(?::turn)?)\b",
+    rf"(?P<ref>(?:[^\s:]+:)*{_SOURCE_TURN_LABEL_PATTERN}(?::turn)?)\b",
     re.IGNORECASE,
 )
 

@@ -222,6 +222,9 @@ def test_temporal_query_intent_detects_since_and_until_event_sequences() -> None
     after_source_ref = build_temporal_query_intent(
         "What did Riley mention after source ref locomo:conv-1:session_12:D12:4:turn?"
     )
+    after_hyphenated_source_ref = build_temporal_query_intent(
+        "What did Riley mention after source_turn_refs:D12-4?"
+    )
     before_source_reference = build_temporal_query_intent(
         "What did Riley mention before source reference "
         "locomo:conv-1:session_12:D12:4:turn?"
@@ -263,6 +266,8 @@ def test_temporal_query_intent_detects_since_and_until_event_sequences() -> None
     assert before_source_turn.source_turn_sequence.before_turns[0].label() == "D12:4"
     assert after_source_ref.after_event is True
     assert after_source_ref.source_turn_sequence.after_turns[0].label() == "D12:4"
+    assert after_hyphenated_source_ref.after_event is True
+    assert after_hyphenated_source_ref.source_turn_sequence.after_turns[0].label() == "D12:4"
     assert before_source_reference.before_event is True
     assert before_source_reference.source_turn_sequence.before_turns[0].label() == "D12:4"
 
@@ -1582,6 +1587,38 @@ def test_temporal_query_prefers_active_for_current_decision_query() -> None:
     )
 
 
+def test_source_turn_sequence_accepts_hyphenated_locomo_refs() -> None:
+    intent = build_temporal_query_intent("What changed after source ref D12-4?")
+    before = _item(
+        "before",
+        score=0.71,
+        retrieval_source="keyword_chunks",
+        fact_status="active",
+        text="Riley had not picked the venue yet.",
+        source_id="source_turn_refs:D12-3",
+    )
+    after = _item(
+        "after",
+        score=0.7,
+        retrieval_source="keyword_chunks",
+        fact_status="active",
+        text="Riley picked the venue after the planning note.",
+        source_id="source_turn_refs:D12-5",
+    )
+
+    boosted = apply_temporal_query_intent_boosts((before, after), intent=intent)
+    by_id = {item.item_id: item for item in boosted}
+
+    assert intent.source_turn_sequence.after_turns[0].label() == "D12:4"
+    assert by_id["after"].score > by_id["before"].score
+    assert by_id["after"].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for after source turn and item source turn follows boundary"
+    )
+    assert by_id["before"].diagnostics["temporal_query_intent_reason"] == (
+        "query asks for after source turn and item source turn precedes boundary"
+    )
+
+
 def _item(
     item_id: str,
     *,
@@ -1593,6 +1630,7 @@ def _item(
     temporal_hint_code: str | None = None,
     event_valid_from: str | None = None,
     text: str | None = None,
+    source_id: str | None = None,
 ) -> ContextItem:
     provenance = {"fact_status": fact_status}
     if event_temporal_hint_code:
@@ -1606,7 +1644,7 @@ def _item(
         item_type="fact",
         text=text or item_id,
         score=score,
-        source_refs=(SourceRef(source_type="fact", source_id=item_id),),
+        source_refs=(SourceRef(source_type="fact", source_id=source_id or item_id),),
         diagnostics={
             "retrieval_source": retrieval_source,
             "retrieval_sources": [retrieval_source],
