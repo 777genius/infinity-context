@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 
 from infinity_context_core.application.sensitive_text import contains_sensitive_text
 
@@ -133,9 +133,16 @@ def safe_turn_ref(value: object) -> str | None:
 
 
 def safe_source_refs_for_output(source_refs: object) -> tuple[str, ...]:
+    source_ref_values = _source_ref_values(source_refs)
+    source_identity_refs = source_identity_refs_from_source_refs(source_ref_values)
     refs: list[str] = []
-    for raw_ref in _source_ref_values(source_refs):
+    for ref in source_identity_refs:
+        if ref not in refs:
+            refs.append(ref)
+    for raw_ref in source_ref_values:
         for ref in _safe_source_refs_for_output_value(raw_ref):
+            if _safe_output_ref_is_covered_by_identity(ref, source_identity_refs):
+                continue
             if ref and ref not in refs:
                 refs.append(ref)
     return tuple(refs)
@@ -423,9 +430,133 @@ def _split_identity_refs(value: str) -> tuple[str, ...]:
 def _source_ref_values(value: object) -> tuple[object, ...]:
     if isinstance(value, str):
         return (value,)
+    if isinstance(value, Mapping):
+        return _source_ref_values_from_mapping(value)
     if isinstance(value, Sequence) and not isinstance(value, bytes):
-        return tuple(value)
+        return tuple(
+            ref
+            for item in value
+            for ref in _source_ref_values(item)
+        )
     return ()
+
+
+def _source_ref_values_from_mapping(value: Mapping[object, object]) -> tuple[object, ...]:
+    refs: list[object] = []
+    for key in (
+        "source_id",
+        "source_external_id",
+        "source_ref",
+        "session_key",
+        "dia_id",
+        "turn_ref",
+        "turn_id",
+        "source_turn_ref",
+    ):
+        raw_ref = value.get(key)
+        if isinstance(raw_ref, str) and raw_ref.strip():
+            refs.append(raw_ref.strip())
+    structured_turn_ref = _structured_turn_ref_from_mapping(value)
+    if structured_turn_ref:
+        refs.append(structured_turn_ref)
+    for key in ("source_refs", "source_ref_payloads"):
+        refs.extend(_source_ref_values(value.get(key)))
+    nested = value.get("metadata")
+    if isinstance(nested, Mapping):
+        refs.extend(_source_ref_values_from_mapping(nested))
+    raw_id = value.get("id")
+    if isinstance(raw_id, str) and _source_ref_value_has_turn_identity(raw_id):
+        refs.append(raw_id.strip())
+    return tuple(dict.fromkeys(refs))
+
+
+def _structured_turn_ref_from_mapping(value: Mapping[object, object]) -> str:
+    turn_ref = _safe_turn_ref_from_mapping_value(
+        value.get("dia_id")
+        or value.get("source_turn_ref")
+        or value.get("turn_ref")
+        or value.get("source_turn_id")
+        or value.get("turn_id")
+    )
+    if turn_ref:
+        return turn_ref
+    dialogue = _dialogue_number_from_mapping(value)
+    turn = _positive_int_string(
+        value.get("source_turn_id")
+        or value.get("turn_id")
+        or value.get("turn_index")
+    )
+    if dialogue and turn:
+        return f"source_turn_refs:D{dialogue}:{turn}"
+    return ""
+
+
+def _safe_turn_ref_from_mapping_value(value: object) -> str:
+    if turn_ref := safe_turn_ref(value):
+        return turn_ref
+    return ""
+
+
+def _dialogue_number_from_mapping(value: Mapping[object, object]) -> str:
+    for key in ("source_dialogue_id", "dialogue_id", "dialogue", "session_key", "session_id"):
+        dialogue = _dialogue_number_from_value(value.get(key))
+        if dialogue:
+            return dialogue
+    return ""
+
+
+def _dialogue_number_from_value(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if match := re.fullmatch(r"(?:session[-_]?|D)?(?P<number>\d+)", text, re.IGNORECASE):
+        return match.group("number")
+    return ""
+
+
+def _positive_int_string(value: object) -> str:
+    text = str(value or "").strip()
+    if not text.isdigit():
+        return ""
+    parsed = int(text)
+    return str(parsed) if parsed > 0 else ""
+
+
+def _source_ref_value_has_turn_identity(value: str) -> bool:
+    return bool(
+        safe_source_identity_ref(value)
+        or source_identity_refs_from_dedupe_key(value)
+        or _source_turn_refs((value,), include_exact_turn_refs=True)
+    )
+
+
+def _safe_output_ref_is_covered_by_identity(
+    ref: str,
+    source_identity_refs: Sequence[str],
+) -> bool:
+    if not source_identity_refs:
+        return False
+    identity_ref_set = set(source_identity_refs)
+    if ref in identity_ref_set:
+        return True
+    turn_ref = safe_turn_ref(ref)
+    if turn_ref and f"source_turn_refs:{turn_ref}" in identity_ref_set:
+        return True
+    turn_number = _positive_int_string(ref)
+    if turn_number and any(
+        identity_ref.endswith(f":{turn_number}")
+        for identity_ref in source_identity_refs
+        if identity_ref.startswith("source_turn_refs:")
+    ):
+        return True
+    session_ref = _normalized_session_ref(ref)
+    return bool(
+        session_ref
+        and any(
+            identity_ref.startswith(f"source_session_turn_refs:{session_ref}:")
+            for identity_ref in source_identity_refs
+        )
+    )
 
 
 def _safe_identity_refs(values: Iterable[object]) -> tuple[str, ...]:

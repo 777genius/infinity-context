@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -2758,14 +2759,88 @@ def _source_ref_values_from_payload(value: object) -> tuple[str, ...]:
 
 def _source_ref_values_from_mapping(value: Mapping[str, object]) -> tuple[str, ...]:
     refs: list[str] = []
-    for key in ("source_id", "source_external_id", "source_ref"):
+    for key in (
+        "source_id",
+        "source_external_id",
+        "source_ref",
+        "session_key",
+        "dia_id",
+        "turn_ref",
+        "turn_id",
+        "source_turn_ref",
+    ):
         raw_ref = value.get(key)
         if isinstance(raw_ref, str) and raw_ref.strip():
             refs.append(raw_ref.strip())
+    structured_turn_ref = _structured_turn_ref_from_mapping(value)
+    if structured_turn_ref:
+        refs.append(structured_turn_ref)
+    for key in ("source_refs", "source_ref_payloads"):
+        refs.extend(_source_ref_values_from_payload(value.get(key)))
+    nested = value.get("metadata")
+    if isinstance(nested, Mapping):
+        refs.extend(_source_ref_values_from_mapping(nested))
     raw_id = value.get("id")
     if isinstance(raw_id, str) and _source_ref_value_has_turn_identity(raw_id):
         refs.append(raw_id.strip())
     return tuple(dict.fromkeys(refs))
+
+
+def _structured_turn_ref_from_mapping(value: Mapping[str, object]) -> str:
+    turn_ref = _safe_turn_ref_from_mapping_value(
+        value.get("dia_id")
+        or value.get("source_turn_ref")
+        or value.get("turn_ref")
+        or value.get("source_turn_id")
+        or value.get("turn_id")
+    )
+    if turn_ref:
+        return turn_ref
+    dialogue = _dialogue_number_from_mapping(value)
+    turn = _positive_int_string(
+        value.get("source_turn_id")
+        or value.get("turn_id")
+        or value.get("turn_index")
+    )
+    if dialogue and turn:
+        return f"source_turn_refs:D{dialogue}:{turn}"
+    return ""
+
+
+def _safe_turn_ref_from_mapping_value(value: object) -> str:
+    turn_refs = _source_identity_refs_from_source_refs(
+        (str(value or ""),),
+        include_exact_turn_refs=True,
+    )
+    for ref in turn_refs:
+        if ref.startswith("source_turn_refs:"):
+            return ref.removeprefix("source_turn_refs:")
+    return ""
+
+
+def _dialogue_number_from_mapping(value: Mapping[str, object]) -> str:
+    for key in ("source_dialogue_id", "dialogue_id", "dialogue", "session_key", "session_id"):
+        dialogue = _dialogue_number_from_value(value.get(key))
+        if dialogue:
+            return dialogue
+    return ""
+
+
+def _dialogue_number_from_value(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if match := re.fullmatch(r"(?:session[-_]?|D)?(?P<number>\d+)", text, re.IGNORECASE):
+        return match.group("number")
+    return ""
+
+
+def _positive_int_string(value: object) -> str:
+    text = str(value or "").strip()
+    if not text.isdigit():
+        return ""
+    parsed = int(text)
+    return str(parsed) if parsed > 0 else ""
 
 
 def _source_ref_value_has_turn_identity(value: str) -> bool:

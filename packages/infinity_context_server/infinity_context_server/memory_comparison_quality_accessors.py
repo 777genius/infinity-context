@@ -40,10 +40,14 @@ def source_refs_from_memory(memory: Mapping[str, object]) -> tuple[str, ...]:
     fusion = mapping(memory_diagnostics(memory).get("benchmark_candidate_fusion"))
     source_refs = tuple(dict.fromkeys((*direct_refs, *fused_refs)))
     canonical_source_refs = _canonical_source_refs(source_refs)
+    metadata_source_identity_refs = _source_identity_refs_from_source_refs(
+        (memory.get("metadata"),)
+    )
     return tuple(
         dict.fromkeys(
             (
                 *canonical_source_refs,
+                *metadata_source_identity_refs,
                 *_source_identity_refs_from_dedupe_key(
                     candidate_features(memory).get("source_ref_dedupe_key")
                 ),
@@ -69,10 +73,12 @@ def fusion_source_refs(memory: Mapping[str, object]) -> tuple[str, ...]:
 def source_refs_from_bundle_item(item: Mapping[str, object]) -> tuple[str, ...]:
     source_refs = str_tuple(item.get("source_refs"))
     canonical_source_refs = _canonical_source_refs(source_refs)
+    structured_source_identity_refs = _source_identity_refs_from_source_refs((item,))
     return tuple(
         dict.fromkeys(
             (
                 *canonical_source_refs,
+                *structured_source_identity_refs,
                 *_source_identity_refs_from_dedupe_key(item.get("source_ref_dedupe_key")),
                 *_source_identity_refs_from_dedupe_key(item.get("dedupe_key")),
             )

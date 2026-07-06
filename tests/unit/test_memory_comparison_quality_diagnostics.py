@@ -892,6 +892,119 @@ def test_quality_diagnostics_counts_source_ref_dedupe_identity() -> None:
     assert table["source_refless_selected_samples"] == []
 
 
+def test_quality_diagnostics_counts_official_turn_metadata_identity() -> None:
+    official_turn_payload = {
+        "source_external_id": "locomo:conv-private:turn-secret",
+        "session_key": "session_4",
+        "dia_id": "D4:5",
+    }
+    diagnostics = quality_diagnostics(
+        (
+            _item(
+                case_id="official-turn-metadata",
+                retrieval={
+                    "metadata": {},
+                    "results": [
+                        {
+                            "id": "official-turn",
+                            "rank": 1,
+                            "text": "D4:5 Alex confirmed the workshop date.",
+                            "metadata": {
+                                "source_ref_payloads": [official_turn_payload]
+                            },
+                        }
+                    ],
+                },
+                evidence_bundle={
+                    "items": [
+                        {
+                            "id": "official-turn",
+                            "role": "primary",
+                            "retrieval_order": 1,
+                            "source_ref_payloads": [official_turn_payload],
+                        }
+                    ]
+                },
+            ),
+        )
+    )
+
+    table = diagnostics["source_ref_provenance_table"]
+    assert table["retrieval_source_ref_candidate_count"] == 1
+    assert table["retrieval_source_ref_count"] == 2
+    assert table["retrieval_source_ref_shape_counts"] == {
+        "locomo_session_turn_identity": 1,
+        "locomo_turn_identity": 1,
+    }
+    assert table["retrieval_source_refless_candidate_count"] == 0
+    assert table["selected_bundle_source_ref_item_count"] == 1
+    assert table["selected_bundle_source_ref_count"] == 2
+    assert table["selected_bundle_source_ref_shape_counts"] == {
+        "locomo_session_turn_identity": 1,
+        "locomo_turn_identity": 1,
+    }
+    assert table["selected_bundle_source_refless_item_count"] == 0
+    assert table["source_refless_selected_samples"] == []
+
+
+def test_quality_diagnostics_counts_numeric_turn_metadata_identity() -> None:
+    numeric_turn_payload = {
+        "source_external_id": "locomo:conv-private:turn-secret",
+        "session_key": "session_12",
+        "turn_id": "6",
+    }
+    diagnostics = quality_diagnostics(
+        (
+            _item(
+                case_id="numeric-turn-metadata",
+                retrieval={
+                    "metadata": {},
+                    "results": [
+                        {
+                            "id": "numeric-turn",
+                            "rank": 1,
+                            "text": "D12:6 Riley confirmed the studio visit.",
+                            "metadata": {
+                                "source_ref_payloads": [numeric_turn_payload]
+                            },
+                        }
+                    ],
+                },
+                evidence_bundle={
+                    "items": [
+                        {
+                            "id": "numeric-turn",
+                            "role": "primary",
+                            "retrieval_order": 1,
+                            "source_ref_payloads": [numeric_turn_payload],
+                        }
+                    ]
+                },
+            ),
+        )
+    )
+
+    table = diagnostics["source_ref_provenance_table"]
+    assert table["retrieval_source_ref_candidate_count"] == 1
+    assert table["retrieval_source_ref_count"] == 2
+    assert table["retrieval_source_ref_shape_counts"] == {
+        "locomo_session_turn_identity": 1,
+        "locomo_turn_identity": 1,
+    }
+    assert table["retrieval_source_refless_candidate_count"] == 0
+    assert table["selected_bundle_source_ref_item_count"] == 1
+    assert table["selected_bundle_source_ref_count"] == 2
+    assert table["selected_bundle_source_ref_shape_counts"] == {
+        "locomo_session_turn_identity": 1,
+        "locomo_turn_identity": 1,
+    }
+    assert table["selected_bundle_source_refless_item_count"] == 0
+    assert table["source_refless_selected_samples"] == []
+    serialized = json.dumps(table)
+    assert "locomo:conv-private" not in serialized
+    assert "turn-secret" not in serialized
+
+
 def test_quality_diagnostics_counts_fusion_turn_ref_dedupe_identity() -> None:
     diagnostics = quality_diagnostics(
         (

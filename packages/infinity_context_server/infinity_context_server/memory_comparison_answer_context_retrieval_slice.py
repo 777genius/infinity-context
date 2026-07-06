@@ -110,13 +110,10 @@ def _memory_source_refs(memory: RetrievedMemory) -> tuple[str, ...]:
     fusion_source_refs = (
         _string_tuple(fusion.get("source_refs")) if not compacted_fusion_refs else ()
     )
-    source_refs = tuple(
-        dict.fromkeys(
-            (
-                *(str(ref).strip() for ref in memory.source_refs if str(ref).strip()),
-                *fusion_source_refs,
-            )
-        )
+    source_refs = (
+        *(str(ref).strip() for ref in memory.source_refs if str(ref).strip()),
+        memory.metadata,
+        *fusion_source_refs,
     )
     output_source_refs = _safe_source_refs_for_output(source_refs)
     source_identity_refs = _source_identity_refs_from_source_refs(source_refs)
