@@ -256,9 +256,10 @@ def _fuse_candidate(
         score_winner,
         evidence_winner,
     )
+    dedupe_key = _fusion_dedupe_key(key, occurrences)
     fusion = {
         "schema_version": "candidate_fusion.v1",
-        "dedupe_key": key,
+        "dedupe_key": dedupe_key,
         "query_match_count": len(query_indices),
         "query_indices": list(query_indices),
         "query_roles": list(query_roles),
@@ -652,6 +653,21 @@ def _memory_merge_keys(memory: RetrievedMemory) -> tuple[str, ...]:
         keys.append(f"refs:{'|'.join(refs)}")
     keys.append(f"text:{' '.join(memory.text.casefold().split())[:240]}")
     return tuple(dict.fromkeys(keys))
+
+
+def _fusion_dedupe_key(
+    default_key: str,
+    occurrences: Sequence[_CandidateOccurrence],
+) -> str:
+    merge_keys = tuple(
+        merge_key
+        for occurrence in occurrences
+        for merge_key in _memory_merge_keys(occurrence.memory)
+    )
+    session_turn_refs = _session_turn_refs_from_merge_keys(merge_keys)
+    if 0 < len(session_turn_refs) <= 3:
+        return "source_session_turn_refs:" + "|".join(sorted(session_turn_refs))
+    return default_key
 
 
 def _precise_source_ref_merge_key(source_refs: Sequence[str]) -> str:

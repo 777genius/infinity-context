@@ -102,6 +102,85 @@ def test_candidate_features_capture_focused_direct_turn_and_provenance() -> None
 
 
 @pytest.mark.parametrize(
+    "text",
+    (
+        (
+            "turn D2:14 in session 2 Caroline: Family will be a challenge "
+            "as a parent after the breakup, but my friends support me."
+        ),
+        (
+            "session 2 turn D2:14 Caroline: Family will be a challenge "
+            "as a parent after the breakup, but my friends support me."
+        ),
+        (
+            "session 2 turn D2-14 Caroline: Family will be a challenge "
+            "as a parent after the breakup, but my friends support me."
+        ),
+        (
+            "session 2 - turn # D2-14 Caroline: Family will be a challenge "
+            "as a parent after the breakup, but my friends support me."
+        ),
+    ),
+)
+def test_candidate_features_capture_turn_prefixed_direct_session_turn(
+    text: str,
+) -> None:
+    memory = RetrievedMemory(
+        item_id="turn-prefixed-direct-session-turn",
+        rank=1,
+        text=text,
+        metadata={"item_type": "raw_turn"},
+    )
+
+    features = build_candidate_evidence_features(
+        memory,
+        memory_terms={
+            "caroline",
+            "family",
+            "challenge",
+            "parent",
+            "breakup",
+            "friend",
+            "support",
+        },
+        query_terms=("caroline", "relationship", "status"),
+        relation_terms=("relationship", "status"),
+        relation_variant_terms=("parent", "breakup", "family", "support"),
+        relation_category_terms={
+            "status_profile": (
+                "relationship",
+                "status",
+                "parent",
+                "breakup",
+                "family",
+                "support",
+            )
+        },
+        entities=("caroline",),
+        entity_hits=("caroline",),
+        speaker_hits=("caroline",),
+        high_signal_relation_terms={"support"},
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=True,
+        has_sequence_surface=True,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+
+    assert features.direct_speaker_turn is True
+    assert features.source_locality_score == 1.0
+    assert features.source_locality_reason_codes == ("direct_localized_turn",)
+    assert features.source_ref_dedupe_key == "source_session_turn_refs:session_2:D2:14"
+    assert features.source_identity_audit_gap_codes == (
+        "missing_source_refs_with_text_turn_identity",
+    )
+
+
+@pytest.mark.parametrize(
     ("category", "relation_terms", "relation_variant_terms", "support_terms"),
     (
         (
@@ -1223,6 +1302,11 @@ def test_candidate_features_report_missing_source_refs_text_identity_gap() -> No
             ("locomo:conv-26:session_6:D5:7:turn",),
             "source_text_session_turn_mismatch",
         ),
+        (
+            "D5:7 in session 6 Caroline: The support group meets on Thursday evenings.",
+            ("locomo:conv-26:session_5:D5:7:turn",),
+            "source_text_session_turn_mismatch",
+        ),
     ),
 )
 def test_candidate_features_report_source_text_identity_mismatch(
@@ -1358,12 +1442,83 @@ def test_candidate_features_use_source_ref_turns_for_locality_and_dedupe() -> No
     assert diagnostics["source_turn_span"] == 2
 
 
-def test_candidate_features_qualify_split_session_and_turn_source_refs() -> None:
+@pytest.mark.parametrize(
+    ("text", "expected_dedupe_key"),
+    (
+        (
+            "session 2 turn D2:8 Caroline reviewed adoption options. "
+            "session #2 turn D2:9 Caroline chose an inclusive agency.",
+            "source_session_turn_refs:session_2:D2:8|session_2:D2:9",
+        ),
+        (
+            "session 2 date: Monday D2:8 Caroline reviewed adoption options. "
+            "session_2 date: Tuesday D2:9 Caroline chose an inclusive agency.",
+            "source_session_turn_refs:session_2:D2:8|session_2:D2:9",
+        ),
+        (
+            "turn D2:8 in session 2 Caroline reviewed adoption options. "
+            "turn D2:9 in session 2 Caroline chose an inclusive agency.",
+            "source_session_turn_refs:session_2:D2:8|session_2:D2:9",
+        ),
+    ),
+)
+def test_candidate_features_use_spaced_text_session_turns_for_locality(
+    text: str,
+    expected_dedupe_key: str,
+) -> None:
+    memory = RetrievedMemory(
+        item_id="spaced-text-session-turns",
+        rank=1,
+        text=text,
+        metadata={"item_type": "fact"},
+    )
+
+    features = build_candidate_evidence_features(
+        memory,
+        memory_terms={"caroline", "adoption", "agency", "inclusive"},
+        query_terms=("caroline", "adoption", "agency"),
+        relation_terms=("adoption", "agency"),
+        relation_variant_terms=("inclusive",),
+        entities=("caroline",),
+        entity_hits=("caroline",),
+        speaker_hits=("caroline",),
+        high_signal_relation_terms={"inclusive"},
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=True,
+    )
+
+    assert features.source_turn_refs == ()
+    assert features.turn_ref_count == 2
+    assert features.source_turn_span == 2
+    assert features.source_locality_score == 0.95
+    assert features.source_ref_dedupe_key == expected_dedupe_key
+    assert features.source_identity_audit_gap_codes == (
+        "missing_source_refs_with_text_turn_identity",
+    )
+
+
+@pytest.mark.parametrize(
+    "source_refs",
+    (
+        ("locomo:conv-26:session_4", "D4:3"),
+        ("conversation session #4", "D4:3"),
+    ),
+)
+def test_candidate_features_qualify_split_session_and_turn_source_refs(
+    source_refs: tuple[str, ...],
+) -> None:
     memory = RetrievedMemory(
         item_id="split-session-turn-source-refs",
         rank=1,
         text="Caroline said the adoption agency felt inclusive.",
-        source_refs=("locomo:conv-26:session_4", "D4:3"),
+        source_refs=source_refs,
         metadata={"item_type": "chunk"},
     )
 

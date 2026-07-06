@@ -56,29 +56,49 @@ _SOURCE_SESSION_IDENTITY_REF_RE = re.compile(
     re.IGNORECASE,
 )
 _SOURCE_SESSION_RE = re.compile(
-    r"(?:^|[:_-])session[-_](?P<session>\d+)"
-    r"(?=$|[:_-](?!(?:D\d+[:-]\d+)\b))",
+    r"(?:^|[:_\-\s])session(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)"
+    r"(?=$|[:_\-\s](?!(?:D\d+[:-]\d+)\b))",
     re.IGNORECASE,
 )
 _TEXT_SESSION_TURN_RE = re.compile(
-    r"\bsession[-_](?P<session>\d+)\s+(?:turn\s+)?"
-    r"(?P<turn_ref>D\d+[:-]\d+)\b",
+    r"\bsession(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)"
+    r"\s*[,;:-]?\s+(?:turn\s*[:#-]?\s+)?(?P<turn_ref>D\d+[:-]\d+)\b",
     re.IGNORECASE,
 )
 _TEXT_SESSION_DATE_TURN_RE = re.compile(
-    r"\bsession[-_](?P<session>\d+)\s+date:\s*[^.\n]{0,80}?\s"
+    r"\bsession(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)"
+    r"\s*[,;:-]?\s+date:\s*[^.\n]{0,80}?\s"
     r"(?P<turn_ref>D\d+[:-]\d+)\b",
+    re.IGNORECASE,
+)
+_TEXT_TURN_SESSION_RE = re.compile(
+    r"\b(?:turn\s*[:#-]?\s+)?(?P<turn_ref>D\d+[:-]\d+)\b"
+    r"\s*(?:[,;:-]?\s+|\s+)"
+    r"(?:in|from|for|within|during|of)\s+(?:the\s+)?"
+    r"session(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)\b",
     re.IGNORECASE,
 )
 _DIRECT_SPEAKER_LABEL_PATTERN = (
     r"[A-Z][a-zA-Z0-9_-]{1,40}"
     r"(?:\s+[A-Z][a-zA-Z0-9_-]{1,40}){0,2}"
 )
+_DIRECT_TURN_SESSION_PREFIX_PATTERN = (
+    r"(?:(?:session(?:[-_]\s*|\s+#?\s*)\d+)"
+    r"\s*[,;:-]?\s+(?:turn\s*[:#-]?\s+)?)?"
+)
+_DIRECT_TURN_SESSION_SCOPE_PATTERN = (
+    r"(?:\s+(?:in|from|for|within|during|of)\s+(?:the\s+)?"
+    r"session(?:[-_]\s*|\s+#?\s*)\d+)?"
+)
 _DIRECT_TURN_SPEAKER_RE = re.compile(
-    rf"\bD\d+:\d+\s+{_DIRECT_SPEAKER_LABEL_PATTERN}\s*:"
+    rf"\b{_DIRECT_TURN_SESSION_PREFIX_PATTERN}"
+    rf"(?:turn\s*[:#-]?\s+)?D\d+[:-]\d+{_DIRECT_TURN_SESSION_SCOPE_PATTERN}\s+"
+    rf"{_DIRECT_SPEAKER_LABEL_PATTERN}\s*:"
 )
 _DIRECT_TURN_SPEAKER_CAPTURE_RE = re.compile(
-    rf"\bD\d+:\d+\s+(?P<speaker>{_DIRECT_SPEAKER_LABEL_PATTERN})\s*:"
+    rf"\b{_DIRECT_TURN_SESSION_PREFIX_PATTERN}"
+    rf"(?:turn\s*[:#-]?\s+)?D\d+[:-]\d+{_DIRECT_TURN_SESSION_SCOPE_PATTERN}\s+"
+    rf"(?P<speaker>{_DIRECT_SPEAKER_LABEL_PATTERN})\s*:"
 )
 _FIRST_PERSON_SURFACE_RE = re.compile(
     r"\b(?:I|I'm|I've|I'd|I'll|me|my|mine|we|we're|we've|we'd|we'll|"
@@ -1837,7 +1857,11 @@ def _text_session_turn_refs(text: str) -> tuple[str, ...]:
     return tuple(
         dict.fromkeys(
             f"session_{match.group('session')}:{turn_ref}"
-            for pattern in (_TEXT_SESSION_TURN_RE, _TEXT_SESSION_DATE_TURN_RE)
+            for pattern in (
+                _TEXT_SESSION_TURN_RE,
+                _TEXT_SESSION_DATE_TURN_RE,
+                _TEXT_TURN_SESSION_RE,
+            )
             for match in pattern.finditer(text)
             for turn_ref in (_normalized_turn_ref(match.group("turn_ref")),)
             if turn_ref

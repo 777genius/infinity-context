@@ -385,7 +385,7 @@ def test_answer_context_preserves_punctuated_session_turn_identity() -> None:
     context = answer_context_from_evidence_bundle(
         (
             RetrievedMemory(
-                text="Session 3, turn D3:6 Alex confirmed the planning date.",
+                text="Session 3 - turn # D3-6 Alex confirmed the planning date.",
                 rank=1,
                 item_id="punctuated-session-label-turn",
                 source_refs=("document:profile-note",),
@@ -405,6 +405,84 @@ def test_answer_context_preserves_punctuated_session_turn_identity() -> None:
     assert diagnostics["source_identity_refs"] == [
         "source_session_turn_refs:session_3:D3:6",
         "source_turn_refs:D3:6",
+    ]
+
+
+def test_answer_context_preserves_reversed_session_turn_identity() -> None:
+    context = answer_context_from_evidence_bundle(
+        (
+            RetrievedMemory(
+                text="D2:6 in session 2 Priya chose Osaka for the conference.",
+                rank=1,
+                item_id="reversed-session-label-turn",
+                source_refs=("document:profile-note",),
+            ),
+        ),
+        {},
+        cutoff=1,
+    )
+
+    diagnostics = context.to_diagnostics()
+
+    assert context.memories[0].source_refs == (
+        "document:profile-note",
+        "source_session_turn_refs:session_2:D2:6",
+        "source_turn_refs:D2:6",
+    )
+    assert diagnostics["source_identity_refs"] == [
+        "source_session_turn_refs:session_2:D2:6",
+        "source_turn_refs:D2:6",
+    ]
+
+
+def test_answer_context_does_not_qualify_mismatched_reversed_session_turn() -> None:
+    context = answer_context_from_evidence_bundle(
+        (
+            RetrievedMemory(
+                text="D2:6 in session 3 Priya chose Osaka for the conference.",
+                rank=1,
+                item_id="mismatched-reversed-session-label-turn",
+                source_refs=("document:profile-note",),
+            ),
+        ),
+        {},
+        cutoff=1,
+    )
+
+    diagnostics = context.to_diagnostics()
+
+    assert context.memories[0].source_refs == (
+        "document:profile-note",
+        "source_turn_refs:D2:6",
+    )
+    assert diagnostics["source_identity_refs"] == ["source_turn_refs:D2:6"]
+
+
+def test_answer_context_retrieval_slice_preserves_reversed_session_turn_identity() -> None:
+    context = answer_context_from_evidence_bundle(
+        (
+            RetrievedMemory(
+                text="turn D2:6 in session 2 Priya chose Osaka for the conference.",
+                rank=1,
+                item_id="retrieval-slice-reversed-session-label-turn",
+                source_refs=("document:profile-note",),
+            ),
+        ),
+        {"items": []},
+        cutoff=1,
+    )
+
+    diagnostics = context.to_diagnostics()
+
+    assert context.source == "retrieval_slice"
+    assert context.memories[0].source_refs == (
+        "document:profile-note",
+        "source_session_turn_refs:session_2:D2:6",
+        "source_turn_refs:D2:6",
+    )
+    assert diagnostics["source_identity_refs"] == [
+        "source_session_turn_refs:session_2:D2:6",
+        "source_turn_refs:D2:6",
     ]
 
 
@@ -439,6 +517,69 @@ def test_answer_context_qualifies_split_session_and_turn_source_refs() -> None:
     ]
     serialized = json.dumps((context.memories[0].source_refs, diagnostics))
     assert "locomo:conv-private" not in serialized
+
+
+def test_answer_context_qualifies_spaced_split_session_and_turn_refs() -> None:
+    context = answer_context_from_evidence_bundle(
+        (
+            RetrievedMemory(
+                text="D4:6 Alex confirmed the workshop date.",
+                rank=1,
+                item_id="spaced-split-session-turn",
+                source_refs=("conversation session #4", "D4:6"),
+            ),
+        ),
+        {},
+        cutoff=1,
+    )
+
+    diagnostics = context.to_diagnostics()
+
+    assert context.memories[0].source_refs == (
+        "source_session_turn_refs:session_4:D4:6",
+        "source_turn_refs:D4:6",
+        "conversation session #4",
+    )
+    assert diagnostics["source_identity_refs"] == [
+        "source_session_turn_refs:session_4:D4:6",
+        "source_turn_refs:D4:6",
+    ]
+
+
+def test_answer_context_qualifies_hyphenated_session_turn_source_ref() -> None:
+    context = answer_context_from_evidence_bundle(
+        (
+            RetrievedMemory(
+                text="D8:3 Alex confirmed the workshop date.",
+                rank=1,
+                item_id="hyphenated-session-turn-source-ref",
+                source_refs=("conversation-session_8-D8-3-turn",),
+            ),
+        ),
+        {},
+        cutoff=1,
+    )
+
+    diagnostics = context.to_diagnostics()
+
+    assert context.memories[0].source_refs == (
+        "conversation-session_8-D8-3-turn",
+        "source_session_turn_refs:session_8:D8:3",
+        "source_turn_refs:D8:3",
+    )
+    assert diagnostics["source_identity_refs"] == [
+        "source_session_turn_refs:session_8:D8:3",
+        "source_turn_refs:D8:3",
+    ]
+    assert diagnostics["source_identity_items"] == [
+        {
+            "source_identity_refs": [
+                "source_session_turn_refs:session_8:D8:3",
+                "source_turn_refs:D8:3",
+            ],
+            "item_id": "hyphenated-session-turn-source-ref",
+        }
+    ]
 
 
 def test_answer_context_qualifies_official_turn_metadata_payload_refs() -> None:

@@ -19,7 +19,7 @@ _SOURCE_SESSION_TURN_RE = re.compile(
     re.IGNORECASE,
 )
 _SOURCE_SESSION_RE = re.compile(
-    r"(?:^|[:_-])session[-_](?P<session>\d+)"
+    r"(?:^|[:_\-\s])session(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)"
     r"(?=$|[:_-](?!(?:D\d+[:-]\d+)\b))",
     re.IGNORECASE,
 )
@@ -32,6 +32,13 @@ _TEXT_SESSION_DATE_TURN_RE = re.compile(
     r"\bsession(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)"
     r"\s*[,;:-]?\s+date:\s*[^.\n]{0,80}?\s"
     r"(?P<turn_ref>D\d+[:-]\d+)\b",
+    re.IGNORECASE,
+)
+_TEXT_TURN_SESSION_RE = re.compile(
+    r"\b(?:turn\s*[:#-]?\s+)?(?P<turn_ref>D\d+[:-]\d+)\b"
+    r"\s*(?:[,;:-]?\s+|\s+)"
+    r"(?:in|from|for|within|during|of)\s+(?:the\s+)?"
+    r"session(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)\b",
     re.IGNORECASE,
 )
 _SAFE_SOURCE_IDENTITY_REF_RE = re.compile(
@@ -165,6 +172,15 @@ def safe_source_refs_for_output(source_refs: object) -> tuple[str, ...]:
         )
     )
     refs: list[str] = []
+    for raw_ref in source_ref_values:
+        if (
+            isinstance(raw_ref, str)
+            and not _looks_like_source_identity_dedupe_key(raw_ref)
+            and _SOURCE_SESSION_TURN_RE.search(raw_ref)
+            and (generic_ref := _safe_generic_source_ref(raw_ref))
+            and generic_ref not in refs
+        ):
+            refs.append(generic_ref)
     for ref in source_identity_refs:
         if ref not in refs:
             refs.append(ref)
@@ -426,7 +442,10 @@ def source_identity_audit_gap_codes(
     )
     source_turn_refs = _source_turn_refs(refs, include_exact_turn_refs=True)
     source_session_turn_refs = _source_session_turn_refs(refs)
-    text_session_turn_refs = _session_turn_refs_from_text(text)
+    text_session_turn_refs = _session_turn_refs_from_text(
+        text,
+        require_dialogue_match=False,
+    )
     text_turn_refs = _safe_turn_refs(_TURN_REF_RE.findall(text or ""))
     has_text_turn_identity = bool(text_session_turn_refs or text_turn_refs)
 
@@ -450,7 +469,7 @@ def source_identity_audit_gap_codes(
     if (
         source_session_turn_refs
         and text_session_turn_refs
-        and not set(source_session_turn_refs).intersection(text_session_turn_refs)
+        and not set(text_session_turn_refs).issubset(set(source_session_turn_refs))
     ):
         gap_codes.append("source_text_session_turn_mismatch")
     elif (
@@ -507,6 +526,9 @@ def _source_ref_values_from_mapping(value: Mapping[object, object]) -> tuple[obj
         raw_ref = value.get(key)
         if isinstance(raw_ref, str) and raw_ref.strip():
             refs.append(raw_ref.strip())
+    structured_session_ref = _structured_session_ref_from_mapping(value)
+    if structured_session_ref:
+        refs.append(structured_session_ref)
     structured_turn_ref = _structured_turn_ref_from_mapping(value)
     if structured_turn_ref:
         refs.append(structured_turn_ref)
@@ -558,6 +580,14 @@ def _structured_turn_ref_from_mapping(value: Mapping[object, object]) -> str:
     )
     if dialogue and turn:
         return f"source_turn_refs:D{dialogue}:{turn}"
+    return ""
+
+
+def _structured_session_ref_from_mapping(value: Mapping[object, object]) -> str:
+    for key in ("source_session_id", "session_id", "session_key"):
+        session = _dialogue_number_from_value(value.get(key))
+        if session:
+            return f"session_{session}"
     return ""
 
 
@@ -940,14 +970,26 @@ def _turn_ref_dialogue_number(turn_ref: str) -> str:
     return match.group("dialogue") if match is not None else ""
 
 
-def _session_turn_refs_from_text(text: str) -> tuple[str, ...]:
+def _session_turn_refs_from_text(
+    text: str,
+    *,
+    require_dialogue_match: bool = True,
+) -> tuple[str, ...]:
     return tuple(
         dict.fromkeys(
             f"session_{match.group('session')}:{turn_ref}"
-            for pattern in (_TEXT_SESSION_TURN_RE, _TEXT_SESSION_DATE_TURN_RE)
+            for pattern in (
+                _TEXT_SESSION_TURN_RE,
+                _TEXT_SESSION_DATE_TURN_RE,
+                _TEXT_TURN_SESSION_RE,
+            )
             for match in pattern.finditer(text or "")
             for turn_ref in (safe_turn_ref(match.group("turn_ref")),)
             if turn_ref
+            and (
+                not require_dialogue_match
+                or _turn_ref_dialogue_number(turn_ref) == match.group("session")
+            )
         )
     )
 
@@ -998,5 +1040,12 @@ def _session_count(session_turn_refs: Sequence[str]) -> int:
 
 
 def _normalized_session_ref(value: object) -> str:
-    match = re.fullmatch(r"session[-_](?P<session>\d+)", str(value or ""), re.IGNORECASE)
-    return f"session_{match.group('session')}" if match else ""
+    text = str(value or "").strip()
+    match = re.fullmatch(
+        r"session(?:[-_]\s*|\s+#?\s*)(?P<session>\d+)",
+        text,
+        re.IGNORECASE,
+    )
+    if match:
+        return f"session_{match.group('session')}"
+    return ""

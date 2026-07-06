@@ -179,6 +179,93 @@ def test_source_identity_refs_normalize_punctuated_session_text_variants() -> No
     ) == ("generic_source_refs_with_text_turn_identity",)
 
 
+def test_source_identity_refs_normalize_reversed_session_text_variants() -> None:
+    assert source_identity_refs_from_text(
+        "D2:6 in session 2 Priya chose Osaka for the conference.",
+        source_refs=("conversation-summary",),
+    ) == (
+        "source_session_turn_refs:session_2:D2:6",
+        "source_turn_refs:D2:6",
+    )
+    assert source_identity_refs_from_text(
+        "D2-7 from session_2 Priya changed the itinerary.",
+        source_refs=("conversation-summary",),
+    ) == (
+        "source_session_turn_refs:session_2:D2:7",
+        "source_turn_refs:D2:7",
+    )
+    assert source_identity_refs_from_text(
+        "D2:9 during session 2 Priya confirmed the plan.",
+        source_refs=("conversation-summary",),
+    ) == (
+        "source_session_turn_refs:session_2:D2:9",
+        "source_turn_refs:D2:9",
+    )
+    assert source_identity_refs_from_text(
+        "D2:10 from the session 2 Priya confirmed the plan.",
+        source_refs=("conversation-summary",),
+    ) == (
+        "source_session_turn_refs:session_2:D2:10",
+        "source_turn_refs:D2:10",
+    )
+    assert source_identity_refs_from_text(
+        "turn D2:11 in session 2 Priya confirmed the plan.",
+        source_refs=("conversation-summary",),
+    ) == (
+        "source_session_turn_refs:session_2:D2:11",
+        "source_turn_refs:D2:11",
+    )
+    assert source_identity_refs_from_text(
+        "D2:8, session 2, Priya confirmed the plan.",
+        source_refs=("conversation-summary",),
+    ) == ("source_turn_refs:D2:8",)
+    assert source_identity_audit_gap_codes(
+        source_refs=("conversation-summary",),
+        text="D2:8, session 2, Priya confirmed the plan.",
+    ) == ("generic_source_refs_with_text_turn_identity",)
+
+
+def test_source_identity_refs_do_not_qualify_mismatched_session_text_variants() -> None:
+    assert source_identity_refs_from_text(
+        "Session 3 turn D2:6 Priya chose Osaka for the conference.",
+        source_refs=("conversation-summary",),
+    ) == ("source_turn_refs:D2:6",)
+    assert source_identity_refs_from_text(
+        "D2:6 in session 3 Priya chose Osaka for the conference.",
+        source_refs=("conversation-summary",),
+    ) == ("source_turn_refs:D2:6",)
+    assert source_identity_audit_gap_codes(
+        source_refs=("conversation-summary",),
+        text="D2:6 in session 3 Priya chose Osaka for the conference.",
+    ) == ("generic_source_refs_with_text_turn_identity",)
+    assert source_identity_audit_gap_codes(
+        source_refs=("locomo:conversation:session_2", "D2:6"),
+        text="D2:6 in session 3 Priya chose Osaka for the conference.",
+    ) == ("source_text_session_turn_mismatch",)
+    assert source_identity_audit_gap_codes(
+        source_refs=("locomo:conversation:session_2", "D2:6"),
+        text="turn D2:6 in session 3 Priya chose Osaka for the conference.",
+    ) == ("source_text_session_turn_mismatch",)
+    assert source_identity_audit_gap_codes(
+        source_refs=("locomo:conversation:session_2", "D2:6"),
+        text="Session 3 turn D2:6 Priya chose Osaka for the conference.",
+    ) == ("source_text_session_turn_mismatch",)
+    assert source_identity_audit_gap_codes(
+        source_refs=("locomo:conversation:session_2", "D2:6"),
+        text=(
+            "D2:6 in session 2 Priya chose Osaka. "
+            "A conflicting note repeats D2:6 in session 3."
+        ),
+    ) == ("source_text_session_turn_mismatch",)
+    assert source_identity_audit_gap_codes(
+        source_refs=("locomo:conversation:session_2", "D2:6"),
+        text=(
+            "D2:6 in session 2 Priya chose Osaka. "
+            "An uncited note mentions D3:1 in session 3."
+        ),
+    ) == ("source_text_session_turn_mismatch",)
+
+
 def test_source_identity_refs_qualify_split_session_and_turn_refs() -> None:
     assert source_identity_refs_from_source_refs(
         ("locomo:conversation:session_4", "D4:3")
@@ -191,6 +278,18 @@ def test_source_identity_refs_qualify_split_session_and_turn_refs() -> None:
     ) == (
         "source_session_turn_refs:session_4:D4:5",
         "source_turn_refs:D4:5",
+    )
+    assert source_identity_refs_from_source_refs(
+        ("conversation session 4", "D4:6")
+    ) == (
+        "source_session_turn_refs:session_4:D4:6",
+        "source_turn_refs:D4:6",
+    )
+    assert source_identity_refs_from_source_refs(
+        ("conversation session #4", "D4:7")
+    ) == (
+        "source_session_turn_refs:session_4:D4:7",
+        "source_turn_refs:D4:7",
     )
     assert source_identity_refs_from_source_refs(
         ("locomo:conversation:session_9", "D7:2")
@@ -324,6 +423,18 @@ def test_safe_source_refs_for_output_preserves_source_identity_wrapped_refs() ->
         "source_turn_refs:D8:3",
         "source_turn_refs:D8:4",
         "source_turn_refs:D8:5",
+    )
+
+
+def test_safe_source_refs_for_output_extracts_spaced_split_session_identity() -> None:
+    assert safe_source_refs_for_output(("session #4", "D4:6")) == (
+        "source_session_turn_refs:session_4:D4:6",
+        "source_turn_refs:D4:6",
+    )
+    assert safe_source_refs_for_output(("conversation session #4", "D4:6")) == (
+        "source_session_turn_refs:session_4:D4:6",
+        "source_turn_refs:D4:6",
+        "conversation session #4",
     )
 
 
