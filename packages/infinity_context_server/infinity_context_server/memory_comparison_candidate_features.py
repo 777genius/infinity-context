@@ -24,6 +24,7 @@ from infinity_context_server.memory_comparison_candidate_risks import (
 from infinity_context_server.memory_comparison_models import RetrievedMemory
 from infinity_context_server.memory_comparison_relation_support import (
     has_alias_go_by_surface,
+    has_alias_profile_surface,
     has_date_profile_surface,
     has_employment_occupation_surface,
     has_vehicle_model_surface,
@@ -53,11 +54,15 @@ _TEXT_SESSION_DATE_TURN_RE = re.compile(
     r"(?P<turn_ref>D\d+[:-]\d+)\b",
     re.IGNORECASE,
 )
+_DIRECT_SPEAKER_LABEL_PATTERN = (
+    r"[A-Z][a-zA-Z0-9_-]{1,40}"
+    r"(?:\s+[A-Z][a-zA-Z0-9_-]{1,40}){0,2}"
+)
 _DIRECT_TURN_SPEAKER_RE = re.compile(
-    r"\bD\d+:\d+\s+[A-Z][a-zA-Z0-9_-]{1,40}\s*:"
+    rf"\bD\d+:\d+\s+{_DIRECT_SPEAKER_LABEL_PATTERN}\s*:"
 )
 _DIRECT_TURN_SPEAKER_CAPTURE_RE = re.compile(
-    r"\bD\d+:\d+\s+(?P<speaker>[A-Z][a-zA-Z0-9_-]{1,40})\s*:"
+    rf"\bD\d+:\d+\s+(?P<speaker>{_DIRECT_SPEAKER_LABEL_PATTERN})\s*:"
 )
 _FIRST_PERSON_SURFACE_RE = re.compile(
     r"\b(?:I|I'm|I've|I'd|I'll|me|my|mine|we|we're|we've|we'd|we'll|"
@@ -660,7 +665,7 @@ def _temporal_sequence_direction(text: str) -> str:
 
 def _evidence_content_text(text: str) -> str:
     match = re.search(
-        r"\bD\d+:\d+\s+[A-Z][a-zA-Z0-9_-]{1,40}\s*:\s*",
+        rf"\bD\d+:\d+\s+{_DIRECT_SPEAKER_LABEL_PATTERN}\s*:\s*",
         text,
     )
     if match:
@@ -887,7 +892,9 @@ def _typed_category_has_query_grounding(
         return True
     if category == "vehicle_profile" and has_vehicle_model_surface(memory_text):
         return True
-    if category == "alias_profile" and has_alias_go_by_surface(memory_text):
+    if category == "alias_profile" and (
+        has_alias_go_by_surface(memory_text) or has_alias_profile_surface(memory_text)
+    ):
         return True
     if category == "date_profile" and has_date_profile_surface(memory_text):
         return True

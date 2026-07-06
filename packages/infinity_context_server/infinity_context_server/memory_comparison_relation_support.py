@@ -377,28 +377,38 @@ def _has_age_profile_support(
     )
 
 
-_ALIAS_GO_BY_SURFACE_PATTERN = (
-    r"\b(?:go|goes|went)\s+by\s+"
-    r"(?:[A-Z][a-zA-Z0-9_-]+|[\"'][^\"']+[\"'])\b"
-)
+_ALIAS_VALUE_PATTERN = r"(?:[A-Z][a-zA-Z0-9_-]+|[\"'][^\"']+[\"'])"
+_ALIAS_GO_BY_SURFACE_PATTERN = rf"\b(?:go|goes|went)\s+by\s+{_ALIAS_VALUE_PATTERN}\b"
 _ALIAS_GO_BY_SURFACE_RE = re.compile(_ALIAS_GO_BY_SURFACE_PATTERN)
 
 _ALIAS_PROFILE_SURFACE_RE = re.compile(
     r"\b(?:nickname|alias)\s+(?:is|was|for)\s+"
-    r"(?:[A-Z][a-zA-Z0-9_-]+|[\"'][^\"']+[\"'])\b"
+    rf"{_ALIAS_VALUE_PATTERN}\b"
     r"|\b(?:middle|legal|full)\s+name\s+(?:is|was|:)\s+"
-    r"(?:[A-Z][a-zA-Z0-9_-]+|[\"'][^\"']+[\"'])\b"
+    rf"{_ALIAS_VALUE_PATTERN}\b"
     r"|\b(?:my|his|her|their|our)\s+(?:middle|legal|full)\s+name\s+"
-    r"(?:is|was|:)\s+(?:[A-Z][a-zA-Z0-9_-]+|[\"'][^\"']+[\"'])\b"
+    rf"(?:is|was|:)\s+{_ALIAS_VALUE_PATTERN}\b"
+    r"|\b(?:I|i|he|she|they|we|[A-Z][a-zA-Z0-9_-]+"
+    r"(?:\s+[A-Z][a-zA-Z0-9_-]+){0,2})\s+"
+    r"(?:am|is|are|was|were)\s+"
+    rf"(?:called|known\s+as|referred\s+to\s+as|nicknamed)\s+{_ALIAS_VALUE_PATTERN}\b"
+    r"|\b(?:refer|refers|referred)\s+to\s+"
+    r"(?:me|him|her|them|us|you|[A-Z][a-zA-Z0-9_-]+"
+    r"(?:\s+[A-Z][a-zA-Z0-9_-]+){0,2})\s+"
+    rf"as\s+{_ALIAS_VALUE_PATTERN}\b"
     r"|\b(?:call|calls|called)\s+"
     r"(?:me|him|her|them|us|you|[A-Z][a-zA-Z0-9_-]+)\s+"
-    r"(?:[A-Z][a-zA-Z0-9_-]+|[\"'][^\"']+[\"'])\b"
+    rf"{_ALIAS_VALUE_PATTERN}\b"
     rf"|{_ALIAS_GO_BY_SURFACE_PATTERN}",
 )
 
 
 def has_alias_go_by_surface(memory_text: str) -> bool:
     return bool(_ALIAS_GO_BY_SURFACE_RE.search(memory_text))
+
+
+def has_alias_profile_surface(memory_text: str) -> bool:
+    return bool(_ALIAS_PROFILE_SURFACE_RE.search(memory_text))
 
 
 def _has_alias_profile_support(
@@ -410,8 +420,8 @@ def _has_alias_profile_support(
     naming_surface = {"call", "called", "calls", "name", "named"} & memory_terms
     return bool(
         alias_surface
-        or (naming_surface and _ALIAS_PROFILE_SURFACE_RE.search(memory_text))
-        or _ALIAS_PROFILE_SURFACE_RE.search(memory_text)
+        or (naming_surface and has_alias_profile_surface(memory_text))
+        or has_alias_profile_surface(memory_text)
     )
 
 

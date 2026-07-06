@@ -2427,9 +2427,12 @@ _RELATION_FACET_CONFIG: dict[str, dict[str, object]] = {
                 "call",
                 "called",
                 "calls",
+                "known",
                 "name",
                 "named",
                 "nickname",
+                "nicknamed",
+                "referred",
             }
         ),
         "markers": frozenset(),
