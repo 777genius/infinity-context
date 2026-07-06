@@ -2239,7 +2239,10 @@ def test_compact_fast_gate_summary_surfaces_computed_gap_diagnostics() -> None:
                     ],
                     "source_locality_reason_codes": ["broad_source_refs"],
                     "query_roles": ["relation_compact"],
-                    "source_refs": ["D1:1"],
+                    "source_refs": [
+                        "source_session_turn_refs:session_1:D1:1",
+                        "D1:1",
+                    ],
                     "text": "raw selected evidence should stay out of compact summary",
                 }
             ],
@@ -2309,7 +2312,7 @@ def test_compact_fast_gate_summary_surfaces_computed_gap_diagnostics() -> None:
             "role": "primary",
             "source_locality_score": 0.1,
             "source_locality_reason_count": 1,
-            "source_ref_count": 1,
+            "source_ref_count": 2,
             "answerability_reason_codes": ["missing_emotion_response_evidence"],
             "query_roles": ["relation_compact"],
             "reasons": [
@@ -2317,7 +2320,7 @@ def test_compact_fast_gate_summary_surfaces_computed_gap_diagnostics() -> None:
                 "selected_weak_source_locality",
             ],
             "source_locality_reason_codes": ["broad_source_refs"],
-            "source_refs": ["D1:1"],
+            "source_refs": ["source_session_turn_refs:session_1:D1:1"],
         }
     ]
     assert "text" not in weakness_samples["samples"][0]
@@ -2420,7 +2423,7 @@ def test_compact_fast_gate_summary_surfaces_computed_gap_diagnostics() -> None:
             "source_locality_score": 0.1,
             "source_type": "unknown",
             "query_roles": ["relation_compact"],
-            "source_identity_refs": ["D1:1"],
+            "source_identity_refs": ["source_session_turn_refs:session_1:D1:1"],
         }
     ]
     assert rerank_samples["selection_conflict_samples"] == [
