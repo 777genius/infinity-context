@@ -12,6 +12,7 @@ _TURN_REF_PARTS_RE = re.compile(
     r"^D(?P<dialogue>\d+)[:-](?P<turn>\d+)$",
     re.IGNORECASE,
 )
+_DIALOGUE_REF_PARTS_RE = re.compile(r"^D(?P<dialogue>\d+)$", re.IGNORECASE)
 _SOURCE_SESSION_TURN_RE = re.compile(
     r"(?:^|[:_-])session[-_](?P<session>\d+)[:_-](?P<turn_ref>D\d+[:-]\d+)"
     r"(?:$|[:_-](?:turn|chunk|fact)(?:[-_][^:]*)?$)",
@@ -134,48 +135,46 @@ def safe_turn_ref(value: object) -> str | None:
 
 def safe_source_refs_for_output(source_refs: object) -> tuple[str, ...]:
     source_ref_values = _source_ref_values(source_refs)
-    refs: list[str] = []
-    source_identity_refs: list[str] = list(
-        _split_source_identity_refs(source_ref_values)
+    identity_source_ref_values = _identity_source_ref_values_for_output(
+        source_ref_values
     )
-    refs.extend(source_identity_refs)
+    aggregate_identity_refs = source_identity_refs_from_source_refs(
+        identity_source_ref_values
+    )
+    source_identity_refs = tuple(
+        dict.fromkeys(
+            (
+                *(
+                    ref
+                    for raw_ref in source_ref_values
+                    if str(raw_ref or "").strip().lower().startswith("source_identity:")
+                    for ref in source_identity_refs_from_dedupe_key(raw_ref)
+                ),
+                *(
+                    ref
+                    for raw_ref in source_ref_values
+                    if not safe_turn_ref(raw_ref)
+                    if _source_ref_value_should_seed_output_identity(raw_ref)
+                    for ref in _ordered_identity_refs_from_single_source_ref(
+                        raw_ref,
+                        aggregate_identity_refs,
+                    )
+                ),
+                *aggregate_identity_refs,
+            )
+        )
+    )
+    refs: list[str] = []
+    for ref in source_identity_refs:
+        if ref not in refs:
+            refs.append(ref)
     for raw_ref in source_ref_values:
         for ref in _safe_source_refs_for_output_value(raw_ref):
             if _safe_output_ref_is_covered_by_identity(ref, source_identity_refs):
                 continue
             if ref and ref not in refs:
                 refs.append(ref)
-                if safe_source_identity_ref(ref):
-                    source_identity_refs.append(ref)
     return tuple(refs)
-
-
-def _split_source_identity_refs(source_refs: object) -> tuple[str, ...]:
-    source_ref_values = tuple(
-        str(ref or "").strip()
-        for ref in _source_ref_values(source_refs)
-        if str(ref or "").strip()
-    )
-    session_refs = tuple(
-        ref for ref in source_ref_values if _normalized_session_ref(ref)
-    )
-    turn_refs = tuple(
-        turn_ref
-        for ref in source_ref_values
-        for turn_ref in (
-            safe_turn_ref(ref) or _source_turn_ref_from_identity_ref(ref),
-        )
-        if turn_ref
-    )
-    session_turn_refs = _session_turn_refs_from_split_refs(session_refs, turn_refs)
-    return _session_identity_refs(session_turn_refs) if session_turn_refs else ()
-
-
-def _source_turn_ref_from_identity_ref(value: object) -> str:
-    identity_ref = safe_source_identity_ref(value)
-    if identity_ref is None or not identity_ref.startswith("source_turn_refs:"):
-        return ""
-    return identity_ref.removeprefix("source_turn_refs:")
 
 
 def safe_source_label_for_output(value: object) -> str | None:
@@ -256,8 +255,11 @@ def _safe_source_refs_for_output_value(value: object) -> tuple[str, ...]:
         if generic_ref:
             return (generic_ref,)
         return identity_refs
-    if _TURN_REF_RE.search(text):
+    if _TURN_REF_RE.fullmatch(text):
         return ()
+    if _TURN_REF_RE.search(text):
+        generic_ref = _safe_generic_source_ref(text)
+        return (generic_ref,) if generic_ref else ()
     generic_ref = _safe_generic_source_ref(text)
     if generic_ref:
         return (generic_ref,)
@@ -380,6 +382,12 @@ def source_identity_refs_from_source_refs(
         for ref in _source_ref_values(source_refs)
         if str(ref).strip()
     )
+    wrapped_identity_refs = tuple(
+        ref
+        for raw_ref in refs
+        if raw_ref.lower().startswith(("refs:", "source_identity:", "source_refs:"))
+        for ref in source_identity_refs_from_dedupe_key(raw_ref)
+    )
     session_turn_refs = _source_session_turn_refs(refs)
     turn_refs = _source_turn_refs(
         refs,
@@ -393,10 +401,17 @@ def source_identity_refs_from_source_refs(
         )
         if len(session_turn_refs) + len(extra_turn_refs) <= 3:
             identity_refs.extend(f"source_turn_refs:{ref}" for ref in extra_turn_refs)
-        return tuple(dict.fromkeys(identity_refs))
+        return tuple(dict.fromkeys((*wrapped_identity_refs, *identity_refs)))
     if not 0 < len(turn_refs) <= 3:
-        return ()
-    return tuple(f"source_turn_refs:{ref}" for ref in sorted(turn_refs))
+        return tuple(dict.fromkeys(wrapped_identity_refs))
+    return tuple(
+        dict.fromkeys(
+            (
+                *wrapped_identity_refs,
+                *(f"source_turn_refs:{ref}" for ref in sorted(turn_refs)),
+            )
+        )
+    )
 
 
 def source_identity_audit_gap_codes(
@@ -473,20 +488,18 @@ def _source_ref_values(value: object) -> tuple[object, ...]:
 
 def _source_ref_values_from_mapping(value: Mapping[object, object]) -> tuple[object, ...]:
     refs: list[object] = []
-    structured_session_ref = _structured_session_ref_from_mapping(value)
-    if structured_session_ref:
-        refs.append(structured_session_ref)
-    structured_turn_ref = _structured_turn_ref_from_mapping(value)
-    if structured_turn_ref:
-        refs.append(structured_turn_ref)
     for key in (
         "source_id",
         "source_external_id",
+        "source_identity",
+        "source_identity_ref",
         "source_ref",
-        "source_session_id",
-        "session_id",
         "session_key",
         "dia_id",
+        "locomo_evidence_ref",
+        "evidence_id",
+        "evidence_ref",
+        "source_evidence_ref",
         "turn_ref",
         "turn_id",
         "source_turn_ref",
@@ -494,7 +507,21 @@ def _source_ref_values_from_mapping(value: Mapping[object, object]) -> tuple[obj
         raw_ref = value.get(key)
         if isinstance(raw_ref, str) and raw_ref.strip():
             refs.append(raw_ref.strip())
-    for key in ("source_refs", "source_ref_payloads"):
+    structured_turn_ref = _structured_turn_ref_from_mapping(value)
+    if structured_turn_ref:
+        refs.append(structured_turn_ref)
+    for key in (
+        "source_refs",
+        "source_identity_refs",
+        "source_identity_items",
+        "source_ref_payloads",
+        "evidence",
+        "evidence_refs",
+        "locomo_evidence_refs",
+        "source_evidence_refs",
+        "supporting_evidence",
+        "supporting_facts",
+    ):
         refs.extend(_source_ref_values(value.get(key)))
     nested = value.get("metadata")
     if isinstance(nested, Mapping):
@@ -505,17 +532,14 @@ def _source_ref_values_from_mapping(value: Mapping[object, object]) -> tuple[obj
     return tuple(dict.fromkeys(refs))
 
 
-def _structured_session_ref_from_mapping(value: Mapping[object, object]) -> str:
-    for key in ("source_session_id", "session_id", "session_key"):
-        session = _dialogue_number_from_value(value.get(key))
-        if session:
-            return f"session_{session}"
-    return ""
-
-
 def _structured_turn_ref_from_mapping(value: Mapping[object, object]) -> str:
     turn_ref = _safe_turn_ref_from_mapping_value(
         value.get("dia_id")
+        or value.get("locomo_evidence_ref")
+        or value.get("source_dia_id")
+        or value.get("evidence_id")
+        or value.get("evidence_ref")
+        or value.get("source_evidence_ref")
         or value.get("source_turn_ref")
         or value.get("turn_ref")
         or value.get("source_turn_id")
@@ -526,6 +550,9 @@ def _structured_turn_ref_from_mapping(value: Mapping[object, object]) -> str:
     dialogue = _dialogue_number_from_mapping(value)
     turn = _positive_int_string(
         value.get("source_turn_id")
+        or value.get("source_turn")
+        or value.get("source_turn_index")
+        or value.get("turn")
         or value.get("turn_id")
         or value.get("turn_index")
     )
@@ -543,11 +570,13 @@ def _safe_turn_ref_from_mapping_value(value: object) -> str:
 def _dialogue_number_from_mapping(value: Mapping[object, object]) -> str:
     for key in (
         "source_dialogue_id",
+        "source_dialogue",
+        "source_dialogue_index",
         "dialogue_id",
         "dialogue",
+        "dialogue_index",
         "dia_id",
         "source_dia_id",
-        "source_session_id",
         "session_key",
         "session_id",
     ):
@@ -561,9 +590,21 @@ def _dialogue_number_from_value(value: object) -> str:
     text = str(value or "").strip()
     if not text:
         return ""
-    if match := re.fullmatch(r"(?:session[-_]?|D)?(?P<number>\d+)", text, re.IGNORECASE):
+    if match := re.fullmatch(
+        r"(?:(?:session|dialogue)[-_]?|D)?(?P<number>\d+)",
+        text,
+        re.IGNORECASE,
+    ):
         return match.group("number")
     return ""
+
+
+def _safe_dialogue_ref(value: object) -> str:
+    ref = str(value or "").strip()
+    if not ref:
+        return ""
+    match = _DIALOGUE_REF_PARTS_RE.fullmatch(ref)
+    return f"D{match.group('dialogue')}" if match else ""
 
 
 def _positive_int_string(value: object) -> str:
@@ -601,28 +642,83 @@ def _safe_output_ref_is_covered_by_identity(
         if identity_ref.startswith("source_turn_refs:")
     ):
         return True
-    dialogue_number = _dialogue_number_from_ref(ref)
-    if dialogue_number and any(
-        identity_ref.startswith(f"source_turn_refs:D{dialogue_number}:")
-        for identity_ref in source_identity_refs
+    session_ref = _normalized_session_ref(ref)
+    if session_ref and any(
+            identity_ref.startswith(f"source_session_turn_refs:{session_ref}:")
+            for identity_ref in source_identity_refs
     ):
         return True
-    session_ref = _normalized_session_ref(ref)
-    numeric_session = _positive_int_string(ref)
-    if numeric_session:
-        session_ref = f"session_{numeric_session}"
+    dialogue_ref = _safe_dialogue_ref(ref)
     return bool(
-        session_ref
+        dialogue_ref
         and any(
-            identity_ref.startswith(f"source_session_turn_refs:{session_ref}:")
+            f":{dialogue_ref}:" in identity_ref for identity_ref in source_identity_refs
+        )
+    )
+
+
+def _identity_source_ref_values_for_output(
+    source_ref_values: Sequence[object],
+) -> tuple[object, ...]:
+    if any(_source_session_refs(str(ref or "")) for ref in source_ref_values):
+        return tuple(source_ref_values)
+    return tuple(
+        ref
+        for ref in source_ref_values
+        if _source_ref_value_should_seed_output_identity(ref)
+    )
+
+
+def _source_ref_value_should_seed_output_identity(value: object) -> bool:
+    text = str(value or "").strip()
+    return bool(
+        text
+        and (
+            safe_source_identity_ref(text)
+            or _looks_like_source_identity_dedupe_key(text)
+            or _looks_like_raw_ref(text)
+            or _source_session_refs(text)
+            or _SOURCE_SESSION_TURN_RE.search(text)
+        )
+    )
+
+
+def _identity_ref_is_unqualified_turn_covered_by_session(
+    ref: str,
+    source_identity_refs: Sequence[str],
+) -> bool:
+    if not ref.startswith("source_turn_refs:"):
+        return False
+    turn_ref = safe_turn_ref(ref.removeprefix("source_turn_refs:"))
+    return bool(
+        turn_ref
+        and any(
+            identity_ref.startswith("source_session_turn_refs:")
+            and identity_ref.endswith(f":{turn_ref}")
             for identity_ref in source_identity_refs
         )
     )
 
 
-def _dialogue_number_from_ref(value: object) -> str:
-    match = re.fullmatch(r"D(?P<number>\d+)", str(value or "").strip(), re.IGNORECASE)
-    return match.group("number") if match is not None else ""
+def _ordered_identity_refs_from_single_source_ref(
+    raw_ref: object,
+    aggregate_identity_refs: Sequence[str],
+) -> tuple[str, ...]:
+    refs = source_identity_refs_from_source_refs(
+        (raw_ref,),
+        include_exact_turn_refs=True,
+    )
+    return tuple(
+        ref
+        for ref in refs
+        if not (
+            _identity_ref_is_unqualified_turn_covered_by_session(
+                ref,
+                aggregate_identity_refs,
+            )
+            and not _identity_ref_is_unqualified_turn_covered_by_session(ref, refs)
+        )
+    )
 
 
 def _safe_identity_refs(values: Iterable[object]) -> tuple[str, ...]:
@@ -656,7 +752,10 @@ def _identity_refs_from_source_ref_values(values: Iterable[object]) -> tuple[str
     for source_ref in source_refs:
         if not source_ref:
             continue
-        source_ref_turns = _safe_turn_refs(_TURN_REF_RE.findall(source_ref))
+        source_ref_turns = _source_turn_refs_from_source_ref(
+            source_ref,
+            include_exact_turn_refs=True,
+        )
         split_refs = tuple(
             session_turn_ref
             for session_turn_ref in split_session_turn_refs
@@ -749,10 +848,30 @@ def _source_turn_refs(
         dict.fromkeys(
             ref
             for source_ref in source_refs
-            if include_exact_turn_refs or _TURN_REF_RE.fullmatch(source_ref) is None
-            for ref in _safe_turn_refs(_TURN_REF_RE.findall(source_ref))
+            for ref in _source_turn_refs_from_source_ref(
+                source_ref,
+                include_exact_turn_refs=include_exact_turn_refs,
+            )
         )
     )
+
+
+def _source_turn_refs_from_source_ref(
+    source_ref: str,
+    *,
+    include_exact_turn_refs: bool,
+) -> tuple[str, ...]:
+    if turn_ref := safe_turn_ref(source_ref):
+        return (turn_ref,) if include_exact_turn_refs else ()
+    if safe_source_identity_ref(source_ref) or _looks_like_source_identity_dedupe_key(
+        source_ref
+    ):
+        return _safe_turn_refs(_TURN_REF_RE.findall(source_ref))
+    if _looks_like_raw_ref(source_ref) or _SOURCE_SESSION_TURN_RE.search(source_ref):
+        return _safe_turn_refs(_TURN_REF_RE.findall(source_ref))
+    if re.search(r"(?:^|[:_-])(?:turn|chunk|fact):D\d+[:-]\d+\b", source_ref, re.I):
+        return _safe_turn_refs(_TURN_REF_RE.findall(source_ref))
+    return ()
 
 
 def _source_session_turn_refs(source_refs: Sequence[str]) -> tuple[str, ...]:
@@ -761,13 +880,18 @@ def _source_session_turn_refs(source_refs: Sequence[str]) -> tuple[str, ...]:
     turn_refs: list[str] = []
     for source_ref in source_refs:
         session_refs.extend(_source_session_refs(source_ref))
-        turn_refs.extend(_safe_turn_refs(_TURN_REF_RE.findall(source_ref)))
         safe_ref = safe_source_identity_ref(source_ref)
         if safe_ref and safe_ref.startswith("source_session_turn_refs:"):
             refs.append(safe_ref.removeprefix("source_session_turn_refs:"))
             continue
         match = _SOURCE_SESSION_TURN_RE.search(source_ref)
         if match is None:
+            turn_refs.extend(
+                _source_turn_refs_from_source_ref(
+                    source_ref,
+                    include_exact_turn_refs=True,
+                )
+            )
             refs.extend(_session_turn_refs_from_text(source_ref))
             continue
         turn_ref = safe_turn_ref(match.group("turn_ref"))

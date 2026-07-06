@@ -138,6 +138,9 @@ from infinity_context_server.memory_comparison_rerank_text import (
 from infinity_context_server.memory_comparison_rerank_text import (
     visual_surface_terms as _visual_surface_terms,
 )
+from infinity_context_server.memory_comparison_source_identity import (
+    source_identity_refs_from_source_refs as _source_identity_refs_from_source_refs,
+)
 from infinity_context_server.public_benchmark_models import PublicBenchmarkCase
 
 _RELATION_QUERY_TERMS = {
@@ -3126,6 +3129,13 @@ def _memory_source_refs_for_grounding(memory: RetrievedMemory) -> tuple[SourceRe
             )
         )
     for raw_ref in _metadata_source_ref_payloads(memory.metadata):
+        for identity_ref in _source_identity_refs_from_source_refs((raw_ref,)):
+            refs.append(
+                SourceRef(
+                    source_type="benchmark",
+                    source_id=identity_ref,
+                )
+            )
         source_id = _mapping_text(raw_ref, "source_id", "source_external_id", "id")
         if not source_id:
             continue

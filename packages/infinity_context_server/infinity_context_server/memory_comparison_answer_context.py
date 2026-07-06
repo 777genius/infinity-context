@@ -2736,7 +2736,15 @@ def _source_identity_refs_from_memory(
 
 def _metadata_source_ref_values(metadata: Mapping[str, object]) -> tuple[str, ...]:
     refs: list[str] = []
-    for key in ("source_ref", "source_refs", "source_ref_payloads"):
+    for key in (
+        "source_identity",
+        "source_identity_ref",
+        "source_identity_refs",
+        "source_identity_items",
+        "source_ref",
+        "source_refs",
+        "source_ref_payloads",
+    ):
         refs.extend(_source_ref_values_from_payload(metadata.get(key)))
     nested = metadata.get("metadata")
     if isinstance(nested, Mapping):
@@ -2762,9 +2770,15 @@ def _source_ref_values_from_mapping(value: Mapping[str, object]) -> tuple[str, .
     for key in (
         "source_id",
         "source_external_id",
+        "source_identity",
+        "source_identity_ref",
         "source_ref",
         "session_key",
         "dia_id",
+        "locomo_evidence_ref",
+        "evidence_id",
+        "evidence_ref",
+        "source_evidence_ref",
         "turn_ref",
         "turn_id",
         "source_turn_ref",
@@ -2775,7 +2789,18 @@ def _source_ref_values_from_mapping(value: Mapping[str, object]) -> tuple[str, .
     structured_turn_ref = _structured_turn_ref_from_mapping(value)
     if structured_turn_ref:
         refs.append(structured_turn_ref)
-    for key in ("source_refs", "source_ref_payloads"):
+    for key in (
+        "source_refs",
+        "source_identity_refs",
+        "source_identity_items",
+        "source_ref_payloads",
+        "evidence",
+        "evidence_refs",
+        "locomo_evidence_refs",
+        "source_evidence_refs",
+        "supporting_evidence",
+        "supporting_facts",
+    ):
         refs.extend(_source_ref_values_from_payload(value.get(key)))
     nested = value.get("metadata")
     if isinstance(nested, Mapping):
@@ -2789,6 +2814,11 @@ def _source_ref_values_from_mapping(value: Mapping[str, object]) -> tuple[str, .
 def _structured_turn_ref_from_mapping(value: Mapping[str, object]) -> str:
     turn_ref = _safe_turn_ref_from_mapping_value(
         value.get("dia_id")
+        or value.get("locomo_evidence_ref")
+        or value.get("source_dia_id")
+        or value.get("evidence_id")
+        or value.get("evidence_ref")
+        or value.get("source_evidence_ref")
         or value.get("source_turn_ref")
         or value.get("turn_ref")
         or value.get("source_turn_id")
@@ -2799,6 +2829,9 @@ def _structured_turn_ref_from_mapping(value: Mapping[str, object]) -> str:
     dialogue = _dialogue_number_from_mapping(value)
     turn = _positive_int_string(
         value.get("source_turn_id")
+        or value.get("source_turn")
+        or value.get("source_turn_index")
+        or value.get("turn")
         or value.get("turn_id")
         or value.get("turn_index")
     )
@@ -2819,7 +2852,18 @@ def _safe_turn_ref_from_mapping_value(value: object) -> str:
 
 
 def _dialogue_number_from_mapping(value: Mapping[str, object]) -> str:
-    for key in ("source_dialogue_id", "dialogue_id", "dialogue", "session_key", "session_id"):
+    for key in (
+        "source_dialogue_id",
+        "source_dialogue",
+        "source_dialogue_index",
+        "dialogue_id",
+        "dialogue",
+        "dialogue_index",
+        "dia_id",
+        "source_dia_id",
+        "session_key",
+        "session_id",
+    ):
         dialogue = _dialogue_number_from_value(value.get(key))
         if dialogue:
             return dialogue
@@ -2830,7 +2874,11 @@ def _dialogue_number_from_value(value: object) -> str:
     text = str(value or "").strip()
     if not text:
         return ""
-    if match := re.fullmatch(r"(?:session[-_]?|D)?(?P<number>\d+)", text, re.IGNORECASE):
+    if match := re.fullmatch(
+        r"(?:(?:session|dialogue)[-_]?|D)?(?P<number>\d+)",
+        text,
+        re.IGNORECASE,
+    ):
         return match.group("number")
     return ""
 

@@ -75,6 +75,179 @@ def test_benchmark_rerank_does_not_boost_generic_source_ref_for_dialogue_support
     assert generic_signals["benchmark_source_grounding_ungrounded_penalty"] == -0.08
 
 
+def test_benchmark_rerank_uses_structured_turn_payload_for_source_grounding() -> None:
+    case = SimpleNamespace(
+        question="Which dialogue supports Riley confirming the studio visit?",
+        metadata={"category": 4},
+    )
+    ungrounded_answer = RetrievedMemory(
+        item_id="ungrounded-answer",
+        rank=1,
+        score=0.05,
+        text="Riley confirmed the studio visit.",
+    )
+    structured_source = RetrievedMemory(
+        item_id="structured-source",
+        rank=2,
+        score=0.0,
+        text="Riley confirmed the studio visit.",
+        metadata={
+            "source_ref_payloads": [
+                {
+                    "source_external_id": "locomo:conv-private:turn-secret",
+                    "source_dialogue_index": "D12",
+                    "source_turn_index": "6",
+                }
+            ]
+        },
+    )
+
+    reranked, _ = benchmark_rerank_memories(
+        case,
+        (ungrounded_answer, structured_source),
+    )
+
+    by_id = {memory.item_id: memory for memory in reranked}
+    structured_signals = by_id["structured-source"].metadata["diagnostics"][
+        "score_signals"
+    ]
+    ungrounded_signals = by_id["ungrounded-answer"].metadata["diagnostics"][
+        "score_signals"
+    ]
+    assert structured_signals["benchmark_source_grounding_support"] is True
+    assert structured_signals["benchmark_source_grounding_support_reason"] == (
+        "source_grounding_match"
+    )
+    assert ungrounded_signals["benchmark_source_grounding_support"] is False
+    assert ungrounded_signals["benchmark_source_grounding_support_reason"] == (
+        "source_grounding_answer_without_source"
+    )
+
+
+def test_benchmark_rerank_uses_locomo_evidence_ref_for_source_grounding() -> None:
+    case = SimpleNamespace(
+        question="Which dialogue supports Alex confirming the workshop date?",
+        metadata={"category": 4},
+    )
+    structured_source = RetrievedMemory(
+        item_id="locomo-evidence-ref-source",
+        rank=1,
+        score=0.0,
+        text="Alex confirmed the workshop date.",
+        metadata={
+            "source_ref_payloads": [
+                {
+                    "source_external_id": "locomo:conv-private:turn-secret",
+                    "session_key": "session_4",
+                    "locomo_evidence_ref": "D4:5",
+                }
+            ]
+        },
+    )
+
+    reranked, _ = benchmark_rerank_memories(case, (structured_source,))
+
+    signals = reranked[0].metadata["diagnostics"]["score_signals"]
+    assert signals["benchmark_source_grounding_support"] is True
+    assert signals["benchmark_source_grounding_support_reason"] == (
+        "source_grounding_match"
+    )
+
+
+def test_benchmark_rerank_uses_source_evidence_refs_for_source_grounding() -> None:
+    case = SimpleNamespace(
+        question="Which dialogue supports Alex confirming the workshop date?",
+        metadata={"category": 4},
+    )
+    structured_source = RetrievedMemory(
+        item_id="source-evidence-refs-source",
+        rank=1,
+        score=0.0,
+        text="Alex confirmed the workshop date.",
+        metadata={
+            "source_ref_payloads": [
+                {
+                    "source_external_id": "locomo:conv-private:turn-secret",
+                    "session_key": "session_4",
+                    "source_evidence_refs": ("locomo:conv-private:D4:5",),
+                }
+            ]
+        },
+    )
+
+    reranked, _ = benchmark_rerank_memories(case, (structured_source,))
+
+    signals = reranked[0].metadata["diagnostics"]["score_signals"]
+    assert signals["benchmark_source_grounding_support"] is True
+    assert signals["benchmark_source_grounding_support_reason"] == (
+        "source_grounding_match"
+    )
+
+
+def test_benchmark_rerank_uses_supporting_evidence_for_source_grounding() -> None:
+    case = SimpleNamespace(
+        question="Which dialogue supports Alex confirming the workshop date?",
+        metadata={"category": 4},
+    )
+    structured_source = RetrievedMemory(
+        item_id="supporting-evidence-source",
+        rank=1,
+        score=0.0,
+        text="Alex confirmed the workshop date.",
+        metadata={
+            "source_ref_payloads": [
+                {
+                    "source_external_id": "locomo:conv-private:turn-secret",
+                    "session_key": "session_4",
+                    "supporting_evidence": [
+                        {"source_evidence_ref": "locomo:conv-private:D4:5"}
+                    ],
+                }
+            ]
+        },
+    )
+
+    reranked, _ = benchmark_rerank_memories(case, (structured_source,))
+
+    signals = reranked[0].metadata["diagnostics"]["score_signals"]
+    assert signals["benchmark_source_grounding_support"] is True
+    assert signals["benchmark_source_grounding_support_reason"] == (
+        "source_grounding_match"
+    )
+
+
+def test_benchmark_rerank_uses_nested_evidence_for_source_grounding() -> None:
+    case = SimpleNamespace(
+        question="Which dialogue supports Alex confirming the workshop date?",
+        metadata={"category": 4},
+    )
+    structured_source = RetrievedMemory(
+        item_id="nested-evidence-source",
+        rank=1,
+        score=0.0,
+        text="Alex confirmed the workshop date.",
+        metadata={
+            "source_ref_payloads": [
+                {
+                    "source_external_id": "locomo:conv-private:turn-secret",
+                    "session_key": "session_4",
+                    "evidence": [
+                        {"source_evidence_ref": "locomo:conv-private:D4:5"}
+                    ],
+                }
+            ]
+        },
+    )
+
+    reranked, _ = benchmark_rerank_memories(case, (structured_source,))
+
+    signals = reranked[0].metadata["diagnostics"]["score_signals"]
+    assert signals["benchmark_source_grounding_support"] is True
+    assert signals["benchmark_source_grounding_support_reason"] == (
+        "source_grounding_match"
+    )
+
+
 def test_benchmark_rerank_penalizes_unrelated_source_quote() -> None:
     case = SimpleNamespace(
         question="Which source supports Alex's move to Denver?",

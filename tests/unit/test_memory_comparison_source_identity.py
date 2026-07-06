@@ -27,6 +27,81 @@ def test_safe_source_refs_normalizes_bare_private_locomo_turn_ref() -> None:
     )
 
 
+def test_safe_source_refs_preserves_wrapped_source_identity_order() -> None:
+    refs = safe_source_refs_for_output(
+        (
+            "source_identity:"
+            "source_session_turn_refs:session-2:D2-6|"
+            "source_turn_refs:D2-6",
+        )
+    )
+
+    assert refs == (
+        "source_session_turn_refs:session_2:D2:6",
+        "source_turn_refs:D2:6",
+    )
+
+
+def test_source_identity_refs_preserve_wrapped_source_identity_session() -> None:
+    refs = source_identity_refs_from_source_refs(
+        (
+            "source_identity:"
+            "source_session_turn_refs:session-2:D2-6|"
+            "source_turn_refs:D2-6",
+        )
+    )
+
+    assert refs == (
+        "source_session_turn_refs:session_2:D2:6",
+        "source_turn_refs:D2:6",
+    )
+
+
+def test_safe_source_refs_reads_structured_source_identity_refs() -> None:
+    refs = safe_source_refs_for_output(
+        (
+            {
+                "source_external_id": "locomo:conv-private:turn-secret",
+                "metadata": {
+                    "source_identity_refs": [
+                        "source_session_turn_refs:session-7:D7-2",
+                        "source_turn_refs:D7-2",
+                    ],
+                },
+            },
+        )
+    )
+
+    assert refs == (
+        "source_session_turn_refs:session_7:D7:2",
+        "source_turn_refs:D7:2",
+    )
+
+
+def test_safe_source_refs_reads_nested_source_identity_items() -> None:
+    refs = safe_source_refs_for_output(
+        (
+            {
+                "source_external_id": "locomo:conv-private:turn-secret",
+                "metadata": {
+                    "source_identity_items": [
+                        {
+                            "source_identity_refs": [
+                                "source_session_turn_refs:session-7:D7-2"
+                            ],
+                        }
+                    ],
+                },
+            },
+        )
+    )
+
+    assert refs == (
+        "source_session_turn_refs:session_7:D7:2",
+        "source_turn_refs:D7:2",
+    )
+
+
 def test_source_identity_refs_read_official_turn_metadata_mapping() -> None:
     refs = source_identity_refs_from_source_refs(
         (
@@ -41,6 +116,105 @@ def test_source_identity_refs_read_official_turn_metadata_mapping() -> None:
     assert refs == (
         "source_session_turn_refs:session_4:D4:3",
         "source_turn_refs:D4:3",
+    )
+
+
+def test_source_identity_refs_read_locomo_evidence_ref_alias() -> None:
+    refs = source_identity_refs_from_source_refs(
+        (
+            {
+                "source_external_id": "locomo:conv-private:turn-secret",
+                "session_key": "session_4",
+                "locomo_evidence_ref": "D4:3",
+            },
+        )
+    )
+
+    assert refs == (
+        "source_session_turn_refs:session_4:D4:3",
+        "source_turn_refs:D4:3",
+    )
+
+
+def test_source_identity_refs_read_evidence_ref_aliases() -> None:
+    refs = safe_source_refs_for_output(
+        (
+            {
+                "source_external_id": "locomo:conv-private:turn-secret",
+                "metadata": {
+                    "session_key": "session_4",
+                    "source_evidence_refs": ("locomo:conv-private:D4:5",),
+                },
+            },
+        )
+    )
+
+    assert refs == (
+        "source_session_turn_refs:session_4:D4:5",
+        "source_turn_refs:D4:5",
+    )
+
+
+def test_source_identity_refs_read_nested_supporting_evidence_aliases() -> None:
+    refs = safe_source_refs_for_output(
+        (
+            {
+                "source_external_id": "locomo:conv-private:turn-secret",
+                "metadata": {
+                    "session_key": "session_4",
+                    "supporting_evidence": [
+                        {"source_evidence_ref": "locomo:conv-private:D4:5"}
+                    ],
+                },
+            },
+        )
+    )
+
+    assert refs == (
+        "source_session_turn_refs:session_4:D4:5",
+        "source_turn_refs:D4:5",
+    )
+
+
+def test_source_identity_refs_read_nested_supporting_fact_aliases() -> None:
+    refs = safe_source_refs_for_output(
+        (
+            {
+                "source_external_id": "locomo:conv-private:turn-secret",
+                "metadata": {
+                    "session_key": "session_4",
+                    "supporting_facts": [
+                        {"source_evidence_ref": "locomo:conv-private:D4:5"}
+                    ],
+                },
+            },
+        )
+    )
+
+    assert refs == (
+        "source_session_turn_refs:session_4:D4:5",
+        "source_turn_refs:D4:5",
+    )
+
+
+def test_source_identity_refs_read_nested_evidence_aliases() -> None:
+    refs = safe_source_refs_for_output(
+        (
+            {
+                "source_external_id": "locomo:conv-private:turn-secret",
+                "metadata": {
+                    "session_key": "session_4",
+                    "evidence": [
+                        {"source_evidence_ref": "locomo:conv-private:D4:5"}
+                    ],
+                },
+            },
+        )
+    )
+
+    assert refs == (
+        "source_session_turn_refs:session_4:D4:5",
+        "source_turn_refs:D4:5",
     )
 
 
@@ -75,6 +249,38 @@ def test_safe_source_refs_canonicalizes_split_session_and_turn_refs() -> None:
     )
 
 
+def test_safe_source_refs_preserves_auth_ref_turn_order() -> None:
+    bearer_payload = "Bearer " + ("a" * 16)
+
+    refs = safe_source_refs_for_output(
+        (
+            f"authorization {bearer_payload} D2:3",
+            f"https://user-{('b' * 16)}@example.invalid:session_4:D4:5:turn",
+        )
+    )
+
+    assert refs == (
+        "source_turn_refs:D2:3",
+        "source_session_turn_refs:session_4:D4:5",
+        "source_turn_refs:D4:5",
+    )
+
+
+def test_safe_source_refs_preserves_safe_turn_like_labels() -> None:
+    refs = safe_source_refs_for_output(
+        ("chunk-D2-6", "document:D3-7", "safe-note-D4:8")
+    )
+
+    assert refs == ("chunk-D2-6", "document:D3-7", "safe-note-D4:8")
+
+
+def test_safe_source_refs_do_not_qualify_safe_hyphen_label_with_session() -> None:
+    refs = safe_source_refs_for_output(("session_4", "chunk-D4-3"))
+
+    assert refs == ("session_4", "chunk-D4-3")
+    assert source_identity_refs_from_source_refs(("session_4", "chunk-D4-3")) == ()
+
+
 def test_source_identity_refs_read_structured_dialogue_turn_fields() -> None:
     refs = source_identity_refs_from_source_refs(
         (
@@ -106,61 +312,7 @@ def test_source_identity_refs_qualify_numeric_turn_id_with_session_key() -> None
     )
 
 
-def test_source_identity_refs_qualify_numeric_turn_id_with_source_session_id() -> None:
-    refs = source_identity_refs_from_source_refs(
-        (
-            {
-                "source_external_id": "locomo:conv-private:turn-secret",
-                "source_session_id": "session_12",
-                "turn_id": "6",
-            },
-        )
-    )
-
-    assert refs == (
-        "source_session_turn_refs:session_12:D12:6",
-        "source_turn_refs:D12:6",
-    )
-
-
-def test_source_identity_refs_qualify_numeric_turn_id_with_numeric_source_session_id() -> None:
-    refs = source_identity_refs_from_source_refs(
-        (
-            {
-                "source_external_id": "locomo:conv-private:turn-secret",
-                "source_session_id": 12,
-                "turn_id": "6",
-            },
-        )
-    )
-
-    assert refs == (
-        "source_session_turn_refs:session_12:D12:6",
-        "source_turn_refs:D12:6",
-    )
-
-
-def test_safe_source_refs_qualify_numeric_turn_id_with_nested_source_session_id() -> None:
-    refs = safe_source_refs_for_output(
-        (
-            {
-                "source_id": "locomo:conv-private:turn-secret",
-                "metadata": {
-                    "source_session_id": "12",
-                    "turn_id": 6,
-                },
-            },
-        )
-    )
-
-    assert refs == (
-        "source_session_turn_refs:session_12:D12:6",
-        "source_turn_refs:D12:6",
-    )
-
-
-
-def test_source_identity_refs_qualify_split_dialogue_id_and_turn_id() -> None:
+def test_source_identity_refs_build_turn_ref_from_dialogue_and_turn_fields() -> None:
     refs = source_identity_refs_from_source_refs(
         (
             {
@@ -174,12 +326,55 @@ def test_source_identity_refs_qualify_split_dialogue_id_and_turn_id() -> None:
     assert refs == ("source_turn_refs:D12:6",)
 
 
-def test_safe_source_refs_qualify_split_dialogue_id_and_turn_id() -> None:
+def test_source_identity_refs_build_turn_ref_from_source_dia_and_turn_index() -> None:
+    refs = source_identity_refs_from_source_refs(
+        (
+            {
+                "source_external_id": "locomo:conv-private:turn-secret",
+                "source_dia_id": "D12",
+                "source_turn_index": "6",
+            },
+        )
+    )
+
+    assert refs == ("source_turn_refs:D12:6",)
+
+
+def test_source_identity_refs_build_turn_ref_from_dialogue_index_aliases() -> None:
+    refs = source_identity_refs_from_source_refs(
+        (
+            {
+                "source_external_id": "locomo:conv-private:turn-secret",
+                "source_dialogue_index": "D12",
+                "source_turn_index": "6",
+            },
+        )
+    )
+
+    assert refs == ("source_turn_refs:D12:6",)
+
+
+def test_source_identity_refs_build_turn_ref_from_session_dialogue_alias() -> None:
+    refs = source_identity_refs_from_source_refs(
+        (
+            {
+                "source_external_id": "locomo:conv-private:turn-secret",
+                "source_dialogue_id": "session_12",
+                "source_turn_index": "6",
+            },
+        )
+    )
+
+    assert refs == ("source_turn_refs:D12:6",)
+
+
+def test_safe_source_refs_suppress_split_dialogue_and_turn_fields() -> None:
     refs = safe_source_refs_for_output(
         (
             {
                 "source_id": "locomo:conv-private:turn-secret",
                 "metadata": {
+                    "session_key": "session_12",
                     "dia_id": "D12",
                     "turn_id": "6",
                 },
@@ -187,4 +382,7 @@ def test_safe_source_refs_qualify_split_dialogue_id_and_turn_id() -> None:
         )
     )
 
-    assert refs == ("source_turn_refs:D12:6",)
+    assert refs == (
+        "source_session_turn_refs:session_12:D12:6",
+        "source_turn_refs:D12:6",
+    )

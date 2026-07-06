@@ -84,6 +84,35 @@ def test_evidence_bundle_uses_metadata_evidence_refs_alias_for_coverage() -> Non
     assert bundle["items"][0]["covered_evidence_terms"] == ["D1:1", "D2:3"]
 
 
+def test_retrieval_quality_does_not_count_safe_turn_like_label_as_evidence_ref() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:safe-label-not-evidence",
+        question="What did Alex confirm?",
+        expected_terms=("workshop date",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={"category": 4, "evidence_terms": ("D2:6",)},
+    )
+
+    quality = retrieval_quality(
+        case,
+        (
+            RetrievedMemory(
+                text="Alex confirmed the workshop date.",
+                rank=1,
+                item_id="safe-label-memory",
+                source_refs=("chunk-D2-6",),
+            ),
+        ),
+    )
+
+    assert quality["covered_expected_term_count"] == 1
+    assert quality["covered_evidence_terms"] == []
+    assert quality["missing_evidence_terms"] == ["D2:6"]
+    assert quality["evidence_term_recall"] == 0.0
+
+
 def test_evidence_diagnostics_use_safe_refs_for_raw_locomo_and_provider_terms() -> None:
     raw_locomo_ref = "locomo:conv-private:session_1:D1:2:turn-secret"
     raw_provider_ref = "provider-auth-private-marker"
@@ -147,6 +176,214 @@ def test_evidence_diagnostics_use_safe_refs_for_raw_locomo_and_provider_terms() 
     assert "locomo:conv-private" not in serialized
     assert "turn-secret" not in serialized
     assert raw_provider_ref not in serialized
+
+
+def test_evidence_bundle_uses_locomo_evidence_ref_metadata_for_coverage() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:metadata-source-ref",
+        question="What did Alex confirm?",
+        expected_terms=("workshop date",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={"category": 4, "evidence_terms": ("D4:5",)},
+    )
+    memory = RetrievedMemory(
+        text="Alex confirmed the workshop date.",
+        rank=1,
+        item_id="metadata-source-ref",
+        metadata={
+            "source_ref_payloads": [
+                {
+                    "source_external_id": "locomo:conv-private:turn-secret",
+                    "session_key": "session_4",
+                    "locomo_evidence_ref": "D4:5",
+                }
+            ],
+            "diagnostics": {
+                "benchmark_candidate_features": {
+                    "answerability_score": 0.9,
+                    "source_locality_score": 1.0,
+                    "direct_speaker_turn": True,
+                    "entity_hits": ["alex"],
+                    "relation_hits": ["workshop date"],
+                    "source_type": "raw_turn",
+                }
+            },
+        },
+    )
+
+    quality = retrieval_quality(case, (memory,))
+    bundle = evidence_bundle(case, (memory,))
+
+    assert quality["covered_evidence_terms"] == ["D4:5"]
+    assert quality["evidence_term_recall"] == 1.0
+    assert bundle["covered_evidence_terms"] == ["D4:5"]
+    assert bundle["items"][0]["covered_evidence_terms"] == ["D4:5"]
+    assert bundle["items"][0]["source_refs"] == [
+        "source_session_turn_refs:session_4:D4:5",
+        "source_turn_refs:D4:5",
+    ]
+    serialized = json.dumps((quality, bundle))
+    assert "locomo:conv-private" not in serialized
+    assert "turn-secret" not in serialized
+
+
+def test_evidence_bundle_uses_source_evidence_refs_metadata_for_coverage() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:metadata-source-evidence-refs",
+        question="What did Alex confirm?",
+        expected_terms=("workshop date",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={"category": 4, "evidence_terms": ("D4:5",)},
+    )
+    memory = RetrievedMemory(
+        text="Alex confirmed the workshop date.",
+        rank=1,
+        item_id="metadata-source-evidence-refs",
+        metadata={
+            "source_ref_payloads": [
+                {
+                    "source_external_id": "locomo:conv-private:turn-secret",
+                    "session_key": "session_4",
+                    "source_evidence_refs": ("locomo:conv-private:D4:5",),
+                }
+            ],
+            "diagnostics": {
+                "benchmark_candidate_features": {
+                    "answerability_score": 0.9,
+                    "source_locality_score": 1.0,
+                    "direct_speaker_turn": True,
+                    "entity_hits": ["alex"],
+                    "relation_hits": ["workshop date"],
+                    "source_type": "raw_turn",
+                }
+            },
+        },
+    )
+
+    quality = retrieval_quality(case, (memory,))
+    bundle = evidence_bundle(case, (memory,))
+
+    assert quality["covered_evidence_terms"] == ["D4:5"]
+    assert quality["evidence_term_recall"] == 1.0
+    assert bundle["covered_evidence_terms"] == ["D4:5"]
+    assert bundle["items"][0]["covered_evidence_terms"] == ["D4:5"]
+    assert bundle["items"][0]["source_refs"] == [
+        "source_session_turn_refs:session_4:D4:5",
+        "source_turn_refs:D4:5",
+    ]
+    serialized = json.dumps((quality, bundle))
+    assert "locomo:conv-private" not in serialized
+    assert "turn-secret" not in serialized
+
+
+def test_evidence_bundle_uses_supporting_evidence_metadata_for_coverage() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:metadata-supporting-evidence",
+        question="What did Alex confirm?",
+        expected_terms=("workshop date",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={"category": 4, "evidence_terms": ("D4:5",)},
+    )
+    memory = RetrievedMemory(
+        text="Alex confirmed the workshop date.",
+        rank=1,
+        item_id="metadata-supporting-evidence",
+        metadata={
+            "source_ref_payloads": [
+                {
+                    "source_external_id": "locomo:conv-private:turn-secret",
+                    "session_key": "session_4",
+                    "supporting_evidence": [
+                        {"source_evidence_ref": "locomo:conv-private:D4:5"}
+                    ],
+                }
+            ],
+            "diagnostics": {
+                "benchmark_candidate_features": {
+                    "answerability_score": 0.9,
+                    "source_locality_score": 1.0,
+                    "direct_speaker_turn": True,
+                    "entity_hits": ["alex"],
+                    "relation_hits": ["workshop date"],
+                    "source_type": "raw_turn",
+                }
+            },
+        },
+    )
+
+    quality = retrieval_quality(case, (memory,))
+    bundle = evidence_bundle(case, (memory,))
+
+    assert quality["covered_evidence_terms"] == ["D4:5"]
+    assert quality["evidence_term_recall"] == 1.0
+    assert bundle["covered_evidence_terms"] == ["D4:5"]
+    assert bundle["items"][0]["covered_evidence_terms"] == ["D4:5"]
+    assert bundle["items"][0]["source_refs"] == [
+        "source_session_turn_refs:session_4:D4:5",
+        "source_turn_refs:D4:5",
+    ]
+    serialized = json.dumps((quality, bundle))
+    assert "locomo:conv-private" not in serialized
+    assert "turn-secret" not in serialized
+
+
+def test_evidence_bundle_uses_nested_evidence_metadata_for_coverage() -> None:
+    case = PublicBenchmarkCase(
+        benchmark="locomo",
+        case_id="conv-1:qa:metadata-nested-evidence",
+        question="What did Alex confirm?",
+        expected_terms=("workshop date",),
+        memory_scope_external_ref="locomo-conv-1",
+        thread_external_ref="locomo-conv-1",
+        metadata={"category": 4, "evidence_terms": ("D4:5",)},
+    )
+    memory = RetrievedMemory(
+        text="Alex confirmed the workshop date.",
+        rank=1,
+        item_id="metadata-nested-evidence",
+        metadata={
+            "source_ref_payloads": [
+                {
+                    "source_external_id": "locomo:conv-private:turn-secret",
+                    "session_key": "session_4",
+                    "evidence": [
+                        {"source_evidence_ref": "locomo:conv-private:D4:5"}
+                    ],
+                }
+            ],
+            "diagnostics": {
+                "benchmark_candidate_features": {
+                    "answerability_score": 0.9,
+                    "source_locality_score": 1.0,
+                    "direct_speaker_turn": True,
+                    "entity_hits": ["alex"],
+                    "relation_hits": ["workshop date"],
+                    "source_type": "raw_turn",
+                }
+            },
+        },
+    )
+
+    quality = retrieval_quality(case, (memory,))
+    bundle = evidence_bundle(case, (memory,))
+
+    assert quality["covered_evidence_terms"] == ["D4:5"]
+    assert quality["evidence_term_recall"] == 1.0
+    assert bundle["covered_evidence_terms"] == ["D4:5"]
+    assert bundle["items"][0]["covered_evidence_terms"] == ["D4:5"]
+    assert bundle["items"][0]["source_refs"] == [
+        "source_session_turn_refs:session_4:D4:5",
+        "source_turn_refs:D4:5",
+    ]
+    serialized = json.dumps((quality, bundle))
+    assert "locomo:conv-private" not in serialized
+    assert "turn-secret" not in serialized
 
 
 def test_evidence_bundle_filters_hyphenated_raw_provider_source_refs() -> None:

@@ -478,6 +478,166 @@ def test_answer_context_qualifies_official_turn_metadata_payload_refs() -> None:
     assert "turn-secret" not in serialized
 
 
+def test_answer_context_qualifies_locomo_evidence_ref_metadata_payload_refs() -> None:
+    context = answer_context_from_evidence_bundle(
+        (
+            RetrievedMemory(
+                text="D4:5 Alex confirmed the workshop date.",
+                rank=1,
+                item_id="locomo-evidence-ref-metadata",
+                metadata={
+                    "source_ref_payloads": [
+                        {
+                            "source_external_id": "locomo:conv-private:turn-secret",
+                            "session_key": "session_4",
+                            "locomo_evidence_ref": "D4:5",
+                        }
+                    ]
+                },
+            ),
+        ),
+        {},
+        cutoff=1,
+    )
+
+    diagnostics = context.to_diagnostics()
+
+    assert context.memories[0].source_refs == (
+        "source_session_turn_refs:session_4:D4:5",
+        "source_turn_refs:D4:5",
+    )
+    assert diagnostics["source_identity_refs"] == [
+        "source_session_turn_refs:session_4:D4:5",
+        "source_turn_refs:D4:5",
+    ]
+    serialized = json.dumps((context.memories[0].source_refs, diagnostics))
+    assert "locomo:conv-private" not in serialized
+    assert "turn-secret" not in serialized
+
+
+def test_answer_context_qualifies_source_evidence_ref_metadata_payload_refs() -> None:
+    context = answer_context_from_evidence_bundle(
+        (
+            RetrievedMemory(
+                text="D4:5 Alex confirmed the workshop date.",
+                rank=1,
+                item_id="source-evidence-ref-metadata",
+                metadata={
+                    "source_ref_payloads": [
+                        {
+                            "source_external_id": "locomo:conv-private:turn-secret",
+                            "session_key": "session_4",
+                            "source_evidence_refs": ("locomo:conv-private:D4:5",),
+                        }
+                    ]
+                },
+            ),
+        ),
+        {},
+        cutoff=1,
+    )
+
+    diagnostics = context.to_diagnostics()
+
+    assert context.memories[0].source_refs == (
+        "source_session_turn_refs:session_4:D4:5",
+        "source_turn_refs:D4:5",
+    )
+    assert diagnostics["source_identity_refs"] == [
+        "source_session_turn_refs:session_4:D4:5",
+        "source_turn_refs:D4:5",
+    ]
+    serialized = json.dumps((context.memories[0].source_refs, diagnostics))
+    assert "locomo:conv-private" not in serialized
+    assert "turn-secret" not in serialized
+
+
+def test_answer_context_qualifies_supporting_evidence_metadata_payload_refs() -> None:
+    context = answer_context_from_evidence_bundle(
+        (
+            RetrievedMemory(
+                text="D4:5 Alex confirmed the workshop date.",
+                rank=1,
+                item_id="supporting-evidence-ref-metadata",
+                metadata={
+                    "source_ref_payloads": [
+                        {
+                            "source_external_id": "locomo:conv-private:turn-secret",
+                            "session_key": "session_4",
+                            "supporting_evidence": [
+                                {
+                                    "source_evidence_ref": (
+                                        "locomo:conv-private:D4:5"
+                                    )
+                                }
+                            ],
+                        }
+                    ]
+                },
+            ),
+        ),
+        {},
+        cutoff=1,
+    )
+
+    diagnostics = context.to_diagnostics()
+
+    assert context.memories[0].source_refs == (
+        "source_session_turn_refs:session_4:D4:5",
+        "source_turn_refs:D4:5",
+    )
+    assert diagnostics["source_identity_refs"] == [
+        "source_session_turn_refs:session_4:D4:5",
+        "source_turn_refs:D4:5",
+    ]
+    serialized = json.dumps((context.memories[0].source_refs, diagnostics))
+    assert "locomo:conv-private" not in serialized
+    assert "turn-secret" not in serialized
+
+
+def test_answer_context_qualifies_nested_evidence_metadata_payload_refs() -> None:
+    context = answer_context_from_evidence_bundle(
+        (
+            RetrievedMemory(
+                text="D4:5 Alex confirmed the workshop date.",
+                rank=1,
+                item_id="nested-evidence-ref-metadata",
+                metadata={
+                    "source_ref_payloads": [
+                        {
+                            "source_external_id": "locomo:conv-private:turn-secret",
+                            "session_key": "session_4",
+                            "evidence": [
+                                {
+                                    "source_evidence_ref": (
+                                        "locomo:conv-private:D4:5"
+                                    )
+                                }
+                            ],
+                        }
+                    ]
+                },
+            ),
+        ),
+        {},
+        cutoff=1,
+    )
+
+    diagnostics = context.to_diagnostics()
+
+    assert context.memories[0].source_refs == (
+        "source_session_turn_refs:session_4:D4:5",
+        "source_turn_refs:D4:5",
+    )
+    assert diagnostics["source_identity_refs"] == [
+        "source_session_turn_refs:session_4:D4:5",
+        "source_turn_refs:D4:5",
+    ]
+    serialized = json.dumps((context.memories[0].source_refs, diagnostics))
+    assert "locomo:conv-private" not in serialized
+    assert "turn-secret" not in serialized
+
+
 def test_answer_context_qualifies_numeric_session_turn_metadata_payload_refs() -> None:
     context = answer_context_from_evidence_bundle(
         (
@@ -510,6 +670,106 @@ def test_answer_context_qualifies_numeric_session_turn_metadata_payload_refs() -
         "source_session_turn_refs:session_12:D12:6",
         "source_turn_refs:D12:6",
     ]
+
+
+def test_answer_context_qualifies_dialogue_index_metadata_payload_refs() -> None:
+    context = answer_context_from_evidence_bundle(
+        (
+            RetrievedMemory(
+                text="D12:6 Riley confirmed the studio visit.",
+                rank=1,
+                item_id="dialogue-index-turn-metadata",
+                metadata={
+                    "source_ref_payloads": [
+                        {
+                            "source_external_id": "locomo:conv-private:turn-secret",
+                            "source_dialogue_index": "D12",
+                            "source_turn_index": "6",
+                        }
+                    ]
+                },
+            ),
+        ),
+        {},
+        cutoff=1,
+    )
+
+    diagnostics = context.to_diagnostics()
+
+    assert context.memories[0].source_refs == ("source_turn_refs:D12:6",)
+    assert diagnostics["source_identity_refs"] == ["source_turn_refs:D12:6"]
+    serialized = json.dumps((context.memories[0].source_refs, diagnostics))
+    assert "locomo:conv-private" not in serialized
+    assert "turn-secret" not in serialized
+
+
+def test_answer_context_qualifies_dialogue_prefixed_metadata_payload_refs() -> None:
+    context = answer_context_from_evidence_bundle(
+        (
+            RetrievedMemory(
+                text="D12:6 Riley confirmed the studio visit.",
+                rank=1,
+                item_id="dialogue-prefixed-turn-metadata",
+                metadata={
+                    "source_ref_payloads": [
+                        {
+                            "source_external_id": "locomo:conv-private:turn-secret",
+                            "source_dialogue_id": "dialogue_12",
+                            "source_turn_index": "6",
+                        }
+                    ]
+                },
+            ),
+        ),
+        {},
+        cutoff=1,
+    )
+
+    diagnostics = context.to_diagnostics()
+
+    assert context.memories[0].source_refs == ("source_turn_refs:D12:6",)
+    assert diagnostics["source_identity_refs"] == ["source_turn_refs:D12:6"]
+    serialized = json.dumps((context.memories[0].source_refs, diagnostics))
+    assert "locomo:conv-private" not in serialized
+    assert "turn-secret" not in serialized
+
+
+def test_answer_context_reads_structured_source_identity_metadata_refs() -> None:
+    context = answer_context_from_evidence_bundle(
+        (
+            RetrievedMemory(
+                text="D7:2 Riley confirmed the studio visit.",
+                rank=1,
+                item_id="structured-source-identity-metadata",
+                metadata={
+                    "source_identity_items": [
+                        {
+                            "source_identity_refs": [
+                                "source_session_turn_refs:session-7:D7-2"
+                            ],
+                            "raw_payload": "locomo:conv-private:turn-secret",
+                        }
+                    ]
+                },
+            ),
+        ),
+        {},
+        cutoff=1,
+    )
+
+    diagnostics = context.to_diagnostics()
+
+    assert context.memories[0].source_refs == (
+        "source_session_turn_refs:session_7:D7:2",
+        "source_turn_refs:D7:2",
+    )
+    assert diagnostics["source_identity_refs"] == [
+        "source_session_turn_refs:session_7:D7:2",
+        "source_turn_refs:D7:2",
+    ]
+    serialized = json.dumps((context.memories[0].source_refs, diagnostics))
+    assert "locomo:conv-private" not in serialized
+    assert "turn-secret" not in serialized
 
 
 def test_answer_context_diagnostics_filters_raw_provider_item_ids() -> None:

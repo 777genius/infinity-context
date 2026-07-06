@@ -37,6 +37,9 @@ from infinity_context_server.memory_comparison_rerank_text import (
     normalized_terms as _normalized_terms,
 )
 from infinity_context_server.memory_comparison_source_identity import (
+    safe_source_refs_for_output as _safe_source_refs_for_output,
+)
+from infinity_context_server.memory_comparison_source_identity import (
     source_identity_audit_gap_codes as _source_identity_audit_gap_codes,
 )
 
@@ -45,6 +48,11 @@ _TURN_REF_PARTS_RE = re.compile(r"\bD(?P<dialogue>\d+)[:-](?P<turn>\d+)\b")
 _SOURCE_SESSION_TURN_RE = re.compile(
     r"(?:^|[:_-])session[-_](?P<session>\d+)[:_-](?P<turn_ref>D\d+[:-]\d+)"
     r"[:_-](?:turn|chunk|fact)(?:[-_][^:]*)?$",
+    re.IGNORECASE,
+)
+_SOURCE_SESSION_IDENTITY_REF_RE = re.compile(
+    r"(?:^|\|)(?:source_session_turn_refs:)?"
+    r"session[-_](?P<session>\d+):(?P<turn_ref>D\d+[:-]\d+)(?=$|\|)",
     re.IGNORECASE,
 )
 _SOURCE_SESSION_RE = re.compile(
@@ -437,7 +445,7 @@ def build_candidate_evidence_features(
     exact_count_evidence = has_exact_count_cardinality_evidence(content_text)
     list_items = _list_items(content_text)
     list_item_count = len(list_items)
-    source_refs = tuple(str(ref) for ref in memory.source_refs if str(ref).strip())
+    source_refs = _candidate_source_refs(memory)
     text_turn_refs = _safe_turn_refs(_TURN_REF_RE.findall(text))
     text_session_turn_refs = _text_session_turn_refs(text)
     source_turn_refs = _source_turn_refs(source_refs)
@@ -1704,6 +1712,24 @@ def _duplicate_key(memory: RetrievedMemory, source_refs: Sequence[str]) -> str:
     return f"text_sha1:{digest}"
 
 
+def _candidate_source_refs(memory: RetrievedMemory) -> tuple[str, ...]:
+    direct_values = tuple(
+        str(ref).strip() for ref in memory.source_refs if str(ref).strip()
+    )
+    ordered_direct_refs = tuple(
+        safe_ref
+        for raw_ref in direct_values
+        for safe_ref in _safe_source_refs_for_output((raw_ref,))
+    )
+    direct_refs = tuple(
+        dict.fromkeys(
+            (*ordered_direct_refs, *_safe_source_refs_for_output(direct_values))
+        )
+    )
+    metadata_refs = _safe_source_refs_for_output(memory.metadata)
+    return tuple(dict.fromkeys((*direct_refs, *metadata_refs)))
+
+
 def _source_ref_dedupe_key(
     source_refs: Sequence[str],
     *,
@@ -1737,7 +1763,7 @@ def _source_turn_refs(source_refs: Sequence[str]) -> tuple[str, ...]:
             ref
             for source_ref in source_refs
             for ref in (
-                *_safe_turn_refs(_TURN_REF_RE.findall(str(source_ref))),
+                *_source_turn_values(str(source_ref)),
                 *_source_session_turn_values(str(source_ref)),
             )
         )
@@ -1750,8 +1776,14 @@ def _source_session_turn_refs(source_refs: Sequence[str]) -> tuple[str, ...]:
     turn_refs: list[str] = []
     for source_ref in source_refs:
         source_ref_text = str(source_ref)
+        for identity_match in _SOURCE_SESSION_IDENTITY_REF_RE.finditer(
+            source_ref_text
+        ):
+            turn_ref = _normalized_turn_ref(identity_match.group("turn_ref"))
+            if turn_ref:
+                refs.append(f"session_{identity_match.group('session')}:{turn_ref}")
         session_refs.extend(_source_session_refs(source_ref_text))
-        turn_refs.extend(_safe_turn_refs(_TURN_REF_RE.findall(source_ref_text)))
+        turn_refs.extend(_source_turn_values(source_ref_text))
         match = _SOURCE_SESSION_TURN_RE.search(source_ref_text)
         if match is None:
             continue
@@ -1814,11 +1846,27 @@ def _text_session_turn_refs(text: str) -> tuple[str, ...]:
 
 
 def _source_session_turn_values(source_ref: str) -> tuple[str, ...]:
+    identity_refs = tuple(
+        turn_ref
+        for match in _SOURCE_SESSION_IDENTITY_REF_RE.finditer(source_ref)
+        for turn_ref in (_normalized_turn_ref(match.group("turn_ref")),)
+        if turn_ref
+    )
+    if identity_refs:
+        return tuple(dict.fromkeys(identity_refs))
     match = _SOURCE_SESSION_TURN_RE.search(source_ref)
     if match is None:
         return ()
     turn_ref = _normalized_turn_ref(match.group("turn_ref"))
     return (turn_ref,) if turn_ref else ()
+
+
+def _source_turn_values(source_ref: str) -> tuple[str, ...]:
+    if turn_ref := _normalized_turn_ref(source_ref):
+        return (turn_ref,)
+    if not source_ref.lower().startswith("source_turn_refs:"):
+        return ()
+    return _safe_turn_refs(_TURN_REF_RE.findall(source_ref))
 
 
 def _turn_refs_from_session_turn_refs(session_turn_refs: Sequence[str]) -> tuple[str, ...]:

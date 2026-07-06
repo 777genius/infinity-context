@@ -1265,6 +1265,40 @@ def test_candidate_features_report_source_text_identity_mismatch(
     assert features.answerability_score >= 0.8
 
 
+def test_candidate_features_do_not_promote_safe_turn_like_source_labels() -> None:
+    features = build_candidate_evidence_features(
+        RetrievedMemory(
+            item_id="safe-turn-like-label",
+            rank=1,
+            text="Caroline mentioned a support group.",
+            source_refs=("session_2", "chunk-D2-6", "document:D3-7"),
+            metadata={"item_type": "chunk"},
+        ),
+        memory_terms={"caroline", "support", "group"},
+        query_terms=("caroline", "support"),
+        relation_terms=("support",),
+        relation_variant_terms=("group",),
+        entities=("caroline",),
+        entity_hits=("caroline",),
+        speaker_hits=("caroline",),
+        high_signal_relation_terms={"support"},
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=False,
+    )
+
+    assert features.source_ref_count == 3
+    assert features.turn_ref_count == 0
+    assert features.source_ref_dedupe_key == ""
+    assert "localized_turn_refs" not in features.source_locality_reason_codes
+
+
 def test_candidate_features_use_source_ref_turns_for_locality_and_dedupe() -> None:
     memory = RetrievedMemory(
         item_id="adjacent-source-refs",
@@ -1363,6 +1397,205 @@ def test_candidate_features_qualify_split_session_and_turn_source_refs() -> None
     assert features.to_diagnostics()["source_ref_dedupe_key"] == (
         "source_session_turn_refs:session_4:D4:3"
     )
+
+
+def test_candidate_features_use_metadata_source_ref_payloads_for_identity() -> None:
+    memory = RetrievedMemory(
+        item_id="metadata-source-ref-payloads",
+        rank=1,
+        text="Caroline said the adoption agency felt inclusive.",
+        source_refs=(),
+        metadata={
+            "item_type": "chunk",
+            "source_ref_payloads": [
+                {
+                    "session_key": "session_12",
+                    "source_dialogue_index": "D12",
+                    "source_turn_index": "6",
+                }
+            ],
+        },
+    )
+
+    features = build_candidate_evidence_features(
+        memory,
+        memory_terms={"caroline", "adoption", "agency", "inclusive"},
+        query_terms=("caroline", "adoption", "agency"),
+        relation_terms=("adoption", "agency"),
+        relation_variant_terms=("inclusive",),
+        entities=("caroline",),
+        entity_hits=("caroline",),
+        speaker_hits=(),
+        high_signal_relation_terms={"inclusive"},
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=False,
+    )
+
+    assert features.source_ref_count == 2
+    assert features.source_turn_refs == ("D12:6",)
+    assert features.turn_ref_count == 1
+    assert features.source_ref_dedupe_key == (
+        "source_session_turn_refs:session_12:D12:6"
+    )
+    assert features.source_identity_audit_gap_codes == ()
+    assert features.to_diagnostics()["source_ref_dedupe_key"] == (
+        "source_session_turn_refs:session_12:D12:6"
+    )
+
+
+def test_candidate_features_use_source_evidence_refs_payloads_for_identity() -> None:
+    memory = RetrievedMemory(
+        item_id="metadata-source-evidence-refs",
+        rank=1,
+        text="Alex confirmed the workshop date.",
+        source_refs=(),
+        metadata={
+            "item_type": "chunk",
+            "source_ref_payloads": [
+                {
+                    "source_external_id": "locomo:conv-private:turn-secret",
+                    "session_key": "session_4",
+                    "source_evidence_refs": ("locomo:conv-private:D4:5",),
+                }
+            ],
+        },
+    )
+
+    features = build_candidate_evidence_features(
+        memory,
+        memory_terms={"alex", "workshop", "date"},
+        query_terms=("alex", "workshop", "date"),
+        relation_terms=("workshop", "date"),
+        relation_variant_terms=(),
+        entities=("alex",),
+        entity_hits=("alex",),
+        speaker_hits=(),
+        high_signal_relation_terms={"workshop", "date"},
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=False,
+    )
+
+    assert features.source_ref_count == 2
+    assert features.source_turn_refs == ("D4:5",)
+    assert features.turn_ref_count == 1
+    assert features.source_ref_dedupe_key == (
+        "source_session_turn_refs:session_4:D4:5"
+    )
+    assert features.source_identity_audit_gap_codes == ()
+
+
+def test_candidate_features_use_supporting_evidence_payloads_for_identity() -> None:
+    memory = RetrievedMemory(
+        item_id="metadata-supporting-evidence-refs",
+        rank=1,
+        text="Alex confirmed the workshop date.",
+        source_refs=(),
+        metadata={
+            "item_type": "chunk",
+            "source_ref_payloads": [
+                {
+                    "source_external_id": "locomo:conv-private:turn-secret",
+                    "session_key": "session_4",
+                    "supporting_evidence": [
+                        {"source_evidence_ref": "locomo:conv-private:D4:5"}
+                    ],
+                }
+            ],
+        },
+    )
+
+    features = build_candidate_evidence_features(
+        memory,
+        memory_terms={"alex", "workshop", "date"},
+        query_terms=("alex", "workshop", "date"),
+        relation_terms=("workshop", "date"),
+        relation_variant_terms=(),
+        entities=("alex",),
+        entity_hits=("alex",),
+        speaker_hits=(),
+        high_signal_relation_terms={"workshop", "date"},
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=False,
+    )
+
+    assert features.source_ref_count == 2
+    assert features.source_turn_refs == ("D4:5",)
+    assert features.turn_ref_count == 1
+    assert features.source_ref_dedupe_key == (
+        "source_session_turn_refs:session_4:D4:5"
+    )
+    assert features.source_identity_audit_gap_codes == ()
+
+
+def test_candidate_features_use_nested_evidence_payloads_for_identity() -> None:
+    memory = RetrievedMemory(
+        item_id="metadata-nested-evidence-refs",
+        rank=1,
+        text="Alex confirmed the workshop date.",
+        source_refs=(),
+        metadata={
+            "item_type": "chunk",
+            "source_ref_payloads": [
+                {
+                    "source_external_id": "locomo:conv-private:turn-secret",
+                    "session_key": "session_4",
+                    "evidence": [
+                        {"source_evidence_ref": "locomo:conv-private:D4:5"}
+                    ],
+                }
+            ],
+        },
+    )
+
+    features = build_candidate_evidence_features(
+        memory,
+        memory_terms={"alex", "workshop", "date"},
+        query_terms=("alex", "workshop", "date"),
+        relation_terms=("workshop", "date"),
+        relation_variant_terms=(),
+        entities=("alex",),
+        entity_hits=("alex",),
+        speaker_hits=(),
+        high_signal_relation_terms={"workshop", "date"},
+        is_temporal_query=False,
+        is_preference_query=False,
+        has_visual_terms=False,
+        has_multi_hop_markers=False,
+        has_temporal_surface=False,
+        has_sequence_surface=False,
+        has_preference_evidence=False,
+        has_visual_evidence=False,
+        has_focused_turn_surface=False,
+    )
+
+    assert features.source_ref_count == 2
+    assert features.source_turn_refs == ("D4:5",)
+    assert features.turn_ref_count == 1
+    assert features.source_ref_dedupe_key == (
+        "source_session_turn_refs:session_4:D4:5"
+    )
+    assert features.source_identity_audit_gap_codes == ()
 
 
 def test_candidate_features_do_not_treat_split_direct_refs_as_perfect_locality() -> None:
