@@ -69,6 +69,9 @@ class AnswerContext:
     fallback_reason: str | None = None
     selected_bundle_item_count: int = 0
     skipped_bundle_item_count: int = 0
+    skipped_bundle_item_reason_counts: Mapping[str, int] = field(
+        default_factory=dict
+    )
     skipped_duplicate_source_bundle_item_count: int = 0
     skipped_noisy_overlap_bundle_item_count: int = 0
     backfilled_retrieval_item_count: int = 0
@@ -143,6 +146,9 @@ class AnswerContext:
             **quality_score_stats,
             "selected_bundle_item_count": self.selected_bundle_item_count,
             "skipped_bundle_item_count": self.skipped_bundle_item_count,
+            "skipped_bundle_item_reason_counts": dict(
+                sorted(self.skipped_bundle_item_reason_counts.items())
+            ),
             "skipped_duplicate_source_bundle_item_count": (
                 self.skipped_duplicate_source_bundle_item_count
             ),
@@ -289,6 +295,7 @@ def answer_context_from_evidence_bundle(
         bounded_cutoff=bounded_cutoff,
     )
     skipped = 0
+    skipped_reason_counts: Counter[str] = Counter()
     skipped_duplicate_source = 0
     skipped_noisy_overlap = 0
     for item in bundle_items:
@@ -299,6 +306,7 @@ def answer_context_from_evidence_bundle(
         memory = _memory_for_bundle_item(item, memories)
         if memory is None:
             skipped += 1
+            skipped_reason_counts["missing_memory"] += 1
             skipped_required_roles.update(item_required_roles)
             continue
         retrieval_order = _positive_int(item.get("retrieval_order"))
@@ -306,6 +314,7 @@ def answer_context_from_evidence_bundle(
             retrieval_order = _retrieval_order_for_memory(memory, memories)
         if retrieval_order is None or retrieval_order > bounded_cutoff:
             skipped += 1
+            skipped_reason_counts["outside_cutoff"] += 1
             skipped_required_roles.update(item_required_roles)
             continue
         key = _memory_key(memory, retrieval_order=retrieval_order)
@@ -326,6 +335,7 @@ def answer_context_from_evidence_bundle(
             )
         ):
             skipped += 1
+            skipped_reason_counts["duplicate_source"] += 1
             skipped_duplicate_source += 1
             skipped_required_roles.update(item_required_roles)
             continue
@@ -341,6 +351,7 @@ def answer_context_from_evidence_bundle(
         )
         if noisy_source_overlap:
             skipped += 1
+            skipped_reason_counts["noisy_source_overlap"] += 1
             skipped_noisy_overlap += 1
             skipped_required_roles.update(item_required_roles)
             continue
@@ -367,6 +378,7 @@ def answer_context_from_evidence_bundle(
             source="retrieval_slice",
             fallback_reason="no_bundle_items_within_cutoff",
             skipped_bundle_item_count=skipped,
+            skipped_bundle_item_reason_counts=dict(skipped_reason_counts),
             skipped_duplicate_source_bundle_item_count=skipped_duplicate_source,
             skipped_noisy_overlap_bundle_item_count=skipped_noisy_overlap,
         )
@@ -453,6 +465,7 @@ def answer_context_from_evidence_bundle(
         source="evidence_bundle",
         selected_bundle_item_count=bundle_selected_count,
         skipped_bundle_item_count=skipped,
+        skipped_bundle_item_reason_counts=dict(skipped_reason_counts),
         skipped_duplicate_source_bundle_item_count=skipped_duplicate_source,
         skipped_noisy_overlap_bundle_item_count=skipped_noisy_overlap,
         backfilled_retrieval_item_count=backfilled_count,
@@ -777,6 +790,9 @@ def answer_context_metrics(
             )
             or 0
         ),
+        "primary_skipped_bundle_item_reason_counts": _int_mapping(
+            primary.get("skipped_bundle_item_reason_counts")
+        ),
         "primary_avg_skipped_duplicate_source_bundle_item_count": _metric_value(
             primary,
             "avg_skipped_duplicate_source_bundle_item_count",
@@ -1040,6 +1056,7 @@ def _answer_context_cutoff_metrics(
     compression_ratios: list[float] = []
     selected_bundle_counts: list[int] = []
     skipped_bundle_counts: list[int] = []
+    skipped_bundle_reason_counts: Counter[str] = Counter()
     skipped_duplicate_source_bundle_counts: list[int] = []
     skipped_noisy_overlap_bundle_counts: list[int] = []
     backfilled_retrieval_counts: list[int] = []
@@ -1131,6 +1148,9 @@ def _answer_context_cutoff_metrics(
         )
         skipped_bundle_counts.append(
             _positive_int(context.get("skipped_bundle_item_count")) or 0
+        )
+        skipped_bundle_reason_counts.update(
+            _int_mapping(context.get("skipped_bundle_item_reason_counts"))
         )
         skipped_duplicate_source_bundle_counts.append(
             _positive_int(
@@ -1413,6 +1433,9 @@ def _answer_context_cutoff_metrics(
         "avg_context_compression_ratio": _avg(compression_ratios),
         "avg_selected_bundle_item_count": _avg(selected_bundle_counts),
         "avg_skipped_bundle_item_count": _avg(skipped_bundle_counts),
+        "skipped_bundle_item_reason_counts": dict(
+            sorted(skipped_bundle_reason_counts.items())
+        ),
         "avg_skipped_duplicate_source_bundle_item_count": _avg(
             skipped_duplicate_source_bundle_counts
         ),
