@@ -138,6 +138,31 @@ def test_answer_context_support_gap_sample_metrics_are_json_safe() -> None:
     json.dumps(sample, allow_nan=False)
 
 
+def test_answer_context_support_gaps_derive_low_confidence_for_preserved_contexts() -> None:
+    items = (
+        _item(
+            case_id="preserved-low-confidence-context",
+            cutoff_results={
+                "10": {
+                    "answer_context": {
+                        "source": "evidence_bundle",
+                        "memory_count": 1,
+                        "source_ref_item_count": 1,
+                        "bundle_confidence_score": 0.42,
+                        "bundle_confidence_band": "low",
+                        "bundle_source_ref_support_item_count": 1,
+                    }
+                }
+            },
+        ),
+    )
+
+    summary = answer_context_support_gap_summary(items)
+
+    assert summary["gap_reason_counts"] == {"low_bundle_confidence": 1}
+    assert summary["samples"][0]["gap_reasons"] == ["low_bundle_confidence"]
+
+
 def test_fast_gate_metrics_rejects_contrast_role_label_without_surface() -> None:
     gate = fast_gate_metrics(
         (

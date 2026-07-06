@@ -1415,6 +1415,7 @@ def test_quality_diagnostics_reports_actionable_answer_context_support_gaps() ->
     assert summary["support_gap_context_rate"] == 0.6667
     assert summary["gap_reason_counts"] == {
         "low_answerability_backfill": 1,
+        "low_bundle_confidence": 1,
         "low_context_answerability": 1,
         "missing_context_source_refs": 1,
         "missing_required_roles": 1,
@@ -1442,6 +1443,7 @@ def test_quality_diagnostics_reports_actionable_answer_context_support_gaps() ->
             "gap_reasons": [
                 "missing_context_source_refs",
                 "missing_required_roles",
+                "low_bundle_confidence",
                 "weak_bundle_source_support",
                 "low_answerability_backfill",
                 "low_context_answerability",

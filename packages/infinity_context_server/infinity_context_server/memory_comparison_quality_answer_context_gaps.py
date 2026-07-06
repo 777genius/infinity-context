@@ -142,6 +142,11 @@ def _support_gap_reasons(context: Mapping[str, object]) -> tuple[str, ...]:
         and "missing_required_roles" not in flags
     ):
         flags.append("missing_required_roles")
+    if (
+        _has_low_bundle_confidence(context)
+        and "low_bundle_confidence" not in flags
+    ):
+        flags.append("low_bundle_confidence")
     if _has_weak_bundle_source_support(context):
         flags.append("weak_bundle_source_support")
     if _positive_int(context.get("backfilled_low_answerability_count")):
@@ -163,6 +168,14 @@ def _support_gap_reasons(context: Mapping[str, object]) -> tuple[str, ...]:
     if _positive_int(context.get("skipped_noisy_overlap_bundle_item_count")):
         flags.append("skipped_noisy_overlap_bundle_item")
     return tuple(dict.fromkeys(flags))
+
+
+def _has_low_bundle_confidence(context: Mapping[str, object]) -> bool:
+    confidence_band = str(context.get("bundle_confidence_band") or "").strip().lower()
+    return (
+        confidence_band == "low"
+        or 0 < _metric_scalar(context.get("bundle_confidence_score")) < 0.55
+    )
 
 
 def _has_weak_bundle_source_support(context: Mapping[str, object]) -> bool:

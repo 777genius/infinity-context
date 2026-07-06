@@ -120,6 +120,41 @@ def test_compact_fast_gate_summary_surfaces_bounded_actionable_gaps(
     assert all("evidence" not in gap for gap in summary["top_actionable_gaps"])
 
 
+def test_compact_fast_gate_summary_preserves_derived_low_confidence_context_gap() -> None:
+    summary = benchmark._compact_fast_gate_summary(
+        (
+            {
+                "case_id": "preserved-low-confidence-context",
+                "group": "multi-hop",
+                "scored": True,
+                "judgment": {"score": 1.0},
+                "retrieval_quality": {},
+                "evidence_bundle": {},
+                "retrieval": {"metadata": {}, "results": []},
+                "cutoff_results": {
+                    "10": {
+                        "answer_context": {
+                            "source": "evidence_bundle",
+                            "memory_count": 1,
+                            "source_ref_item_count": 1,
+                            "bundle_confidence_score": 0.42,
+                            "bundle_confidence_band": "low",
+                            "bundle_source_ref_support_item_count": 1,
+                        }
+                    }
+                },
+            },
+        )
+    )
+
+    assert summary["answer_context_support_gap_counts"]["gap_reason_counts"] == {
+        "low_bundle_confidence": 1
+    }
+    assert summary["answer_context_support_gap_samples"][0]["gap_reasons"] == [
+        "low_bundle_confidence"
+    ]
+
+
 def test_compact_fast_gate_summary_bounds_temporal_grounding_issue_fields(
     monkeypatch,
 ) -> None:
