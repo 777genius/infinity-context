@@ -195,6 +195,139 @@ def test_temporal_grounding_counts_relative_date_surfaces_as_grounded_ranges() -
     assert table["selected_temporal_grounding_issue_item_count"] == 0
 
 
+def test_temporal_grounding_counts_current_goal_recency_as_relative_range() -> None:
+    diagnostics = quality_diagnostics(
+        (
+            _item(
+                case_id="current-goal-diagnostic",
+                group="temporal",
+                retrieval=_retrieval_payload(
+                    evidence_need=("current_goal",),
+                    bundle_evidence_roles=("primary", "current_goal_support"),
+                    relation_categories=("current_goal",),
+                    policy_score=0.2,
+                    memory_text=(
+                        "D2:4 Caroline: My current goal is to stay local now."
+                    ),
+                    candidate_features={
+                        "query_roles": ["current_goal_support"],
+                        "relation_category_hits": ["current_goal"],
+                    },
+                ),
+                evidence_bundle={
+                    "items": [
+                        {
+                            "id": "current-goal",
+                            "role": "current_goal_support",
+                            "query_roles": ["current_goal_support"],
+                            "source_refs": ["D2:4"],
+                            "text": (
+                                "D2:4 Caroline: My current goal is to stay "
+                                "local now."
+                            ),
+                        }
+                    ]
+                },
+            ),
+        )
+    )
+
+    table = diagnostics["temporal_grounding_table"]
+
+    assert table["temporal_case_count"] == 1
+    assert table["retrieval_relative_date_grounded_candidate_count"] == 1
+    assert table["selected_relative_date_grounded_item_count"] == 1
+    assert table["selected_range_grounded_item_count"] == 1
+    assert table["selected_strong_temporal_grounding_item_count"] == 1
+    assert table["selected_temporal_grounding_issue_item_count"] == 0
+    assert table["selected_temporal_grounding_issue_reason_counts"] == {}
+
+
+def test_temporal_grounding_reports_bounded_relative_windows() -> None:
+    retrieval = _retrieval_payload(
+        evidence_need=("temporal_support",),
+        bundle_evidence_roles=("primary", "relative_temporal_support"),
+        relation_categories=("temporal",),
+        policy_score=0.2,
+        memory_text="D3:5 Alex will keep training for the next three weeks.",
+        candidate_features={
+            "query_roles": ["relative_temporal_support"],
+            "time_intent_kind": "relative_time",
+        },
+    )
+    retrieval["results"][0]["source_refs"] = ["D3:5"]
+
+    diagnostics = quality_diagnostics(
+        (
+            _item(
+                case_id="bounded-window-diagnostic",
+                group="temporal",
+                retrieval=retrieval,
+                evidence_bundle={
+                    "items": [
+                        {
+                            "id": "bounded-window",
+                            "role": "relative_temporal_support",
+                            "query_roles": ["relative_temporal_support"],
+                            "source_refs": ["D3:5"],
+                            "text": (
+                                "D3:5 Alex will keep training for the next "
+                                "three weeks."
+                            ),
+                        },
+                        {
+                            "id": "bounded-window-missing-source",
+                            "role": "relative_temporal_support",
+                            "query_roles": ["relative_temporal_support"],
+                            "text": (
+                                "Alex will keep training for the next three "
+                                "weeks."
+                            ),
+                        },
+                    ]
+                },
+            ),
+        )
+    )
+
+    table = diagnostics["temporal_grounding_table"]
+
+    assert table["retrieval_bounded_window_grounded_candidate_count"] == 1
+    assert table["retrieval_relative_date_grounded_candidate_count"] == 1
+    assert table["selected_bounded_window_grounded_item_count"] == 2
+    assert table["selected_relative_date_grounded_item_count"] == 2
+    assert table["selected_range_grounded_item_count"] == 2
+    assert table["selected_strong_temporal_grounding_item_count"] == 1
+    assert table["selected_temporal_grounding_issue_reason_counts"] == {
+        "missing_session_boundary": 1,
+        "missing_source_window": 1,
+        "weak_date_or_range_without_session_boundary": 1,
+    }
+    assert table["selected_temporal_grounding_issue_samples"] == [
+        {
+            "case_id": "bounded-window-diagnostic",
+            "group": "temporal",
+            "item_id": "bounded-window-missing-source",
+            "role": "relative_temporal_support",
+            "query_roles": ["relative_temporal_support"],
+            "source_refs": [],
+            "issue_reasons": [
+                "missing_source_window",
+                "missing_session_boundary",
+                "weak_date_or_range_without_session_boundary",
+            ],
+            "grounding_signals": {
+                "source_window": False,
+                "session_boundary": False,
+                "date_or_range": True,
+                "temporal_order": False,
+                "relative_date": True,
+                "bounded_window": True,
+            },
+        }
+    ]
+
+
 def test_temporal_grounding_counts_exact_turn_refs_as_source_windows() -> None:
     diagnostics = quality_diagnostics(
         (

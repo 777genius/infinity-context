@@ -352,6 +352,70 @@ def test_failure_diagnostics_reports_bounded_temporal_grounding_issue_summary() 
     assert "selected_temporal_grounding_issues" in reasons
 
 
+def test_failure_diagnostics_does_not_over_penalize_current_goal_recency() -> None:
+    evaluation = {
+        "case_id": "locomo:conv-1:qa:current-goal",
+        "group": "temporal",
+        "retrieval": {
+            "metadata": {
+                "query_decomposition": {
+                    "query_profile": {"evidence_need": ["current_goal"]}
+                }
+            },
+            "results": [
+                {
+                    "id": "current-goal",
+                    "source_refs": ["D2:4"],
+                    "memory": "D2:4 Caroline: My current goal is to stay local now.",
+                    "metadata": {
+                        "diagnostics": {
+                            "benchmark_candidate_features": {
+                                "query_roles": ["current_goal_support"],
+                                "relation_category_hits": ["current_goal"],
+                            }
+                        }
+                    },
+                }
+            ],
+        },
+        "retrieval_quality": {
+            "expected_term_recall": 1.0,
+            "evidence_term_recall": 1.0,
+        },
+        "evidence_bundle": {
+            "bundle_complete": True,
+            "items": [
+                {
+                    "id": "current-goal",
+                    "role": "current_goal_support",
+                    "query_roles": ["current_goal_support"],
+                    "source_refs": ["D2:4"],
+                    "text": "D2:4 Caroline: My current goal is to stay local now.",
+                }
+            ],
+        },
+        "generation": {},
+        "judgment": {},
+    }
+
+    diagnostics = failure_diagnostics(evaluation)
+    reasons = failure_diagnostic_reason_codes(
+        evaluation,
+        score=0.0,
+        retrieval_recall=1.0,
+        diagnostics=diagnostics,
+    )
+
+    temporal = diagnostics["temporal_grounding"]
+    assert temporal["temporal_case"] is True
+    assert temporal["selected_item_count"] == 1
+    assert temporal["strong_item_count"] == 1
+    assert temporal["issue_item_count"] == 0
+    assert temporal["issue_reason_counts"] == {}
+    assert temporal["issue_samples"] == []
+    assert "selected_temporal_grounding_issues" not in reasons
+
+
 def test_failure_diagnostics_counts_source_identity_refs_as_provenance() -> None:
     evaluation = {
         "retrieval": {

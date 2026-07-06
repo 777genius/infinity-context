@@ -2552,6 +2552,12 @@ def _compact_fast_gate_summary(
                 )
             )
             or 0,
+            "retrieval_bounded_window_grounded_candidate_count": _positive_int(
+                temporal_grounding.get(
+                    "retrieval_bounded_window_grounded_candidate_count"
+                )
+            )
+            or 0,
             "selected_item_count": _positive_int(
                 temporal_grounding.get("selected_item_count")
             )
@@ -2562,6 +2568,10 @@ def _compact_fast_gate_summary(
             or 0,
             "selected_relative_date_grounded_item_count": _positive_int(
                 temporal_grounding.get("selected_relative_date_grounded_item_count")
+            )
+            or 0,
+            "selected_bounded_window_grounded_item_count": _positive_int(
+                temporal_grounding.get("selected_bounded_window_grounded_item_count")
             )
             or 0,
             "selected_strong_temporal_grounding_item_count": _positive_int(
@@ -3026,6 +3036,7 @@ def _compact_temporal_grounding_issue_samples(
                 "session_boundary",
                 "date_or_range",
                 "relative_date",
+                "bounded_window",
                 "temporal_order",
             )
             if key in signals

@@ -1661,6 +1661,7 @@ def _compact_temporal_grounding_actionable_samples(
                 "session_boundary",
                 "date_or_range",
                 "relative_date",
+                "bounded_window",
                 "temporal_order",
             )
             if key in signals
