@@ -39,8 +39,9 @@ _MAX_SAFE_TURN_REF_LENGTH = 32
 _MAX_SAFE_GENERIC_SOURCE_REF_LENGTH = 128
 _MAX_SAFE_ITEM_ID_LENGTH = 128
 _MAX_SAFE_SOURCE_LABEL_LENGTH = 64
-_PRIVATE_SOURCE_LABELS = frozenset(
+_PRIVATE_PROVIDER_SOURCE_LABEL_PREFIXES = frozenset(
     {
+        "backend",
         "graphiti",
         "mem0",
         "openai",
@@ -48,6 +49,7 @@ _PRIVATE_SOURCE_LABELS = frozenset(
         "qdrant",
     }
 )
+_PRIVATE_PROVIDER_SOURCE_LABEL_SEPARATORS = (":", "-", "_", ".")
 _INSTRUCTION_LIKE_ITEM_ID_RE = re.compile(
     r"\b(?:ignore\s+previous\s+instructions|reveal\s+(?:the\s+)?"
     r"(?:system|developer)\s+prompt|system\s+prompt|developer\s+message)\b",
@@ -138,9 +140,7 @@ def safe_source_label_for_output(value: object) -> str | None:
     label = str(value or "").strip()
     if not label or len(label) > _MAX_SAFE_SOURCE_LABEL_LENGTH:
         return None
-    if _looks_like_raw_ref(label):
-        return None
-    if label.casefold() in _PRIVATE_SOURCE_LABELS:
+    if _looks_like_private_provider_source_label(label):
         return None
     return label
 
@@ -271,6 +271,20 @@ def _looks_like_raw_ref(value: str) -> bool:
             "refresh-token",
             "refresh_token",
         )
+    )
+
+
+def _looks_like_private_provider_source_label(value: str) -> bool:
+    if _looks_like_raw_ref(value):
+        return True
+    label = value.strip().casefold()
+    return any(
+        label == prefix
+        or any(
+            label.startswith(f"{prefix}{separator}")
+            for separator in _PRIVATE_PROVIDER_SOURCE_LABEL_SEPARATORS
+        )
+        for prefix in _PRIVATE_PROVIDER_SOURCE_LABEL_PREFIXES
     )
 
 

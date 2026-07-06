@@ -186,7 +186,11 @@ def test_safe_source_label_for_output_filters_private_provider_labels() -> None:
     assert safe_source_label_for_output("semantic_chunks") == "semantic_chunks"
     assert safe_source_label_for_output("provider-auth-private-marker") is None
     assert safe_source_label_for_output("openai") is None
+    assert safe_source_label_for_output("openai_responses") is None
     assert safe_source_label_for_output("qdrant") is None
+    assert safe_source_label_for_output("qdrant-index") is None
+    assert safe_source_label_for_output("backend.vector") is None
+    assert safe_source_label_for_output("graphiti") is None
 
 
 def test_safe_source_refs_for_output_preserves_safe_refs_with_hyphenated_raw_noise() -> None:
