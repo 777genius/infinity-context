@@ -6,13 +6,7 @@ from time import perf_counter
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
-from infinity_context_core.application import (
-    BuildMemoryInsightsQuery,
-    MemoryActivityItem,
-    MemoryConsolidationPlanItem,
-    MemoryInsightActionItem,
-    MemoryInsightsResult,
-)
+from infinity_context_core.application import BuildMemoryInsightsQuery
 from pydantic import BaseModel, ConfigDict, Field
 
 from infinity_context_server.api.auth import require_service_token
@@ -21,8 +15,15 @@ from infinity_context_server.api.policy import should_retrieve
 from infinity_context_server.api.public_payload import safe_public_metadata
 from infinity_context_server.api.v1.scope_resolution import resolve_existing_context_scope
 from infinity_context_server.composition import Container
+from infinity_context_server.features.context_building import public as context_building_server
 
 router = APIRouter(tags=["insights"], dependencies=[Depends(require_service_token)])
+
+_LEGACY_MEMORY_INSIGHTS_API_RESPONSES = (
+    context_building_server.LegacyMemoryInsightsApiResponseMapper(
+        safe_public_metadata=safe_public_metadata,
+    )
+)
 
 
 class InsightsRequest(BaseModel):
@@ -51,7 +52,7 @@ async def build_insights(
     started = perf_counter()
     request_id = container.ids.new_id("req")
     if not should_retrieve(container):
-        response = _empty_insights_response(
+        response = _LEGACY_MEMORY_INSIGHTS_API_RESPONSES.empty_insights_response(
             request_id=request_id,
             policy_mode=container.settings.policy_mode.value,
         )
@@ -74,7 +75,7 @@ async def build_insights(
         thread_external_ref=request.thread_external_ref,
     )
     if scope is None:
-        response = _empty_insights_response(
+        response = _LEGACY_MEMORY_INSIGHTS_API_RESPONSES.empty_insights_response(
             request_id=request_id,
             policy_mode=container.settings.policy_mode.value,
             scope_not_found=True,
@@ -100,10 +101,10 @@ async def build_insights(
             max_activity=request.max_activity,
         )
     )
-    response = {
-        "meta": {"request_id": request_id},
-        "data": insights_to_response(insights),
-    }
+    response = _LEGACY_MEMORY_INSIGHTS_API_RESPONSES.insights_response_from_result(
+        insights,
+        request_id=request_id,
+    )
     container.runtime_metrics.record_context(
         latency_ms=_elapsed_ms(started),
         diagnostics=insights.diagnostics,
@@ -112,104 +113,6 @@ async def build_insights(
         scope=insights.scope,
     )
     return response
-
-
-def insights_to_response(insights: MemoryInsightsResult) -> dict[str, Any]:
-    return {
-        "insights_id": insights.insights_id,
-        "generated_at": insights.generated_at.isoformat(),
-        "scope": insights.scope,
-        "health_score": insights.health_score,
-        "metrics": insights.metrics,
-        "taxonomy": insights.taxonomy,
-        "action_items": [_action_item_to_response(item) for item in insights.action_items],
-        "recent_activity": [_activity_item_to_response(item) for item in insights.recent_activity],
-        "consolidation_plan": [
-            _consolidation_plan_item_to_response(item) for item in insights.consolidation_plan
-        ],
-        "diagnostics": insights.diagnostics,
-    }
-
-
-def _action_item_to_response(item: MemoryInsightActionItem) -> dict[str, Any]:
-    return {
-        "id": item.id,
-        "severity": item.severity,
-        "action": item.action,
-        "target_type": item.target_type,
-        "target_id": item.target_id,
-        "memory_scope_id": item.memory_scope_id,
-        "reason": item.reason,
-        "preview": item.preview,
-        "metadata": safe_public_metadata(item.metadata),
-    }
-
-
-def _activity_item_to_response(item: MemoryActivityItem) -> dict[str, Any]:
-    return {
-        "id": item.id,
-        "occurred_at": item.occurred_at.isoformat(),
-        "event_type": item.event_type,
-        "entity_type": item.entity_type,
-        "entity_id": item.entity_id,
-        "memory_scope_id": item.memory_scope_id,
-        "thread_id": item.thread_id,
-        "status": item.status,
-        "preview": item.preview,
-        "metadata": safe_public_metadata(item.metadata),
-    }
-
-
-def _consolidation_plan_item_to_response(item: MemoryConsolidationPlanItem) -> dict[str, Any]:
-    return {
-        "id": item.id,
-        "plan_type": item.plan_type,
-        "memory_scope_id": item.memory_scope_id,
-        "confidence": item.confidence,
-        "canonical_candidate_id": item.canonical_candidate_id,
-        "candidate_fact_ids": list(item.candidate_fact_ids),
-        "recommended_steps": list(item.recommended_steps),
-        "reason": item.reason,
-        "preview": item.preview,
-        "metadata": safe_public_metadata(item.metadata),
-    }
-
-
-def _empty_insights_response(
-    *,
-    request_id: str,
-    policy_mode: str,
-    scope_not_found: bool = False,
-) -> dict[str, Any]:
-    diagnostics: dict[str, object] = {
-        "policy_mode": policy_mode,
-        "retrieval_disabled": True,
-        "evidence_only": True,
-        "read_only": True,
-    }
-    if scope_not_found:
-        diagnostics = {
-            "policy_mode": policy_mode,
-            "scope_not_found": True,
-            "retrieval_disabled": False,
-            "evidence_only": True,
-            "read_only": True,
-        }
-    return {
-        "meta": {"request_id": request_id},
-        "data": {
-            "insights_id": "ins_disabled" if not scope_not_found else "ins_scope_not_found",
-            "generated_at": None,
-            "scope": {},
-            "health_score": 0.0,
-            "metrics": {},
-            "taxonomy": {},
-            "action_items": [],
-            "recent_activity": [],
-            "consolidation_plan": [],
-            "diagnostics": diagnostics,
-        },
-    }
 
 
 def _elapsed_ms(started: float) -> float:

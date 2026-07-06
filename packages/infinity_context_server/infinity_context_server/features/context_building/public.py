@@ -15,6 +15,9 @@ from infinity_context_server.features.context_building.contracts import (
 from infinity_context_server.features.context_building.digest_api_responses import (
     LegacyDigestApiResponseMapper,
 )
+from infinity_context_server.features.context_building.insights_api_responses import (
+    LegacyMemoryInsightsApiResponseMapper,
+)
 from infinity_context_server.features.context_building.legacy_api_responses import (
     LegacyContextApiResponseMapper,
 )
@@ -35,6 +38,7 @@ __all__ = (
     "FEATURE_ID",
     "LegacyContextApiResponseMapper",
     "LegacyDigestApiResponseMapper",
+    "LegacyMemoryInsightsApiResponseMapper",
     "build_context_building_server_feature",
     "build_context_query_from_contract",
     "build_context_result_to_contract",

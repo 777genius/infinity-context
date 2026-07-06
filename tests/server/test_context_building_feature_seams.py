@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import asyncio
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -15,6 +16,7 @@ from infinity_context_contracts.features.context_building import (
 from infinity_context_server.api.v1 import context as legacy_context_api
 from infinity_context_server.features.context_building import public as server_public
 
+MemoryInsightsResponseMapper = server_public.LegacyMemoryInsightsApiResponseMapper
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FEATURE_ROOT = (
     REPO_ROOT
@@ -41,6 +43,15 @@ LEGACY_DIGEST_API = (
     / "api"
     / "v1"
     / "digest.py"
+)
+LEGACY_INSIGHTS_API = (
+    REPO_ROOT
+    / "packages"
+    / "infinity_context_server"
+    / "infinity_context_server"
+    / "api"
+    / "v1"
+    / "insights.py"
 )
 
 
@@ -111,6 +122,7 @@ def test_context_building_server_feature_public_surface_composes_router() -> Non
         "FEATURE_ID",
         "LegacyContextApiResponseMapper",
         "LegacyDigestApiResponseMapper",
+        "LegacyMemoryInsightsApiResponseMapper",
         "build_context_building_server_feature",
         "build_context_query_from_contract",
         "build_context_result_to_contract",
@@ -387,6 +399,89 @@ def test_context_building_legacy_digest_mapper_shapes_digest_payloads() -> None:
     assert scope_not_found_response["data"]["diagnostics"]["scope_not_found"] is True
 
 
+def test_context_building_legacy_insights_mapper_shapes_insights_payloads() -> None:
+    mapper = _legacy_memory_insights_response_mapper_for_tests()
+    insights = SimpleNamespace(
+        insights_id="ins_1",
+        generated_at=datetime(2026, 6, 7, 10, 0, tzinfo=UTC),
+        scope={"space_id": "space_1", "memory_scope_ids": ("scope_1",)},
+        health_score=87.5,
+        metrics={"suggestions": {"pending": 1}},
+        taxonomy={"top_tags": [{"value": "memory", "count": 2}]},
+        action_items=(
+            SimpleNamespace(
+                id="mai_1",
+                severity="warning",
+                action="review_pending_suggestions",
+                target_type="suggestion_queue",
+                target_id=None,
+                memory_scope_id="scope_1",
+                reason="1 pending suggestions need review.",
+                preview="Review pending memory.",
+                metadata={"match_type": "pending_suggestion_count"},
+            ),
+        ),
+        recent_activity=(
+            SimpleNamespace(
+                id="act_1",
+                occurred_at=datetime(2026, 6, 7, 10, 1, tzinfo=UTC),
+                event_type="suggestion_created",
+                entity_type="suggestion",
+                entity_id="sug_1",
+                memory_scope_id="scope_1",
+                thread_id="thread_1",
+                status="pending",
+                preview="Review pending memory.",
+                metadata={"source": "suggestion_queue"},
+            ),
+        ),
+        consolidation_plan=(
+            SimpleNamespace(
+                id="mplan_1",
+                plan_type="similar_fact_review",
+                memory_scope_id="scope_1",
+                confidence="medium",
+                canonical_candidate_id="fact_1",
+                candidate_fact_ids=("fact_2",),
+                recommended_steps=("Inspect both facts and source refs.",),
+                reason="Two active facts look similar.",
+                preview="Infinity Context should use Graphiti.",
+                metadata={"similarity": 0.84},
+            ),
+        ),
+        diagnostics={"evidence_only": True, "read_only": True},
+    )
+
+    response = mapper.insights_response_from_result(insights, request_id="req_insights")
+    disabled_response = mapper.empty_insights_response(
+        request_id="req_disabled",
+        policy_mode="disabled",
+    )
+    scope_not_found_response = mapper.empty_insights_response(
+        request_id="req_missing",
+        policy_mode="enabled",
+        scope_not_found=True,
+    )
+
+    assert response["meta"]["request_id"] == "req_insights"
+    assert response["data"]["generated_at"] == "2026-06-07T10:00:00+00:00"
+    assert response["data"]["action_items"][0]["metadata"] == {
+        "match_type": "pending_suggestion_count"
+    }
+    assert response["data"]["recent_activity"][0]["occurred_at"] == (
+        "2026-06-07T10:01:00+00:00"
+    )
+    assert response["data"]["consolidation_plan"][0]["candidate_fact_ids"] == [
+        "fact_2"
+    ]
+    assert disabled_response["meta"]["request_id"] == "req_disabled"
+    assert disabled_response["data"]["insights_id"] == "ins_disabled"
+    assert disabled_response["data"]["diagnostics"]["retrieval_disabled"] is True
+    assert scope_not_found_response["data"]["insights_id"] == "ins_scope_not_found"
+    assert scope_not_found_response["data"]["diagnostics"]["scope_not_found"] is True
+    assert scope_not_found_response["data"]["diagnostics"]["retrieval_disabled"] is False
+
+
 def _legacy_response_mapper_for_tests() -> server_public.LegacyContextApiResponseMapper:
     def normalize_context_diagnostics(diagnostics: object) -> dict[str, object]:
         return dict(diagnostics) if isinstance(diagnostics, dict) else {}
@@ -455,6 +550,20 @@ def _legacy_digest_response_mapper_for_tests() -> server_public.LegacyDigestApiR
         normalize_context_diagnostics=normalize_context_diagnostics,
         safe_public_metadata=safe_public_metadata,
         safe_public_text=safe_public_text,
+    )
+
+
+def _legacy_memory_insights_response_mapper_for_tests() -> MemoryInsightsResponseMapper:
+    def safe_public_metadata(
+        metadata: object,
+        *,
+        max_items: int = 120,
+    ) -> dict[str, Any]:
+        del max_items
+        return dict(metadata) if isinstance(metadata, dict) else {}
+
+    return server_public.LegacyMemoryInsightsApiResponseMapper(
+        safe_public_metadata=safe_public_metadata,
     )
 
 
@@ -541,6 +650,38 @@ def test_legacy_digest_api_uses_context_building_server_public_seam_only() -> No
             violations.append(f"{LEGACY_DIGEST_API.relative_to(REPO_ROOT)}: imports {imported}")
         if imported.startswith("infinity_context_core.features.context_building."):
             violations.append(f"{LEGACY_DIGEST_API.relative_to(REPO_ROOT)}: imports {imported}")
+
+    assert violations == []
+
+
+def test_legacy_insights_api_uses_context_building_server_public_seam_only() -> None:
+    source = LEGACY_INSIGHTS_API.read_text(encoding="utf-8")
+    assert (
+        "from infinity_context_server.features.context_building "
+        "import public as context_building_server"
+    ) in source
+    assert "context_building_server.LegacyMemoryInsightsApiResponseMapper" in source
+    assert "_LEGACY_MEMORY_INSIGHTS_API_RESPONSES.empty_insights_response" in source
+    assert (
+        "_LEGACY_MEMORY_INSIGHTS_API_RESPONSES.insights_response_from_result"
+        in source
+    )
+    assert "def insights_to_response(" not in source
+    assert "def _empty_insights_response(" not in source
+    assert "def _action_item_to_response(" not in source
+    assert "def _activity_item_to_response(" not in source
+    assert "def _consolidation_plan_item_to_response(" not in source
+    assert "MemoryInsightActionItem" not in source
+    assert "MemoryActivityItem" not in source
+    assert "MemoryConsolidationPlanItem" not in source
+    assert "MemoryInsightsResult" not in source
+
+    violations: list[str] = []
+    for imported in _imports(LEGACY_INSIGHTS_API):
+        if imported.startswith("infinity_context_server.features.context_building."):
+            violations.append(f"{LEGACY_INSIGHTS_API.relative_to(REPO_ROOT)}: imports {imported}")
+        if imported.startswith("infinity_context_core.features.context_building."):
+            violations.append(f"{LEGACY_INSIGHTS_API.relative_to(REPO_ROOT)}: imports {imported}")
 
     assert violations == []
 
