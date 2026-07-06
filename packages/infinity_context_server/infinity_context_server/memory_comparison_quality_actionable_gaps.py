@@ -21,6 +21,9 @@ from infinity_context_server.memory_comparison_quality_accessors import (
     str_tuple as _str_tuple,
 )
 from infinity_context_server.memory_comparison_source_identity import (
+    safe_item_id_for_output as _safe_item_id_for_output,
+)
+from infinity_context_server.memory_comparison_source_identity import (
     safe_source_identity_ref as _safe_source_identity_ref,
 )
 from infinity_context_server.memory_comparison_source_identity import (
@@ -736,6 +739,9 @@ def _append_source_ref_gap(
     evaluation_count: int,
     source_ref_provenance: Mapping[str, object],
 ) -> None:
+    samples = _compact_source_ref_actionable_samples(
+        _sequence(source_ref_provenance.get("source_refless_selected_samples"))
+    )
     _append_actionable_gap(
         gaps,
         evaluation_count=evaluation_count,
@@ -751,7 +757,23 @@ def _append_source_ref_gap(
             "source_ref_provenance.selected_bundle_source_refless_item_count"
         ),
         action="Keep source refs on selected bundle items so evidence remains auditable.",
-        samples=_sequence(source_ref_provenance.get("source_refless_selected_samples")),
+        evidence={
+            "selected_bundle_item_count": (
+                _positive_int(source_ref_provenance.get("selected_bundle_item_count"))
+                or 0
+            ),
+            "selected_bundle_source_ref_item_count": (
+                _positive_int(
+                    source_ref_provenance.get("selected_bundle_source_ref_item_count")
+                )
+                or 0
+            ),
+            "selected_bundle_source_ref_coverage_rate": _number(
+                source_ref_provenance.get("selected_bundle_source_ref_coverage_rate")
+            ),
+        },
+        samples=samples,
+        sample_payloads=samples,
     )
 
 
@@ -1134,6 +1156,32 @@ def _compact_selected_evidence_source_refs(value: object) -> tuple[str, ...]:
         value,
         limit=_MAX_SELECTED_EVIDENCE_ACTIONABLE_SAMPLE_VALUES,
     )
+
+
+def _compact_source_ref_actionable_samples(
+    samples: Sequence[object],
+) -> tuple[dict[str, object], ...]:
+    compact_samples: list[dict[str, object]] = []
+    for raw_sample in samples:
+        sample = _mapping(raw_sample)
+        if not sample:
+            continue
+        compact: dict[str, object] = {}
+        for key in ("case_id", "group", "role"):
+            value = _compact_query_plan_sample_text(sample.get(key))
+            if value:
+                compact[key] = value
+        item_id = _safe_item_id_for_output(sample.get("item_id"))
+        if item_id:
+            compact["item_id"] = item_id
+        retrieval_order = _positive_int(sample.get("retrieval_order")) or 0
+        if retrieval_order:
+            compact["retrieval_order"] = retrieval_order
+        if compact:
+            compact_samples.append(compact)
+        if len(compact_samples) >= _MAX_SELECTED_EVIDENCE_ACTIONABLE_SAMPLES:
+            break
+    return tuple(compact_samples)
 
 
 def _compact_answer_context_actionable_samples(
