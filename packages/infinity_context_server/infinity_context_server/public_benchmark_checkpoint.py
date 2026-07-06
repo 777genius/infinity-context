@@ -14,6 +14,9 @@ from infinity_context_server.memory_comparison_source_identity import (
     safe_source_refs_for_output as _safe_source_refs_for_output,
 )
 from infinity_context_server.public_benchmark_case_diagnostics import (
+    artifact_text_value as _artifact_text_value,
+)
+from infinity_context_server.public_benchmark_case_diagnostics import (
     preview_value as _preview_value,
 )
 
@@ -520,7 +523,7 @@ def _checkpoint_failure_diagnostic(
     payload: dict[str, object] = {
         "case_id": _safe_preview(result.case_id, max_chars=_MAX_FAILURE_REF_CHARS),
         "category": _safe_preview(result.benchmark, max_chars=_MAX_FAILURE_REASON_CHARS),
-        "capability": _safe_preview(result.capability, max_chars=_MAX_FAILURE_REF_CHARS),
+        "capability": _artifact_text_value(result.capability, max_chars=_MAX_FAILURE_REF_CHARS),
         "reason": _safe_preview(reason, max_chars=_MAX_FAILURE_REASON_CHARS),
         "missing_terms": _bounded_str_list(result.missing_terms),
         "leaked_terms": _bounded_str_list(result.leaked_terms),
