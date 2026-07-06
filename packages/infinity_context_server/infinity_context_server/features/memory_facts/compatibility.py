@@ -1,4 +1,4 @@
-"""Legacy /v1 fact write compatibility mapping for the memory_facts seam."""
+"""Legacy memory compatibility mapping for the memory_facts seam."""
 
 from __future__ import annotations
 
@@ -11,7 +11,14 @@ from infinity_context_core.application import (
     UnlinkFactRelationCommand,
     UpdateFactCommand,
 )
-from infinity_context_core.domain.entities import FactStatus, MemoryKind, SourceRef
+from infinity_context_core.domain.entities import (
+    FactStatus,
+    MemoryChunkKind,
+    MemoryKind,
+    SourceRef,
+    SpeakerRole,
+    TrustLevel,
+)
 from infinity_context_core.domain.errors import MemoryValidationError
 
 
@@ -114,6 +121,44 @@ def memory_kind_from_v1_request(value: object) -> MemoryKind:
         raise MemoryValidationError(f"Unknown memory kind: {value}") from exc
 
 
+def legacy_interview_source(value: str) -> str:
+    return value.strip() or "unknown"
+
+
+def legacy_interview_kind(value: str | None) -> MemoryChunkKind | None:
+    if not value:
+        return None
+    try:
+        return MemoryChunkKind(value)
+    except ValueError:
+        return MemoryChunkKind.RAW_TRANSCRIPT_CHUNK
+
+
+def legacy_interview_speaker(speaker: str | None, source: str) -> SpeakerRole:
+    if speaker:
+        try:
+            return SpeakerRole(speaker)
+        except ValueError:
+            pass
+    if source == "ai_response":
+        return SpeakerRole.ASSISTANT
+    if source in {"system_audio", "signal"}:
+        return SpeakerRole.INTERVIEWER
+    if source in {"microphone", "manual_prompt"}:
+        return SpeakerRole.USER
+    return SpeakerRole.UNKNOWN
+
+
+def legacy_interview_trust(source: str) -> TrustLevel:
+    if source == "ai_response":
+        return TrustLevel.LOW
+    if source in {"focus_copy", "manual_prompt"}:
+        return TrustLevel.HIGH
+    if source in {"browser_selection", "microphone", "signal", "system_audio"}:
+        return TrustLevel.MEDIUM
+    return TrustLevel.LOW
+
+
 def validate_fact_status_filter(status_filter: str | None) -> None:
     if status_filter is None:
         return
@@ -145,6 +190,10 @@ def _value(source: object, name: str, default: object) -> Any:
 
 __all__ = (
     "forget_fact_command_from_v1_path",
+    "legacy_interview_kind",
+    "legacy_interview_source",
+    "legacy_interview_speaker",
+    "legacy_interview_trust",
     "link_fact_relation_command_from_v1_request",
     "memory_kind_from_v1_request",
     "remember_fact_command_from_v1_request",

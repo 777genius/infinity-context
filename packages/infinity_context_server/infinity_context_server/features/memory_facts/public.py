@@ -6,6 +6,10 @@ import infinity_context_core.features.memory_facts.public as memory_facts
 
 from infinity_context_server.features.memory_facts.compatibility import (
     forget_fact_command_from_v1_path,
+    legacy_interview_kind,
+    legacy_interview_source,
+    legacy_interview_speaker,
+    legacy_interview_trust,
     link_fact_relation_command_from_v1_request,
     memory_kind_from_v1_request,
     remember_fact_command_from_v1_request,
@@ -96,6 +100,10 @@ __all__ = (
     "forget_fact_command_from_http",
     "forget_fact_request_to_command",
     "forget_fact_result_to_contract",
+    "legacy_interview_kind",
+    "legacy_interview_source",
+    "legacy_interview_speaker",
+    "legacy_interview_trust",
     "legacy_memory_fact_to_response",
     "link_fact_relation_command_from_v1_request",
     "memory_kind_from_v1_request",

@@ -149,6 +149,10 @@ def test_memory_facts_server_feature_public_surface_composes_router() -> None:
         "forget_fact_command_from_http",
         "forget_fact_request_to_command",
         "forget_fact_result_to_contract",
+        "legacy_interview_kind",
+        "legacy_interview_source",
+        "legacy_interview_speaker",
+        "legacy_interview_trust",
         "legacy_memory_fact_to_response",
         "link_fact_relation_command_from_v1_request",
         "memory_kind_from_v1_request",
@@ -181,6 +185,63 @@ def test_memory_facts_server_feature_public_surface_composes_router() -> None:
         "/memory-facts-feature/facts",
         "/memory-facts-feature/facts/{fact_id}",
     }
+
+
+def test_memory_facts_public_seam_maps_legacy_interview_ingest_fields() -> None:
+    assert server_public.legacy_interview_source("  microphone  ") == "microphone"
+    assert server_public.legacy_interview_source("  ") == "unknown"
+
+    assert server_public.legacy_interview_kind(None) is None
+    assert server_public.legacy_interview_kind("") is None
+    assert (
+        server_public.legacy_interview_kind("constraint")
+        == legacy_entities.MemoryChunkKind.CONSTRAINT
+    )
+    assert (
+        server_public.legacy_interview_kind("unknown_kind")
+        == legacy_entities.MemoryChunkKind.RAW_TRANSCRIPT_CHUNK
+    )
+
+    assert (
+        server_public.legacy_interview_speaker("assistant", "microphone")
+        == legacy_entities.SpeakerRole.ASSISTANT
+    )
+    assert (
+        server_public.legacy_interview_speaker("unknown_speaker", "system_audio")
+        == legacy_entities.SpeakerRole.INTERVIEWER
+    )
+    assert (
+        server_public.legacy_interview_speaker(None, "signal")
+        == legacy_entities.SpeakerRole.INTERVIEWER
+    )
+    assert (
+        server_public.legacy_interview_speaker(None, "manual_prompt")
+        == legacy_entities.SpeakerRole.USER
+    )
+    assert (
+        server_public.legacy_interview_speaker(None, "ai_response")
+        == legacy_entities.SpeakerRole.ASSISTANT
+    )
+    assert (
+        server_public.legacy_interview_speaker(None, "unknown_screen_scraper")
+        == legacy_entities.SpeakerRole.UNKNOWN
+    )
+    assert (
+        server_public.legacy_interview_speaker(None, " microphone ")
+        == legacy_entities.SpeakerRole.UNKNOWN
+    )
+
+    assert server_public.legacy_interview_trust("ai_response") == legacy_entities.TrustLevel.LOW
+    assert server_public.legacy_interview_trust("focus_copy") == legacy_entities.TrustLevel.HIGH
+    assert (
+        server_public.legacy_interview_trust("browser_selection")
+        == legacy_entities.TrustLevel.MEDIUM
+    )
+    assert (
+        server_public.legacy_interview_trust("unknown_screen_scraper")
+        == legacy_entities.TrustLevel.LOW
+    )
+    assert server_public.legacy_interview_trust(" microphone ") == legacy_entities.TrustLevel.LOW
 
 
 def test_memory_facts_mapper_builds_feature_public_application_commands() -> None:
