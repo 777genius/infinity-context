@@ -448,7 +448,7 @@ def build_container(settings: Settings | None = None) -> Container:
     )
     extraction_components = (
         document_ingestion_adapters.create_document_ingestion_extraction_components(
-            **{"openai_" "api_key": resolved_settings.openai_api_key},
+            openai_api_key=resolved_settings.openai_api_key,
             vision_model=resolved_settings.extraction_vision_model,
             vision_detail=resolved_settings.extraction_vision_detail,
             provider_timeout_seconds=resolved_settings.extraction_provider_timeout_seconds,
@@ -727,7 +727,7 @@ def _build_vector_adapter(settings: Settings) -> MemoryAdapterPort:
 
     return QdrantVectorMemoryAdapter(
         url=settings.qdrant_url,
-        **{"api_" "key": settings.qdrant_api_key},
+        api_key=settings.qdrant_api_key,
         collection_name=settings.qdrant_collection,
         vector_size=settings.embeddings_dimensions,
     )
@@ -753,7 +753,7 @@ def _build_embedding_adapter(settings: Settings) -> MemoryAdapterPort:
         from infinity_context_adapters.embeddings import OpenAIEmbeddingAdapter
 
         return OpenAIEmbeddingAdapter(
-            **{"api_" "key": settings.openai_api_key},
+            api_key=settings.openai_api_key,
             model=settings.embeddings_model,
             dimensions=settings.embeddings_dimensions,
         )
@@ -767,7 +767,7 @@ def _build_capture_extractor(settings: Settings) -> MemoryExtractorPort:
         from infinity_context_adapters.extraction import OpenAIJsonMemoryExtractor
 
         return OpenAIJsonMemoryExtractor(
-            **{"api_" "key": settings.openai_api_key},
+            api_key=settings.openai_api_key,
             model=settings.capture_extractor_model,
         )
     return RuleBasedMemoryExtractor()
