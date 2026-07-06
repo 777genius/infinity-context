@@ -182,6 +182,9 @@ from infinity_context_server.memory_comparison_source_identity import (
 from infinity_context_server.memory_comparison_source_identity import (
     safe_source_refs_for_output as _safe_source_refs_for_output,
 )
+from infinity_context_server.memory_comparison_source_identity import (
+    source_identity_refs_from_source_refs as _source_identity_refs_from_source_refs,
+)
 from infinity_context_server.memory_comparison_temporal_grounding import (
     temporal_grounding_table as _temporal_grounding_table,
 )
@@ -846,40 +849,38 @@ def _answerability_gap_breakdown(
                 if lifted:
                     lifted_low_answerability_candidate_count += 1
                 if len(low_answerability_samples) < 10:
-                    low_answerability_samples.append(
-                        {
-                            "case_id": case_id,
-                            "group": group,
-                            "memory_id": _safe_item_id_for_output(
-                                _memory_id(memory)
-                            ),
-                            "rank": _positive_int(memory.get("rank")),
-                            "lifted": lifted,
-                            "positive_policy_score": round(
-                                _positive_policy_score(diagnostics),
-                                6,
-                            ),
-                            "answerability_score": round(answerability_score, 6),
-                            "answerability_reason_codes": [
-                                _compact_answerability_gap_text(reason)
-                                for reason in answerability_reason_codes[
-                                    :_ANSWERABILITY_GAP_REASON_LIMIT
-                                ]
-                            ],
-                            "answerability_reason_count": (
-                                len(answerability_reason_codes)
-                            ),
-                            "relation_categories": list(
-                                _str_tuple(features.get("relation_categories"))
-                            ),
-                            "relation_category_hits": list(
-                                _str_tuple(features.get("relation_category_hits"))
-                            ),
-                            "query_roles": list(
-                                _str_tuple(features.get("query_roles"))
-                            ),
-                        }
+                    sample = {
+                        "case_id": case_id,
+                        "group": group,
+                        "memory_id": _safe_item_id_for_output(_memory_id(memory)),
+                        "rank": _positive_int(memory.get("rank")),
+                        "lifted": lifted,
+                        "positive_policy_score": round(
+                            _positive_policy_score(diagnostics),
+                            6,
+                        ),
+                        "answerability_score": round(answerability_score, 6),
+                        "answerability_reason_codes": [
+                            _compact_answerability_gap_text(reason)
+                            for reason in answerability_reason_codes[
+                                :_ANSWERABILITY_GAP_REASON_LIMIT
+                            ]
+                        ],
+                        "answerability_reason_count": len(answerability_reason_codes),
+                        "relation_categories": list(
+                            _str_tuple(features.get("relation_categories"))
+                        ),
+                        "relation_category_hits": list(
+                            _str_tuple(features.get("relation_category_hits"))
+                        ),
+                        "query_roles": list(_str_tuple(features.get("query_roles"))),
+                    }
+                    source_identity_refs = _answerability_sample_source_identity_refs(
+                        memory
                     )
+                    if source_identity_refs:
+                        sample["source_identity_refs"] = list(source_identity_refs)
+                    low_answerability_samples.append(sample)
             if not reasons:
                 continue
             candidate_count += 1
@@ -898,42 +899,44 @@ def _answerability_gap_breakdown(
                     if lifted:
                         lifted_category_counts[category] += 1
             if len(samples) < 10:
-                samples.append(
-                    {
-                        "case_id": case_id,
-                        "group": group,
-                        "memory_id": _safe_item_id_for_output(_memory_id(memory)),
-                        "rank": _positive_int(memory.get("rank")),
-                        "reasons": list(reasons),
-                        "answerability_reason_codes": [
-                            _compact_answerability_gap_text(reason)
-                            for reason in answerability_reason_codes[
-                                :_ANSWERABILITY_GAP_REASON_LIMIT
-                            ]
-                        ],
-                        "answerability_reason_count": len(answerability_reason_codes),
-                        "lifted": lifted,
-                        "positive_policy_score": round(
-                            _positive_policy_score(diagnostics),
-                            6,
-                        ),
-                        "answerability_score": round(
-                            answerability_score,
-                            6,
-                        ),
-                        "source_locality_score": round(
-                            _metric_value(features, "source_locality_score"),
-                            6,
-                        ),
-                        "relation_categories": list(
-                            _str_tuple(features.get("relation_categories"))
-                        ),
-                        "relation_category_hits": list(
-                            _str_tuple(features.get("relation_category_hits"))
-                        ),
-                        "query_roles": list(_str_tuple(features.get("query_roles"))),
-                    }
-                )
+                sample = {
+                    "case_id": case_id,
+                    "group": group,
+                    "memory_id": _safe_item_id_for_output(_memory_id(memory)),
+                    "rank": _positive_int(memory.get("rank")),
+                    "reasons": list(reasons),
+                    "answerability_reason_codes": [
+                        _compact_answerability_gap_text(reason)
+                        for reason in answerability_reason_codes[
+                            :_ANSWERABILITY_GAP_REASON_LIMIT
+                        ]
+                    ],
+                    "answerability_reason_count": len(answerability_reason_codes),
+                    "lifted": lifted,
+                    "positive_policy_score": round(
+                        _positive_policy_score(diagnostics),
+                        6,
+                    ),
+                    "answerability_score": round(
+                        answerability_score,
+                        6,
+                    ),
+                    "source_locality_score": round(
+                        _metric_value(features, "source_locality_score"),
+                        6,
+                    ),
+                    "relation_categories": list(
+                        _str_tuple(features.get("relation_categories"))
+                    ),
+                    "relation_category_hits": list(
+                        _str_tuple(features.get("relation_category_hits"))
+                    ),
+                    "query_roles": list(_str_tuple(features.get("query_roles"))),
+                }
+                source_identity_refs = _answerability_sample_source_identity_refs(memory)
+                if source_identity_refs:
+                    sample["source_identity_refs"] = list(source_identity_refs)
+                samples.append(sample)
     return {
         "schema_version": "answerability_gap_breakdown.v1",
         "gap_candidate_count": candidate_count,
@@ -955,6 +958,15 @@ def _answerability_gap_breakdown(
         "samples": samples,
         "low_answerability_samples": low_answerability_samples,
     }
+
+
+def _answerability_sample_source_identity_refs(
+    memory: Mapping[str, object],
+) -> tuple[str, ...]:
+    return _source_identity_refs_from_source_refs(
+        _source_refs_from_memory(memory),
+        include_exact_turn_refs=True,
+    )[:_ANSWER_CONTEXT_SAMPLE_IDENTITY_LIMIT]
 
 
 def _compact_answerability_gap_values(values: Sequence[str]) -> tuple[str, ...]:

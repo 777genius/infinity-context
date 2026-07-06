@@ -2907,6 +2907,11 @@ def _compact_answerability_gap_samples(
                 values = _compact_sample_values(sample.get(key), limit=6)
                 if values:
                     compact[key] = values
+        source_identity_refs = _compact_source_identity_refs(
+            sample.get("source_identity_refs")
+        )
+        if source_identity_refs:
+            compact["source_identity_refs"] = list(source_identity_refs)
         if compact:
             samples.append(compact)
         if len(samples) >= limit:

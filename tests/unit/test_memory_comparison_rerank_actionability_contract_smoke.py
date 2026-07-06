@@ -48,6 +48,49 @@ def test_unsupported_answerability_reasons_stay_non_actionable() -> None:
     assert gate["actionable_gap_summary"]["ranked_gaps"] == []
 
 
+def test_answerability_gap_samples_keep_safe_source_identity_refs() -> None:
+    raw_ref = "locomo:conv-private:session_2:D2:8:turn-secret"
+    item = _evaluation_item(
+        case_id="answerability-source-identity",
+        retrieval_results=(
+            _retrieved_candidate(
+                item_id="missing-source",
+                source_refs=(raw_ref,),
+                candidate_features={
+                    "answerability_score": 0.46,
+                    "answerability_reason_codes": ["missing_source_evidence"],
+                    "query_roles": ["primary"],
+                },
+            ),
+        ),
+        bundle_items=(_selected_bundle_item("missing-source"),),
+    )
+
+    gate = fast_gate_metrics((item,), expected_case_count=1)
+    sample = gate["answerability_gap_breakdown"]["samples"][0]
+    assert sample["source_identity_refs"] == [
+        "source_session_turn_refs:session_2:D2:8",
+        "source_turn_refs:D2:8",
+    ]
+
+    summary = _compact_fast_gate_summary((item,))
+    compact_sample = summary["answerability_gap_samples"]["samples"][0]
+    compact_low_sample = summary["answerability_gap_samples"][
+        "low_answerability_samples"
+    ][0]
+    assert compact_sample["source_identity_refs"] == [
+        "source_session_turn_refs:session_2:D2:8",
+        "source_turn_refs:D2:8",
+    ]
+    assert compact_low_sample["source_identity_refs"] == [
+        "source_session_turn_refs:session_2:D2:8",
+        "source_turn_refs:D2:8",
+    ]
+    serialized = json.dumps(summary)
+    assert "locomo:conv-private" not in serialized
+    assert "turn-secret" not in serialized
+
+
 def test_compact_fast_gate_keeps_rerank_samples_bounded_and_diagnostic_only() -> None:
     raw_memory_text = "RAW MEMORY TEXT should not appear in compact diagnostics"
     raw_payload = "RAW PROVIDER PAYLOAD should not appear in compact diagnostics"
